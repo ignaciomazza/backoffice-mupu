@@ -1,0 +1,184 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Agency {
+  id_agency       Int       @id @default(autoincrement())
+  name            String
+  address         String?
+  phone           String?
+  email           String?
+  tax_id          String
+  website         String?
+  foundation_date DateTime?
+  logo_url        String?
+  creation_date   DateTime  @default(now())
+  users           User[]
+  bookings        Booking[]
+}
+
+model User {
+  id_user       Int           @id @default(autoincrement())
+  email         String        @unique
+  password      String
+  role          String
+  position      String?
+  first_name    String
+  last_name     String
+  creation_date DateTime      @default(now())
+  id_agency     Int
+  agency        Agency        @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  bookings      Booking[]
+  sales_teams   UserTeam[]
+  admin_records AdminRecord[]
+}
+
+model Client {
+  id_client          Int       @id @default(autoincrement())
+  first_name         String
+  last_name          String
+  phone              String?
+  address            String?
+  postal_code        String?
+  locality           String?
+  iva_condition      String?
+  billing_preference String?
+  company_name       String?
+  tax_id             String?
+  commercial_address String?
+  dni_number         String?
+  passport_number    String?
+  dni_issue_date     DateTime?
+  dni_expiry_date    DateTime?
+  birth_date         DateTime?
+  nationality        String?
+  gender             String?
+  registration_date  DateTime  @default(now())
+  passport_issue     DateTime?
+  passport_expiry    DateTime?
+  bookings           Booking[] @relation("BookingClients")
+  titular_reservas   Booking[] @relation("Titular")
+}
+
+model Booking {
+  id_booking          Int       @id @default(autoincrement())
+  status              String
+  details             String?
+  creation_date       DateTime  @default(now())
+  id_user             Int
+  user                User      @relation(fields: [id_user], references: [id_user])
+  id_agency           Int
+  agency              Agency    @relation(fields: [id_agency], references: [id_agency])
+  titular_id          Int
+  titular             Client    @relation("Titular", fields: [titular_id], references: [id_client])
+  clients             Client[]  @relation("BookingClients")
+  services            Service[]
+  departure_date      DateTime
+  return_date         DateTime
+  observation         String?
+  pax_count           Int       @default(1)
+  invoice             Invoice?
+}
+
+model Service {
+  id_service       Int       @id @default(autoincrement())
+  type             String
+  description      String?
+  sale_price       Float
+  cost_price       Float
+  destination      String
+  reference        String
+  tax_21           Float?
+  tax_105          Float?
+  exempt           Float?
+  other_taxes      Float?
+  not_computable   Float?
+  taxable_21       Float?
+  taxable_105      Float?
+  currency         String
+  payment_due_date DateTime
+  departure_date   DateTime?
+  return_date      DateTime?
+  created_at       DateTime  @default(now())
+  booking_id       Int
+  booking          Booking   @relation(fields: [booking_id], references: [id_booking], onDelete: Cascade)
+  id_operator      Int 
+  operator         Operator  @relation(fields: [id_operator], references: [id_operator], onDelete: Cascade)
+}
+
+model Operator {
+  id_operator       Int                   @id @default(autoincrement())
+  name              String
+  email             String?
+  phone             String?
+  website           String?
+  address           String?
+  postal_code       String?
+  city              String?
+  state             String?
+  country           String?
+  vat_status        String?
+  legal_name        String?
+  tax_id            String?
+  registration_date DateTime              @default(now())
+  credit_balance    Float                 @default(0)
+  debit_balance     Float                 @default(0)
+  services          Service[]
+  transactions      OperatorTransaction[]
+}
+
+model OperatorTransaction {
+  id_transaction Int      @id @default(autoincrement())
+  type           String
+  amount         Float
+  date           DateTime @default(now())
+  id_operator    Int
+  operator       Operator @relation(fields: [id_operator], references: [id_operator])
+  details        String?
+}
+
+model AdminRecord {
+  id_transaction Int      @id @default(autoincrement())
+  type           String
+  amount         Float
+  date           DateTime @default(now())
+  description    String?
+  id_user        Int
+  user           User     @relation(fields: [id_user], references: [id_user])
+}
+
+model Invoice {
+  id_invoice        Int      @id @default(autoincrement())
+  invoice_number    String   @unique
+  issue_date        DateTime @default(now())
+  total_amount      Float
+  status            String
+  bookingId_booking Int      @unique
+  booking           Booking  @relation(fields: [bookingId_booking], references: [id_booking])
+}
+
+model AFIPAuthentication {
+  id_authentication Int      @id @default(autoincrement())
+  token             String
+  expiration_date   DateTime
+  created_at        DateTime @default(now())
+}
+
+model SalesTeam {
+  id_team    Int        @id @default(autoincrement())
+  name       String
+  user_teams UserTeam[]
+}
+
+model UserTeam {
+  id_user_team Int       @id @default(autoincrement())
+  id_user      Int
+  id_team      Int
+  user         User      @relation(fields: [id_user], references: [id_user])
+  sales_team   SalesTeam @relation(fields: [id_team], references: [id_team], onDelete: Cascade)
+}
