@@ -3,10 +3,32 @@
 "use client";
 import { motion } from "framer-motion";
 
+export interface ClientFormData {
+  first_name: string;
+  last_name: string;
+  phone?: string;
+  address?: string;
+  postal_code?: string;
+  locality?: string;
+  company_name?: string;
+  tax_id: string;
+  commercial_address?: string;
+  dni_number?: string;
+  passport_number?: string;
+  dni_issue_date?: string;
+  dni_expiry_date?: string;
+  birth_date?: string;
+  nationality?: string;
+  gender?: string;
+  passport_issue?: string;
+  passport_expiry?: string;
+  iva_condition?: number;
+}
+
 interface ClientFormProps {
-  formData: any;
+  formData: ClientFormData;
   handleChange: (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => void;
   handleSubmit: (e: React.FormEvent) => void;
   editingClientId: number | null;
@@ -22,31 +44,7 @@ export default function ClientForm({
   isFormVisible,
   setIsFormVisible,
 }: ClientFormProps) {
-  // Los siguientes campos son opcionales
-  const optionalFields = [
-    "commercial_address",
-    "company_name",
-  ];
-
-  // Opciones para la condición frente al IVA
-  const ivaOptions = [
-    { Id: 1, Desc: "IVA Responsable Inscripto", Cmp_Clase: "A/M/C" },
-    { Id: 6, Desc: "Responsable Monotributo", Cmp_Clase: "A/M/C" },
-    { Id: 13, Desc: "Monotributista Social", Cmp_Clase: "A/M/C" },
-    {
-      Id: 16,
-      Desc: "Monotributo Trabajador Independiente Promovido",
-      Cmp_Clase: "A/M/C",
-    },
-    { Id: 4, Desc: "IVA Sujeto Exento", Cmp_Clase: "B/C" },
-    { Id: 5, Desc: "Consumidor Final", Cmp_Clase: "B/C" },
-    { Id: 7, Desc: "Sujeto No Categorizado", Cmp_Clase: "B/C" },
-    { Id: 8, Desc: "Proveedor del Exterior", Cmp_Clase: "B/C" },
-    { Id: 9, Desc: "Cliente del Exterior", Cmp_Clase: "B/C" },
-    { Id: 10, Desc: "IVA Liberado – Ley N° 19.640", Cmp_Clase: "B/C" },
-    { Id: 15, Desc: "IVA No Alcanzado", Cmp_Clase: "B/C" },
-  ];
-
+  // Si en algún bloque catch usas error, asegúrate de tiparlo como unknown y hacer type guard.
   return (
     <motion.div
       layout
@@ -56,16 +54,16 @@ export default function ClientForm({
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="overflow-hidden bg-white dark:bg-black text-black shadow-md rounded-3xl p-6 space-y-3 mb-6 dark:border dark:border-white"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black"
     >
       <div
-        className="flex items-center justify-between cursor-pointer"
+        className="flex cursor-pointer items-center justify-between"
         onClick={() => setIsFormVisible(!isFormVisible)}
       >
         <p className="text-lg font-medium dark:text-white">
           {editingClientId ? "Editar Cliente" : "Agregar Cliente"}
         </p>
-        <button className="p-2 rounded-full bg-black text-white dark:bg-white dark:text-black">
+        <button className="rounded-full bg-black p-2 text-white dark:bg-white dark:text-black">
           {isFormVisible ? (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -102,7 +100,7 @@ export default function ClientForm({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onSubmit={handleSubmit}
-          className="space-y-3 overflow-y-auto max-h-[400px] pr-12"
+          className="max-h-[400px] space-y-3 overflow-y-auto pr-12"
         >
           {[
             { name: "first_name", label: "Nombre" },
@@ -133,37 +131,22 @@ export default function ClientForm({
             },
           ].map(({ name, label, type = "text" }) => (
             <div key={name}>
-              <label className="block ml-2 dark:text-white">{label}</label>
-              {name === "iva_condition" ? (
-                <select
-                  name="iva_condition"
-                  value={String(formData["iva_condition"] || "")}
-                  onChange={handleChange}
-                  className="w-full p-2 rounded-2xl border border-black dark:border-white outline-none"
-                  required
-                >
-                  <option value="">Seleccione una opción</option>
-                  {ivaOptions.map((option) => (
-                    <option key={option.Id} value={option.Id}>
-                      {option.Desc}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type={type}
-                  name={name}
-                  value={String(formData[name as keyof typeof formData] || "")}
-                  onChange={handleChange}
-                  className="w-full p-2 rounded-2xl border border-black dark:border-white outline-none"
-                  required={!optionalFields.includes(name)}
-                />
-              )}
+              <label className="ml-2 block dark:text-white">{label}</label>
+              <input
+                type={type}
+                name={name}
+                value={String(formData[name as keyof ClientFormData] || "")}
+                onChange={handleChange}
+                className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+                required={
+                  !["commercial_address", "company_name"].includes(name)
+                }
+              />
             </div>
           ))}
           <button
             type="submit"
-            className="block py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black"
+            className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
           >
             {editingClientId ? "Guardar Cambios" : "Agregar Cliente"}
           </button>

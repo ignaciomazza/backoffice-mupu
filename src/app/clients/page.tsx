@@ -63,7 +63,7 @@ export default function Page() {
   }, []);
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
     setFormData((prevData) => ({ ...prevData, [name]: value }));
@@ -105,15 +105,15 @@ export default function Page() {
         setClients((prevClients) =>
           editingClientId
             ? prevClients.map((client) =>
-                client.id_client === editingClientId ? newClient : client
+                client.id_client === editingClientId ? newClient : client,
               )
-            : [...prevClients, newClient]
+            : [...prevClients, newClient],
         );
         toast.success("Cliente guardado con éxito!");
       } else {
         const errorData = await response.json();
         toast.error(
-          errorData.error || "Error al guardar el cliente. Intente nuevamente."
+          errorData.error || "Error al guardar el cliente. Intente nuevamente.",
         );
       }
     } catch (error) {
@@ -154,13 +154,14 @@ export default function Page() {
 
       if (response.ok) {
         setClients((prevClients) =>
-          prevClients.filter((client) => client.id_client !== id)
+          prevClients.filter((client) => client.id_client !== id),
         );
         toast.success("Cliente eliminado con éxito!");
       } else {
         const errorData = await response.json();
         toast.error(
-          errorData.error || "Error al eliminar el cliente. Intente nuevamente."
+          errorData.error ||
+            "Error al eliminar el cliente. Intente nuevamente.",
         );
       }
     } catch (error) {
@@ -225,7 +226,7 @@ export default function Page() {
             setIsFormVisible={setIsFormVisible}
           />
         </motion.div>
-        <h2 className="text-2xl font-semibold dark:font-medium my-4">
+        <h2 className="my-4 text-2xl font-semibold dark:font-medium">
           Clientes
         </h2>
         {isLoading ? (

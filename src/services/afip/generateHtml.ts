@@ -1,9 +1,23 @@
 // src/services/afip/generateHtml.ts
 
-const generateHtml = (voucherData: any, qrBase64: string) => {
+interface VoucherData {
+  CbteTipo: number | string;
+  PtoVta: number;
+  CbteDesde: number;
+  CbteFch: number | string;
+  ImpTotal: number;
+  ImpNeto: number;
+  ImpIVA: number;
+  CAE: string;
+  CAEFchVto: string;
+  DocNro: number;
+  [key: string]: unknown;
+}
+
+const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
   console.log(
     "📄 Datos completos recibidos en generateHtml:",
-    JSON.stringify(voucherData, null, 2)
+    JSON.stringify(voucherData, null, 2),
   );
 
   const {
@@ -36,7 +50,7 @@ const generateHtml = (voucherData: any, qrBase64: string) => {
     CbteFch !== "N/A"
       ? `${CbteFch.toString().slice(6, 8)}/${CbteFch.toString().slice(
           4,
-          6
+          6,
         )}/${CbteFch.toString().slice(0, 4)}`
       : "Fecha no disponible";
 

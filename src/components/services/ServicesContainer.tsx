@@ -6,7 +6,9 @@ import Link from "next/link";
 import { ToastContainer } from "react-toastify";
 import ServiceForm from "@/components/services/ServiceForm";
 import ServiceList from "@/components/services/ServiceList";
-import InvoiceForm from "@/components/invoices/InvoiceForm";
+import InvoiceForm, {
+  InvoiceFormData,
+} from "@/components/invoices/InvoiceForm";
 import InvoiceList from "@/components/invoices/InvoiceList";
 import Spinner from "@/components/Spinner";
 import { Booking, Service, Operator, Invoice } from "@/types";
@@ -37,12 +39,7 @@ interface ServicesContainerProps {
   services: Service[];
   operators: Operator[];
   invoices: Invoice[];
-  invoiceFormData: {
-    tipoFactura: string;
-    clientIds: string[];
-    services: string[];
-    exchangeRate: string;
-  };
+  invoiceFormData: InvoiceFormData;
   formData: ServiceFormData;
   editingServiceId: number | null;
   expandedServiceId: number | null;
@@ -52,12 +49,15 @@ interface ServicesContainerProps {
   handleChange: (
     e: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >
+    >,
   ) => void;
   handleInvoiceChange: (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => void;
-  updateFormData: (key: string, value: any) => void;
+  updateFormData: (
+    key: keyof InvoiceFormData,
+    value: InvoiceFormData[keyof InvoiceFormData],
+  ) => void;
   handleInvoiceSubmit: (e: React.FormEvent) => Promise<void>;
   handleSubmit: (e: React.FormEvent) => Promise<void>;
   deleteService: (serviceId: number) => Promise<void>;
@@ -97,7 +97,7 @@ export default function ServicesContainer({
   // Si ya terminó la carga pero no se obtuvo la reserva, mostramos un fallback
   if (!loading && !booking) {
     return (
-      <div className="flex flex-col items-center justify-center h-64">
+      <div className="flex size-64 flex-col items-center justify-center">
         <Spinner />
         <p className="mt-4 text-center dark:text-white">
           No se encontraron datos de la reserva.
@@ -109,19 +109,19 @@ export default function ServicesContainer({
   return (
     <motion.div>
       {loading ? (
-        <div className="flex justify-center items-center h-64">
+        <div className="flex size-64 items-center justify-center">
           <Spinner />
         </div>
       ) : (
         <>
           <div className="mb-6">
-            <button className="block py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black">
+            <button className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black">
               <Link href={"/bookings"}>Volver</Link>
             </button>
           </div>
           {booking && (
-            <div className="bg-white dark:bg-black text-black dark:text-white shadow-md rounded-3xl p-6 space-y-4 mb-6 dark:border dark:border-white">
-              <div className="flex justify-between mb-4">
+            <div className="mb-6 space-y-4 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black dark:text-white">
+              <div className="mb-4 flex justify-between">
                 <h1 className="text-2xl font-semibold dark:font-medium">
                   Reserva
                 </h1>
@@ -129,50 +129,50 @@ export default function ServicesContainer({
               </div>
               <p className="font-semibold dark:font-medium">
                 Detalle{" "}
-                <span className="font-light ml-2">
+                <span className="ml-2 font-light">
                   {booking.details || "N/A"}
                 </span>
               </p>
               <p className="font-semibold dark:font-medium">
                 Estado{" "}
-                <span className="font-light ml-2">{booking.status || "-"}</span>
+                <span className="ml-2 font-light">{booking.status || "-"}</span>
               </p>
               <p className="font-semibold dark:font-medium">
                 Vendedor{" "}
-                <span className="font-light ml-2">
+                <span className="ml-2 font-light">
                   {booking.user.first_name} {booking.user.last_name}
                 </span>
               </p>
               <p className="font-semibold dark:font-medium">
                 Titular{" "}
-                <span className="font-light ml-2">
+                <span className="ml-2 font-light">
                   {booking.titular.first_name} {booking.titular.last_name}
                 </span>
               </p>
               <div>
                 <p className="font-semibold dark:font-medium">
                   Agencia{" "}
-                  <span className="font-light ml-2">
+                  <span className="ml-2 font-light">
                     {booking.agency.name || "N/A"}
                   </span>
                 </p>
                 <p className="font-semibold dark:font-medium">
                   Fecha de Salida{" "}
-                  <span className="font-light ml-2">
+                  <span className="ml-2 font-light">
                     {formatDate(booking.departure_date)}
                   </span>
                 </p>
                 <p className="font-semibold dark:font-medium">
                   Fecha de Regreso{" "}
-                  <span className="font-light ml-2">
+                  <span className="ml-2 font-light">
                     {formatDate(booking.return_date)}
                   </span>
                 </p>
                 <p className="font-semibold dark:font-medium">
                   Pasajeros{" "}
-                  <span className="font-light ml-2">{booking.pax_count}</span>
+                  <span className="ml-2 font-light">{booking.pax_count}</span>
                 </p>
-                <p className="font-semibold dark:font-medium mt-4">Pasajeros</p>
+                <p className="mt-4 font-semibold dark:font-medium">Pasajeros</p>
                 <ul className="ml-4 list-disc">
                   <li>
                     {booking.titular.first_name} {booking.titular.last_name}
@@ -183,7 +183,7 @@ export default function ServicesContainer({
                     </li>
                   ))}
                 </ul>
-                <p className="font-semibold dark:font-medium mt-4">
+                <p className="mt-4 font-semibold dark:font-medium">
                   Observaciones
                 </p>
                 <p className="font-light">
@@ -203,7 +203,7 @@ export default function ServicesContainer({
                 isFormVisible={isFormVisible}
                 setIsFormVisible={setIsFormVisible}
               />
-              <h2 className="text-xl font-semibold dark:font-medium mt-8 mb-4">
+              <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
                 Servicios Agregados
               </h2>
               <ServiceList
@@ -235,7 +235,7 @@ export default function ServicesContainer({
                 }}
                 deleteService={deleteService}
               />
-              <h2 className="text-xl font-semibold dark:font-medium mt-8 mb-4">
+              <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
                 Factura
               </h2>
               <InvoiceForm
@@ -249,7 +249,7 @@ export default function ServicesContainer({
               {invoices.length > 0 && <InvoiceList invoices={invoices} />}
             </>
           ) : (
-            <div className="flex justify-center items-center h-40">
+            <div className="flex h-40 items-center justify-center">
               <Spinner />
             </div>
           )}

@@ -6,7 +6,7 @@ import bcrypt from "bcrypt";
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse,
 ) {
   const { id } = req.query;
 
@@ -21,10 +21,10 @@ export default async function handler(
         where: { id_user: userId },
       });
       return res.status(200).json({ message: "Usuario eliminado con éxito" });
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(
         "Error deleting user:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Error al eliminar el usuario" });
     }
@@ -33,12 +33,10 @@ export default async function handler(
 
     // Validar campos obligatorios
     if (!email || !first_name || !last_name) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Los campos 'email', 'first_name' y 'last_name' son obligatorios.",
-        });
+      return res.status(400).json({
+        error:
+          "Los campos 'email', 'first_name' y 'last_name' son obligatorios.",
+      });
     }
 
     try {
@@ -55,7 +53,14 @@ export default async function handler(
           .json({ error: "Ya existe otro usuario con ese email." });
       }
 
-      const updatedData: any = { email, first_name, last_name, position, role };
+      const updatedData: Partial<{
+        email: string;
+        first_name: string;
+        last_name: string;
+        position: string;
+        role: string;
+        password: string;
+      }> = { email, first_name, last_name, position, role };
       if (password) {
         updatedData.password = await bcrypt.hash(password, 10);
       }
@@ -65,10 +70,10 @@ export default async function handler(
         data: updatedData,
       });
       return res.status(200).json(updatedUser);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(
         "Error updating user:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Error al actualizar el usuario" });
     }

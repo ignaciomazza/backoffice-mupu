@@ -32,11 +32,11 @@ export default function TeamForm({
         opacity: isVisible ? 1 : 0,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="overflow-hidden bg-white dark:bg-black text-black shadow-md rounded-3xl p-6 space-y-4 mb-6 mx-2 dark:border dark:border-white"
+      className="mx-2 mb-6 space-y-4 overflow-hidden rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black"
     >
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
-          <label className="block text-lg mb-2 dark:text-white">
+          <label className="mb-2 block text-lg dark:text-white">
             Nombre del Equipo
           </label>
           <input
@@ -44,11 +44,11 @@ export default function TeamForm({
             value={name}
             onChange={(e) => onNameChange(e.target.value)}
             required
-            className="w-full p-2 rounded-lg border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white"
+            className="w-full rounded-lg border border-gray-300 p-2 focus:outline-none focus:ring-2 focus:ring-black dark:border-gray-600 dark:focus:ring-white"
           />
         </div>
         <div>
-          <label className="block text-lg mb-2 dark:text-white">
+          <label className="mb-2 block text-lg dark:text-white">
             Seleccionar Miembros
           </label>
           <ul className="space-y-2">
@@ -69,7 +69,7 @@ export default function TeamForm({
         </div>
         <button
           type="submit"
-          className="w-full py-2 px-4 rounded-full transition-transform hover:scale-[1.01] active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black"
+          className="w-full rounded-full bg-black px-4 py-2 text-center text-white transition-transform hover:scale-[1.01] active:scale-100 dark:bg-white dark:text-black"
         >
           Enviar
         </button>

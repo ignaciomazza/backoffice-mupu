@@ -5,9 +5,9 @@ import prisma from "@/lib/prisma";
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse,
 ) {
-  const { id, userTeamId } = req.query;
+  const { userTeamId } = req.query;
   if (req.method === "DELETE") {
     try {
       await prisma.userTeam.delete({
@@ -17,7 +17,7 @@ export default async function handler(
     } catch (error) {
       console.error(
         "Error al eliminar el usuario del equipo:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       return res
         .status(500)

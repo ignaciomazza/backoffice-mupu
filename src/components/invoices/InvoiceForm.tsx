@@ -1,23 +1,32 @@
 // src/components/invoices/InvoiceForm.tsx
 
+// src/components/invoices/InvoiceForm.tsx
+
 "use client";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 
+// Definimos el tipo para los datos del formulario de factura
+export type InvoiceFormData = {
+  tipoFactura: string;
+  clientIds: string[];
+  services: string[];
+  exchangeRate?: string;
+};
+
 interface InvoiceFormProps {
-  formData: {
-    tipoFactura: string;
-    clientIds: string[];
-    services: string[];
-    exchangeRate?: string;
-  };
+  formData: InvoiceFormData;
   handleChange: (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => void;
   handleSubmit: (e: React.FormEvent) => void;
   isFormVisible: boolean;
   setIsFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
-  updateFormData: (key: string, value: any) => void;
+  // Ahora updateFormData está fuertemente tipado
+  updateFormData: (
+    key: keyof InvoiceFormData,
+    value: InvoiceFormData[keyof InvoiceFormData],
+  ) => void;
 }
 
 export default function InvoiceForm({
@@ -61,16 +70,16 @@ export default function InvoiceForm({
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="overflow-hidden bg-white dark:bg-black text-black shadow-md rounded-3xl p-6 space-y-4 mb-6 dark:border dark:border-white"
+      className="mb-6 space-y-4 overflow-hidden rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black"
     >
       <div
-        className="flex items-center justify-between cursor-pointer"
+        className="flex cursor-pointer items-center justify-between"
         onClick={() => setIsFormVisible(!isFormVisible)}
       >
         <p className="text-lg font-medium dark:text-white">
           {isFormVisible ? "Cerrar Formulario" : "Crear Factura"}
         </p>
-        <button className="p-2 rounded-full bg-black text-white dark:bg-white dark:text-black transition-transform hover:scale-105 active:scale-100">
+        <button className="rounded-full bg-black p-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black">
           {isFormVisible ? (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -78,7 +87,7 @@ export default function InvoiceForm({
               viewBox="0 0 24 24"
               strokeWidth={1.5}
               stroke="currentColor"
-              className="w-6 h-6"
+              className="size-6"
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
             </svg>
@@ -89,7 +98,7 @@ export default function InvoiceForm({
               viewBox="0 0 24 24"
               strokeWidth={1.5}
               stroke="currentColor"
-              className="w-6 h-6"
+              className="size-6"
             >
               <path
                 strokeLinecap="round"
@@ -120,14 +129,14 @@ export default function InvoiceForm({
           className="space-y-4"
         >
           <div>
-            <label className="block ml-2 dark:text-white">
+            <label className="ml-2 block dark:text-white">
               Tipo de Factura
             </label>
             <select
               name="tipoFactura"
               value={formData.tipoFactura}
               onChange={handleChange}
-              className="w-full p-2 rounded-2xl border border-black outline-none"
+              className="w-full rounded-2xl border border-black p-2 outline-none"
               required
             >
               <option value="">Seleccionar</option>
@@ -136,7 +145,7 @@ export default function InvoiceForm({
             </select>
           </div>
           <div>
-            <label className="block ml-2 dark:text-white">
+            <label className="ml-2 block dark:text-white">
               Cantidad de Clientes
             </label>
             <input
@@ -144,12 +153,12 @@ export default function InvoiceForm({
               value={clientCount}
               min={1}
               onChange={(e) => setClientCount(Number(e.target.value))}
-              className="w-full p-2 rounded-2xl border border-black outline-none"
+              className="w-full rounded-2xl border border-black p-2 outline-none"
             />
           </div>
           {Array.from({ length: clientCount }).map((_, index) => (
             <div key={index}>
-              <label className="block ml-2 dark:text-white">
+              <label className="ml-2 block dark:text-white">
                 ID del Cliente {index + 1}
               </label>
               <input
@@ -160,13 +169,13 @@ export default function InvoiceForm({
                   updatedClientIds[index] = e.target.value;
                   updateFormData("clientIds", updatedClientIds);
                 }}
-                className="w-full p-2 rounded-2xl border border-black outline-none"
+                className="w-full rounded-2xl border border-black p-2 outline-none"
                 required
               />
             </div>
           ))}
           <div>
-            <label className="block ml-2 dark:text-white">
+            <label className="ml-2 block dark:text-white">
               Cantidad de Servicios
             </label>
             <input
@@ -174,12 +183,12 @@ export default function InvoiceForm({
               value={serviceCount}
               min={1}
               onChange={(e) => setServiceCount(Number(e.target.value))}
-              className="w-full p-2 rounded-2xl border border-black outline-none"
+              className="w-full rounded-2xl border border-black p-2 outline-none"
             />
           </div>
           {Array.from({ length: serviceCount }).map((_, index) => (
             <div key={index}>
-              <label className="block ml-2 dark:text-white">
+              <label className="ml-2 block dark:text-white">
                 ID del Servicio {index + 1}
               </label>
               <input
@@ -190,13 +199,13 @@ export default function InvoiceForm({
                   updatedServices[index] = e.target.value;
                   updateFormData("services", updatedServices);
                 }}
-                className="w-full p-2 rounded-2xl border border-black outline-none"
+                className="w-full rounded-2xl border border-black p-2 outline-none"
                 required
               />
             </div>
           ))}
           <div>
-            <label className="block ml-2 dark:text-white">
+            <label className="ml-2 block dark:text-white">
               Cotización del dólar (opcional)
             </label>
             <input
@@ -204,16 +213,16 @@ export default function InvoiceForm({
               name="exchangeRate"
               value={formData.exchangeRate || fetchedExchangeRate || ""}
               onChange={handleChange}
-              className="w-full p-2 rounded-2xl border border-black outline-none"
+              className="w-full rounded-2xl border border-black p-2 outline-none"
               placeholder="Cotización actual"
             />
-            <p className="text-sm ml-2 dark:text-white">
+            <p className="ml-2 text-sm dark:text-white">
               Valor obtenido de AFIP: {fetchedExchangeRate || "Cargando..."}
             </p>
           </div>
           <button
             type="submit"
-            className="block py-2 px-6 rounded-full transition-transform bg-black text-white dark:bg-white dark:text-black hover:scale-105 active:scale-100 text-center"
+            className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
           >
             Crear Factura
           </button>

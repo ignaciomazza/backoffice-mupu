@@ -6,7 +6,7 @@ import bcrypt from "bcrypt";
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse,
 ) {
   if (req.method === "POST") {
     const {
@@ -21,12 +21,10 @@ export default async function handler(
 
     // Validar campos obligatorios
     if (!email || !password || !first_name || !last_name) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Los campos 'email', 'password', 'first_name' y 'last_name' son obligatorios.",
-        });
+      return res.status(400).json({
+        error:
+          "Los campos 'email', 'password', 'first_name' y 'last_name' son obligatorios.",
+      });
     }
 
     try {
@@ -56,7 +54,7 @@ export default async function handler(
     } catch (error) {
       console.error(
         "Error creating user:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Error al crear el usuario" });
     }
@@ -67,7 +65,7 @@ export default async function handler(
     } catch (error) {
       console.error(
         "Error fetching users:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Error al obtener usuarios" });
     }

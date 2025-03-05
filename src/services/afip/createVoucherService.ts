@@ -7,7 +7,7 @@ import generateHtml from "@/services/afip/generateHtml";
 interface VoucherResponse {
   success: boolean;
   message: string;
-  details?: any;
+  details?: unknown;
   qrBase64?: string;
   facturaHtml?: string;
 }
@@ -15,39 +15,39 @@ interface VoucherResponse {
 // Función auxiliar para obtener la cotización válida retrocediendo hasta 5 días
 async function getValidExchangeRate(
   currency: string,
-  startDate: Date
+  startDate: Date,
 ): Promise<number> {
-  let date = new Date(startDate);
+  const date = new Date(startDate);
   for (let i = 0; i < 5; i++) {
     const formattedDate = date.toISOString().split("T")[0].replace(/-/g, "");
     try {
       console.log(
-        `Consultando cotización para ${currency} en la fecha ${formattedDate}`
+        `Consultando cotización para ${currency} en la fecha ${formattedDate}`,
       );
       const cotizacionResponse = await afip.ElectronicBilling.executeRequest(
         "FEParamGetCotizacion",
         {
           MonId: currency,
           FchCotiz: formattedDate,
-        }
+        },
       );
       const rate = parseFloat(cotizacionResponse.ResultGet.MonCotiz);
       if (rate) {
         console.info(
-          `Cotización oficial para ${currency} en ${formattedDate}: ${rate}`
+          `Cotización oficial para ${currency} en ${formattedDate}: ${rate}`,
         );
         return rate;
       }
-    } catch (error: any) {
-      console.error(`Error para la fecha ${formattedDate}: ${error.message}`);
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error(`Error para la fecha ${formattedDate}: ${error.message}`);
+      }
     }
-    // Retrocede un día
     date.setDate(date.getDate() - 1);
   }
-  // En ambiente de testing se puede retornar un valor por defecto para evitar errores
   if (process.env.AFIP_ENV === "testing") {
     console.warn(
-      `No se pudo obtener la cotización en los últimos 5 días para ${currency}. Se usará un valor por defecto de 1.`
+      `No se pudo obtener la cotización en los últimos 5 días para ${currency}. Se usará un valor por defecto de 1.`,
     );
     return 1;
   }
@@ -59,7 +59,7 @@ export async function createVoucherService(
   cuitReceptor: string,
   totalAmount: number,
   currency: string,
-  exchangeRateManual?: number
+  exchangeRateManual?: number,
 ): Promise<VoucherResponse> {
   try {
     console.info(`📤 Enviando datos a AFIP para CUIT: ${cuitReceptor}`);
@@ -73,7 +73,7 @@ export async function createVoucherService(
           cuitReceptor = TESTING_CUIT_RECEPTOR.toString();
           if (tipoFactura === 1) {
             console.warn(
-              `⚠️ En ambiente de testing se asigna Factura B para Factura A.`
+              `⚠️ En ambiente de testing se asigna Factura B para Factura A.`,
             );
             tipoFactura = 6;
             return TESTING_CUIT_EMISOR_FACTURA_B;
@@ -102,8 +102,13 @@ export async function createVoucherService(
         if (salesPoints && salesPoints.length > 0) {
           return salesPoints[0].Nro;
         }
-      } catch (error: any) {
-        console.error("⚠️ No se pudo obtener puntos de venta:", error.message);
+      } catch (error: unknown) {
+        if (error instanceof Error) {
+          console.error(
+            "⚠️ No se pudo obtener puntos de venta:",
+            error.message,
+          );
+        }
       }
       return 1;
     })();
@@ -112,19 +117,19 @@ export async function createVoucherService(
     console.info("🔍 Obteniendo el último comprobante autorizado...");
     const lastVoucher = await afip.ElectronicBilling.getLastVoucher(
       puntoDeVenta,
-      tipoFactura
+      tipoFactura,
     );
     const nuevoComprobante = lastVoucher + 1;
     console.info(`✅ Último comprobante autorizado: ${lastVoucher}`);
     console.info(
-      `📝 Próximo comprobante esperado (Número de factura): ${nuevoComprobante}`
+      `📝 Próximo comprobante esperado (Número de factura): ${nuevoComprobante}`,
     );
 
     console.info("🔍 Obteniendo la fecha del último comprobante...");
     const voucherInfo = await afip.ElectronicBilling.getVoucherInfo(
       lastVoucher,
       puntoDeVenta,
-      tipoFactura
+      tipoFactura,
     );
     const lastVoucherDate = voucherInfo
       ? parseInt(voucherInfo.CbteFch, 10)
@@ -142,29 +147,31 @@ export async function createVoucherService(
 
     const yesterday = new Date(today);
     yesterday.setDate(today.getDate() - 1);
-    const yesterdayDateStr = yesterday.toISOString().split("T")[0];
+    // Se usa "yesterday" en getValidExchangeRate
 
     console.info("🔍 Obteniendo datos del contribuyente desde AFIP...");
     let ivaCondition: string;
     try {
       const taxpayerDetails =
         await afip.RegisterInscriptionProof.getTaxpayerDetails(
-          Number(cuitReceptor)
+          Number(cuitReceptor),
         );
       if (taxpayerDetails && taxpayerDetails.CondicionIVA) {
         ivaCondition = taxpayerDetails.CondicionIVA;
         console.info(`✅ Condición IVA obtenida: ${ivaCondition}`);
       } else {
         console.warn(
-          "No se encontraron datos del contribuyente, se usará 'Consumidor Final'."
+          "No se encontraron datos del contribuyente, se usará 'Consumidor Final'.",
         );
         ivaCondition = "Consumidor Final";
       }
-    } catch (error: any) {
-      console.error(
-        "Error al obtener datos del contribuyente desde AFIP:",
-        error.message
-      );
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error(
+          "Error al obtener datos del contribuyente desde AFIP:",
+          error.message,
+        );
+      }
       ivaCondition = "Consumidor Final";
     }
 
@@ -179,7 +186,7 @@ export async function createVoucherService(
     const condicionIVA = ivaConditionMapping[ivaCondition] || 5;
     if (tipoFactura === 1 && condicionIVA !== 1) {
       console.warn(
-        `⚠️ Cliente con IVA '${ivaCondition}' no puede recibir Factura A. Cambiando a Factura B.`
+        `⚠️ Cliente con IVA '${ivaCondition}' no puede recibir Factura A. Cambiando a Factura B.`,
       );
       tipoFactura = 6;
     }
@@ -196,11 +203,11 @@ export async function createVoucherService(
         : impIVAInitial;
     if (calculatedTotal !== totalAmount) {
       console.warn(
-        `⚠️ La suma de impNeto (${impNeto}) e impIVA (${impIVAInitial}) da ${calculatedTotal}, que no coincide con el total (${totalAmount}). Se ajusta impIVA a ${impIVA}.`
+        `⚠️ La suma de impNeto (${impNeto}) e impIVA (${impIVAInitial}) da ${calculatedTotal}, que no coincide con el total (${totalAmount}). Se ajusta impIVA a ${impIVA}.`,
       );
     }
     console.info(
-      `💰 Total: ${totalAmount} | Neto: ${impNeto} | IVA: ${impIVA}`
+      `💰 Total: ${totalAmount} | Neto: ${impNeto} | IVA: ${impIVA}`,
     );
 
     // Obtener la cotización usando la función auxiliar
@@ -208,8 +215,8 @@ export async function createVoucherService(
       currency === "PES"
         ? 1
         : exchangeRateManual !== undefined
-        ? exchangeRateManual
-        : await getValidExchangeRate(currency, yesterday);
+          ? exchangeRateManual
+          : await getValidExchangeRate(currency, yesterday);
     console.info(`Cotización usada para ${currency}: ${monCotiz}`);
 
     const voucherData = {
@@ -242,9 +249,8 @@ export async function createVoucherService(
     console.info("🪪 Datos de la factura a enviar a AFIP:", voucherData);
 
     console.info("📤 Enviando factura a AFIP...");
-    const createdVoucher = await afip.ElectronicBilling.createVoucher(
-      voucherData
-    );
+    const createdVoucher =
+      await afip.ElectronicBilling.createVoucher(voucherData);
     if (!createdVoucher.CAE) {
       console.error("❌ No se obtuvo el CAE de la factura.");
       return {
@@ -288,15 +294,19 @@ export async function createVoucherService(
       qrBase64: qrImage,
       facturaHtml,
     };
-  } catch (error: any) {
-    console.error(
-      "❌ Error en createVoucherService:",
-      error.message,
-      error.stack
-    );
+  } catch (error: unknown) {
+    let message = "Error interno.";
+    if (error instanceof Error) {
+      message = error.message;
+      console.error(
+        "❌ Error en createVoucherService:",
+        error.message,
+        error.stack,
+      );
+    }
     return {
       success: false,
-      message: error.message || "Error interno.",
+      message,
     };
   }
 }

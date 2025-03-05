@@ -17,12 +17,10 @@ export default function TeamsPage() {
   const [teams, setTeams] = useState<SalesTeam[]>([]);
   const [editingTeamId, setEditingTeamId] = useState<number | null>(null);
   const [isFormVisible, setIsFormVisible] = useState<boolean>(false);
-  const [loadingUsers, setLoadingUsers] = useState<boolean>(true);
   const [loadingTeams, setLoadingTeams] = useState<boolean>(true);
 
   // Cargar usuarios
   useEffect(() => {
-    setLoadingUsers(true);
     fetch("/api/users")
       .then((res) => {
         if (!res.ok) {
@@ -32,12 +30,12 @@ export default function TeamsPage() {
       })
       .then((data: User[]) => {
         setUsers(data);
-        setLoadingUsers(false);
       })
-      .catch((error) => {
-        console.error("Error fetching users:", error);
+      .catch((error: unknown) => {
+        if (error instanceof Error) {
+          console.error("Error fetching users:", error.message);
+        }
         toast.error("Error al obtener usuarios");
-        setLoadingUsers(false);
       });
   }, []);
 
@@ -55,8 +53,10 @@ export default function TeamsPage() {
         setTeams(data);
         setLoadingTeams(false);
       })
-      .catch((error) => {
-        console.error("Error fetching teams:", error);
+      .catch((error: unknown) => {
+        if (error instanceof Error) {
+          console.error("Error fetching teams:", error.message);
+        }
         toast.error("Error al obtener equipos");
         setLoadingTeams(false);
       });
@@ -86,25 +86,27 @@ export default function TeamsPage() {
         const errorResponse = await response.json();
         throw new Error(errorResponse.error || "Error al guardar el equipo");
       }
-      const updatedTeam = await response.json();
+      const updatedTeam: SalesTeam = await response.json();
       setTeams((prevTeams) =>
         editingTeamId
           ? prevTeams.map((team) =>
-              team.id_team === editingTeamId ? updatedTeam : team
+              team.id_team === editingTeamId ? updatedTeam : team,
             )
-          : [...prevTeams, updatedTeam]
+          : [...prevTeams, updatedTeam],
       );
       toast.success(
         editingTeamId
           ? "Equipo actualizado con éxito!"
-          : "Equipo creado con éxito!"
+          : "Equipo creado con éxito!",
       );
       setName("");
       setSelectedUserIds([]);
       setEditingTeamId(null);
-    } catch (error: any) {
-      console.error("Error al guardar el equipo:", error.message || error);
-      toast.error(error.message || "Error al guardar el equipo");
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("Error al guardar el equipo:", error.message);
+        toast.error(error.message || "Error al guardar el equipo");
+      }
     }
   };
 
@@ -124,22 +126,24 @@ export default function TeamsPage() {
         throw new Error("Error al eliminar el equipo");
       }
       setTeams((prevTeams) =>
-        prevTeams.filter((team) => team.id_team !== id_team)
+        prevTeams.filter((team) => team.id_team !== id_team),
       );
       toast.success("Equipo eliminado con éxito");
-    } catch (error: any) {
-      console.error("Error al eliminar el equipo:", error.message || error);
-      toast.error("Error al eliminar el equipo");
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("Error al eliminar el equipo:", error.message);
+        toast.error("Error al eliminar el equipo");
+      }
     }
   };
 
   return (
     <ProtectedRoute>
       <div className="container mx-auto">
-        <h1 className="text-2xl font-bold mb-4">Equipos de Ventas</h1>
+        <h1 className="mb-4 text-2xl font-bold">Equipos de Ventas</h1>
         <div
           onClick={() => setIsFormVisible((prev) => !prev)}
-          className="text-lg font-medium cursor-pointer my-12 flex items-center justify-end gap-2 text-black dark:text-white border-b border-black dark:border-white mx-2 pb-1"
+          className="mx-2 my-12 flex cursor-pointer items-center justify-end gap-2 border-b border-black pb-1 text-lg font-medium text-black dark:border-white dark:text-white"
         >
           {isFormVisible ? (
             <p className="flex items-center gap-1">
@@ -149,7 +153,7 @@ export default function TeamsPage() {
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
                 stroke="currentColor"
-                className="w-6 h-6"
+                className="size-6"
               >
                 <path
                   strokeLinecap="round"
@@ -167,7 +171,7 @@ export default function TeamsPage() {
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
                 stroke="currentColor"
-                className="w-6 h-6"
+                className="size-6"
               >
                 <path
                   strokeLinecap="round"
@@ -185,7 +189,7 @@ export default function TeamsPage() {
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
                 stroke="currentColor"
-                className="w-6 h-6"
+                className="size-6"
               >
                 <path
                   strokeLinecap="round"
@@ -199,7 +203,7 @@ export default function TeamsPage() {
         </div>
 
         <div
-          className={`transition-all duration-300 overflow-hidden ${
+          className={`overflow-hidden transition-all duration-300 ${
             isFormVisible ? "max-h-screen opacity-100" : "max-h-0 opacity-0"
           }`}
         >
@@ -212,7 +216,7 @@ export default function TeamsPage() {
               setSelectedUserIds((prev) =>
                 prev.includes(userId)
                   ? prev.filter((id) => id !== userId)
-                  : [...prev, userId]
+                  : [...prev, userId],
               );
             }}
             onSubmit={handleFormSubmit}
@@ -220,7 +224,7 @@ export default function TeamsPage() {
           />
         </div>
 
-        <h2 className="text-xl font-semibold dark:font-medium my-4">
+        <h2 className="my-4 text-xl font-semibold dark:font-medium">
           Equipos Existentes
         </h2>
         {loadingTeams ? (

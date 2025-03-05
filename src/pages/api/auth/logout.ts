@@ -13,7 +13,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     "Set-Cookie",
     `token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax; Secure=${
       process.env.NODE_ENV === "production"
-    }`
+    }`,
   );
 
   return res.status(200).json({ message: "Logout successful" });

@@ -12,9 +12,15 @@ interface InvoiceRequestBody {
   exchangeRate?: number; // Cotización manual (opcional)
 }
 
+// Definimos una interfaz para los detalles del voucher (ajusta según lo que devuelva AFIP)
+interface VoucherDetails {
+  CbteDesde: number;
+  // Puedes agregar otros campos que se requieran
+}
+
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse,
 ) {
   // Soporte para GET: obtener facturas por bookingId
   if (req.method === "GET") {
@@ -50,22 +56,25 @@ export default async function handler(
     });
     console.info(
       "[Invoices API] Detalles de servicios obtenidos:",
-      serviceDetails
+      serviceDetails,
     );
 
     // 2. Agrupar servicios por moneda (ARS, USD, etc.)
-    const groupedServices = serviceDetails.reduce((acc, service) => {
-      const moneda = service.currency.toUpperCase();
-      if (!acc[moneda]) acc[moneda] = [];
-      acc[moneda].push(service);
-      return acc;
-    }, {} as Record<string, typeof serviceDetails>);
+    const groupedServices = serviceDetails.reduce(
+      (acc, service) => {
+        const moneda = service.currency.toUpperCase();
+        if (!acc[moneda]) acc[moneda] = [];
+        acc[moneda].push(service);
+        return acc;
+      },
+      {} as Record<string, typeof serviceDetails>,
+    );
     console.info(
       "[Invoices API] Servicios agrupados por moneda:",
-      groupedServices
+      groupedServices,
     );
 
-    const invoices: any[] = [];
+    const invoices: unknown[] = []; // Se puede usar un tipo más específico según convenga
 
     // Mapeo de moneda para AFIP
     const mapCurrency = (moneda: string) => {
@@ -79,20 +88,20 @@ export default async function handler(
       const servicesGroup = groupedServices[moneda];
       const totalAmountGroup = servicesGroup.reduce(
         (sum, service) => sum + service.sale_price,
-        0
+        0,
       );
       const perClientAmount = parseFloat(
-        (totalAmountGroup / clientIds.length).toFixed(2)
+        (totalAmountGroup / clientIds.length).toFixed(2),
       );
       const afipCurrency = mapCurrency(moneda);
       console.info(
-        `[Invoices API] Procesando facturas para moneda ${moneda}. Importe total: ${totalAmountGroup}, Importe por cliente: ${perClientAmount}`
+        `[Invoices API] Procesando facturas para moneda ${moneda}. Importe total: ${totalAmountGroup}, Importe por cliente: ${perClientAmount}`,
       );
 
       // 4. Procesar factura para cada cliente de este grupo
       for (const clientId of clientIds) {
         console.info(
-          `[Invoices API] Procesando factura para cliente ${clientId} en ${moneda}...`
+          `[Invoices API] Procesando factura para cliente ${clientId} en ${moneda}...`,
         );
 
         // Obtener datos del cliente
@@ -101,20 +110,20 @@ export default async function handler(
         });
         if (!client) {
           console.warn(
-            `[Invoices API] Cliente ${clientId} no encontrado. Se omitirá la factura para este cliente.`
+            `[Invoices API] Cliente ${clientId} no encontrado. Se omitirá la factura para este cliente.`,
           );
           continue;
         }
         const taxId = client.tax_id ? client.tax_id.toString() : "";
         if (!taxId) {
           console.warn(
-            `[Invoices API] Cliente ${clientId} no tiene un CUIT válido.`
+            `[Invoices API] Cliente ${clientId} no tiene un CUIT válido.`,
           );
           continue;
         }
 
         console.info(
-          `[Invoices API] Llamando a createVoucherService para cliente ${clientId}...`
+          `[Invoices API] Llamando a createVoucherService para cliente ${clientId}...`,
         );
         // Llamada al servicio AFIP
         const voucherResponse = await createVoucherService(
@@ -122,24 +131,30 @@ export default async function handler(
           taxId,
           perClientAmount,
           afipCurrency,
-          exchangeRate
+          exchangeRate,
         );
         if (!voucherResponse.success) {
           console.warn(
-            `[Invoices API] AFIP rechazó la factura para cliente ${clientId} en ${moneda}.`
+            `[Invoices API] AFIP rechazó la factura para cliente ${clientId} en ${moneda}.`,
           );
           continue;
         }
         console.info(
           `[Invoices API] Voucher generado para cliente ${clientId}:`,
-          voucherResponse.details
+          voucherResponse.details,
         );
+
+        // Castear voucherResponse.details para obtener CbteDesde
+        const voucherDetails = voucherResponse.details as
+          | VoucherDetails
+          | undefined;
 
         // 5. Insertar la factura en la base de datos
         const newInvoice = await prisma.invoice.create({
           data: {
-            invoice_number:
-              voucherResponse.details?.CbteDesde?.toString() || "N/A",
+            invoice_number: voucherDetails
+              ? voucherDetails.CbteDesde.toString()
+              : "N/A",
             issue_date: new Date(),
             total_amount: perClientAmount,
             currency: afipCurrency,
@@ -155,7 +170,7 @@ export default async function handler(
         });
         console.info(
           `[Invoices API] Factura guardada en BD para cliente ${clientId}:`,
-          newInvoice
+          newInvoice,
         );
         invoices.push(newInvoice);
       }
@@ -171,7 +186,7 @@ export default async function handler(
 
     console.info(
       "[Invoices API] Facturación completada. Facturas creadas:",
-      invoices
+      invoices,
     );
     return res.status(201).json({ success: true, invoices });
   }

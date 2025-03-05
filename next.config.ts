@@ -1,15 +1,15 @@
-import { NextConfig } from 'next';
+import { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   async headers() {
     return [
       {
-        source: '/api/:path*',
+        source: "/api/:path*",
         headers: [
           {
-            key: 'Authorization',
-            value: 'Bearer YOUR_TOKEN', // Ajustar de acuerdo al sistema de autenticación.
+            key: "Authorization",
+            value: "Bearer YOUR_TOKEN", // Ajustar de acuerdo al sistema de autenticación.
           },
         ],
       },

@@ -21,7 +21,7 @@ export default function LayoutWrapper({
   const isLoginPage = pathname === "/login"; // Verificar si estamos en la página de login
 
   return (
-    <div className="flex flex-col min-h-screen bg-white text-black dark:bg-black dark:text-white">
+    <div className="flex min-h-screen flex-col bg-white text-black dark:bg-black dark:text-white">
       <Header toggleMenu={toggleMenu} menuOpen={menuOpen} />
       <div
         className={`flex flex-1 ${
@@ -39,7 +39,7 @@ export default function LayoutWrapper({
           className={`flex-1 px-6 py-20 ${
             !isLoginPage
               ? "md:pl-56 md:pr-8"
-              : "w-full h-full flex items-center justify-center"
+              : "flex size-full items-center justify-center"
           }`}
         >
           {children}

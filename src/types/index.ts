@@ -138,7 +138,7 @@ export interface Invoice {
   bookingId_booking: number;
   booking: Booking;
   currency: "USD" | "ARS";
-  recipient: String;
+  recipient: string;
   client_id: number;
 }
 

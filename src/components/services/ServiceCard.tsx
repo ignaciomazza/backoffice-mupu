@@ -36,9 +36,9 @@ export default function ServiceCard({
     <motion.div
       layout
       layoutId={`service-${service.id_service}`}
-      className="bg-white dark:bg-black text-black dark:text-white shadow-md rounded-3xl p-6 space-y-3 dark:border dark:border-opacity-50 dark:border-white hover:shadow-lg transition-shadow"
+      className="space-y-3 rounded-3xl bg-white p-6 text-black shadow-md transition-shadow hover:shadow-lg dark:border dark:border-white/50 dark:bg-black dark:text-white"
     >
-      <p className="text-xl font-light text-end">{service.id_service}</p>
+      <p className="text-end text-xl font-light">{service.id_service}</p>
       <p className="font-semibold dark:font-medium">
         Tipo: <span className="font-light">{service.type}</span>
       </p>
@@ -50,7 +50,7 @@ export default function ServiceCard({
       </p>
       <p className="font-semibold dark:font-medium">
         Operador:
-        <span className="font-light ml-2">
+        <span className="ml-2 font-light">
           {service.operator?.name || "N/A"}
         </span>
       </p>
@@ -90,7 +90,7 @@ export default function ServiceCard({
               {formatDate(service.payment_due_date)}
             </span>
           </p>
-          <p className="font-semibold dark:font-medium mt-4">Impuestos</p>
+          <p className="mt-4 font-semibold dark:font-medium">Impuestos</p>
           <ul className="ml-4 list-disc">
             <li>
               Tax 21%: <span>{formatCurrency(service.tax_21)}</span>
@@ -107,14 +107,14 @@ export default function ServiceCard({
       )}
       <div>
         {isExpanded ? (
-          <div className="flex justify-between w-full">
+          <div className="flex w-full justify-between">
             <button
               onClick={() =>
                 setExpandedServiceId((prevId) =>
-                  prevId === service.id_service ? null : service.id_service
+                  prevId === service.id_service ? null : service.id_service,
                 )
               }
-              className="p-2 rounded-full transition-transform hover:scale-105 active:scale-100 bg-black text-white dark:bg-white dark:text-black mt-4"
+              className="mt-4 rounded-full bg-black p-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -122,7 +122,7 @@ export default function ServiceCard({
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
                 stroke="currentColor"
-                className="w-6 h-6"
+                className="size-6"
               >
                 <path
                   strokeLinecap="round"
@@ -131,15 +131,15 @@ export default function ServiceCard({
                 />
               </svg>
             </button>
-            <div className="flex gap-2 mt-4">
+            <div className="mt-4 flex gap-2">
               <button
-                className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 bg-black text-white dark:bg-white dark:text-black"
+                className="rounded-full bg-black px-6 py-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
                 onClick={() => startEditingService(service)}
               >
                 Editar
               </button>
               <button
-                className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 bg-red-600 text-white dark:bg-red-800"
+                className="rounded-full bg-red-600 px-6 py-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-red-800"
                 onClick={() => deleteService(service.id_service)}
               >
                 Eliminar
@@ -150,10 +150,10 @@ export default function ServiceCard({
           <button
             onClick={() =>
               setExpandedServiceId((prevId) =>
-                prevId === service.id_service ? null : service.id_service
+                prevId === service.id_service ? null : service.id_service,
               )
             }
-            className="p-2 flex items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-100 bg-black text-white dark:bg-white dark:text-black mt-4"
+            className="mt-4 flex items-center justify-center rounded-full bg-black p-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -161,7 +161,7 @@ export default function ServiceCard({
               viewBox="0 0 24 24"
               strokeWidth={1.5}
               stroke="currentColor"
-              className="w-6 h-6"
+              className="size-6"
             >
               <path
                 strokeLinecap="round"

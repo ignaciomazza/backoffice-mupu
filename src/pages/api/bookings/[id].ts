@@ -5,7 +5,7 @@ import prisma from "@/lib/prisma";
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse,
 ) {
   const { id } = req.query;
 
@@ -34,7 +34,7 @@ export default async function handler(
     } catch (error) {
       console.error(
         "Error al obtener la reserva:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Error al obtener la reserva." });
     }
@@ -89,10 +89,10 @@ export default async function handler(
         select: { id_client: true },
       });
       const existingClientIds = existingClients.map(
-        (client) => client.id_client
+        (client) => client.id_client,
       );
       const missingIds = allClientIds.filter(
-        (id) => !existingClientIds.includes(id)
+        (id) => !existingClientIds.includes(id),
       );
       if (missingIds.length > 0) {
         return res.status(400).json({
@@ -135,7 +135,7 @@ export default async function handler(
     } catch (error) {
       console.error(
         "Error actualizando la reserva:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Error actualizando la reserva." });
     }
@@ -146,7 +146,7 @@ export default async function handler(
     } catch (error) {
       console.error(
         "Error eliminando la reserva:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Error eliminando la reserva." });
     }

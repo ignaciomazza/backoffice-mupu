@@ -5,7 +5,7 @@ import prisma from "@/lib/prisma";
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse,
 ) {
   const { id } = req.query;
   if (!id || Array.isArray(id)) {
@@ -21,7 +21,7 @@ export default async function handler(
     } catch (error) {
       console.error(
         "Error deleting operator:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Failed to delete operator" });
     }
@@ -43,11 +43,9 @@ export default async function handler(
 
     // Validar campos requeridos
     if (!name || !email || !tax_id) {
-      return res
-        .status(400)
-        .json({
-          error: "Los campos 'name', 'email' y 'tax_id' son obligatorios.",
-        });
+      return res.status(400).json({
+        error: "Los campos 'name', 'email' y 'tax_id' son obligatorios.",
+      });
     }
 
     try {
@@ -65,11 +63,9 @@ export default async function handler(
         },
       });
       if (duplicate) {
-        return res
-          .status(400)
-          .json({
-            error: "Ya existe otro operador con el mismo email o tax_id.",
-          });
+        return res.status(400).json({
+          error: "Ya existe otro operador con el mismo email o tax_id.",
+        });
       }
 
       const updatedOperator = await prisma.operator.update({
@@ -93,7 +89,7 @@ export default async function handler(
     } catch (error) {
       console.error(
         "Error updating operator:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Failed to update operator" });
     }

@@ -42,16 +42,16 @@ export default function SideBar({
 
   return (
     <aside
-      className={`fixed top-0 left-0 h-screen w-48 bg-white dark:bg-black p-4 border-r md:border-none border-black dark:border-white transform transition-transform duration-300 md:translate-x-0 ${
+      className={`fixed left-0 top-0 h-screen w-48 border-r border-black bg-white p-4 transition-transform duration-300 dark:border-white dark:bg-black md:translate-x-0 md:border-none ${
         menuOpen ? "translate-x-0" : "-translate-x-full"
       } md:block`}
     >
-      <nav className="flex flex-col h-full">
-        <ul className="flex flex-col flex-1 justify-center space-y-3">
+      <nav className="flex h-full flex-col">
+        <ul className="flex flex-1 flex-col justify-center space-y-3">
           <li className="transition-transform hover:scale-105 active:scale-100">
             <Link
               href="/"
-              className={`block py-2 rounded-full transition-colors duration-200 text-center ${
+              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
                 currentPath === "/"
                   ? "bg-black text-white dark:bg-white dark:text-black"
                   : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
@@ -64,7 +64,7 @@ export default function SideBar({
           <li className="transition-transform hover:scale-105 active:scale-100">
             <Link
               href="/clients"
-              className={`block py-2 rounded-full transition-colors duration-200 text-center ${
+              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
                 currentPath === "/clients"
                   ? "bg-black text-white dark:bg-white dark:text-black"
                   : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
@@ -77,7 +77,7 @@ export default function SideBar({
           <li className="transition-transform hover:scale-105 active:scale-100">
             <Link
               href="/bookings"
-              className={`block py-2 rounded-full transition-colors duration-200 text-center ${
+              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
                 currentPath === "/bookings" ||
                 currentPath.includes("/bookings/")
                   ? "bg-black text-white dark:bg-white dark:text-black"
@@ -91,7 +91,7 @@ export default function SideBar({
           <li className="transition-transform hover:scale-105 active:scale-100">
             <Link
               href="/operators"
-              className={`block py-2 rounded-full transition-colors duration-200 text-center ${
+              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
                 currentPath === "/operators"
                   ? "bg-black text-white dark:bg-white dark:text-black"
                   : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
@@ -104,7 +104,7 @@ export default function SideBar({
           <li className="transition-transform hover:scale-105 active:scale-100">
             <Link
               href="/agency"
-              className={`block py-2 rounded-full transition-colors duration-200 text-center ${
+              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
                 currentPath === "/agency"
                   ? "bg-black text-white dark:bg-white dark:text-black"
                   : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
@@ -117,7 +117,7 @@ export default function SideBar({
           <li className="transition-transform hover:scale-105 active:scale-100">
             <Link
               href="/users"
-              className={`block py-2 rounded-full transition-colors duration-200 text-center ${
+              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
                 currentPath === "/users"
                   ? "bg-black text-white dark:bg-white dark:text-black"
                   : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
@@ -130,7 +130,7 @@ export default function SideBar({
           <li className="transition-transform hover:scale-105 active:scale-100">
             <Link
               href="/teams"
-              className={`block py-2 rounded-full transition-colors duration-200 text-center ${
+              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
                 currentPath === "/teams"
                   ? "bg-black text-white dark:bg-white dark:text-black"
                   : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
@@ -144,11 +144,11 @@ export default function SideBar({
         <div className="mt-auto pt-4">
           <button
             onClick={handleLogout}
-            className="w-full flex items-center p-2 rounded-full transition-all hover:scale-105 active:scale-100 hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
+            className="flex w-full items-center rounded-full p-2 transition-all hover:scale-105 hover:bg-black hover:text-white active:scale-100 dark:hover:bg-white dark:hover:text-black"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              className="w-6 h-6"
+              className="size-6"
               fill="none"
               viewBox="0 0 24 24"
               strokeWidth={1.4}

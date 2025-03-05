@@ -16,7 +16,7 @@ interface Agency {
 }
 
 // Función para formatear la fecha en dd/mm/yyyy
-const formatDate = (dateString: string) => {
+const formatDate = (dateString: string): string => {
   const date = new Date(dateString);
   const day = String(date.getUTCDate()).padStart(2, "0");
   const month = String(date.getUTCMonth() + 1).padStart(2, "0"); // Los meses empiezan en 0
@@ -43,31 +43,47 @@ export default function AgencyPage() {
   return (
     <ProtectedRoute>
       <section className="text-black dark:text-white">
-        <h1 className="text-2xl font-semibold dark:font-medium mb-4">
+        <h1 className="mb-4 text-2xl font-semibold dark:font-medium">
           Información de la Agencia
         </h1>
         {agency ? (
-          <div className="bg-white dark:bg-black text-black dark:text-white shadow-md rounded-3xl p-6 space-y-3 mb-6 mx-2 dark:border dark:border-white">
+          <div className="mx-2 mb-6 space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black dark:text-white">
             <p className="font-light">
-              <span className="font-semibold dark:font-medium mr-2">Nombre</span> {agency.name}
+              <span className="mr-2 font-semibold dark:font-medium">
+                Nombre
+              </span>
+              {agency.name}
             </p>
             <p className="font-light">
-              <span className="font-semibol dark:font-medium mr-2">Dirección</span> {agency.address}
+              <span className="mr-2 font-semibold dark:font-medium">
+                Dirección
+              </span>
+              {agency.address}
             </p>
             <p className="font-light">
-              <span className="font-semibold dark:font-medium mr-2">Teléfono</span> {agency.phone}
+              <span className="mr-2 font-semibold dark:font-medium">
+                Teléfono
+              </span>
+              {agency.phone}
             </p>
             <p className="font-light">
-              <span className="font-semibold dark:font-medium mr-2">Email</span> {agency.email}
+              <span className="mr-2 font-semibold dark:font-medium">Email</span>
+              {agency.email}
             </p>
             <p className="font-light">
-              <span className="font-semibold dark:font-medium mr-2">CUIT</span> {agency.tax_id}
+              <span className="mr-2 font-semibold dark:font-medium">CUIT</span>
+              {agency.tax_id}
             </p>
             <p className="font-light">
-              <span className="font-semibold dark:font-medium mr-2">Sitio Web</span> {agency.website}
+              <span className="mr-2 font-semibold dark:font-medium">
+                Sitio Web
+              </span>
+              {agency.website}
             </p>
             <p className="font-light">
-              <span className="font-semibold dark:font-medium mr-2">Fecha de Fundación</span>{" "}
+              <span className="mr-2 font-semibold dark:font-medium">
+                Fecha de Fundación
+              </span>
               {agency.foundation_date
                 ? formatDate(agency.foundation_date)
                 : "No disponible"}

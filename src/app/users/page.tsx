@@ -11,7 +11,6 @@ import { toast, ToastContainer } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import "react-toastify/dist/ReactToastify.css";
 
-// Actualizamos el tipo para que 'password' sea opcional.
 type UserFormData = {
   email: string;
   password?: string;
@@ -50,7 +49,7 @@ export default function UsersPage() {
         setUsers(data);
         setLoadingUsers(false);
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         console.error("Error fetching users:", error);
         toast.error("Error al obtener usuarios");
         setLoadingUsers(false);
@@ -58,7 +57,7 @@ export default function UsersPage() {
   }, []);
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
     setFormData((prevData) => ({ ...prevData, [name]: value }));
@@ -83,7 +82,6 @@ export default function UsersPage() {
 
     try {
       const dataToSend = { ...formData };
-      // Si estamos editando y no se ingresa contraseña, eliminamos la propiedad
       if (editingUserId && !dataToSend.password) {
         delete dataToSend.password;
       }
@@ -103,17 +101,18 @@ export default function UsersPage() {
       setUsers((prevUsers) =>
         editingUserId
           ? prevUsers.map((u) => (u.id_user === editingUserId ? user : u))
-          : [...prevUsers, user]
+          : [...prevUsers, user],
       );
       toast.success(
         editingUserId
           ? "Usuario actualizado con éxito!"
-          : "Usuario creado con éxito!"
+          : "Usuario creado con éxito!",
       );
       resetForm();
-    } catch (error: any) {
-      console.error("Error en el submit:", error.message || error);
-      toast.error(error.message || "Error al guardar el usuario.");
+    } catch (error: unknown) {
+      const err = error as Error;
+      console.error("Error en el submit:", err.message || err);
+      toast.error(err.message || "Error al guardar el usuario.");
     }
   };
 
@@ -153,7 +152,7 @@ export default function UsersPage() {
       });
       if (response.ok) {
         setUsers((prevUsers) =>
-          prevUsers.filter((user) => user.id_user !== id_user)
+          prevUsers.filter((user) => user.id_user !== id_user),
         );
         toast.success("Usuario eliminado con éxito!");
       } else {
@@ -179,7 +178,7 @@ export default function UsersPage() {
           />
         </motion.div>
 
-        <h2 className="text-2xl font-semibold dark:font-medium my-4">
+        <h2 className="my-4 text-2xl font-semibold dark:font-medium">
           Usuarios
         </h2>
         {loadingUsers ? (

@@ -5,7 +5,7 @@ import prisma from "@/lib/prisma";
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse,
 ) {
   console.log("API Role: Request recibido");
   const userIdHeader = req.headers["x-user-id"];

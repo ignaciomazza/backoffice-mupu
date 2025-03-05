@@ -42,15 +42,15 @@ export default function ProfilePage() {
   return (
     <ProtectedRoute>
       <section className="text-black dark:text-white">
-        <h1 className="text-2xl font-semibold dark:font-medium mb-4">
+        <h1 className="mb-4 text-2xl font-semibold dark:font-medium">
           Perfil del Usuario
         </h1>
         {isLoading ? (
-          <div className="flex justify-center items-center h-64">
+          <div className="flex size-64 items-center justify-center">
             <Spinner />
           </div>
         ) : userProfile ? (
-          <div className="bg-white dark:bg-black text-black dark:text-white shadow-md rounded-3xl p-6 space-y-3 mb-6 mx-2 dark:border dark:border-white">
+          <div className="mx-2 mb-6 space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black dark:text-white">
             <p>
               <strong>Nombre:</strong> {userProfile.name}
             </p>

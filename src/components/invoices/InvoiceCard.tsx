@@ -12,7 +12,7 @@ interface InvoiceCardProps {
 export default function InvoiceCard({ invoice }: InvoiceCardProps) {
   if (!invoice || !invoice.id_invoice) {
     return (
-      <div className="flex justify-center items-center h-40 dark:text-white">
+      <div className="flex h-40 items-center justify-center dark:text-white">
         <Spinner />
       </div>
     );
@@ -20,7 +20,7 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
 
   const formatCurrency = (
     value: number | undefined,
-    currency: string | undefined
+    currency: string | undefined,
   ): string => {
     if (value === undefined || value === null || !currency) return "N/A";
     return new Intl.NumberFormat("es-AR", {
@@ -37,7 +37,7 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
 
       if (!response.ok) {
         throw new Error(
-          `Error al descargar la factura ID: ${invoice.id_invoice}`
+          `Error al descargar la factura ID: ${invoice.id_invoice}`,
         );
       }
 
@@ -49,13 +49,14 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
       link.click();
       window.URL.revokeObjectURL(url);
       toast.success("Factura descargada exitosamente.");
-    } catch (error) {
+    } catch (_error) {
+      console.error(_error);
       toast.error("No se pudo descargar la factura.");
     }
   };
 
   return (
-    <div className="bg-white dark:bg-black text-black dark:text-white shadow-md rounded-3xl p-6 space-y-3 dark:border dark:border-opacity-50 dark:border-white">
+    <div className="space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white/50 dark:bg-black dark:text-white">
       <p className="font-semibold">
         Número de Factura:{" "}
         <span className="font-light">{invoice.invoice_number || "N/A"}</span>
@@ -85,7 +86,7 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
       </p>
       <button
         onClick={downloadPDF}
-        className="mt-3 block py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black"
+        className="mt-3 block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
       >
         Descargar PDF
       </button>

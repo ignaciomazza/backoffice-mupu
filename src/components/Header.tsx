@@ -14,15 +14,15 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
   const isLoginPage = pathname === "/login";
 
   return (
-    <header className="z-50 bg-white dark:bg-black fixed md:top-0 w-full flex justify-between items-center p-4">
-      <h1 className="text-lg font-semibold dark:font-medium tracking-wide flex-auto md:text-center">
+    <header className="fixed z-50 flex w-full items-center justify-between bg-white p-4 dark:bg-black md:top-0">
+      <h1 className="flex-auto text-lg font-semibold tracking-wide dark:font-medium md:text-center">
         Back Office <span className="text-xs font-light">by MUPU</span>
       </h1>
       <div className="absolute right-4 flex">
         <ThemeToggle />
         {!isLoginPage && (
           <button
-            className="block md:hidden ml-4"
+            className="ml-4 block md:hidden"
             onClick={toggleMenu}
             aria-label="Toggle Menu"
           >
@@ -30,7 +30,7 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
               // Icono de Cruz
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                className="h-6 w-6"
+                className="size-6"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -46,7 +46,7 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
               // Icono de Menú Hamburguesa
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                className="h-6 w-6"
+                className="size-6"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"

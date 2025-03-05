@@ -14,7 +14,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     jwt.verify(token, JWT_SECRET);
     // Retornamos el token para que el cliente lo pueda utilizar en el estado
     return res.status(200).json({ token });
-  } catch (error) {
+  } catch (_error) {
+    console.error(_error);
     return res.status(401).json({ error: "Token inválido o expirado" });
   }
 }

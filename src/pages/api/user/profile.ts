@@ -1,5 +1,7 @@
 // src/pages/api/user/profile.ts
 
+// src/pages/api/user/profile.ts
+
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import jwt from "jsonwebtoken";
@@ -8,7 +10,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "tu_secreto_seguro";
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse,
 ) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -47,12 +49,12 @@ export default async function handler(
         totalServices: booking.services.length,
         totalSales: booking.services.reduce(
           (sum, service) => sum + service.sale_price,
-          0
+          0,
         ),
       }));
     } else if (userProfile.role === "lider") {
       const teamMemberIds = userProfile.sales_teams.flatMap((ut) =>
-        ut.sales_team.user_teams.map((ut) => ut.user.id_user)
+        ut.sales_team.user_teams.map((ut) => ut.user.id_user),
       );
 
       const teamSales = await prisma.booking.findMany({
@@ -66,7 +68,7 @@ export default async function handler(
         totalServices: booking.services.length,
         totalSales: booking.services.reduce(
           (sum, service) => sum + service.sale_price,
-          0
+          0,
         ),
         seller: `${booking.user.first_name} ${booking.user.last_name}`,
       }));
@@ -80,12 +82,12 @@ export default async function handler(
       role: userProfile.role,
       salesData,
     });
-  } catch (error: any) {
-    // Solo se loguea si NO es un error de token expirado
-    if (error.name !== "TokenExpiredError") {
-      console.error("Error al verificar token:", error);
+  } catch (error: unknown) {
+    const err = error as Error;
+    if (err.name !== "TokenExpiredError") {
+      console.error("Error al verificar token:", err);
     }
-    if (error.name === "TokenExpiredError") {
+    if (err.name === "TokenExpiredError") {
       return res.status(401).json({ error: "El token ha expirado" });
     }
     return res.status(401).json({ error: "Token inválido" });

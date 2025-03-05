@@ -33,97 +33,91 @@ export default function ClientCard({
     <motion.div
       layout
       layoutId={`client-${client.id_client}`}
-      className="bg-white dark:bg-black text-black dark:text-white shadow-md rounded-3xl p-6 space-y-3 dark:border dark:border-opacity-50 dark:border-white h-fit"
+      className="h-fit space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white/50 dark:bg-black dark:text-white"
     >
-      <p className="text-xl font-light text-end">{client.id_client}</p>
+      <p className="text-end text-xl font-light">{client.id_client}</p>
       <p className="font-semibold dark:font-medium">
         Nombre
-        <span className="font-light ml-2">
+        <span className="ml-2 font-light">
           {client.first_name} {client.last_name}
         </span>
       </p>
       <p className="font-semibold dark:font-medium">
         Teléfono
-        <span className="font-light ml-2">{client.phone || "-"}</span>
+        <span className="ml-2 font-light">{client.phone || "-"}</span>
       </p>
       <p className="font-semibold dark:font-medium">
         Nacimiento
-        <span className="font-light ml-2">
-          {formatDate(client.birth_date)}
-        </span>
+        <span className="ml-2 font-light">{formatDate(client.birth_date)}</span>
       </p>
       <p className="font-semibold dark:font-medium">
         DNI
-        <span className="font-light ml-2">{client.dni_number || "-"}</span>
+        <span className="ml-2 font-light">{client.dni_number || "-"}</span>
       </p>
       <p className="font-semibold dark:font-medium">
         Pasaporte
-        <span className="font-light ml-2">
-          {client.passport_number || "-"}
-        </span>
+        <span className="ml-2 font-light">{client.passport_number || "-"}</span>
       </p>
 
       {isExpanded && (
         <>
           <p className="font-semibold dark:font-medium">
             CUIT
-            <span className="font-light ml-2">{client.tax_id || "-"}</span>
+            <span className="ml-2 font-light">{client.tax_id || "-"}</span>
           </p>
           <p className="font-semibold dark:font-medium">
             Dirección
-            <span className="font-light ml-2">{client.address || "-"}</span>
+            <span className="ml-2 font-light">{client.address || "-"}</span>
           </p>
           <p className="font-semibold dark:font-medium">
             Código Postal
-            <span className="font-light ml-2">
-              {client.postal_code || "-"}
-            </span>
+            <span className="ml-2 font-light">{client.postal_code || "-"}</span>
           </p>
           <p className="font-semibold dark:font-medium">
             Localidad
-            <span className="font-light ml-2">{client.locality || "-"}</span>
+            <span className="ml-2 font-light">{client.locality || "-"}</span>
           </p>
           <p className="font-semibold dark:font-medium">
             Nacionalidad
-            <span className="font-light ml-2">{client.nationality || "-"}</span>
+            <span className="ml-2 font-light">{client.nationality || "-"}</span>
           </p>
           <p className="font-semibold dark:font-medium">
             Género
-            <span className="font-light ml-2">{client.gender || "-"}</span>
+            <span className="ml-2 font-light">{client.gender || "-"}</span>
           </p>
           <p className="font-semibold dark:font-medium">
             Emisión del DNI
-            <span className="font-light ml-2">
+            <span className="ml-2 font-light">
               {formatDate(client.dni_issue_date)}
             </span>
           </p>
           <p className="font-semibold dark:font-medium">
             Vencimiento del DNI
-            <span className="font-light ml-2">
+            <span className="ml-2 font-light">
               {formatDate(client.dni_expiry_date)}
             </span>
           </p>
           <p className="font-semibold dark:font-medium">
             Emisión del Pasaporte
-            <span className="font-light ml-2">
+            <span className="ml-2 font-light">
               {formatDate(client.passport_issue)}
             </span>
           </p>
           <p className="font-semibold dark:font-medium">
             Vencimiento del Pasaporte
-            <span className="font-light ml-2">
+            <span className="ml-2 font-light">
               {formatDate(client.passport_expiry)}
             </span>
           </p>
           <p className="font-semibold dark:font-medium">
             Razón Social
-            <span className="font-light ml-2">
+            <span className="ml-2 font-light">
               {client.company_name || "-"}
             </span>
           </p>
           <p className="font-semibold dark:font-medium">
             Dirección Comercial
-            <span className="font-light ml-2">
+            <span className="ml-2 font-light">
               {client.commercial_address || "-"}
             </span>
           </p>
@@ -132,14 +126,14 @@ export default function ClientCard({
 
       <div>
         {isExpanded ? (
-          <div className="flex justify-between w-full">
+          <div className="flex w-full justify-between">
             <button
               onClick={() =>
                 setExpandedClientId((prevId) =>
-                  prevId === client.id_client ? null : client.id_client
+                  prevId === client.id_client ? null : client.id_client,
                 )
               }
-              className="p-2 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black mt-4"
+              className="mt-4 rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -156,15 +150,15 @@ export default function ClientCard({
                 />
               </svg>
             </button>
-            <div className="flex gap-2 mt-4">
+            <div className="mt-4 flex gap-2">
               <button
-                className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black"
+                className="rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
                 onClick={() => handleEdit(client)}
               >
                 Editar
               </button>
               <button
-                className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-red-600 text-white dark:bg-red-800"
+                className="rounded-full bg-red-600 px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-red-800"
                 onClick={() => deleteClient(client.id_client)}
               >
                 Eliminar
@@ -175,10 +169,10 @@ export default function ClientCard({
           <button
             onClick={() =>
               setExpandedClientId((prevId) =>
-                prevId === client.id_client ? null : client.id_client
+                prevId === client.id_client ? null : client.id_client,
               )
             }
-            className="p-2 flex items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black mt-4"
+            className="mt-4 flex items-center justify-center rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

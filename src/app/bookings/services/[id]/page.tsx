@@ -11,6 +11,13 @@ import ServicesContainer, {
 } from "@/components/services/ServicesContainer";
 import ProtectedRoute from "@/components/ProtectedRoute";
 
+interface InvoiceFormData {
+  tipoFactura: string;
+  clientIds: string[];
+  services: string[];
+  exchangeRate: string;
+}
+
 export default function ServicesPage() {
   const params = useParams();
   const id = params?.id ? String(params.id) : null;
@@ -19,10 +26,10 @@ export default function ServicesPage() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [operators, setOperators] = useState<Operator[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [invoiceFormData, setInvoiceFormData] = useState({
+  const [invoiceFormData, setInvoiceFormData] = useState<InvoiceFormData>({
     tipoFactura: "",
-    clientIds: [] as string[],
-    services: [] as string[],
+    clientIds: [],
+    services: [],
     exchangeRate: "",
   });
   const [formData, setFormData] = useState<ServiceFormData>({
@@ -47,7 +54,7 @@ export default function ServicesPage() {
   });
   const [editingServiceId, setEditingServiceId] = useState<number | null>(null);
   const [expandedServiceId, setExpandedServiceId] = useState<number | null>(
-    null
+    null,
   );
   const [loading, setLoading] = useState(false);
   const [isFormVisible, setIsFormVisible] = useState(false);
@@ -63,8 +70,10 @@ export default function ServicesPage() {
       }
       const data = await res.json();
       setBooking(data);
-    } catch (err) {
-      console.error("Error fetching booking:", err);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        console.error("Error fetching booking:", err.message);
+      }
       toast.error("Error al obtener la reserva.");
     } finally {
       setLoading(false);
@@ -80,8 +89,10 @@ export default function ServicesPage() {
       }
       const data = await res.json();
       setServices(data.services);
-    } catch (err) {
-      console.error("Error fetching services:", err);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        console.error("Error fetching services:", err.message);
+      }
       toast.error("Error al obtener los servicios.");
     }
   };
@@ -99,8 +110,10 @@ export default function ServicesPage() {
       }
       const data = await res.json();
       setInvoices(data.invoices);
-    } catch (err) {
-      console.error("Error fetching invoices:", err);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        console.error("Error fetching invoices:", err.message);
+      }
       toast.error("Error al obtener las facturas.");
       setInvoices([]);
     }
@@ -115,8 +128,10 @@ export default function ServicesPage() {
       }
       const data = await res.json();
       setOperators(data);
-    } catch (err) {
-      console.error("Error fetching operators:", err);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        console.error("Error fetching operators:", err.message);
+      }
       toast.error("Error al obtener operadores.");
     }
   };
@@ -127,6 +142,7 @@ export default function ServicesPage() {
       fetchServices();
       fetchInvoices();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
@@ -136,7 +152,7 @@ export default function ServicesPage() {
   const handleChange = (
     e: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >
+    >,
   ) => {
     const { name, value } = e.target;
     setFormData((prevData) => ({
@@ -158,13 +174,14 @@ export default function ServicesPage() {
   };
 
   const handleInvoiceChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
     setInvoiceFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const updateFormData = (key: string, value: any) => {
+  // Tipamos "updateFormData" para evitar "any"
+  const updateFormData = (key: string, value: string | string[]): void => {
     setInvoiceFormData((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -204,16 +221,18 @@ export default function ServicesPage() {
         setInvoices((prev) => [
           ...prev,
           ...result.invoices.filter(
-            (invoice: Invoice) => invoice && invoice.id_invoice
+            (invoice: Invoice) => invoice && invoice.id_invoice,
           ),
         ]);
         toast.success("Factura creada exitosamente!");
       } else {
         toast.error(result.message || "Error al crear la factura.");
       }
-    } catch (err) {
-      console.error("Invoice submission error:", err);
-      toast.error("Error de conexión con el servidor.");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        console.error("Invoice submission error:", err.message);
+        toast.error(err.message || "Error de conexión con el servidor.");
+      }
     }
   };
 
@@ -235,11 +254,11 @@ export default function ServicesPage() {
       if (!res.ok) {
         const errorResponse = await res.json();
         throw new Error(
-          errorResponse.error || "Error al agregar/actualizar el servicio."
+          errorResponse.error || "Error al agregar/actualizar el servicio.",
         );
       }
       const updatedServicesResponse = await fetch(
-        `/api/services?bookingId=${id}`
+        `/api/services?bookingId=${id}`,
       );
       if (!updatedServicesResponse.ok) {
         throw new Error("Error al actualizar la lista de servicios.");
@@ -249,7 +268,7 @@ export default function ServicesPage() {
       toast.success(
         editingServiceId
           ? "Servicio actualizado con éxito!"
-          : "Servicio agregado con éxito!"
+          : "Servicio agregado con éxito!",
       );
       setEditingServiceId(null);
       setIsFormVisible(false);
@@ -273,9 +292,11 @@ export default function ServicesPage() {
         departure_date: "",
         return_date: "",
       });
-    } catch (error: any) {
-      console.error("Error al enviar el formulario:", error.message);
-      toast.error(error.message || "Error inesperado.");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        console.error("Error al enviar el formulario:", err.message);
+        toast.error(err.message || "Error inesperado.");
+      }
     }
   };
 
@@ -288,11 +309,13 @@ export default function ServicesPage() {
         throw new Error("Error al eliminar el servicio.");
       }
       setServices((prevServices) =>
-        prevServices.filter((service) => service.id_service !== serviceId)
+        prevServices.filter((service) => service.id_service !== serviceId),
       );
       toast.success("Servicio eliminado con éxito.");
-    } catch (error) {
-      console.error("Error al eliminar el servicio:", error);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        console.error("Error al eliminar el servicio:", err.message);
+      }
       toast.error("No se pudo eliminar el servicio. Inténtalo nuevamente.");
     }
   };

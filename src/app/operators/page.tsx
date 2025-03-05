@@ -14,7 +14,7 @@ import "react-toastify/dist/ReactToastify.css";
 export default function OperatorsPage() {
   const [operators, setOperators] = useState<Operator[]>([]);
   const [expandedOperatorId, setExpandedOperatorId] = useState<number | null>(
-    null
+    null,
   );
   const [formData, setFormData] = useState<Omit<Operator, "id_operator">>({
     name: "",
@@ -35,7 +35,7 @@ export default function OperatorsPage() {
   });
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingOperatorId, setEditingOperatorId] = useState<number | null>(
-    null
+    null,
   );
   const [loadingOperators, setLoadingOperators] = useState<boolean>(true);
 
@@ -52,15 +52,17 @@ export default function OperatorsPage() {
         setOperators(data);
         setLoadingOperators(false);
       })
-      .catch((error) => {
-        console.error("Error fetching operators:", error);
-        toast.error("Error al obtener operadores");
+      .catch((error: unknown) => {
+        if (error instanceof Error) {
+          console.error("Error fetching operators:", error.message);
+          toast.error("Error al obtener operadores");
+        }
         setLoadingOperators(false);
       });
   }, []);
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -69,7 +71,6 @@ export default function OperatorsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validación en el front: campos obligatorios
     if (!formData.name || !formData.email || !formData.tax_id) {
       toast.error("Falta completar campos!");
       return;
@@ -96,18 +97,20 @@ export default function OperatorsPage() {
       setOperators((prev) =>
         editingOperatorId
           ? prev.map((op) =>
-              op.id_operator === editingOperatorId ? operator : op
+              op.id_operator === editingOperatorId ? operator : op,
             )
-          : [...prev, operator]
+          : [...prev, operator],
       );
       toast.success(
         editingOperatorId
           ? "Operador actualizado con éxito!"
-          : "Operador creado con éxito!"
+          : "Operador creado con éxito!",
       );
-    } catch (error: any) {
-      console.error("Error al guardar el operador:", error.message || error);
-      toast.error(error.message || "Error al guardar el operador.");
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("Error al guardar el operador:", error.message);
+        toast.error(error.message || "Error al guardar el operador.");
+      }
     }
     resetForm();
   };
@@ -164,15 +167,17 @@ export default function OperatorsPage() {
       });
       if (response.ok) {
         setOperators((prev) =>
-          prev.filter((op) => op.id_operator !== id_operator)
+          prev.filter((op) => op.id_operator !== id_operator),
         );
         toast.success("Operador eliminado con éxito!");
       } else {
         throw new Error("Error al eliminar el operador.");
       }
-    } catch (error: any) {
-      console.error("Error al eliminar el operador:", error.message || error);
-      toast.error("Error al eliminar el operador.");
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("Error al eliminar el operador:", error.message);
+        toast.error("Error al eliminar el operador.");
+      }
     }
   };
 
@@ -189,7 +194,7 @@ export default function OperatorsPage() {
             setIsFormVisible={setIsFormVisible}
           />
         </motion.div>
-        <h2 className="text-2xl font-semibold dark:font-medium my-4">
+        <h2 className="my-4 text-2xl font-semibold dark:font-medium">
           Operadores
         </h2>
         {loadingOperators ? (

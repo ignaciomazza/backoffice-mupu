@@ -5,7 +5,7 @@ import prisma from "@/lib/prisma";
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse,
 ) {
   if (req.method === "GET") {
     try {
@@ -14,7 +14,7 @@ export default async function handler(
     } catch (error) {
       console.error(
         "Error fetching operators:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Failed to fetch operators" });
     }
@@ -36,11 +36,9 @@ export default async function handler(
 
     // Validar campos requeridos
     if (!name || !email || !tax_id) {
-      return res
-        .status(400)
-        .json({
-          error: "Los campos 'name', 'email' y 'tax_id' son obligatorios.",
-        });
+      return res.status(400).json({
+        error: "Los campos 'name', 'email' y 'tax_id' son obligatorios.",
+      });
     }
 
     try {
@@ -51,11 +49,9 @@ export default async function handler(
         },
       });
       if (duplicate) {
-        return res
-          .status(400)
-          .json({
-            error: "Ya existe un operador con el mismo email o tax_id.",
-          });
+        return res.status(400).json({
+          error: "Ya existe un operador con el mismo email o tax_id.",
+        });
       }
 
       const newOperator = await prisma.operator.create({
@@ -78,7 +74,7 @@ export default async function handler(
     } catch (error) {
       console.error(
         "Error creating operator:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Failed to create operator" });
     }

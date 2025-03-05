@@ -34,26 +34,26 @@ export default function BookingCard({
     <motion.div
       layout
       layoutId={`booking-${booking.id_booking}`}
-      className="bg-white dark:bg-black text-black dark:text-white shadow-md rounded-3xl p-6 space-y-3 dark:border dark:border-opacity-50 dark:border-white h-fit"
+      className="h-fit space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white/50 dark:bg-black dark:text-white"
     >
-      <p className="text-xl font-light text-end">{booking.id_booking}</p>
+      <p className="text-end text-xl font-light">{booking.id_booking}</p>
       <p className="font-semibold dark:font-medium">
         Detalle
-        <span className="font-light ml-2">{booking.details || "N/A"}</span>
+        <span className="ml-2 font-light">{booking.details || "N/A"}</span>
       </p>
       <p className="font-semibold dark:font-medium">
         Estado
-        <span className="font-light ml-2">{booking.status || "-"}</span>
+        <span className="ml-2 font-light">{booking.status || "-"}</span>
       </p>
       <p className="font-semibold dark:font-medium">
         Vendedor
-        <span className="font-light ml-2">
+        <span className="ml-2 font-light">
           {booking.user.first_name} {booking.user.last_name}
         </span>
       </p>
       <p className="font-semibold dark:font-medium">
         Titular
-        <span className="font-light ml-2">
+        <span className="ml-2 font-light">
           {booking.titular.first_name} {booking.titular.last_name}
         </span>
       </p>
@@ -61,28 +61,28 @@ export default function BookingCard({
         <div>
           <p className="font-semibold dark:font-medium">
             Agencia
-            <span className="font-light ml-2">
+            <span className="ml-2 font-light">
               {booking.agency.name || "N/A"}
             </span>
           </p>
           <p className="font-semibold dark:font-medium">
             Fecha de Salida
-            <span className="font-light ml-2">
+            <span className="ml-2 font-light">
               {formatDate(booking.departure_date)}
             </span>
           </p>
           <p className="font-semibold dark:font-medium">
             Fecha de Regreso
-            <span className="font-light ml-2">
+            <span className="ml-2 font-light">
               {formatDate(booking.return_date)}
             </span>
           </p>
           <p className="font-semibold dark:font-medium">
             Pasajeros
-            <span className="font-light ml-2">{booking.pax_count}</span>
+            <span className="ml-2 font-light">{booking.pax_count}</span>
           </p>
 
-          <p className="font-semibold dark:font-medium mt-4">Pasajeros</p>
+          <p className="mt-4 font-semibold dark:font-medium">Pasajeros</p>
           <ul className="ml-4 list-disc">
             <li>
               {booking.titular.first_name} {booking.titular.last_name}
@@ -93,13 +93,13 @@ export default function BookingCard({
               </li>
             ))}
           </ul>
-          <p className="font-semibold dark:font-medium mt-4">Observaciones</p>
+          <p className="mt-4 font-semibold dark:font-medium">Observaciones</p>
           <p className="font-light">
             {booking.observation || "Sin observaciones"}
           </p>
           <div className="pt-6">
             <Link
-              className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black"
+              className="rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
               href={`/bookings/services/${booking.id_booking}`}
             >
               Servicios
@@ -109,14 +109,14 @@ export default function BookingCard({
       )}
       <div>
         {isExpanded ? (
-          <div className="flex justify-between w-full">
+          <div className="flex w-full justify-between">
             <button
               onClick={() =>
                 setExpandedBookingId((prevId) =>
-                  prevId === booking.id_booking ? null : booking.id_booking
+                  prevId === booking.id_booking ? null : booking.id_booking,
                 )
               }
-              className="p-2 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black mt-4"
+              className="mt-4 rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -133,15 +133,15 @@ export default function BookingCard({
                 />
               </svg>
             </button>
-            <div className="flex gap-2 mt-4">
+            <div className="mt-4 flex gap-2">
               <button
-                className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black"
+                className="rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
                 onClick={() => handleEdit(booking)}
               >
                 Editar
               </button>
               <button
-                className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-red-600 text-white dark:bg-red-800"
+                className="rounded-full bg-red-600 px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-red-800"
                 onClick={() => deleteBooking(booking.id_booking)}
               >
                 Eliminar
@@ -152,10 +152,10 @@ export default function BookingCard({
           <button
             onClick={() =>
               setExpandedBookingId((prevId) =>
-                prevId === booking.id_booking ? null : booking.id_booking
+                prevId === booking.id_booking ? null : booking.id_booking,
               )
             }
-            className="p-2 flex items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black mt-4"
+            className="mt-4 flex items-center justify-center rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

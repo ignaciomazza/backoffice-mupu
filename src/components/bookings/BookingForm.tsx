@@ -20,7 +20,7 @@ type BookingFormData = {
 type BookingFormProps = {
   formData: BookingFormData;
   handleChange: (
-    e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+    e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) => void;
   handleSubmit: (e: FormEvent) => Promise<void>;
   editingBookingId: number | null;
@@ -60,16 +60,16 @@ export default function BookingForm({
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="overflow-hidden bg-white dark:bg-black text-black shadow-md rounded-3xl p-6 space-y-3 mb-6 dark:border dark:border-white"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black"
     >
       <div
-        className="flex items-center justify-between cursor-pointer"
+        className="flex cursor-pointer items-center justify-between"
         onClick={() => setIsFormVisible(!isFormVisible)}
       >
         <p className="text-lg font-medium dark:text-white">
           {editingBookingId ? "Editar Reserva" : "Agregar Reserva"}
         </p>
-        <button className="p-2 rounded-full bg-black text-white dark:bg-white dark:text-black">
+        <button className="rounded-full bg-black p-2 text-white dark:bg-white dark:text-black">
           {isFormVisible ? (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -105,10 +105,10 @@ export default function BookingForm({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onSubmit={handleSubmit}
-          className="space-y-3 overflow-y-auto max-h-[600px] pr-12"
+          className="max-h-[600px] space-y-3 overflow-y-auto pr-12"
         >
           <div>
-            <label className="block text-sm font-medium dark:text-white ml-2">
+            <label className="ml-2 block text-sm font-medium dark:text-white">
               Detalle
             </label>
             <input
@@ -116,12 +116,12 @@ export default function BookingForm({
               name="details"
               value={formData.details || ""}
               onChange={handleChange}
-              className="w-full p-2 rounded-2xl border border-black dark:border-white outline-none"
+              className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium dark:text-white ml-2">
+            <label className="ml-2 block text-sm font-medium dark:text-white">
               Desde
             </label>
             <input
@@ -129,12 +129,12 @@ export default function BookingForm({
               name="departure_date"
               value={formData.departure_date || ""}
               onChange={handleChange}
-              className="w-full p-2 rounded-2xl border border-black dark:border-white outline-none"
+              className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium dark:text-white ml-2">
+            <label className="ml-2 block text-sm font-medium dark:text-white">
               Hasta
             </label>
             <input
@@ -142,12 +142,12 @@ export default function BookingForm({
               name="return_date"
               value={formData.return_date || ""}
               onChange={handleChange}
-              className="w-full p-2 rounded-2xl border border-black dark:border-white outline-none"
+              className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium dark:text-white ml-2">
+            <label className="ml-2 block text-sm font-medium dark:text-white">
               ID del Titular
             </label>
             <input
@@ -160,7 +160,7 @@ export default function BookingForm({
                   ...prevData,
                   titular_id: titularId,
                   clients_ids: prevData.clients_ids.filter(
-                    (id) => id !== titularId
+                    (id) => id !== titularId,
                   ),
                 }));
               }}
@@ -168,13 +168,13 @@ export default function BookingForm({
                 if (["ArrowUp", "ArrowDown"].includes(e.key))
                   e.preventDefault();
               }}
-              className="w-full p-2 rounded-2xl border border-black dark:border-white outline-none"
+              className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
               min={1}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium dark:text-white ml-2">
+            <label className="ml-2 block text-sm font-medium dark:text-white">
               Cantidad de Acompañantes
             </label>
             <input
@@ -194,12 +194,12 @@ export default function BookingForm({
                 if (["ArrowUp", "ArrowDown"].includes(e.key))
                   e.preventDefault();
               }}
-              className="w-full p-2 rounded-2xl border border-black dark:border-white outline-none"
+              className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium dark:text-white ml-2">
+            <label className="ml-2 block text-sm font-medium dark:text-white">
               IDs de Acompañantes
             </label>
             {Array.from({ length: formData.pax_count - 1 }).map((_, index) => (
@@ -208,7 +208,7 @@ export default function BookingForm({
                 type="number"
                 value={formData.clients_ids[index] || ""}
                 onChange={(e) => handleAcompananteChange(index, e.target.value)}
-                className="w-full p-2 mb-2 border rounded-md appearance-none"
+                className="mb-2 w-full appearance-none rounded-md border p-2"
                 placeholder={`ID del acompañante ${index + 1}`}
                 onKeyDown={(e) => {
                   if (["ArrowUp", "ArrowDown"].includes(e.key))
@@ -220,7 +220,7 @@ export default function BookingForm({
 
           <button
             type="submit"
-            className="block py-2 px-6 rounded-full transition-transform bg-black text-white dark:bg-white dark:text-black"
+            className="block rounded-full bg-black px-6 py-2 text-white transition-transform dark:bg-white dark:text-black"
           >
             {editingBookingId ? "Guardar Cambios" : "Agregar Reserva"}
           </button>

@@ -5,7 +5,7 @@ import prisma from "@/lib/prisma";
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse,
 ) {
   const { id } = req.query;
   if (!id || Array.isArray(id)) {
@@ -28,7 +28,7 @@ export default async function handler(
       } catch (error) {
         console.error(
           "Error fetching team:",
-          error instanceof Error ? error.message : error
+          error instanceof Error ? error.message : error,
         );
         return res.status(500).json({ error: "Error al obtener el equipo" });
       }
@@ -69,7 +69,7 @@ export default async function handler(
       } catch (error) {
         console.error(
           "Error al editar el equipo:",
-          error instanceof Error ? error.message : error
+          error instanceof Error ? error.message : error,
         );
         return res.status(500).json({ error: "Error al editar el equipo" });
       }
@@ -82,7 +82,7 @@ export default async function handler(
       } catch (error) {
         console.error(
           "Error deleting team:",
-          error instanceof Error ? error.message : error
+          error instanceof Error ? error.message : error,
         );
         return res.status(500).json({ error: "Error al eliminar el equipo" });
       }

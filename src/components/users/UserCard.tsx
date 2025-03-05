@@ -21,35 +21,35 @@ export default function UserCard({
   };
 
   return (
-    <div className="bg-white dark:bg-black text-black dark:text-white shadow-md rounded-3xl p-6 space-y-6 dark:border dark:border-opacity-50 dark:border-white h-fit">
+    <div className="h-fit space-y-6 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white/50 dark:bg-black dark:text-white">
       <p className="text-xl font-light">{user.email}</p>
-      <div className="list-disc ml-5">
+      <div className="ml-5 list-disc">
         <li className="font-normal">
           Nombre
-          <span className="font-light ml-2">
+          <span className="ml-2 font-light">
             {user.first_name} {user.last_name}
           </span>
         </li>
         <li className="font-normal">
           Posición
-          <span className="font-light ml-2">{user.position || "-"}</span>
+          <span className="ml-2 font-light">{user.position || "-"}</span>
         </li>
         <li className="font-normal">
           Rol
-          <span className="font-light ml-2">{user.role}</span>
+          <span className="ml-2 font-light">{user.role}</span>
         </li>
       </div>
 
       <div>
-        <div className="flex justify-end gap-2 mt-4">
+        <div className="mt-4 flex justify-end gap-2">
           <button
-            className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black"
+            className="rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
             onClick={() => handleEdit(user)}
           >
             Editar
           </button>
           <button
-            className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-red-600 text-white dark:bg-red-800"
+            className="rounded-full bg-red-600 px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-red-800"
             onClick={() => deleteUser(user.id_user)}
           >
             Eliminar

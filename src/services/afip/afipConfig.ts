@@ -5,10 +5,10 @@ import fs from "fs";
 import path from "path";
 
 const certPath = path.resolve(
-  process.env.CERT || "src/certs/test/certificate.pem"
+  process.env.CERT || "src/certs/test/certificate.pem",
 );
 const keyPath = path.resolve(
-  `${process.env.KEY}` || "src/certs/test/private.key"
+  `${process.env.KEY}` || "src/certs/test/private.key",
 );
 const agencyCUIT = parseInt(`${process.env.AGENCY_CUIT}` || "0");
 

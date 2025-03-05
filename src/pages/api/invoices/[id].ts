@@ -6,7 +6,7 @@ import { generateInvoicePDF } from "@/lib/pdfGenerator";
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse,
 ) {
   const { id } = req.query;
 
@@ -34,7 +34,7 @@ export default async function handler(
         res.setHeader("Content-Type", "application/pdf");
         res.setHeader(
           "Content-Disposition",
-          `attachment; filename=factura_${invoice.id_invoice}.pdf`
+          `attachment; filename=factura_${invoice.id_invoice}.pdf`,
         );
         res.send(pdf);
       } else {

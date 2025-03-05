@@ -29,7 +29,7 @@ type BookingFormData = {
 export default function Page() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [expandedBookingId, setExpandedBookingId] = useState<number | null>(
-    null
+    null,
   );
   const [formData, setFormData] = useState<BookingFormData>({
     id_booking: undefined,
@@ -64,7 +64,11 @@ export default function Page() {
           id_user: profile.id_user,
         }));
       })
-      .catch((err) => console.error("Error fetching profile:", err));
+      .catch((err: unknown) => {
+        if (err instanceof Error) {
+          console.error("Error fetching profile:", err.message);
+        }
+      });
   }, [token]);
 
   // Cargar las reservas
@@ -76,8 +80,10 @@ export default function Page() {
         setBookings(data);
         setLoadingBookings(false);
       })
-      .catch((error) => {
-        console.error("Error fetching bookings:", error);
+      .catch((error: unknown) => {
+        if (error instanceof Error) {
+          console.error("Error fetching bookings:", error.message);
+        }
         setLoadingBookings(false);
       });
   }, []);
@@ -85,7 +91,7 @@ export default function Page() {
   const handleChange = (
     e: React.ChangeEvent<
       HTMLTextAreaElement | HTMLInputElement | HTMLSelectElement
-    >
+    >,
   ) => {
     const { name, value } = e.target;
     setFormData((prevData) => ({
@@ -131,16 +137,17 @@ export default function Page() {
         throw new Error(errorResponse.error || "Error al guardar la reserva.");
       }
 
-      const newBooking = await response.json();
       // Actualizar la lista de reservas
       fetch("/api/bookings")
         .then((res) => res.json())
         .then((data) => setBookings(data));
       toast.success("Reserva guardada con éxito!");
       resetForm();
-    } catch (error: any) {
-      console.error(error.message);
-      toast.error(error.message || "Error inesperado.");
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error(error.message);
+        toast.error(error.message || "Error inesperado.");
+      }
     }
   };
 
@@ -186,15 +193,17 @@ export default function Page() {
 
       if (response.ok) {
         setBookings((prevBookings) =>
-          prevBookings.filter((booking) => booking.id_booking !== id)
+          prevBookings.filter((booking) => booking.id_booking !== id),
         );
         toast.success("Reserva eliminada con éxito!");
       } else {
         throw new Error("Error al eliminar la reserva.");
       }
-    } catch (error: any) {
-      console.error("Error al eliminar la reserva:", error.message);
-      toast.error("Error al eliminar la reserva.");
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("Error al eliminar la reserva:", error.message);
+        toast.error("Error al eliminar la reserva.");
+      }
     }
   };
 
@@ -212,7 +221,7 @@ export default function Page() {
             setIsFormVisible={setIsFormVisible}
           />
         </motion.div>
-        <h2 className="text-2xl font-semibold dark:font-medium my-4">
+        <h2 className="my-4 text-2xl font-semibold dark:font-medium">
           Reservas
         </h2>
         {loadingBookings ? (

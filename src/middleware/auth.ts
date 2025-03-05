@@ -14,7 +14,7 @@ async function verifyToken(token: string): Promise<MyJWTPayload> {
   try {
     const { payload } = await jwtVerify(
       token,
-      new TextEncoder().encode(JWT_SECRET)
+      new TextEncoder().encode(JWT_SECRET),
     );
     return payload as MyJWTPayload;
   } catch (error) {
@@ -40,7 +40,7 @@ export async function middleware(req: NextRequest) {
     const roleFromCookie = req.cookies.get("role")?.value;
     if (!roleFromCookie) {
       console.log(
-        "Middleware: No se encontró role en cookie, redirigiendo a /login"
+        "Middleware: No se encontró role en cookie, redirigiendo a /login",
       );
       return NextResponse.redirect(new URL("/login", req.url));
     }
@@ -63,7 +63,7 @@ export async function middleware(req: NextRequest) {
 
     if (allowedRoles.length > 0 && !allowedRoles.includes(normalizedRole)) {
       console.log(
-        `Middleware: El rol ${normalizedRole} no está permitido para ${pathname}. Redirigiendo a /login`
+        `Middleware: El rol ${normalizedRole} no está permitido para ${pathname}. Redirigiendo a /login`,
       );
       return NextResponse.redirect(new URL("/login", req.url));
     }

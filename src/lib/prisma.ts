@@ -2,16 +2,17 @@
 
 import { PrismaClient, Prisma } from "@prisma/client";
 
-// Añadimos un chequeo en el entorno de desarrollo para evitar múltiples instancias de Prisma
-let prisma: PrismaClient;
+// Extend the global object to include a PrismaClient instance
+declare global {
+  // eslint-disable-next-line no-var
+  var prisma: PrismaClient | undefined;
+}
 
-if (process.env.NODE_ENV === "production") {
-  prisma = new PrismaClient();
-} else {
-  if (!(global as any).prisma) {
-    (global as any).prisma = new PrismaClient();
-  }
-  prisma = (global as any).prisma;
+// Use the existing instance if it exists, otherwise create a new one.
+const prisma = global.prisma ?? new PrismaClient();
+
+if (process.env.NODE_ENV !== "production") {
+  global.prisma = prisma;
 }
 
 export default prisma;

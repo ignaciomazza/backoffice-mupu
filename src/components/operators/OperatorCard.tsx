@@ -3,12 +3,13 @@
 "use client";
 import React from "react";
 import { motion } from "framer-motion";
+import { Operator } from "@/types";
 
 interface OperatorCardProps {
-  operator: any;
+  operator: Operator;
   expandedOperatorId: number | null;
   setExpandedOperatorId: React.Dispatch<React.SetStateAction<number | null>>;
-  startEditingOperator: (operator: any) => void;
+  startEditingOperator: (operator: Operator) => void;
   deleteOperator: (id: number) => void;
 }
 
@@ -21,10 +22,8 @@ export default function OperatorCard({
 }: OperatorCardProps) {
   const isExpanded = expandedOperatorId === operator.id_operator;
 
-  const handleEdit = (operator: any) => {
+  const handleEdit = (operator: Operator) => {
     startEditingOperator(operator);
-
-    // Smoothly scroll to the top of the page
     window.scrollTo({
       top: 0,
       behavior: "smooth",
@@ -35,93 +34,93 @@ export default function OperatorCard({
     <motion.div
       layout
       layoutId={`operator-${operator.id_operator}`}
-      className="bg-white dark:bg-black text-black dark:text-white shadow-md rounded-3xl p-6 space-y-3 dark:border dark:border-opacity-50 dark:border-white h-fit"
+      className="h-fit space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white/50 dark:bg-black dark:text-white"
     >
-      <p className="text-xl font-light text-end">{operator.id_operator}</p>
+      <p className="text-end text-xl font-light">{operator.id_operator}</p>
       <p className="font-semibold dark:font-medium">
         Nombre
-        <span className="font-light ml-2">{operator.name}</span>
+        <span className="ml-2 font-light">{operator.name}</span>
       </p>
       <p className="font-semibold dark:font-medium">
         Email
-        <span className="font-light ml-2">{operator.email || "-"}</span>
+        <span className="ml-2 font-light">{operator.email || "-"}</span>
       </p>
       <p className="font-semibold dark:font-medium">
         Teléfono
-        <span className="font-light ml-2">{operator.phone || "-"}</span>
+        <span className="ml-2 font-light">{operator.phone || "-"}</span>
       </p>
       <p className="font-semibold dark:font-medium">
         Sitio Web
-        <span className="font-light ml-2">{operator.website || "-"}</span>
+        <span className="ml-2 font-light">{operator.website || "-"}</span>
       </p>
 
       {isExpanded && (
         <>
           <p className="font-semibold dark:font-medium">
             Dirección
-            <span className="font-light ml-2">{operator.address || "-"}</span>
+            <span className="ml-2 font-light">{operator.address || "-"}</span>
           </p>
           <p className="font-semibold dark:font-medium">
             Código Postal
-            <span className="font-light ml-2">
+            <span className="ml-2 font-light">
               {operator.postal_code || "-"}
             </span>
           </p>
           <p className="font-semibold dark:font-medium">
             Localidad
-            <span className="font-light ml-2">{operator.city || "-"}</span>
+            <span className="ml-2 font-light">{operator.city || "-"}</span>
           </p>
           <p className="font-semibold dark:font-medium">
             Provincia
-            <span className="font-light ml-2">{operator.state || "-"}</span>
+            <span className="ml-2 font-light">{operator.state || "-"}</span>
           </p>
           <p className="font-semibold dark:font-medium">
             País
-            <span className="font-light ml-2">{operator.country || "-"}</span>
+            <span className="ml-2 font-light">{operator.country || "-"}</span>
           </p>
           <p className="font-semibold dark:font-medium">
             Condición IVA
-            <span className="font-light ml-2">
+            <span className="ml-2 font-light">
               {operator.vat_status || "-"}
             </span>
           </p>
           <p className="font-semibold dark:font-medium">
             Razón Social
-            <span className="font-light ml-2">
+            <span className="ml-2 font-light">
               {operator.legal_name || "-"}
             </span>
           </p>
           <p className="font-semibold dark:font-medium">
             CUIT
-            <span className="font-light ml-2">{operator.tax_id || "-"}</span>
+            <span className="ml-2 font-light">{operator.tax_id || "-"}</span>
           </p>
           <p className="font-semibold dark:font-medium">
             Fecha de Registro
-            <span className="font-light ml-2">
+            <span className="ml-2 font-light">
               {new Date(operator.registration_date).toLocaleDateString("es-AR")}
             </span>
           </p>
           <p className="font-semibold dark:font-medium">
             Saldo a Crédito
-            <span className="font-light ml-2">{operator.credit_balance}</span>
+            <span className="ml-2 font-light">{operator.credit_balance}</span>
           </p>
           <p className="font-semibold dark:font-medium">
             Saldo a Débito
-            <span className="font-light ml-2">{operator.debit_balance}</span>
+            <span className="ml-2 font-light">{operator.debit_balance}</span>
           </p>
         </>
       )}
 
       <div>
         {isExpanded ? (
-          <div className="flex justify-between w-full">
+          <div className="flex w-full justify-between">
             <button
               onClick={() =>
                 setExpandedOperatorId((prevId) =>
-                  prevId === operator.id_operator ? null : operator.id_operator
+                  prevId === operator.id_operator ? null : operator.id_operator,
                 )
               }
-              className="p-2 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black mt-4"
+              className="mt-4 rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -138,15 +137,15 @@ export default function OperatorCard({
                 />
               </svg>
             </button>
-            <div className="flex gap-2 mt-4">
+            <div className="mt-4 flex gap-2">
               <button
-                className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black"
+                className="rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
                 onClick={() => handleEdit(operator)}
               >
                 Editar
               </button>
               <button
-                className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-red-600 text-white dark:bg-red-800"
+                className="rounded-full bg-red-600 px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-red-800"
                 onClick={() => deleteOperator(operator.id_operator)}
               >
                 Eliminar
@@ -157,10 +156,10 @@ export default function OperatorCard({
           <button
             onClick={() =>
               setExpandedOperatorId((prevId) =>
-                prevId === operator.id_operator ? null : operator.id_operator
+                prevId === operator.id_operator ? null : operator.id_operator,
               )
             }
-            className="p-2 flex items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black mt-4"
+            className="mt-4 flex items-center justify-center rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

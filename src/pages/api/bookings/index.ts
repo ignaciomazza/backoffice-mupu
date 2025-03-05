@@ -5,7 +5,7 @@ import prisma, { Prisma } from "@/lib/prisma";
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse,
 ) {
   if (req.method === "GET") {
     try {
@@ -26,7 +26,7 @@ export default async function handler(
     } catch (error) {
       console.error(
         "Error fetching bookings:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Error fetching bookings" });
     }
@@ -81,10 +81,10 @@ export default async function handler(
         select: { id_client: true },
       });
       const existingClientIds = existingClients.map(
-        (client) => client.id_client
+        (client) => client.id_client,
       );
       const missingIds = allClientIds.filter(
-        (id) => !existingClientIds.includes(id)
+        (id) => !existingClientIds.includes(id),
       );
       if (missingIds.length > 0) {
         return res.status(400).json({
@@ -126,7 +126,7 @@ export default async function handler(
     } catch (error) {
       console.error(
         "Error creando la reserva:",
-        error instanceof Error ? error.message : error
+        error instanceof Error ? error.message : error,
       );
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
