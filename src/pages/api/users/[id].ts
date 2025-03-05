@@ -13,29 +13,49 @@ export default async function handler(
   if (req.method === "DELETE") {
     try {
       const userId = Number(id);
-
-      // Eliminar relaciones en UserTeam primero
+      // Eliminar relaciones en UserTeam si existen
       await prisma.userTeam.deleteMany({
         where: { id_user: userId },
       });
-
-      // Luego eliminar el usuario
       await prisma.user.delete({
         where: { id_user: userId },
       });
-
-      res.status(200).json({ message: "Usuario eliminado con éxito" });
+      return res.status(200).json({ message: "Usuario eliminado con éxito" });
     } catch (error) {
-      console.error("Error al eliminar el usuario:", error);
-      res.status(500).json({ error: "Error al eliminar el usuario" });
+      console.error(
+        "Error deleting user:",
+        error instanceof Error ? error.message : error
+      );
+      return res.status(500).json({ error: "Error al eliminar el usuario" });
     }
   } else if (req.method === "PUT") {
     const { email, password, first_name, last_name, position, role } = req.body;
 
-    try {
-      const updatedData: any = { email, first_name, last_name, position, role };
+    // Validar campos obligatorios
+    if (!email || !first_name || !last_name) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "Los campos 'email', 'first_name' y 'last_name' son obligatorios.",
+        });
+    }
 
-      // Solo hacer hash si se proporciona una nueva contraseña
+    try {
+      // Verificar duplicados: si se actualiza el email, chequear que no haya otro usuario con el mismo email
+      const duplicate = await prisma.user.findFirst({
+        where: {
+          email,
+          id_user: { not: Number(id) },
+        },
+      });
+      if (duplicate) {
+        return res
+          .status(400)
+          .json({ error: "Ya existe otro usuario con ese email." });
+      }
+
+      const updatedData: any = { email, first_name, last_name, position, role };
       if (password) {
         updatedData.password = await bcrypt.hash(password, 10);
       }
@@ -44,12 +64,16 @@ export default async function handler(
         where: { id_user: Number(id) },
         data: updatedData,
       });
-      res.status(200).json(updatedUser);
+      return res.status(200).json(updatedUser);
     } catch (error) {
-      res.status(500).json({ error: "Error al actualizar el usuario" });
+      console.error(
+        "Error updating user:",
+        error instanceof Error ? error.message : error
+      );
+      return res.status(500).json({ error: "Error al actualizar el usuario" });
     }
   } else {
     res.setHeader("Allow", ["DELETE", "PUT"]);
-    res.status(405).end(`Método ${req.method} no permitido`);
+    return res.status(405).end(`Método ${req.method} no permitido`);
   }
 }

@@ -12,11 +12,62 @@ export default async function handler(
       const clients = await prisma.client.findMany();
       res.status(200).json(clients);
     } catch (error) {
+      console.error("Error fetching clients:", error);
       res.status(500).json({ error: "Error fetching clients" });
     }
   } else if (req.method === "POST") {
     try {
       const client = req.body;
+
+      const requiredFields = [
+        "first_name",
+        "last_name",
+        "phone",
+        "address",
+        "postal_code",
+        "locality",
+        "tax_id",
+        "dni_number",
+        "passport_number",
+        "dni_issue_date",
+        "dni_expiry_date",
+        "birth_date",
+        "nationality",
+        "gender",
+        "passport_issue",
+        "passport_expiry",
+      ];
+
+      for (const field of requiredFields) {
+        if (!client[field]) {
+          return res
+            .status(400)
+            .json({ error: `Le falto cargar un campo obligatorio.` });
+        }
+      }
+
+      const duplicate = await prisma.client.findFirst({
+        where: {
+          OR: [
+            { dni_number: client.dni_number },
+            { passport_number: client.passport_number },
+            { tax_id: client.tax_id },
+            {
+              first_name: client.first_name,
+              last_name: client.last_name,
+              birth_date: client.birth_date
+                ? new Date(client.birth_date)
+                : undefined,
+            },
+          ],
+        },
+      });
+
+      if (duplicate) {
+        return res
+          .status(400)
+          .json({ error: "Esa informacion ya pertenece a un cliente." });
+      }
 
       const newClient = await prisma.client.create({
         data: {
@@ -26,11 +77,9 @@ export default async function handler(
           address: client.address,
           postal_code: client.postal_code,
           locality: client.locality,
-          iva_condition: client.iva_condition,
-          billing_preference: client.billing_preference,
-          company_name: client.company_name,
+          company_name: client.company_name || null,
           tax_id: client.tax_id,
-          commercial_address: client.commercial_address,
+          commercial_address: client.commercial_address || null,
           dni_number: client.dni_number,
           passport_number: client.passport_number,
           dni_issue_date: client.dni_issue_date
@@ -53,10 +102,11 @@ export default async function handler(
 
       res.status(201).json(newClient);
     } catch (error) {
-      console.error("Error processing clients:", error);
-      res.status(500).json({ error: "Internal Server Error" });
+      console.error("Error creating client:", error);
+      res.status(500).json({ error: "Error creating client" });
     }
   } else {
-    res.status(405).json({ error: "Method not allowed" });
+    res.setHeader("Allow", ["GET", "POST"]);
+    res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 }

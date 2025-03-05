@@ -8,6 +8,10 @@ export default async function handler(
   res: NextApiResponse
 ) {
   const { id } = req.query;
+  if (!id || Array.isArray(id)) {
+    return res.status(400).json({ error: "ID de equipo inválido." });
+  }
+
   const { method } = req;
 
   switch (method) {
@@ -15,37 +19,38 @@ export default async function handler(
       try {
         const team = await prisma.salesTeam.findUnique({
           where: { id_team: Number(id) },
-          include: {
-            user_teams: {
-              include: { user: true },
-            },
-          },
+          include: { user_teams: { include: { user: true } } },
         });
         if (!team) {
-          return res.status(404).json({ error: "Team not found" });
+          return res.status(404).json({ error: "Equipo no encontrado." });
         }
-        res.status(200).json(team);
+        return res.status(200).json(team);
       } catch (error) {
-        console.error("Error fetching team:", error);
-        res.status(500).json({ error: "Failed to retrieve team" });
+        console.error(
+          "Error fetching team:",
+          error instanceof Error ? error.message : error
+        );
+        return res.status(500).json({ error: "Error al obtener el equipo" });
       }
-      break;
-
-    case "DELETE":
-      try {
-        await prisma.salesTeam.delete({
-          where: { id_team: Number(id) },
-        });
-        res.status(204).end();
-      } catch (error) {
-        console.error("Error deleting team:", error);
-        res.status(500).json({ error: "Failed to delete team" });
-      }
-      break;
-
     case "PUT":
       try {
         const { name, userIds } = req.body;
+        if (!name) {
+          return res
+            .status(400)
+            .json({ error: "El nombre del equipo es obligatorio." });
+        }
+        if (!Array.isArray(userIds)) {
+          return res
+            .status(400)
+            .json({ error: "Los userIds deben ser un arreglo." });
+        }
+        // Opcional: Validar duplicados en userIds
+        if (new Set(userIds).size !== userIds.length) {
+          return res
+            .status(400)
+            .json({ error: "No se permiten IDs duplicados en los miembros." });
+        }
 
         const updatedTeam = await prisma.salesTeam.update({
           where: { id_team: Number(id) },
@@ -60,16 +65,29 @@ export default async function handler(
           },
           include: { user_teams: { include: { user: true } } },
         });
-
-        res.status(200).json(updatedTeam);
+        return res.status(200).json(updatedTeam);
       } catch (error) {
-        console.error("Error al editar el equipo:", error);
-        res.status(500).json({ error: "Error al editar el equipo" });
+        console.error(
+          "Error al editar el equipo:",
+          error instanceof Error ? error.message : error
+        );
+        return res.status(500).json({ error: "Error al editar el equipo" });
       }
-      break;
-
+    case "DELETE":
+      try {
+        await prisma.salesTeam.delete({
+          where: { id_team: Number(id) },
+        });
+        return res.status(204).end();
+      } catch (error) {
+        console.error(
+          "Error deleting team:",
+          error instanceof Error ? error.message : error
+        );
+        return res.status(500).json({ error: "Error al eliminar el equipo" });
+      }
     default:
-      res.setHeader("Allow", ["GET", "DELETE"]);
-      res.status(405).end(`Method ${method} Not Allowed`);
+      res.setHeader("Allow", ["GET", "PUT", "DELETE"]);
+      return res.status(405).end(`Method ${method} Not Allowed`);
   }
 }

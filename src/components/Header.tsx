@@ -14,7 +14,7 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
   const isLoginPage = pathname === "/login";
 
   return (
-    <header className="bg-white dark:bg-black fixed md:top-0 w-full flex justify-between items-center p-4">
+    <header className="z-50 bg-white dark:bg-black fixed md:top-0 w-full flex justify-between items-center p-4">
       <h1 className="text-lg font-semibold dark:font-medium tracking-wide flex-auto md:text-center">
         Back Office <span className="text-xs font-light">by MUPU</span>
       </h1>

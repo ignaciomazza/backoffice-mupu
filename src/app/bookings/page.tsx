@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import BookingForm from "@/components/bookings/BookingForm";
 import BookingList from "@/components/bookings/BookingList";
+import Spinner from "@/components/Spinner";
 import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -45,8 +46,10 @@ export default function Page() {
   });
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingBookingId, setEditingBookingId] = useState<number | null>(null);
+  const [loadingBookings, setLoadingBookings] = useState<boolean>(true);
   const { token } = useAuth();
 
+  // Cargar el perfil del usuario para obtener su id
   useEffect(() => {
     if (!token) return;
     fetch("/api/user/profile", {
@@ -64,11 +67,19 @@ export default function Page() {
       .catch((err) => console.error("Error fetching profile:", err));
   }, [token]);
 
+  // Cargar las reservas
   useEffect(() => {
+    setLoadingBookings(true);
     fetch("/api/bookings")
       .then((res) => res.json())
-      .then((data) => setBookings(data))
-      .catch((error) => console.error("Error fetching bookings:", error));
+      .then((data) => {
+        setBookings(data);
+        setLoadingBookings(false);
+      })
+      .catch((error) => {
+        console.error("Error fetching bookings:", error);
+        setLoadingBookings(false);
+      });
   }, []);
 
   const handleChange = (
@@ -121,6 +132,7 @@ export default function Page() {
       }
 
       const newBooking = await response.json();
+      // Actualizar la lista de reservas
       fetch("/api/bookings")
         .then((res) => res.json())
         .then((data) => setBookings(data));
@@ -169,14 +181,19 @@ export default function Page() {
   };
 
   const deleteBooking = async (id: number) => {
-    const response = await fetch(`/api/bookings/${id}`, { method: "DELETE" });
+    try {
+      const response = await fetch(`/api/bookings/${id}`, { method: "DELETE" });
 
-    if (response.ok) {
-      setBookings((prevBookings) =>
-        prevBookings.filter((booking) => booking.id_booking !== id)
-      );
-      toast.success("Reserva eliminada con éxito!");
-    } else {
+      if (response.ok) {
+        setBookings((prevBookings) =>
+          prevBookings.filter((booking) => booking.id_booking !== id)
+        );
+        toast.success("Reserva eliminada con éxito!");
+      } else {
+        throw new Error("Error al eliminar la reserva.");
+      }
+    } catch (error: any) {
+      console.error("Error al eliminar la reserva:", error.message);
       toast.error("Error al eliminar la reserva.");
     }
   };
@@ -195,14 +212,20 @@ export default function Page() {
             setIsFormVisible={setIsFormVisible}
           />
         </motion.div>
-        <h2 className="text-2xl font-semibold dark:font-medium my-4">Reservas</h2>
-        <BookingList
-          bookings={bookings}
-          expandedBookingId={expandedBookingId}
-          setExpandedBookingId={setExpandedBookingId}
-          startEditingBooking={startEditingBooking}
-          deleteBooking={deleteBooking}
-        />
+        <h2 className="text-2xl font-semibold dark:font-medium my-4">
+          Reservas
+        </h2>
+        {loadingBookings ? (
+          <Spinner />
+        ) : (
+          <BookingList
+            bookings={bookings}
+            expandedBookingId={expandedBookingId}
+            setExpandedBookingId={setExpandedBookingId}
+            startEditingBooking={startEditingBooking}
+            deleteBooking={deleteBooking}
+          />
+        )}
         <ToastContainer />
       </section>
     </ProtectedRoute>

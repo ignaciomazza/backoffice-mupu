@@ -4,7 +4,15 @@
 import { motion } from "framer-motion";
 
 interface UserFormProps {
-  formData: any;
+  formData: {
+    email: string;
+    password?: string;
+    first_name: string;
+    last_name: string;
+    position: string;
+    role: string;
+    id_agency: number;
+  };
   handleChange: (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => void;

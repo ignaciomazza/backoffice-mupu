@@ -1,7 +1,6 @@
 // src/components/services/ServiceCard.tsx
 
 "use client";
-
 import React from "react";
 import { motion } from "framer-motion";
 import { Service } from "@/types";
@@ -26,10 +25,10 @@ export default function ServiceCard({
   const isExpanded = expandedServiceId === service.id_service;
 
   const formatCurrency = (value: number | undefined): string => {
-    if (!value) return "N/A";
+    if (value === undefined || value === null) return "N/A";
     return new Intl.NumberFormat("es-AR", {
       style: "currency",
-      currency: service.currency || "USD",
+      currency: service.currency,
     }).format(value);
   };
 
@@ -37,7 +36,7 @@ export default function ServiceCard({
     <motion.div
       layout
       layoutId={`service-${service.id_service}`}
-      className="bg-white dark:bg-black text-black dark:text-white shadow-md rounded-3xl p-6 space-y-3 dark:border dark:border-opacity-50 dark:border-white h-fit"
+      className="bg-white dark:bg-black text-black dark:text-white shadow-md rounded-3xl p-6 space-y-3 dark:border dark:border-opacity-50 dark:border-white hover:shadow-lg transition-shadow"
     >
       <p className="text-xl font-light text-end">{service.id_service}</p>
       <p className="font-semibold dark:font-medium">
@@ -50,7 +49,7 @@ export default function ServiceCard({
         </span>
       </p>
       <p className="font-semibold dark:font-medium">
-        Operador
+        Operador:
         <span className="font-light ml-2">
           {service.operator?.name || "N/A"}
         </span>
@@ -115,7 +114,7 @@ export default function ServiceCard({
                   prevId === service.id_service ? null : service.id_service
                 )
               }
-              className="p-2 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black mt-4"
+              className="p-2 rounded-full transition-transform hover:scale-105 active:scale-100 bg-black text-white dark:bg-white dark:text-black mt-4"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -123,7 +122,7 @@ export default function ServiceCard({
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
                 stroke="currentColor"
-                className="size-6"
+                className="w-6 h-6"
               >
                 <path
                   strokeLinecap="round"
@@ -134,13 +133,13 @@ export default function ServiceCard({
             </button>
             <div className="flex gap-2 mt-4">
               <button
-                className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black"
+                className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 bg-black text-white dark:bg-white dark:text-black"
                 onClick={() => startEditingService(service)}
               >
                 Editar
               </button>
               <button
-                className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-red-600 text-white dark:bg-red-800"
+                className="py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 bg-red-600 text-white dark:bg-red-800"
                 onClick={() => deleteService(service.id_service)}
               >
                 Eliminar
@@ -154,7 +153,7 @@ export default function ServiceCard({
                 prevId === service.id_service ? null : service.id_service
               )
             }
-            className="p-2 flex items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black mt-4"
+            className="p-2 flex items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-100 bg-black text-white dark:bg-white dark:text-black mt-4"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -162,7 +161,7 @@ export default function ServiceCard({
               viewBox="0 0 24 24"
               strokeWidth={1.5}
               stroke="currentColor"
-              className="size-6"
+              className="w-6 h-6"
             >
               <path
                 strokeLinecap="round"

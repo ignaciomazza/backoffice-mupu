@@ -3,34 +3,13 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { motion } from "framer-motion";
-import { toast, ToastContainer } from "react-toastify";
+import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import Link from "next/link";
-import { Booking, Service, Operator } from "@/types";
-import ServiceForm from "@/components/services/ServiceForm";
-import ServiceList from "@/components/services/ServiceList";
-
-type ServiceFormData = {
-  type: string;
-  description?: string;
-  sale_price: number;
-  cost_price: number;
-  destination?: string;
-  reference?: string;
-  tax_21?: number;
-  tax_105?: number;
-  exempt?: number;
-  other_taxes?: number;
-  not_computable?: number;
-  taxable_21?: number;
-  taxable_105?: number;
-  currency: string;
-  payment_due_date: string;
-  id_operator: number;
-  departure_date: string;
-  return_date: string;
-};
+import { Booking, Service, Operator, Invoice } from "@/types";
+import ServicesContainer, {
+  ServiceFormData,
+} from "@/components/services/ServicesContainer";
+import ProtectedRoute from "@/components/ProtectedRoute";
 
 export default function ServicesPage() {
   const params = useParams();
@@ -39,6 +18,13 @@ export default function ServicesPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [booking, setBooking] = useState<Booking | null>(null);
   const [operators, setOperators] = useState<Operator[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoiceFormData, setInvoiceFormData] = useState({
+    tipoFactura: "",
+    clientIds: [] as string[],
+    services: [] as string[],
+    exchangeRate: "",
+  });
   const [formData, setFormData] = useState<ServiceFormData>({
     type: "",
     description: "",
@@ -53,7 +39,7 @@ export default function ServicesPage() {
     not_computable: 0,
     taxable_21: 0,
     taxable_105: 0,
-    currency: "USD",
+    currency: "ARS",
     payment_due_date: "",
     id_operator: 0,
     departure_date: "",
@@ -65,44 +51,86 @@ export default function ServicesPage() {
   );
   const [loading, setLoading] = useState(false);
   const [isFormVisible, setIsFormVisible] = useState(false);
+  const [isInvoiceFormVisible, setIsInvoiceFormVisible] = useState(false);
+
+  // Función para obtener la reserva
+  const fetchBooking = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/bookings/${id}`);
+      if (!res.ok) {
+        throw new Error("Error al obtener la reserva");
+      }
+      const data = await res.json();
+      setBooking(data);
+    } catch (err) {
+      console.error("Error fetching booking:", err);
+      toast.error("Error al obtener la reserva.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Función para obtener los servicios
+  const fetchServices = async () => {
+    try {
+      const res = await fetch(`/api/services?bookingId=${id}`);
+      if (!res.ok) {
+        throw new Error("Error al obtener los servicios");
+      }
+      const data = await res.json();
+      setServices(data.services);
+    } catch (err) {
+      console.error("Error fetching services:", err);
+      toast.error("Error al obtener los servicios.");
+    }
+  };
+
+  // Función para obtener las facturas
+  const fetchInvoices = async () => {
+    try {
+      const res = await fetch(`/api/invoices?bookingId=${id}`);
+      if (!res.ok) {
+        if (res.status === 405) {
+          setInvoices([]);
+          return;
+        }
+        throw new Error("Error al obtener las facturas");
+      }
+      const data = await res.json();
+      setInvoices(data.invoices);
+    } catch (err) {
+      console.error("Error fetching invoices:", err);
+      toast.error("Error al obtener las facturas.");
+      setInvoices([]);
+    }
+  };
+
+  // Función para obtener operadores
+  const fetchOperators = async () => {
+    try {
+      const res = await fetch("/api/operators");
+      if (!res.ok) {
+        throw new Error("Error al obtener operadores");
+      }
+      const data = await res.json();
+      setOperators(data);
+    } catch (err) {
+      console.error("Error fetching operators:", err);
+      toast.error("Error al obtener operadores.");
+    }
+  };
 
   useEffect(() => {
     if (id) {
-      setLoading(true);
-      fetch(`/api/bookings/${id}`)
-        .then((res) => {
-          if (!res.ok) {
-            throw new Error("Error al obtener la reserva");
-          }
-          return res.json();
-        })
-        .then((data) => setBooking(data))
-        .catch((err) => {
-          console.error("Error fetching booking:", err);
-          toast.error("Error al obtener la reserva.");
-        })
-        .finally(() => setLoading(false));
-
-      fetch(`/api/services?bookingId=${id}`)
-        .then((res) => {
-          if (!res.ok) {
-            throw new Error("Error al obtener los servicios");
-          }
-          return res.json();
-        })
-        .then(({ services }) => setServices(services))
-        .catch((err) => {
-          console.error("Error fetching services:", err);
-          toast.error("Error al obtener los servicios.");
-        });
+      fetchBooking();
+      fetchServices();
+      fetchInvoices();
     }
   }, [id]);
 
   useEffect(() => {
-    fetch("/api/operators")
-      .then((res) => res.json())
-      .then((data) => setOperators(data))
-      .catch((error) => console.error("Error fetching operators:", error));
+    fetchOperators();
   }, []);
 
   const handleChange = (
@@ -129,46 +157,95 @@ export default function ServicesPage() {
     }));
   };
 
+  const handleInvoiceChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const { name, value } = e.target;
+    setInvoiceFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const updateFormData = (key: string, value: any) => {
+    setInvoiceFormData((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleInvoiceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (
+      !invoiceFormData.tipoFactura ||
+      invoiceFormData.clientIds.length === 0 ||
+      invoiceFormData.services.length === 0
+    ) {
+      toast.error("Completa todos los campos requeridos.");
+      return;
+    }
+    const payload = {
+      bookingId: Number(id),
+      services: invoiceFormData.services.map((s) => Number(s)),
+      clientIds: invoiceFormData.clientIds.map((c) => Number(c)),
+      tipoFactura: parseInt(invoiceFormData.tipoFactura, 10),
+      exchangeRate: invoiceFormData.exchangeRate
+        ? parseFloat(invoiceFormData.exchangeRate)
+        : undefined,
+    };
+
+    console.log("Enviando datos de factura:", payload);
+    try {
+      const res = await fetch("/api/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const errorResponse = await res.json();
+        throw new Error(errorResponse.error || "Error al crear la factura.");
+      }
+      const result = await res.json();
+      if (result.success) {
+        setInvoices((prev) => [
+          ...prev,
+          ...result.invoices.filter(
+            (invoice: Invoice) => invoice && invoice.id_invoice
+          ),
+        ]);
+        toast.success("Factura creada exitosamente!");
+      } else {
+        toast.error(result.message || "Error al crear la factura.");
+      }
+    } catch (err) {
+      console.error("Invoice submission error:", err);
+      toast.error("Error de conexión con el servidor.");
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!formData.type || !formData.currency || !id) {
+    if (!formData.type || !id) {
       toast.error("Por favor, completa todos los campos obligatorios.");
       return;
     }
-
     try {
       const url = editingServiceId
         ? `/api/services/${editingServiceId}`
         : "/api/services";
-      const method = editingServiceId ? "PUT" : "POST";
-
-      const response = await fetch(url, {
-        method,
+      const res = await fetch(url, {
+        method: editingServiceId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...formData, booking_id: id }),
       });
-
-      if (!response.ok) {
-        const errorResponse = await response.json();
+      if (!res.ok) {
+        const errorResponse = await res.json();
         throw new Error(
           errorResponse.error || "Error al agregar/actualizar el servicio."
         );
       }
-
-      // Refetch services to ensure data consistency
       const updatedServicesResponse = await fetch(
         `/api/services?bookingId=${id}`
       );
       if (!updatedServicesResponse.ok) {
         throw new Error("Error al actualizar la lista de servicios.");
       }
-
       const updatedServices = await updatedServicesResponse.json();
-
-      // Update the state with the new list of services
       setServices(updatedServices.services);
-
       toast.success(
         editingServiceId
           ? "Servicio actualizado con éxito!"
@@ -190,7 +267,7 @@ export default function ServicesPage() {
         not_computable: 0,
         taxable_21: 0,
         taxable_105: 0,
-        currency: "USD",
+        currency: "ARS",
         payment_due_date: "",
         id_operator: 0,
         departure_date: "",
@@ -202,20 +279,17 @@ export default function ServicesPage() {
     }
   };
 
-  const deleteService = async (id: number) => {
+  const deleteService = async (serviceId: number) => {
     try {
-      const response = await fetch(`/api/services/${id}`, {
+      const res = await fetch(`/api/services/${serviceId}`, {
         method: "DELETE",
       });
-
-      if (!response.ok) {
+      if (!res.ok) {
         throw new Error("Error al eliminar el servicio.");
       }
-
       setServices((prevServices) =>
-        prevServices.filter((service) => service.id_service !== id)
+        prevServices.filter((service) => service.id_service !== serviceId)
       );
-
       toast.success("Servicio eliminado con éxito.");
     } catch (error) {
       console.error("Error al eliminar el servicio:", error);
@@ -226,135 +300,36 @@ export default function ServicesPage() {
   const formatDate = (dateString: string | undefined): string => {
     if (!dateString) return "N/A";
     const date = new Date(dateString);
-    return date.toLocaleDateString("es-AR", {
-      timeZone: "UTC",
-    });
+    return date.toLocaleDateString("es-AR", { timeZone: "UTC" });
   };
 
   return (
-    <motion.div>
-      {loading ? (
-        <p>Cargando...</p>
-      ) : (
-        <>
-          <div className="mb-6">
-            <button className="block py-2 px-6 rounded-full transition-transform hover:scale-105 active:scale-100 text-center bg-black text-white dark:bg-white dark:text-black">
-              <Link href={"/bookings"}>Volver</Link>
-            </button>
-          </div>
-          {booking && (
-            <div className="bg-white dark:bg-black text-black dark:text-white shadow-md rounded-3xl p-6 space-y-3 dark:border dark:border-white h-fit mb-6">
-              <div className="flex justify-between mb-4">
-                <h1 className="text-2xl font-semibold dark:font-medium">
-                  Reserva
-                </h1>
-                <p className="text-xl font-light">
-                  {booking.id_booking}
-                </p>
-              </div>
-              <p className="font-semibold dark:font-medium">
-                Detalle
-                <span className="font-light ml-2">
-                  {booking.details || "N/A"}
-                </span>
-              </p>
-              <p className="font-semibold dark:font-medium">
-                Estado
-                <span className="font-light ml-2">{booking.status || "-"}</span>
-              </p>
-              <p className="font-semibold dark:font-medium">
-                Vendedor
-                <span className="font-light ml-2">
-                  {booking.user.first_name} {booking.user.last_name}
-                </span>
-              </p>
-              <p className="font-semibold dark:font-medium">
-                Titular
-                <span className="font-light ml-2">
-                  {booking.titular.first_name} {booking.titular.last_name}
-                </span>
-              </p>
-
-              <div>
-                <p className="font-semibold dark:font-medium">
-                  Agencia
-                  <span className="font-light ml-2">
-                    {booking.agency.name || "N/A"}
-                  </span>
-                </p>
-                <p className="font-semibold dark:font-medium">
-                  Fecha de Salida
-                  <span className="font-light ml-2">
-                    {formatDate(booking.departure_date)}
-                  </span>
-                </p>
-                <p className="font-semibold dark:font-medium">
-                  Fecha de Regreso
-                  <span className="font-light ml-2">{formatDate(booking.return_date)}</span>
-                </p>
-                <p className="font-semibold dark:font-medium">
-                  Pasajeros
-                  <span className="font-light ml-2">{booking.pax_count}</span>
-                </p>
-
-                <p className="font-semibold dark:font-medium mt-4">Pasajeros</p>
-                <ul className="ml-4 list-disc">
-                  <li>
-                    {booking.titular.first_name} {booking.titular.last_name}
-                  </li>
-                  {booking.clients.map((client) => (
-                    <li key={client.id_client}>
-                      {client.first_name} {client.last_name}
-                    </li>
-                  ))}
-                </ul>
-                <p className="font-semibold dark:font-medium mt-4">Observaciones</p>
-                <p className="font-light">
-                  {booking.observation || "Sin observaciones"}
-                </p>
-              </div>
-            </div>
-          )}
-
-          <ServiceForm
-            formData={formData}
-            operators={operators}
-            handleChange={handleChange}
-            handleSubmit={handleSubmit}
-            editingServiceId={editingServiceId}
-            isFormVisible={isFormVisible}
-            setIsFormVisible={setIsFormVisible}
-          />
-
-          <h2 className="text-xl font-semibold dark:font-medium mt-8 mb-4">Servicios Agregados</h2>
-          <ServiceList
-            services={services}
-            expandedServiceId={expandedServiceId}
-            setExpandedServiceId={setExpandedServiceId}
-            startEditingService={(service) => {
-              setEditingServiceId(service.id_service);
-              setFormData({
-                ...service,
-                payment_due_date: service.payment_due_date
-                  ? new Date(service.payment_due_date)
-                      .toISOString()
-                      .split("T")[0]
-                  : "",
-                departure_date: service.departure_date
-                  ? new Date(service.departure_date).toISOString().split("T")[0]
-                  : "",
-                return_date: service.return_date
-                  ? new Date(service.return_date).toISOString().split("T")[0]
-                  : "",
-                id_operator: service.id_operator || 0,
-              });
-              setIsFormVisible(true);
-            }}
-            deleteService={deleteService}
-          />
-        </>
-      )}
-      <ToastContainer />
-    </motion.div>
+    <ProtectedRoute>
+      <ServicesContainer
+        booking={booking}
+        services={services}
+        operators={operators}
+        invoices={invoices}
+        invoiceFormData={invoiceFormData}
+        formData={formData}
+        editingServiceId={editingServiceId}
+        expandedServiceId={expandedServiceId}
+        loading={loading}
+        isFormVisible={isFormVisible}
+        isInvoiceFormVisible={isInvoiceFormVisible}
+        handleChange={handleChange}
+        handleInvoiceChange={handleInvoiceChange}
+        updateFormData={updateFormData}
+        handleInvoiceSubmit={handleInvoiceSubmit}
+        handleSubmit={handleSubmit}
+        deleteService={deleteService}
+        formatDate={formatDate}
+        setEditingServiceId={setEditingServiceId}
+        setIsFormVisible={setIsFormVisible}
+        setFormData={setFormData}
+        setExpandedServiceId={setExpandedServiceId}
+        setIsInvoiceFormVisible={setIsInvoiceFormVisible}
+      />
+    </ProtectedRoute>
   );
 }

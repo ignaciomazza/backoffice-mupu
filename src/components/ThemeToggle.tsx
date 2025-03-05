@@ -1,17 +1,23 @@
 // src/components/ThemeToggle.tsx
 
 "use client";
-
 import { useState, useEffect } from "react";
 
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState<string>("light");
+  // Inicializamos con "dark" por defecto.
+  const [theme, setTheme] = useState<string>("dark");
 
   useEffect(() => {
     const storedTheme = localStorage.getItem("theme");
     if (storedTheme) {
       setTheme(storedTheme);
-      document.documentElement.classList.add(storedTheme);
+      // Aplica la clase dark si storedTheme es "dark"
+      document.documentElement.classList.toggle("dark", storedTheme === "dark");
+    } else {
+      // Si no hay tema almacenado, establecemos "dark" por defecto
+      setTheme("dark");
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
     }
   }, []);
 

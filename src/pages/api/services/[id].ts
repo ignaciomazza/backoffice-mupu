@@ -1,7 +1,5 @@
 // src/pages/api/services/[id].ts
 
-// src/pages/api/services/[id].ts
-
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 
@@ -16,7 +14,6 @@ export default async function handler(
   }
 
   if (req.method === "PUT") {
-    // Lógica para actualizar el servicio
     const {
       type,
       description,
@@ -42,7 +39,6 @@ export default async function handler(
       !type ||
       sale_price === undefined ||
       cost_price === undefined ||
-      !currency ||
       !payment_due_date
     ) {
       return res.status(400).json({
@@ -81,7 +77,6 @@ export default async function handler(
       return res.status(500).json({ error: "Error al actualizar servicio." });
     }
   } else if (req.method === "DELETE") {
-    // Lógica para eliminar el servicio
     try {
       await prisma.service.delete({ where: { id_service: Number(id) } });
       return res.status(200).json({ message: "Servicio eliminado con éxito." });
@@ -90,7 +85,6 @@ export default async function handler(
       return res.status(500).json({ error: "Error al eliminar servicio." });
     }
   } else {
-    // Método no permitido
     res.setHeader("Allow", ["PUT", "DELETE"]);
     return res.status(405).end(`Método ${req.method} no permitido.`);
   }

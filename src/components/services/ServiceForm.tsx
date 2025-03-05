@@ -1,10 +1,11 @@
 // src/components/services/ServiceForm.tsx
 
+"use client";
 import { ChangeEvent, FormEvent } from "react";
 import { motion } from "framer-motion";
 import { Operator } from "@/types";
 
-type ServiceFormData = {
+export type ServiceFormData = {
   type: string;
   description?: string;
   sale_price: number;
@@ -50,7 +51,7 @@ export default function ServiceForm({
     if (isNaN(value)) return "";
     return new Intl.NumberFormat("es-AR", {
       style: "currency",
-      currency: formData.currency,
+      currency: formData.currency || "ARS",
     }).format(value);
   };
 
@@ -63,7 +64,7 @@ export default function ServiceForm({
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="overflow-hidden bg-white dark:bg-black text-black shadow-md rounded-3xl p-6 space-y-3 mb-6 dark:border dark:border-white"
+      className="overflow-hidden bg-white dark:bg-black text-black shadow-md rounded-3xl p-6 space-y-4 mb-6 dark:border dark:border-white"
     >
       <div
         className="flex items-center justify-between cursor-pointer"
@@ -72,7 +73,7 @@ export default function ServiceForm({
         <p className="text-lg font-medium dark:text-white">
           {editingServiceId ? "Editar Servicio" : "Agregar Servicio"}
         </p>
-        <button className="p-2 rounded-full bg-black text-white dark:bg-white dark:text-black">
+        <button className="p-2 rounded-full bg-black text-white dark:bg-white dark:text-black transition-transform hover:scale-105 active:scale-100">
           {isFormVisible ? (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -80,7 +81,7 @@ export default function ServiceForm({
               viewBox="0 0 24 24"
               strokeWidth={1.5}
               stroke="currentColor"
-              className="size-6"
+              className="w-6 h-6"
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
             </svg>
@@ -91,7 +92,7 @@ export default function ServiceForm({
               viewBox="0 0 24 24"
               strokeWidth={1.5}
               stroke="currentColor"
-              className="size-6"
+              className="w-6 h-6"
             >
               <path
                 strokeLinecap="round"
@@ -102,7 +103,6 @@ export default function ServiceForm({
           )}
         </button>
       </div>
-
       {isFormVisible && (
         <motion.form
           initial={{ opacity: 0 }}
@@ -129,7 +129,6 @@ export default function ServiceForm({
               <option value="Asistencia Médica">Asistencia Médica</option>
             </select>
           </div>
-
           <div>
             <label className="block ml-2 text-sm font-medium dark:text-white">
               Descripción
@@ -143,7 +142,6 @@ export default function ServiceForm({
               placeholder="Detalles adicionales del servicio"
             />
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block ml-2 text-sm font-medium dark:text-white">
@@ -157,7 +155,6 @@ export default function ServiceForm({
                 className="w-full p-2 rounded-2xl border border-black dark:border-white outline-none"
               />
             </div>
-
             <div>
               <label className="block ml-2 text-sm font-medium dark:text-white">
                 Referencia
@@ -171,7 +168,6 @@ export default function ServiceForm({
               />
             </div>
           </div>
-
           <div>
             <label className="block text-sm font-medium dark:text-white ml-2">
               Desde
@@ -184,7 +180,6 @@ export default function ServiceForm({
               className="w-full p-2 rounded-2xl border border-black dark:border-white outline-none"
             />
           </div>
-
           <div>
             <label className="block text-sm font-medium dark:text-white ml-2">
               Hasta
@@ -197,7 +192,6 @@ export default function ServiceForm({
               className="w-full p-2 rounded-2xl border border-black dark:border-white outline-none"
             />
           </div>
-
           <div>
             <label className="block text-sm font-medium dark:text-white ml-2">
               Operador
@@ -216,7 +210,6 @@ export default function ServiceForm({
               ))}
             </select>
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block ml-2 text-sm font-medium dark:text-white">
@@ -232,11 +225,10 @@ export default function ServiceForm({
                 min="0"
                 required
               />
-              <p className="text-sm  dark:text-white ml-2">
+              <p className="text-sm dark:text-white ml-2">
                 {formatCurrency(formData.cost_price)}
               </p>
             </div>
-
             <div>
               <label className="block ml-2 text-sm font-medium dark:text-white">
                 Venta
@@ -251,12 +243,11 @@ export default function ServiceForm({
                 min="0"
                 required
               />
-              <p className="text-sm  dark:text-white ml-2">
+              <p className="text-sm dark:text-white ml-2">
                 {formatCurrency(formData.sale_price)}
               </p>
             </div>
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block ml-2 text-sm font-medium dark:text-white">
@@ -271,11 +262,10 @@ export default function ServiceForm({
                 step="0.01"
                 min="0"
               />
-              <p className="text-sm  dark:text-white ml-2">
+              <p className="text-sm dark:text-white ml-2">
                 {formatCurrency(formData.tax_21 || 0)}
               </p>
             </div>
-
             <div>
               <label className="block ml-2 text-sm font-medium dark:text-white">
                 Tax 10.5%
@@ -289,12 +279,11 @@ export default function ServiceForm({
                 step="0.01"
                 min="0"
               />
-              <p className="text-sm  dark:text-white ml-2">
+              <p className="text-sm dark:text-white ml-2">
                 {formatCurrency(formData.tax_105 || 0)}
               </p>
             </div>
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block ml-2 text-sm font-medium dark:text-white">
@@ -309,11 +298,10 @@ export default function ServiceForm({
                 step="0.01"
                 min="0"
               />
-              <p className="text-sm  dark:text-white ml-2">
+              <p className="text-sm dark:text-white ml-2">
                 {formatCurrency(formData.exempt || 0)}
               </p>
             </div>
-
             <div>
               <label className="block ml-2 text-sm font-medium dark:text-white">
                 No computable
@@ -327,12 +315,11 @@ export default function ServiceForm({
                 step="0.01"
                 min="0"
               />
-              <p className="text-sm  dark:text-white ml-2">
+              <p className="text-sm dark:text-white ml-2">
                 {formatCurrency(formData.not_computable || 0)}
               </p>
             </div>
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block ml-2 text-sm font-medium dark:text-white">
@@ -347,11 +334,10 @@ export default function ServiceForm({
                 step="0.01"
                 min="0"
               />
-              <p className="text-sm  dark:text-white ml-2">
+              <p className="text-sm dark:text-white ml-2">
                 {formatCurrency(formData.other_taxes || 0)}
               </p>
             </div>
-
             <div>
               <label className="block ml-2 text-sm font-medium dark:text-white">
                 Moneda
@@ -365,11 +351,9 @@ export default function ServiceForm({
               >
                 <option value="USD">USD</option>
                 <option value="ARS">ARS</option>
-                <option value="EUR">EUR</option>
               </select>
             </div>
           </div>
-
           <div>
             <label className="block ml-2 text-sm font-medium dark:text-white">
               Fecha de Pago
@@ -383,10 +367,9 @@ export default function ServiceForm({
               required
             />
           </div>
-
           <button
             type="submit"
-            className="py-2 px-6 rounded-full transition-transform bg-black text-white dark:bg-white dark:text-black"
+            className="block py-2 px-6 rounded-full transition-transform bg-black text-white dark:bg-white dark:text-black hover:scale-105 active:scale-100 text-center"
           >
             {editingServiceId ? "Guardar Cambios" : "Agregar Servicio"}
           </button>

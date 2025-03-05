@@ -13,7 +13,6 @@ export interface User {
   agency: Agency;
   bookings?: Booking[];
   sales_teams?: UserTeam[];
-  admin_records?: AdminRecord[];
 }
 
 // Agency.ts: Tipo de agencia
@@ -41,8 +40,6 @@ export interface Client {
   address?: string;
   postal_code?: string;
   locality?: string;
-  iva_condition?: string;
-  billing_preference?: string;
   company_name?: string;
   tax_id?: string;
   commercial_address?: string;
@@ -60,20 +57,19 @@ export interface Client {
   titular_reservas?: Booking[];
 }
 
-// Booking.ts: Tipo de reserva
 export interface Booking {
   id_booking: number;
   status: string;
   details?: string;
-  titular: Client; // Relación completa con el titular, como en Client
-  user: User; // Relación completa con el usuario que generó la reserva
-  agency: Agency; // Relación completa con la agencia asociada
-  departure_date: string; // Fecha de salida (puede ser null)
-  return_date: string; // Fecha de regreso (puede ser null)
-  observation?: string; // Observaciones adicionales
-  pax_count: number; // Cantidad de pasajeros
-  clients: Client[]; // Lista completa de clientes relacionados con la reserva
-  services?: Service[]; // Servicios asociados con la reserva
+  titular: Client;
+  user: User;
+  agency: Agency;
+  departure_date: string;
+  return_date: string;
+  observation?: string;
+  pax_count: number;
+  clients: Client[];
+  services?: Service[];
 }
 
 export interface BookingFormData {
@@ -130,29 +126,6 @@ export interface Operator {
   credit_balance: number;
   debit_balance: number;
   bookings?: Booking[];
-  transactions?: OperatorTransaction[];
-}
-
-// OperatorTransaction.ts: Tipo de transacción de operador
-export interface OperatorTransaction {
-  id_transaction: number;
-  type: string;
-  amount: number;
-  date: string;
-  id_operator: number;
-  operator: Operator;
-  details?: string;
-}
-
-// AdminRecord.ts: Tipo de registro administrativo
-export interface AdminRecord {
-  id_transaction: number;
-  type: string;
-  amount: number;
-  date: string;
-  description?: string;
-  id_user: number;
-  user: User;
 }
 
 // Invoice.ts: Tipo de factura
@@ -164,14 +137,9 @@ export interface Invoice {
   status: string;
   bookingId_booking: number;
   booking: Booking;
-}
-
-// AFIPAuthentication.ts: Tipo de autenticación de AFIP
-export interface AFIPAuthentication {
-  id_authentication: number;
-  token: string;
-  expiration_date: string;
-  created_at: string;
+  currency: "USD" | "ARS";
+  recipient: String;
+  client_id: number;
 }
 
 // SalesTeam.ts: Tipo de equipo de ventas
@@ -204,5 +172,3 @@ export interface UserProfile {
     seller?: string; // Opcional
   }[];
 }
-
-

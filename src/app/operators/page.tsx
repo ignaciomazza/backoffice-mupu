@@ -8,6 +8,7 @@ import OperatorList from "@/components/operators/OperatorList";
 import { Operator } from "@/types";
 import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
+import Spinner from "@/components/Spinner";
 import "react-toastify/dist/ReactToastify.css";
 
 export default function OperatorsPage() {
@@ -36,11 +37,26 @@ export default function OperatorsPage() {
   const [editingOperatorId, setEditingOperatorId] = useState<number | null>(
     null
   );
+  const [loadingOperators, setLoadingOperators] = useState<boolean>(true);
 
   useEffect(() => {
+    setLoadingOperators(true);
     fetch("/api/operators")
-      .then((res) => res.json())
-      .then((data) => setOperators(data));
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error("Error al obtener operadores");
+        }
+        return res.json();
+      })
+      .then((data) => {
+        setOperators(data);
+        setLoadingOperators(false);
+      })
+      .catch((error) => {
+        console.error("Error fetching operators:", error);
+        toast.error("Error al obtener operadores");
+        setLoadingOperators(false);
+      });
   }, []);
 
   const handleChange = (
@@ -52,6 +68,13 @@ export default function OperatorsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validación en el front: campos obligatorios
+    if (!formData.name || !formData.email || !formData.tax_id) {
+      toast.error("Falta completar campos!");
+      return;
+    }
+
     const url = editingOperatorId
       ? `/api/operators/${editingOperatorId}`
       : "/api/operators";
@@ -61,31 +84,30 @@ export default function OperatorsPage() {
       const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...formData,
-        }),
+        body: JSON.stringify(formData),
       });
 
-      if (response.ok) {
-        const operator = await response.json();
-        setOperators((prev) =>
-          editingOperatorId
-            ? prev.map((op) =>
-                op.id_operator === editingOperatorId ? operator : op
-              )
-            : [...prev, operator]
-        );
-        toast.success(
-          editingOperatorId
-            ? "Operador actualizado con éxito!"
-            : "Operador creado con éxito!"
-        );
-      } else {
-        throw new Error("Error al guardar el operador.");
+      if (!response.ok) {
+        const errorResponse = await response.json();
+        throw new Error(errorResponse.error || "Error al guardar el operador.");
       }
-    } catch (error) {
-      console.error(error);
-      toast.error("Error al guardar el operador.");
+
+      const operator = await response.json();
+      setOperators((prev) =>
+        editingOperatorId
+          ? prev.map((op) =>
+              op.id_operator === editingOperatorId ? operator : op
+            )
+          : [...prev, operator]
+      );
+      toast.success(
+        editingOperatorId
+          ? "Operador actualizado con éxito!"
+          : "Operador creado con éxito!"
+      );
+    } catch (error: any) {
+      console.error("Error al guardar el operador:", error.message || error);
+      toast.error(error.message || "Error al guardar el operador.");
     }
     resetForm();
   };
@@ -146,10 +168,11 @@ export default function OperatorsPage() {
         );
         toast.success("Operador eliminado con éxito!");
       } else {
-        toast.error("Error al eliminar el operador.");
+        throw new Error("Error al eliminar el operador.");
       }
-    } catch (error) {
-      console.error("Error al eliminar el operador:", error);
+    } catch (error: any) {
+      console.error("Error al eliminar el operador:", error.message || error);
+      toast.error("Error al eliminar el operador.");
     }
   };
 
@@ -166,14 +189,20 @@ export default function OperatorsPage() {
             setIsFormVisible={setIsFormVisible}
           />
         </motion.div>
-        <h2 className="text-2xl font-semibold dark:font-medium my-4">Operadores</h2>
-        <OperatorList
-          operators={operators}
-          expandedOperatorId={expandedOperatorId}
-          setExpandedOperatorId={setExpandedOperatorId}
-          startEditingOperator={startEditingOperator}
-          deleteOperator={deleteOperator}
-        />
+        <h2 className="text-2xl font-semibold dark:font-medium my-4">
+          Operadores
+        </h2>
+        {loadingOperators ? (
+          <Spinner />
+        ) : (
+          <OperatorList
+            operators={operators}
+            expandedOperatorId={expandedOperatorId}
+            setExpandedOperatorId={setExpandedOperatorId}
+            startEditingOperator={startEditingOperator}
+            deleteOperator={deleteOperator}
+          />
+        )}
         <ToastContainer />
       </section>
     </ProtectedRoute>

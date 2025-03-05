@@ -1,7 +1,6 @@
 // src/components/services/ServiceList.tsx
 
 "use client";
-
 import React from "react";
 import ServiceCard from "./ServiceCard";
 import { Service } from "@/types";

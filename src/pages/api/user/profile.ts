@@ -1,4 +1,5 @@
 // src/pages/api/user/profile.ts
+
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import jwt from "jsonwebtoken";
@@ -10,7 +11,6 @@ export default async function handler(
   res: NextApiResponse
 ) {
   const authHeader = req.headers.authorization;
-
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Token no proporcionado" });
   }
@@ -24,17 +24,11 @@ export default async function handler(
     const userProfile = await prisma.user.findUnique({
       where: { id_user: userId },
       include: {
-        bookings: {
-          include: { services: true },
-        },
+        bookings: { include: { services: true } },
         sales_teams: {
           include: {
             sales_team: {
-              include: {
-                user_teams: {
-                  include: { user: true },
-                },
-              },
+              include: { user_teams: { include: { user: true } } },
             },
           },
         },
@@ -46,7 +40,6 @@ export default async function handler(
     }
 
     let salesData;
-
     if (userProfile.role === "vendedor") {
       salesData = userProfile.bookings.map((booking) => ({
         id_booking: booking.id_booking,
@@ -58,17 +51,13 @@ export default async function handler(
         ),
       }));
     } else if (userProfile.role === "lider") {
-      // Obtener ventas del equipo
       const teamMemberIds = userProfile.sales_teams.flatMap((ut) =>
         ut.sales_team.user_teams.map((ut) => ut.user.id_user)
       );
 
       const teamSales = await prisma.booking.findMany({
         where: { id_user: { in: teamMemberIds } },
-        include: {
-          services: true,
-          user: true, 
-        },
+        include: { services: true, user: true },
       });
 
       salesData = teamSales.map((booking) => ({
@@ -79,7 +68,7 @@ export default async function handler(
           (sum, service) => sum + service.sale_price,
           0
         ),
-        seller: `${booking.user.first_name} ${booking.user.last_name}`, 
+        seller: `${booking.user.first_name} ${booking.user.last_name}`,
       }));
     }
 
@@ -91,8 +80,14 @@ export default async function handler(
       role: userProfile.role,
       salesData,
     });
-  } catch (error) {
-    console.error("Error al verificar token:", error);
-    res.status(401).json({ error: "Token inválido" });
+  } catch (error: any) {
+    // Solo se loguea si NO es un error de token expirado
+    if (error.name !== "TokenExpiredError") {
+      console.error("Error al verificar token:", error);
+    }
+    if (error.name === "TokenExpiredError") {
+      return res.status(401).json({ error: "El token ha expirado" });
+    }
+    return res.status(401).json({ error: "Token inválido" });
   }
 }

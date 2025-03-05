@@ -116,12 +116,6 @@ export default function ClientCard({
             </span>
           </p>
           <p className="font-semibold dark:font-medium">
-            Condición IVA
-            <span className="font-light ml-2">
-              {client.iva_condition || "-"}
-            </span>
-          </p>
-          <p className="font-semibold dark:font-medium">
             Razón Social
             <span className="font-light ml-2">
               {client.company_name || "-"}
@@ -131,12 +125,6 @@ export default function ClientCard({
             Dirección Comercial
             <span className="font-light ml-2">
               {client.commercial_address || "-"}
-            </span>
-          </p>
-          <p className="font-semibold dark:font-medium">
-            Preferencia de Facturación
-            <span className="font-light ml-2">
-              {client.billing_preference || "-"}
             </span>
           </p>
         </>

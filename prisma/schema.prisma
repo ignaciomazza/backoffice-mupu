@@ -35,7 +35,6 @@ model User {
   agency        Agency        @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   bookings      Booking[]
   sales_teams   UserTeam[]
-  admin_records AdminRecord[]
 }
 
 model Client {
@@ -46,8 +45,6 @@ model Client {
   address            String?
   postal_code        String?
   locality           String?
-  iva_condition      String?
-  billing_preference String?
   company_name       String?
   tax_id             String?
   commercial_address String?
@@ -63,26 +60,27 @@ model Client {
   passport_expiry    DateTime?
   bookings           Booking[] @relation("BookingClients")
   titular_reservas   Booking[] @relation("Titular")
+  invoices           Invoice[] @relation("ClientInvoices")
 }
 
 model Booking {
-  id_booking          Int       @id @default(autoincrement())
-  status              String
-  details             String?
-  creation_date       DateTime  @default(now())
-  id_user             Int
-  user                User      @relation(fields: [id_user], references: [id_user])
-  id_agency           Int
-  agency              Agency    @relation(fields: [id_agency], references: [id_agency])
-  titular_id          Int
-  titular             Client    @relation("Titular", fields: [titular_id], references: [id_client])
-  clients             Client[]  @relation("BookingClients")
-  services            Service[]
-  departure_date      DateTime
-  return_date         DateTime
-  observation         String?
-  pax_count           Int       @default(1)
-  invoice             Invoice?
+  id_booking     Int       @id @default(autoincrement())
+  status         String
+  details        String?
+  creation_date  DateTime  @default(now())
+  id_user        Int
+  user           User      @relation(fields: [id_user], references: [id_user])
+  id_agency      Int
+  agency         Agency    @relation(fields: [id_agency], references: [id_agency])
+  titular_id     Int
+  titular        Client    @relation("Titular", fields: [titular_id], references: [id_client])
+  clients        Client[]  @relation("BookingClients")
+  services       Service[]
+  departure_date DateTime
+  return_date    DateTime
+  observation    String?
+  pax_count      Int       @default(1)
+  invoices       Invoice[] @relation("BookingInvoices")
 }
 
 model Service {
@@ -107,7 +105,7 @@ model Service {
   created_at       DateTime  @default(now())
   booking_id       Int
   booking          Booking   @relation(fields: [booking_id], references: [id_booking], onDelete: Cascade)
-  id_operator      Int 
+  id_operator      Int
   operator         Operator  @relation(fields: [id_operator], references: [id_operator], onDelete: Cascade)
 }
 
@@ -129,44 +127,34 @@ model Operator {
   credit_balance    Float                 @default(0)
   debit_balance     Float                 @default(0)
   services          Service[]
-  transactions      OperatorTransaction[]
-}
-
-model OperatorTransaction {
-  id_transaction Int      @id @default(autoincrement())
-  type           String
-  amount         Float
-  date           DateTime @default(now())
-  id_operator    Int
-  operator       Operator @relation(fields: [id_operator], references: [id_operator])
-  details        String?
-}
-
-model AdminRecord {
-  id_transaction Int      @id @default(autoincrement())
-  type           String
-  amount         Float
-  date           DateTime @default(now())
-  description    String?
-  id_user        Int
-  user           User     @relation(fields: [id_user], references: [id_user])
 }
 
 model Invoice {
-  id_invoice        Int      @id @default(autoincrement())
-  invoice_number    String   @unique
-  issue_date        DateTime @default(now())
+  id_invoice        Int          @id @default(autoincrement())
+  invoice_number    String       @unique
+  issue_date        DateTime     @default(now())
   total_amount      Float
+  currency          String
   status            String
-  bookingId_booking Int      @unique
-  booking           Booking  @relation(fields: [bookingId_booking], references: [id_booking])
+  type              String
+  recipient         String
+  details           String?
+  facturaHtml       String? // Nuevo campo para almacenar el HTML de la factura
+  bookingId_booking Int
+  booking           Booking      @relation("BookingInvoices", fields: [bookingId_booking], references: [id_booking])
+  client_id         Int
+  client            Client       @relation("ClientInvoices", fields: [client_id], references: [id_client])
+  credit_notes      CreditNote[]
 }
 
-model AFIPAuthentication {
-  id_authentication Int      @id @default(autoincrement())
-  token             String
-  expiration_date   DateTime
-  created_at        DateTime @default(now())
+model CreditNote {
+  id_credit_note Int      @id @default(autoincrement())
+  credit_number  String   @unique
+  issue_date     DateTime @default(now())
+  amount         Float
+  details        String?
+  invoiceId      Int
+  invoice        Invoice  @relation(fields: [invoiceId], references: [id_invoice])
 }
 
 model SalesTeam {

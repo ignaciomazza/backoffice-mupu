@@ -6,16 +6,12 @@ import UserCard from "./UserCard";
 
 interface UserListProps {
   users: User[];
-  expandedUserId: number | null;
-  setExpandedUserId: React.Dispatch<React.SetStateAction<number | null>>;
   startEditingUser: (user: User) => void;
   deleteUser: (id: number) => void;
 }
 
 export default function UserList({
   users,
-  expandedUserId,
-  setExpandedUserId,
   startEditingUser,
   deleteUser,
 }: UserListProps) {
@@ -25,8 +21,6 @@ export default function UserList({
         <UserCard
           key={user.id_user}
           user={user}
-          expandedUserId={expandedUserId}
-          setExpandedUserId={setExpandedUserId}
           startEditingUser={startEditingUser}
           deleteUser={deleteUser}
         />

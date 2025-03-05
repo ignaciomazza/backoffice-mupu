@@ -61,7 +61,6 @@ export default async function handler(
         sale_price === undefined ||
         cost_price === undefined ||
         !id_operator ||
-        !currency ||
         !payment_due_date ||
         !booking_id
       ) {

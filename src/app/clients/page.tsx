@@ -8,11 +8,13 @@ import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
 import ClientForm from "@/components/clients/ClientForm";
 import ClientList from "@/components/clients/ClientList";
+import Spinner from "@/components/Spinner";
 import "react-toastify/dist/ReactToastify.css";
 
 export default function Page() {
   const [clients, setClients] = useState<Client[]>([]);
   const [expandedClientId, setExpandedClientId] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [formData, setFormData] = useState<
     Omit<Client, "id_client" | "registration_date">
   >({
@@ -22,8 +24,6 @@ export default function Page() {
     address: "",
     postal_code: "",
     locality: "",
-    iva_condition: "",
-    billing_preference: "",
     company_name: "",
     tax_id: "",
     commercial_address: "",
@@ -41,9 +41,25 @@ export default function Page() {
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch("/api/clients")
-      .then((res) => res.json())
-      .then((data) => setClients(data));
+    const fetchClients = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetch("/api/clients");
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Error al obtener clientes");
+        }
+        const data = await response.json();
+        setClients(data);
+      } catch (error) {
+        console.error("Error fetching clients:", error);
+        toast.error("Error al obtener clientes.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchClients();
   }, []);
 
   const handleChange = (
@@ -55,48 +71,57 @@ export default function Page() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const url = editingClientId
-      ? `/api/clients/${editingClientId}`
-      : "/api/clients";
-    const method = editingClientId ? "PUT" : "POST";
+    try {
+      const url = editingClientId
+        ? `/api/clients/${editingClientId}`
+        : "/api/clients";
+      const method = editingClientId ? "PUT" : "POST";
 
-    const response = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...formData,
-        dni_issue_date: formData.dni_issue_date
-          ? new Date(formData.dni_issue_date).toISOString()
-          : null,
-        dni_expiry_date: formData.dni_expiry_date
-          ? new Date(formData.dni_expiry_date).toISOString()
-          : null,
-        birth_date: formData.birth_date
-          ? new Date(formData.birth_date).toISOString()
-          : null,
-        passport_issue: formData.passport_issue
-          ? new Date(formData.passport_issue).toISOString()
-          : null,
-        passport_expiry: formData.passport_expiry
-          ? new Date(formData.passport_expiry).toISOString()
-          : null,
-      }),
-    });
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...formData,
+          dni_issue_date: formData.dni_issue_date
+            ? new Date(formData.dni_issue_date).toISOString()
+            : null,
+          dni_expiry_date: formData.dni_expiry_date
+            ? new Date(formData.dni_expiry_date).toISOString()
+            : null,
+          birth_date: formData.birth_date
+            ? new Date(formData.birth_date).toISOString()
+            : null,
+          passport_issue: formData.passport_issue
+            ? new Date(formData.passport_issue).toISOString()
+            : null,
+          passport_expiry: formData.passport_expiry
+            ? new Date(formData.passport_expiry).toISOString()
+            : null,
+        }),
+      });
 
-    if (response.ok) {
-      const newClient = await response.json();
-      setClients((prevClients) =>
-        editingClientId
-          ? prevClients.map((client) =>
-              client.id_client === editingClientId ? newClient : client
-            )
-          : [...prevClients, newClient]
-      );
-      toast.success("Cliente guardado con éxito!");
-    } else {
-      toast.error("Error al guardar el cliente.");
+      if (response.ok) {
+        const newClient = await response.json();
+        setClients((prevClients) =>
+          editingClientId
+            ? prevClients.map((client) =>
+                client.id_client === editingClientId ? newClient : client
+              )
+            : [...prevClients, newClient]
+        );
+        toast.success("Cliente guardado con éxito!");
+      } else {
+        const errorData = await response.json();
+        toast.error(
+          errorData.error || "Error al guardar el cliente. Intente nuevamente."
+        );
+      }
+    } catch (error) {
+      console.error("Error al guardar el cliente:", error);
+      toast.error("Error al guardar el cliente. Intente nuevamente.");
     }
 
+    // Reiniciar formulario
     setFormData({
       first_name: "",
       last_name: "",
@@ -104,8 +129,6 @@ export default function Page() {
       address: "",
       postal_code: "",
       locality: "",
-      iva_condition: "",
-      billing_preference: "",
       company_name: "",
       tax_id: "",
       commercial_address: "",
@@ -124,17 +147,25 @@ export default function Page() {
   };
 
   const deleteClient = async (id: number) => {
-    const response = await fetch(`/api/clients/${id}`, {
-      method: "DELETE",
-    });
+    try {
+      const response = await fetch(`/api/clients/${id}`, {
+        method: "DELETE",
+      });
 
-    if (response.ok) {
-      setClients((prevClients) =>
-        prevClients.filter((client) => client.id_client !== id)
-      );
-      toast.success("Cliente eliminado con éxito!");
-    } else {
-      toast.error("Error al eliminar el cliente.");
+      if (response.ok) {
+        setClients((prevClients) =>
+          prevClients.filter((client) => client.id_client !== id)
+        );
+        toast.success("Cliente eliminado con éxito!");
+      } else {
+        const errorData = await response.json();
+        toast.error(
+          errorData.error || "Error al eliminar el cliente. Intente nuevamente."
+        );
+      }
+    } catch (error) {
+      console.error("Error al eliminar el cliente:", error);
+      toast.error("Error al eliminar el cliente. Intente nuevamente.");
     }
   };
 
@@ -146,8 +177,6 @@ export default function Page() {
       address: client.address || "",
       postal_code: client.postal_code || "",
       locality: client.locality || "",
-      iva_condition: client.iva_condition || "",
-      billing_preference: client.billing_preference || "",
       company_name: client.company_name || "",
       tax_id: client.tax_id || "",
       commercial_address: client.commercial_address || "",
@@ -196,15 +225,21 @@ export default function Page() {
             setIsFormVisible={setIsFormVisible}
           />
         </motion.div>
-        <h2 className="text-2xl font-semibold dark:font-medium my-4">Clientes</h2>
-        <ClientList
-          clients={clients}
-          expandedClientId={expandedClientId}
-          setExpandedClientId={setExpandedClientId}
-          formatDate={formatDate}
-          startEditingClient={startEditingClient}
-          deleteClient={deleteClient}
-        />
+        <h2 className="text-2xl font-semibold dark:font-medium my-4">
+          Clientes
+        </h2>
+        {isLoading ? (
+          <Spinner />
+        ) : (
+          <ClientList
+            clients={clients}
+            expandedClientId={expandedClientId}
+            setExpandedClientId={setExpandedClientId}
+            formatDate={formatDate}
+            startEditingClient={startEditingClient}
+            deleteClient={deleteClient}
+          />
+        )}
         <ToastContainer />
       </section>
     </ProtectedRoute>
