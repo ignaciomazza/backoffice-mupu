@@ -15,7 +15,7 @@ interface InvoiceFormData {
   tipoFactura: string;
   clientIds: string[];
   services: string[];
-  exchangeRate: string;
+  exchangeRate?: string;
 }
 
 export default function ServicesPage() {
@@ -181,7 +181,10 @@ export default function ServicesPage() {
   };
 
   // Tipamos "updateFormData" para evitar "any"
-  const updateFormData = (key: string, value: string | string[]): void => {
+  const updateFormData = (
+    key: keyof InvoiceFormData,
+    value: InvoiceFormData[keyof InvoiceFormData],
+  ): void => {
     setInvoiceFormData((prev) => ({ ...prev, [key]: value }));
   };
 

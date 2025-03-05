@@ -111,17 +111,17 @@ export interface Service {
 export interface Operator {
   id_operator: number;
   name: string;
-  email?: string;
-  phone?: string;
-  website?: string;
-  address?: string;
-  postal_code?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  vat_status?: string;
-  legal_name?: string;
-  tax_id?: string;
+  email: string;
+  phone: string;
+  website: string;
+  address: string;
+  postal_code: string;
+  city: string;
+  state: string;
+  country: string;
+  vat_status: string;
+  legal_name: string;
+  tax_id: string;
   registration_date: string;
   credit_balance: number;
   debit_balance: number;

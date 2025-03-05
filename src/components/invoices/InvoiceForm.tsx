@@ -1,7 +1,5 @@
 // src/components/invoices/InvoiceForm.tsx
 
-// src/components/invoices/InvoiceForm.tsx
-
 "use client";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
@@ -22,7 +20,6 @@ interface InvoiceFormProps {
   handleSubmit: (e: React.FormEvent) => void;
   isFormVisible: boolean;
   setIsFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
-  // Ahora updateFormData está fuertemente tipado
   updateFormData: (
     key: keyof InvoiceFormData,
     value: InvoiceFormData[keyof InvoiceFormData],

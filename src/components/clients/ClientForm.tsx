@@ -11,7 +11,7 @@ export interface ClientFormData {
   postal_code?: string;
   locality?: string;
   company_name?: string;
-  tax_id: string;
+  tax_id?: string;
   commercial_address?: string;
   dni_number?: string;
   passport_number?: string;

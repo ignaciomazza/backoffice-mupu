@@ -94,7 +94,6 @@ export default function ServicesContainer({
   setExpandedServiceId,
   setIsInvoiceFormVisible,
 }: ServicesContainerProps) {
-  // Si ya terminó la carga pero no se obtuvo la reserva, mostramos un fallback
   if (!loading && !booking) {
     return (
       <div className="flex size-64 flex-col items-center justify-center">
