@@ -36,27 +36,28 @@ export default function InvoiceForm({
 }: InvoiceFormProps) {
   const [clientCount, setClientCount] = useState<number>(1);
   const [serviceCount, setServiceCount] = useState<number>(1);
+  // Guarda el valor obtenido de AFIP, sin forzar su copia al input
   const [fetchedExchangeRate, setFetchedExchangeRate] = useState<string>("");
 
-  useEffect(() => {
-    const fetchExchangeRate = async () => {
-      try {
-        const res = await fetch("/api/exchangeRate");
-        const data = await res.json();
-        if (data.success) {
-          setFetchedExchangeRate(data.rate.toString());
-          if (!formData.exchangeRate) {
-            updateFormData("exchangeRate", data.rate.toString());
-          }
-        } else {
-          console.error("No se pudo obtener la cotización del dólar.");
-        }
-      } catch (error) {
-        console.error("Error fetching exchange rate:", error);
+  // Función que consulta la cotización y actualiza el estado local
+  const fetchExchangeRate = async () => {
+    try {
+      const res = await fetch("/api/exchangeRate");
+      const data = await res.json();
+      if (data.success) {
+        setFetchedExchangeRate(data.rate.toString());
+      } else {
+        console.error("No se pudo obtener la cotización del dólar.");
       }
-    };
+    } catch (error) {
+      console.error("Error fetching exchange rate:", error);
+    }
+  };
+
+  // Ejecuta el fetch solo una vez al montar el componente
+  useEffect(() => {
     fetchExchangeRate();
-  }, [updateFormData, formData.exchangeRate]);
+  }, []);
 
   return (
     <motion.div
@@ -125,6 +126,7 @@ export default function InvoiceForm({
           }}
           className="space-y-4"
         >
+          {/* Otros campos del formulario */}
           <div>
             <label className="ml-2 block dark:text-white">
               Tipo de Factura
@@ -205,14 +207,20 @@ export default function InvoiceForm({
             <label className="ml-2 block dark:text-white">
               Cotización del dólar (opcional)
             </label>
-            <input
-              type="text"
-              name="exchangeRate"
-              value={formData.exchangeRate || fetchedExchangeRate || ""}
-              onChange={handleChange}
-              className="w-full rounded-2xl border border-black p-2 outline-none"
-              placeholder="Cotización actual"
-            />
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                name="exchangeRate"
+                value={formData.exchangeRate || ""}
+                onChange={handleChange}
+                placeholder={
+                  fetchedExchangeRate
+                    ? `Cotización: ${fetchedExchangeRate}`
+                    : "Cotización actual"
+                }
+                className="w-full rounded-2xl border border-black p-2 outline-none"
+              />
+            </div>
             <p className="ml-2 text-sm dark:text-white">
               Valor obtenido de AFIP: {fetchedExchangeRate || "Cargando..."}
             </p>
