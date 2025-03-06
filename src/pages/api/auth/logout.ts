@@ -8,7 +8,6 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  // Se elimina la cookie estableciendo un Max-Age de 0
   res.setHeader(
     "Set-Cookie",
     `token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax; Secure=${

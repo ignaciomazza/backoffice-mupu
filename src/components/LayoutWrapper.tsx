@@ -1,9 +1,8 @@
 // src/components/LayoutWrapper.tsx
 
 "use client";
-
 import { useState } from "react";
-import { usePathname } from "next/navigation"; // Importar para obtener la ruta actual
+import { usePathname } from "next/navigation"; 
 import Header from "./Header";
 import SideBar from "./SideBar";
 
@@ -13,12 +12,12 @@ export default function LayoutWrapper({
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const pathname = usePathname() || ""; // Asegura que siempre sea una string, usando "" como valor por defecto
+  const pathname = usePathname() || ""; 
 
   const toggleMenu = () => setMenuOpen(!menuOpen);
   const closeMenu = () => setMenuOpen(false);
 
-  const isLoginPage = pathname === "/login"; // Verificar si estamos en la página de login
+  const isLoginPage = pathname === "/login"; 
 
   return (
     <div className="flex min-h-screen flex-col bg-white text-black dark:bg-black dark:text-white">
@@ -32,7 +31,7 @@ export default function LayoutWrapper({
           <SideBar
             menuOpen={menuOpen}
             closeMenu={closeMenu}
-            currentPath={pathname} // Se pasa pathname sin problemas
+            currentPath={pathname} 
           />
         )}
         <main

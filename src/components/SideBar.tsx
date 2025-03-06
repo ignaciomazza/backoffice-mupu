@@ -1,5 +1,4 @@
 // src/components/SideBar.tsx
-
 "use client";
 
 import Link from "next/link";
@@ -20,17 +19,48 @@ export default function SideBar({
 }: SidebarProps) {
   const { setToken } = useAuth();
   const router = useRouter();
-
   const [mounted, setMounted] = useState(false);
+  const [role, setRole] = useState<string | null>(null);
+
   useEffect(() => {
     setMounted(true);
   }, []);
-  if (!mounted) {
-    return null;
-  }
+
+  // Obtiene el rol del usuario
+  useEffect(() => {
+    const fetchRole = async () => {
+      try {
+        const res = await fetch("/api/user/role");
+        const data = await res.json();
+        console.log("[SideBar] Rol obtenido:", data);
+        if (data && data.role) {
+          setRole(data.role.toLowerCase());
+        }
+      } catch (error) {
+        console.error("[SideBar] Error obteniendo rol:", error);
+      }
+    };
+    fetchRole();
+  }, []);
+
+  const hasAccess = (route: string): boolean => {
+    if (!role) return false;
+    switch (route) {
+      case "/operators":
+        return ["desarrollador", "administrativo"].includes(role);
+      case "/agency":
+        return ["desarrollador", "gerente"].includes(role);
+      case "/users":
+        return ["desarrollador"].includes(role);
+      case "/teams":
+        return ["desarrollador", "gerente"].includes(role);
+
+      default:
+        return true;
+    }
+  };
 
   const handleLogout = async () => {
-    // Se llama al endpoint de logout para borrar la cookie HttpOnly en el backend
     await fetch("/api/auth/logout", {
       method: "POST",
       credentials: "include",
@@ -39,6 +69,10 @@ export default function SideBar({
     closeMenu();
     router.push("/login");
   };
+
+  if (!mounted) {
+    return null;
+  }
 
   return (
     <aside
@@ -88,58 +122,66 @@ export default function SideBar({
               Reservas
             </Link>
           </li>
-          <li className="transition-transform hover:scale-105 active:scale-100">
-            <Link
-              href="/operators"
-              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
-                currentPath === "/operators"
-                  ? "bg-black text-white dark:bg-white dark:text-black"
-                  : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
-              }`}
-              onClick={closeMenu}
-            >
-              Operadores
-            </Link>
-          </li>
-          <li className="transition-transform hover:scale-105 active:scale-100">
-            <Link
-              href="/agency"
-              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
-                currentPath === "/agency"
-                  ? "bg-black text-white dark:bg-white dark:text-black"
-                  : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
-              }`}
-              onClick={closeMenu}
-            >
-              Agencia
-            </Link>
-          </li>
-          <li className="transition-transform hover:scale-105 active:scale-100">
-            <Link
-              href="/users"
-              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
-                currentPath === "/users"
-                  ? "bg-black text-white dark:bg-white dark:text-black"
-                  : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
-              }`}
-              onClick={closeMenu}
-            >
-              Usuarios
-            </Link>
-          </li>
-          <li className="transition-transform hover:scale-105 active:scale-100">
-            <Link
-              href="/teams"
-              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
-                currentPath === "/teams"
-                  ? "bg-black text-white dark:bg-white dark:text-black"
-                  : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
-              }`}
-              onClick={closeMenu}
-            >
-              Equipos
-            </Link>
-          </li>
+          {hasAccess("/operators") && (
+            <li className="transition-transform hover:scale-105 active:scale-100">
+              <Link
+                href="/operators"
+                className={`block rounded-full py-2 text-center transition-colors duration-200 ${
+                  currentPath === "/operators"
+                    ? "bg-black text-white dark:bg-white dark:text-black"
+                    : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
+                }`}
+                onClick={closeMenu}
+              >
+                Operadores
+              </Link>
+            </li>
+          )}
+          {hasAccess("/agency") && (
+            <li className="transition-transform hover:scale-105 active:scale-100">
+              <Link
+                href="/agency"
+                className={`block rounded-full py-2 text-center transition-colors duration-200 ${
+                  currentPath === "/agency"
+                    ? "bg-black text-white dark:bg-white dark:text-black"
+                    : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
+                }`}
+                onClick={closeMenu}
+              >
+                Agencia
+              </Link>
+            </li>
+          )}
+          {hasAccess("/users") && (
+            <li className="transition-transform hover:scale-105 active:scale-100">
+              <Link
+                href="/users"
+                className={`block rounded-full py-2 text-center transition-colors duration-200 ${
+                  currentPath === "/users"
+                    ? "bg-black text-white dark:bg-white dark:text-black"
+                    : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
+                }`}
+                onClick={closeMenu}
+              >
+                Usuarios
+              </Link>
+            </li>
+          )}
+          {hasAccess("/teams") && (
+            <li className="transition-transform hover:scale-105 active:scale-100">
+              <Link
+                href="/teams"
+                className={`block rounded-full py-2 text-center transition-colors duration-200 ${
+                  currentPath === "/teams"
+                    ? "bg-black text-white dark:bg-white dark:text-black"
+                    : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
+                }`}
+                onClick={closeMenu}
+              >
+                Equipos
+              </Link>
+            </li>
+          )}
         </ul>
         <div className="mt-auto pt-4">
           <button
