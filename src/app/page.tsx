@@ -19,6 +19,7 @@ export default function ProfilePage() {
       try {
         const res = await fetch("/api/user/profile", {
           headers: { Authorization: `Bearer ${token}` },
+          credentials: "include", 
         });
 
         if (!res.ok) {
