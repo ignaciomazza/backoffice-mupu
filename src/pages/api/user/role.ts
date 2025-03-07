@@ -11,17 +11,9 @@ export default async function handler(
 ) {
   console.log("[User Role] Request recibido");
 
-  // Intentar obtener el token del header o de la cookie
-  let token: string | undefined;
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    token = authHeader.split(" ")[1];
-  } else if (req.cookies.token) {
-    token = req.cookies.token;
-  }
-
+  const token = req.cookies.token;
   if (!token) {
-    console.log("[User Role] No se encontró token");
+    console.log("[User Role] No se encontró token en cookies");
     return res.status(401).json({ error: "No autenticado" });
   }
 
