@@ -16,6 +16,18 @@ export default async function handler(
       res.status(500).json({ error: "Error al obtener la agencia" });
     }
   } else if (req.method === "POST") {
+    if (!req.body || typeof req.body !== "object") {
+      return res.status(400).json({
+        error: "El cuerpo de la solicitud debe ser un objeto JSON válido",
+      });
+    }
+
+    if (Array.isArray(req.body)) {
+      return res
+        .status(400)
+        .json({ error: "El cuerpo de la solicitud no debe ser un array" });
+    }
+
     const {
       name,
       address,
