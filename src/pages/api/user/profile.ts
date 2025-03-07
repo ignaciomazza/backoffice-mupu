@@ -75,6 +75,8 @@ export default async function handler(
     return res.status(200).json({
       id_user: userId,
       name: `${userProfile.first_name} ${userProfile.last_name}`,
+      first_name: userProfile.first_name,
+      last_name: userProfile.last_name,
       email: userProfile.email,
       position: userProfile.position,
       role: userProfile.role,
