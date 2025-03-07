@@ -262,7 +262,7 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   initial="hidden"
                   animate="visible"
                   transition={{ duration: 0.4 }}
-                  className="cursor-pointer self-end rounded-2xl bg-black p-3 text-black dark:bg-white dark:text-black"
+                  className="cursor-pointer self-end rounded-2xl bg-black p-3 text-white dark:bg-white dark:text-black"
                 >
                   {conversationStep === 1 ? (
                     <AnimatedButton
@@ -284,7 +284,7 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   initial="hidden"
                   animate="visible"
                   transition={{ duration: 0.4 }}
-                  className="self-end rounded-2xl bg-black p-3 text-black dark:bg-white dark:text-black"
+                  className="self-end rounded-2xl bg-black p-3 text-white dark:bg-white dark:text-black"
                 >
                   {conversationStep === 2 ? (
                     <AnimatedMessage
