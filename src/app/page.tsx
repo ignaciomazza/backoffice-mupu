@@ -215,7 +215,7 @@ El propósito es acompañarte en tu camino ${roleMessage}
 Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas, para potenciar tu gestión.`;
   const functionalitiesText = [
     `El sistema te permite agregar clientes, editarlos o eliminarlos.`,
-    `Además, puedes cargar reservas, añadir servicios y generar facturas. ¡Explora sin miedo, estamos en etapa de prueba!`,
+    `Además, podes asociar reservas a esos clientes, añadirle servicios y generar facturas. ¡Explora sin miedo, estamos en etapa de prueba!`,
   ];
 
   // Velocidades para animación
