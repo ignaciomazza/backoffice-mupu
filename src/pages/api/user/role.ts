@@ -11,7 +11,6 @@ export default async function handler(
 ) {
   console.log("[User Role] Request recibido");
 
-  // Extraer el token desde las cookies
   const token = req.cookies.token;
   if (!token) {
     console.log("[User Role] No se encontró token en cookies");
@@ -19,7 +18,6 @@ export default async function handler(
   }
 
   try {
-    // Decodificar el token
     const decoded = jwt.verify(token, JWT_SECRET) as {
       userId: number;
       role: string;

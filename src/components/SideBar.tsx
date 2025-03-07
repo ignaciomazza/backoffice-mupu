@@ -26,7 +26,6 @@ export default function SideBar({
     setMounted(true);
   }, []);
 
-  // Obtiene el rol del usuario
   useEffect(() => {
     const fetchRole = async () => {
       try {

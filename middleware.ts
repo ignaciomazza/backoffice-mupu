@@ -28,7 +28,6 @@ async function verifyToken(token: string): Promise<MyJWTPayload> {
 export async function middleware(req: NextRequest) {
   console.log("[Middleware] Inicio para:", req.nextUrl.pathname);
 
-  // Excluir rutas que no queremos proteger (login, _next, favicon)
   if (
     req.nextUrl.pathname.startsWith("/login") ||
     req.nextUrl.pathname.startsWith("/_next") ||
@@ -77,7 +76,6 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(new URL("/login", req.url));
     }
 
-    // Agregamos el userId a los headers para que lo lean los endpoints
     const modifiedHeaders = new Headers(req.headers);
     modifiedHeaders.set("x-user-id", userId.toString());
     console.log("[Middleware] Acceso permitido. Continuando con request.");
@@ -89,6 +87,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Aplica el middleware a todas las rutas excepto /login, _next y favicon
   matcher: ["/((?!login|_next|favicon.ico).*)"],
 };

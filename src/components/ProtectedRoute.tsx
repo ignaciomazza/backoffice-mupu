@@ -15,10 +15,9 @@ export default function ProtectedRoute({
   const router = useRouter();
   const pathname = usePathname() || "";
 
-  // Estado para control de sesión por inactividad
   const [sessionExpired, setSessionExpired] = useState(false);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const INACTIVITY_TIMEOUT = 1000 * 60 * 60 * 5; // 5 horas
+  const INACTIVITY_TIMEOUT = 1000 * 60 * 60 * 5;
 
   const resetInactivityTimer = useCallback(() => {
     if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
@@ -52,7 +51,6 @@ export default function ProtectedRoute({
     }
   }, [loading, token, router]);
 
-  // Estado para el rol del usuario obtenido del endpoint
   const [role, setRole] = useState<string | null>(null);
   useEffect(() => {
     if (!loading && token) {

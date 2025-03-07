@@ -35,14 +35,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (res.ok) {
           const data = await res.json();
           setTokenState(data.token);
-          // Obtén el role haciendo un fetch desde el frontend
           const roleRes = await fetch("/api/user/role", {
             credentials: "include",
           });
           if (roleRes.ok) {
             const roleData = await roleRes.json();
             setRoleState(roleData.role);
-            // Guardamos el role en una cookie (no HttpOnly, ya que se define en el frontend)
             document.cookie = `role=${roleData.role}; path=/;`;
           } else {
             setRoleState(null);
