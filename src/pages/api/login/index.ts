@@ -37,7 +37,7 @@ export default async function handler(
     console.log("[Login] Token generado:", token);
 
     // Configuramos la cookie según el entorno
-    let cookieOptions = "HttpOnly; Path=/; Max-Age=3600; SameSite=Lax";
+    let cookieOptions = "HttpOnly; Path=/; Max-Age=43200; SameSite=Lax";
     if (process.env.NODE_ENV === "production") {
       cookieOptions += "; Secure";
     }
