@@ -5,6 +5,14 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
 import { motion } from "framer-motion";
 
+interface UserProfile {
+  first_name: string;
+  last_name: string;
+  name: string;
+  position: string;
+  role: string;
+}
+
 // Definir el tipo Role para roles específicos
 type Role =
   | "desarrollador"
@@ -147,7 +155,7 @@ const bubbleVariants = {
 };
 
 export default function HomePage() {
-  const [userProfile, setUserProfile] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const { token } = useAuth();
 
@@ -378,7 +386,7 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                 </motion.div>
               )}
               {/* Bloque 7: Card con datos del usuario */}
-              {conversationStep >= 7 && (
+              {conversationStep >= 7 && userProfile !== null && (
                 <motion.div
                   key="block-7"
                   variants={bubbleVariants}
