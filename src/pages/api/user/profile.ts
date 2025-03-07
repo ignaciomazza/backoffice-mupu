@@ -10,14 +10,8 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  let token: string | undefined;
-
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    token = authHeader.split(" ")[1];
-  } else {
-    token = req.cookies.token;
-  }
+  // Usamos el token de la cookie, ya que en producción el header Authorization no es fiable
+  const token = req.cookies.token;
 
   if (!token) {
     return res.status(401).json({ error: "Token no proporcionado" });
@@ -78,7 +72,7 @@ export default async function handler(
       }));
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       id_user: userId,
       name: `${userProfile.first_name} ${userProfile.last_name}`,
       email: userProfile.email,
@@ -88,12 +82,10 @@ export default async function handler(
     });
   } catch (error: unknown) {
     const err = error as Error;
-    if (err.name !== "TokenExpiredError") {
-      console.error("Error al verificar token:", err);
-    }
     if (err.name === "TokenExpiredError") {
       return res.status(401).json({ error: "El token ha expirado" });
     }
+    console.error("Error al verificar token:", err);
     return res.status(401).json({ error: "Token inválido" });
   }
 }
