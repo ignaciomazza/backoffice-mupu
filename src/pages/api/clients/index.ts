@@ -19,33 +19,28 @@ export default async function handler(
     try {
       const client = req.body;
 
+      // Validar campos obligatorios según el modelo
       const requiredFields = [
         "first_name",
         "last_name",
         "phone",
-        "address",
-        "postal_code",
-        "locality",
-        "tax_id",
         "dni_number",
-        "passport_number",
         "dni_issue_date",
         "dni_expiry_date",
         "birth_date",
         "nationality",
         "gender",
-        "passport_issue",
-        "passport_expiry",
       ];
 
       for (const field of requiredFields) {
         if (!client[field]) {
           return res
             .status(400)
-            .json({ error: `Le falto cargar un campo obligatorio.` });
+            .json({ error: `El campo ${field} es obligatorio.` });
         }
       }
 
+      // Verificar duplicados (puedes ajustar la lógica según tus necesidades)
       const duplicate = await prisma.client.findFirst({
         where: {
           OR: [
@@ -66,7 +61,7 @@ export default async function handler(
       if (duplicate) {
         return res
           .status(400)
-          .json({ error: "Esa informacion ya pertenece a un cliente." });
+          .json({ error: "Esa información ya pertenece a un cliente." });
       }
 
       const newClient = await prisma.client.create({
@@ -74,21 +69,17 @@ export default async function handler(
           first_name: client.first_name,
           last_name: client.last_name,
           phone: client.phone,
-          address: client.address,
-          postal_code: client.postal_code,
-          locality: client.locality,
+          address: client.address || null,
+          postal_code: client.postal_code || null,
+          locality: client.locality || null,
           company_name: client.company_name || null,
-          tax_id: client.tax_id,
+          tax_id: client.tax_id || null,
           commercial_address: client.commercial_address || null,
           dni_number: client.dni_number,
-          passport_number: client.passport_number,
-          dni_issue_date: client.dni_issue_date
-            ? new Date(client.dni_issue_date)
-            : null,
-          dni_expiry_date: client.dni_expiry_date
-            ? new Date(client.dni_expiry_date)
-            : null,
-          birth_date: client.birth_date ? new Date(client.birth_date) : null,
+          passport_number: client.passport_number || null,
+          dni_issue_date: new Date(client.dni_issue_date),
+          dni_expiry_date: new Date(client.dni_expiry_date),
+          birth_date: new Date(client.birth_date),
           nationality: client.nationality,
           gender: client.gender,
           passport_issue: client.passport_issue

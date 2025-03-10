@@ -36,25 +36,26 @@ export interface Client {
   id_client: number;
   first_name: string;
   last_name: string;
-  phone?: string;
+  phone: string;
   address?: string;
   postal_code?: string;
   locality?: string;
   company_name?: string;
   tax_id?: string;
   commercial_address?: string;
-  dni_number?: string;
+  dni_number: string;
   passport_number?: string;
-  dni_issue_date?: string;
-  dni_expiry_date?: string;
-  birth_date?: string;
-  nationality?: string;
-  gender?: string;
+  dni_issue_date: string;
+  dni_expiry_date: string;
+  birth_date: string;
+  nationality: string;
+  gender: string;
   registration_date: string;
   passport_issue?: string;
   passport_expiry?: string;
   bookings?: Booking[];
-  titular_reservas?: Booking[];
+  titular_bookings?: Booking[];
+  invoices?: Invoice[];
 }
 
 export interface Booking {

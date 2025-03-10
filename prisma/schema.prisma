@@ -41,25 +41,25 @@ model Client {
   id_client          Int       @id @default(autoincrement())
   first_name         String
   last_name          String
-  phone              String?
+  phone              String
   address            String?
   postal_code        String?
   locality           String?
   company_name       String?
   tax_id             String?
   commercial_address String?
-  dni_number         String?
+  dni_number         String
   passport_number    String?
-  dni_issue_date     DateTime?
-  dni_expiry_date    DateTime?
-  birth_date         DateTime?
-  nationality        String?
-  gender             String?
+  dni_issue_date     DateTime
+  dni_expiry_date    DateTime
+  birth_date         DateTime
+  nationality        String
+  gender             String
   registration_date  DateTime  @default(now())
   passport_issue     DateTime?
   passport_expiry    DateTime?
   bookings           Booking[] @relation("BookingClients")
-  titular_reservas   Booking[] @relation("Titular")
+  titular_bookings   Booking[] @relation("Titular")
   invoices           Invoice[] @relation("ClientInvoices")
 }
 

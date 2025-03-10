@@ -22,7 +22,6 @@ export interface ClientFormData {
   gender?: string;
   passport_issue?: string;
   passport_expiry?: string;
-  iva_condition?: number;
 }
 
 interface ClientFormProps {
@@ -44,7 +43,19 @@ export default function ClientForm({
   isFormVisible,
   setIsFormVisible,
 }: ClientFormProps) {
-  // Si en algún bloque catch usas error, asegúrate de tiparlo como unknown y hacer type guard.
+  // Definir cuáles campos son obligatorios según el modelo
+  const requiredFields = [
+    "first_name",
+    "last_name",
+    "phone",
+    "dni_number",
+    "dni_issue_date",
+    "dni_expiry_date",
+    "birth_date",
+    "nationality",
+    "gender",
+  ];
+
   return (
     <motion.div
       layout
@@ -138,9 +149,7 @@ export default function ClientForm({
                 value={String(formData[name as keyof ClientFormData] || "")}
                 onChange={handleChange}
                 className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
-                required={
-                  !["commercial_address", "company_name"].includes(name)
-                }
+                required={requiredFields.includes(name)}
               />
             </div>
           ))}

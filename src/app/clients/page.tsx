@@ -148,10 +148,7 @@ export default function Page() {
 
   const deleteClient = async (id: number) => {
     try {
-      const response = await fetch(`/api/clients/${id}`, {
-        method: "DELETE",
-      });
-
+      const response = await fetch(`/api/clients/${id}`, { method: "DELETE" });
       if (response.ok) {
         setClients((prevClients) =>
           prevClients.filter((client) => client.id_client !== id),
@@ -208,9 +205,7 @@ export default function Page() {
   const formatDate = (dateString: string | undefined) => {
     if (!dateString) return "-";
     const date = new Date(dateString);
-    return date.toLocaleDateString("es-AR", {
-      timeZone: "UTC",
-    });
+    return date.toLocaleDateString("es-AR", { timeZone: "UTC" });
   };
 
   return (
