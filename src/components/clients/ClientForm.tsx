@@ -65,7 +65,7 @@ export default function ClientForm({
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl bg-white p-4 text-black shadow-md dark:border dark:border-white dark:bg-black md:p-6"
     >
       <div
         className="flex cursor-pointer items-center justify-between"
@@ -111,7 +111,7 @@ export default function ClientForm({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onSubmit={handleSubmit}
-          className="max-h-[400px] space-y-3 overflow-y-auto pr-12"
+          className="max-h-[400px] space-y-3 overflow-y-auto md:pr-12"
         >
           {[
             { name: "first_name", label: "Nombre" },
@@ -148,7 +148,8 @@ export default function ClientForm({
                 name={name}
                 value={String(formData[name as keyof ClientFormData] || "")}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                placeholder={`${label}...`}
                 required={requiredFields.includes(name)}
               />
             </div>
