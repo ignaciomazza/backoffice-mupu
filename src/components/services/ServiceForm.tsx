@@ -55,6 +55,72 @@ export default function ServiceForm({
     }).format(value);
   };
 
+  // Si el valor ya contiene "/" (es decir, ya está en formato display) se retorna así;
+  // de lo contrario, se asume que está en formato ISO ("yyyy-mm-dd") y se convierte a "dd/mm/yyyy".
+  const formatIsoToDisplay = (value: string): string => {
+    if (!value) return "";
+    if (value.includes("/")) return value;
+    const parts = value.split("-");
+    if (parts.length !== 3) return value;
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  };
+
+  // Convierte un valor en formato "dd/mm/yyyy" a ISO "yyyy-mm-dd"
+  const formatDisplayToIso = (display: string): string => {
+    const parts = display.split("/");
+    if (parts.length !== 3) return display;
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  };
+
+  // Función para formatear el input mientras se escribe o borra:
+  // extrae los dígitos y los organiza en el formato dd/mm/yyyy
+  const handleDateChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const { name } = e.target;
+    // Extraemos sólo dígitos
+    const digits = e.target.value.replace(/\D/g, "");
+    let formatted = "";
+    if (digits.length > 0) {
+      formatted += digits.substring(0, 2);
+      if (digits.length >= 3) {
+        formatted += "/" + digits.substring(2, 4);
+        if (digits.length >= 5) {
+          formatted += "/" + digits.substring(4, 8);
+        }
+      }
+    }
+    const event = {
+      target: { name, value: formatted },
+    } as ChangeEvent<HTMLInputElement>;
+    handleChange(event);
+  };
+
+  // Cuando se pega, si se obtiene exactamente 8 dígitos, se formatea automáticamente
+  const handleDatePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pasteData = e.clipboardData.getData("text");
+    const digits = pasteData.replace(/\D/g, "");
+    if (digits.length === 8) {
+      const day = digits.slice(0, 2);
+      const month = digits.slice(2, 4);
+      const year = digits.slice(4, 8);
+      const formatted = `${day}/${month}/${year}`;
+      e.preventDefault();
+      const event = {
+        target: { name: e.currentTarget.name, value: formatted },
+      } as ChangeEvent<HTMLInputElement>;
+      handleChange(event);
+    }
+  };
+
+  // Al salir del input, se convierte el valor (en formato dd/mm/yyyy) a formato ISO para guardarlo
+  const handleDateBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    const iso = formatDisplayToIso(value);
+    const event = {
+      target: { name, value: iso },
+    } as ChangeEvent<HTMLInputElement>;
+    handleChange(event);
+  };
+
   return (
     <motion.div
       layout
@@ -167,21 +233,35 @@ export default function ServiceForm({
           <div>
             <label className="ml-2 block dark:text-white">Desde</label>
             <input
-              type="date"
+              type="text"
               name="departure_date"
-              value={formData.departure_date || ""}
-              onChange={handleChange}
+              value={
+                formData.departure_date
+                  ? formatIsoToDisplay(formData.departure_date)
+                  : ""
+              }
+              onChange={handleDateChange}
+              onPaste={handleDatePaste}
+              onBlur={handleDateBlur}
               className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              placeholder="dd/mm/yyyy"
             />
           </div>
           <div>
             <label className="ml-2 block dark:text-white">Hasta</label>
             <input
-              type="date"
+              type="text"
               name="return_date"
-              value={formData.return_date || ""}
-              onChange={handleChange}
+              value={
+                formData.return_date
+                  ? formatIsoToDisplay(formData.return_date)
+                  : ""
+              }
+              onChange={handleDateChange}
+              onPaste={handleDatePaste}
+              onBlur={handleDateBlur}
               className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              placeholder="dd/mm/yyyy"
             />
           </div>
           <div>
@@ -342,11 +422,18 @@ export default function ServiceForm({
           <div>
             <label className="ml-2 block dark:text-white">Fecha de Pago</label>
             <input
-              type="date"
+              type="text"
               name="payment_due_date"
-              value={formData.payment_due_date || ""}
-              onChange={handleChange}
+              value={
+                formData.payment_due_date
+                  ? formatIsoToDisplay(formData.payment_due_date)
+                  : ""
+              }
+              onChange={handleDateChange}
+              onPaste={handleDatePaste}
+              onBlur={handleDateBlur}
               className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              placeholder="dd/mm/yyyy"
               required
             />
           </div>

@@ -1,7 +1,7 @@
 // src/app/bookings/services/[id]/page.tsx
 
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -60,8 +60,7 @@ export default function ServicesPage() {
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [isInvoiceFormVisible, setIsInvoiceFormVisible] = useState(false);
 
-  // Función para obtener la reserva
-  const fetchBooking = async () => {
+  const fetchBooking = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch(`/api/bookings/${id}`);
@@ -78,10 +77,9 @@ export default function ServicesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
-  // Función para obtener los servicios
-  const fetchServices = async () => {
+  const fetchServices = useCallback(async () => {
     try {
       const res = await fetch(`/api/services?bookingId=${id}`);
       if (!res.ok) {
@@ -95,14 +93,12 @@ export default function ServicesPage() {
       }
       toast.error("Error al obtener los servicios.");
     }
-  };
+  }, [id]);
 
-  // Función para obtener las facturas
-  const fetchInvoices = async () => {
+  const fetchInvoices = useCallback(async () => {
     try {
       const res = await fetch(`/api/invoices?bookingId=${id}`);
       if (!res.ok) {
-        // Si no se encuentran facturas o el método no está permitido, se asigna un arreglo vacío
         if (res.status === 405 || res.status === 404) {
           setInvoices([]);
           return;
@@ -110,7 +106,6 @@ export default function ServicesPage() {
         throw new Error("Error al obtener las facturas");
       }
       const data = await res.json();
-      // Si el endpoint retorna 200 pero no hay facturas, aseguramos asignar un arreglo vacío
       if (!data.invoices || data.invoices.length === 0) {
         setInvoices([]);
         return;
@@ -120,14 +115,11 @@ export default function ServicesPage() {
       if (err instanceof Error) {
         console.error("Error fetching invoices:", err.message);
       }
-      // En caso de error inesperado se puede notificar, pero en caso de no encontrar facturas simplemente asignamos un arreglo vacío
-      // toast.error("Error al obtener las facturas.");
       setInvoices([]);
     }
-  };
+  }, [id]);
 
-  // Función para obtener operadores
-  const fetchOperators = async () => {
+  const fetchOperators = useCallback(async () => {
     try {
       const res = await fetch("/api/operators");
       if (!res.ok) {
@@ -141,7 +133,7 @@ export default function ServicesPage() {
       }
       toast.error("Error al obtener operadores.");
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (id) {
@@ -149,12 +141,27 @@ export default function ServicesPage() {
       fetchServices();
       fetchInvoices();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, fetchBooking, fetchServices, fetchInvoices]);
 
   useEffect(() => {
     fetchOperators();
-  }, []);
+  }, [fetchOperators]);
+
+  // Establece por defecto las fechas del formulario de servicios cuando se obtiene la reserva
+  useEffect(() => {
+    if (booking) {
+      setFormData((prev) => ({
+        ...prev,
+        departure_date: booking.departure_date
+          ? new Date(booking.departure_date).toISOString().split("T")[0]
+          : "",
+        return_date: booking.return_date
+          ? new Date(booking.return_date).toISOString().split("T")[0]
+          : "",
+        payment_due_date: new Date().toISOString().split("T")[0],
+      }));
+    }
+  }, [booking]);
 
   const handleChange = (
     e: React.ChangeEvent<
@@ -187,7 +194,6 @@ export default function ServicesPage() {
     setInvoiceFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Tipamos "updateFormData" para evitar "any"
   const updateFormData = (
     key: keyof InvoiceFormData,
     value: InvoiceFormData[keyof InvoiceFormData],

@@ -97,7 +97,7 @@ export default function BookingCard({
           <p className="font-light">
             {booking.observation || "Sin observaciones"}
           </p>
-          <button className="rounded-full bg-black px-6 py-2 mt-6 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black">
+          <button className="mt-6 rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black">
             <Link
               className=""
               href={`/bookings/services/${booking.id_booking}`}

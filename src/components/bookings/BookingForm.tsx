@@ -38,6 +38,69 @@ export default function BookingForm({
   isFormVisible,
   setIsFormVisible,
 }: BookingFormProps) {
+  // Funciones para convertir entre ISO (yyyy-mm-dd) y display (dd/mm/yyyy)
+  const formatIsoToDisplay = (iso: string): string => {
+    if (!iso) return "";
+    // Si ya contiene "/" se asume que ya está formateada
+    if (iso.includes("/")) return iso;
+    const parts = iso.split("-");
+    if (parts.length !== 3) return iso;
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  };
+
+  const formatDisplayToIso = (display: string): string => {
+    const parts = display.split("/");
+    if (parts.length !== 3) return display;
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  };
+
+  // Función para formatear mientras se escribe o borra en el input de fecha.
+  const handleDateChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const { name } = e.target;
+    const digits = e.target.value.replace(/\D/g, "");
+    let formatted = "";
+    if (digits.length > 0) {
+      formatted += digits.substring(0, 2);
+      if (digits.length >= 3) {
+        formatted += "/" + digits.substring(2, 4);
+        if (digits.length >= 5) {
+          formatted += "/" + digits.substring(4, 8);
+        }
+      }
+    }
+    const event = {
+      target: { name, value: formatted },
+    } as ChangeEvent<HTMLInputElement>;
+    handleChange(event);
+  };
+
+  // Al pegar, si se tienen exactamente 8 dígitos, se formatea a dd/mm/yyyy.
+  const handleDatePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pasteData = e.clipboardData.getData("text");
+    const digits = pasteData.replace(/\D/g, "");
+    if (digits.length === 8) {
+      const day = digits.slice(0, 2);
+      const month = digits.slice(2, 4);
+      const year = digits.slice(4, 8);
+      const formatted = `${day}/${month}/${year}`;
+      e.preventDefault();
+      const event = {
+        target: { name: e.currentTarget.name, value: formatted },
+      } as ChangeEvent<HTMLInputElement>;
+      handleChange(event);
+    }
+  };
+
+  // Al salir del input, se convierte el valor de dd/mm/yyyy a ISO.
+  const handleDateBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    const iso = formatDisplayToIso(value);
+    const event = {
+      target: { name, value: iso },
+    } as ChangeEvent<HTMLInputElement>;
+    handleChange(event);
+  };
+
   const handleAcompananteChange = (index: number, value: string) => {
     const newId = Number(value);
     if (newId === formData.titular_id) {
@@ -129,19 +192,53 @@ export default function BookingForm({
           className="max-h-[400px] space-y-3 overflow-y-auto md:pr-12"
         >
           {[
-            { name: "details", label: "Detalle", type: "text" },
-            { name: "departure_date", label: "Desde", type: "date" },
-            { name: "return_date", label: "Hasta", type: "date" },
-          ].map(({ name, label, type = "text" }) => (
+            {
+              name: "details",
+              label: "Detalle",
+              type: "text",
+              placeholder: "Detalle...",
+            },
+            {
+              name: "departure_date",
+              label: "Desde",
+              type: "date",
+              placeholder: "Dia/Mes/Año",
+            },
+            {
+              name: "return_date",
+              label: "Hasta",
+              type: "date",
+              placeholder: "Dia/Mes/Año",
+            },
+          ].map(({ name, label, type = "text", placeholder }) => (
             <div key={name}>
               <label className="ml-2 block dark:text-white">{label}</label>
               <input
-                type={type}
+                // Para los campos de fecha, usamos nuestro custom handling y tipo "text"
+                type={
+                  name === "departure_date" || name === "return_date"
+                    ? "text"
+                    : type
+                }
                 name={name}
-                value={String(formData[name as keyof BookingFormData] || "")}
-                onChange={handleChange}
+                value={
+                  name === "departure_date" || name === "return_date"
+                    ? formatIsoToDisplay(
+                        String(formData[name as keyof BookingFormData] || ""),
+                      )
+                    : String(formData[name as keyof BookingFormData] || "")
+                }
+                onChange={
+                  name === "departure_date" || name === "return_date"
+                    ? handleDateChange
+                    : handleChange
+                }
+                {...((name === "departure_date" || name === "return_date") && {
+                  onPaste: handleDatePaste,
+                  onBlur: handleDateBlur,
+                })}
                 className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-                placeholder={`${label}...`}
+                placeholder={placeholder}
               />
             </div>
           ))}
@@ -168,6 +265,7 @@ export default function BookingForm({
               }}
               className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               min={1}
+              placeholder="Id del titular..."
             />
           </div>
 
