@@ -10,6 +10,7 @@ import ClientForm from "@/components/clients/ClientForm";
 import ClientList from "@/components/clients/ClientList";
 import Spinner from "@/components/Spinner";
 import "react-toastify/dist/ReactToastify.css";
+import { div } from "framer-motion/client";
 
 export default function Page() {
   const [clients, setClients] = useState<Client[]>([]);
@@ -225,7 +226,9 @@ export default function Page() {
           Clientes
         </h2>
         {isLoading ? (
-          <Spinner />
+          <div className="flex min-h-[50vh] items-center">
+            <Spinner />
+          </div>
         ) : (
           <ClientList
             clients={clients}

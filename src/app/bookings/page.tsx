@@ -225,7 +225,9 @@ export default function Page() {
           Reservas
         </h2>
         {loadingBookings ? (
-          <Spinner />
+          <div className="flex min-h-[50vh] items-center">
+            <Spinner />
+          </div>
         ) : (
           <BookingList
             bookings={bookings}

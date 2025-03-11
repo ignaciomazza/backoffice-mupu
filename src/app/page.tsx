@@ -232,7 +232,9 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
         transition={{ duration: 0.5 }}
       >
         {loading ? (
-          <Spinner />
+          <div className="flex min-h-[80vh] items-center">
+            <Spinner />
+          </div>
         ) : (
           <div className="w-full space-y-4">
             <div className="flex flex-col space-y-4">
