@@ -124,7 +124,7 @@ export default function InvoiceForm({
             }
             handleSubmit(e);
           }}
-          className="space-y-4"
+          className="max-h-[400px] space-y-3 overflow-y-auto"
         >
           <div>
             <label className="ml-2 block dark:text-white">

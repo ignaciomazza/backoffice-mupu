@@ -36,7 +36,7 @@ export default function ServiceCard({
     <motion.div
       layout
       layoutId={`service-${service.id_service}`}
-      className="space-y-3 rounded-3xl bg-white p-6 text-black shadow-md transition-shadow hover:shadow-lg dark:border dark:border-white/50 dark:bg-black dark:text-white"
+      className="h-fit space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white/50 dark:bg-black dark:text-white"
     >
       <p className="text-end text-xl font-light">{service.id_service}</p>
       <p className="font-semibold dark:font-medium">
