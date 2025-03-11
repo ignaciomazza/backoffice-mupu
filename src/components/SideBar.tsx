@@ -81,7 +81,7 @@ export default function SideBar({
     >
       <nav className="flex h-full flex-col">
         <ul className="flex flex-1 flex-col justify-center space-y-3">
-          <li className="transition-transform hover:scale-105 active:scale-100">
+          <li className="transition-transform hover:scale-95 active:scale-90">
             <Link
               href="/"
               className={`block rounded-full py-2 text-center transition-colors duration-200 ${
@@ -94,7 +94,7 @@ export default function SideBar({
               Perfil
             </Link>
           </li>
-          <li className="transition-transform hover:scale-105 active:scale-100">
+          <li className="transition-transform hover:scale-95 active:scale-90">
             <Link
               href="/clients"
               className={`block rounded-full py-2 text-center transition-colors duration-200 ${
@@ -107,7 +107,7 @@ export default function SideBar({
               Clientes
             </Link>
           </li>
-          <li className="transition-transform hover:scale-105 active:scale-100">
+          <li className="transition-transform hover:scale-95 active:scale-90">
             <Link
               href="/bookings"
               className={`block rounded-full py-2 text-center transition-colors duration-200 ${
@@ -122,7 +122,7 @@ export default function SideBar({
             </Link>
           </li>
           {hasAccess("/operators") && (
-            <li className="transition-transform hover:scale-105 active:scale-100">
+            <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
                 href="/operators"
                 className={`block rounded-full py-2 text-center transition-colors duration-200 ${
@@ -137,7 +137,7 @@ export default function SideBar({
             </li>
           )}
           {hasAccess("/agency") && (
-            <li className="transition-transform hover:scale-105 active:scale-100">
+            <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
                 href="/agency"
                 className={`block rounded-full py-2 text-center transition-colors duration-200 ${
@@ -152,7 +152,7 @@ export default function SideBar({
             </li>
           )}
           {hasAccess("/users") && (
-            <li className="transition-transform hover:scale-105 active:scale-100">
+            <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
                 href="/users"
                 className={`block rounded-full py-2 text-center transition-colors duration-200 ${
@@ -167,7 +167,7 @@ export default function SideBar({
             </li>
           )}
           {hasAccess("/teams") && (
-            <li className="transition-transform hover:scale-105 active:scale-100">
+            <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
                 href="/teams"
                 className={`block rounded-full py-2 text-center transition-colors duration-200 ${
@@ -185,7 +185,7 @@ export default function SideBar({
         <div className="mt-auto pt-4">
           <button
             onClick={handleLogout}
-            className="flex w-full items-center rounded-full p-2 transition-all hover:scale-105 hover:bg-black hover:text-white active:scale-100 dark:hover:bg-white dark:hover:text-black"
+            className="flex w-full items-center rounded-full p-2 transition-all hover:scale-95 hover:bg-black hover:text-white active:scale-90 dark:hover:bg-white dark:hover:text-black"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

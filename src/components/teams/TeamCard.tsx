@@ -29,13 +29,13 @@ export default function TeamCard({ team, onEdit, onDelete }: TeamCardProps) {
       <div className="flex justify-end gap-4">
         <button
           onClick={() => onEdit(team)}
-          className="rounded-full bg-black px-6 py-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
+          className="rounded-full bg-black px-6 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
         >
           Editar
         </button>
         <button
           onClick={() => onDelete(team.id_team)}
-          className="rounded-full bg-red-600 px-6 py-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-red-800"
+          className="rounded-full bg-red-600 px-6 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
         >
           Eliminar
         </button>

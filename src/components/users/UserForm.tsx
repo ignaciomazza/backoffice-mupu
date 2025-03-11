@@ -124,7 +124,7 @@ export default function UserForm({
           </div>
           <button
             type="submit"
-            className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
+            className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
           >
             {editingUserId ? "Guardar Cambios" : "Agregar Usuario"}
           </button>

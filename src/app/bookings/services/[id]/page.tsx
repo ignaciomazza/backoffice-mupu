@@ -102,19 +102,26 @@ export default function ServicesPage() {
     try {
       const res = await fetch(`/api/invoices?bookingId=${id}`);
       if (!res.ok) {
-        if (res.status === 405) {
+        // Si no se encuentran facturas o el método no está permitido, se asigna un arreglo vacío
+        if (res.status === 405 || res.status === 404) {
           setInvoices([]);
           return;
         }
         throw new Error("Error al obtener las facturas");
       }
       const data = await res.json();
+      // Si el endpoint retorna 200 pero no hay facturas, aseguramos asignar un arreglo vacío
+      if (!data.invoices || data.invoices.length === 0) {
+        setInvoices([]);
+        return;
+      }
       setInvoices(data.invoices);
     } catch (err: unknown) {
       if (err instanceof Error) {
         console.error("Error fetching invoices:", err.message);
       }
-      toast.error("Error al obtener las facturas.");
+      // En caso de error inesperado se puede notificar, pero en caso de no encontrar facturas simplemente asignamos un arreglo vacío
+      // toast.error("Error al obtener las facturas.");
       setInvoices([]);
     }
   };

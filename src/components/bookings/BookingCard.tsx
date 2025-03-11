@@ -97,14 +97,14 @@ export default function BookingCard({
           <p className="font-light">
             {booking.observation || "Sin observaciones"}
           </p>
-          <div className="pt-6">
+          <button className="rounded-full bg-black px-6 py-2 mt-6 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black">
             <Link
-              className="rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
+              className=""
               href={`/bookings/services/${booking.id_booking}`}
             >
               Servicios
             </Link>
-          </div>
+          </button>
         </div>
       )}
       <div>
@@ -116,7 +116,7 @@ export default function BookingCard({
                   prevId === booking.id_booking ? null : booking.id_booking,
                 )
               }
-              className="mt-4 rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
+              className="mt-4 rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -135,13 +135,13 @@ export default function BookingCard({
             </button>
             <div className="mt-4 flex gap-2">
               <button
-                className="rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
+                className="rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
                 onClick={() => handleEdit(booking)}
               >
                 Editar
               </button>
               <button
-                className="rounded-full bg-red-600 px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-red-800"
+                className="rounded-full bg-red-600 px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
                 onClick={() => deleteBooking(booking.id_booking)}
               >
                 Eliminar
@@ -155,7 +155,7 @@ export default function BookingCard({
                 prevId === booking.id_booking ? null : booking.id_booking,
               )
             }
-            className="mt-4 flex items-center justify-center rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
+            className="mt-4 flex items-center justify-center rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

@@ -114,7 +114,7 @@ export default function ServicesContainer({
       ) : (
         <>
           <div className="mb-6">
-            <button className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black">
+            <button className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black">
               <Link href={"/bookings"}>Volver</Link>
             </button>
           </div>

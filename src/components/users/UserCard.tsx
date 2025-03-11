@@ -43,13 +43,13 @@ export default function UserCard({
       <div>
         <div className="mt-4 flex justify-end gap-2">
           <button
-            className="rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
+            className="rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
             onClick={() => handleEdit(user)}
           >
             Editar
           </button>
           <button
-            className="rounded-full bg-red-600 px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-red-800"
+            className="rounded-full bg-red-600 px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
             onClick={() => deleteUser(user.id_user)}
           >
             Eliminar

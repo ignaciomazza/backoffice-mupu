@@ -114,7 +114,7 @@ export default function ServiceCard({
                   prevId === service.id_service ? null : service.id_service,
                 )
               }
-              className="mt-4 rounded-full bg-black p-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
+              className="mt-4 rounded-full bg-black p-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -133,13 +133,13 @@ export default function ServiceCard({
             </button>
             <div className="mt-4 flex gap-2">
               <button
-                className="rounded-full bg-black px-6 py-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
+                className="rounded-full bg-black px-6 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
                 onClick={() => startEditingService(service)}
               >
                 Editar
               </button>
               <button
-                className="rounded-full bg-red-600 px-6 py-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-red-800"
+                className="rounded-full bg-red-600 px-6 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
                 onClick={() => deleteService(service.id_service)}
               >
                 Eliminar
@@ -153,7 +153,7 @@ export default function ServiceCard({
                 prevId === service.id_service ? null : service.id_service,
               )
             }
-            className="mt-4 flex items-center justify-center rounded-full bg-black p-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
+            className="mt-4 flex items-center justify-center rounded-full bg-black p-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

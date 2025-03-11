@@ -77,7 +77,7 @@ export default function InvoiceForm({
         <p className="text-lg font-medium dark:text-white">
           {isFormVisible ? "Cerrar Formulario" : "Crear Factura"}
         </p>
-        <button className="rounded-full bg-black p-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black">
+        <button className="rounded-full bg-black p-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black">
           {isFormVisible ? (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -230,7 +230,7 @@ export default function InvoiceForm({
           </div>
           <button
             type="submit"
-            className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
+            className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
           >
             Crear Factura
           </button>

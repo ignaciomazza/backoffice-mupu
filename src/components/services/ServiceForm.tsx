@@ -64,7 +64,7 @@ export default function ServiceForm({
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl bg-white p-4 text-black shadow-md dark:border dark:border-white dark:bg-black md:p-6"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl p-4 text-black shadow-md dark:border dark:border-white md:p-6"
     >
       <div
         className="flex cursor-pointer items-center justify-between"
@@ -73,7 +73,7 @@ export default function ServiceForm({
         <p className="text-lg font-medium dark:text-white">
           {editingServiceId ? "Editar Servicio" : "Agregar Servicio"}
         </p>
-        <button className="rounded-full bg-black p-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black">
+        <button className="rounded-full bg-black p-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black">
           {isFormVisible ? (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -352,7 +352,7 @@ export default function ServiceForm({
           </div>
           <button
             type="submit"
-            className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
+            className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
           >
             {editingServiceId ? "Guardar Cambios" : "Agregar Servicio"}
           </button>

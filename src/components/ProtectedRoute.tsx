@@ -135,7 +135,7 @@ export default function ProtectedRoute({
               </p>
               <button
                 onClick={handleModalAccept}
-                className="rounded-2xl bg-black px-4 py-2 text-white transition-transform hover:scale-105 active:scale-100 dark:bg-white dark:text-black"
+                className="rounded-2xl bg-black px-4 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
               >
                 Entendido
               </button>
