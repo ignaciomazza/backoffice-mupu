@@ -221,7 +221,7 @@ export default function ClientForm({
                   onBlur: handleDateBlur,
                 })}
                 className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-                placeholder={`${label}...`}
+                placeholder={type === "date" ? "Dia/Mes/Año" : `${label}...`}
                 required={requiredFields.includes(name)}
               />
             </div>
