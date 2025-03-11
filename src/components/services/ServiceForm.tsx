@@ -64,7 +64,7 @@ export default function ServiceForm({
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-4 overflow-hidden rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl bg-white p-4 text-black shadow-md dark:border dark:border-white dark:bg-black md:p-6"
     >
       <div
         className="flex cursor-pointer items-center justify-between"
@@ -109,17 +109,17 @@ export default function ServiceForm({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onSubmit={handleSubmit}
-          className="max-h-[600px] space-y-3 overflow-y-auto pr-12"
+          className="max-h-[600px] space-y-3 overflow-y-auto md:pr-12"
         >
           <div>
-            <label className="ml-2 block text-sm font-medium dark:text-white">
+            <label className="ml-2 block dark:text-white">
               Tipo de Servicio
             </label>
             <select
               name="type"
               value={formData.type}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               required
             >
               <option value="">Seleccionar tipo</option>
@@ -130,77 +130,67 @@ export default function ServiceForm({
             </select>
           </div>
           <div>
-            <label className="ml-2 block text-sm font-medium dark:text-white">
-              Descripción
-            </label>
+            <label className="ml-2 block dark:text-white">Descripción</label>
             <textarea
               name="description"
               value={formData.description || ""}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               rows={3}
               placeholder="Detalles adicionales del servicio"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="ml-2 block text-sm font-medium dark:text-white">
-                Destino
-              </label>
+              <label className="ml-2 block dark:text-white">Destino</label>
               <input
                 type="text"
                 name="destination"
                 value={formData.destination || ""}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+                placeholder="Destino..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               />
             </div>
             <div>
-              <label className="ml-2 block text-sm font-medium dark:text-white">
-                Referencia
-              </label>
+              <label className="ml-2 block dark:text-white">Referencia</label>
               <input
                 type="text"
                 name="reference"
                 value={formData.reference || ""}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+                placeholder="Referencia..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               />
             </div>
           </div>
           <div>
-            <label className="ml-2 block text-sm font-medium dark:text-white">
-              Desde
-            </label>
+            <label className="ml-2 block dark:text-white">Desde</label>
             <input
               type="date"
               name="departure_date"
               value={formData.departure_date || ""}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
             />
           </div>
           <div>
-            <label className="ml-2 block text-sm font-medium dark:text-white">
-              Hasta
-            </label>
+            <label className="ml-2 block dark:text-white">Hasta</label>
             <input
               type="date"
               name="return_date"
               value={formData.return_date || ""}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
             />
           </div>
           <div>
-            <label className="ml-2 block text-sm font-medium dark:text-white">
-              Operador
-            </label>
+            <label className="ml-2 block dark:text-white">Operador</label>
             <select
               name="id_operator"
               value={formData.id_operator || 0}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
             >
               <option value="0">Seleccionar operador</option>
               {operators.map((operator) => (
@@ -212,15 +202,14 @@ export default function ServiceForm({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="ml-2 block text-sm font-medium dark:text-white">
-                Costo
-              </label>
+              <label className="ml-2 block dark:text-white">Costo</label>
               <input
                 type="number"
                 name="cost_price"
                 value={formData.cost_price || ""}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+                placeholder="Costo..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 step="0.01"
                 min="0"
                 required
@@ -230,15 +219,14 @@ export default function ServiceForm({
               </p>
             </div>
             <div>
-              <label className="ml-2 block text-sm font-medium dark:text-white">
-                Venta
-              </label>
+              <label className="ml-2 block dark:text-white">Venta</label>
               <input
                 type="number"
                 name="sale_price"
                 value={formData.sale_price || ""}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+                placeholder="Venta..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 step="0.01"
                 min="0"
                 required
@@ -250,15 +238,14 @@ export default function ServiceForm({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="ml-2 block text-sm font-medium dark:text-white">
-                Tax 21%
-              </label>
+              <label className="ml-2 block dark:text-white">Tax 21%</label>
               <input
                 type="number"
                 name="tax_21"
                 value={formData.tax_21 || ""}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+                placeholder="21%..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 step="0.01"
                 min="0"
               />
@@ -267,15 +254,14 @@ export default function ServiceForm({
               </p>
             </div>
             <div>
-              <label className="ml-2 block text-sm font-medium dark:text-white">
-                Tax 10.5%
-              </label>
+              <label className="ml-2 block dark:text-white">Tax 10.5%</label>
               <input
                 type="number"
                 name="tax_105"
                 value={formData.tax_105 || ""}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+                placeholder="10.5%..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 step="0.01"
                 min="0"
               />
@@ -286,15 +272,14 @@ export default function ServiceForm({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="ml-2 block text-sm font-medium dark:text-white">
-                Exento
-              </label>
+              <label className="ml-2 block dark:text-white">Exento</label>
               <input
                 type="number"
                 name="exempt"
                 value={formData.exempt || ""}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+                placeholder="Exento..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 step="0.01"
                 min="0"
               />
@@ -303,7 +288,7 @@ export default function ServiceForm({
               </p>
             </div>
             <div>
-              <label className="ml-2 block text-sm font-medium dark:text-white">
+              <label className="ml-2 block dark:text-white">
                 No computable
               </label>
               <input
@@ -311,7 +296,8 @@ export default function ServiceForm({
                 name="not_computable"
                 value={formData.not_computable || ""}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+                placeholder="No computable..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 step="0.01"
                 min="0"
               />
@@ -322,7 +308,7 @@ export default function ServiceForm({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="ml-2 block text-sm font-medium dark:text-white">
+              <label className="ml-2 block dark:text-white">
                 Otros Impuestos
               </label>
               <input
@@ -330,7 +316,8 @@ export default function ServiceForm({
                 name="other_taxes"
                 value={formData.other_taxes || ""}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+                placeholder="Otros impuestos..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 step="0.01"
                 min="0"
               />
@@ -339,14 +326,12 @@ export default function ServiceForm({
               </p>
             </div>
             <div>
-              <label className="ml-2 block text-sm font-medium dark:text-white">
-                Moneda
-              </label>
+              <label className="ml-2 block dark:text-white">Moneda</label>
               <select
                 name="currency"
                 value={formData.currency}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 required
               >
                 <option value="USD">USD</option>
@@ -355,15 +340,13 @@ export default function ServiceForm({
             </div>
           </div>
           <div>
-            <label className="ml-2 block text-sm font-medium dark:text-white">
-              Fecha de Pago
-            </label>
+            <label className="ml-2 block dark:text-white">Fecha de Pago</label>
             <input
               type="date"
               name="payment_due_date"
               value={formData.payment_due_date || ""}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-black p-2 outline-none dark:border-white"
+              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               required
             />
           </div>

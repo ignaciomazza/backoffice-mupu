@@ -126,7 +126,6 @@ export default function InvoiceForm({
           }}
           className="space-y-4"
         >
-          {/* Otros campos del formulario */}
           <div>
             <label className="ml-2 block dark:text-white">
               Tipo de Factura
@@ -135,7 +134,7 @@ export default function InvoiceForm({
               name="tipoFactura"
               value={formData.tipoFactura}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-black p-2 outline-none"
+              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               required
             >
               <option value="">Seleccionar</option>
@@ -152,7 +151,8 @@ export default function InvoiceForm({
               value={clientCount}
               min={1}
               onChange={(e) => setClientCount(Number(e.target.value))}
-              className="w-full rounded-2xl border border-black p-2 outline-none"
+              placeholder="Cantidad de clientes..."
+              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
             />
           </div>
           {Array.from({ length: clientCount }).map((_, index) => (
@@ -168,7 +168,8 @@ export default function InvoiceForm({
                   updatedClientIds[index] = e.target.value;
                   updateFormData("clientIds", updatedClientIds);
                 }}
-                className="w-full rounded-2xl border border-black p-2 outline-none"
+                placeholder={`ID del cliente ${index + 1}`}
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 required
               />
             </div>
@@ -182,7 +183,8 @@ export default function InvoiceForm({
               value={serviceCount}
               min={1}
               onChange={(e) => setServiceCount(Number(e.target.value))}
-              className="w-full rounded-2xl border border-black p-2 outline-none"
+              placeholder="Cantidad de servicios..."
+              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
             />
           </div>
           {Array.from({ length: serviceCount }).map((_, index) => (
@@ -198,7 +200,8 @@ export default function InvoiceForm({
                   updatedServices[index] = e.target.value;
                   updateFormData("services", updatedServices);
                 }}
-                className="w-full rounded-2xl border border-black p-2 outline-none"
+                placeholder={`ID del servicio ${index + 1}`}
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 required
               />
             </div>
@@ -218,7 +221,7 @@ export default function InvoiceForm({
                     ? `Cotización: ${fetchedExchangeRate}`
                     : "Cotización actual"
                 }
-                className="w-full rounded-2xl border border-black p-2 outline-none"
+                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               />
             </div>
             <p className="ml-2 text-sm dark:text-white">

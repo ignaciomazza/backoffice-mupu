@@ -111,12 +111,12 @@ export default function Page() {
       !formData.departure_date ||
       !formData.return_date
     ) {
-      toast.error("Por favor completa todos los campos obligatorios.");
+      toast.error("Completa los campos obligatorios.");
       return;
     }
 
     if (formData.clients_ids.includes(formData.titular_id)) {
-      toast.error("El titular no puede estar en la lista de acompañantes.");
+      toast.error("El titular no puede estar de acompañante.");
       return;
     }
 
