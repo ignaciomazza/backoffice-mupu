@@ -108,7 +108,7 @@ export default function ServicesContainer({
   return (
     <motion.div>
       {loading ? (
-        <div className="flex size-64 items-center justify-center">
+        <div className="flex min-h-[90vh] w-full items-center">
           <Spinner />
         </div>
       ) : (

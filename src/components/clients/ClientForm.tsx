@@ -123,7 +123,7 @@ export default function ClientForm({
       layout
       initial={{ maxHeight: 80, opacity: 1 }}
       animate={{
-        maxHeight: isFormVisible ? 500 : 80,
+        maxHeight: isFormVisible ? 550 : 80,
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
@@ -173,7 +173,7 @@ export default function ClientForm({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onSubmit={handleSubmit}
-          className="max-h-[400px] space-y-3 overflow-y-auto md:pr-12"
+          className="max-h-[450px] items-center justify-center space-y-3 overflow-y-auto md:grid md:grid-cols-2 md:gap-6 md:space-y-0 md:pr-12"
         >
           {[
             { name: "first_name", label: "Nombre" },
@@ -226,12 +226,14 @@ export default function ClientForm({
               />
             </div>
           ))}
-          <button
-            type="submit"
-            className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
-          >
-            {editingClientId ? "Guardar Cambios" : "Agregar Cliente"}
-          </button>
+          <div>
+            <button
+              type="submit"
+              className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+            >
+              {editingClientId ? "Guardar Cambios" : "Agregar Cliente"}
+            </button>
+          </div>
         </motion.form>
       )}
     </motion.div>

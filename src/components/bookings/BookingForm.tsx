@@ -191,57 +191,63 @@ export default function BookingForm({
           onSubmit={handleSubmit}
           className="max-h-[400px] space-y-3 overflow-y-auto md:pr-12"
         >
-          {[
-            {
-              name: "details",
-              label: "Detalle",
-              type: "text",
-              placeholder: "Detalle...",
-            },
-            {
-              name: "departure_date",
-              label: "Desde",
-              type: "date",
-              placeholder: "Dia/Mes/Año",
-            },
-            {
-              name: "return_date",
-              label: "Hasta",
-              type: "date",
-              placeholder: "Dia/Mes/Año",
-            },
-          ].map(({ name, label, type = "text", placeholder }) => (
-            <div key={name}>
-              <label className="ml-2 block dark:text-white">{label}</label>
-              <input
-                // Para los campos de fecha, usamos nuestro custom handling y tipo "text"
-                type={
-                  name === "departure_date" || name === "return_date"
-                    ? "text"
-                    : type
-                }
-                name={name}
-                value={
-                  name === "departure_date" || name === "return_date"
-                    ? formatIsoToDisplay(
-                        String(formData[name as keyof BookingFormData] || ""),
-                      )
-                    : String(formData[name as keyof BookingFormData] || "")
-                }
-                onChange={
-                  name === "departure_date" || name === "return_date"
-                    ? handleDateChange
-                    : handleChange
-                }
-                {...((name === "departure_date" || name === "return_date") && {
-                  onPaste: handleDatePaste,
-                  onBlur: handleDateBlur,
-                })}
-                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-                placeholder={placeholder}
-              />
-            </div>
-          ))}
+          <div className="md:grid md:grid-cols-2 md:gap-6">
+            {[
+              {
+                name: "details",
+                label: "Detalle",
+                type: "text",
+                placeholder: "Detalle...",
+                span: "col-span-2",
+              },
+              {
+                name: "departure_date",
+                label: "Desde",
+                type: "date",
+                placeholder: "Dia/Mes/Año",
+                span: "col-span-1",
+              },
+              {
+                name: "return_date",
+                label: "Hasta",
+                type: "date",
+                placeholder: "Dia/Mes/Año",
+                span: "col-span-1",
+              },
+            ].map(({ name, label, type = "text", placeholder, span }) => (
+              <div key={name} className={span}>
+                <label className="ml-2 block dark:text-white">{label}</label>
+                <input
+                  // Para los campos de fecha, usamos nuestro custom handling y tipo "text"
+                  type={
+                    name === "departure_date" || name === "return_date"
+                      ? "text"
+                      : type
+                  }
+                  name={name}
+                  value={
+                    name === "departure_date" || name === "return_date"
+                      ? formatIsoToDisplay(
+                          String(formData[name as keyof BookingFormData] || ""),
+                        )
+                      : String(formData[name as keyof BookingFormData] || "")
+                  }
+                  onChange={
+                    name === "departure_date" || name === "return_date"
+                      ? handleDateChange
+                      : handleChange
+                  }
+                  {...((name === "departure_date" ||
+                    name === "return_date") && {
+                    onPaste: handleDatePaste,
+                    onBlur: handleDateBlur,
+                  })}
+                  className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                  placeholder={placeholder}
+                />
+              </div>
+            ))}
+          </div>
 
           <div>
             <label className="ml-2 block dark:text-white">ID del Titular</label>
