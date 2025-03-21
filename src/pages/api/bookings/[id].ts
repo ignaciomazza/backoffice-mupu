@@ -42,19 +42,24 @@ export default async function handler(
     const {
       status,
       details,
+      invoice_type,
+      invoice_observation,
+      observation,
       titular_id,
       id_agency,
       departure_date,
       return_date,
-      observation,
       pax_count,
       clients_ids,
       id_user,
     } = req.body;
 
-    // Validación de campos obligatorios
+    // Validación de campos obligatorios para la reserva
     if (
       !status ||
+      !details ||
+      !invoice_type ||
+      !invoice_observation ||
       !titular_id ||
       !id_agency ||
       !departure_date ||
@@ -86,7 +91,12 @@ export default async function handler(
       const allClientIds = [titular_id, ...clients_ids];
       const existingClients = await prisma.client.findMany({
         where: { id_client: { in: allClientIds } },
-        select: { id_client: true },
+        select: {
+          id_client: true,
+          address: true,
+          postal_code: true,
+          locality: true,
+        },
       });
       const existingClientIds = existingClients.map(
         (client) => client.id_client,
@@ -97,6 +107,22 @@ export default async function handler(
       if (missingIds.length > 0) {
         return res.status(400).json({
           error: `IDs no válidos: ${missingIds.join(", ")}`,
+        });
+      }
+
+      // Verificar que el titular tenga dirección, código postal y localidad
+      const titularClient = existingClients.find(
+        (client) => client.id_client === titular_id,
+      );
+      if (
+        !titularClient ||
+        !titularClient.address ||
+        !titularClient.postal_code ||
+        !titularClient.locality
+      ) {
+        return res.status(400).json({
+          error:
+            "El cliente titular debe tener dirección, código postal y localidad para asociarse a la reserva.",
         });
       }
 
@@ -112,12 +138,14 @@ export default async function handler(
         data: {
           status,
           details,
+          invoice_type,
+          invoice_observation,
+          observation,
           titular: { connect: { id_client: titular_id } },
           user: { connect: { id_user } },
           agency: { connect: { id_agency } },
           departure_date: parsedDeparture,
           return_date: parsedReturn,
-          observation,
           pax_count,
           clients: {
             set: clients_ids.map((id: number) => ({ id_client: id })),

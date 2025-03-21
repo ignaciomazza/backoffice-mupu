@@ -15,13 +15,10 @@ export interface ClientFormData {
   commercial_address?: string;
   dni_number?: string;
   passport_number?: string;
-  dni_issue_date?: string;
-  dni_expiry_date?: string;
   birth_date?: string;
   nationality?: string;
   gender?: string;
-  passport_issue?: string;
-  passport_expiry?: string;
+  email?: string;
 }
 
 interface ClientFormProps {
@@ -43,7 +40,6 @@ export default function ClientForm({
   isFormVisible,
   setIsFormVisible,
 }: ClientFormProps) {
-  // Funciones para convertir entre ISO (yyyy-mm-dd) y display (dd/mm/yyyy)
   const formatIsoToDisplay = (iso: string): string => {
     if (!iso) return "";
     if (iso.includes("/")) return iso;
@@ -58,7 +54,6 @@ export default function ClientForm({
     return `${parts[2]}-${parts[1]}-${parts[0]}`;
   };
 
-  // Manejador para formatear mientras se escribe (inserta "/" automáticamente)
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name } = e.target;
     const digits = e.target.value.replace(/\D/g, "");
@@ -78,7 +73,6 @@ export default function ClientForm({
     handleChange(event);
   };
 
-  // Manejador para pegar (por ejemplo, "23072002" se convierte en "23/07/2002")
   const handleDatePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     const pasteData = e.clipboardData.getData("text");
     const digits = pasteData.replace(/\D/g, "");
@@ -95,7 +89,6 @@ export default function ClientForm({
     }
   };
 
-  // Al salir del input, se convierte el valor en formato dd/mm/yyyy a ISO (yyyy-mm-dd)
   const handleDateBlur = (e: React.FocusEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     const iso = formatDisplayToIso(value);
@@ -105,14 +98,11 @@ export default function ClientForm({
     handleChange(event);
   };
 
-  // Definir cuáles campos son obligatorios según el modelo
+  // Definimos los campos requeridos (se elimina "email" y se incluye "gender")
   const requiredFields = [
     "first_name",
     "last_name",
     "phone",
-    "dni_number",
-    "dni_issue_date",
-    "dni_expiry_date",
     "birth_date",
     "nationality",
     "gender",
@@ -187,46 +177,52 @@ export default function ClientForm({
             { name: "commercial_address", label: "Domicilio Comercial" },
             { name: "dni_number", label: "Número DNI" },
             { name: "passport_number", label: "Número Pasaporte" },
-            { name: "dni_issue_date", label: "Emisión DNI", type: "date" },
-            { name: "dni_expiry_date", label: "Expiración DNI", type: "date" },
             { name: "birth_date", label: "Fecha de Nacimiento", type: "date" },
             { name: "nationality", label: "Nacionalidad" },
             { name: "gender", label: "Género" },
-            {
-              name: "passport_issue",
-              label: "Emisión Pasaporte",
-              type: "date",
-            },
-            {
-              name: "passport_expiry",
-              label: "Expiración Pasaporte",
-              type: "date",
-            },
+            { name: "email", label: "Correo electrónico" },
           ].map(({ name, label, type = "text" }) => (
             <div key={name}>
               <label className="ml-2 block dark:text-white">{label}</label>
-              <input
-                type={type === "date" ? "text" : type}
-                name={name}
-                value={
-                  type === "date"
-                    ? formatIsoToDisplay(
-                        String(formData[name as keyof ClientFormData] || ""),
-                      )
-                    : String(formData[name as keyof ClientFormData] || "")
-                }
-                onChange={type === "date" ? handleDateChange : handleChange}
-                {...(type === "date" && {
-                  onPaste: handleDatePaste,
-                  onBlur: handleDateBlur,
-                })}
-                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-                placeholder={type === "date" ? "Dia/Mes/Año" : `${label}...`}
-                required={requiredFields.includes(name)}
-              />
+              {name === "gender" ? (
+                <select
+                  name={name}
+                  value={formData[name as keyof ClientFormData] || ""}
+                  onChange={handleChange}
+                  className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                  required
+                >
+                  <option value="" disabled>
+                    Seleccionar
+                  </option>
+                  <option value="Masculino">Masculino</option>
+                  <option value="Femenino">Femenino</option>
+                  <option value="No Binario">No Binario</option>
+                </select>
+              ) : (
+                <input
+                  type={type === "date" ? "text" : type}
+                  name={name}
+                  value={
+                    type === "date"
+                      ? formatIsoToDisplay(
+                          String(formData[name as keyof ClientFormData] || ""),
+                        )
+                      : String(formData[name as keyof ClientFormData] || "")
+                  }
+                  onChange={type === "date" ? handleDateChange : handleChange}
+                  {...(type === "date" && {
+                    onPaste: handleDatePaste,
+                    onBlur: handleDateBlur,
+                  })}
+                  className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                  placeholder={type === "date" ? "Día/Mes/Año" : `${label}...`}
+                  required={requiredFields.includes(name)}
+                />
+              )}
             </div>
           ))}
-          <div>
+          <div className="md:col-span-2">
             <button
               type="submit"
               className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"

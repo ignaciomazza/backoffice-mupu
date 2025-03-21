@@ -15,13 +15,15 @@ import { useAuth } from "@/context/AuthContext";
 type BookingFormData = {
   id_booking?: number;
   status: string;
-  details?: string;
+  details: string;
+  invoice_type: string;
+  invoice_observation: string;
+  observation: string;
   titular_id: number;
   id_user: number;
   id_agency: number;
   departure_date: string;
   return_date: string;
-  observation?: string;
   pax_count: number;
   clients_ids: number[];
 };
@@ -35,12 +37,14 @@ export default function Page() {
     id_booking: undefined,
     status: "Pendiente",
     details: "",
+    invoice_type: "",
+    invoice_observation: "",
+    observation: "",
     titular_id: 0,
     id_user: 0,
     id_agency: 1,
     departure_date: "",
     return_date: "",
-    observation: "",
     pax_count: 1,
     clients_ids: [],
   });
@@ -49,13 +53,10 @@ export default function Page() {
   const [loadingBookings, setLoadingBookings] = useState<boolean>(true);
   const { token } = useAuth();
 
-  // Cargar el perfil del usuario para obtener su id
   useEffect(() => {
     if (!token) return;
     fetch("/api/user/profile", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
       .then((profile) => {
@@ -71,7 +72,6 @@ export default function Page() {
       });
   }, [token]);
 
-  // Cargar las reservas
   useEffect(() => {
     setLoadingBookings(true);
     fetch("/api/bookings")
@@ -105,19 +105,52 @@ export default function Page() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validación de campos obligatorios para la reserva
     if (
-      !formData.status ||
+      !formData.details.trim() ||
+      !formData.invoice_type.trim() ||
+      !formData.invoice_observation.trim() ||
       formData.titular_id === 0 ||
       !formData.departure_date ||
-      !formData.return_date
+      !formData.return_date ||
+      !formData.status ||
+      !formData.id_user
     ) {
-      toast.error("Completa los campos obligatorios.");
+      toast.error("Completa todos los campos obligatorios de la reserva.");
       return;
     }
 
     if (formData.clients_ids.includes(formData.titular_id)) {
       toast.error("El titular no puede estar de acompañante.");
       return;
+    }
+
+    // Si se selecciona "Factura A", validar que el titular tenga cargados:
+    // Razón Social, Domicilio Comercial, Email y CUIT
+    if (formData.invoice_type === "Factura A") {
+      try {
+        const resClient = await fetch(`/api/clients/${formData.titular_id}`);
+        if (!resClient.ok) {
+          toast.error("No se pudo obtener la información del titular.");
+          return;
+        }
+        const titular = await resClient.json();
+        if (
+          !titular.company_name?.trim() ||
+          !titular.commercial_address?.trim() ||
+          !titular.email?.trim() ||
+          !titular.tax_id?.trim()
+        ) {
+          toast.error(
+            "Para Factura A, el titular debe tener cargado Razón Social, Domicilio Comercial, Email y CUIT.",
+          );
+          return;
+        }
+      } catch (error) {
+        console.error("Error validando titular:", error);
+        toast.error("Error al validar la información del titular.");
+        return;
+      }
     }
 
     try {
@@ -137,7 +170,7 @@ export default function Page() {
         throw new Error(errorResponse.error || "Error al guardar la reserva.");
       }
 
-      // Actualizar la lista de reservas
+      // Actualizar listado de reservas
       fetch("/api/bookings")
         .then((res) => res.json())
         .then((data) => setBookings(data));
@@ -156,12 +189,14 @@ export default function Page() {
       id_booking: undefined,
       status: "Pendiente",
       details: "",
+      invoice_type: "",
+      invoice_observation: "",
+      observation: "",
       titular_id: 0,
       id_user: formData.id_user,
       id_agency: 1,
       departure_date: "",
       return_date: "",
-      observation: "",
       pax_count: 1,
       clients_ids: [],
     });
@@ -174,12 +209,14 @@ export default function Page() {
       id_booking: booking.id_booking,
       status: booking.status,
       details: booking.details || "",
+      invoice_type: booking.invoice_type || "",
+      invoice_observation: booking.invoice_observation || "",
+      observation: "",
       titular_id: booking.titular?.id_client || 0,
       id_user: booking.user?.id_user || 0,
       id_agency: booking.agency?.id_agency || 0,
       departure_date: booking.departure_date.split("T")[0],
       return_date: booking.return_date.split("T")[0],
-      observation: booking.observation || "",
       pax_count: booking.pax_count || 1,
       clients_ids: booking.clients?.map((client) => client.id_client) || [],
     });
@@ -190,7 +227,6 @@ export default function Page() {
   const deleteBooking = async (id: number) => {
     try {
       const response = await fetch(`/api/bookings/${id}`, { method: "DELETE" });
-
       if (response.ok) {
         setBookings((prevBookings) =>
           prevBookings.filter((booking) => booking.id_booking !== id),

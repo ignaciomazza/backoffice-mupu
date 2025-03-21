@@ -4,6 +4,7 @@
 import { ChangeEvent, FormEvent } from "react";
 import { motion } from "framer-motion";
 import { Operator } from "@/types";
+import BillingBreakdown from "../BillingBreakdown";
 
 export type ServiceFormData = {
   type: string;
@@ -16,11 +17,7 @@ export type ServiceFormData = {
   tax_105?: number;
   exempt?: number;
   other_taxes?: number;
-  not_computable?: number;
-  taxable_21?: number;
-  taxable_105?: number;
   currency: string;
-  payment_due_date: string;
   id_operator: number;
   departure_date: string;
   return_date: string;
@@ -55,8 +52,6 @@ export default function ServiceForm({
     }).format(value);
   };
 
-  // Si el valor ya contiene "/" (es decir, ya está en formato display) se retorna así;
-  // de lo contrario, se asume que está en formato ISO ("yyyy-mm-dd") y se convierte a "dd/mm/yyyy".
   const formatIsoToDisplay = (value: string): string => {
     if (!value) return "";
     if (value.includes("/")) return value;
@@ -65,15 +60,12 @@ export default function ServiceForm({
     return `${parts[2]}/${parts[1]}/${parts[0]}`;
   };
 
-  // Convierte un valor en formato "dd/mm/yyyy" a ISO "yyyy-mm-dd"
   const formatDisplayToIso = (display: string): string => {
     const parts = display.split("/");
     if (parts.length !== 3) return display;
     return `${parts[2]}-${parts[1]}-${parts[0]}`;
   };
 
-  // Función para formatear el input mientras se escribe o borra:
-  // extrae los dígitos y los organiza en el formato dd/mm/yyyy
   const handleDateChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name } = e.target;
     // Extraemos sólo dígitos
@@ -94,7 +86,6 @@ export default function ServiceForm({
     handleChange(event);
   };
 
-  // Cuando se pega, si se obtiene exactamente 8 dígitos, se formatea automáticamente
   const handleDatePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     const pasteData = e.clipboardData.getData("text");
     const digits = pasteData.replace(/\D/g, "");
@@ -111,7 +102,6 @@ export default function ServiceForm({
     }
   };
 
-  // Al salir del input, se convierte el valor (en formato dd/mm/yyyy) a formato ISO para guardarlo
   const handleDateBlur = (e: React.FocusEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     const iso = formatDisplayToIso(value);
@@ -178,25 +168,35 @@ export default function ServiceForm({
           className="max-h-[600px] space-y-3 overflow-y-auto md:pr-12"
         >
           <div>
-            <label className="ml-2 block dark:text-white">
-              Tipo de Servicio
-            </label>
+            <label className="ml-2 dark:text-white">Tipo de Servicio</label>
             <select
               name="type"
               value={formData.type}
               onChange={handleChange}
-              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none hover:cursor-pointer dark:border-white/50 dark:bg-[#252525] dark:text-white"
               required
             >
-              <option value="">Seleccionar tipo</option>
-              <option value="Traslado">Traslado</option>
+              <option value="" disabled>
+                Seleccionar tipo
+              </option>
+              <option value="Paquete Argentina">Paquete Argentina</option>
+              <option value="Cupo exterior">Cupo exterior</option>
+              <option value="Aereo">Aereo</option>
               <option value="Hotelería">Hotelería</option>
-              <option value="Aéreo">Aéreo</option>
-              <option value="Asistencia Médica">Asistencia Médica</option>
+              <option value="Hotelería y traslados">
+                Hotelería y traslados
+              </option>
+              <option value="Traslados">Traslados</option>
+              <option value="Asistencias">Asistencias</option>
+              <option value="Excursiones">Excursiones</option>
+              <option value="Alquiler de auto">Alquiler de auto</option>
+              <option value="Tour">Tour</option>
+              <option value="Crucero">Crucero</option>
+              <option value="Adiciónenles">Adiciónenles</option>
             </select>
           </div>
           <div>
-            <label className="ml-2 block dark:text-white">Descripción</label>
+            <label className="ml-2 dark:text-white">Descripción</label>
             <textarea
               name="description"
               value={formData.description || ""}
@@ -208,7 +208,7 @@ export default function ServiceForm({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="ml-2 block dark:text-white">Destino</label>
+              <label className="ml-2 dark:text-white">Destino</label>
               <input
                 type="text"
                 name="destination"
@@ -219,7 +219,7 @@ export default function ServiceForm({
               />
             </div>
             <div>
-              <label className="ml-2 block dark:text-white">Referencia</label>
+              <label className="ml-2 dark:text-white">Referencia</label>
               <input
                 type="text"
                 name="reference"
@@ -229,60 +229,79 @@ export default function ServiceForm({
                 className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               />
             </div>
-          </div>
-          <div>
-            <label className="ml-2 block dark:text-white">Desde</label>
-            <input
-              type="text"
-              name="departure_date"
-              value={
-                formData.departure_date
-                  ? formatIsoToDisplay(formData.departure_date)
-                  : ""
-              }
-              onChange={handleDateChange}
-              onPaste={handleDatePaste}
-              onBlur={handleDateBlur}
-              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-              placeholder="dd/mm/yyyy"
-            />
-          </div>
-          <div>
-            <label className="ml-2 block dark:text-white">Hasta</label>
-            <input
-              type="text"
-              name="return_date"
-              value={
-                formData.return_date
-                  ? formatIsoToDisplay(formData.return_date)
-                  : ""
-              }
-              onChange={handleDateChange}
-              onPaste={handleDatePaste}
-              onBlur={handleDateBlur}
-              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-              placeholder="dd/mm/yyyy"
-            />
-          </div>
-          <div>
-            <label className="ml-2 block dark:text-white">Operador</label>
-            <select
-              name="id_operator"
-              value={formData.id_operator || 0}
-              onChange={handleChange}
-              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-            >
-              <option value="0">Seleccionar operador</option>
-              {operators.map((operator) => (
-                <option key={operator.id_operator} value={operator.id_operator}>
-                  {operator.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="ml-2 block dark:text-white">Costo</label>
+              <label className="ml-2 dark:text-white">Desde</label>
+              <input
+                type="text"
+                name="departure_date"
+                value={
+                  formData.departure_date
+                    ? formatIsoToDisplay(formData.departure_date)
+                    : ""
+                }
+                onChange={handleDateChange}
+                onPaste={handleDatePaste}
+                onBlur={handleDateBlur}
+                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                placeholder="dd/mm/yyyy"
+              />
+            </div>
+            <div>
+              <label className="ml-2 dark:text-white">Hasta</label>
+              <input
+                type="text"
+                name="return_date"
+                value={
+                  formData.return_date
+                    ? formatIsoToDisplay(formData.return_date)
+                    : ""
+                }
+                onChange={handleDateChange}
+                onPaste={handleDatePaste}
+                onBlur={handleDateBlur}
+                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                placeholder="dd/mm/yyyy"
+              />
+            </div>
+            <div>
+              <label className="ml-2 dark:text-white">Operador</label>
+              <select
+                name="id_operator"
+                value={formData.id_operator || 0}
+                onChange={handleChange}
+                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide hover:cursor-pointer dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              >
+                <option value={0} disabled>
+                  Seleccionar operador
+                </option>
+                {operators.map((operator) => (
+                  <option
+                    key={operator.id_operator}
+                    value={operator.id_operator}
+                  >
+                    {operator.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="ml-2 dark:text-white">Moneda</label>
+              <select
+                name="currency"
+                value={formData.currency}
+                onChange={handleChange}
+                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide hover:cursor-pointer dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                required
+              >
+                <option value="" disabled>
+                  Seleccionar moneda
+                </option>
+                <option value="USD">USD</option>
+                <option value="ARS">ARS</option>
+              </select>
+            </div>
+            <div>
+              <label className="ml-2 dark:text-white">Costo</label>
               <input
                 type="number"
                 name="cost_price"
@@ -299,7 +318,7 @@ export default function ServiceForm({
               </p>
             </div>
             <div>
-              <label className="ml-2 block dark:text-white">Venta</label>
+              <label className="ml-2 dark:text-white">Venta</label>
               <input
                 type="number"
                 name="sale_price"
@@ -315,10 +334,8 @@ export default function ServiceForm({
                 {formatCurrency(formData.sale_price)}
               </p>
             </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="ml-2 block dark:text-white">Tax 21%</label>
+              <label className="ml-2 dark:text-white">Tax 21%</label>
               <input
                 type="number"
                 name="tax_21"
@@ -334,7 +351,7 @@ export default function ServiceForm({
               </p>
             </div>
             <div>
-              <label className="ml-2 block dark:text-white">Tax 10.5%</label>
+              <label className="ml-2 dark:text-white">Tax 10.5%</label>
               <input
                 type="number"
                 name="tax_105"
@@ -349,10 +366,8 @@ export default function ServiceForm({
                 {formatCurrency(formData.tax_105 || 0)}
               </p>
             </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="ml-2 block dark:text-white">Exento</label>
+              <label className="ml-2 dark:text-white">Exento</label>
               <input
                 type="number"
                 name="exempt"
@@ -368,29 +383,7 @@ export default function ServiceForm({
               </p>
             </div>
             <div>
-              <label className="ml-2 block dark:text-white">
-                No computable
-              </label>
-              <input
-                type="number"
-                name="not_computable"
-                value={formData.not_computable || ""}
-                onChange={handleChange}
-                placeholder="No computable..."
-                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-                step="0.01"
-                min="0"
-              />
-              <p className="ml-2 text-sm dark:text-white">
-                {formatCurrency(formData.not_computable || 0)}
-              </p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="ml-2 block dark:text-white">
-                Otros Impuestos
-              </label>
+              <label className="ml-2 dark:text-white">Otros Impuestos</label>
               <input
                 type="number"
                 name="other_taxes"
@@ -405,38 +398,18 @@ export default function ServiceForm({
                 {formatCurrency(formData.other_taxes || 0)}
               </p>
             </div>
-            <div>
-              <label className="ml-2 block dark:text-white">Moneda</label>
-              <select
-                name="currency"
-                value={formData.currency}
-                onChange={handleChange}
-                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-                required
-              >
-                <option value="USD">USD</option>
-                <option value="ARS">ARS</option>
-              </select>
-            </div>
           </div>
-          <div>
-            <label className="ml-2 block dark:text-white">Fecha de Pago</label>
-            <input
-              type="text"
-              name="payment_due_date"
-              value={
-                formData.payment_due_date
-                  ? formatIsoToDisplay(formData.payment_due_date)
-                  : ""
-              }
-              onChange={handleDateChange}
-              onPaste={handleDatePaste}
-              onBlur={handleDateBlur}
-              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-              placeholder="dd/mm/yyyy"
-              required
+          {formData.sale_price > 0 && formData.cost_price > 0 && (
+            <BillingBreakdown
+              sale={formData.sale_price}
+              cost={formData.cost_price}
+              tax21={formData.tax_21 || 0}
+              tax105={formData.tax_105 || 0}
+              exempt={formData.exempt || 0}
+              other_taxes={formData.other_taxes || 0}
             />
-          </div>
+          )}
+
           <button
             type="submit"
             className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"

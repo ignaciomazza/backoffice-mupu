@@ -44,11 +44,7 @@ export default async function handler(
       tax_105,
       exempt,
       other_taxes,
-      not_computable,
-      taxable_21,
-      taxable_105,
       currency,
-      payment_due_date,
       departure_date,
       return_date,
       id_operator,
@@ -61,24 +57,16 @@ export default async function handler(
         sale_price === undefined ||
         cost_price === undefined ||
         !id_operator ||
-        !payment_due_date ||
         !booking_id
       ) {
         return res.status(400).json({
           error:
-            "Faltan campos obligatorios: tipo, precios, moneda, fecha de pago o ID de reserva.",
+            "Faltan campos obligatorios: tipo, precios, moneda o ID de reserva.",
         });
       }
 
-      const parsedPaymentDueDate = new Date(payment_due_date);
-      const parsedDepartureDate = departure_date
-        ? new Date(departure_date)
-        : null;
-      const parsedReturnDate = return_date ? new Date(return_date) : null;
-
-      if (isNaN(parsedPaymentDueDate.getTime())) {
-        return res.status(400).json({ error: "Fecha de pago no válida." });
-      }
+      const parsedDepartureDate = new Date(departure_date);
+      const parsedReturnDate = new Date(return_date);
 
       const bookingExists = await prisma.booking.findUnique({
         where: { id_booking: Number(booking_id) },
@@ -106,11 +94,7 @@ export default async function handler(
           tax_105: tax_105 || null,
           exempt: exempt || null,
           other_taxes: other_taxes || null,
-          not_computable: not_computable || null,
-          taxable_21: taxable_21 || null,
-          taxable_105: taxable_105 || null,
           currency,
-          payment_due_date: parsedPaymentDueDate,
           departure_date: parsedDepartureDate,
           return_date: parsedReturnDate,
           booking: { connect: { id_booking: Number(booking_id) } },

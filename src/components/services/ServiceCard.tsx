@@ -84,12 +84,6 @@ export default function ServiceCard({
             Referencia:{" "}
             <span className="font-light">{service.reference || "N/A"}</span>
           </p>
-          <p className="font-semibold dark:font-medium">
-            Fecha de Pago:{" "}
-            <span className="font-light">
-              {formatDate(service.payment_due_date)}
-            </span>
-          </p>
           <p className="mt-4 font-semibold dark:font-medium">Impuestos</p>
           <ul className="ml-4 list-disc">
             <li>

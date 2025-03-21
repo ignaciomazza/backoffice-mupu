@@ -86,30 +86,6 @@ export default function ClientCard({
             <span className="ml-2 font-light">{client.gender || "-"}</span>
           </p>
           <p className="font-semibold dark:font-medium">
-            Emisión del DNI
-            <span className="ml-2 font-light">
-              {formatDate(client.dni_issue_date)}
-            </span>
-          </p>
-          <p className="font-semibold dark:font-medium">
-            Vencimiento del DNI
-            <span className="ml-2 font-light">
-              {formatDate(client.dni_expiry_date)}
-            </span>
-          </p>
-          <p className="font-semibold dark:font-medium">
-            Emisión del Pasaporte
-            <span className="ml-2 font-light">
-              {formatDate(client.passport_issue)}
-            </span>
-          </p>
-          <p className="font-semibold dark:font-medium">
-            Vencimiento del Pasaporte
-            <span className="ml-2 font-light">
-              {formatDate(client.passport_expiry)}
-            </span>
-          </p>
-          <p className="font-semibold dark:font-medium">
             Razón Social
             <span className="ml-2 font-light">
               {client.company_name || "-"}
@@ -119,6 +95,12 @@ export default function ClientCard({
             Dirección Comercial
             <span className="ml-2 font-light">
               {client.commercial_address || "-"}
+            </span>
+          </p>
+          <p className="font-semibold dark:font-medium">
+            Correo electronico
+            <span className="ml-2 font-light">
+              {client.email || "-"}
             </span>
           </p>
         </>

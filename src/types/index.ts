@@ -43,16 +43,13 @@ export interface Client {
   company_name?: string;
   tax_id?: string;
   commercial_address?: string;
-  dni_number: string;
+  dni_number?: string;
   passport_number?: string;
-  dni_issue_date: string;
-  dni_expiry_date: string;
   birth_date: string;
   nationality: string;
   gender: string;
+  email?: string;
   registration_date: string;
-  passport_issue?: string;
-  passport_expiry?: string;
   bookings?: Booking[];
   titular_bookings?: Booking[];
   invoices?: Invoice[];
@@ -61,24 +58,33 @@ export interface Client {
 export interface Booking {
   id_booking: number;
   status: string;
-  details?: string;
+  details: string; // Obligatorio
+  invoice_type: "Factura A" | "Factura B" | "Coordinar con administracion"; // Obligatorio
+  observation?: string; // Obligatorio
+  invoice_observation?: string;
   titular: Client;
   user: User;
   agency: Agency;
-  departure_date: string;
-  return_date: string;
-  observation?: string;
+  departure_date: string; // Obligatorio
+  return_date: string; // Obligatorio
   pax_count: number;
-  clients: Client[];
+  clients: Client[]; // Acompañantes (opcional)
   services?: Service[];
 }
 
 export interface BookingFormData {
   status: string;
-  details?: string;
+  details: string;
+  invoice_type: "Factura A" | "Factura B" | "Coordinar con administracion";
+  observation?: string;
+  invoice_observation?: String;
   titular_id: number;
   id_user: number;
   id_agency: number;
+  departure_date: string;
+  return_date: string;
+  pax_count: number;
+  clients_ids: number[]; // Opcional: IDs de acompañantes/clientes a facturar
 }
 
 // Service.ts: Tipo de servicio
@@ -94,11 +100,7 @@ export interface Service {
   tax_105?: number;
   exempt?: number;
   other_taxes?: number;
-  not_computable?: number;
-  taxable_21?: number;
-  taxable_105?: number;
   currency: string;
-  payment_due_date: string;
   created_at: string;
   booking_id: number;
   booking: Booking;

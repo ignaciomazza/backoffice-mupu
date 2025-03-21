@@ -25,22 +25,13 @@ export default async function handler(
       tax_105,
       exempt,
       other_taxes,
-      not_computable,
-      taxable_21,
-      taxable_105,
       currency,
-      payment_due_date,
       departure_date,
       return_date,
       id_operator,
     } = req.body;
 
-    if (
-      !type ||
-      sale_price === undefined ||
-      cost_price === undefined ||
-      !payment_due_date
-    ) {
+    if (!type || sale_price === undefined || cost_price === undefined) {
       return res.status(400).json({
         error: "Todos los campos obligatorios deben ser completados.",
       });
@@ -60,13 +51,9 @@ export default async function handler(
           tax_105: tax_105 || null,
           exempt: exempt || null,
           other_taxes: other_taxes || null,
-          not_computable: not_computable || null,
-          taxable_21: taxable_21 || null,
-          taxable_105: taxable_105 || null,
           currency,
-          payment_due_date: new Date(payment_due_date),
-          departure_date: departure_date ? new Date(departure_date) : null,
-          return_date: return_date ? new Date(return_date) : null,
+          departure_date: new Date(departure_date),
+          return_date: new Date(return_date),
           id_operator: Number(id_operator),
         },
       });

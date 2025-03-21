@@ -21,18 +21,16 @@ export default async function handler(
     try {
       const client = req.body;
 
-      // Validar campos obligatorios
+      // Campos requeridos (excluyendo dni_number y passport_number)
       const requiredFields = [
         "first_name",
         "last_name",
         "phone",
-        "dni_number",
-        "dni_issue_date",
-        "dni_expiry_date",
         "birth_date",
         "nationality",
         "gender",
       ];
+
       for (const field of requiredFields) {
         if (!client[field]) {
           return res
@@ -41,7 +39,17 @@ export default async function handler(
         }
       }
 
-      // Verificar duplicados excluyendo el cliente que se actualiza
+      // Validación: se requiere que al menos uno de los dos campos tenga un valor
+      if (!client.dni_number?.trim() && !client.passport_number?.trim()) {
+        return res
+          .status(400)
+          .json({
+            error:
+              "El DNI y el Pasaporte son obigatorios. Debes cargar al menos uno",
+          });
+      }
+
+      // Verificar duplicados
       const duplicate = await prisma.client.findFirst({
         where: {
           id_client: { not: Number(id) },
@@ -80,17 +88,10 @@ export default async function handler(
           commercial_address: client.commercial_address || null,
           dni_number: client.dni_number,
           passport_number: client.passport_number || null,
-          dni_issue_date: new Date(client.dni_issue_date),
-          dni_expiry_date: new Date(client.dni_expiry_date),
           birth_date: new Date(client.birth_date),
           nationality: client.nationality,
           gender: client.gender,
-          passport_issue: client.passport_issue
-            ? new Date(client.passport_issue)
-            : null,
-          passport_expiry: client.passport_expiry
-            ? new Date(client.passport_expiry)
-            : null,
+          email: client.email || null,
         },
       });
       res.status(200).json(updatedClient);

@@ -29,13 +29,10 @@ export default function Page() {
     commercial_address: "",
     dni_number: "",
     passport_number: "",
-    dni_issue_date: "",
-    dni_expiry_date: "",
     birth_date: "",
     nationality: "",
     gender: "",
-    passport_issue: "",
-    passport_expiry: "",
+    email: "",
   });
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
@@ -71,6 +68,17 @@ export default function Page() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (
+      !(formData.dni_number || "").trim() &&
+      !(formData.passport_number || "").trim()
+    ) {
+      toast.error(
+        "El DNI y el Pasaporte son obigatorios. Debes cargar al menos uno",
+      );
+      return;
+    }
+
     try {
       const url = editingClientId
         ? `/api/clients/${editingClientId}`
@@ -82,20 +90,8 @@ export default function Page() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
-          dni_issue_date: formData.dni_issue_date
-            ? new Date(formData.dni_issue_date).toISOString()
-            : null,
-          dni_expiry_date: formData.dni_expiry_date
-            ? new Date(formData.dni_expiry_date).toISOString()
-            : null,
           birth_date: formData.birth_date
             ? new Date(formData.birth_date).toISOString()
-            : null,
-          passport_issue: formData.passport_issue
-            ? new Date(formData.passport_issue).toISOString()
-            : null,
-          passport_expiry: formData.passport_expiry
-            ? new Date(formData.passport_expiry).toISOString()
             : null,
         }),
       });
@@ -121,7 +117,6 @@ export default function Page() {
       toast.error("Error al guardar el cliente. Intente nuevamente.");
     }
 
-    // Reiniciar formulario
     setFormData({
       first_name: "",
       last_name: "",
@@ -134,13 +129,10 @@ export default function Page() {
       commercial_address: "",
       dni_number: "",
       passport_number: "",
-      dni_issue_date: "",
-      dni_expiry_date: "",
       birth_date: "",
       nationality: "",
       gender: "",
-      passport_issue: "",
-      passport_expiry: "",
+      email: "",
     });
     setIsFormVisible(false);
     setEditingClientId(null);
@@ -180,23 +172,12 @@ export default function Page() {
       commercial_address: client.commercial_address || "",
       dni_number: client.dni_number || "",
       passport_number: client.passport_number || "",
-      dni_issue_date: client.dni_issue_date
-        ? new Date(client.dni_issue_date).toISOString().split("T")[0]
-        : "",
-      dni_expiry_date: client.dni_expiry_date
-        ? new Date(client.dni_expiry_date).toISOString().split("T")[0]
-        : "",
       birth_date: client.birth_date
         ? new Date(client.birth_date).toISOString().split("T")[0]
         : "",
       nationality: client.nationality || "",
       gender: client.gender || "",
-      passport_issue: client.passport_issue
-        ? new Date(client.passport_issue).toISOString().split("T")[0]
-        : "",
-      passport_expiry: client.passport_expiry
-        ? new Date(client.passport_expiry).toISOString().split("T")[0]
-        : "",
+      email: client.email || "",
     });
     setEditingClientId(client.id_client);
     setIsFormVisible(true);

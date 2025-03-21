@@ -6,13 +6,15 @@ import { motion } from "framer-motion";
 export interface BookingFormData {
   id_booking?: number;
   status: string;
-  details?: string;
+  details: string;
+  invoice_type: string;
+  invoice_observation: string;
+  observation: string;
   titular_id: number;
   id_user: number;
   id_agency: number;
   departure_date: string;
   return_date: string;
-  observation?: string;
   pax_count: number;
   clients_ids: number[];
 }
@@ -38,10 +40,8 @@ export default function BookingForm({
   isFormVisible,
   setIsFormVisible,
 }: BookingFormProps) {
-  // Funciones para convertir entre ISO (yyyy-mm-dd) y display (dd/mm/yyyy)
   const formatIsoToDisplay = (iso: string): string => {
     if (!iso) return "";
-    // Si ya contiene "/" se asume que ya está formateada
     if (iso.includes("/")) return iso;
     const parts = iso.split("-");
     if (parts.length !== 3) return iso;
@@ -54,7 +54,6 @@ export default function BookingForm({
     return `${parts[2]}-${parts[1]}-${parts[0]}`;
   };
 
-  // Función para formatear mientras se escribe o borra en el input de fecha.
   const handleDateChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name } = e.target;
     const digits = e.target.value.replace(/\D/g, "");
@@ -74,7 +73,6 @@ export default function BookingForm({
     handleChange(event);
   };
 
-  // Al pegar, si se tienen exactamente 8 dígitos, se formatea a dd/mm/yyyy.
   const handleDatePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     const pasteData = e.clipboardData.getData("text");
     const digits = pasteData.replace(/\D/g, "");
@@ -91,7 +89,6 @@ export default function BookingForm({
     }
   };
 
-  // Al salir del input, se convierte el valor de dd/mm/yyyy a ISO.
   const handleDateBlur = (e: React.FocusEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     const iso = formatDisplayToIso(value);
@@ -204,21 +201,20 @@ export default function BookingForm({
                 name: "departure_date",
                 label: "Desde",
                 type: "date",
-                placeholder: "Dia/Mes/Año",
+                placeholder: "Día/Mes/Año",
                 span: "col-span-1",
               },
               {
                 name: "return_date",
                 label: "Hasta",
                 type: "date",
-                placeholder: "Dia/Mes/Año",
+                placeholder: "Día/Mes/Año",
                 span: "col-span-1",
               },
             ].map(({ name, label, type = "text", placeholder, span }) => (
               <div key={name} className={span}>
                 <label className="ml-2 block dark:text-white">{label}</label>
                 <input
-                  // Para los campos de fecha, usamos nuestro custom handling y tipo "text"
                   type={
                     name === "departure_date" || name === "return_date"
                       ? "text"
@@ -244,9 +240,48 @@ export default function BookingForm({
                   })}
                   className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                   placeholder={placeholder}
+                  required
                 />
               </div>
             ))}
+          </div>
+
+          <div className="md:grid md:grid-cols-2 md:gap-6">
+            <div>
+              <label className="ml-2 block dark:text-white">
+                Tipo de Factura
+              </label>
+              <select
+                name="invoice_type"
+                value={formData.invoice_type || ""}
+                onChange={handleChange}
+                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                required
+              >
+                <option value="" disabled>
+                  Seleccionar
+                </option>
+                <option value="Factura A">Factura A</option>
+                <option value="Factura B">Factura B</option>
+                <option value="Coordinar con administracion">
+                  Coordinar con administracion
+                </option>
+              </select>
+            </div>
+            <div>
+              <label className="ml-2 block dark:text-white">
+                Observaciones de Factura
+              </label>
+              <input
+                type="text"
+                name="invoice_observation"
+                value={formData.invoice_observation || ""}
+                onChange={handleChange}
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                placeholder="Observaciones facturacion..."
+                required
+              />
+            </div>
           </div>
 
           <div>
@@ -271,7 +306,8 @@ export default function BookingForm({
               }}
               className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               min={1}
-              placeholder="Id del titular..."
+              placeholder="ID del titular..."
+              required
             />
           </div>
 

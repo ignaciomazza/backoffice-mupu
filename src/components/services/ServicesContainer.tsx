@@ -15,20 +15,16 @@ import { Booking, Service, Operator, Invoice } from "@/types";
 
 export type ServiceFormData = {
   type: string;
-  description?: string;
+  description: string;
   sale_price: number;
   cost_price: number;
-  destination?: string;
-  reference?: string;
+  destination: string;
+  reference: string;
   tax_21?: number;
   tax_105?: number;
   exempt?: number;
   other_taxes?: number;
-  not_computable?: number;
-  taxable_21?: number;
-  taxable_105?: number;
   currency: string;
-  payment_due_date: string;
   id_operator: number;
   departure_date: string;
   return_date: string;
@@ -114,9 +110,12 @@ export default function ServicesContainer({
       ) : (
         <>
           <div className="mb-6">
-            <button className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black">
-              <Link href={"/bookings"}>Volver</Link>
-            </button>
+            <Link
+              href={"/bookings"}
+              className="block w-fit rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+            >
+              Volver
+            </Link>
           </div>
           {booking && (
             <div className="mb-6 space-y-4 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black dark:text-white">
@@ -183,10 +182,10 @@ export default function ServicesContainer({
                   ))}
                 </ul>
                 <p className="mt-4 font-semibold dark:font-medium">
-                  Observaciones
+                  Observaciones Facturacion
                 </p>
                 <p className="font-light">
-                  {booking.observation || "Sin observaciones"}
+                  {booking.invoice_observation || "Sin observaciones"}
                 </p>
               </div>
             </div>
@@ -213,11 +212,6 @@ export default function ServicesContainer({
                   setEditingServiceId(service.id_service);
                   setFormData({
                     ...service,
-                    payment_due_date: service.payment_due_date
-                      ? new Date(service.payment_due_date)
-                          .toISOString()
-                          .split("T")[0]
-                      : "",
                     departure_date: service.departure_date
                       ? new Date(service.departure_date)
                           .toISOString()

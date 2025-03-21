@@ -93,18 +93,24 @@ export default function BookingCard({
               </li>
             ))}
           </ul>
-          <p className="mt-4 font-semibold dark:font-medium">Observaciones</p>
+          <p className="mt-4 font-semibold dark:font-medium">Facturacion</p>
+          <p className="font-light">
+            {booking.invoice_type || "Sin observaciones"}
+          </p>
+          <p className="font-light">
+            {`Vendedor: ${booking.invoice_observation}` ||
+              "Sin observaciones"}
+          </p>
+          <p className="mt-4 font-semibold dark:font-medium">Observaciones de administracion</p>
           <p className="font-light">
             {booking.observation || "Sin observaciones"}
           </p>
-          <button className="mt-6 rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black">
-            <Link
-              className=""
-              href={`/bookings/services/${booking.id_booking}`}
-            >
-              Servicios
-            </Link>
-          </button>
+          <Link
+            href={`/bookings/services/${booking.id_booking}`}
+            className="mt-6 block w-fit rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+          >
+            Servicios
+          </Link>
         </div>
       )}
       <div>
