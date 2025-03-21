@@ -32,6 +32,72 @@ export default function ServiceCard({
     }).format(value);
   };
 
+  // Extraer valores con defaults
+  const sale = service.sale_price;
+  const cost = service.cost_price;
+  const tax21 = service.tax_21 || 0;
+  const tax105 = service.tax_105 || 0;
+  const exempt = service.exempt || 0;
+  const other_taxes = service.other_taxes || 0;
+
+  // Cálculo de bases de impuestos (si existen)
+  const base21 = tax21 > 0 ? tax21 / 0.21 : 0;
+  const base10_5 = tax105 > 0 ? tax105 / 0.105 : 0;
+  const computedTaxable =
+    tax21 > 0 || tax105 > 0 ? base21 * 1.21 + base10_5 * 1.105 : 0;
+  // "No Computable" se define como: costo - (exento + monto computable)
+  const noComputable = cost - (exempt + computedTaxable);
+
+  // Margen de operación
+  const margin = sale - cost;
+
+  // Variables para las comisiones
+  let netComm21 = 0;
+  let netComm10_5 = 0;
+  let grossComm21 = 0;
+  let grossComm10_5 = 0;
+  let netCommExempt = 0;
+  let ivaComm21 = 0;
+  let ivaComm10_5 = 0;
+
+  if (tax21 + tax105 > 0) {
+    // Cuando se ingresan impuestos:
+    const taxableCost = cost - exempt;
+    const taxableMargin = cost > 0 ? margin * (taxableCost / cost) : 0;
+    const exemptMargin = margin - taxableMargin;
+
+    grossComm21 = taxableMargin * (tax21 / (tax21 + tax105));
+    grossComm10_5 = taxableMargin * (tax105 / (tax21 + tax105));
+
+    netComm21 = grossComm21 ? grossComm21 / 1.21 : 0;
+    ivaComm21 = grossComm21 - netComm21;
+
+    netComm10_5 = grossComm10_5 ? grossComm10_5 / 1.105 : 0;
+    ivaComm10_5 = grossComm10_5 - netComm10_5;
+
+    netCommExempt = exemptMargin;
+  } else {
+    // Cuando no se ingresan impuestos:
+    // Se resuelve el sistema:
+    //   X / Y = (cost - exempt) / (exempt)
+    //   1.21 * X + Y = margin
+    // donde X es la comisión neta gravada y Y la comisión neta exenta.
+    const taxableCost = cost - exempt;
+    if (taxableCost > 0) {
+      const netTaxableCommission = margin / (1.21 + exempt / taxableCost);
+      const grossTaxableCommission = netTaxableCommission * 1.21;
+      netComm21 = netTaxableCommission;
+      grossComm21 = grossTaxableCommission;
+      netCommExempt = margin - grossTaxableCommission;
+      ivaComm21 = grossTaxableCommission - netTaxableCommission;
+    } else {
+      // Si todo el costo es exento, la comisión es 100% exenta.
+      netCommExempt = margin;
+    }
+  }
+
+  const totalNetCommission = netComm21 + netComm10_5 + netCommExempt;
+
   return (
     <motion.div
       layout
@@ -39,64 +105,122 @@ export default function ServiceCard({
       className="h-fit space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white/50 dark:bg-black dark:text-white"
     >
       <p className="text-end text-xl font-light">{service.id_service}</p>
-      <p className="font-semibold dark:font-medium">
-        Tipo: <span className="font-light">{service.type}</span>
+      <p>
+        <span className="font-semibold">Tipo: </span>
+        <span className="font-light">{service.type}</span>
       </p>
-      <p className="font-semibold dark:font-medium">
-        Descripción:{" "}
+      <p>
+        <span className="font-semibold">Descripción: </span>
         <span className="font-light">
           {service.description || "Sin descripción"}
         </span>
       </p>
-      <p className="font-semibold dark:font-medium">
-        Operador:
-        <span className="ml-2 font-light">
-          {service.operator?.name || "N/A"}
-        </span>
+      <p>
+        <span className="font-semibold">Operador: </span>
+        <span className="font-light">{service.operator?.name || "N/A"}</span>
       </p>
-      <p className="font-semibold dark:font-medium">
-        Costo:{" "}
-        <span className="font-light">{formatCurrency(service.cost_price)}</span>
+      <p>
+        <span className="font-semibold">Costo: </span>
+        <span className="font-light">{formatCurrency(cost)}</span>
       </p>
-      <p className="font-semibold dark:font-medium">
-        Venta:{" "}
-        <span className="font-light">{formatCurrency(service.sale_price)}</span>
+      <p>
+        <span className="font-semibold">Venta: </span>
+        <span className="font-light">{formatCurrency(sale)}</span>
       </p>
       {isExpanded && (
         <div className="space-y-2">
-          <p className="font-semibold dark:font-medium">
-            Destino:{" "}
+          <p>
+            <span className="font-semibold">Destino: </span>
             <span className="font-light">{service.destination || "N/A"}</span>
           </p>
-          <p className="font-semibold dark:font-medium">
-            Desde:{" "}
+          <p>
+            <span className="font-semibold">Desde: </span>
             <span className="font-light">
               {formatDate(service.departure_date)}
             </span>
           </p>
-          <p className="font-semibold dark:font-medium">
-            Hasta:{" "}
+          <p>
+            <span className="font-semibold">Hasta: </span>
             <span className="font-light">
               {formatDate(service.return_date)}
             </span>
           </p>
-          <p className="font-semibold dark:font-medium">
-            Referencia:{" "}
+          <p>
+            <span className="font-semibold">Referencia: </span>
             <span className="font-light">{service.reference || "N/A"}</span>
           </p>
-          <p className="mt-4 font-semibold dark:font-medium">Impuestos</p>
+          <p className="mt-4 font-semibold">Impuestos</p>
           <ul className="ml-4 list-disc">
             <li>
-              Tax 21%: <span>{formatCurrency(service.tax_21)}</span>
+              <span className="font-semibold">Tax 21%: </span>
+              <span className="font-light">{formatCurrency(tax21)}</span>
             </li>
             <li>
-              Tax 10.5%: <span>{formatCurrency(service.tax_105)}</span>
+              <span className="font-semibold">Tax 10.5%: </span>
+              <span className="font-light">{formatCurrency(tax105)}</span>
             </li>
             <li>
-              Otros impuestos:{" "}
-              <span>{formatCurrency(service.other_taxes)}</span>
+              <span className="font-semibold">Exento: </span>
+              <span className="font-light">{formatCurrency(exempt)}</span>
+            </li>
+            <li>
+              <span className="font-semibold">Otros impuestos: </span>
+              <span className="font-light">{formatCurrency(other_taxes)}</span>
             </li>
           </ul>
+
+          <p className="mt-4 font-semibold">Desglose de Facturación</p>
+          <ul className="ml-4 list-disc">
+            <li>
+              <span className="font-semibold">No Computable: </span>
+              <span className="font-light">{formatCurrency(noComputable)}</span>
+            </li>
+            <li>
+              <span className="font-semibold">Gravado 21%: </span>
+              <span className="font-light">{formatCurrency(base21)}</span>
+            </li>
+            <li>
+              <span className="font-semibold">Gravado 10,5%: </span>
+              <span className="font-light">{formatCurrency(base10_5)}</span>
+            </li>
+          </ul>
+
+          <p className="mt-4 font-semibold">Comisiones</p>
+          <ul className="ml-4 list-disc">
+            <li>
+              <span className="font-semibold">Exenta: </span>
+              <span className="font-light">
+                {formatCurrency(netCommExempt)}
+              </span>
+            </li>
+            <li>
+              <span className="font-semibold">21%: </span>
+              <span className="font-light">{formatCurrency(netComm21)}</span>
+            </li>
+            <li>
+              <span className="font-semibold">10,5%: </span>
+              <span className="font-light">{formatCurrency(netComm10_5)}</span>
+            </li>
+          </ul>
+
+          <p className="mt-4 font-semibold">IVA sobre Comisiones</p>
+          <ul className="ml-4 list-disc">
+            <li>
+              <span className="font-semibold">21%: </span>
+              <span className="font-light">{formatCurrency(ivaComm21)}</span>
+            </li>
+            <li>
+              <span className="font-semibold">10,5%: </span>
+              <span className="font-light">{formatCurrency(ivaComm10_5)}</span>
+            </li>
+          </ul>
+
+          <p className="mt-4 font-semibold">
+            <span>Total Comisión (sin IVA): </span>
+            <span className="font-light">
+              {formatCurrency(totalNetCommission)}
+            </span>
+          </p>
         </div>
       )}
       <div>
@@ -130,13 +254,13 @@ export default function ServiceCard({
                 className="rounded-full bg-black px-6 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
                 onClick={() => startEditingService(service)}
               >
-                Editar
+                <span className="font-semibold">Editar</span>
               </button>
               <button
                 className="rounded-full bg-red-600 px-6 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
                 onClick={() => deleteService(service.id_service)}
               >
-                Eliminar
+                <span className="font-semibold">Eliminar</span>
               </button>
             </div>
           </div>
