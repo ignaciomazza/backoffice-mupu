@@ -21,46 +21,74 @@ const BillingBreakdown: NextPage<Props> = ({
   other_taxes,
   currency = "ARS",
 }) => {
-  // Cálculo de bases y brutos
-  const base21 = tax21 / 0.21;
-  const base10_5 = tax105 / 0.105;
-  const bruto21 = base21 * 1.21;
-  const bruto10_5 = base10_5 * 1.105;
+  // Bases para impuestos (si se ingresan)
+  const base21 = tax21 > 0 ? tax21 / 0.21 : 0;
+  const base10_5 = tax105 > 0 ? tax105 / 0.105 : 0;
 
-  // Cálculo de "No Computable":
-  // Si existe valor en "exento", se asume que no se computa (0)
-  const noComputable = exempt > 0 ? 0 : cost - (bruto21 + bruto10_5);
+  // Se calcula el monto computable a partir de IVA, si existen
+  const computedTaxable = (tax21 > 0 || tax105 > 0)
+    ? (base21 * 1.21 + base10_5 * 1.105)
+    : 0;
+  // "No computable" es el costo que queda al restar el exento y el monto computable
+  const noComputable = cost - (exempt + computedTaxable);
 
-  // Margen de operación
+  // Margen de operación (venta - costo)
   const margin = sale - cost;
 
-  // Variables para repartir la comisión bruta (la suma de comisión neta + IVA en cada grupo)
+  // Variables para las comisiones
+  let netComm21 = 0;
+  let netComm10_5 = 0;
   let grossComm21 = 0;
   let grossComm10_5 = 0;
-  let grossCommExempt = 0;
+  let netCommExempt = 0;
+  let ivaComm21 = 0;
+  let ivaComm10_5 = 0;
 
   if (tax21 + tax105 > 0) {
-    // Se reparte el margen proporcionalmente según la suma de los impuestos ingresados
-    grossComm21 = margin * (tax21 / (tax21 + tax105));
-    grossComm10_5 = margin * (tax105 / (tax21 + tax105));
+    // Caso en que se ingresan impuestos:
+    // Se reparte el margen proporcionalmente según la parte gravada (costo - exento)
+    const taxableCost = cost - exempt;
+    const taxableMargin = cost > 0 ? margin * (taxableCost / cost) : 0;
+    const exemptMargin = margin - taxableMargin;
+
+    grossComm21 = taxableMargin * (tax21 / (tax21 + tax105));
+    grossComm10_5 = taxableMargin * (tax105 / (tax21 + tax105));
+
+    netComm21 = grossComm21 ? grossComm21 / 1.21 : 0;
+    ivaComm21 = grossComm21 - netComm21;
+
+    netComm10_5 = grossComm10_5 ? grossComm10_5 / 1.105 : 0;
+    ivaComm10_5 = grossComm10_5 - netComm10_5;
+
+    netCommExempt = exemptMargin;
   } else {
-    // Si no hay IVA (tax21 + tax105 === 0), se asigna todo el margen a la comisión exenta
-    grossCommExempt = margin;
+    // Caso sin impuestos (tax21 y tax105 en 0):
+    // Se reparte el margen M en dos partes: una para el grupo gravado y otra para el exento,
+    // de forma que la relación de las comisiones netas sea:
+    //    netComm21 / netCommExempt = (costo - exento) / (exento)
+    // y además, la comisión bruta del grupo gravado es 1.21 veces la comisión neta.
+    // Es decir, si definimos X = netComm21 y Y = netCommExempt,
+    // se cumple que:
+    //    X / Y = (cost - exempt) / exempt
+    //    1.21 * X + Y = margin
+    // De ahí, se despeja:
+    //    X = margin / (1.21 + (exempt / (cost - exempt)))
+    const taxableCost = cost - exempt;
+    if (taxableCost > 0) {
+      const netTaxableCommission = margin / (1.21 + (exempt / taxableCost));
+      const grossTaxableCommission = netTaxableCommission * 1.21;
+      netComm21 = netTaxableCommission;
+      grossComm21 = grossTaxableCommission;
+      netCommExempt = margin - grossTaxableCommission;
+      ivaComm21 = grossTaxableCommission - netTaxableCommission;
+    } else {
+      // Si no hay monto gravado, toda la comisión es exenta.
+      netCommExempt = margin;
+    }
   }
 
-  // Extraer IVA de las comisiones en los grupos que corresponda
-  const netComm21 = grossComm21 ? grossComm21 / 1.21 : 0;
-  const ivaComm21 = grossComm21 - netComm21;
+  const totalNetCommission = netComm21 + netComm10_5 + netCommExempt;
 
-  const netComm10_5 = grossComm10_5 ? grossComm10_5 / 1.105 : 0;
-  const ivaComm10_5 = grossComm10_5 - netComm10_5;
-
-  // La comisión exenta no tiene IVA
-  const netCommExempt = grossCommExempt;
-
-  const totalNetCommission = margin - ivaComm21 - ivaComm10_5;
-
-  // Función de formateo
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("es-AR", {
       style: "currency",
@@ -68,8 +96,8 @@ const BillingBreakdown: NextPage<Props> = ({
     }).format(value);
 
   return (
-    <div className="mt-6 rounded-xl p-4 dark:bg-white">
-      <h3 className="mb-2 text-xl font-semibold">Informacion</h3>
+    <div className="mt-6 rounded-xl p-4 dark:text-white">
+      <h3 className="mb-2 text-xl font-semibold">Información</h3>
       <div className="mb-4">
         <p>
           <strong>Venta:</strong> {formatCurrency(sale)}

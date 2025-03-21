@@ -407,6 +407,7 @@ export default function ServiceForm({
               tax105={formData.tax_105 || 0}
               exempt={formData.exempt || 0}
               other_taxes={formData.other_taxes || 0}
+              currency={formData.currency}
             />
           )}
 
