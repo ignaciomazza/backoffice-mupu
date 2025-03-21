@@ -77,7 +77,7 @@ export interface BookingFormData {
   details: string;
   invoice_type: "Factura A" | "Factura B" | "Coordinar con administracion";
   observation?: string;
-  invoice_observation?: String;
+  invoice_observation?: string;
   titular_id: number;
   id_user: number;
   id_agency: number;
