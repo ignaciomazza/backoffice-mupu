@@ -20,6 +20,8 @@ export default function SideBar({
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [role, setRole] = useState<string | null>(null);
+  // Estado para calcular el inset inferior dinámico
+  const [bottomInset, setBottomInset] = useState(16);
 
   useEffect(() => {
     setMounted(true);
@@ -39,6 +41,22 @@ export default function SideBar({
       }
     };
     fetchRole();
+  }, []);
+
+  // Hook para calcular dinámicamente el inset inferior
+  useEffect(() => {
+    const calculateInset = () => {
+      if (typeof window !== "undefined") {
+        // La diferencia entre outerHeight e innerHeight se usará como aproximación
+        const inset = window.outerHeight - window.innerHeight;
+        // Usamos un mínimo de 16px si no se detecta mayor diferencia
+        setBottomInset(inset > 16 ? inset : 16);
+      }
+    };
+
+    calculateInset();
+    window.addEventListener("resize", calculateInset);
+    return () => window.removeEventListener("resize", calculateInset);
   }, []);
 
   const hasAccess = (route: string): boolean => {
@@ -73,13 +91,12 @@ export default function SideBar({
 
   return (
     <aside
-      style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}
       className={`fixed left-0 top-0 z-50 h-screen w-48 border-r border-black bg-white p-4 transition-transform duration-300 dark:border-white dark:bg-black md:translate-x-0 md:border-none ${
         menuOpen ? "translate-x-0" : "-translate-x-full"
       } md:block`}
     >
       <nav className="flex h-full flex-col">
-        {/* Contenedor para los enlaces centrados */}
+        {/* Contenedor para los enlaces centrados verticalmente */}
         <div className="flex flex-1 flex-col justify-center">
           <ul className="flex flex-col space-y-3">
             <li className="transition-transform hover:scale-95 active:scale-90">
@@ -184,8 +201,8 @@ export default function SideBar({
             )}
           </ul>
         </div>
-        {/* Botón de logout en la parte inferior */}
-        <div className="w-full">
+        {/* Contenedor del botón de logout con margen inferior dinámico */}
+        <div className="w-full" style={{ marginBottom: bottomInset + "px" }}>
           <button
             onClick={handleLogout}
             className="flex w-full items-center justify-evenly rounded-full p-2 transition-all hover:scale-95 hover:bg-black hover:text-white active:scale-90 dark:hover:bg-white dark:hover:text-black"
