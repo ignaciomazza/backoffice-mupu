@@ -105,119 +105,145 @@ export default function ServiceCard({
       className="h-fit space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white/50 dark:bg-black dark:text-white"
     >
       <p className="text-end text-xl font-light">{service.id_service}</p>
-      <p>
-        <span className="font-semibold">Tipo: </span>
-        <span className="font-light">{service.type}</span>
-      </p>
-      <p>
-        <span className="font-semibold">Descripción: </span>
-        <span className="font-light">
-          {service.description || "Sin descripción"}
-        </span>
-      </p>
-      <p>
-        <span className="font-semibold">Operador: </span>
-        <span className="font-light">{service.operator?.name || "N/A"}</span>
-      </p>
-      <p>
-        <span className="font-semibold">Costo: </span>
-        <span className="font-light">{formatCurrency(cost)}</span>
-      </p>
-      <p>
-        <span className="font-semibold">Venta: </span>
-        <span className="font-light">{formatCurrency(sale)}</span>
-      </p>
+      <div>
+        <p>
+          <span className="font-semibold">Tipo </span>
+          <span className="ml-1 font-light">{service.type}</span>
+        </p>
+        <p>
+          <span className="font-semibold">Descripción </span>
+          <span className="ml-1 font-light">
+            {service.description || "Sin descripción"}
+          </span>
+        </p>
+      </div>
+      <div>
+        <p>
+          <span className="font-semibold">Destino </span>
+          <span className="ml-1 font-light">
+            {service.destination || "N/A"}
+          </span>
+        </p>
+        <p>
+          <span className="font-semibold">Desde </span>
+          <span className="ml-1 font-light">
+            {formatDate(service.departure_date)}
+          </span>
+        </p>
+        <p>
+          <span className="font-semibold">Hasta </span>
+          <span className="ml-1 font-light">
+            {formatDate(service.return_date)}
+          </span>
+        </p>
+      </div>
+      <div>
+        <p>
+          <span className="font-semibold">Operador </span>
+          <span className="ml-1 font-light">
+            {service.operator?.name || "N/A"}
+          </span>
+        </p>
+        <p>
+          <span className="font-semibold">Referencia </span>
+          <span className="ml-1 font-light">{service.reference || "N/A"}</span>
+        </p>
+      </div>
       {isExpanded && (
         <div className="space-y-2">
-          <p>
-            <span className="font-semibold">Destino: </span>
-            <span className="font-light">{service.destination || "N/A"}</span>
-          </p>
-          <p>
-            <span className="font-semibold">Desde: </span>
-            <span className="font-light">
-              {formatDate(service.departure_date)}
-            </span>
-          </p>
-          <p>
-            <span className="font-semibold">Hasta: </span>
-            <span className="font-light">
-              {formatDate(service.return_date)}
-            </span>
-          </p>
-          <p>
-            <span className="font-semibold">Referencia: </span>
-            <span className="font-light">{service.reference || "N/A"}</span>
-          </p>
+          <div>
+            <p>
+              <span className="font-semibold">Venta </span>
+              <span className="ml-1 font-light">{formatCurrency(sale)}</span>
+            </p>
+            <p>
+              <span className="font-semibold">Costo </span>
+              <span className="ml-1 font-light">{formatCurrency(cost)}</span>
+            </p>
+          </div>
           <p className="mt-4 font-semibold">Impuestos</p>
           <ul className="ml-4 list-disc">
             <li>
-              <span className="font-semibold">Tax 21%: </span>
-              <span className="font-light">{formatCurrency(tax21)}</span>
+              <span className="font-semibold">21% </span>
+              <span className="ml-1 font-light">{formatCurrency(tax21)}</span>
             </li>
             <li>
-              <span className="font-semibold">Tax 10.5%: </span>
-              <span className="font-light">{formatCurrency(tax105)}</span>
+              <span className="font-semibold">10.5% </span>
+              <span className="ml-1 font-light">{formatCurrency(tax105)}</span>
             </li>
             <li>
-              <span className="font-semibold">Exento: </span>
-              <span className="font-light">{formatCurrency(exempt)}</span>
+              <span className="font-semibold">Exento </span>
+              <span className="ml-1 font-light">{formatCurrency(exempt)}</span>
             </li>
             <li>
-              <span className="font-semibold">Otros impuestos: </span>
-              <span className="font-light">{formatCurrency(other_taxes)}</span>
+              <span className="font-semibold">Otros </span>
+              <span className="ml-1 font-light">
+                {formatCurrency(other_taxes)}
+              </span>
             </li>
           </ul>
 
           <p className="mt-4 font-semibold">Desglose de Facturación</p>
           <ul className="ml-4 list-disc">
             <li>
-              <span className="font-semibold">No Computable: </span>
-              <span className="font-light">{formatCurrency(noComputable)}</span>
+              <span className="font-semibold">No Computable </span>
+              <span className="ml-1 font-light">
+                {formatCurrency(noComputable)}
+              </span>
             </li>
             <li>
-              <span className="font-semibold">Gravado 21%: </span>
-              <span className="font-light">{formatCurrency(base21)}</span>
+              <span className="font-semibold">Grav. 21% </span>
+              <span className="ml-1 font-light">{formatCurrency(base21)}</span>
             </li>
             <li>
-              <span className="font-semibold">Gravado 10,5%: </span>
-              <span className="font-light">{formatCurrency(base10_5)}</span>
+              <span className="font-semibold">Grav. 10,5% </span>
+              <span className="ml-1 font-light">
+                {formatCurrency(base10_5)}
+              </span>
             </li>
           </ul>
 
           <p className="mt-4 font-semibold">Comisiones</p>
           <ul className="ml-4 list-disc">
             <li>
-              <span className="font-semibold">Exenta: </span>
-              <span className="font-light">
+              <span className="font-semibold">Exenta </span>
+              <span className="ml-1 font-light">
                 {formatCurrency(netCommExempt)}
               </span>
             </li>
             <li>
-              <span className="font-semibold">21%: </span>
-              <span className="font-light">{formatCurrency(netComm21)}</span>
+              <span className="font-semibold">21% </span>
+              <span className="ml-1 font-light">
+                {formatCurrency(netComm21)}
+              </span>
             </li>
             <li>
-              <span className="font-semibold">10,5%: </span>
-              <span className="font-light">{formatCurrency(netComm10_5)}</span>
+              <span className="font-semibold">10,5% </span>
+              <span className="ml-1 font-light">
+                {formatCurrency(netComm10_5)}
+              </span>
             </li>
           </ul>
 
           <p className="mt-4 font-semibold">IVA sobre Comisiones</p>
           <ul className="ml-4 list-disc">
             <li>
-              <span className="font-semibold">21%: </span>
-              <span className="font-light">{formatCurrency(ivaComm21)}</span>
+              <span className="font-semibold">21% </span>
+              <span className="ml-1 font-light">
+                {formatCurrency(ivaComm21)}
+              </span>
             </li>
             <li>
-              <span className="font-semibold">10,5%: </span>
-              <span className="font-light">{formatCurrency(ivaComm10_5)}</span>
+              <span className="font-semibold">10,5% </span>
+              <span className="ml-1 font-light">
+                {formatCurrency(ivaComm10_5)}
+              </span>
             </li>
           </ul>
 
           <p className="mt-4 font-semibold">
-            <span>Total Comisión (sin IVA): </span>
-            <span className="font-light">
+            <span>Total Comisión (sin IVA) </span>
+            <span className="ml-1 font-light">
               {formatCurrency(totalNetCommission)}
             </span>
           </p>

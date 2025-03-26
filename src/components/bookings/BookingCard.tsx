@@ -77,12 +77,7 @@ export default function BookingCard({
               {formatDate(booking.return_date)}
             </span>
           </p>
-          <p className="font-semibold dark:font-medium">
-            Pasajeros
-            <span className="ml-2 font-light">{booking.pax_count}</span>
-          </p>
-
-          <p className="mt-4 font-semibold dark:font-medium">Pasajeros</p>
+          <p className="mt-4 font-semibold dark:font-medium">{`Pasajeros ( ${booking.pax_count} )`}</p>
           <ul className="ml-4 list-disc">
             <li>
               {booking.titular.first_name} {booking.titular.last_name}
@@ -94,14 +89,21 @@ export default function BookingCard({
             ))}
           </ul>
           <p className="mt-4 font-semibold dark:font-medium">Facturacion</p>
-          <p className="font-light">
-            {booking.invoice_type || "Sin observaciones"}
+          <ul className="ml-4 list-disc">
+            <li>
+              <p className="font-light">
+                {booking.invoice_type || "Sin observaciones"}
+              </p>
+            </li>
+            <li>
+              <p className="font-light">
+                {`${booking.invoice_observation}` || "Sin observaciones"}
+              </p>
+            </li>
+          </ul>
+          <p className="mt-4 font-semibold dark:font-medium">
+            Observaciones de administracion
           </p>
-          <p className="font-light">
-            {`Vendedor: ${booking.invoice_observation}` ||
-              "Sin observaciones"}
-          </p>
-          <p className="mt-4 font-semibold dark:font-medium">Observaciones de administracion</p>
           <p className="font-light">
             {booking.observation || "Sin observaciones"}
           </p>

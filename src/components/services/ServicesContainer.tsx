@@ -118,7 +118,7 @@ export default function ServicesContainer({
             </Link>
           </div>
           {booking && (
-            <div className="mb-6 space-y-4 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black dark:text-white">
+            <div className="mb-6 space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black dark:text-white">
               <div className="mb-4 flex justify-between">
                 <h1 className="text-2xl font-semibold dark:font-medium">
                   Reserva
@@ -126,68 +126,77 @@ export default function ServicesContainer({
                 <p className="text-xl font-light">{booking.id_booking}</p>
               </div>
               <p className="font-semibold dark:font-medium">
-                Detalle{" "}
+                Detalle
                 <span className="ml-2 font-light">
                   {booking.details || "N/A"}
                 </span>
               </p>
               <p className="font-semibold dark:font-medium">
-                Estado{" "}
+                Estado
                 <span className="ml-2 font-light">{booking.status || "-"}</span>
               </p>
               <p className="font-semibold dark:font-medium">
-                Vendedor{" "}
+                Vendedor
                 <span className="ml-2 font-light">
                   {booking.user.first_name} {booking.user.last_name}
                 </span>
               </p>
               <p className="font-semibold dark:font-medium">
-                Titular{" "}
+                Titular
                 <span className="ml-2 font-light">
                   {booking.titular.first_name} {booking.titular.last_name}
                 </span>
               </p>
               <div>
                 <p className="font-semibold dark:font-medium">
-                  Agencia{" "}
+                  Agencia
                   <span className="ml-2 font-light">
                     {booking.agency.name || "N/A"}
                   </span>
                 </p>
                 <p className="font-semibold dark:font-medium">
-                  Fecha de Salida{" "}
+                  Fecha de Salida
                   <span className="ml-2 font-light">
                     {formatDate(booking.departure_date)}
                   </span>
                 </p>
                 <p className="font-semibold dark:font-medium">
-                  Fecha de Regreso{" "}
+                  Fecha de Regreso
                   <span className="ml-2 font-light">
                     {formatDate(booking.return_date)}
                   </span>
                 </p>
-                <p className="font-semibold dark:font-medium">
-                  Pasajeros{" "}
-                  <span className="ml-2 font-light">{booking.pax_count}</span>
-                </p>
-                <p className="mt-4 font-semibold dark:font-medium">Pasajeros</p>
-                <ul className="ml-4 list-disc">
-                  <li>
-                    {booking.titular.first_name} {booking.titular.last_name}
-                  </li>
-                  {booking.clients.map((client) => (
-                    <li key={client.id_client}>
-                      {client.first_name} {client.last_name}
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-4 font-semibold dark:font-medium">
-                  Observaciones Facturacion
-                </p>
-                <p className="font-light">
-                  {booking.invoice_observation || "Sin observaciones"}
-                </p>
               </div>
+              <p className="mt-4 font-semibold dark:font-medium">{`Pasajeros ( ${booking.pax_count} )`}</p>
+              <ul className="ml-4 list-disc">
+                <li>
+                  {booking.titular.first_name} {booking.titular.last_name}
+                </li>
+                {booking.clients.map((client) => (
+                  <li key={client.id_client}>
+                    {client.first_name} {client.last_name}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-4 font-semibold dark:font-medium">Facturacion</p>
+              <ul className="ml-4 list-disc">
+                <li>
+                  <p className="font-light">
+                    {booking.invoice_type || "Sin observaciones"}
+                  </p>
+                </li>
+                <li>
+                  <p className="font-light">
+                    {`${booking.invoice_observation}` || "Sin observaciones"}
+                  </p>
+                </li>
+              </ul>
+              <p className="mt-4 font-semibold dark:font-medium">
+                Observaciones de administracion
+              </p>
+              <p className="font-light">
+                {booking.observation || "Sin observaciones"}
+              </p>
             </div>
           )}
           {booking ? (
