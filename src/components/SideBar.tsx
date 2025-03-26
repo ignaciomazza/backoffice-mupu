@@ -183,7 +183,7 @@ export default function SideBar({
             </li>
           )}
         </ul>
-        <div className="w-full mb-4">
+        <div className="w-full relative mb-4">
           <button
             onClick={handleLogout}
             className="flex w-full items-center justify-evenly rounded-full p-2 transition-all hover:scale-95 hover:bg-black hover:text-white active:scale-90 dark:hover:bg-white dark:hover:text-black"
