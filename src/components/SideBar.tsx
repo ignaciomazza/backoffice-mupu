@@ -20,8 +20,6 @@ export default function SideBar({
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [role, setRole] = useState<string | null>(null);
-  // Estado para calcular el inset inferior dinámico
-  const [bottomInset, setBottomInset] = useState(16);
 
   useEffect(() => {
     setMounted(true);
@@ -41,22 +39,6 @@ export default function SideBar({
       }
     };
     fetchRole();
-  }, []);
-
-  // Hook para calcular dinámicamente el inset inferior
-  useEffect(() => {
-    const calculateInset = () => {
-      if (typeof window !== "undefined") {
-        // Usamos la diferencia entre outerHeight e innerHeight como aproximación
-        const inset = window.outerHeight - window.innerHeight;
-        // Establecemos un mínimo de 16px
-        setBottomInset(inset > 16 ? inset : 16);
-      }
-    };
-
-    calculateInset();
-    window.addEventListener("resize", calculateInset);
-    return () => window.removeEventListener("resize", calculateInset);
   }, []);
 
   const hasAccess = (route: string): boolean => {
@@ -91,13 +73,13 @@ export default function SideBar({
 
   return (
     <aside
-      style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       className={`fixed left-0 top-0 z-50 h-screen w-48 border-r border-black bg-white p-4 transition-transform duration-300 dark:border-white dark:bg-black md:translate-x-0 md:border-none ${
         menuOpen ? "translate-x-0" : "-translate-x-full"
       } md:block`}
     >
       <nav className="relative h-full">
-        {/* Contenedor para los enlaces centrados verticalmente */}
+        {/* Enlaces centrados verticalmente */}
         <div className="flex h-full flex-col justify-center">
           <ul className="flex flex-col space-y-3">
             <li className="transition-transform hover:scale-95 active:scale-90">
@@ -202,12 +184,12 @@ export default function SideBar({
             )}
           </ul>
         </div>
-        {/* Botón de logout posicionado de forma absoluta al borde inferior */}
+        {/* Botón de logout posicionado absoluto 16px más arriba del safe area */}
         <button
           onClick={handleLogout}
           style={{
             position: "absolute",
-            bottom: bottomInset + "px",
+            bottom: "calc(env(safe-area-inset-bottom) + 16px)",
             left: 0,
             right: 0,
           }}
