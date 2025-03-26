@@ -3,6 +3,7 @@
 "use client";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
+import Spinner from "../Spinner";
 
 // Definimos el tipo para los datos del formulario de factura
 export type InvoiceFormData = {
@@ -24,6 +25,7 @@ interface InvoiceFormProps {
     key: keyof InvoiceFormData,
     value: InvoiceFormData[keyof InvoiceFormData],
   ) => void;
+  isSubmitting: boolean;
 }
 
 export default function InvoiceForm({
@@ -33,6 +35,7 @@ export default function InvoiceForm({
   isFormVisible,
   setIsFormVisible,
   updateFormData,
+  isSubmitting,
 }: InvoiceFormProps) {
   const [clientCount, setClientCount] = useState<number>(1);
   const [serviceCount, setServiceCount] = useState<number>(1);
@@ -230,9 +233,10 @@ export default function InvoiceForm({
           </div>
           <button
             type="submit"
-            className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+            disabled={isSubmitting}
+            className="h-10 w-40 rounded-full bg-black text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
           >
-            Crear Factura
+            {isSubmitting ? <Spinner /> : "Crear Factura"}
           </button>
         </motion.form>
       )}

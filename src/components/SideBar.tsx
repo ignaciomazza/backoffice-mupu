@@ -75,7 +75,7 @@ export default function SideBar({
 
   return (
     <aside
-      className={`fixed left-0 top-0 h-screen w-48 border-r border-black bg-white p-4 transition-transform duration-300 dark:border-white dark:bg-black md:translate-x-0 md:border-none ${
+      className={`fixed left-0 top-0 z-50 h-screen w-48 border-r border-black bg-white p-4 transition-transform duration-300 dark:border-white dark:bg-black md:translate-x-0 md:border-none ${
         menuOpen ? "translate-x-0" : "-translate-x-full"
       } md:block`}
     >
@@ -182,10 +182,10 @@ export default function SideBar({
             </li>
           )}
         </ul>
-        <div className="mt-auto pt-4">
+        <div className="fixed bottom-5 w-40">
           <button
             onClick={handleLogout}
-            className="flex w-full items-center rounded-full p-2 transition-all hover:scale-95 hover:bg-black hover:text-white active:scale-90 dark:hover:bg-white dark:hover:text-black"
+            className="flex w-full items-center justify-evenly rounded-full p-2 transition-all hover:scale-95 hover:bg-black hover:text-white active:scale-90 dark:hover:bg-white dark:hover:text-black"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -201,6 +201,7 @@ export default function SideBar({
                 d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75"
               />
             </svg>
+            <p className="md:text-white md:dark:text-black">Cerrar Sesion</p>
           </button>
         </div>
       </nav>

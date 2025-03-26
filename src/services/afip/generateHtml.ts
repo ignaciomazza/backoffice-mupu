@@ -73,9 +73,9 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
         .text-center { text-align: center; }
         .text-right { text-align: right; }
         .bill-row td { padding-top: 5px; }
-        .bill-row td > div { border-top: 1px solid; border-bottom: 1px solid; padding: 0 10px 13px 10px; }
+        .bill-row td > div {  border-bottom: 1px solid; padding: 0 10px 13px 10px; }
         .row-details table { border-collapse: collapse; width: 100%; }
-        .row-details table tr:nth-child(1) { border-top: 1px solid; border-bottom: 1px solid; background: #c0c0c0; font-weight: bold; text-align: center; }
+        .row-details table tr:nth-child(1) {  border-bottom: 1px solid; background: #c0c0c0; font-weight: bold; text-align: center; }
         #qrcode { width: 50%; }
       </style>
     </head>
@@ -84,10 +84,10 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
         <tr class="bill-emitter-row">
           <td>
             <div class="bill-type">${CbteTipo === 1 ? "A" : "B"}</div>
-            <div class="text-lg text-center">Mupu Viajes S.A.</div>
-            <p><strong>Razón social:</strong> Mupu Viajes S.A.</p>
-            <p><strong>CUIT:</strong> 30-12345678-9</p>
-            <p><strong>Domicilio Comercial:</strong> Av. Corrientes 1234, Buenos Aires</p>
+            <div class="text-lg text-center">Mupu Viajes</div>
+            <p><strong>Razón social:</strong> MUPU S.R.L.</p>
+            <p><strong>CUIT:</strong> 30717945936</p>
+            <p><strong>Domicilio Comercial:</strong> Domingo F. Sarmiento 1355</p>
             <p><strong>Condición Frente al IVA:</strong> Responsable Inscripto</p>
             <p><strong>Ingresos Brutos:</strong> 123456789</p>
             <p><strong>Fecha de Inicio de Actividades:</strong> 01/01/2020</p>

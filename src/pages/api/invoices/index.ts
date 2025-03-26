@@ -186,7 +186,7 @@ export default async function handler(
 
     console.info(
       "[Invoices API] Facturación completada. Facturas creadas:",
-      invoices,
+      // invoices,
     );
     return res.status(201).json({ success: true, invoices });
   }

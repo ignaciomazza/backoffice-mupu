@@ -63,6 +63,7 @@ interface ServicesContainerProps {
   setFormData: React.Dispatch<React.SetStateAction<ServiceFormData>>;
   setExpandedServiceId: React.Dispatch<React.SetStateAction<number | null>>;
   setIsInvoiceFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
+  isSubmitting: boolean;
 }
 
 export default function ServicesContainer({
@@ -89,6 +90,7 @@ export default function ServicesContainer({
   setFormData,
   setExpandedServiceId,
   setIsInvoiceFormVisible,
+  isSubmitting,
 }: ServicesContainerProps) {
   if (!loading && !booking) {
     return (
@@ -167,7 +169,10 @@ export default function ServicesContainer({
                   </span>
                 </p>
               </div>
-              <p className="mt-4 font-semibold dark:font-medium">{`Pasajeros ( ${booking.pax_count} )`}</p>
+              <p className="mt-4 font-semibold dark:font-medium">
+                Pasajeros{" "}
+                <span className="font-light">{`( ${booking.pax_count} )`}</span>
+              </p>
               <ul className="ml-4 list-disc">
                 <li>
                   {booking.titular.first_name} {booking.titular.last_name}
@@ -247,6 +252,7 @@ export default function ServicesContainer({
                 isFormVisible={isInvoiceFormVisible}
                 setIsFormVisible={setIsInvoiceFormVisible}
                 updateFormData={updateFormData}
+                isSubmitting={isSubmitting}
               />
               {invoices.length > 0 && <InvoiceList invoices={invoices} />}
             </>

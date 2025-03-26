@@ -10,7 +10,6 @@ export async function generateInvoicePDF({
   htmlContent,
 }: InvoiceData): Promise<Buffer> {
   try {
-    console.log(htmlContent);
     const browser = await puppeteer.launch({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],

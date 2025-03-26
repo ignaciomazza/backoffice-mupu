@@ -194,8 +194,12 @@ export default function ServicesPage() {
     setInvoiceFormData((prev) => ({ ...prev, [key]: value }));
   };
 
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+
   const handleInvoiceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validación de campos
     if (
       !invoiceFormData.tipoFactura ||
       invoiceFormData.clientIds.length === 0 ||
@@ -204,6 +208,7 @@ export default function ServicesPage() {
       toast.error("Completa todos los campos requeridos.");
       return;
     }
+
     const payload = {
       bookingId: Number(id),
       services: invoiceFormData.services.map((s) => Number(s)),
@@ -215,6 +220,7 @@ export default function ServicesPage() {
     };
 
     console.log("Enviando datos de factura:", payload);
+    setInvoiceLoading(true);
     try {
       const res = await fetch("/api/invoices", {
         method: "POST",
@@ -242,6 +248,8 @@ export default function ServicesPage() {
         console.error("Invoice submission error:", err.message);
         toast.error(err.message || "Error de conexión con el servidor.");
       }
+    } finally {
+      setInvoiceLoading(false);
     }
   };
 
@@ -357,6 +365,7 @@ export default function ServicesPage() {
         setFormData={setFormData}
         setExpandedServiceId={setExpandedServiceId}
         setIsInvoiceFormVisible={setIsInvoiceFormVisible}
+        isSubmitting={invoiceLoading}
       />
     </ProtectedRoute>
   );

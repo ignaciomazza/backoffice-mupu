@@ -226,7 +226,7 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
   return (
     <ProtectedRoute>
       <motion.section
-        className="flex w-full flex-col p-6"
+        className="flex w-full flex-col md:p-6"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5 }}
@@ -238,7 +238,6 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
         ) : (
           <div className="w-full space-y-4">
             <div className="flex flex-col space-y-4">
-              {/* Bloque 0: Saludo inicial de Juani */}
               <motion.div
                 key="block-0"
                 variants={bubbleVariants}
@@ -255,8 +254,6 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   }}
                 />
               </motion.div>
-
-              {/* Bloque 1: Botón "Saludar 👋" (mensaje del usuario) */}
               {conversationStep >= 1 && (
                 <motion.div
                   key="block-1"
@@ -277,8 +274,6 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   )}
                 </motion.div>
               )}
-
-              {/* Bloque 2: Mensaje "¡Hola! 😃" de Juani */}
               {conversationStep >= 2 && (
                 <motion.div
                   key="block-2"
@@ -299,8 +294,6 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   )}
                 </motion.div>
               )}
-
-              {/* Bloque 3: Mensaje de bienvenida de Juani */}
               {conversationStep >= 3 && (
                 <motion.div
                   key="block-3"
@@ -321,8 +314,6 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   )}
                 </motion.div>
               )}
-
-              {/* Bloque 4: Botón "Entendido! 👍" (mensaje del usuario) */}
               {conversationStep >= 4 && (
                 <motion.div
                   key="block-4"
@@ -344,8 +335,6 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   )}
                 </motion.div>
               )}
-
-              {/* Bloque 5: Texto con funcionalidades de Juani */}
               {conversationStep >= 5 && (
                 <motion.div
                   key="block-5"
@@ -366,7 +355,6 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   )}
                 </motion.div>
               )}
-              {/* Bloque 6: Segundo texto con funcionalidades de Juani */}
               {conversationStep >= 6 && (
                 <motion.div
                   key="block-6"
@@ -387,7 +375,6 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   )}
                 </motion.div>
               )}
-              {/* Bloque 7: Card con datos del usuario */}
               {conversationStep >= 7 && userProfile !== null && (
                 <motion.div
                   key="block-7"
