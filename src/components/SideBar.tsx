@@ -1,4 +1,3 @@
-// src/components/SideBar.tsx
 "use client";
 
 import Link from "next/link";
@@ -53,7 +52,6 @@ export default function SideBar({
         return ["desarrollador"].includes(role);
       case "/teams":
         return ["desarrollador", "gerente"].includes(role);
-
       default:
         return true;
     }
@@ -75,115 +73,119 @@ export default function SideBar({
 
   return (
     <aside
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}
       className={`fixed left-0 top-0 z-50 h-screen w-48 border-r border-black bg-white p-4 transition-transform duration-300 dark:border-white dark:bg-black md:translate-x-0 md:border-none ${
         menuOpen ? "translate-x-0" : "-translate-x-full"
       } md:block`}
     >
       <nav className="flex h-full flex-col">
-        <ul className="flex flex-1 flex-col justify-center space-y-3">
-          <li className="transition-transform hover:scale-95 active:scale-90">
-            <Link
-              href="/"
-              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
-                currentPath === "/"
-                  ? "bg-black text-white dark:bg-white dark:text-black"
-                  : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
-              }`}
-              onClick={closeMenu}
-            >
-              Perfil
-            </Link>
-          </li>
-          <li className="transition-transform hover:scale-95 active:scale-90">
-            <Link
-              href="/clients"
-              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
-                currentPath === "/clients"
-                  ? "bg-black text-white dark:bg-white dark:text-black"
-                  : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
-              }`}
-              onClick={closeMenu}
-            >
-              Clientes
-            </Link>
-          </li>
-          <li className="transition-transform hover:scale-95 active:scale-90">
-            <Link
-              href="/bookings"
-              className={`block rounded-full py-2 text-center transition-colors duration-200 ${
-                currentPath === "/bookings" ||
-                currentPath.includes("/bookings/")
-                  ? "bg-black text-white dark:bg-white dark:text-black"
-                  : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
-              }`}
-              onClick={closeMenu}
-            >
-              Reservas
-            </Link>
-          </li>
-          {hasAccess("/operators") && (
+        {/* Contenedor para los enlaces centrados */}
+        <div className="flex flex-1 flex-col justify-center">
+          <ul className="flex flex-col space-y-3">
             <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
-                href="/operators"
+                href="/"
                 className={`block rounded-full py-2 text-center transition-colors duration-200 ${
-                  currentPath === "/operators"
+                  currentPath === "/"
                     ? "bg-black text-white dark:bg-white dark:text-black"
                     : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
                 }`}
                 onClick={closeMenu}
               >
-                Operadores
+                Perfil
               </Link>
             </li>
-          )}
-          {hasAccess("/agency") && (
             <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
-                href="/agency"
+                href="/clients"
                 className={`block rounded-full py-2 text-center transition-colors duration-200 ${
-                  currentPath === "/agency"
+                  currentPath === "/clients"
                     ? "bg-black text-white dark:bg-white dark:text-black"
                     : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
                 }`}
                 onClick={closeMenu}
               >
-                Agencia
+                Clientes
               </Link>
             </li>
-          )}
-          {hasAccess("/users") && (
             <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
-                href="/users"
+                href="/bookings"
                 className={`block rounded-full py-2 text-center transition-colors duration-200 ${
-                  currentPath === "/users"
+                  currentPath === "/bookings" ||
+                  currentPath.includes("/bookings/")
                     ? "bg-black text-white dark:bg-white dark:text-black"
                     : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
                 }`}
                 onClick={closeMenu}
               >
-                Usuarios
+                Reservas
               </Link>
             </li>
-          )}
-          {hasAccess("/teams") && (
-            <li className="transition-transform hover:scale-95 active:scale-90">
-              <Link
-                href="/teams"
-                className={`block rounded-full py-2 text-center transition-colors duration-200 ${
-                  currentPath === "/teams"
-                    ? "bg-black text-white dark:bg-white dark:text-black"
-                    : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
-                }`}
-                onClick={closeMenu}
-              >
-                Equipos
-              </Link>
-            </li>
-          )}
-        </ul>
-        <div className="w-full relative mb-4">
+            {hasAccess("/operators") && (
+              <li className="transition-transform hover:scale-95 active:scale-90">
+                <Link
+                  href="/operators"
+                  className={`block rounded-full py-2 text-center transition-colors duration-200 ${
+                    currentPath === "/operators"
+                      ? "bg-black text-white dark:bg-white dark:text-black"
+                      : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
+                  }`}
+                  onClick={closeMenu}
+                >
+                  Operadores
+                </Link>
+              </li>
+            )}
+            {hasAccess("/agency") && (
+              <li className="transition-transform hover:scale-95 active:scale-90">
+                <Link
+                  href="/agency"
+                  className={`block rounded-full py-2 text-center transition-colors duration-200 ${
+                    currentPath === "/agency"
+                      ? "bg-black text-white dark:bg-white dark:text-black"
+                      : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
+                  }`}
+                  onClick={closeMenu}
+                >
+                  Agencia
+                </Link>
+              </li>
+            )}
+            {hasAccess("/users") && (
+              <li className="transition-transform hover:scale-95 active:scale-90">
+                <Link
+                  href="/users"
+                  className={`block rounded-full py-2 text-center transition-colors duration-200 ${
+                    currentPath === "/users"
+                      ? "bg-black text-white dark:bg-white dark:text-black"
+                      : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
+                  }`}
+                  onClick={closeMenu}
+                >
+                  Usuarios
+                </Link>
+              </li>
+            )}
+            {hasAccess("/teams") && (
+              <li className="transition-transform hover:scale-95 active:scale-90">
+                <Link
+                  href="/teams"
+                  className={`block rounded-full py-2 text-center transition-colors duration-200 ${
+                    currentPath === "/teams"
+                      ? "bg-black text-white dark:bg-white dark:text-black"
+                      : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
+                  }`}
+                  onClick={closeMenu}
+                >
+                  Equipos
+                </Link>
+              </li>
+            )}
+          </ul>
+        </div>
+        {/* Botón de logout en la parte inferior */}
+        <div className="w-full">
           <button
             onClick={handleLogout}
             className="flex w-full items-center justify-evenly rounded-full p-2 transition-all hover:scale-95 hover:bg-black hover:text-white active:scale-90 dark:hover:bg-white dark:hover:text-black"
@@ -203,7 +205,7 @@ export default function SideBar({
               />
             </svg>
             <p className="font-light md:text-white md:dark:text-black">
-              Cerrar Sesion
+              Cerrar Sesión
             </p>
           </button>
         </div>
