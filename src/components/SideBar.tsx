@@ -47,9 +47,9 @@ export default function SideBar({
   useEffect(() => {
     const calculateInset = () => {
       if (typeof window !== "undefined") {
-        // La diferencia entre outerHeight e innerHeight se usará como aproximación
+        // Usamos la diferencia entre outerHeight e innerHeight como aproximación
         const inset = window.outerHeight - window.innerHeight;
-        // Usamos un mínimo de 16px si no se detecta mayor diferencia
+        // Establecemos un mínimo de 16px
         setBottomInset(inset > 16 ? inset : 16);
       }
     };
@@ -91,13 +91,14 @@ export default function SideBar({
 
   return (
     <aside
+      style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}
       className={`fixed left-0 top-0 z-50 h-screen w-48 border-r border-black bg-white p-4 transition-transform duration-300 dark:border-white dark:bg-black md:translate-x-0 md:border-none ${
         menuOpen ? "translate-x-0" : "-translate-x-full"
       } md:block`}
     >
-      <nav className="flex h-full flex-col">
+      <nav className="relative h-full">
         {/* Contenedor para los enlaces centrados verticalmente */}
-        <div className="flex flex-1 flex-col justify-center">
+        <div className="flex h-full flex-col justify-center">
           <ul className="flex flex-col space-y-3">
             <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
@@ -201,31 +202,35 @@ export default function SideBar({
             )}
           </ul>
         </div>
-        {/* Contenedor del botón de logout con margen inferior dinámico */}
-        <div className="w-full" style={{ marginBottom: bottomInset + "px" }}>
-          <button
-            onClick={handleLogout}
-            className="flex w-full items-center justify-evenly rounded-full p-2 transition-all hover:scale-95 hover:bg-black hover:text-white active:scale-90 dark:hover:bg-white dark:hover:text-black"
+        {/* Botón de logout posicionado de forma absoluta al borde inferior */}
+        <button
+          onClick={handleLogout}
+          style={{
+            position: "absolute",
+            bottom: bottomInset + "px",
+            left: 0,
+            right: 0,
+          }}
+          className="flex w-full items-center justify-evenly rounded-full p-2 transition-all hover:scale-95 hover:bg-black hover:text-white active:scale-90 dark:hover:bg-white dark:hover:text-black"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="size-6"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.4}
+            stroke="currentColor"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="size-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.4}
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75"
-              />
-            </svg>
-            <p className="font-light md:text-white md:dark:text-black">
-              Cerrar Sesión
-            </p>
-          </button>
-        </div>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75"
+            />
+          </svg>
+          <p className="font-light md:text-white md:dark:text-black">
+            Cerrar Sesión
+          </p>
+        </button>
       </nav>
     </aside>
   );
