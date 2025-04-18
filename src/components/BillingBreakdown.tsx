@@ -1,165 +1,232 @@
-// BillingBreakdown.tsx
+// src/components/BillingBreakdown.tsx
+"use client";
 
-import { NextPage } from "next";
+import { useEffect } from "react";
 
-interface Props {
-  sale: number;
-  cost: number;
-  tax21: number;
-  tax105: number;
-  exempt: number;
-  other_taxes: number;
-  currency?: string;
+interface BillingData {
+  nonComputable: number;
+  taxableBase21: number;
+  taxableBase10_5: number;
+  commissionExempt: number;
+  commission21: number;
+  commission10_5: number;
+  vatOnCommission21: number;
+  vatOnCommission10_5: number;
+  totalCommissionWithoutVAT: number;
+  impIVA: number;
 }
 
-const BillingBreakdown: NextPage<Props> = ({
-  sale,
-  cost,
-  tax21,
-  tax105,
-  exempt,
-  other_taxes,
-  currency = "ARS",
-}) => {
-  // Bases para impuestos (si se ingresan)
-  const base21 = tax21 > 0 ? tax21 / 0.21 : 0;
-  const base10_5 = tax105 > 0 ? tax105 / 0.105 : 0;
+interface BillingBreakdownProps {
+  importeVenta: number;
+  costo: number;
+  montoIva21: number;
+  montoIva10_5: number;
+  montoExento: number;
+  otrosImpuestos: number;
+  moneda?: string;
+  onBillingUpdate?: (data: BillingData) => void;
+}
 
-  // Se calcula el monto computable a partir de IVA, si existen
-  const computedTaxable = (tax21 > 0 || tax105 > 0)
-    ? (base21 * 1.21 + base10_5 * 1.105)
-    : 0;
-  // "No computable" es el costo que queda al restar el exento y el monto computable
-  const noComputable = cost - (exempt + computedTaxable);
+// Helper de redondeo
+const round = (value: number, decimals = 8) =>
+  parseFloat(value.toFixed(decimals));
 
-  // Margen de operación (venta - costo)
-  const margin = sale - cost;
+export default function BillingBreakdown({
+  importeVenta,
+  costo,
+  montoIva21,
+  montoIva10_5,
+  montoExento,
+  otrosImpuestos,
+  moneda = "ARS",
+  onBillingUpdate,
+}: BillingBreakdownProps) {
+  // 1. Cálculos de base
+  const baseNetoDesglose = round(
+    costo - (montoIva21 + montoIva10_5) - otrosImpuestos,
+  );
+  const baseIva21 = montoIva21 > 0 ? round(montoIva21 / 0.21) : 0;
+  const baseIva10_5 = montoIva10_5 > 0 ? round(montoIva10_5 / 0.105) : 0;
+  const sumaBasesImponibles = round(baseIva21 + baseIva10_5);
+  const hasError =
+    importeVenta <= costo ||
+    baseNetoDesglose < montoExento + sumaBasesImponibles;
 
-  // Variables para las comisiones
-  let netComm21 = 0;
-  let netComm10_5 = 0;
-  let grossComm21 = 0;
-  let grossComm10_5 = 0;
-  let netCommExempt = 0;
-  let ivaComm21 = 0;
-  let ivaComm10_5 = 0;
+  // 2. No computable y margen
+  const nonComputable = hasError
+    ? 0
+    : round(
+        Math.max(0, baseNetoDesglose - (montoExento + sumaBasesImponibles)),
+      );
+  const margen = round(importeVenta - costo);
 
-  if (tax21 + tax105 > 0) {
-    // Caso en que se ingresan impuestos:
-    // Se reparte el margen proporcionalmente según la parte gravada (costo - exento)
-    const taxableCost = cost - exempt;
-    const taxableMargin = cost > 0 ? margin * (taxableCost / cost) : 0;
-    const exemptMargin = margin - taxableMargin;
+  // 3. Comisiones
+  const porcentajeExento =
+    baseNetoDesglose > 0 ? round(montoExento / baseNetoDesglose) : 0;
+  let commissionExempt = 0,
+    commission21 = 0,
+    commission10_5 = 0,
+    vatOnCommission21 = 0,
+    vatOnCommission10_5 = 0,
+    totalCommissionWithoutVAT = 0;
+  const defaultIVA = 0.21;
 
-    grossComm21 = taxableMargin * (tax21 / (tax21 + tax105));
-    grossComm10_5 = taxableMargin * (tax105 / (tax21 + tax105));
-
-    netComm21 = grossComm21 ? grossComm21 / 1.21 : 0;
-    ivaComm21 = grossComm21 - netComm21;
-
-    netComm10_5 = grossComm10_5 ? grossComm10_5 / 1.105 : 0;
-    ivaComm10_5 = grossComm10_5 - netComm10_5;
-
-    netCommExempt = exemptMargin;
-  } else {
-    // Caso sin impuestos (tax21 y tax105 en 0):
-    // Se reparte el margen M en dos partes: una para el grupo gravado y otra para el exento,
-    // de forma que la relación de las comisiones netas sea:
-    //    netComm21 / netCommExempt = (costo - exento) / (exento)
-    // y además, la comisión bruta del grupo gravado es 1.21 veces la comisión neta.
-    // Es decir, si definimos X = netComm21 y Y = netCommExempt,
-    // se cumple que:
-    //    X / Y = (cost - exempt) / exempt
-    //    1.21 * X + Y = margin
-    // De ahí, se despeja:
-    //    X = margin / (1.21 + (exempt / (cost - exempt)))
-    const taxableCost = cost - exempt;
-    if (taxableCost > 0) {
-      const netTaxableCommission = margin / (1.21 + (exempt / taxableCost));
-      const grossTaxableCommission = netTaxableCommission * 1.21;
-      netComm21 = netTaxableCommission;
-      grossComm21 = grossTaxableCommission;
-      netCommExempt = margin - grossTaxableCommission;
-      ivaComm21 = grossTaxableCommission - netTaxableCommission;
+  if (!hasError) {
+    if (montoIva21 === 0 && montoIva10_5 === 0) {
+      // Sin IVA declarado
+      const F = round(
+        porcentajeExento + (1 - porcentajeExento) * (1 + defaultIVA),
+      );
+      const netComm = round(margen / F);
+      commissionExempt = round(netComm * porcentajeExento);
+      const gravada = round(netComm - commissionExempt);
+      commission21 = round(gravada);
+      vatOnCommission21 = round(commission21 * defaultIVA);
+      totalCommissionWithoutVAT = round(commissionExempt + commission21);
     } else {
-      // Si no hay monto gravado, toda la comisión es exenta.
-      netCommExempt = margin;
+      // Con IVA declarado
+      const costoGravable = round(baseNetoDesglose - montoExento);
+      const remanente = round(
+        Math.max(0, costoGravable - (baseIva21 + baseIva10_5)),
+      );
+      const eff21 = round(baseIva21 + remanente);
+      const eff10_5 = round(baseIva10_5);
+      const totalEff = round(eff21 + eff10_5);
+      const w21 = totalEff > 0 ? round(eff21 / totalEff) : 0;
+      const w10_5 = totalEff > 0 ? round(eff10_5 / totalEff) : 0;
+      const F = round(
+        porcentajeExento +
+          (1 - porcentajeExento) * (w21 * (1 + 0.21) + w10_5 * (1 + 0.105)),
+      );
+      const netComm = round(margen / F);
+      commissionExempt = round(netComm * porcentajeExento);
+      const gravada = round(netComm - commissionExempt);
+      commission21 = totalEff > 0 ? round((gravada * eff21) / totalEff) : 0;
+      commission10_5 = totalEff > 0 ? round((gravada * eff10_5) / totalEff) : 0;
+      vatOnCommission21 = round(commission21 * 0.21);
+      vatOnCommission10_5 = round(commission10_5 * 0.105);
+      totalCommissionWithoutVAT = round(
+        commissionExempt + commission21 + commission10_5,
+      );
     }
   }
 
-  const totalNetCommission = netComm21 + netComm10_5 + netCommExempt;
+  // 4. Impuesto a usar en factura
+  const impIVA = round(
+    montoIva21 + montoIva10_5 + vatOnCommission21 + vatOnCommission10_5,
+    2,
+  );
 
-  const formatCurrency = (value: number) =>
+  // Notificar siempre, hook incondicional
+  useEffect(() => {
+    if (onBillingUpdate && !hasError) {
+      onBillingUpdate({
+        nonComputable,
+        taxableBase21: baseIva21,
+        taxableBase10_5: baseIva10_5,
+        commissionExempt,
+        commission21,
+        commission10_5,
+        vatOnCommission21,
+        vatOnCommission10_5,
+        totalCommissionWithoutVAT,
+        impIVA,
+      });
+    }
+  }, [
+    nonComputable,
+    baseIva21,
+    baseIva10_5,
+    commissionExempt,
+    commission21,
+    commission10_5,
+    vatOnCommission21,
+    vatOnCommission10_5,
+    totalCommissionWithoutVAT,
+    impIVA,
+    hasError,
+    onBillingUpdate,
+  ]);
+
+  const formatCurrency = (v: number) =>
     new Intl.NumberFormat("es-AR", {
       style: "currency",
-      currency,
-    }).format(value);
+      currency: moneda,
+    }).format(v);
+
+  if (hasError) {
+    return (
+      <div className="mt-6 rounded-xl p-4 dark:text-white">
+        <p className="font-semibold text-red-600">
+          Error en los importes de costo, IVA o exento.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-6 rounded-xl p-4 dark:text-white">
       <h3 className="mb-2 text-xl font-semibold">Información</h3>
       <div className="mb-4">
         <p>
-          <strong>Venta:</strong> {formatCurrency(sale)}
+          <strong>Venta:</strong> {formatCurrency(importeVenta)}
         </p>
         <p>
-          <strong>Costo:</strong> {formatCurrency(cost)}
+          <strong>Costo:</strong> {formatCurrency(costo)}
         </p>
         <p>
-          <strong>Iva 21.00:</strong> {formatCurrency(tax21)}
+          <strong>IVA 21%:</strong> {formatCurrency(montoIva21)}
         </p>
         <p>
-          <strong>Iva 10.50:</strong> {formatCurrency(tax105)}
+          <strong>IVA 10.5%:</strong> {formatCurrency(montoIva10_5)}
         </p>
         <p>
-          <strong>Exento:</strong> {formatCurrency(exempt)}
+          <strong>Exento:</strong> {formatCurrency(montoExento)}
         </p>
         <p>
-          <strong>Otros impuestos:</strong> {formatCurrency(other_taxes)}
+          <strong>Otros Impuestos:</strong> {formatCurrency(otrosImpuestos)}
         </p>
       </div>
 
       <h3 className="mb-2 text-xl font-semibold">Desglose de Facturación</h3>
       <div className="mb-4">
         <p>
-          <strong>No Computable:</strong> {formatCurrency(noComputable)}
+          <strong>No Computable:</strong> {formatCurrency(nonComputable)}
         </p>
         <p>
-          <strong>Gravado 21%:</strong> {formatCurrency(base21)}
+          <strong>Gravado 21%:</strong> {formatCurrency(baseIva21)}
         </p>
         <p>
-          <strong>Gravado 10,5%:</strong> {formatCurrency(base10_5)}
+          <strong>Gravado 10.5%:</strong> {formatCurrency(baseIva10_5)}
         </p>
       </div>
 
       <h4 className="mb-2 text-lg font-semibold">Comisiones</h4>
       <div className="mb-4">
         <p>
-          <strong>Exenta:</strong> {formatCurrency(netCommExempt)}
+          <strong>Exenta:</strong> {formatCurrency(commissionExempt)}
         </p>
         <p>
-          <strong>21%:</strong> {formatCurrency(netComm21)}
+          <strong>21%:</strong> {formatCurrency(commission21)}
         </p>
         <p>
-          <strong>10,5%:</strong> {formatCurrency(netComm10_5)}
+          <strong>10.5%:</strong> {formatCurrency(commission10_5)}
         </p>
       </div>
 
       <h4 className="mb-2 text-lg font-semibold">IVA sobre Comisiones</h4>
       <div className="mb-4">
         <p>
-          <strong>21%:</strong> {formatCurrency(ivaComm21)}
+          <strong>21%:</strong> {formatCurrency(vatOnCommission21)}
         </p>
         <p>
-          <strong>10,5%:</strong> {formatCurrency(ivaComm10_5)}
+          <strong>10.5%:</strong> {formatCurrency(vatOnCommission10_5)}
         </p>
       </div>
 
       <p className="font-semibold">
-        Total Comisión (sin IVA): {formatCurrency(totalNetCommission)}
+        Total Comisión (sin IVA): {formatCurrency(totalCommissionWithoutVAT)}
       </p>
     </div>
   );
-};
-
-export default BillingBreakdown;
+}

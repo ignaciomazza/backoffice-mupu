@@ -1,5 +1,3 @@
-// src/pages/api/services/index.ts
-
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -49,39 +47,52 @@ export default async function handler(
       return_date,
       id_operator,
       booking_id,
+      // Nuevos campos del BillingBreakDown:
+      nonComputable,
+      taxableBase21,
+      taxableBase10_5,
+      commissionExempt,
+      commission21,
+      commission10_5,
+      vatOnCommission21,
+      vatOnCommission10_5,
+      totalCommissionWithoutVAT,
+      impIVA,
     } = req.body;
 
+    if (
+      !type ||
+      sale_price === undefined ||
+      cost_price === undefined ||
+      !id_operator ||
+      !booking_id
+    ) {
+      return res.status(400).json({
+        error:
+          "Faltan campos obligatorios: tipo, precios, moneda o ID de reserva.",
+      });
+    }
+
+    // Parseamos las fechas
+    const parsedDepartureDate = new Date(departure_date);
+    const parsedReturnDate = new Date(return_date);
+
+    // Verificamos que exista la reserva y el operador
+    const bookingExists = await prisma.booking.findUnique({
+      where: { id_booking: Number(booking_id) },
+    });
+    if (!bookingExists) {
+      return res.status(404).json({ error: "Reserva no encontrada." });
+    }
+
+    const operatorExists = await prisma.operator.findUnique({
+      where: { id_operator: Number(id_operator) },
+    });
+    if (!operatorExists) {
+      return res.status(404).json({ error: "Operador no encontrado." });
+    }
+
     try {
-      if (
-        !type ||
-        sale_price === undefined ||
-        cost_price === undefined ||
-        !id_operator ||
-        !booking_id
-      ) {
-        return res.status(400).json({
-          error:
-            "Faltan campos obligatorios: tipo, precios, moneda o ID de reserva.",
-        });
-      }
-
-      const parsedDepartureDate = new Date(departure_date);
-      const parsedReturnDate = new Date(return_date);
-
-      const bookingExists = await prisma.booking.findUnique({
-        where: { id_booking: Number(booking_id) },
-      });
-      if (!bookingExists) {
-        return res.status(404).json({ error: "Reserva no encontrada." });
-      }
-
-      const operatorExists = await prisma.operator.findUnique({
-        where: { id_operator: Number(id_operator) },
-      });
-      if (!operatorExists) {
-        return res.status(404).json({ error: "Operador no encontrado." });
-      }
-
       const service = await prisma.service.create({
         data: {
           type,
@@ -99,14 +110,26 @@ export default async function handler(
           return_date: parsedReturnDate,
           booking: { connect: { id_booking: Number(booking_id) } },
           operator: { connect: { id_operator: Number(id_operator) } },
+
+          // Guardado de los nuevos valores del BillingBreakDown:
+          nonComputable: nonComputable || null,
+          taxableBase21: taxableBase21 || null,
+          taxableBase10_5: taxableBase10_5 || null,
+          commissionExempt: commissionExempt || null,
+          commission21: commission21 || null,
+          commission10_5: commission10_5 || null,
+          vatOnCommission21: vatOnCommission21 || null,
+          vatOnCommission10_5: vatOnCommission10_5 || null,
+          totalCommissionWithoutVAT: totalCommissionWithoutVAT || null,
+          impIVA: impIVA || null,
         },
-        include: { booking: true, operator: true }, // Incluye operador
+        include: { booking: true, operator: true },
       });
 
       return res.status(201).json(service);
     } catch (error) {
       console.error("Error al crear servicio:", error);
-
+      // Ejemplo de manejo de error para duplicados con Prisma (código P2002)
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === "P2002") {
           return res.status(400).json({
@@ -114,7 +137,6 @@ export default async function handler(
           });
         }
       }
-
       return res.status(500).json({ error: "Error al crear servicio." });
     }
   } else {

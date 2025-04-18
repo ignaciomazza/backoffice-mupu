@@ -1,6 +1,6 @@
 // src/components/services/ServicesContainer.tsx
-
 "use client";
+
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { ToastContainer } from "react-toastify";
@@ -15,11 +15,11 @@ import { Booking, Service, Operator, Invoice } from "@/types";
 
 export type ServiceFormData = {
   type: string;
-  description: string;
+  description?: string;
   sale_price: number;
   cost_price: number;
-  destination: string;
-  reference: string;
+  destination?: string;
+  reference?: string;
   tax_21?: number;
   tax_105?: number;
   exempt?: number;
@@ -29,6 +29,19 @@ export type ServiceFormData = {
   departure_date: string;
   return_date: string;
 };
+
+interface BillingData {
+  nonComputable: number;
+  taxableBase21: number;
+  taxableBase10_5: number;
+  commissionExempt: number;
+  commission21: number;
+  commission10_5: number;
+  vatOnCommission21: number;
+  vatOnCommission10_5: number;
+  totalCommissionWithoutVAT: number;
+  impIVA: number;
+}
 
 interface ServicesContainerProps {
   booking: Booking | null;
@@ -64,6 +77,7 @@ interface ServicesContainerProps {
   setExpandedServiceId: React.Dispatch<React.SetStateAction<number | null>>;
   setIsInvoiceFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
   isSubmitting: boolean;
+  onBillingUpdate?: (data: BillingData) => void;
 }
 
 export default function ServicesContainer({
@@ -91,6 +105,7 @@ export default function ServicesContainer({
   setExpandedServiceId,
   setIsInvoiceFormVisible,
   isSubmitting,
+  onBillingUpdate,
 }: ServicesContainerProps) {
   if (!loading && !booking) {
     return (
@@ -113,12 +128,13 @@ export default function ServicesContainer({
         <>
           <div className="mb-6">
             <Link
-              href={"/bookings"}
+              href="/bookings"
               className="block w-fit rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
             >
               Volver
             </Link>
           </div>
+
           {booking && (
             <div className="mb-6 space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black dark:text-white">
               <div className="mb-4 flex justify-between">
@@ -151,12 +167,6 @@ export default function ServicesContainer({
               </p>
               <div>
                 <p className="font-semibold dark:font-medium">
-                  Agencia
-                  <span className="ml-2 font-light">
-                    {booking.agency.name || "N/A"}
-                  </span>
-                </p>
-                <p className="font-semibold dark:font-medium">
                   Fecha de Salida
                   <span className="ml-2 font-light">
                     {formatDate(booking.departure_date)}
@@ -183,7 +193,7 @@ export default function ServicesContainer({
                   </li>
                 ))}
               </ul>
-              <p className="mt-4 font-semibold dark:font-medium">Facturacion</p>
+              <p className="mt-4 font-semibold dark:font-medium">Facturación</p>
               <ul className="ml-4 list-disc">
                 <li>
                   <p className="font-light">
@@ -192,18 +202,19 @@ export default function ServicesContainer({
                 </li>
                 <li>
                   <p className="font-light">
-                    {`${booking.invoice_observation}` || "Sin observaciones"}
+                    {booking.invoice_observation || "Sin observaciones"}
                   </p>
                 </li>
               </ul>
               <p className="mt-4 font-semibold dark:font-medium">
-                Observaciones de administracion
+                Observaciones de administración
               </p>
               <p className="font-light">
                 {booking.observation || "Sin observaciones"}
               </p>
             </div>
           )}
+
           {booking ? (
             <>
               <ServiceForm
@@ -214,7 +225,9 @@ export default function ServicesContainer({
                 editingServiceId={editingServiceId}
                 isFormVisible={isFormVisible}
                 setIsFormVisible={setIsFormVisible}
+                onBillingUpdate={onBillingUpdate}
               />
+
               <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
                 Servicios Agregados
               </h2>
@@ -242,6 +255,7 @@ export default function ServicesContainer({
                 }}
                 deleteService={deleteService}
               />
+
               <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
                 Factura
               </h2>

@@ -59,6 +59,7 @@ export async function createVoucherService(
   cuitReceptor: string,
   totalAmount: number,
   currency: string,
+  impIVAValue: number, // Nuevo parámetro: IVA total calculado externamente
   exchangeRateManual?: number,
 ): Promise<VoucherResponse> {
   try {
@@ -147,7 +148,6 @@ export async function createVoucherService(
 
     const yesterday = new Date(today);
     yesterday.setDate(today.getDate() - 1);
-    // Se usa "yesterday" en getValidExchangeRate
 
     console.info("🔍 Obteniendo datos del contribuyente desde AFIP...");
     let ivaCondition: string;
@@ -193,17 +193,13 @@ export async function createVoucherService(
     console.info(`✅ Condición IVA asignada: ${condicionIVA}`);
 
     console.info("🔍 Calculando impuestos...");
-    const porcentajeIVA = tipoFactura === 1 ? 0.21 : 0.105;
-    const impNeto = parseFloat((totalAmount / (1 + porcentajeIVA)).toFixed(2));
-    const impIVAInitial = parseFloat((impNeto * porcentajeIVA).toFixed(2));
-    const calculatedTotal = parseFloat((impNeto + impIVAInitial).toFixed(2));
-    const impIVA =
-      calculatedTotal !== totalAmount
-        ? parseFloat((totalAmount - impNeto).toFixed(2))
-        : impIVAInitial;
+    // Se utiliza el valor de impIVA calculado externamente (impIVAValue)
+    const impNeto = parseFloat((totalAmount - impIVAValue).toFixed(2));
+    const impIVA = impIVAValue;
+    const calculatedTotal = parseFloat((impNeto + impIVA).toFixed(2));
     if (calculatedTotal !== totalAmount) {
       console.warn(
-        `⚠️ La suma de impNeto (${impNeto}) e impIVA (${impIVAInitial}) da ${calculatedTotal}, que no coincide con el total (${totalAmount}). Se ajusta impIVA a ${impIVA}.`,
+        `La suma de impNeto (${impNeto}) e impIVA (${impIVA}) da ${calculatedTotal}, que no coincide con el total (${totalAmount}).`,
       );
     }
     console.info(

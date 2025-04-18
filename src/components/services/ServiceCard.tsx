@@ -5,6 +5,11 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Service } from "@/types";
 
+// Función auxiliar para redondear
+const round = (value: number, decimals: number = 8): number => {
+  return parseFloat(value.toFixed(decimals));
+};
+
 interface ServiceCardProps {
   service: Service;
   expandedServiceId: number | null;
@@ -24,79 +29,123 @@ export default function ServiceCard({
 }: ServiceCardProps) {
   const isExpanded = expandedServiceId === service.id_service;
 
+  // Función para formatear moneda a dos decimales con idioma "es-AR"
   const formatCurrency = (value: number | undefined): string => {
     if (value === undefined || value === null) return "N/A";
     return new Intl.NumberFormat("es-AR", {
       style: "currency",
       currency: service.currency,
-    }).format(value);
+    }).format(Number(value.toFixed(2)));
   };
 
-  // Extraer valores con defaults
+  // Extracción de variables con defaults
   const sale = service.sale_price;
   const cost = service.cost_price;
   const tax21 = service.tax_21 || 0;
   const tax105 = service.tax_105 || 0;
   const exempt = service.exempt || 0;
-  const other_taxes = service.other_taxes || 0;
+  const otherTaxes = service.other_taxes || 0;
 
-  // Cálculo de bases de impuestos (si existen)
-  const base21 = tax21 > 0 ? tax21 / 0.21 : 0;
-  const base10_5 = tax105 > 0 ? tax105 / 0.105 : 0;
-  const computedTaxable =
-    tax21 > 0 || tax105 > 0 ? base21 * 1.21 + base10_5 * 1.105 : 0;
-  // "No Computable" se define como: costo - (exento + monto computable)
-  const noComputable = cost - (exempt + computedTaxable);
+  // ---------------------------
+  // 1. Cálculos para el Desglose de Facturación
 
-  // Margen de operación
-  const margin = sale - cost;
+  // Base neta para facturación (se descuenta el total de impuestos declarados y otros impuestos)
+  const baseNetoDesglose = round(cost - (tax21 + tax105) - otherTaxes);
 
-  // Variables para las comisiones
-  let netComm21 = 0;
-  let netComm10_5 = 0;
-  let grossComm21 = 0;
-  let grossComm10_5 = 0;
-  let netCommExempt = 0;
-  let ivaComm21 = 0;
-  let ivaComm10_5 = 0;
+  // Cálculo de las bases imponibles derivadas de cada impuesto
+  const baseIva21 = tax21 > 0 ? round(tax21 / 0.21) : 0;
+  const baseIva10_5 = tax105 > 0 ? round(tax105 / 0.105) : 0;
+  const sumaBasesImponibles = round(baseIva21 + baseIva10_5);
 
-  if (tax21 + tax105 > 0) {
-    // Cuando se ingresan impuestos:
-    const taxableCost = cost - exempt;
-    const taxableMargin = cost > 0 ? margin * (taxableCost / cost) : 0;
-    const exemptMargin = margin - taxableMargin;
-
-    grossComm21 = taxableMargin * (tax21 / (tax21 + tax105));
-    grossComm10_5 = taxableMargin * (tax105 / (tax21 + tax105));
-
-    netComm21 = grossComm21 ? grossComm21 / 1.21 : 0;
-    ivaComm21 = grossComm21 - netComm21;
-
-    netComm10_5 = grossComm10_5 ? grossComm10_5 / 1.105 : 0;
-    ivaComm10_5 = grossComm10_5 - netComm10_5;
-
-    netCommExempt = exemptMargin;
-  } else {
-    // Cuando no se ingresan impuestos:
-    // Se resuelve el sistema:
-    //   X / Y = (cost - exempt) / (exempt)
-    //   1.21 * X + Y = margin
-    // donde X es la comisión neta gravada y Y la comisión neta exenta.
-    const taxableCost = cost - exempt;
-    if (taxableCost > 0) {
-      const netTaxableCommission = margin / (1.21 + exempt / taxableCost);
-      const grossTaxableCommission = netTaxableCommission * 1.21;
-      netComm21 = netTaxableCommission;
-      grossComm21 = grossTaxableCommission;
-      netCommExempt = margin - grossTaxableCommission;
-      ivaComm21 = grossTaxableCommission - netTaxableCommission;
-    } else {
-      // Si todo el costo es exento, la comisión es 100% exenta.
-      netCommExempt = margin;
-    }
+  // Validación: el precio de venta debe ser mayor que el costo y la baseNetoDesglose
+  // debe ser suficiente para cubrir el monto exento y las bases imponibles
+  if (sale <= cost || baseNetoDesglose < exempt + sumaBasesImponibles) {
+    return (
+      <motion.div className="mt-6 rounded-xl p-4 dark:text-white">
+        <p className="font-semibold text-red-600">
+          Error en los importes: costo, impuestos o exento incorrectos.
+        </p>
+      </motion.div>
+    );
   }
 
-  const totalNetCommission = netComm21 + netComm10_5 + netCommExempt;
+  // Importe "No Computable" y margen de la operación
+  const noComputable = round(
+    Math.max(0, baseNetoDesglose - (exempt + sumaBasesImponibles)),
+  );
+  const margin = round(sale - cost);
+
+  // ---------------------------
+  // 2. Cálculo de las Comisiones
+
+  // Se calcula el porcentaje exento a partir de la baseNetoDesglose
+  const porcentajeExento =
+    baseNetoDesglose > 0 ? round(exempt / baseNetoDesglose) : 0;
+
+  let comisionExenta = 0;
+  let comision21 = 0;
+  let comision10_5 = 0;
+  let comisionIva21 = 0;
+  let comisionIva10_5 = 0;
+  let comisionTotalNeta = 0;
+
+  if (tax21 === 0 && tax105 === 0) {
+    // Caso sin IVA declarado
+    const defaultIVA = 0.21;
+    const F = round(
+      porcentajeExento + (1 - porcentajeExento) * (1 + defaultIVA),
+    );
+    const comisionNeta = round(margin / F);
+    comisionExenta = round(comisionNeta * porcentajeExento);
+    const comisionGravada = round(comisionNeta - comisionExenta);
+    // Toda la comisión gravada se asigna al grupo 21
+    comision21 = round(comisionGravada);
+    comision10_5 = 0;
+    comisionIva21 = round(comision21 * defaultIVA);
+    comisionIva10_5 = 0;
+    comisionTotalNeta = round(comisionExenta + comision21);
+  } else {
+    // Caso con IVA declarado
+    // a) Se calcula el costo gravable
+    const costoGravable = round(baseNetoDesglose - exempt);
+    // b) Se determina el remanente, que es lo que falta para alcanzar el costo gravable
+    const remanente = round(
+      Math.max(0, costoGravable - (baseIva21 + baseIva10_5)),
+    );
+    // c) Bases efectivas para cada grupo se calculan asignando íntegramente el remanente al grupo 21
+    const effectiveBase21 = round(baseIva21 + remanente);
+    const effectiveBase10_5 = round(baseIva10_5);
+    const totalEffectiveBase = round(effectiveBase21 + effectiveBase10_5);
+    // d) Se ponderan las bases efectivas
+    const peso21 =
+      totalEffectiveBase > 0 ? round(effectiveBase21 / totalEffectiveBase) : 0;
+    const peso10_5 =
+      totalEffectiveBase > 0
+        ? round(effectiveBase10_5 / totalEffectiveBase)
+        : 0;
+    // e) Factor F que mezcla la parte exenta y la parte gravada ajustada por IVA
+    const F = round(
+      porcentajeExento +
+        (1 - porcentajeExento) * (peso21 * (1 + 0.21) + peso10_5 * (1 + 0.105)),
+    );
+    // f) Cálculo de la comisión neta total
+    const comisionNeta = round(margin / F);
+    comisionExenta = round(comisionNeta * porcentajeExento);
+    const comisionGravada = round(comisionNeta - comisionExenta);
+    // g) Reparto proporcional de la comisión gravada
+    comision21 =
+      totalEffectiveBase > 0
+        ? round(comisionGravada * (effectiveBase21 / totalEffectiveBase))
+        : 0;
+    comision10_5 =
+      totalEffectiveBase > 0
+        ? round(comisionGravada * (effectiveBase10_5 / totalEffectiveBase))
+        : 0;
+    // h) IVA sobre cada grupo de comisión
+    comisionIva21 = round(comision21 * 0.21);
+    comisionIva10_5 = round(comision10_5 * 0.105);
+    comisionTotalNeta = round(comisionExenta + comision21 + comision10_5);
+  }
 
   return (
     <motion.div
@@ -168,7 +217,7 @@ export default function ServiceCard({
               <span className="ml-1 font-light">{formatCurrency(tax21)}</span>
             </li>
             <li>
-              <span className="font-semibold">10.5% </span>
+              <span className="font-semibold">10,5% </span>
               <span className="ml-1 font-light">{formatCurrency(tax105)}</span>
             </li>
             <li>
@@ -176,13 +225,12 @@ export default function ServiceCard({
               <span className="ml-1 font-light">{formatCurrency(exempt)}</span>
             </li>
             <li>
-              <span className="font-semibold">Otros </span>
+              <span className="font-semibold">Otros Impuestos </span>
               <span className="ml-1 font-light">
-                {formatCurrency(other_taxes)}
+                {formatCurrency(otherTaxes)}
               </span>
             </li>
           </ul>
-
           <p className="mt-4 font-semibold">Desglose de Facturación</p>
           <ul className="ml-4 list-disc">
             <li>
@@ -193,58 +241,57 @@ export default function ServiceCard({
             </li>
             <li>
               <span className="font-semibold">Grav. 21% </span>
-              <span className="ml-1 font-light">{formatCurrency(base21)}</span>
+              <span className="ml-1 font-light">
+                {formatCurrency(baseIva21)}
+              </span>
             </li>
             <li>
               <span className="font-semibold">Grav. 10,5% </span>
               <span className="ml-1 font-light">
-                {formatCurrency(base10_5)}
+                {formatCurrency(baseIva10_5)}
               </span>
             </li>
           </ul>
-
           <p className="mt-4 font-semibold">Comisiones</p>
           <ul className="ml-4 list-disc">
             <li>
               <span className="font-semibold">Exenta </span>
               <span className="ml-1 font-light">
-                {formatCurrency(netCommExempt)}
+                {formatCurrency(comisionExenta)}
               </span>
             </li>
             <li>
               <span className="font-semibold">21% </span>
               <span className="ml-1 font-light">
-                {formatCurrency(netComm21)}
+                {formatCurrency(comision21)}
               </span>
             </li>
             <li>
               <span className="font-semibold">10,5% </span>
               <span className="ml-1 font-light">
-                {formatCurrency(netComm10_5)}
+                {formatCurrency(comision10_5)}
               </span>
             </li>
           </ul>
-
           <p className="mt-4 font-semibold">IVA sobre Comisiones</p>
           <ul className="ml-4 list-disc">
             <li>
               <span className="font-semibold">21% </span>
               <span className="ml-1 font-light">
-                {formatCurrency(ivaComm21)}
+                {formatCurrency(comisionIva21)}
               </span>
             </li>
             <li>
               <span className="font-semibold">10,5% </span>
               <span className="ml-1 font-light">
-                {formatCurrency(ivaComm10_5)}
+                {formatCurrency(comisionIva10_5)}
               </span>
             </li>
           </ul>
-
           <p className="mt-4 font-semibold">
-            <span>Total Comisión (sin IVA) </span>
+            Total Comisión (sin IVA){" "}
             <span className="ml-1 font-light">
-              {formatCurrency(totalNetCommission)}
+              {formatCurrency(comisionTotalNeta)}
             </span>
           </p>
         </div>

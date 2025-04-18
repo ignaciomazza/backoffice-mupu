@@ -1,5 +1,3 @@
-// src/pages/api/services/[id].ts
-
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 
@@ -29,6 +27,17 @@ export default async function handler(
       departure_date,
       return_date,
       id_operator,
+      // Nuevos campos del BillingBreakDown:
+      nonComputable,
+      taxableBase21,
+      taxableBase10_5,
+      commissionExempt,
+      commission21,
+      commission10_5,
+      vatOnCommission21,
+      vatOnCommission10_5,
+      totalCommissionWithoutVAT,
+      impIVA,
     } = req.body;
 
     if (!type || sale_price === undefined || cost_price === undefined) {
@@ -55,9 +64,20 @@ export default async function handler(
           departure_date: new Date(departure_date),
           return_date: new Date(return_date),
           id_operator: Number(id_operator),
+
+          // Actualización de los nuevos campos del BillingBreakDown:
+          nonComputable: nonComputable || null,
+          taxableBase21: taxableBase21 || null,
+          taxableBase10_5: taxableBase10_5 || null,
+          commissionExempt: commissionExempt || null,
+          commission21: commission21 || null,
+          commission10_5: commission10_5 || null,
+          vatOnCommission21: vatOnCommission21 || null,
+          vatOnCommission10_5: vatOnCommission10_5 || null,
+          totalCommissionWithoutVAT: totalCommissionWithoutVAT || null,
+          impIVA: impIVA || null,
         },
       });
-
       return res.status(200).json(service);
     } catch (error) {
       console.error("Error al actualizar servicio:", error);
@@ -69,7 +89,11 @@ export default async function handler(
       return res.status(200).json({ message: "Servicio eliminado con éxito." });
     } catch (error) {
       console.error("Error al eliminar servicio:", error);
-      return res.status(500).json({ error: "Error al eliminar servicio." });
+      return res
+        .status(500)
+        .json({
+          error: "No se pudo eliminar el servicio. Inténtalo nuevamente.",
+        });
     }
   } else {
     res.setHeader("Allow", ["PUT", "DELETE"]);

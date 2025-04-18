@@ -83,25 +83,35 @@ model Booking {
 }
 
 model Service {
-  id_service     Int      @id @default(autoincrement())
-  type           String
-  description    String
-  sale_price     Float
-  cost_price     Float
-  destination    String
-  reference      String
-  tax_21         Float?
-  tax_105        Float?
-  exempt         Float?
-  other_taxes    Float?
-  currency       String
-  departure_date DateTime
-  return_date    DateTime
-  created_at     DateTime @default(now())
-  booking_id     Int
-  booking        Booking  @relation(fields: [booking_id], references: [id_booking], onDelete: Cascade)
-  id_operator    Int
-  operator       Operator @relation(fields: [id_operator], references: [id_operator], onDelete: Cascade)
+  id_service                Int      @id @default(autoincrement())
+  type                      String
+  description               String
+  sale_price                Float
+  cost_price                Float
+  destination               String
+  reference                 String
+  tax_21                    Float?
+  tax_105                   Float?
+  exempt                    Float?
+  other_taxes               Float?
+  currency                  String
+  nonComputable             Float?
+  taxableBase21             Float?
+  taxableBase10_5           Float?
+  commissionExempt          Float?
+  commission21              Float?
+  commission10_5            Float?
+  vatOnCommission21         Float?
+  vatOnCommission10_5       Float?
+  totalCommissionWithoutVAT Float?
+  impIVA                    Float? // IVA declarado + IVA sobre comisiones
+  departure_date            DateTime
+  return_date               DateTime
+  created_at                DateTime @default(now())
+  booking_id                Int
+  booking                   Booking  @relation(fields: [booking_id], references: [id_booking], onDelete: Cascade)
+  id_operator               Int
+  operator                  Operator @relation(fields: [id_operator], references: [id_operator], onDelete: Cascade)
 }
 
 model Operator {
@@ -134,7 +144,7 @@ model Invoice {
   type              String
   recipient         String
   details           String?
-  facturaHtml       String? // Nuevo campo para almacenar el HTML de la factura
+  facturaHtml       String?
   bookingId_booking Int
   booking           Booking      @relation("BookingInvoices", fields: [bookingId_booking], references: [id_booking])
   client_id         Int

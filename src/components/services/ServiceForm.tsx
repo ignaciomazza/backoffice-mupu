@@ -1,6 +1,6 @@
 // src/components/services/ServiceForm.tsx
-
 "use client";
+
 import { ChangeEvent, FormEvent } from "react";
 import { motion } from "framer-motion";
 import { Operator } from "@/types";
@@ -23,6 +23,19 @@ export type ServiceFormData = {
   return_date: string;
 };
 
+interface BillingData {
+  nonComputable: number;
+  taxableBase21: number;
+  taxableBase10_5: number;
+  commissionExempt: number;
+  commission21: number;
+  commission10_5: number;
+  vatOnCommission21: number;
+  vatOnCommission10_5: number;
+  totalCommissionWithoutVAT: number;
+  impIVA: number;
+}
+
 type ServiceFormProps = {
   formData: ServiceFormData;
   handleChange: (
@@ -33,6 +46,7 @@ type ServiceFormProps = {
   operators: Operator[];
   isFormVisible: boolean;
   setIsFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
+  onBillingUpdate?: (data: BillingData) => void;
 };
 
 export default function ServiceForm({
@@ -40,9 +54,10 @@ export default function ServiceForm({
   handleChange,
   handleSubmit,
   editingServiceId,
+  operators,
   isFormVisible,
   setIsFormVisible,
-  operators,
+  onBillingUpdate,
 }: ServiceFormProps) {
   const formatCurrency = (value: number) => {
     if (isNaN(value)) return "";
@@ -67,48 +82,37 @@ export default function ServiceForm({
   };
 
   const handleDateChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const { name } = e.target;
-    // Extraemos sólo dígitos
-    const digits = e.target.value.replace(/\D/g, "");
+    const { name, value: raw } = e.target;
+    const digits = raw.replace(/\D/g, "");
     let formatted = "";
-    if (digits.length > 0) {
-      formatted += digits.substring(0, 2);
-      if (digits.length >= 3) {
-        formatted += "/" + digits.substring(2, 4);
-        if (digits.length >= 5) {
-          formatted += "/" + digits.substring(4, 8);
-        }
-      }
-    }
-    const event = {
+    if (digits.length >= 1) formatted += digits.substring(0, 2);
+    if (digits.length >= 3) formatted += "/" + digits.substring(2, 4);
+    if (digits.length >= 5) formatted += "/" + digits.substring(4, 8);
+    handleChange({
       target: { name, value: formatted },
-    } as ChangeEvent<HTMLInputElement>;
-    handleChange(event);
+    } as ChangeEvent<HTMLInputElement>);
   };
 
   const handleDatePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    const pasteData = e.clipboardData.getData("text");
-    const digits = pasteData.replace(/\D/g, "");
-    if (digits.length === 8) {
-      const day = digits.slice(0, 2);
-      const month = digits.slice(2, 4);
-      const year = digits.slice(4, 8);
+    const pasteData = e.clipboardData.getData("text").replace(/\D/g, "");
+    if (pasteData.length === 8) {
+      const day = pasteData.slice(0, 2);
+      const month = pasteData.slice(2, 4);
+      const year = pasteData.slice(4, 8);
       const formatted = `${day}/${month}/${year}`;
       e.preventDefault();
-      const event = {
+      handleChange({
         target: { name: e.currentTarget.name, value: formatted },
-      } as ChangeEvent<HTMLInputElement>;
-      handleChange(event);
+      } as ChangeEvent<HTMLInputElement>);
     }
   };
 
   const handleDateBlur = (e: React.FocusEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     const iso = formatDisplayToIso(value);
-    const event = {
+    handleChange({
       target: { name, value: iso },
-    } as ChangeEvent<HTMLInputElement>;
-    handleChange(event);
+    } as ChangeEvent<HTMLInputElement>);
   };
 
   return (
@@ -173,26 +177,53 @@ export default function ServiceForm({
               name="type"
               value={formData.type}
               onChange={handleChange}
-              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none hover:cursor-pointer dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-full rounded-2xl border border-black p-2 px-3 outline-none hover:cursor-pointer dark:border-white/50 dark:bg-[#252525] dark:text-white"
               required
             >
               <option value="" disabled>
                 Seleccionar tipo
               </option>
               <option value="Paquete Argentina">Paquete Argentina</option>
-              <option value="Cupo exterior">Cupo exterior</option>
-              <option value="Aereo">Aereo</option>
-              <option value="Hotelería">Hotelería</option>
-              <option value="Hotelería y traslados">
-                Hotelería y traslados
+              <option value="Cupo Exterior">Cupo Exterior</option>
+              <option value="Aéreo - Internacional">
+                Aéreo - Internacional
               </option>
-              <option value="Traslados">Traslados</option>
-              <option value="Asistencias">Asistencias</option>
-              <option value="Excursiones">Excursiones</option>
-              <option value="Alquiler de auto">Alquiler de auto</option>
-              <option value="Tour">Tour</option>
-              <option value="Crucero">Crucero</option>
-              <option value="Adiciónenles">Adiciónenles</option>
+              <option value="Aéreo - Cabotaje">Aéreo - Nacional</option>
+              <option value="Hotelería (Nacional)">Hotelería (Nacional)</option>
+              <option value="Hotelería (Internacional)">
+                Hotelería (Internacional)
+              </option>
+              <option value="Hotelería y Traslados (Nacional)">
+                Hotelería y Traslados (Nacional)
+              </option>
+              <option value="Hotelería y Traslados (Internacional)">
+                Hotelería y Traslados (Internacional)
+              </option>
+              <option value="Traslados (Nacional)">Traslados (Nacional)</option>
+              <option value="Traslados (Exterior)">Traslados (Exterior)</option>
+              <option value="Asistencias (Nacional)">
+                Asistencias (Nacional)
+              </option>
+              <option value="Asistencias (Internacional)">
+                Asistencias (Internacional)
+              </option>
+              <option value="Excursiones (Nacional)">
+                Excursiones (Nacional)
+              </option>
+              <option value="Excursiones (Exterior)">
+                Excursiones (Exterior)
+              </option>
+              <option value="Alquiler de Auto (Nacional)">
+                Alquiler de Auto (Nacional)
+              </option>
+              <option value="Alquiler de Auto (Exterior)">
+                Alquiler de Auto (Exterior)
+              </option>
+              <option value="Tour (Nacional)">Tour (Nacional)</option>
+              <option value="Tour (Exterior)">Tour (Exterior)</option>
+              <option value="Crucero (Internacional)">
+                Crucero (Internacional)
+              </option>
             </select>
           </div>
           <div>
@@ -242,8 +273,8 @@ export default function ServiceForm({
                 onChange={handleDateChange}
                 onPaste={handleDatePaste}
                 onBlur={handleDateBlur}
-                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 placeholder="dd/mm/yyyy"
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               />
             </div>
             <div>
@@ -259,8 +290,8 @@ export default function ServiceForm({
                 onChange={handleDateChange}
                 onPaste={handleDatePaste}
                 onBlur={handleDateBlur}
-                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 placeholder="dd/mm/yyyy"
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               />
             </div>
             <div>
@@ -269,17 +300,14 @@ export default function ServiceForm({
                 name="id_operator"
                 value={formData.id_operator || 0}
                 onChange={handleChange}
-                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide hover:cursor-pointer dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide hover:cursor-pointer dark:border-white/50 dark:bg-[#252525] dark:text-white"
               >
                 <option value={0} disabled>
                   Seleccionar operador
                 </option>
-                {operators.map((operator) => (
-                  <option
-                    key={operator.id_operator}
-                    value={operator.id_operator}
-                  >
-                    {operator.name}
+                {operators.map((op) => (
+                  <option key={op.id_operator} value={op.id_operator}>
+                    {op.name}
                   </option>
                 ))}
               </select>
@@ -290,7 +318,7 @@ export default function ServiceForm({
                 name="currency"
                 value={formData.currency}
                 onChange={handleChange}
-                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide hover:cursor-pointer dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide hover:cursor-pointer dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 required
               >
                 <option value="" disabled>
@@ -308,10 +336,10 @@ export default function ServiceForm({
                 value={formData.cost_price || ""}
                 onChange={handleChange}
                 placeholder="Costo..."
-                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 step="0.01"
                 min="0"
                 required
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.cost_price)}
@@ -325,10 +353,10 @@ export default function ServiceForm({
                 value={formData.sale_price || ""}
                 onChange={handleChange}
                 placeholder="Venta..."
-                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 step="0.01"
                 min="0"
                 required
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.sale_price)}
@@ -341,10 +369,10 @@ export default function ServiceForm({
                 name="tax_21"
                 value={formData.tax_21 || ""}
                 onChange={handleChange}
-                placeholder="21%..."
-                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 step="0.01"
                 min="0"
+                placeholder="21%..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.tax_21 || 0)}
@@ -357,10 +385,10 @@ export default function ServiceForm({
                 name="tax_105"
                 value={formData.tax_105 || ""}
                 onChange={handleChange}
-                placeholder="10.5%..."
-                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 step="0.01"
                 min="0"
+                placeholder="10.5%..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.tax_105 || 0)}
@@ -373,10 +401,10 @@ export default function ServiceForm({
                 name="exempt"
                 value={formData.exempt || ""}
                 onChange={handleChange}
-                placeholder="Exento..."
-                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 step="0.01"
                 min="0"
+                placeholder="Exento..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.exempt || 0)}
@@ -389,25 +417,27 @@ export default function ServiceForm({
                 name="other_taxes"
                 value={formData.other_taxes || ""}
                 onChange={handleChange}
-                placeholder="Otros impuestos..."
-                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 step="0.01"
                 min="0"
+                placeholder="Otros impuestos..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.other_taxes || 0)}
               </p>
             </div>
           </div>
+
           {formData.sale_price > 0 && formData.cost_price > 0 && (
             <BillingBreakdown
-              sale={formData.sale_price}
-              cost={formData.cost_price}
-              tax21={formData.tax_21 || 0}
-              tax105={formData.tax_105 || 0}
-              exempt={formData.exempt || 0}
-              other_taxes={formData.other_taxes || 0}
-              currency={formData.currency}
+              importeVenta={formData.sale_price}
+              costo={formData.cost_price}
+              montoIva21={formData.tax_21 || 0}
+              montoIva10_5={formData.tax_105 || 0}
+              montoExento={formData.exempt || 0}
+              otrosImpuestos={formData.other_taxes || 0}
+              moneda={formData.currency || "ARS"}
+              onBillingUpdate={onBillingUpdate}
             />
           )}
 

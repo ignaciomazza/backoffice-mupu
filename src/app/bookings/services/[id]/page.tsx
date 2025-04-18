@@ -1,5 +1,4 @@
 // src/app/bookings/services/[id]/page.tsx
-
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
@@ -48,13 +47,25 @@ export default function ServicesPage() {
     departure_date: "",
     return_date: "",
   });
+  // Nuevo estado para almacenar el desglose calculado (BillingBreakDown)
+  const [billingData, setBillingData] = useState({
+    nonComputable: 0,
+    taxableBase21: 0,
+    taxableBase10_5: 0,
+    commissionExempt: 0,
+    commission21: 0,
+    commission10_5: 0,
+    vatOnCommission21: 0,
+    vatOnCommission10_5: 0,
+    totalCommissionWithoutVAT: 0,
+    impIVA: 0,
+  });
   const [editingServiceId, setEditingServiceId] = useState<number | null>(null);
-  const [expandedServiceId, setExpandedServiceId] = useState<number | null>(
-    null,
-  );
+  const [expandedServiceId, setExpandedServiceId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [isInvoiceFormVisible, setIsInvoiceFormVisible] = useState(false);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
 
   const fetchBooking = useCallback(async () => {
     try {
@@ -143,7 +154,7 @@ export default function ServicesPage() {
     fetchOperators();
   }, [fetchOperators]);
 
-  // Establece por defecto las fechas del formulario de servicios cuando se obtiene la reserva
+  // Establece por defecto las fechas del formulario cuando se obtiene la reserva
   useEffect(() => {
     if (booking) {
       setFormData((prev) => ({
@@ -162,7 +173,7 @@ export default function ServicesPage() {
   const handleChange = (
     e: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >,
+    >
   ) => {
     const { name, value } = e.target;
     setFormData((prevData) => ({
@@ -181,7 +192,7 @@ export default function ServicesPage() {
   };
 
   const handleInvoiceChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
     setInvoiceFormData((prev) => ({ ...prev, [name]: value }));
@@ -189,17 +200,18 @@ export default function ServicesPage() {
 
   const updateFormData = (
     key: keyof InvoiceFormData,
-    value: InvoiceFormData[keyof InvoiceFormData],
+    value: InvoiceFormData[keyof InvoiceFormData]
   ): void => {
     setInvoiceFormData((prev) => ({ ...prev, [key]: value }));
   };
 
-  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  // Callback para recibir datos de BillingBreakdown
+  const handleBillingUpdate = (billingValues: typeof billingData) => {
+    setBillingData(billingValues);
+  };
 
   const handleInvoiceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Validación de campos
     if (
       !invoiceFormData.tipoFactura ||
       invoiceFormData.clientIds.length === 0 ||
@@ -208,7 +220,6 @@ export default function ServicesPage() {
       toast.error("Completa todos los campos requeridos.");
       return;
     }
-
     const payload = {
       bookingId: Number(id),
       services: invoiceFormData.services.map((s) => Number(s)),
@@ -218,7 +229,6 @@ export default function ServicesPage() {
         ? parseFloat(invoiceFormData.exchangeRate)
         : undefined,
     };
-
     console.log("Enviando datos de factura:", payload);
     setInvoiceLoading(true);
     try {
@@ -236,7 +246,7 @@ export default function ServicesPage() {
         setInvoices((prev) => [
           ...prev,
           ...result.invoices.filter(
-            (invoice: Invoice) => invoice && invoice.id_invoice,
+            (invoice: Invoice) => invoice && invoice.id_invoice
           ),
         ]);
         toast.success("Factura creada exitosamente!");
@@ -263,20 +273,20 @@ export default function ServicesPage() {
       const url = editingServiceId
         ? `/api/services/${editingServiceId}`
         : "/api/services";
+      // Combinar formData y billingData en el payload
+      const payload = { ...formData, booking_id: id, ...billingData };
       const res = await fetch(url, {
         method: editingServiceId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...formData, booking_id: id }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const errorResponse = await res.json();
         throw new Error(
-          errorResponse.error || "Error al agregar/actualizar el servicio.",
+          errorResponse.error || "Error al agregar/actualizar el servicio."
         );
       }
-      const updatedServicesResponse = await fetch(
-        `/api/services?bookingId=${id}`,
-      );
+      const updatedServicesResponse = await fetch(`/api/services?bookingId=${id}`);
       if (!updatedServicesResponse.ok) {
         throw new Error("Error al actualizar la lista de servicios.");
       }
@@ -285,7 +295,7 @@ export default function ServicesPage() {
       toast.success(
         editingServiceId
           ? "Servicio actualizado con éxito!"
-          : "Servicio agregado con éxito!",
+          : "Servicio agregado con éxito!"
       );
       setEditingServiceId(null);
       setIsFormVisible(false);
@@ -305,6 +315,19 @@ export default function ServicesPage() {
         departure_date: "",
         return_date: "",
       });
+      // Reiniciar billingData (opcional)
+      setBillingData({
+        nonComputable: 0,
+        taxableBase21: 0,
+        taxableBase10_5: 0,
+        commissionExempt: 0,
+        commission21: 0,
+        commission10_5: 0,
+        vatOnCommission21: 0,
+        vatOnCommission10_5: 0,
+        totalCommissionWithoutVAT: 0,
+        impIVA: 0,
+      });
     } catch (err: unknown) {
       if (err instanceof Error) {
         console.error("Error al enviar el formulario:", err.message);
@@ -322,7 +345,7 @@ export default function ServicesPage() {
         throw new Error("Error al eliminar el servicio.");
       }
       setServices((prevServices) =>
-        prevServices.filter((service) => service.id_service !== serviceId),
+        prevServices.filter((service) => service.id_service !== serviceId)
       );
       toast.success("Servicio eliminado con éxito.");
     } catch (err: unknown) {
@@ -366,6 +389,7 @@ export default function ServicesPage() {
         setExpandedServiceId={setExpandedServiceId}
         setIsInvoiceFormVisible={setIsInvoiceFormVisible}
         isSubmitting={invoiceLoading}
+        onBillingUpdate={handleBillingUpdate} 
       />
     </ProtectedRoute>
   );
