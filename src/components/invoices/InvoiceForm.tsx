@@ -1,20 +1,23 @@
 // src/components/invoices/InvoiceForm.tsx
-
 "use client";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import Spinner from "../Spinner";
+import { Service } from "@/types";
 
-// Definimos el tipo para los datos del formulario de factura
 export type InvoiceFormData = {
   tipoFactura: string;
   clientIds: string[];
   services: string[];
   exchangeRate?: string;
+  description21: string[];
+  description10_5: string[];
+  descriptionNonComputable: string[];
 };
 
 interface InvoiceFormProps {
   formData: InvoiceFormData;
+  availableServices: Service[];
   handleChange: (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => void;
@@ -30,6 +33,7 @@ interface InvoiceFormProps {
 
 export default function InvoiceForm({
   formData,
+  availableServices,
   handleChange,
   handleSubmit,
   isFormVisible,
@@ -39,35 +43,61 @@ export default function InvoiceForm({
 }: InvoiceFormProps) {
   const [clientCount, setClientCount] = useState<number>(1);
   const [serviceCount, setServiceCount] = useState<number>(1);
-  // Guarda el valor obtenido de AFIP, sin forzar su copia al input
   const [fetchedExchangeRate, setFetchedExchangeRate] = useState<string>("");
 
-  // Función que consulta la cotización y actualiza el estado local
-  const fetchExchangeRate = async () => {
-    try {
-      const res = await fetch("/api/exchangeRate");
-      const data = await res.json();
-      if (data.success) {
-        setFetchedExchangeRate(data.rate.toString());
-      } else {
-        console.error("No se pudo obtener la cotización del dólar.");
-      }
-    } catch (error) {
-      console.error("Error fetching exchange rate:", error);
-    }
-  };
-
-  // Ejecuta el fetch solo una vez al montar el componente
   useEffect(() => {
-    fetchExchangeRate();
+    (async () => {
+      try {
+        const res = await fetch("/api/exchangeRate");
+        const data = await res.json();
+        if (data.success) {
+          setFetchedExchangeRate(data.rate.toString());
+        }
+      } catch {
+        console.error("Error fetching exchange rate");
+      }
+    })();
   }, []);
+
+  useEffect(() => {
+    const desc21 = [...formData.description21];
+    const desc10 = [...formData.description10_5];
+    const descNon = [...formData.descriptionNonComputable];
+
+    while (desc21.length < serviceCount) desc21.push("");
+    desc21.length = serviceCount;
+    while (desc10.length < serviceCount) desc10.push("");
+    desc10.length = serviceCount;
+    while (descNon.length < serviceCount) descNon.push("");
+    descNon.length = serviceCount;
+
+    if (desc21.length !== formData.description21.length) {
+      updateFormData("description21", desc21);
+    }
+    if (desc10.length !== formData.description10_5.length) {
+      updateFormData("description10_5", desc10);
+    }
+    if (descNon.length !== formData.descriptionNonComputable.length) {
+      updateFormData("descriptionNonComputable", descNon);
+    }
+  }, [
+    serviceCount,
+    formData.description21,
+    formData.description10_5,
+    formData.descriptionNonComputable,
+    updateFormData,
+  ]);
+
+  const desc21 = formData.description21;
+  const desc10 = formData.description10_5;
+  const descNon = formData.descriptionNonComputable;
 
   return (
     <motion.div
       layout
       initial={{ maxHeight: 80, opacity: 1 }}
       animate={{
-        maxHeight: isFormVisible ? 800 : 80,
+        maxHeight: isFormVisible ? 1000 : 80,
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
@@ -110,6 +140,7 @@ export default function InvoiceForm({
           )}
         </button>
       </div>
+
       {isFormVisible && (
         <motion.form
           initial={{ opacity: 0 }}
@@ -127,7 +158,7 @@ export default function InvoiceForm({
             }
             handleSubmit(e);
           }}
-          className="max-h-[400px] space-y-3 overflow-y-auto"
+          className="max-h-[800px] space-y-3 overflow-y-auto"
         >
           <div>
             <label className="ml-2 block dark:text-white">
@@ -145,6 +176,7 @@ export default function InvoiceForm({
               <option value="6">Factura B</option>
             </select>
           </div>
+
           <div>
             <label className="ml-2 block dark:text-white">
               Cantidad de Clientes
@@ -158,25 +190,26 @@ export default function InvoiceForm({
               className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
             />
           </div>
-          {Array.from({ length: clientCount }).map((_, index) => (
-            <div key={index}>
+          {Array.from({ length: clientCount }).map((_, idx) => (
+            <div key={idx}>
               <label className="ml-2 block dark:text-white">
-                ID del Cliente {index + 1}
+                ID del Cliente {idx + 1}
               </label>
               <input
                 type="text"
-                value={formData.clientIds[index] || ""}
+                value={formData.clientIds[idx] || ""}
                 onChange={(e) => {
-                  const updatedClientIds = [...formData.clientIds];
-                  updatedClientIds[index] = e.target.value;
-                  updateFormData("clientIds", updatedClientIds);
+                  const arr = [...formData.clientIds];
+                  arr[idx] = e.target.value;
+                  updateFormData("clientIds", arr);
                 }}
-                placeholder={`ID del cliente ${index + 1}`}
+                placeholder={`ID del cliente ${idx + 1}`}
                 className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
                 required
               />
             </div>
           ))}
+
           <div>
             <label className="ml-2 block dark:text-white">
               Cantidad de Servicios
@@ -190,51 +223,112 @@ export default function InvoiceForm({
               className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
             />
           </div>
-          {Array.from({ length: serviceCount }).map((_, index) => (
-            <div key={index}>
-              <label className="ml-2 block dark:text-white">
-                ID del Servicio {index + 1}
-              </label>
-              <input
-                type="text"
-                value={formData.services[index] || ""}
-                onChange={(e) => {
-                  const updatedServices = [...formData.services];
-                  updatedServices[index] = e.target.value;
-                  updateFormData("services", updatedServices);
-                }}
-                placeholder={`ID del servicio ${index + 1}`}
-                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-                required
-              />
-            </div>
-          ))}
+          {Array.from({ length: serviceCount }).map((_, idx) => {
+            const svcId = parseInt(formData.services[idx] || "", 10);
+            const svc = availableServices.find((s) => s.id_service === svcId);
+            return (
+              <div key={idx} className="space-y-2">
+                <label className="ml-2 block dark:text-white">
+                  ID del Servicio {idx + 1}
+                </label>
+                <input
+                  type="text"
+                  value={formData.services[idx] || ""}
+                  onChange={(e) => {
+                    const arr = [...formData.services];
+                    arr[idx] = e.target.value;
+                    updateFormData("services", arr);
+                  }}
+                  placeholder={`ID del servicio ${idx + 1}`}
+                  className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                  required
+                />
+
+                <div className="flex w-full gap-2">
+                  {(svc?.vatOnCommission21 ?? 0) > 0 && (
+                    <div className="basis-1/2">
+                      <label className="ml-2 block dark:text-white">
+                        Descripción IVA 21% (servicio {idx + 1})
+                      </label>
+                      <input
+                        type="text"
+                        value={desc21[idx]}
+                        onChange={(e) => {
+                          const arr = [...desc21];
+                          arr[idx] = e.target.value;
+                          updateFormData("description21", arr);
+                        }}
+                        placeholder="Ej: Excursión guiada 21%"
+                        className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                      />
+                    </div>
+                  )}
+
+                  {(svc?.vatOnCommission10_5 ?? 0) > 0 && (
+                    <div className="basis-1/2">
+                      <label className="ml-2 block dark:text-white">
+                        Descripción IVA 10.5% (servicio {idx + 1})
+                      </label>
+                      <input
+                        type="text"
+                        value={desc10[idx]}
+                        onChange={(e) => {
+                          const arr = [...desc10];
+                          arr[idx] = e.target.value;
+                          updateFormData("description10_5", arr);
+                        }}
+                        placeholder="Ej: Servicio terrestre 10.5%"
+                        className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                      />
+                    </div>
+                  )}
+
+                  {(svc?.nonComputable ?? 0) > 0 && (
+                    <div className="basis-1/2">
+                      <label className="ml-2 block dark:text-white">
+                        Descripción No Computable
+                      </label>
+                      <input
+                        type="text"
+                        value={descNon[idx]}
+                        onChange={(e) => {
+                          const arr = [...descNon];
+                          arr[idx] = e.target.value;
+                          updateFormData("descriptionNonComputable", arr);
+                        }}
+                        placeholder="Ej: Cargo no computable"
+                        className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Cotización del dólar */}
           <div>
             <label className="ml-2 block dark:text-white">
               Cotización del dólar (opcional)
             </label>
-            <div className="flex items-center space-x-2">
-              <input
-                type="text"
-                name="exchangeRate"
-                value={formData.exchangeRate || ""}
-                onChange={handleChange}
-                placeholder={
-                  fetchedExchangeRate
-                    ? `Cotización: ${fetchedExchangeRate}`
-                    : "Cotización actual"
-                }
-                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-              />
-            </div>
-            <p className="ml-2 text-sm dark:text-white">
-              Valor obtenido de AFIP: {fetchedExchangeRate || "Cargando..."}
-            </p>
+            <input
+              type="text"
+              name="exchangeRate"
+              value={formData.exchangeRate || ""}
+              onChange={handleChange}
+              placeholder={
+                fetchedExchangeRate
+                  ? `Cotización: ${fetchedExchangeRate}`
+                  : "Cotización actual"
+              }
+              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+            />
           </div>
+
           <button
             type="submit"
             disabled={isSubmitting}
-            className="h-10 w-40 rounded-full bg-black text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+            className="bg-black;text-center h-10 w-40 rounded-full text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
           >
             {isSubmitting ? <Spinner /> : "Crear Factura"}
           </button>

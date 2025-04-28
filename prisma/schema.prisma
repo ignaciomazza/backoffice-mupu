@@ -10,6 +10,7 @@ generator client {
 model Agency {
   id_agency       Int       @id @default(autoincrement())
   name            String
+  legal_name      String
   address         String?
   phone           String?
   email           String?
@@ -104,7 +105,11 @@ model Service {
   vatOnCommission21         Float?
   vatOnCommission10_5       Float?
   totalCommissionWithoutVAT Float?
-  impIVA                    Float? // IVA declarado + IVA sobre comisiones
+  impIVA                    Float? 
+  card_interest             Float?
+  card_interest_21          Float?
+  taxableCardInterest       Float?
+  vatOnCardInterest         Float?
   departure_date            DateTime
   return_date               DateTime
   created_at                DateTime @default(now())

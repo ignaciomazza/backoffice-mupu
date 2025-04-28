@@ -17,6 +17,8 @@ export type ServiceFormData = {
   tax_105?: number;
   exempt?: number;
   other_taxes?: number;
+  card_interest?: number;
+  card_interest_21?: number;
   currency: string;
   id_operator: number;
   departure_date: string;
@@ -34,6 +36,8 @@ interface BillingData {
   vatOnCommission10_5: number;
   totalCommissionWithoutVAT: number;
   impIVA: number;
+  taxableCardInterest: number;
+  vatOnCardInterest: number;
 }
 
 type ServiceFormProps = {
@@ -185,45 +189,21 @@ export default function ServiceForm({
               </option>
               <option value="Paquete Argentina">Paquete Argentina</option>
               <option value="Cupo Exterior">Cupo Exterior</option>
+              <option value="Aéreo - Cabotaje">Aéreo - Cabotaje</option>
+              <option value="Aéreo - Regional">Aéreo - Regional</option>
               <option value="Aéreo - Internacional">
                 Aéreo - Internacional
               </option>
-              <option value="Aéreo - Cabotaje">Aéreo - Nacional</option>
-              <option value="Hotelería (Nacional)">Hotelería (Nacional)</option>
-              <option value="Hotelería (Internacional)">
-                Hotelería (Internacional)
-              </option>
-              <option value="Hotelería y Traslados (Nacional)">
-                Hotelería y Traslados (Nacional)
-              </option>
-              <option value="Hotelería y Traslados (Internacional)">
-                Hotelería y Traslados (Internacional)
-              </option>
-              <option value="Traslados (Nacional)">Traslados (Nacional)</option>
-              <option value="Traslados (Exterior)">Traslados (Exterior)</option>
-              <option value="Asistencias (Nacional)">
-                Asistencias (Nacional)
-              </option>
-              <option value="Asistencias (Internacional)">
-                Asistencias (Internacional)
-              </option>
-              <option value="Excursiones (Nacional)">
-                Excursiones (Nacional)
-              </option>
-              <option value="Excursiones (Exterior)">
-                Excursiones (Exterior)
-              </option>
-              <option value="Alquiler de Auto (Nacional)">
-                Alquiler de Auto (Nacional)
-              </option>
-              <option value="Alquiler de Auto (Exterior)">
-                Alquiler de Auto (Exterior)
-              </option>
-              <option value="Tour (Nacional)">Tour (Nacional)</option>
-              <option value="Tour (Exterior)">Tour (Exterior)</option>
-              <option value="Crucero (Internacional)">
-                Crucero (Internacional)
-              </option>
+              <option value="Hotelería">Hotelería</option>
+              <option value="Hotelería y Traslado">Hotelería y Traslado</option>
+              <option value="Traslado">Traslado</option>
+              <option value="Asistencia">Asistencia</option>
+              <option value="Excursiones">Excursiones</option>
+              <option value="Alquiler de Auto">Alquiler de Auto</option>
+              <option value="Tour">Tour</option>
+              <option value="Circuito">Circuito</option>
+              <option value="Crucero">Crucero</option>
+              <option value="Interes">Interes</option>
             </select>
           </div>
           <div>
@@ -363,7 +343,7 @@ export default function ServiceForm({
               </p>
             </div>
             <div>
-              <label className="ml-2 dark:text-white">Tax 21%</label>
+              <label className="ml-2 dark:text-white">Iva 21%</label>
               <input
                 type="number"
                 name="tax_21"
@@ -379,7 +359,7 @@ export default function ServiceForm({
               </p>
             </div>
             <div>
-              <label className="ml-2 dark:text-white">Tax 10.5%</label>
+              <label className="ml-2 dark:text-white">Iva 10.5%</label>
               <input
                 type="number"
                 name="tax_105"
@@ -426,6 +406,38 @@ export default function ServiceForm({
                 {formatCurrency(formData.other_taxes || 0)}
               </p>
             </div>
+            <div>
+              <label className="ml-2 dark:text-white">Interes</label>
+              <input
+                type="number"
+                name="card_interest"
+                value={formData.card_interest || ""}
+                onChange={handleChange}
+                step="0.01"
+                min="0"
+                placeholder="Interes..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              />
+              <p className="ml-2 text-sm dark:text-white">
+                {formatCurrency(formData.card_interest || 0)}
+              </p>
+            </div>
+            <div>
+              <label className="ml-2 dark:text-white">Iva 21% - Interes</label>
+              <input
+                type="number"
+                name="card_interest_21"
+                value={formData.card_interest_21 || ""}
+                onChange={handleChange}
+                step="0.01"
+                min="0"
+                placeholder="21%..."
+                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              />
+              <p className="ml-2 text-sm dark:text-white">
+                {formatCurrency(formData.card_interest_21 || 0)}
+              </p>
+            </div>
           </div>
 
           {formData.sale_price > 0 && formData.cost_price > 0 && (
@@ -436,11 +448,12 @@ export default function ServiceForm({
               montoIva10_5={formData.tax_105 || 0}
               montoExento={formData.exempt || 0}
               otrosImpuestos={formData.other_taxes || 0}
+              cardInterest={formData.card_interest || 0}
+              cardInterestIva={formData.card_interest_21 || 0}
               moneda={formData.currency || "ARS"}
               onBillingUpdate={onBillingUpdate}
             />
           )}
-
           <button
             type="submit"
             className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"

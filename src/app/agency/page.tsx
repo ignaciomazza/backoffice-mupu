@@ -7,6 +7,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 interface Agency {
   id_agency: number;
   name: string;
+  legal_name: string;
   address: string;
   phone: string;
   email: string;
@@ -53,6 +54,12 @@ export default function AgencyPage() {
                 Nombre
               </span>
               {agency.name}
+            </p>
+            <p className="font-light">
+              <span className="mr-2 font-semibold dark:font-medium">
+                Razon Social
+              </span>
+              {agency.legal_name}
             </p>
             <p className="font-light">
               <span className="mr-2 font-semibold dark:font-medium">

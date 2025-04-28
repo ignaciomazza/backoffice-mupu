@@ -19,6 +19,7 @@ export interface User {
 export interface Agency {
   id_agency: number;
   name: string;
+  legal_name: string;
   address?: string;
   phone?: string;
   email?: string;
@@ -100,14 +101,25 @@ export interface Service {
   tax_105?: number;
   exempt?: number;
   other_taxes?: number;
+  card_interest?: number;
+  card_interest_21?: number;
+  taxableCardInterest?: number;
+  vatOnCardInterest?: number;
   currency: string;
-  created_at: string;
-  booking_id: number;
-  booking: Booking;
-  id_operator: number;
-  operator: Operator;
+  nonComputable?: number;
+  taxableBase21?: number;
+  taxableBase10_5?: number;
+  commissionExempt?: number;
+  commission21?: number;
+  commission10_5?: number;
+  vatOnCommission21?: number;
+  vatOnCommission10_5?: number;
+  totalCommissionWithoutVAT?: number;
+  impIVA?: number;
   departure_date: string;
   return_date: string;
+  booking_id: number;
+  id_operator: number;
 }
 
 // Operator.ts: Tipo de operador

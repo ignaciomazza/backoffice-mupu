@@ -30,6 +30,7 @@ export default async function handler(
 
     const {
       name,
+      legal_name,       
       address,
       phone,
       email,
@@ -43,6 +44,7 @@ export default async function handler(
       const newAgency = await prisma.agency.create({
         data: {
           name,
+          legal_name, 
           address,
           phone,
           email,
@@ -62,6 +64,7 @@ export default async function handler(
   } else if (req.method === "PUT") {
     const {
       name,
+      legal_name, 
       address,
       phone,
       email,
@@ -83,6 +86,7 @@ export default async function handler(
         where: { id_agency: existingAgency.id_agency },
         data: {
           name,
+          legal_name, 
           address,
           phone,
           email,

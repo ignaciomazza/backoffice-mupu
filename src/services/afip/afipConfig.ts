@@ -21,8 +21,8 @@ const afip = new Afip({
   CUIT: agencyCUIT,
   cert: fs.readFileSync(certPath, "utf8"),
   key: fs.readFileSync(keyPath, "utf8"),
-  // access_token: process.env.ACCESS_TOKEN,
-  production: false,
+  access_token: process.env.ACCESS_TOKEN,
+  production: true,
 });
 
 export default afip;

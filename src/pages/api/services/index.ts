@@ -1,3 +1,5 @@
+// src/pages/api/services/index.ts
+
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -47,7 +49,6 @@ export default async function handler(
       return_date,
       id_operator,
       booking_id,
-      // Nuevos campos del BillingBreakDown:
       nonComputable,
       taxableBase21,
       taxableBase10_5,
@@ -58,6 +59,10 @@ export default async function handler(
       vatOnCommission10_5,
       totalCommissionWithoutVAT,
       impIVA,
+      card_interest,
+      card_interest_21,
+      taxableCardInterest,
+      vatOnCardInterest,
     } = req.body;
 
     if (
@@ -110,8 +115,6 @@ export default async function handler(
           return_date: parsedReturnDate,
           booking: { connect: { id_booking: Number(booking_id) } },
           operator: { connect: { id_operator: Number(id_operator) } },
-
-          // Guardado de los nuevos valores del BillingBreakDown:
           nonComputable: nonComputable || null,
           taxableBase21: taxableBase21 || null,
           taxableBase10_5: taxableBase10_5 || null,
@@ -122,6 +125,10 @@ export default async function handler(
           vatOnCommission10_5: vatOnCommission10_5 || null,
           totalCommissionWithoutVAT: totalCommissionWithoutVAT || null,
           impIVA: impIVA || null,
+          card_interest: card_interest || null,
+          card_interest_21: card_interest_21 || null,
+          taxableCardInterest: taxableCardInterest || null,
+          vatOnCardInterest: vatOnCardInterest || null,
         },
         include: { booking: true, operator: true },
       });

@@ -27,7 +27,6 @@ export default async function handler(
       departure_date,
       return_date,
       id_operator,
-      // Nuevos campos del BillingBreakDown:
       nonComputable,
       taxableBase21,
       taxableBase10_5,
@@ -38,6 +37,10 @@ export default async function handler(
       vatOnCommission10_5,
       totalCommissionWithoutVAT,
       impIVA,
+      card_interest,
+      card_interest_21,
+      taxableCardInterest,
+      vatOnCardInterest,
     } = req.body;
 
     if (!type || sale_price === undefined || cost_price === undefined) {
@@ -64,8 +67,6 @@ export default async function handler(
           departure_date: new Date(departure_date),
           return_date: new Date(return_date),
           id_operator: Number(id_operator),
-
-          // Actualización de los nuevos campos del BillingBreakDown:
           nonComputable: nonComputable || null,
           taxableBase21: taxableBase21 || null,
           taxableBase10_5: taxableBase10_5 || null,
@@ -76,6 +77,10 @@ export default async function handler(
           vatOnCommission10_5: vatOnCommission10_5 || null,
           totalCommissionWithoutVAT: totalCommissionWithoutVAT || null,
           impIVA: impIVA || null,
+          card_interest: card_interest || null,
+          card_interest_21: card_interest_21 || null,
+          taxableCardInterest: taxableCardInterest || null,
+          vatOnCardInterest: vatOnCardInterest || null,
         },
       });
       return res.status(200).json(service);

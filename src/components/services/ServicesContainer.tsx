@@ -24,6 +24,8 @@ export type ServiceFormData = {
   tax_105?: number;
   exempt?: number;
   other_taxes?: number;
+  card_interest?: number;
+  card_interest_21?: number;
   currency: string;
   id_operator: number;
   departure_date: string;
@@ -41,11 +43,14 @@ interface BillingData {
   vatOnCommission10_5: number;
   totalCommissionWithoutVAT: number;
   impIVA: number;
+  taxableCardInterest: number;
+  vatOnCardInterest: number;
 }
 
 interface ServicesContainerProps {
   booking: Booking | null;
   services: Service[];
+  availableServices: Service[];
   operators: Operator[];
   invoices: Invoice[];
   invoiceFormData: InvoiceFormData;
@@ -78,11 +83,13 @@ interface ServicesContainerProps {
   setIsInvoiceFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
   isSubmitting: boolean;
   onBillingUpdate?: (data: BillingData) => void;
+  role: string;
 }
 
 export default function ServicesContainer({
   booking,
   services,
+  availableServices,
   operators,
   invoices,
   invoiceFormData,
@@ -106,6 +113,7 @@ export default function ServicesContainer({
   setIsInvoiceFormVisible,
   isSubmitting,
   onBillingUpdate,
+  role,
 }: ServicesContainerProps) {
   if (!loading && !booking) {
     return (
@@ -250,25 +258,32 @@ export default function ServicesContainer({
                           .split("T")[0]
                       : "",
                     id_operator: service.id_operator || 0,
+                    card_interest: service.card_interest || 0,
+                    card_interest_21: service.card_interest_21 || 0,
                   });
                   setIsFormVisible(true);
                 }}
                 deleteService={deleteService}
               />
 
-              <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
-                Factura
-              </h2>
-              <InvoiceForm
-                formData={invoiceFormData}
-                handleChange={handleInvoiceChange}
-                handleSubmit={handleInvoiceSubmit}
-                isFormVisible={isInvoiceFormVisible}
-                setIsFormVisible={setIsInvoiceFormVisible}
-                updateFormData={updateFormData}
-                isSubmitting={isSubmitting}
-              />
-              {invoices.length > 0 && <InvoiceList invoices={invoices} />}
+              {role === "administrativo" && (
+                <div>
+                  <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
+                    Factura
+                  </h2>
+                  <InvoiceForm
+                    formData={invoiceFormData}
+                    availableServices={availableServices}
+                    handleChange={handleInvoiceChange}
+                    handleSubmit={handleInvoiceSubmit}
+                    isFormVisible={isInvoiceFormVisible}
+                    setIsFormVisible={setIsInvoiceFormVisible}
+                    updateFormData={updateFormData}
+                    isSubmitting={isSubmitting}
+                  />
+                  {invoices.length > 0 && <InvoiceList invoices={invoices} />}
+                </div>
+              )}
             </>
           ) : (
             <div className="flex h-40 items-center justify-center">

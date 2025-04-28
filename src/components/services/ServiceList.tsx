@@ -1,5 +1,4 @@
 // src/components/services/ServiceList.tsx
-
 "use client";
 import React from "react";
 import ServiceCard from "./ServiceCard";
@@ -20,7 +19,7 @@ export default function ServiceList({
   startEditingService,
   deleteService,
 }: ServiceListProps) {
-  const formatDate = (dateString: string | undefined): string => {
+  const formatDate = (dateString?: string): string => {
     if (!dateString) return "N/A";
     const date = new Date(dateString);
     return date.toLocaleDateString("es-AR", {

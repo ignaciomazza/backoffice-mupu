@@ -14,6 +14,8 @@ interface BillingData {
   vatOnCommission10_5: number;
   totalCommissionWithoutVAT: number;
   impIVA: number;
+  taxableCardInterest: number;
+  vatOnCardInterest: number;
 }
 
 interface BillingBreakdownProps {
@@ -23,6 +25,8 @@ interface BillingBreakdownProps {
   montoIva10_5: number;
   montoExento: number;
   otrosImpuestos: number;
+  cardInterest: number;
+  cardInterestIva: number;
   moneda?: string;
   onBillingUpdate?: (data: BillingData) => void;
 }
@@ -38,6 +42,8 @@ export default function BillingBreakdown({
   montoIva10_5,
   montoExento,
   otrosImpuestos,
+  cardInterest,
+  cardInterestIva,
   moneda = "ARS",
   onBillingUpdate,
 }: BillingBreakdownProps) {
@@ -111,9 +117,18 @@ export default function BillingBreakdown({
     }
   }
 
-  // 4. Impuesto a usar en factura
+  // 4. Intereses tarjeta
+  const taxableCardInterest =
+    cardInterestIva > 0 ? round(cardInterestIva / 0.21) : 0;
+  const vatOnCardInterest = round(cardInterestIva);
+
+  // 5. Impuesto a usar en factura (incluye IVA de comisiones e intereses)
   const impIVA = round(
-    montoIva21 + montoIva10_5 + vatOnCommission21 + vatOnCommission10_5,
+    montoIva21 +
+      montoIva10_5 +
+      vatOnCommission21 +
+      vatOnCommission10_5 +
+      vatOnCardInterest,
     2,
   );
 
@@ -131,6 +146,8 @@ export default function BillingBreakdown({
         vatOnCommission10_5,
         totalCommissionWithoutVAT,
         impIVA,
+        taxableCardInterest,
+        vatOnCardInterest,
       });
     }
   }, [
@@ -144,6 +161,8 @@ export default function BillingBreakdown({
     vatOnCommission10_5,
     totalCommissionWithoutVAT,
     impIVA,
+    taxableCardInterest,
+    vatOnCardInterest,
     hasError,
     onBillingUpdate,
   ]);
@@ -186,6 +205,12 @@ export default function BillingBreakdown({
         <p>
           <strong>Otros Impuestos:</strong> {formatCurrency(otrosImpuestos)}
         </p>
+        <p>
+          <strong>Intereses Tarjeta:</strong> {formatCurrency(cardInterest)}
+        </p>
+        <p>
+          <strong>IVA Intereses:</strong> {formatCurrency(cardInterestIva)}
+        </p>
       </div>
 
       <h3 className="mb-2 text-xl font-semibold">Desglose de Facturación</h3>
@@ -198,6 +223,10 @@ export default function BillingBreakdown({
         </p>
         <p>
           <strong>Gravado 10.5%:</strong> {formatCurrency(baseIva10_5)}
+        </p>
+        <p>
+          <strong>Gravado Intereses 21%:</strong>{" "}
+          {formatCurrency(taxableCardInterest)}
         </p>
       </div>
 
@@ -223,6 +252,11 @@ export default function BillingBreakdown({
           <strong>10.5%:</strong> {formatCurrency(vatOnCommission10_5)}
         </p>
       </div>
+
+      <h4 className="mb-2 text-lg font-semibold">IVA sobre Intereses</h4>
+      <p className="mb-4">
+        <strong>21%:</strong> {formatCurrency(vatOnCardInterest)}
+      </p>
 
       <p className="font-semibold">
         Total Comisión (sin IVA): {formatCurrency(totalCommissionWithoutVAT)}
