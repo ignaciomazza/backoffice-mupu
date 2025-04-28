@@ -266,7 +266,7 @@ export default function ServicesContainer({
                 deleteService={deleteService}
               />
 
-              {role === "administrativo" && (
+              {(role === "administrativo" || role === "desarrollador" || role === "gerente") && (
                 <div>
                   <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
                     Factura
