@@ -9,25 +9,26 @@ export default async function handler(
 ) {
   if (req.method === "GET") {
     try {
+      const userId = Array.isArray(req.query.userId)
+        ? Number(req.query.userId[0])
+        : req.query.userId
+          ? Number(req.query.userId)
+          : null;
+
       const bookings = await prisma.booking.findMany({
+        where: userId ? { id_user: userId } : {}, // si no viene userId, trae todo
         include: {
           titular: true,
           user: true,
           agency: true,
           clients: true,
-          services: {
-            include: {
-              operator: true,
-            },
-          },
+          services: { include: { operator: true } },
         },
       });
+
       return res.status(200).json(bookings);
     } catch (error) {
-      console.error(
-        "Error fetching bookings:",
-        error instanceof Error ? error.message : error,
-      );
+      console.error("Error fetching bookings:", error);
       return res.status(500).json({ error: "Error fetching bookings" });
     }
   } else if (req.method === "POST") {
