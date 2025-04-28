@@ -9,8 +9,17 @@ import Spinner from "@/components/Spinner";
 import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { Booking, User } from "@/types";
+import { Booking, User, SalesTeam, UserTeam } from "@/types";
 import { useAuth } from "@/context/AuthContext";
+
+// Constante de roles permisibles (mueve fuera del componente para evitar warnings en hooks)
+const FILTROS = [
+  "lider",
+  "gerente",
+  "administrativo",
+  "desarrollador",
+] as const;
+type FilterRole = (typeof FILTROS)[number];
 
 type BookingFormData = {
   id_booking?: number;
@@ -31,21 +40,18 @@ type BookingFormData = {
 export default function Page() {
   const { token } = useAuth();
 
-  // Roles con permiso de ver todo
-  const filtros = ["lider", "gerente", "administrativo", "desarrollador"];
-
   // --- Profile, Users & Teams ---
   const [profile, setProfile] = useState<{
     id_user: number;
-    role: string;
+    role: FilterRole;
   } | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
-  const [teamsList, setTeamsList] = useState<any[]>([]);
+  const [teamsList, setTeamsList] = useState<SalesTeam[]>([]);
 
   // Selecciones de filtros
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [selectedTeamId, setSelectedTeamId] = useState<number>(0); // 0=Todos, >0=Equipo, -1=Sin equipo
+  const [selectedTeamId, setSelectedTeamId] = useState<number>(0);
 
   // --- Search & Date filters ---
   const [searchTerm, setSearchTerm] = useState<string>("");
@@ -89,18 +95,18 @@ export default function Page() {
       .then((p) => {
         setProfile(p);
         setFormData((prev) => ({ ...prev, id_user: p.id_user }));
-        setSelectedUserId(filtros.includes(p.role) ? 0 : p.id_user);
+        setSelectedUserId(FILTROS.includes(p.role) ? 0 : p.id_user);
         setSelectedTeamId(0);
 
         // Traer todos los equipos
         fetch("/api/teams", { headers: { Authorization: `Bearer ${token}` } })
-          .then((r) => r.json())
-          .then((allTeams: any[]) => {
+          .then((r) => r.json() as Promise<SalesTeam[]>)
+          .then((allTeams) => {
             const teams =
               p.role === "lider"
                 ? allTeams.filter((t) =>
                     t.user_teams.some(
-                      (ut: any) =>
+                      (ut: UserTeam) =>
                         ut.user.id_user === p.id_user &&
                         ut.user.role === "lider",
                     ),
@@ -110,10 +116,10 @@ export default function Page() {
           })
           .catch((err) => console.error("Error fetching teams list:", err));
 
-        if (filtros.includes(p.role)) {
+        if (FILTROS.includes(p.role)) {
           fetch("/api/users", { headers: { Authorization: `Bearer ${token}` } })
-            .then((r) => r.json())
-            .then((users: User[]) => {
+            .then((r) => r.json() as Promise<User[]>)
+            .then((users) => {
               const filtered = users.filter((u) =>
                 ["vendedor", "lider", "gerente"].includes(u.role),
               );
@@ -125,22 +131,22 @@ export default function Page() {
 
         if (p.role === "lider") {
           fetch("/api/teams", { headers: { Authorization: `Bearer ${token}` } })
-            .then((r) => r.json())
-            .then((teams: any[]) => {
+            .then((r) => r.json() as Promise<SalesTeam[]>)
+            .then((teams) => {
               const mine = teams.filter((t) =>
                 t.user_teams.some(
-                  (ut: any) =>
+                  (ut: UserTeam) =>
                     ut.user.id_user === p.id_user && ut.user.role === "lider",
                 ),
               );
               const members = Array.from(
                 new Map(
                   mine
-                    .flatMap((t) => t.user_teams.map((ut: any) => ut.user))
-                    .map((u: User) => [u.id_user, u]),
+                    .flatMap((t) => t.user_teams.map((ut: UserTeam) => ut.user))
+                    .map((u) => [u.id_user, u]),
                 ).values(),
               );
-              setTeamMembers(members);
+              setTeamMembers(members as User[]);
             })
             .catch((err) => console.error("Error fetching my teams:", err));
         }
@@ -151,19 +157,19 @@ export default function Page() {
   // 2) Cuando cambie el equipo, actualizo la lista de usuarios del select
   useEffect(() => {
     if (!profile) return;
-    if (!filtros.includes(profile.role)) return;
+    if (!FILTROS.includes(profile.role)) return;
 
     setSelectedUserId(0);
 
     if (selectedTeamId > 0) {
       const team = teamsList.find((t) => t.id_team === selectedTeamId);
       const members = team
-        ? team.user_teams.map((ut: any) => ut.user as User)
+        ? team.user_teams.map((ut: UserTeam) => ut.user)
         : [];
       setTeamMembers(members);
     } else if (selectedTeamId === -1) {
       const assignedIds = teamsList.flatMap((t) =>
-        t.user_teams.map((ut: any) => ut.user.id_user),
+        t.user_teams.map((ut: UserTeam) => ut.user.id_user),
       );
       const unassigned = allUsers.filter(
         (u) => !assignedIds.includes(u.id_user),
@@ -189,26 +195,25 @@ export default function Page() {
         .catch(() => setLoadingBookings(false));
     } else if (selectedTeamId > 0) {
       fetch("/api/bookings")
-        .then((r) => r.json())
-        .then((all: Booking[]) => {
+        .then((r) => r.json() as Promise<Booking[]>)
+        .then((all) => {
           const ids = teamsList
             .find((t) => t.id_team === selectedTeamId)!
-            .user_teams.map((ut: any) => ut.user.id_user);
+            .user_teams.map((ut: UserTeam) => ut.user.id_user);
           setBookings(all.filter((b) => ids.includes(b.user.id_user)));
           setLoadingBookings(false);
         })
         .catch(() => setLoadingBookings(false));
     } else if (selectedTeamId === -1) {
       fetch("/api/bookings")
-        .then((r) => r.json())
-        .then((data: Booking[]) => {
+        .then((r) => r.json() as Promise<Booking[]>)
+        .then((data) => {
           const assignedIds = teamsList.flatMap((t) =>
-            t.user_teams.map((ut: any) => ut.user.id_user),
+            t.user_teams.map((ut: UserTeam) => ut.user.id_user),
           );
-          const filtered = data.filter(
-            (b) => !assignedIds.includes(b.user.id_user),
+          setBookings(
+            data.filter((b) => !assignedIds.includes(b.user.id_user)),
           );
-          setBookings(filtered);
           setLoadingBookings(false);
         })
         .catch(() => setLoadingBookings(false));
@@ -223,7 +228,7 @@ export default function Page() {
     }
   }, [selectedUserId, selectedTeamId, teamsList]);
 
-  // Handlers y demás
+  // Handlers y demás (sin cambios de lógica)
   const handleChange = (
     e: React.ChangeEvent<
       HTMLTextAreaElement | HTMLInputElement | HTMLSelectElement
@@ -369,9 +374,9 @@ export default function Page() {
       } else {
         throw new Error("Error al eliminar la reserva.");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Error deleting booking:", err);
-      toast.error(err.message || "Error al eliminar la reserva.");
+      toast.error((err as Error).message || "Error al eliminar la reserva.");
     }
   };
 
@@ -452,14 +457,13 @@ export default function Page() {
                   <option value={-1}>Sin equipo</option>
                   {teamsList.map((t) => (
                     <option key={t.id_team} value={t.id_team}>
-                      {t.name || t.team_name || `Equipo ${t.id_team}`}
+                      {t.name || t.name || `Equipo ${t.id_team}`}
                     </option>
                   ))}
                 </select>
               )}
             </div>
           )}
-
           <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:justify-between sm:space-x-4 sm:space-y-0">
             <div className="relative flex w-full rounded-2xl border px-4 py-2 dark:border-white/50 dark:text-white">
               <input
@@ -501,7 +505,6 @@ export default function Page() {
             </div>
           </div>
         </div>
-
         {loadingBookings ? (
           <div className="flex min-h-[50vh] items-center">
             <Spinner />
@@ -515,7 +518,6 @@ export default function Page() {
             deleteBooking={deleteBooking}
           />
         )}
-
         <ToastContainer />
       </section>
     </ProtectedRoute>
