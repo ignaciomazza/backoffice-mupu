@@ -1,6 +1,6 @@
 // src/app/bookings/services/[id]/page.tsx
-"use client";
 
+"use client";
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { toast } from "react-toastify";
@@ -17,7 +17,6 @@ interface UserProfile {
   role: string;
 }
 
-// Definir el tipo Role para roles específicos
 type Role =
   | "desarrollador"
   | "gerente"
@@ -104,12 +103,10 @@ export default function ServicesPage() {
   const [isInvoiceFormVisible, setIsInvoiceFormVisible] = useState(false);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
 
-  // Callback estable para actualizar billingData sin recrearse en cada render
   const handleBillingUpdate = useCallback((data: typeof billingData) => {
     setBillingData(data);
   }, []);
 
-  // 1) Fetch booking
   const fetchBooking = useCallback(async () => {
     try {
       setLoading(true);
@@ -124,7 +121,6 @@ export default function ServicesPage() {
     }
   }, [id]);
 
-  // 2) Fetch services
   const fetchServices = useCallback(async () => {
     try {
       const res = await fetch(`/api/services?bookingId=${id}`);
@@ -136,7 +132,6 @@ export default function ServicesPage() {
     }
   }, [id]);
 
-  // 3) Fetch invoices
   const fetchInvoices = useCallback(async () => {
     try {
       const res = await fetch(`/api/invoices?bookingId=${id}`);
@@ -154,7 +149,6 @@ export default function ServicesPage() {
     }
   }, [id]);
 
-  // 4) Fetch operators
   const fetchOperators = useCallback(async () => {
     try {
       const res = await fetch("/api/operators");
@@ -166,7 +160,6 @@ export default function ServicesPage() {
     }
   }, []);
 
-  // Obtener perfil de usuario
   useEffect(() => {
     if (!token) return;
     const fetchProfile = async () => {
@@ -201,7 +194,6 @@ export default function ServicesPage() {
     fetchOperators();
   }, [fetchOperators]);
 
-  // Pre-fill service dates from booking
   useEffect(() => {
     if (booking) {
       setFormData((prev) => ({
@@ -216,7 +208,6 @@ export default function ServicesPage() {
     }
   }, [booking]);
 
-  // Handle service form changes
   const handleChange = (
     e: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
@@ -239,7 +230,6 @@ export default function ServicesPage() {
     }));
   };
 
-  // Handle invoice form changes
   const handleInvoiceChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
@@ -247,7 +237,6 @@ export default function ServicesPage() {
     setInvoiceFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Update specific invoice form arrays
   const updateInvoiceFormData = (
     key: keyof InvoiceFormData,
     value: InvoiceFormData[keyof InvoiceFormData],
@@ -255,7 +244,6 @@ export default function ServicesPage() {
     setInvoiceFormData((prev) => ({ ...prev, [key]: value }));
   };
 
-  // Submit invoice
   const handleInvoiceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (
@@ -303,7 +291,6 @@ export default function ServicesPage() {
     }
   };
 
-  // Submit service (create/update)
   const handleSubmitService = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.type || !id) {
@@ -324,7 +311,6 @@ export default function ServicesPage() {
         const err = await res.json();
         throw new Error(err.error || "Error al guardar servicio.");
       }
-      // refresh services
       const updated = await fetch(`/api/services?bookingId=${id}`);
       const data = await updated.json();
       setServices(data.services);
@@ -370,7 +356,6 @@ export default function ServicesPage() {
     }
   };
 
-  // Delete service
   const deleteService = async (serviceId: number) => {
     try {
       const res = await fetch(`/api/services/${serviceId}`, {
@@ -384,7 +369,6 @@ export default function ServicesPage() {
     }
   };
 
-  // Format date
   const formatDate = (dateString?: string) =>
     dateString
       ? new Date(dateString).toLocaleDateString("es-AR", {

@@ -116,13 +116,11 @@ export default async function handler(
       return_date,
     } = bookingRecord;
 
-    // 1) Traer servicios crudos
     const rawServices = await prisma.service.findMany({
       where: { id_service: { in: services.map(Number) } },
     });
     console.info("[Invoices API][POST] Raw services:", rawServices);
 
-    // 2) Mapear a ServiceDetail
     const serviceDetails: ServiceDetail[] = rawServices.map((s) => ({
       sale_price: s.sale_price,
       taxableBase21: s.taxableBase21 ?? 0,
@@ -141,7 +139,6 @@ export default async function handler(
     }));
     console.info("[Invoices API][POST] Service details:", serviceDetails);
 
-    // 3) Agrupar por moneda
     type GroupInfo = { services: ServiceDetail[] };
     const grouped = serviceDetails.reduce(
       (acc, svc) => {
@@ -161,13 +158,11 @@ export default async function handler(
     const mapCurrency = (m: string) =>
       m === "ARS" ? "PES" : m === "USD" ? "DOL" : m;
 
-    // 4) Procesar cada grupo
     for (const m in grouped) {
       const svcs = grouped[m].services;
       const afipCurrency = mapCurrency(m);
       console.info(`[Invoices API][POST] Currency group ${m}→${afipCurrency}`);
 
-      // 5) Facturar cada cliente
       for (const cidRaw of clientIds) {
         const cid = Number(cidRaw);
         const client = await prisma.client.findUnique({
@@ -231,7 +226,6 @@ export default async function handler(
         const details = resp.details as VoucherDetails;
         console.info("[Invoices API][POST] Voucher details:", details);
 
-        // 6) Guardar en BD
         const inv = await prisma.invoice.create({
           data: {
             invoice_number: details.CbteDesde.toString(),

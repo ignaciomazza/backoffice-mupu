@@ -12,7 +12,6 @@ interface VoucherResponse {
   facturaHtml?: string;
 }
 
-// Para el desglose de IVA
 interface IVAEntry {
   Id: number;
   BaseImp: number;
@@ -54,11 +53,6 @@ async function getValidExchangeRate(
   throw new Error("No se pudo obtener cotización");
 }
 
-/**
- * Crea un comprobante en AFIP (Factura A o B), sumando automáticamente
- * el interés al IVA y al total, mergeando las entradas de IVA por alícuota,
- * y exponiendo por separado los totales de servicio e intereses para el HTML.
- */
 export async function createVoucherService(
   tipoFactura: number,
   receptorDocNumber: string,
@@ -94,7 +88,6 @@ export async function createVoucherService(
       `[createVoucherService] 📤 Starting AFIP billing for receptor ${receptorDocNumber} (tipo ${receptorDocTipo})`,
     );
 
-    // 1) Sumar precios de venta + intereses
     const saleTotal = serviceDetails.reduce((sum, s) => sum + s.sale_price, 0);
     const interestBase = serviceDetails.reduce(
       (sum, s) => sum + (s.taxableCardInterest ?? 0),
@@ -111,7 +104,6 @@ export async function createVoucherService(
       `[createVoucherService] saleTotal: ${saleTotal}, interestBase: ${interestBase}, interestVat: ${interestVat}, adjustedTotal: ${adjustedTotal}`,
     );
 
-    // 2) Calcular base e IVA por alícuota (solo servicios)
     const base21 = serviceDetails.reduce(
       (sum, s) => sum + s.taxableBase21 + s.commission21,
       0,
@@ -142,7 +134,6 @@ export async function createVoucherService(
     console.info("[createVoucherService] serviceIvaEntry:", serviceIvaEntry);
     console.info("[createVoucherService] interestIvaEntry:", interestIvaEntry);
 
-    // 3) Construir array de IVA para AFIP
     const ivaEntries: IVAEntry[] = [];
     if (base21 > 0 || imp21 > 0) ivaEntries.push(serviceIvaEntry);
     if (base10_5 > 0 || imp10_5 > 0) {
@@ -175,7 +166,6 @@ export async function createVoucherService(
     );
     console.info("[createVoucherService] mergedIvaEntries:", mergedIvaEntries);
 
-    // 5) Ajuste de IVA 0% si falta
     const rawTotalIVA = mergedIvaEntries.reduce((sum, e) => sum + e.Importe, 0);
     const totalIVA = parseFloat(rawTotalIVA.toFixed(2));
     const neto = parseFloat((adjustedTotal - totalIVA).toFixed(2));
@@ -186,7 +176,6 @@ export async function createVoucherService(
       console.info(`[createVoucherService] Added IVA 0%: BaseImp=${resto}`);
     }
 
-    // Ajustes TEST vs PROD
     const isTesting = process.env.AFIP_ENV === "testing";
     let cuitEmisor = parseInt(process.env.AGENCY_CUIT || "0", 10);
     if (isTesting) {
@@ -207,7 +196,6 @@ export async function createVoucherService(
       }
     }
 
-    // 6) Verificar estado AFIP
     console.info("[createVoucherService] Checking AFIP servers status");
     const status = await afip.ElectronicBilling.getServerStatus();
     console.info("[createVoucherService] AFIP status:", status);
@@ -219,7 +207,6 @@ export async function createVoucherService(
       throw new Error("AFIP no disponible (App/DB/Auth).");
     }
 
-    // 7) Obtener puntos de venta
     let ptoVta = 1;
     try {
       console.info("[createVoucherService] Fetching sales points");
@@ -231,7 +218,6 @@ export async function createVoucherService(
       );
     }
 
-    // 8) Último comprobante
     console.info("[createVoucherService] Getting last voucher number");
     const last = await afip.ElectronicBilling.getLastVoucher(
       ptoVta,
@@ -240,7 +226,6 @@ export async function createVoucherService(
     const next = last + 1;
     console.info("[createVoucherService] Next voucher number:", next);
 
-    // Fecha
     const info = await afip.ElectronicBilling.getVoucherInfo(
       last,
       ptoVta,
@@ -252,7 +237,6 @@ export async function createVoucherService(
       lastDate && Number(todayStr) < lastDate ? lastDate : Number(todayStr);
     console.info("[createVoucherService] Voucher date:", cbteFch);
 
-    // Condición IVA receptor
     let condIVA = "Consumidor Final";
     try {
       console.info("[createVoucherService] Fetching receptor IVA condition");
@@ -280,7 +264,6 @@ export async function createVoucherService(
     }
     console.info("[createVoucherService] condId:", condId);
 
-    // 9) Cotización
     const ayer = new Date();
     ayer.setDate(ayer.getDate() - 1);
     const cotiz =
@@ -289,7 +272,6 @@ export async function createVoucherService(
         : (exchangeRateManual ?? (await getValidExchangeRate(currency, ayer)));
     console.info("[createVoucherService] Exchange rate:", cotiz);
 
-    // 10) Payload para AFIP
     const voucherData = {
       CantReg: 1,
       PtoVta: ptoVta,
@@ -311,7 +293,6 @@ export async function createVoucherService(
     };
     console.info("[createVoucherService] Payload for AFIP:", voucherData);
 
-    // 11) Crear comprobante
     console.info("[createVoucherService] Sending createVoucher request");
     const created = await afip.ElectronicBilling.createVoucher(voucherData);
     if (!created.CAE) {
@@ -320,7 +301,6 @@ export async function createVoucherService(
     }
     console.info("[createVoucherService] AFIP response:", created);
 
-    // 12) Generar QR
     const qrPayload = {
       ver: 1,
       fecha: todayStr,
@@ -341,7 +321,6 @@ export async function createVoucherService(
     );
     console.info("[createVoucherService] QR generated");
 
-    // 13) Preparar HTML
     console.info("[createVoucherService] FullVoucherData for HTML:", {
       ...voucherData,
       ...created,

@@ -1,4 +1,5 @@
 // src/components/invoices/InvoiceForm.tsx
+
 "use client";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
@@ -306,7 +307,6 @@ export default function InvoiceForm({
             );
           })}
 
-          {/* Cotización del dólar */}
           <div>
             <label className="ml-2 block dark:text-white">
               Cotización del dólar (opcional)

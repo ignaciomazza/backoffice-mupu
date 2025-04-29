@@ -1,6 +1,6 @@
 // src/components/services/ServicesContainer.tsx
-"use client";
 
+"use client";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { ToastContainer } from "react-toastify";

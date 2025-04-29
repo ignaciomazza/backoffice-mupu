@@ -207,31 +207,42 @@ export default function Page() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: name === "birth_date" ? new Date(value).toISOString() : value,
-    }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validación de DNI/Pasaporte
     if (!formData.dni_number?.trim() && !formData.passport_number?.trim()) {
       toast.error(
         "El DNI y el Pasaporte son obligatorios. Debes cargar al menos uno",
       );
       return;
     }
+
     try {
       const url = editingClientId
         ? `/api/clients/${editingClientId}`
         : "/api/clients";
       const method = editingClientId ? "PUT" : "POST";
+
+      // Preparamos el payload convirtiendo birth_date a ISO o null
+      const payload = {
+        ...formData,
+        birth_date: formData.birth_date
+          ? new Date(formData.birth_date).toISOString()
+          : null,
+      };
+
       const response = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
+
       const resData = await response.json();
+
       if (response.ok) {
         setClients((prev) =>
           editingClientId
@@ -249,6 +260,7 @@ export default function Page() {
           "Error al guardar el cliente. Intente nuevamente.",
       );
     } finally {
+      // Reseteamos el form, manteniendo id_user
       setFormData({
         first_name: "",
         last_name: "",
@@ -305,7 +317,7 @@ export default function Page() {
       dni_number: client.dni_number || "",
       passport_number: client.passport_number || "",
       birth_date: client.birth_date
-        ? new Date(client.birth_date).toISOString()
+        ? new Date(client.birth_date).toISOString().split("T")[0]
         : "",
       nationality: client.nationality || "",
       gender: client.gender || "",
@@ -318,9 +330,8 @@ export default function Page() {
 
   const formatDate = (dateString: string | undefined) => {
     if (!dateString) return "-";
-    return new Date(dateString).toLocaleDateString("es-AR", {
-      timeZone: "UTC",
-    });
+    const date = new Date(dateString);
+    return date.toLocaleDateString("es-AR", { timeZone: "UTC" });
   };
 
   return (

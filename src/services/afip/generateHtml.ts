@@ -43,12 +43,9 @@ export interface VoucherData {
   emitterAddress?: string;
   departureDate?: string;
   returnDate?: string;
-
-  // Descripciones por alícuota (para fallback)
   description21?: string[];
   description10_5?: string[];
   descriptionNonComputable?: string[];
-
   saleTotal?: number;
   serviceIvaEntry?: IVAEntry;
   interestBase?: number;
@@ -159,17 +156,13 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
     return formatted;
   };
 
-  // Construcción de items:
   let items: LineItem[];
   console.log("Iniciando construcción de items...");
 
-  // 1) Si se proporcionan lineItems, los usamos directamente
   if (Array.isArray(lineItems) && lineItems.length > 0) {
     console.log("Usando lineItems pasados desde voucherData");
     items = lineItems;
-  }
-  // 2) Si hay services + Iva, lógica dinámica
-  else if (services.length > 0 && (Iva.length > 0 || serviceIvaEntry)) {
+  } else if (services.length > 0 && (Iva.length > 0 || serviceIvaEntry)) {
     console.log("Armando items dinámicos a partir de services e IVA");
     const ivaArray =
       Iva.length > 0 ? Iva : serviceIvaEntry ? [serviceIvaEntry] : [];
@@ -197,13 +190,10 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
         return item;
       }),
     );
-  }
-  // 3) Fallback: separamos los dos tramos usando las descripciones recibidas desde el front
-  else {
+  } else {
     console.log("Usando fallback de descripciones para items");
     const parts: LineItem[] = [];
 
-    // 21%
     if (serviceIvaEntry && serviceIvaEntry.BaseImp > 0) {
       const part21 = {
         description: description21[0] || "Servicio Turístico",
@@ -215,7 +205,6 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
       parts.push(part21);
     }
 
-    // 10.5%
     const entry105 = Iva.find((e) => e.Id === 4);
     if (entry105 && entry105.BaseImp > 0) {
       const part105 = {
@@ -228,7 +217,6 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
       parts.push(part105);
     }
 
-    // No computable (solo sobre saleTotal menos base+IVA 21%)
     if (serviceIvaEntry) {
       const nonCompVal =
         saleTotal -
@@ -247,7 +235,6 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
         parts.push(partNC);
       }
     }
-
     items = parts;
   }
 
