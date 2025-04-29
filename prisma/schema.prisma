@@ -36,6 +36,7 @@ model User {
   agency        Agency     @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   bookings      Booking[]
   sales_teams   UserTeam[]
+  clients       Client[]
 }
 
 model Client {
@@ -56,6 +57,8 @@ model Client {
   gender             String
   email              String?
   registration_date  DateTime  @default(now())
+  id_user            Int
+  user               User      @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
   bookings           Booking[] @relation("BookingClients")
   titular_bookings   Booking[] @relation("Titular")
   invoices           Invoice[] @relation("ClientInvoices")
@@ -105,7 +108,7 @@ model Service {
   vatOnCommission21         Float?
   vatOnCommission10_5       Float?
   totalCommissionWithoutVAT Float?
-  impIVA                    Float? 
+  impIVA                    Float?
   card_interest             Float?
   card_interest_21          Float?
   taxableCardInterest       Float?

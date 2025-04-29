@@ -12,6 +12,7 @@ export interface User {
   id_agency: number;
   agency: Agency;
   bookings?: Booking[];
+  clients?: Client[];
   sales_teams?: UserTeam[];
 }
 
@@ -51,6 +52,8 @@ export interface Client {
   gender: string;
   email?: string;
   registration_date: string;
+  id_user: number;
+  user: User;
   bookings?: Booking[];
   titular_bookings?: Booking[];
   invoices?: Invoice[];

@@ -9,11 +9,24 @@ export default async function handler(
 ) {
   if (req.method === "GET") {
     try {
-      const clients = await prisma.client.findMany();
-      res.status(200).json(clients);
+      // Parse userId from query if present
+      const userId = Array.isArray(req.query.userId)
+        ? Number(req.query.userId[0])
+        : req.query.userId
+          ? Number(req.query.userId)
+          : null;
+
+      // Fetch clients, filtering by id_user when userId is provided,
+      // and include the related User so that front-end can read c.user.id_user
+      const clients = await prisma.client.findMany({
+        where: userId ? { id_user: userId } : {},
+        include: { user: true },
+      });
+
+      return res.status(200).json(clients);
     } catch (error) {
       console.error("Error fetching clients:", error);
-      res.status(500).json({ error: "Error fetching clients" });
+      return res.status(500).json({ error: "Error fetching clients" });
     }
   } else if (req.method === "POST") {
     try {
@@ -38,12 +51,10 @@ export default async function handler(
 
       // Validación: se requiere que al menos uno de los dos campos tenga un valor
       if (!client.dni_number?.trim() && !client.passport_number?.trim()) {
-        return res
-          .status(400)
-          .json({
-            error:
-              "El DNI y el Pasaporte son obigatorios. Debes cargar al menos uno",
-          });
+        return res.status(400).json({
+          error:
+            "El DNI y el Pasaporte son obligatorios. Debes cargar al menos uno",
+        });
       }
 
       // Verificar duplicados
@@ -87,16 +98,17 @@ export default async function handler(
           nationality: client.nationality,
           gender: client.gender,
           email: client.email || null,
+          id_user: Number(client.id_user),
         },
       });
 
-      res.status(201).json(newClient);
+      return res.status(201).json(newClient);
     } catch (error) {
       console.error("Error creating client:", error);
-      res.status(500).json({ error: "Error creating client" });
+      return res.status(500).json({ error: "Error creating client" });
     }
   } else {
     res.setHeader("Allow", ["GET", "POST"]);
-    res.status(405).end(`Method ${req.method} Not Allowed`);
+    return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 }
