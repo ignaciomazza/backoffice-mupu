@@ -370,7 +370,7 @@ export default function Page() {
             profile?.role === "gerente" ||
             profile?.role === "administrativo" ||
             profile?.role === "desarrollador") && (
-            <div>
+            <div className="flex gap-2">
               <select
                 className="cursor-pointer appearance-none rounded-2xl border bg-transparent p-2 px-3 outline-none dark:border-white/50 dark:text-white"
                 value={selectedUserId!}
