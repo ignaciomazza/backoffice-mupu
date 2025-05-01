@@ -11,7 +11,9 @@ import InvoiceForm, {
 } from "@/components/invoices/InvoiceForm";
 import InvoiceList from "@/components/invoices/InvoiceList";
 import Spinner from "@/components/Spinner";
-import { Booking, Service, Operator, Invoice } from "@/types";
+import { Booking, Service, Operator, Invoice, Receipt } from "@/types";
+import ReceiptForm from "@/components/receipts/ReceiptForm";
+import ReceiptList from "@/components/receipts/ReceiptList";
 
 export type ServiceFormData = {
   type: string;
@@ -53,6 +55,8 @@ interface ServicesContainerProps {
   availableServices: Service[];
   operators: Operator[];
   invoices: Invoice[];
+  receipts: Receipt[];
+  onReceiptCreated?: (r: Receipt) => void;
   invoiceFormData: InvoiceFormData;
   formData: ServiceFormData;
   editingServiceId: number | null;
@@ -92,6 +96,8 @@ export default function ServicesContainer({
   availableServices,
   operators,
   invoices,
+  receipts,
+  onReceiptCreated,
   invoiceFormData,
   formData,
   editingServiceId,
@@ -266,7 +272,21 @@ export default function ServicesContainer({
                 deleteService={deleteService}
               />
 
-              {(role === "administrativo" || role === "desarrollador" || role === "gerente") && (
+              {(role === "administrativo" ||
+                role === "desarrollador" ||
+                role === "gerente") && (
+                <div>
+                  <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
+                    Recibo
+                  </h2>
+                  <ReceiptForm booking={booking} onCreated={onReceiptCreated} />
+                  {receipts.length > 0 && <ReceiptList receipts={receipts} />}
+                </div>
+              )}
+
+              {(role === "administrativo" ||
+                role === "desarrollador" ||
+                role === "gerente") && (
                 <div>
                   <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
                     Factura

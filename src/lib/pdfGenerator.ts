@@ -2,13 +2,13 @@
 
 import puppeteer from "puppeteer";
 
-interface InvoiceData {
+interface HtmlContent {
   htmlContent: string;
 }
 
-export async function generateInvoicePDF({
+export async function generatePDF({
   htmlContent,
-}: InvoiceData): Promise<Buffer> {
+}: HtmlContent): Promise<Buffer> {
   try {
     const browser = await puppeteer.launch({
       headless: true,

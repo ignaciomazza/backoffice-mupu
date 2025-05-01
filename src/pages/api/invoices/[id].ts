@@ -2,7 +2,7 @@
 
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
-import { generateInvoicePDF } from "@/lib/pdfGenerator";
+import { generatePDF } from "@/lib/pdfGenerator";
 
 export default async function handler(
   req: NextApiRequest,
@@ -28,7 +28,7 @@ export default async function handler(
       }
 
       if (req.headers.accept === "application/pdf") {
-        const pdf = await generateInvoicePDF({
+        const pdf = await generatePDF({
           htmlContent: invoice.facturaHtml,
         });
         res.setHeader("Content-Type", "application/pdf");

@@ -84,6 +84,7 @@ model Booking {
   return_date         DateTime
   pax_count           Int       @default(1)
   invoices            Invoice[] @relation("BookingInvoices")
+  Receipt             Receipt[] @relation("BookingReceipt")
 }
 
 model Service {
@@ -182,4 +183,16 @@ model UserTeam {
   id_team      Int
   user         User      @relation(fields: [id_user], references: [id_user])
   sales_team   SalesTeam @relation(fields: [id_team], references: [id_team], onDelete: Cascade)
+}
+
+model Receipt {
+  id_receipt        Int      @id @default(autoincrement())
+  receipt_number    String   @unique
+  issue_date        DateTime @default(now())
+  amount            Float
+  amount_string     String
+  concept           String
+  currency          String
+  bookingId_booking Int
+  booking           Booking  @relation("BookingReceipt", fields: [bookingId_booking], references: [id_booking])
 }

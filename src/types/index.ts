@@ -190,3 +190,16 @@ export interface UserProfile {
     seller?: string; // Opcional
   }[];
 }
+
+// Receipt.ts: Tipo de perfil de usuario
+export interface Receipt {
+  id_receipt: number;
+  receipt_number: string;
+  issue_date: string;       // fecha de emisión en ISO
+  amount: number;           // monto numérico
+  amount_string: string;    // monto como texto ingresado
+  concept: string;
+  currency: string;
+  bookingId_booking: number; 
+  booking?: Booking;        // opcionalmente puedes incluir los datos de la reserva
+}

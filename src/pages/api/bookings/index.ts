@@ -23,6 +23,7 @@ export default async function handler(
           agency: true,
           clients: true,
           services: { include: { operator: true } },
+          invoices: true,
         },
       });
 

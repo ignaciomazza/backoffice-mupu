@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { Booking, Service, Operator, Invoice } from "@/types";
+import { Booking, Service, Operator, Invoice, Receipt } from "@/types";
 import ServicesContainer, {
   ServiceFormData,
 } from "@/components/services/ServicesContainer";
@@ -33,6 +33,7 @@ export default function ServicesPage() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [operators, setOperators] = useState<Operator[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const { token } = useAuth();
@@ -149,6 +150,28 @@ export default function ServicesPage() {
     }
   }, [id]);
 
+  const fetchReceipts = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/receipts?bookingId=${id}`);
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 405) {
+          setReceipts([]);
+          return;
+        }
+        throw new Error("Error al obtener los recibos");
+      }
+      const data = await res.json();
+      setReceipts(data.receipts || []);
+    } catch {
+      setReceipts([]);
+    }
+  }, [id]);
+
+  // Callback que recarga la lista tras crear un recibo
+  const handleReceiptCreated = () => {
+    fetchReceipts();
+  };
+
   const fetchOperators = useCallback(async () => {
     try {
       const res = await fetch("/api/operators");
@@ -187,8 +210,9 @@ export default function ServicesPage() {
       fetchBooking();
       fetchServices();
       fetchInvoices();
+      fetchReceipts();
     }
-  }, [id, fetchBooking, fetchServices, fetchInvoices]);
+  }, [id, fetchBooking, fetchServices, fetchInvoices, fetchReceipts]);
 
   useEffect(() => {
     fetchOperators();
@@ -384,6 +408,8 @@ export default function ServicesPage() {
         availableServices={services}
         operators={operators}
         invoices={invoices}
+        receipts={receipts}
+        onReceiptCreated={handleReceiptCreated}
         invoiceFormData={invoiceFormData}
         formData={formData}
         editingServiceId={editingServiceId}
