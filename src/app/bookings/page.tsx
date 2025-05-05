@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import BookingForm from "@/components/bookings/BookingForm";
 import BookingList from "@/components/bookings/BookingList";
@@ -45,7 +45,6 @@ export default function Page() {
     id_user: number;
     role: FilterRole;
   } | null>(null);
-  const [allUsers, setAllUsers] = useState<User[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [teamsList, setTeamsList] = useState<SalesTeam[]>([]);
 
@@ -98,7 +97,7 @@ export default function Page() {
         setSelectedUserId(FILTROS.includes(p.role) ? 0 : p.id_user);
         setSelectedTeamId(0);
 
-        const promises: Promise<any>[] = [];
+        const promises: Promise<unknown>[] = [];
 
         // lista de equipos
         promises.push(
@@ -131,7 +130,6 @@ export default function Page() {
                 const filtered = users.filter((u) =>
                   ["vendedor", "lider", "gerente"].includes(u.role),
                 );
-                setAllUsers(filtered);
                 setTeamMembers(filtered);
               })
               .catch((err) => console.error("Error fetching users:", err)),
@@ -397,6 +395,26 @@ export default function Page() {
     })
     .sort((a, b) => b.id_booking - a.id_booking);
 
+  const displayedTeamMembers = useMemo(() => {
+    // Si elegiste “Sin equipo”
+    if (selectedTeamId === -1) {
+      // Devuelvo los usuarios que NO están en ningún equipo
+      const assignedIds = teamsList.flatMap((t) =>
+        t.user_teams.map((ut) => ut.user.id_user),
+      );
+      return teamMembers.filter((u) => !assignedIds.includes(u.id_user));
+    }
+
+    // Si elegiste un equipo específico
+    if (selectedTeamId > 0) {
+      const team = teamsList.find((t) => t.id_team === selectedTeamId);
+      return team ? team.user_teams.map((ut) => ut.user) : [];
+    }
+
+    // selectedTeamId === 0  → “Todo el equipo”
+    return teamMembers;
+  }, [selectedTeamId, teamsList, teamMembers]);
+
   const isLoading = loadingFilters || loadingBookings;
 
   return (
@@ -445,7 +463,7 @@ export default function Page() {
                 }}
               >
                 <option value={0}>Todo el equipo</option>
-                {teamMembers.map((u) => (
+                {displayedTeamMembers.map((u) => (
                   <option key={u.id_user} value={u.id_user}>
                     {u.first_name} {u.last_name}
                   </option>
