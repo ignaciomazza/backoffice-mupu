@@ -46,6 +46,14 @@ export default function generateReceiptHtml({
     year: "numeric",
   });
 
+  const formatCurrency = (value: number) => {
+    if (isNaN(value)) return "";
+    return new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency: "ARS",
+    }).format(value);
+  };
+
   return `
 <!DOCTYPE html>
 <html lang="es">
@@ -53,7 +61,7 @@ export default function generateReceiptHtml({
   <meta charset="utf-8"/>
   <style>
     body { font-family: sans-serif; font-size: 12px; margin: 20px; }
-    .header { text-align: center; margin-bottom: 20px; }
+    .header { text-align: center; margin-bottom: 40px; margin-top: 20px; }
     .section { margin-bottom: 12px; }
     .section p { margin: 2px 0; }
     .logo { margin-top: 30px; }
@@ -72,6 +80,10 @@ export default function generateReceiptHtml({
   </div>
 
   <div class="section">
+    <p><strong>En concepto de:</strong> ${concept}</p>
+  </div>
+
+  <div class="section">
     <p><strong>Recibimos el equivalente a:</strong></p>
     <p><strong>${amountString}</strong></p>
   </div>
@@ -81,9 +93,6 @@ export default function generateReceiptHtml({
     <p><strong>${currency}</strong></p>
   </div>
 
-  <div class="section">
-    <p><strong>En concepto de:</strong> ${concept}</p>
-  </div>
 
   <hr/>
 
@@ -109,14 +118,14 @@ export default function generateReceiptHtml({
   <div class="section">
     <p><strong>Agencia:</strong> ${booking.agency.name}</p>
     <p><strong>Razon social:</strong> ${booking.agency.legal_name}</p>
-    <p><strong>Razon social:</strong> ${booking.agency.tax_id}</p>
-    <p>${booking.agency.address}</p>
+    <p><strong>CUIT:</strong> ${booking.agency.tax_id}</p>
+    <p><strong>Direccion:</strong> ${booking.agency.address}</p>
   </div>
 
   <hr/>
 
   <div class="section">
-    <p><strong>Total:</strong>$ ${amount}</p>
+    <p><strong>Total:</strong> ${formatCurrency(amount)}</p>
   </div>
 
 </body>

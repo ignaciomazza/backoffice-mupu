@@ -400,6 +400,10 @@ export default function ServicesPage() {
         })
       : "N/A";
 
+  const handleBookingUpdated = (updated: Booking) => {
+    setBooking(updated);
+  };
+
   return (
     <ProtectedRoute>
       <ServicesContainer
@@ -432,6 +436,7 @@ export default function ServicesPage() {
         isSubmitting={invoiceLoading}
         onBillingUpdate={handleBillingUpdate}
         role={userRole}
+        onBookingUpdated={handleBookingUpdated}
       />
     </ProtectedRoute>
   );

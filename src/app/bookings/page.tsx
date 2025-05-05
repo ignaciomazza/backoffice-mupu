@@ -65,6 +65,10 @@ export default function Page() {
   );
   const [loadingBookings, setLoadingBookings] = useState<boolean>(true);
 
+  const ESTADOS = ["Todas", "Pendiente", "Pago", "Facturado"] as const;
+  type Estado = (typeof ESTADOS)[number];
+  const [selectedStatus, setSelectedStatus] = useState<Estado>("Todas");
+
   // --- Form state ---
   const [formData, setFormData] = useState<BookingFormData>({
     id_booking: undefined,
@@ -401,7 +405,11 @@ export default function Page() {
         return false;
       if (dateTo && new Date(b.departure_date) > new Date(dateTo)) return false;
       return true;
-    });
+    })
+    .filter((b) => {
+      return selectedStatus === "Todas" || b.status === selectedStatus;
+    })
+    .sort((a, b) => b.id_booking - a.id_booking);
 
   return (
     <ProtectedRoute>
@@ -429,6 +437,19 @@ export default function Page() {
             profile?.role === "administrativo" ||
             profile?.role === "desarrollador") && (
             <div className="flex justify-end space-x-2">
+              <div className="flex w-full items-center rounded-3xl text-center text-black shadow-md dark:border dark:border-white/50 dark:text-white">
+                {ESTADOS.map((st, i) => (
+                  <div
+                    key={st}
+                    onClick={() => setSelectedStatus(st)}
+                    className={`basis-1/4 p-2 font-light tracking-wide hover:cursor-pointer ${i === 0 ? "rounded-l-3xl" : ""} ${i === 3 ? "rounded-r-3xl" : "border-r border-black/20 dark:border-white/20"} ${
+                      selectedStatus === st ? "bg-black/5 dark:bg-white/5" : ""
+                    } `}
+                  >
+                    {st}
+                  </div>
+                ))}
+              </div>
               <select
                 className="w-fit cursor-pointer appearance-none rounded-2xl border bg-transparent p-2 px-3 outline-none dark:border-white/50 dark:text-white"
                 value={selectedUserId!}

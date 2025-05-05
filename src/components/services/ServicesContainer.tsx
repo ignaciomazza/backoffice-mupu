@@ -3,7 +3,7 @@
 "use client";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { ToastContainer } from "react-toastify";
+import { toast, ToastContainer } from "react-toastify";
 import ServiceForm from "@/components/services/ServiceForm";
 import ServiceList from "@/components/services/ServiceList";
 import InvoiceForm, {
@@ -14,6 +14,7 @@ import Spinner from "@/components/Spinner";
 import { Booking, Service, Operator, Invoice, Receipt } from "@/types";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
 import ReceiptList from "@/components/receipts/ReceiptList";
+import { useEffect, useState } from "react";
 
 export type ServiceFormData = {
   type: string;
@@ -88,6 +89,7 @@ interface ServicesContainerProps {
   isSubmitting: boolean;
   onBillingUpdate?: (data: BillingData) => void;
   role: string;
+  onBookingUpdated?: (updated: Booking) => void;
 }
 
 export default function ServicesContainer({
@@ -120,7 +122,17 @@ export default function ServicesContainer({
   isSubmitting,
   onBillingUpdate,
   role,
+  onBookingUpdated,
 }: ServicesContainerProps) {
+  // 1) Hooks siempre se ejecutan
+  const [selectedStatus, setSelectedStatus] = useState("Pendiente");
+  useEffect(() => {
+    if (booking?.status) {
+      setSelectedStatus(booking.status);
+    }
+  }, [booking]);
+
+  // 2) Luego el return condicional
   if (!loading && !booking) {
     return (
       <div className="flex size-64 flex-col items-center justify-center">
@@ -131,6 +143,39 @@ export default function ServicesContainer({
       </div>
     );
   }
+
+  const handleSaveStatus = async () => {
+    if (!booking) return;
+    try {
+      const res = await fetch(`/api/bookings/${booking.id_booking}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // todos los campos obligatorios del PUT original,
+          // pero cambiando sólo “status”
+          status: selectedStatus,
+          details: booking.details,
+          invoice_type: booking.invoice_type,
+          invoice_observation: booking.invoice_observation,
+          observation: booking.observation,
+          titular_id: booking.titular.id_client,
+          id_agency: booking.agency.id_agency,
+          departure_date: booking.departure_date,
+          return_date: booking.return_date,
+          pax_count: booking.pax_count,
+          clients_ids: booking.clients.map((c) => c.id_client),
+          id_user: booking.user.id_user,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      const updated = await res.json();
+      toast.success("Estado actualizado!");
+      // Si querés refrescar el booking en el padre:
+      onBookingUpdated?.(updated);
+    } catch {
+      toast.error("No se pudo actualizar el estado.");
+    }
+  };
 
   return (
     <motion.div>
@@ -302,6 +347,37 @@ export default function ServicesContainer({
                     isSubmitting={isSubmitting}
                   />
                   {invoices.length > 0 && <InvoiceList invoices={invoices} />}
+                </div>
+              )}
+
+              {(role === "administrativo" ||
+                role === "desarrollador" ||
+                role === "gerente") && (
+                <div className="my-8">
+                  <h2 className="mb-4 text-xl font-semibold dark:font-medium">
+                    Estado
+                  </h2>
+                  <div className="flex w-full items-center rounded-3xl text-center text-black shadow-md dark:border dark:border-white/50 dark:text-white">
+                    {["Pendiente", "Pago", "Facturado"].map((st, i) => (
+                      <div
+                        key={st}
+                        onClick={() => setSelectedStatus(st)}
+                        className={`basis-1/4 p-4 font-light tracking-wide hover:cursor-pointer md:p-6 ${i === 0 ? "rounded-l-3xl" : ""}: ""} ${i === 1 ? "border-x border-black/20 dark:border-white/20" : ""} ${
+                          selectedStatus === st
+                            ? "bg-black/5 dark:bg-white/5"
+                            : ""
+                        } `}
+                      >
+                        {st}
+                      </div>
+                    ))}
+                    <button
+                      onClick={handleSaveStatus}
+                      className="mx-4 basis-1/4 rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black md:mx-6"
+                    >
+                      Guardar
+                    </button>
+                  </div>
                 </div>
               )}
             </>

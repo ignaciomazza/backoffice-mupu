@@ -33,6 +33,7 @@ export default async function handler(
   });
   if (!receipt) return res.status(404).end("Recibo no encontrado");
 
+
   const html = generateReceiptHtml({
     receiptNumber: receipt.receipt_number,
     booking: receipt.booking,
