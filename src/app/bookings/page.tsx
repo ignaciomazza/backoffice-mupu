@@ -1,6 +1,4 @@
-// src/app/bookings/page.tsx
 "use client";
-
 import { useState, useEffect } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import BookingForm from "@/components/bookings/BookingForm";
@@ -12,7 +10,6 @@ import "react-toastify/dist/ReactToastify.css";
 import { Booking, User, SalesTeam, UserTeam } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 
-// Constante de roles permisibles (mueve fuera del componente para evitar warnings en hooks)
 const FILTROS = [
   "lider",
   "gerente",
@@ -40,7 +37,10 @@ type BookingFormData = {
 export default function Page() {
   const { token } = useAuth();
 
-  // --- Profile, Users & Teams ---
+  // estados de carga
+  const [loadingFilters, setLoadingFilters] = useState<boolean>(true);
+  const [loadingBookings, setLoadingBookings] = useState<boolean>(true);
+
   const [profile, setProfile] = useState<{
     id_user: number;
     role: FilterRole;
@@ -49,27 +49,22 @@ export default function Page() {
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [teamsList, setTeamsList] = useState<SalesTeam[]>([]);
 
-  // Selecciones de filtros
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [selectedTeamId, setSelectedTeamId] = useState<number>(0);
 
-  // --- Search & Date filters ---
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
 
-  // --- Bookings state ---
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [expandedBookingId, setExpandedBookingId] = useState<number | null>(
     null,
   );
-  const [loadingBookings, setLoadingBookings] = useState<boolean>(true);
 
   const ESTADOS = ["Todas", "Pendiente", "Pago", "Facturado"] as const;
   type Estado = (typeof ESTADOS)[number];
   const [selectedStatus, setSelectedStatus] = useState<Estado>("Todas");
 
-  // --- Form state ---
   const [formData, setFormData] = useState<BookingFormData>({
     id_booking: undefined,
     status: "Pendiente",
@@ -88,9 +83,10 @@ export default function Page() {
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingBookingId, setEditingBookingId] = useState<number | null>(null);
 
-  // 1) Fetch profile + inicializar users & teams
+  // carga de perfil + filtros
   useEffect(() => {
     if (!token) return;
+    setLoadingFilters(true);
 
     fetch("/api/user/profile", {
       headers: { Authorization: `Bearer ${token}` },
@@ -102,137 +98,132 @@ export default function Page() {
         setSelectedUserId(FILTROS.includes(p.role) ? 0 : p.id_user);
         setSelectedTeamId(0);
 
-        // Traer todos los equipos
-        fetch("/api/teams", { headers: { Authorization: `Bearer ${token}` } })
-          .then((r) => r.json() as Promise<SalesTeam[]>)
-          .then((allTeams) => {
-            const teams =
-              p.role === "lider"
-                ? allTeams.filter((t) =>
-                    t.user_teams.some(
-                      (ut: UserTeam) =>
-                        ut.user.id_user === p.id_user &&
-                        ut.user.role === "lider",
-                    ),
-                  )
-                : allTeams;
-            setTeamsList(teams);
-          })
-          .catch((err) => console.error("Error fetching teams list:", err));
+        const promises: Promise<any>[] = [];
 
-        if (FILTROS.includes(p.role)) {
-          fetch("/api/users", { headers: { Authorization: `Bearer ${token}` } })
-            .then((r) => r.json() as Promise<User[]>)
-            .then((users) => {
-              const filtered = users.filter((u) =>
-                ["vendedor", "lider", "gerente"].includes(u.role),
-              );
-              setAllUsers(filtered);
-              setTeamMembers(filtered);
-            })
-            .catch((err) => console.error("Error fetching users:", err));
-        }
-
-        if (p.role === "lider") {
+        // lista de equipos
+        promises.push(
           fetch("/api/teams", { headers: { Authorization: `Bearer ${token}` } })
             .then((r) => r.json() as Promise<SalesTeam[]>)
-            .then((teams) => {
-              const mine = teams.filter((t) =>
-                t.user_teams.some(
-                  (ut: UserTeam) =>
-                    ut.user.id_user === p.id_user && ut.user.role === "lider",
-                ),
-              );
-              const members = Array.from(
-                new Map(
-                  mine
-                    .flatMap((t) => t.user_teams.map((ut: UserTeam) => ut.user))
-                    .map((u) => [u.id_user, u]),
-                ).values(),
-              );
-              setTeamMembers(members as User[]);
+            .then((allTeams) => {
+              const teams =
+                p.role === "lider"
+                  ? allTeams.filter((t) =>
+                      t.user_teams.some(
+                        (ut: UserTeam) =>
+                          ut.user.id_user === p.id_user &&
+                          ut.user.role === "lider",
+                      ),
+                    )
+                  : allTeams;
+              setTeamsList(teams);
             })
-            .catch((err) => console.error("Error fetching my teams:", err));
+            .catch((err) => console.error("Error fetching teams list:", err)),
+        );
+
+        // si puede ver todos los usuarios
+        if (FILTROS.includes(p.role)) {
+          promises.push(
+            fetch("/api/users", {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+              .then((r) => r.json() as Promise<User[]>)
+              .then((users) => {
+                const filtered = users.filter((u) =>
+                  ["vendedor", "lider", "gerente"].includes(u.role),
+                );
+                setAllUsers(filtered);
+                setTeamMembers(filtered);
+              })
+              .catch((err) => console.error("Error fetching users:", err)),
+          );
         }
+
+        // si es líder, sus miembros
+        if (p.role === "lider") {
+          promises.push(
+            fetch("/api/teams", {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+              .then((r) => r.json() as Promise<SalesTeam[]>)
+              .then((teams) => {
+                const mine = teams.filter((t) =>
+                  t.user_teams.some(
+                    (ut: UserTeam) =>
+                      ut.user.id_user === p.id_user && ut.user.role === "lider",
+                  ),
+                );
+                const members = Array.from(
+                  new Map(
+                    mine
+                      .flatMap((t) =>
+                        t.user_teams.map((ut: UserTeam) => ut.user),
+                      )
+                      .map((u) => [u.id_user, u]),
+                  ).values(),
+                );
+                setTeamMembers(members as User[]);
+              })
+              .catch((err) => console.error("Error fetching my teams:", err)),
+          );
+        }
+
+        return Promise.all(promises);
       })
-      .catch((err) => console.error("Error fetching profile:", err));
+      .catch((err) => console.error("Error fetching profile:", err))
+      .finally(() => setLoadingFilters(false));
   }, [token]);
 
-  // 2) Cuando cambie el equipo, actualizo la lista de usuarios del select
+  // carga de reservas
   useEffect(() => {
-    if (!profile) return;
-    if (!FILTROS.includes(profile.role)) return;
-
-    setSelectedUserId(0);
-
-    if (selectedTeamId > 0) {
-      const team = teamsList.find((t) => t.id_team === selectedTeamId);
-      const members = team
-        ? team.user_teams.map((ut: UserTeam) => ut.user)
-        : [];
-      setTeamMembers(members);
-    } else if (selectedTeamId === -1) {
-      const assignedIds = teamsList.flatMap((t) =>
-        t.user_teams.map((ut: UserTeam) => ut.user.id_user),
-      );
-      const unassigned = allUsers.filter(
-        (u) => !assignedIds.includes(u.id_user),
-      );
-      setTeamMembers(unassigned);
-    } else {
-      setTeamMembers(allUsers);
-    }
-  }, [selectedTeamId, teamsList, profile, allUsers]);
-
-  // 3) Fetch de bookings según filtros
-  useEffect(() => {
-    if (selectedUserId === null) return;
+    if (!profile || loadingFilters) return;
     setLoadingBookings(true);
 
-    if (selectedUserId > 0) {
-      fetch(`/api/bookings?userId=${selectedUserId}`)
-        .then((r) => r.json())
-        .then((data) => {
-          setBookings(data);
-          setLoadingBookings(false);
-        })
-        .catch(() => setLoadingBookings(false));
-    } else if (selectedTeamId > 0) {
-      fetch("/api/bookings")
-        .then((r) => r.json() as Promise<Booking[]>)
-        .then((all) => {
-          const ids = teamsList
-            .find((t) => t.id_team === selectedTeamId)!
-            .user_teams.map((ut: UserTeam) => ut.user.id_user);
-          setBookings(all.filter((b) => ids.includes(b.user.id_user)));
-          setLoadingBookings(false);
-        })
-        .catch(() => setLoadingBookings(false));
-    } else if (selectedTeamId === -1) {
-      fetch("/api/bookings")
-        .then((r) => r.json() as Promise<Booking[]>)
-        .then((data) => {
-          const assignedIds = teamsList.flatMap((t) =>
-            t.user_teams.map((ut: UserTeam) => ut.user.id_user),
+    const fetchBookings = async () => {
+      try {
+        let data: Booking[] = [];
+        if (selectedUserId && selectedUserId > 0) {
+          data = await fetch(`/api/bookings?userId=${selectedUserId}`).then(
+            (r) => r.json(),
           );
-          setBookings(
-            data.filter((b) => !assignedIds.includes(b.user.id_user)),
+        } else {
+          const all = await fetch("/api/bookings").then(
+            (r) => r.json() as Promise<Booking[]>,
           );
-          setLoadingBookings(false);
-        })
-        .catch(() => setLoadingBookings(false));
-    } else {
-      fetch("/api/bookings")
-        .then((r) => r.json())
-        .then((data) => {
-          setBookings(data);
-          setLoadingBookings(false);
-        })
-        .catch(() => setLoadingBookings(false));
-    }
-  }, [selectedUserId, selectedTeamId, teamsList]);
+          if (profile.role === "lider") {
+            const ids = teamMembers.map((u) => u.id_user);
+            data = all.filter((b) => ids.includes(b.user.id_user));
+          } else if (selectedTeamId > 0) {
+            const ids = teamsList
+              .find((t) => t.id_team === selectedTeamId)!
+              .user_teams.map((ut) => ut.user.id_user);
+            data = all.filter((b) => ids.includes(b.user.id_user));
+          } else if (selectedTeamId === -1) {
+            const assigned = teamsList.flatMap((t) =>
+              t.user_teams.map((ut) => ut.user.id_user),
+            );
+            data = all.filter((b) => !assigned.includes(b.user.id_user));
+          } else {
+            data = all;
+          }
+        }
+        setBookings(data);
+      } catch {
+        console.error("Error fetching bookings");
+      } finally {
+        setLoadingBookings(false);
+      }
+    };
 
-  // Handlers y demás (sin cambios de lógica)
+    fetchBookings();
+  }, [
+    selectedUserId,
+    selectedTeamId,
+    teamsList,
+    profile,
+    teamMembers,
+    loadingFilters,
+  ]);
+
   const handleChange = (
     e: React.ChangeEvent<
       HTMLTextAreaElement | HTMLInputElement | HTMLSelectElement
@@ -250,7 +241,6 @@ export default function Page() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validación de campos obligatorios para la reserva
     if (
       !formData.details.trim() ||
       !formData.invoice_type.trim() ||
@@ -270,8 +260,6 @@ export default function Page() {
       return;
     }
 
-    // Si se selecciona "Factura A", validar que el titular tenga cargados:
-    // Razón Social, Domicilio Comercial, Email y CUIT
     if (formData.invoice_type === "Factura A") {
       try {
         const resClient = await fetch(`/api/clients/${formData.titular_id}`);
@@ -315,7 +303,6 @@ export default function Page() {
         throw new Error(errorResponse.error || "Error al guardar la reserva.");
       }
 
-      // Actualizar listado de reservas
       fetch("/api/bookings")
         .then((res) => res.json())
         .then((data) => setBookings(data));
@@ -384,7 +371,6 @@ export default function Page() {
     }
   };
 
-  // Filtrado UI por búsqueda/fechas
   const displayedBookings = bookings
     .filter((b) => {
       if (!searchTerm.trim()) return true;
@@ -411,6 +397,8 @@ export default function Page() {
     })
     .sort((a, b) => b.id_booking - a.id_booking);
 
+  const isLoading = loadingFilters || loadingBookings;
+
   return (
     <ProtectedRoute>
       <section className="text-black dark:text-white">
@@ -430,7 +418,6 @@ export default function Page() {
           Reservas
         </h2>
 
-        {/* filtros */}
         <div className="mb-4 space-y-4">
           {(profile?.role === "lider" ||
             profile?.role === "gerente" ||
@@ -526,7 +513,7 @@ export default function Page() {
             </div>
           </div>
         </div>
-        {loadingBookings ? (
+        {isLoading ? (
           <div className="flex min-h-[50vh] items-center">
             <Spinner />
           </div>
