@@ -54,6 +54,14 @@ export default function generateReceiptHtml({
     }).format(value);
   };
 
+  const formatDateUTC = (date: Date) =>
+    new Intl.DateTimeFormat("es-AR", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    }).format(date);
+
   return `
 <!DOCTYPE html>
 <html lang="es">
@@ -98,12 +106,8 @@ export default function generateReceiptHtml({
 
   <div class="section">
     <p><strong>Servicio:</strong> ${booking.details}</p>
-    <p><strong>Salida:</strong> ${new Date(
-      booking.departure_date,
-    ).toLocaleDateString("es-AR")}</p>
-    <p><strong>Regreso:</strong> ${new Date(
-      booking.return_date,
-    ).toLocaleDateString("es-AR")}</p>
+    <p><strong>Salida:</strong> ${formatDateUTC(new Date(booking.departure_date))}</p>
+    <p><strong>Regreso:</strong> ${formatDateUTC(new Date(booking.return_date))}</p>
   </div>
 
   <div class="section">

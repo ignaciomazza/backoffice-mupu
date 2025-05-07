@@ -362,7 +362,7 @@ export default function ServicesContainer({
                       <div
                         key={st}
                         onClick={() => setSelectedStatus(st)}
-                        className={`basis-1/4 p-4 font-light tracking-wide hover:cursor-pointer md:p-6 ${i === 0 ? "rounded-l-3xl" : ""}: ""} ${i === 1 ? "border-x border-black/20 dark:border-white/20" : ""} ${
+                        className={`basis-1/4 p-4 font-light tracking-wide hover:cursor-pointer md:p-6 ${i === 0 ? "rounded-l-3xl" : ""} ${i === 1 ? "border-x border-black/20 dark:border-white/20" : ""} ${
                           selectedStatus === st
                             ? "bg-black/5 dark:bg-white/5"
                             : ""

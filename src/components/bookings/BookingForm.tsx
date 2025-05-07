@@ -261,10 +261,14 @@ export default function BookingForm({
                 <option value="" disabled>
                   Seleccionar
                 </option>
-                <option value="Factura A">Factura A</option>
-                <option value="Factura B">Factura B</option>
+                <option value="Factura A">
+                  Responsable Inscripto {"( "}Factura A{" )"}
+                </option>
+                <option value="Factura B">
+                  Consumidor final {"( "}Factura B{" )"}
+                </option>
                 <option value="Coordinar con administracion">
-                  Coordinar con administracion
+                  No facturar hasta coordinar con administracion
                 </option>
               </select>
             </div>
