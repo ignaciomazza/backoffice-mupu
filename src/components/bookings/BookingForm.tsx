@@ -245,7 +245,6 @@ export default function BookingForm({
               </div>
             ))}
           </div>
-
           <div className="md:grid md:grid-cols-2 md:gap-6">
             <div>
               <label className="ml-2 block dark:text-white">
@@ -282,7 +281,7 @@ export default function BookingForm({
                 value={formData.invoice_observation || ""}
                 onChange={handleChange}
                 className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-                placeholder="Observaciones facturacion..."
+                placeholder="Ej: Facturar a cliente con ID 342"
                 required
               />
             </div>
@@ -310,7 +309,7 @@ export default function BookingForm({
               }}
               className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               min={1}
-              placeholder="ID del titular..."
+              placeholder="Ej: 342"
               required
             />
           </div>
