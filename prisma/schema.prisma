@@ -195,4 +195,5 @@ model Receipt {
   currency          String
   bookingId_booking Int
   booking           Booking  @relation("BookingReceipt", fields: [bookingId_booking], references: [id_booking])
+  serviceIds        Int[]
 }

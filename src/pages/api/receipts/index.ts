@@ -10,7 +10,8 @@ interface PostReceiptBody {
   concept: string;
   currency: string;
   amountString: string;
-  service: string;
+  serviceIds: number[];
+  amount: number;
 }
 
 export default async function handler(
@@ -19,29 +20,34 @@ export default async function handler(
 ) {
   // POST: crear un nuevo recibo
   if (req.method === "POST") {
-    const { booking, concept, currency, amountString, service } =
+    const { booking, concept, currency, amountString, serviceIds, amount } =
       req.body as PostReceiptBody;
 
     // Validación de campos obligatorios
-    if (!booking || !concept || !currency || !amountString || !service) {
+    if (
+      !booking ||
+      !concept ||
+      !currency ||
+      !amountString ||
+      !serviceIds?.length ||
+      amount === undefined ||
+      amount === null
+    ) {
       return res.status(400).json({
         error:
-          "Faltan datos requeridos: booking, concept, currency, amountString, service",
+          "Faltan datos requeridos: booking, concept, currency, amountString, serviceIds, amount",
       });
     }
 
-    // Parseo del ID de servicio
-    const serviceId = parseInt(service, 10);
-    const selectedService = booking.services?.find(
-      (s: Service) => s.id_service === serviceId,
+    // Validar que los IDs existan dentro de booking.services
+    const selectedServices = booking.services?.filter((s: Service) =>
+      serviceIds.includes(s.id_service),
     );
-    if (!selectedService) {
-      return res.status(400).json({ error: "Servicio no encontrado" });
+    if (!selectedServices || selectedServices.length !== serviceIds.length) {
+      return res
+        .status(400)
+        .json({ error: "Algún servicio no fue encontrado en la reserva" });
     }
-
-    // Cálculo del monto total
-    const totalAmount =
-      selectedService.sale_price + (selectedService.card_interest ?? 0);
 
     try {
       // Contar recibos existentes de esta reserva para numeración secuencial
@@ -56,11 +62,12 @@ export default async function handler(
       const receipt = await prisma.receipt.create({
         data: {
           receipt_number: receiptNumber,
-          amount: totalAmount,
+          amount, // importe manual o calculado
           amount_string: amountString,
           concept,
           currency,
           booking: { connect: { id_booking: booking.id_booking } },
+          serviceIds, // campo tipo Int[] en tu esquema Prisma
         },
       });
 
