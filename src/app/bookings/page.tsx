@@ -447,7 +447,13 @@ export default function Page() {
                   <div
                     key={st}
                     onClick={() => setSelectedStatus(st)}
-                    className={`basis-1/4 p-2 font-light tracking-wide hover:cursor-pointer ${i === 0 ? "rounded-l-3xl" : ""} ${i === 3 ? "rounded-r-3xl" : "border-r border-black/20 dark:border-white/20"} ${
+                    className={`basis-1/4 p-2 font-light tracking-wide hover:cursor-pointer ${
+                      i === 0 ? "rounded-l-3xl" : ""
+                    } ${
+                      i === 3
+                        ? "rounded-r-3xl"
+                        : "border-r border-black/20 dark:border-white/20"
+                    } ${
                       selectedStatus === st
                         ? "bg-black text-white dark:bg-white dark:text-black"
                         : ""
@@ -457,8 +463,9 @@ export default function Page() {
                   </div>
                 ))}
               </div>
+
               <select
-                className="w-fit cursor-pointer appearance-none rounded-2xl bg-transparent p-2 px-3 shadow-md outline-none dark:border dark:border-white/50 dark:text-white"
+                className="w-fit cursor-pointer appearance-none rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white"
                 value={selectedUserId!}
                 onChange={(e) => {
                   setSelectedUserId(Number(e.target.value));
@@ -474,7 +481,7 @@ export default function Page() {
 
               {profile?.role !== "lider" && (
                 <select
-                  className="w-fit cursor-pointer appearance-none rounded-2xl bg-transparent p-2 px-3 shadow-md outline-none dark:border dark:border-white/50 dark:text-white"
+                  className="w-fit cursor-pointer appearance-none rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white"
                   value={selectedTeamId}
                   onChange={(e) => {
                     setSelectedTeamId(Number(e.target.value));
@@ -485,13 +492,14 @@ export default function Page() {
                   <option value={-1}>Sin equipo</option>
                   {teamsList.map((t) => (
                     <option key={t.id_team} value={t.id_team}>
-                      {t.name || t.name || `Equipo ${t.id_team}`}
+                      {t.name || `Equipo ${t.id_team}`}
                     </option>
                   ))}
                 </select>
               )}
             </div>
           )}
+
           <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:justify-between sm:space-x-4 sm:space-y-0">
             <div className="relative flex w-full rounded-2xl px-4 py-2 shadow-md dark:border dark:border-white/50 dark:text-white">
               <input
@@ -522,17 +530,18 @@ export default function Page() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="rounded-2xl p-2 px-3 shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white"
+                className="rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white"
               />
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="rounded-2xl p-2 px-3 shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white"
+                className="rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white"
               />
             </div>
           </div>
         </div>
+
         {isLoading ? (
           <div className="flex min-h-[50vh] items-center">
             <Spinner />
@@ -546,7 +555,20 @@ export default function Page() {
             deleteBooking={deleteBooking}
           />
         )}
+
         <ToastContainer />
+
+        {/* Estilos globales para asegurar legibilidad de los <option> */}
+        <style jsx global>{`
+          select option {
+            background-color: white;
+            color: black;
+          }
+          .dark select option {
+            background-color: black;
+            color: white;
+          }
+        `}</style>
       </section>
     </ProtectedRoute>
   );
