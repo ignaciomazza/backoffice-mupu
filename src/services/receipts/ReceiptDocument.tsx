@@ -87,15 +87,12 @@ const safeFmtCurrency = (value: number, curr: string) => {
   return `${fmtNumber(value)} ${curr}`;
 };
 
-// Fecha con mes capitalizado
-const fmtDate = (d: Date) => {
-  const day = d.getDate().toString().padStart(2, "0");
-  const monthName = new Intl.DateTimeFormat("es-AR", { month: "long" }).format(
-    d,
-  );
-  const month = monthName.charAt(0).toUpperCase() + monthName.slice(1);
-  return `${day} de ${month} de ${d.getFullYear()}`;
-};
+const fmtDate = (d: Date) =>
+  new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(d);
 
 const styles = StyleSheet.create({
   page: {
@@ -105,24 +102,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 60,
     paddingBottom: 60, // deja espacio para el footer
     lineHeight: 1.4,
-    color: "#333",
+    color: "#0A0A0A",
     position: "relative",
   },
   headerBand: {
     height: 50,
+    display: "flex",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    marginBottom: 20,
+    marginBottom: 60,
   },
-  logoSmall: { height: 30 },
-  header: { textAlign: "center", marginBottom: 40 },
+  logoSmall: { height: 40 },
+  header: {
+    color: "#0A0A0A",
+  },
   headerText: {
-    fontSize: 20,
-    fontWeight: "bold",
+    fontSize: 14,
     textTransform: "uppercase",
-    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  headerDate: {
+    fontSize: 8,
+    fontWeight: "light",
+    color: "#555",
   },
   infoSection: {
     flexDirection: "row",
@@ -145,31 +148,33 @@ const styles = StyleSheet.create({
   },
   tableContainer: {
     borderWidth: 1,
-    borderColor: "#DDD",
+    borderRadius: 15,
+    borderColor: "#0A0A0A",
     marginBottom: 40,
   },
   tableHeader: {
     flexDirection: "row",
-    backgroundColor: "#F2F2F2",
-    borderBottomWidth: 1,
-    borderColor: "#DDD",
+    backgroundColor: "#0A0A0A",
+    borderWidth: 1,
+    borderColor: "#0A0A0A",
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
   },
   tableHeaderCell: {
-    padding: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     fontWeight: "bold",
-    color: "#333",
+    color: "#FFF",
   },
   tableRow: {
     flexDirection: "row",
-    borderBottomWidth: 1,
-    borderColor: "#EEE",
-    backgroundColor: "#FFF",
   },
   tableRowAlt: {
-    backgroundColor: "#F9F9F9",
+    backgroundColor: "#0A0A0A",
   },
   tableCell: {
-    padding: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     color: "#333",
   },
   colDescription: { width: "60%" },
@@ -223,22 +228,51 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
               src={`data:image/png;base64,${agency.logoBase64}`}
             />
           )}
+
+          {/* Título */}
+          <View style={styles.header}>
+            <Text style={styles.headerText}>Recibo N° {receiptNumber}</Text>
+            <Text style={styles.headerDate}>
+              {fmtDate(new Date(issueDate))}
+            </Text>
+          </View>
         </View>
 
-        {/* Título */}
-        <View style={styles.header}>
-          <Text style={styles.headerText}>Recibo N° {receiptNumber}</Text>
-        </View>
-
-        {/* Info básica */}
+        {/* Cliente / Agencia */}
         <View style={styles.infoSection}>
           <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>Fecha emisión</Text>
-            <Text>{fmtDate(new Date(issueDate))}</Text>
+            <Text style={styles.infoLabel}>Cliente</Text>
+            <Text>
+              {titular.firstName} {titular.lastName} – DNI {titular.dni}
+            </Text>
+            <Text>
+              {titular.address}, {titular.locality}
+            </Text>
           </View>
           <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>En concepto de</Text>
-            <Text>{concept}</Text>
+            <Text style={styles.infoLabel}>Agencia</Text>
+            <Text>
+              {agency.name} ({agency.legalName})
+            </Text>
+            <Text>CUIT: {agency.taxId}</Text>
+            <Text>{agency.address}</Text>
+          </View>
+        </View>
+
+        {/* Pago y firma */}
+        <View style={styles.infoSection}>
+          <View style={styles.infoColumn}>
+            <Text style={styles.infoLabel}>Servicio contratado</Text>
+            <Text>{details}</Text>
+          </View>
+          <View style={styles.infoColumn}>
+            <Text style={styles.infoLabel}>
+              Servicio contratado Desde - Hasta
+            </Text>
+            <Text>
+              {fmtDate(new Date(departureDate))} -{" "}
+              {fmtDate(new Date(returnDate))}
+            </Text>
           </View>
         </View>
 
@@ -280,6 +314,10 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
         {/* Monto total por moneda */}
         <View style={styles.infoSection}>
           <View style={styles.infoColumn}>
+            <Text style={styles.infoLabel}>En concepto de</Text>
+            <Text>{concept}</Text>
+          </View>
+          <View style={styles.infoColumn}>
             <Text style={styles.infoLabel}>EL CLIENTE PAGO</Text>
             <Text>{safeFmtCurrency(amount, amount_currency)}</Text>
           </View>
@@ -292,47 +330,6 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
             <Text>{amountString}</Text>
           </View>
           <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>Servicio contratado</Text>
-            <Text>{details}</Text>
-          </View>
-        </View>
-
-        {/* Fechas */}
-        <View style={styles.infoSection}>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>Fecha salida</Text>
-            <Text>{fmtDate(new Date(departureDate))}</Text>
-          </View>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>Fecha regreso</Text>
-            <Text>{fmtDate(new Date(returnDate))}</Text>
-          </View>
-        </View>
-
-        {/* Cliente / Agencia */}
-        <View style={styles.infoSection}>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>Cliente</Text>
-            <Text>
-              {titular.firstName} {titular.lastName} – DNI {titular.dni}
-            </Text>
-            <Text>
-              {titular.address}, {titular.locality}
-            </Text>
-          </View>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>Agencia</Text>
-            <Text>
-              {agency.name} ({agency.legalName})
-            </Text>
-            <Text>CUIT: {agency.taxId}</Text>
-            <Text>{agency.address}</Text>
-          </View>
-        </View>
-
-        {/* Pago y firma */}
-        <View style={styles.paymentSection}>
-          <View>
             <Text style={styles.infoLabel}>Método de pago</Text>
             <Text>{currency}</Text>
           </View>
