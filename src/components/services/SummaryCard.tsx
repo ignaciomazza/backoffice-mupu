@@ -55,7 +55,7 @@ export default function SummaryCard({
                 {labels[currency] || currency}
               </h3>
 
-              <div className="grid flex-grow grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-2">
+              <div className="grid grow grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-2">
                 {/* Venta / Costo */}
                 <div className="mx-auto w-full max-w-md">
                   <p className="font-semibold">Venta</p>
