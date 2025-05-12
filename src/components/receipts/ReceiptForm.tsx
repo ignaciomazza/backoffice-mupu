@@ -15,6 +15,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
   const [concept, setConcept] = useState("");
   const [currency, setCurrency] = useState("");
   const [amountString, setAmountString] = useState("");
+  const [amountCurrency, setAmountCurrency] = useState("");
   // Nuevo: importe numérico ingresado manualmente
   const [manualAmount, setManualAmount] = useState("");
   // Cantidad de servicios + array de IDs
@@ -92,6 +93,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
           concept,
           currency,
           amountString,
+          amountCurrency,
           serviceIds,
           amount: finalAmount, // envío el importe final
         }),
@@ -105,6 +107,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
       setConcept("");
       setCurrency("");
       setAmountString("");
+      setAmountCurrency("");
       setManualAmount("");
       setServicesCount(1);
       setIdServices([""]);
@@ -187,6 +190,22 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
           </div>
 
           <div>
+            <label className="ml-2 dark:text-white">Moneda</label>
+            <select
+              name="currency"
+              value={amountCurrency}
+              onChange={(e) => setAmountCurrency(e.target.value)}
+              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide hover:cursor-pointer dark:border-white/50 dark:bg-[#252525] dark:text-white"
+            >
+              <option value="" disabled>
+                Seleccionar moneda
+              </option>
+              <option value="USD">USD</option>
+              <option value="ARS">ARS</option>
+            </select>
+          </div>
+
+          <div>
             <label className="ml-2 block dark:text-white">
               Importe numérico:
             </label>
@@ -217,14 +236,14 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
 
           <div>
             <label className="ml-2 block dark:text-white">
-              Moneda recibida:
+              Metodo de pago:
             </label>
             <input
               type="text"
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}
               className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-              placeholder="Ej: Tarjeta de crédito"
+              placeholder="Ej: Tarjeta de crédito -- No adedua saldo"
               required
             />
           </div>

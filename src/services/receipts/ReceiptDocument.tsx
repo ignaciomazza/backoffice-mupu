@@ -18,6 +18,7 @@ export interface ReceiptPdfData {
   amount: number;
   amountString: string;
   currency: string; // método de pago global
+  amount_currency: string;
   services: Array<{
     id: number;
     description: string;
@@ -207,6 +208,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
   amountString,
   currency,
   services,
+  amount_currency,
   booking: { details, departureDate, returnDate, titular, agency },
 }) => {
   return (
@@ -279,7 +281,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
         <View style={styles.infoSection}>
           <View style={styles.infoColumn}>
             <Text style={styles.infoLabel}>EL CLIENTE PAGO</Text>
-            <Text>{safeFmtCurrency(amount, "ARS")}</Text>
+            <Text>{safeFmtCurrency(amount, amount_currency)}</Text>
           </View>
         </View>
 

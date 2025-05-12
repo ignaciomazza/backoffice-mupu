@@ -12,6 +12,7 @@ interface PostReceiptBody {
   amountString: string;
   serviceIds: number[];
   amount: number;
+  amountCurrency: string;
 }
 
 export default async function handler(
@@ -20,8 +21,15 @@ export default async function handler(
 ) {
   // POST: crear un nuevo recibo
   if (req.method === "POST") {
-    const { booking, concept, currency, amountString, serviceIds, amount } =
-      req.body as PostReceiptBody;
+    const {
+      booking,
+      concept,
+      currency,
+      amountString,
+      serviceIds,
+      amount,
+      amountCurrency,
+    } = req.body as PostReceiptBody;
 
     // Validación de campos obligatorios
     if (
@@ -29,9 +37,7 @@ export default async function handler(
       !concept ||
       !currency ||
       !amountString ||
-      !serviceIds?.length ||
-      amount === undefined ||
-      amount === null
+      !serviceIds?.length
     ) {
       return res.status(400).json({
         error:
@@ -64,6 +70,7 @@ export default async function handler(
           receipt_number: receiptNumber,
           amount, // importe manual o calculado
           amount_string: amountString,
+          amount_currency: amountCurrency,
           concept,
           currency,
           booking: { connect: { id_booking: booking.id_booking } },

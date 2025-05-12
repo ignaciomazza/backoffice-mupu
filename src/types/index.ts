@@ -195,12 +195,13 @@ export interface UserProfile {
 export interface Receipt {
   id_receipt: number;
   receipt_number: string;
-  issue_date: string;       // fecha de emisión en ISO
-  amount: number;           // monto numérico
-  amount_string: string;    // monto como texto ingresado
+  issue_date: string; // fecha de emisión en ISO
+  amount: number; // monto numérico
+  amount_string: string; // monto como texto ingresado
+  amount_currency: string;
   concept: string;
   currency: string;
-  bookingId_booking: number; 
-  booking?: Booking;        // opcionalmente puedes incluir los datos de la reserva
+  bookingId_booking: number;
+  booking?: Booking; // opcionalmente puedes incluir los datos de la reserva
   serviceIds?: number[];
 }

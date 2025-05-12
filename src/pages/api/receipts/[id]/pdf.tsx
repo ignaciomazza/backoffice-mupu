@@ -49,6 +49,7 @@ export default async function handler(
     amount: receipt.amount,
     amountString: receipt.amount_string,
     currency: receipt.currency,
+    amount_currency: receipt.amount_currency,
     services: selectedServices.map((s) => ({
       id: s.id_service,
       description: s.description ?? `Servicio ${s.id_service}`,
