@@ -83,9 +83,8 @@ export default function ServiceCard({
   const generalInfo = [
     { label: "Tipo", content: service.type },
     { label: "Descripción", content: service.description || "–" },
+    { label: "Notas", content: service.note || "–" },
     { label: "Destino", content: service.destination || "–" },
-    { label: "Desde", content: formatDate(service.departure_date) },
-    { label: "Hasta", content: formatDate(service.return_date) },
     { label: "Operador", content: service.operator?.name || "–" },
     { label: "Referencia", content: service.reference || "–" },
   ];
@@ -113,6 +112,10 @@ export default function ServiceCard({
       {/* Detalle expandido */}
       {isExpanded && (
         <div className="space-y-4">
+          <div className="space-y-2">
+            <Field label={`Desde`}>{formatDate(service.departure_date)}</Field>
+            <Field label={`Hasta`}>{formatDate(service.return_date)}</Field>
+          </div>
           <ListSection
             fmt={fmt}
             entries={[
