@@ -1,110 +1,156 @@
 // src/pages/api/receipts/index.ts
+
 import { NextApiRequest, NextApiResponse } from "next";
 import { PrismaClient } from "@prisma/client";
-import { Booking, Service } from "@/types";
 
 const prisma = new PrismaClient();
-
-interface PostReceiptBody {
-  booking: Booking;
-  concept: string;
-  currency: string;
-  amountString: string;
-  serviceIds: number[];
-  amount: number;
-  amountCurrency: string;
-}
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  // POST: crear un nuevo recibo
-  if (req.method === "POST") {
-    const {
-      booking,
-      concept,
-      currency,
-      amountString,
-      serviceIds,
-      amount,
-      amountCurrency,
-    } = req.body as PostReceiptBody;
+  // -- Logs de entrada --
+  console.log("=== Receipts API llamado ===");
+  console.log("Método:", req.method);
+  console.log("Body inicial:", req.body);
 
-    // Validación de campos obligatorios
-    if (
-      !booking ||
-      !concept ||
-      !currency ||
-      !amountString ||
-      !serviceIds?.length
-    ) {
-      return res.status(400).json({
-        error:
-          "Faltan datos requeridos: booking, concept, currency, amountString, serviceIds, amount",
+  try {
+    if (req.method === "POST") {
+      // 1) valida que venga un JSON
+      if (!req.body || typeof req.body !== "object") {
+        console.log("Body inválido o vacío:", req.body);
+        return res.status(400).json({ error: "Body inválido o vacío" });
+      }
+
+      // 2) extrae y loguea el payload
+      const {
+        booking,
+        concept,
+        currency,
+        amountString,
+        amountCurrency,
+        serviceIds,
+        amount,
+      } = req.body as {
+        booking: { id_booking: number; services?: { id_service: number }[] };
+        concept: string;
+        currency: string;
+        amountString: string;
+        amountCurrency: string;
+        serviceIds: number[];
+        amount: number;
+      };
+      console.log("Payload parseado:", {
+        booking: { id_booking: booking?.id_booking },
+        concept,
+        currency,
+        amountString,
+        amountCurrency,
+        serviceIds,
+        amount,
       });
-    }
 
-    // Validar que los IDs existan dentro de booking.services
-    const selectedServices = booking.services?.filter((s: Service) =>
-      serviceIds.includes(s.id_service),
-    );
-    if (!selectedServices || selectedServices.length !== serviceIds.length) {
-      return res
-        .status(400)
-        .json({ error: "Algún servicio no fue encontrado en la reserva" });
-    }
+      // 3) valida campos obligatorios
+      if (
+        !booking?.id_booking ||
+        !concept ||
+        !currency ||
+        !amountString ||
+        !serviceIds?.length
+      ) {
+        console.log("Validación de campos fallida:", {
+          bookingId: booking?.id_booking,
+          concept,
+          currency,
+          amountString,
+          serviceIds,
+        });
+        return res.status(400).json({
+          error:
+            "Faltan datos requeridos: booking.id_booking, concept, currency, amountString, serviceIds",
+        });
+      }
 
-    try {
-      // Contar recibos existentes de esta reserva para numeración secuencial
-      const existingCount = await prisma.receipt.count({
-        where: { bookingId_booking: booking.id_booking },
+      // 4) valida que cada serviceId exista en booking.services (opcional)
+      const serviciosEnBooking = booking.services;
+      if (
+        serviciosEnBooking &&
+        serviceIds.some(
+          (id) => !serviciosEnBooking.find((s) => s.id_service === id),
+        )
+      ) {
+        console.log("ServiceId no encontrado en booking.services", {
+          serviceIds,
+          serviciosEnBooking,
+        });
+        return res
+          .status(400)
+          .json({ error: "Algún servicio no pertenece a la reserva" });
+      }
+
+      // 5) calcula el próximo índice de recibo buscando los existentes
+      const existing = await prisma.receipt.findMany({
+        where: { receipt_number: { startsWith: `${booking.id_booking}-` } },
+        select: { receipt_number: true },
       });
-      const nextIndex = existingCount + 1;
+      const used = existing.map((r) => {
+        const parts = r.receipt_number.split("-");
+        return parseInt(parts[1], 10) || 0;
+      });
+      const nextIdx = used.length ? Math.max(...used) + 1 : 1;
+      const receiptNumber = `${booking.id_booking}-${nextIdx}`;
+      console.log("Nuevo receipt_number:", receiptNumber);
 
-      // Generación de número de recibo: "{bookingId}-{secuencia}"
-      const receiptNumber = `${booking.id_booking}-${nextIndex}`;
-
+      // 6) crea en la base
+      console.log("Antes de prisma.receipt.create:", {
+        receiptNumber,
+        amount,
+        amountString,
+        amountCurrency,
+        concept,
+        currency,
+        serviceIds,
+      });
       const receipt = await prisma.receipt.create({
         data: {
           receipt_number: receiptNumber,
-          amount, // importe manual o calculado
+          amount,
           amount_string: amountString,
           amount_currency: amountCurrency,
           concept,
           currency,
           booking: { connect: { id_booking: booking.id_booking } },
-          serviceIds, // campo tipo Int[] en tu esquema Prisma
+          serviceIds,
         },
       });
+      console.log("Después de create:", receipt);
 
       return res.status(201).json({ receipt });
-    } catch (error: unknown) {
-      console.error("Prisma Error al crear recibo:", error);
-      return res.status(500).json({ error: "Error guardando recibo" });
-    }
-  }
-
-  // GET: listar recibos de una reserva (por query bookingId)
-  if (req.method === "GET") {
-    const bookingId = parseInt(req.query.bookingId as string, 10);
-    if (isNaN(bookingId)) {
-      return res.status(400).json({ error: "bookingId inválido" });
-    }
-
-    try {
+    } else if (req.method === "GET") {
+      console.log("=== GET recibos para bookingId:", req.query.bookingId);
+      const bookingId = parseInt(req.query.bookingId as string, 10);
+      if (isNaN(bookingId)) {
+        console.log("bookingId inválido:", req.query.bookingId);
+        return res.status(400).json({ error: "bookingId inválido" });
+      }
       const receipts = await prisma.receipt.findMany({
         where: { bookingId_booking: bookingId },
         orderBy: { issue_date: "desc" },
       });
+      console.log("Receipts encontrados:", receipts);
       return res.status(200).json({ receipts });
-    } catch (error: unknown) {
-      console.error("Prisma Error al listar recibos:", error);
-      return res.status(500).json({ error: "Error obteniendo recibos" });
+    } else {
+      console.log("Método no permitido:", req.method);
+      res.setHeader("Allow", ["POST", "GET"]);
+      return res.status(405).end(`Method ${req.method} Not Allowed`);
     }
+  } catch (err: unknown) {
+    // -- Log de error --
+    console.log("Error en receipts API:", (err as Error)?.message ?? err);
+    return res
+      .status(500)
+      .json({
+        error: (err as Error)?.message ?? "Error interno al procesar recibo",
+      });
   }
-
-  // Métodos no permitidos
-  res.setHeader("Allow", ["POST", "GET"]);
-  return res.status(405).end(`Method ${req.method} Not Allowed`);
 }
