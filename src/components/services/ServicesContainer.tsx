@@ -321,12 +321,17 @@ export default function ServicesContainer({
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") && (
+                <div className="mb-4 mt-8">
+                  <ReceiptForm booking={booking} onCreated={onReceiptCreated} />
+                </div>
+              )}
+
+              {receipts.length > 0 && (
                 <div>
                   <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
-                    Recibo
+                    Recibos
                   </h2>
-                  <ReceiptForm booking={booking} onCreated={onReceiptCreated} />
-                  {receipts.length > 0 && <ReceiptList receipts={receipts} />}
+                  <ReceiptList receipts={receipts} />
                 </div>
               )}
 
