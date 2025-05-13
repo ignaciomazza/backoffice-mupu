@@ -19,6 +19,7 @@ import { useEffect, useState } from "react";
 export type ServiceFormData = {
   type: string;
   description?: string;
+  note?: string;
   sale_price: number;
   cost_price: number;
   destination?: string;

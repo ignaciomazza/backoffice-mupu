@@ -188,13 +188,20 @@ export default function BookingForm({
           onSubmit={handleSubmit}
           className="max-h-[400px] space-y-3 overflow-y-auto md:pr-12"
         >
-          <div className="md:grid md:grid-cols-2 md:gap-6">
+          <div className="md:grid md:grid-cols-2 md:gap-4">
             {[
               {
                 name: "details",
-                label: "Detalle",
+                label: "Detalle ( Impacta en el recibo )",
                 type: "text",
                 placeholder: "Detalle...",
+                span: "col-span-2",
+              },
+              {
+                name: "note",
+                label: "Nota",
+                type: "text",
+                placeholder: "Nota...",
                 span: "col-span-2",
               },
               {
@@ -245,7 +252,7 @@ export default function BookingForm({
               </div>
             ))}
           </div>
-          <div className="md:grid md:grid-cols-2 md:gap-6">
+          <div className="md:grid md:grid-cols-2 md:gap-4">
             <div>
               <label className="ml-2 block dark:text-white">
                 Tipo de Factura

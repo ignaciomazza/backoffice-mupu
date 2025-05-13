@@ -22,6 +22,7 @@ type BookingFormData = {
   id_booking?: number;
   status: string;
   details: string;
+  note?: string;
   invoice_type: string;
   invoice_observation: string;
   observation: string;
@@ -68,6 +69,7 @@ export default function Page() {
     id_booking: undefined,
     status: "Pendiente",
     details: "",
+    note: "",
     invoice_type: "",
     invoice_observation: "",
     observation: "",
@@ -319,6 +321,7 @@ export default function Page() {
       id_booking: undefined,
       status: "Pendiente",
       details: "",
+      note: "",
       invoice_type: "",
       invoice_observation: "",
       observation: "",
@@ -338,7 +341,8 @@ export default function Page() {
     setFormData({
       id_booking: booking.id_booking,
       status: booking.status,
-      details: booking.details || "",
+      details: booking.details,
+      note: booking.note || "",
       invoice_type: booking.invoice_type || "",
       invoice_observation: booking.invoice_observation || "",
       observation: "",

@@ -67,7 +67,8 @@ model Client {
 model Booking {
   id_booking          Int       @id @default(autoincrement())
   status              String
-  details             String?
+  details             String
+  note                String?
   invoice_type        String
   invoice_observation String?
   observation         String?
@@ -91,6 +92,7 @@ model Service {
   id_service                Int      @id @default(autoincrement())
   type                      String
   description               String
+  note                      String?
   sale_price                Float
   cost_price                Float
   destination               String
@@ -191,7 +193,7 @@ model Receipt {
   issue_date        DateTime @default(now())
   amount            Float
   amount_string     String
-  amount_currency   String  
+  amount_currency   String
   concept           String
   currency          String
   bookingId_booking Int
