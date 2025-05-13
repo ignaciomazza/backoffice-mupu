@@ -440,12 +440,12 @@ export default function Page() {
           Reservas
         </h2>
 
-        <div className="mb-4 space-y-4">
+        <div className="mb-4 space-y-4 text-sm md:text-base">
           {(profile?.role === "lider" ||
             profile?.role === "gerente" ||
             profile?.role === "administrativo" ||
             profile?.role === "desarrollador") && (
-            <div className="flex justify-end space-x-2 sm:space-x-4">
+            <div className="flex flex-col space-y-4 md:flex-row md:justify-end md:space-x-4 md:space-y-0">
               <div className="flex w-full items-center rounded-2xl border-black/20 text-center text-black shadow-md dark:border dark:border-white/50 dark:text-white">
                 {ESTADOS.map((st, i) => (
                   <div
@@ -469,7 +469,7 @@ export default function Page() {
               </div>
 
               <select
-                className="w-fit cursor-pointer appearance-none rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white"
+                className="w-full cursor-pointer appearance-none rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white md:w-fit"
                 value={selectedUserId!}
                 onChange={(e) => {
                   setSelectedUserId(Number(e.target.value));
@@ -485,7 +485,7 @@ export default function Page() {
 
               {profile?.role !== "lider" && (
                 <select
-                  className="w-fit cursor-pointer appearance-none rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white"
+                  className="w-full cursor-pointer appearance-none rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white md:w-fit"
                   value={selectedTeamId}
                   onChange={(e) => {
                     setSelectedTeamId(Number(e.target.value));
@@ -529,18 +529,18 @@ export default function Page() {
               </svg>
             </div>
 
-            <div className="flex space-x-2 sm:space-x-4">
+            <div className="flex space-x-2 md:space-x-4">
               <input
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white"
+                className="w-full rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white md:w-fit"
               />
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white"
+                className="w-full rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white md:w-fit"
               />
             </div>
           </div>

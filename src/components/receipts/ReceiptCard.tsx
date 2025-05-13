@@ -1,5 +1,5 @@
-// src/components/receipts/ReceiptCard.tsx
 "use client";
+import { useState } from "react";
 import { Receipt } from "@/types";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
@@ -9,6 +9,9 @@ interface ReceiptCardProps {
 }
 
 export default function ReceiptCard({ receipt }: ReceiptCardProps) {
+  const [loading, setLoading] = useState(false);
+
+  // Si no hay recibo, mostrar spinner de carga
   if (!receipt || !receipt.id_receipt) {
     return (
       <div className="flex h-40 items-center justify-center dark:text-white">
@@ -18,11 +21,13 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
   }
 
   const downloadPDF = async () => {
+    setLoading(true);
     try {
       const response = await fetch(`/api/receipts/${receipt.id_receipt}/pdf`, {
         headers: { Accept: "application/pdf" },
       });
       if (!response.ok) throw new Error();
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -30,10 +35,13 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
       link.download = `recibo_${receipt.id_receipt}.pdf`;
       link.click();
       window.URL.revokeObjectURL(url);
+
       toast.success("Recibo descargado exitosamente.");
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
       toast.error("No se pudo descargar el recibo.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -84,9 +92,12 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
 
       <button
         onClick={downloadPDF}
-        className="mt-3 block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+        disabled={loading}
+        className={`mt-3 w-full rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black ${
+          loading ? "cursor-not-allowed opacity-50" : ""
+        }`}
       >
-        Descargar PDF
+        {loading ? <Spinner /> : "Descargar PDF"}
       </button>
     </div>
   );

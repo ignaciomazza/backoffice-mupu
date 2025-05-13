@@ -2,6 +2,7 @@
 
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 
 export default async function handler(
   req: NextApiRequest,
@@ -14,7 +15,7 @@ export default async function handler(
     return res.status(400).json({ error: "ID de cliente inválido" });
   }
 
-  // 1) GET /api/clients/:id — traer un cliente
+  // GET /api/clients/:id
   if (req.method === "GET") {
     try {
       const client = await prisma.client.findUnique({
@@ -31,12 +32,12 @@ export default async function handler(
     }
   }
 
-  // 2) PUT /api/clients/:id — actualizar un cliente
+  // PUT /api/clients/:id
   if (req.method === "PUT") {
     try {
       const clientData = req.body;
 
-      // Campos requeridos
+      // Validar campos obligatorios
       const requiredFields = [
         "first_name",
         "last_name",
@@ -44,7 +45,7 @@ export default async function handler(
         "birth_date",
         "nationality",
         "gender",
-      ];
+      ] as const;
       for (const field of requiredFields) {
         if (!clientData[field]) {
           return res
@@ -53,33 +54,34 @@ export default async function handler(
         }
       }
 
-      // Requiere DNI o Pasaporte
-      if (
-        !clientData.dni_number?.trim() &&
-        !clientData.passport_number?.trim()
-      ) {
+      // Normalizar cadenas vacías a null
+      const dni = clientData.dni_number?.trim() || null;
+      const passport = clientData.passport_number?.trim() || null;
+      const taxId = clientData.tax_id?.trim() || null;
+
+      if (!dni && !passport) {
         return res.status(400).json({
           error:
             "El DNI y el Pasaporte son obligatorios. Debes cargar al menos uno",
         });
       }
 
-      // Verificar duplicados (excluyendo este ID)
+      // Construir condiciones de duplicado tipadas
+      const orConditions: Prisma.ClientWhereInput[] = [];
+      if (dni) orConditions.push({ dni_number: dni });
+      if (passport) orConditions.push({ passport_number: passport });
+      if (taxId) orConditions.push({ tax_id: taxId });
+      orConditions.push({
+        first_name: clientData.first_name,
+        last_name: clientData.last_name,
+        birth_date: new Date(clientData.birth_date),
+      });
+
+      // Verificar duplicados excluyendo este ID
       const duplicate = await prisma.client.findFirst({
         where: {
           id_client: { not: clientId },
-          OR: [
-            { dni_number: clientData.dni_number },
-            { passport_number: clientData.passport_number },
-            { tax_id: clientData.tax_id },
-            {
-              first_name: clientData.first_name,
-              last_name: clientData.last_name,
-              birth_date: clientData.birth_date
-                ? new Date(clientData.birth_date)
-                : undefined,
-            },
-          ],
+          OR: orConditions,
         },
       });
       if (duplicate) {
@@ -88,6 +90,7 @@ export default async function handler(
           .json({ error: "Esa información ya pertenece a un cliente." });
       }
 
+      // Actualizar
       const updatedClient = await prisma.client.update({
         where: { id_client: clientId },
         data: {
@@ -98,17 +101,18 @@ export default async function handler(
           postal_code: clientData.postal_code || null,
           locality: clientData.locality || null,
           company_name: clientData.company_name || null,
-          tax_id: clientData.tax_id || null,
+          tax_id: taxId,
           commercial_address: clientData.commercial_address || null,
-          dni_number: clientData.dni_number,
-          passport_number: clientData.passport_number || null,
+          dni_number: dni,
+          passport_number: passport,
           birth_date: new Date(clientData.birth_date),
           nationality: clientData.nationality,
           gender: clientData.gender,
-          email: clientData.email || null,
+          email: clientData.email?.trim() || null,
           id_user: Number(clientData.id_user),
         },
       });
+
       return res.status(200).json(updatedClient);
     } catch (error) {
       console.error("Error updating client:", error);
@@ -116,7 +120,7 @@ export default async function handler(
     }
   }
 
-  // 3) DELETE /api/clients/:id — eliminar un cliente
+  // DELETE /api/clients/:id
   if (req.method === "DELETE") {
     try {
       await prisma.client.delete({ where: { id_client: clientId } });
@@ -127,7 +131,6 @@ export default async function handler(
     }
   }
 
-  // Si no es GET, PUT ni DELETE
   res.setHeader("Allow", ["GET", "PUT", "DELETE"]);
   return res.status(405).end(`Method ${req.method} Not Allowed`);
 }

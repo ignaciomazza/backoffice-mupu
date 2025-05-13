@@ -125,7 +125,6 @@ export default function ServicesContainer({
   role,
   onBookingUpdated,
 }: ServicesContainerProps) {
-  // 1) Hooks siempre se ejecutan
   const [selectedStatus, setSelectedStatus] = useState("Pendiente");
   useEffect(() => {
     if (booking?.status) {
@@ -133,7 +132,6 @@ export default function ServicesContainer({
     }
   }, [booking]);
 
-  // 2) Luego el return condicional
   if (!loading && !booking) {
     return (
       <div className="flex size-64 flex-col items-center justify-center">
@@ -152,8 +150,6 @@ export default function ServicesContainer({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          // todos los campos obligatorios del PUT original,
-          // pero cambiando sólo “status”
           status: selectedStatus,
           details: booking.details,
           invoice_type: booking.invoice_type,
@@ -171,7 +167,6 @@ export default function ServicesContainer({
       if (!res.ok) throw new Error();
       const updated = await res.json();
       toast.success("Estado actualizado!");
-      // Si querés refrescar el booking en el padre:
       onBookingUpdated?.(updated);
     } catch {
       toast.error("No se pudo actualizar el estado.");

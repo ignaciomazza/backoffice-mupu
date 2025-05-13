@@ -187,6 +187,7 @@ export default function Page() {
             (c) =>
               `${c.first_name} ${c.last_name}`.toLowerCase().includes(s) ||
               (c.dni_number || "").includes(s) ||
+              (c.passport_number || "").includes(s) ||
               (c.email || "").toLowerCase().includes(s) ||
               (c.id_client || "") === Number(s) ||
               (c.tax_id || "").toLowerCase().includes(s) ||

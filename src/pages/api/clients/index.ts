@@ -7,8 +7,8 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  if (req.method === "GET") {
-    try {
+  try {
+    if (req.method === "GET") {
       // Parse userId from query if present
       const userId = Array.isArray(req.query.userId)
         ? Number(req.query.userId[0])
@@ -16,22 +16,21 @@ export default async function handler(
           ? Number(req.query.userId)
           : null;
 
-      // Fetch clients, filtering by id_user when userId is provided,
-      // and include the related User so that front-end can read c.user.id_user
+      // Build filter
+      const where = userId ? { id_user: userId } : {};
+
+      // Fetch clients ordered by registration_date DESC
       const clients = await prisma.client.findMany({
-        where: userId ? { id_user: userId } : {},
+        where,
+        orderBy: { registration_date: "desc" },
         include: { user: true },
       });
 
       return res.status(200).json(clients);
-    } catch (error) {
-      console.error("Error fetching clients:", error);
-      return res.status(500).json({ error: "Error fetching clients" });
     }
-  } else if (req.method === "POST") {
-    try {
-      const client = req.body;
 
+    if (req.method === "POST") {
+      const client = req.body;
       const requiredFields = [
         "first_name",
         "last_name",
@@ -49,7 +48,6 @@ export default async function handler(
         }
       }
 
-      // Validación: se requiere que al menos uno de los dos campos tenga un valor
       if (!client.dni_number?.trim() && !client.passport_number?.trim()) {
         return res.status(400).json({
           error:
@@ -57,7 +55,7 @@ export default async function handler(
         });
       }
 
-      // Verificar duplicados
+      // Check duplicates
       const duplicate = await prisma.client.findFirst({
         where: {
           OR: [
@@ -103,12 +101,12 @@ export default async function handler(
       });
 
       return res.status(201).json(newClient);
-    } catch (error) {
-      console.error("Error creating client:", error);
-      return res.status(500).json({ error: "Error creating client" });
     }
-  } else {
+
     res.setHeader("Allow", ["GET", "POST"]);
     return res.status(405).end(`Method ${req.method} Not Allowed`);
+  } catch (error) {
+    console.error("Error en /api/clients:", error);
+    return res.status(500).json({ error: "Error interno" });
   }
 }
