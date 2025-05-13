@@ -445,17 +445,17 @@ export default function Page() {
             profile?.role === "gerente" ||
             profile?.role === "administrativo" ||
             profile?.role === "desarrollador") && (
-            <div className="flex justify-end space-x-2">
-              <div className="flex w-full items-center rounded-3xl border-black/20 text-center text-black shadow-md dark:border dark:border-white/50 dark:text-white">
+            <div className="flex justify-end space-x-2 sm:space-x-4">
+              <div className="flex w-full items-center rounded-2xl border-black/20 text-center text-black shadow-md dark:border dark:border-white/50 dark:text-white">
                 {ESTADOS.map((st, i) => (
                   <div
                     key={st}
                     onClick={() => setSelectedStatus(st)}
                     className={`basis-1/4 p-2 font-light tracking-wide hover:cursor-pointer ${
-                      i === 0 ? "rounded-l-3xl" : ""
+                      i === 0 ? "rounded-l-2xl" : ""
                     } ${
                       i === 3
-                        ? "rounded-r-3xl"
+                        ? "rounded-r-2xl"
                         : "border-r border-black/20 dark:border-white/20"
                     } ${
                       selectedStatus === st
@@ -529,7 +529,7 @@ export default function Page() {
               </svg>
             </div>
 
-            <div className="flex space-x-2">
+            <div className="flex space-x-2 sm:space-x-4">
               <input
                 type="date"
                 value={dateFrom}
