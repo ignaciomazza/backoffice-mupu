@@ -354,7 +354,7 @@ export default function Page() {
         </h2>
 
         <div className="mb-4 flex w-full items-center space-x-2">
-          <div className="relative flex w-full rounded-2xl border px-4 py-2 dark:border-white/50 dark:text-white">
+          <div className="relative flex w-full rounded-2xl px-4 py-2 shadow-md dark:border dark:border-white/50 dark:text-white">
             <input
               type="text"
               placeholder="Buscar clientes..."
@@ -384,7 +384,7 @@ export default function Page() {
             profile?.role === "desarrollador") && (
             <div className="flex gap-2">
               <select
-                className="cursor-pointer appearance-none rounded-2xl border bg-transparent p-2 px-3 outline-none dark:border-white/50 dark:text-white"
+                className="w-full cursor-pointer appearance-none rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white md:w-fit"
                 value={selectedUserId!}
                 onChange={(e) => setSelectedUserId(Number(e.target.value))}
               >
@@ -398,7 +398,7 @@ export default function Page() {
 
               {profile.role !== "lider" && (
                 <select
-                  className="cursor-pointer appearance-none rounded-2xl border bg-transparent p-2 px-3 outline-none dark:border-white/50 dark:text-white"
+                  className="w-full cursor-pointer appearance-none rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white md:w-fit"
                   value={selectedTeamId}
                   onChange={(e) => {
                     setSelectedTeamId(Number(e.target.value));

@@ -45,6 +45,11 @@ export default function BookingCard({
         Notas
         <span className="ml-2 font-light">{booking.note || "N/A"}</span>
       </p>
+
+      <p className="font-semibold dark:font-medium">
+        Estado
+        <span className="ml-2 font-light">{booking.status || "-"}</span>
+      </p>
       <p className="font-semibold dark:font-medium">
         Vendedor
         <span className="ml-2 font-light">
@@ -59,16 +64,6 @@ export default function BookingCard({
       </p>
       {isExpanded && (
         <div>
-          <p className="font-semibold dark:font-medium">
-            Estado
-            <span className="ml-2 font-light">{booking.status || "-"}</span>
-          </p>
-          <p className="font-semibold dark:font-medium">
-            Agencia
-            <span className="ml-2 font-light">
-              {booking.agency.name || "N/A"}
-            </span>
-          </p>
           <p className="font-semibold dark:font-medium">
             Fecha de Salida
             <span className="ml-2 font-light">
