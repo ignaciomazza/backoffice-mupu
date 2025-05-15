@@ -81,6 +81,7 @@ export default function Page() {
         setSelectedUserId(FILTROS.includes(p.role) ? 0 : p.id_user);
         setSelectedTeamId(0);
 
+        // equipos
         fetch("/api/teams", { headers: { Authorization: `Bearer ${token}` } })
           .then((r) => r.json() as Promise<SalesTeam[]>)
           .then((all) => {
@@ -98,6 +99,7 @@ export default function Page() {
           })
           .catch((err) => console.error("Error fetching teams:", err));
 
+        // si puede ver todos los usuarios
         if (FILTROS.includes(p.role)) {
           fetch("/api/users", { headers: { Authorization: `Bearer ${token}` } })
             .then((r) => r.json() as Promise<User[]>)
@@ -111,6 +113,7 @@ export default function Page() {
             .catch((err) => console.error("Error fetching users:", err));
         }
 
+        // si es líder, sus miembros
         if (p.role === "lider") {
           fetch("/api/teams", { headers: { Authorization: `Bearer ${token}` } })
             .then((r) => r.json() as Promise<SalesTeam[]>)
@@ -136,9 +139,9 @@ export default function Page() {
       .catch((err) => console.error("Error fetching profile:", err));
   }, [token]);
 
-  // 2) Cuando cambia el equipo, actualizo teamMembers
+  // 2) Cuando cambia el equipo, actualizo teamMembers (pero no para líderes)
   useEffect(() => {
-    if (!profile || !FILTROS.includes(profile.role)) return;
+    if (!profile || profile.role === "lider") return;
     setSelectedUserId(0);
 
     if (selectedTeamId > 0) {
@@ -154,7 +157,7 @@ export default function Page() {
     }
   }, [selectedTeamId, teamsList, profile, allUsers]);
 
-  // 3) Fetch de clients según filtros y búsqueda
+  // 3) Fetch de clients según filtros, búsqueda y rol "lider"
   useEffect(() => {
     if (selectedUserId === null) return;
     setIsLoading(true);
@@ -167,7 +170,11 @@ export default function Page() {
         } else {
           const res = await fetch("/api/clients");
           const all: Client[] = await res.json();
-          if (selectedTeamId > 0) {
+
+          if (profile?.role === "lider") {
+            const ids = teamMembers.map((u) => u.id_user);
+            data = all.filter((c) => ids.includes(c.user.id_user));
+          } else if (selectedTeamId > 0) {
             const ids = teamsList
               .find((t) => t.id_team === selectedTeamId)!
               .user_teams.map((ut) => ut.user.id_user);
@@ -181,6 +188,7 @@ export default function Page() {
             data = all;
           }
         }
+
         if (searchTerm.trim()) {
           const s = searchTerm.toLowerCase();
           data = data.filter(
@@ -189,11 +197,12 @@ export default function Page() {
               (c.dni_number || "").includes(s) ||
               (c.passport_number || "").includes(s) ||
               (c.email || "").toLowerCase().includes(s) ||
-              (c.id_client || "") === Number(s) ||
+              c.id_client.toString() === s ||
               (c.tax_id || "").toLowerCase().includes(s) ||
               (c.company_name || "").toLowerCase().includes(s),
           );
         }
+
         setClients(data);
       } catch (err) {
         console.error("Error fetching clients:", err);
@@ -202,8 +211,14 @@ export default function Page() {
         setIsLoading(false);
       }
     })();
-  }, [selectedUserId, selectedTeamId, teamsList, searchTerm]);
-
+  }, [
+    selectedUserId,
+    selectedTeamId,
+    teamsList,
+    searchTerm,
+    profile,
+    teamMembers,
+  ]);
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {

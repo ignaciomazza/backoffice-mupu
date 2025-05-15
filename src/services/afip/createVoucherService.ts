@@ -16,11 +16,6 @@ interface IVAEntry {
   Importe: number;
 }
 
-interface TaxImpuesto {
-  idImpuesto: number;
-  [key: string]: any;
-}
-
 async function getValidExchangeRate(
   currency: string,
   startDate: Date,
