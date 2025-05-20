@@ -1,33 +1,17 @@
+// src/services/invoices/InvoiceDocument.tsx
+
 import React from "react";
 import path from "path";
 import {
   Document,
   Page,
-  Text,
   View,
-  StyleSheet,
+  Text,
   Image,
+  StyleSheet,
   Font,
 } from "@react-pdf/renderer";
 
-interface IVAEntry {
-  Id: number;
-  BaseImp: number;
-  Importe: number;
-}
-interface ServiceLine {
-  description: string;
-  quantity: number;
-  unitPrice?: number;
-  description21?: string;
-  description10_5?: string;
-}
-interface LineItem {
-  description: string;
-  quantity: number;
-  unitPrice: number;
-  subtotal: number;
-}
 export interface VoucherData {
   CbteTipo: number;
   PtoVta: number;
@@ -49,15 +33,23 @@ export interface VoucherData {
   description21?: string[];
   description10_5?: string[];
   descriptionNonComputable?: string[];
-  saleTotal?: number;
-  serviceIvaEntry?: IVAEntry;
   interestBase?: number;
   interestVat?: number;
-  lineItems?: LineItem[];
-  services?: ServiceLine[];
-  Iva?: IVAEntry[];
+  Iva?: Array<{
+    Id: number;
+    BaseImp: number;
+    Importe: number;
+  }>;
 }
 
+interface LineItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+}
+
+// Registrar Poppins
 Font.register({
   family: "Poppins",
   fonts: [
@@ -72,22 +64,29 @@ Font.register({
   ],
 });
 
+// Formateo de fecha
 const fmtDate = (d: Date) =>
   new Intl.DateTimeFormat("es-AR", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
   }).format(d);
+
+// Formateo numérico
 const fmtNum = (n: number) =>
   new Intl.NumberFormat("es-AR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(n);
+
+// Formateo monetario
 const fmtCurr = (n: number, curr: string) => {
   try {
     return new Intl.NumberFormat("es-AR", {
       style: "currency",
       currency: curr,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(n);
   } catch {
     return `${fmtNum(n)} ${curr}`;
@@ -124,7 +123,7 @@ const InvoiceDocument: React.FC<{
   voucherData: VoucherData;
   qrBase64?: string;
   currency: string;
-}> = ({ invoiceNumber, voucherData, qrBase64, currency }) => {
+}> = ({ invoiceNumber, issueDate, voucherData, qrBase64, currency }) => {
   const {
     CbteTipo,
     PtoVta,
@@ -143,97 +142,50 @@ const InvoiceDocument: React.FC<{
     emitterAddress,
     departureDate,
     returnDate,
+    Iva = [],
     description21 = [],
     description10_5 = [],
     descriptionNonComputable = [],
-    saleTotal = 0,
-    serviceIvaEntry,
     interestBase = 0,
     interestVat = 0,
-    lineItems = [],
-    services = [],
-    Iva = [],
   } = voucherData;
 
-  // Build service items
-  let items: LineItem[] = lineItems;
-  if (!items.length && services.length && (Iva.length || serviceIvaEntry)) {
-    const ivaArr = Iva.length ? Iva : serviceIvaEntry ? [serviceIvaEntry] : [];
-    items = services.flatMap((svc) =>
-      ivaArr.map((iva) => {
-        const rate = iva.Id === 5 ? 21 : iva.Id === 4 ? 10.5 : iva.Id;
-        const desc =
-          rate === 21
-            ? (svc.description21 ?? svc.description)
-            : rate === 10.5
-              ? (svc.description10_5 ?? svc.description)
-              : svc.description;
-        const unitPrice = svc.unitPrice ?? iva.BaseImp;
-        return {
-          description: desc,
-          quantity: svc.quantity,
-          unitPrice,
-          subtotal: unitPrice * svc.quantity,
-        };
-      }),
-    );
-  }
-  // Fallback non-computable
-  if (!items.length && serviceIvaEntry) {
-    const fallback: LineItem[] = [];
-    if (serviceIvaEntry.BaseImp > 0) {
-      const val21 = serviceIvaEntry.BaseImp + serviceIvaEntry.Importe;
-      fallback.push({
-        description: description21[0] || "Servicio Turístico",
-        quantity: 1,
-        unitPrice: val21,
-        subtotal: val21,
-      });
-    }
-    const entry105 = Iva.find((e) => e.Id === 4);
-    if (entry105 && entry105.BaseImp > 0) {
-      const val105 = entry105.BaseImp + entry105.Importe;
-      fallback.push({
-        description: description10_5[0] || "Servicio Turístico",
-        quantity: 1,
-        unitPrice: val105,
-        subtotal: val105,
-      });
-    }
-    const nonComp =
-      saleTotal -
-      ((serviceIvaEntry.BaseImp ?? 0) +
-        (serviceIvaEntry.Importe ?? 0) +
-        (entry105?.BaseImp ?? 0) +
-        (entry105?.Importe ?? 0));
-    if (nonComp > 0)
-      fallback.push({
-        description: descriptionNonComputable[0] || "Servicio No Computable",
-        quantity: 1,
-        unitPrice: nonComp,
-        subtotal: nonComp,
-      });
-    items = fallback;
-  }
+  // === Ítems por categoría de IVA ===
+  const items: LineItem[] = Iva.map((e, idx) => {
+    let descArray: string[] = [];
+    if (e.Id === 5) descArray = description21;
+    else if (e.Id === 4) descArray = description10_5;
+    else descArray = descriptionNonComputable;
 
-  // Interest items
+    const amount = e.BaseImp + e.Importe;
+    return {
+      description: descArray[idx] ?? "Item",
+      quantity: 1,
+      unitPrice: amount,
+      subtotal: amount,
+    };
+  });
+
+  // === Intereses ===
   const interestItems: LineItem[] = [];
-  if (interestBase)
+  if (interestBase) {
     interestItems.push({
       description: "Interés tarjeta",
       quantity: 1,
       unitPrice: interestBase,
       subtotal: interestBase,
     });
-  if (interestVat)
+  }
+  if (interestVat) {
     interestItems.push({
       description: "IVA sobre interés",
       quantity: 1,
       unitPrice: interestVat,
       subtotal: interestVat,
     });
+  }
 
-  // Format dates
+  // Formato fecha y CAE
   const fechaEm =
     typeof CbteFch === "string"
       ? `${CbteFch.slice(6, 8)}/${CbteFch.slice(4, 6)}/${CbteFch.slice(0, 4)}`
@@ -254,7 +206,7 @@ const InvoiceDocument: React.FC<{
           </View>
         </View>
 
-        {/* Emitter / Receiver */}
+        {/* Emisor */}
         <View style={styles.section}>
           <Text style={{ fontWeight: "bold" }}>Emisor</Text>
           <Text>{emitterName}</Text>
@@ -262,13 +214,15 @@ const InvoiceDocument: React.FC<{
           <Text>CUIT: {emitterTaxId}</Text>
           <Text>{emitterAddress}</Text>
         </View>
+
+        {/* Receptor */}
         <View style={styles.section}>
           <Text style={{ fontWeight: "bold" }}>Receptor</Text>
           <Text>{recipient}</Text>
           <Text>DNI/CUIT: {DocNro}</Text>
         </View>
 
-        {/* Reservation dates */}
+        {/* Fechas de reserva */}
         {(departureDate || returnDate) && (
           <View style={styles.section}>
             <Text>
@@ -282,7 +236,7 @@ const InvoiceDocument: React.FC<{
           </View>
         )}
 
-        {/* Services table */}
+        {/* Ítems por categoría de IVA */}
         <View style={styles.table}>
           <View style={[styles.row, styles.headerCell]}>
             <Text style={styles.cellDesc}>Descripción</Text>
@@ -304,7 +258,7 @@ const InvoiceDocument: React.FC<{
           ))}
         </View>
 
-        {/* Interest */}
+        {/* Intereses */}
         {interestItems.length > 0 && (
           <View style={[styles.table, { marginBottom: 0 }]}>
             <View style={[styles.row, styles.headerCell]}>
@@ -328,7 +282,7 @@ const InvoiceDocument: React.FC<{
           </View>
         )}
 
-        {/* IVA */}
+        {/* IVA resumen */}
         <View style={styles.table}>
           <View style={[styles.row, styles.headerCell]}>
             <Text style={styles.cellDesc}>Tasa</Text>
@@ -346,7 +300,7 @@ const InvoiceDocument: React.FC<{
           ))}
         </View>
 
-        {/* Summary */}
+        {/* Resumen final */}
         <View style={styles.summary}>
           <Text>Subtotal Neto: {fmtCurr(ImpNeto, currency)}</Text>
           <Text>IVA: {fmtCurr(ImpIVA, currency)}</Text>
@@ -355,11 +309,8 @@ const InvoiceDocument: React.FC<{
           </Text>
         </View>
 
-        {/* QR & CAE */}
-        {qrBase64 && (
-          // eslint-disable-next-line jsx-a11y/alt-text
-          <Image style={styles.qr} src={qrBase64} />
-        )}
+        {/* QR y CAE */}
+        {qrBase64 && <Image style={styles.qr} src={qrBase64} />}
         <Text>CAE N°: {CAE}</Text>
         <Text>Vto. CAE: {caeVto}</Text>
 

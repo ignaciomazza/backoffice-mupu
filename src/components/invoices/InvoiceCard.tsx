@@ -31,7 +31,7 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
 
   const downloadPDF = async () => {
     try {
-      const response = await fetch(`/api/invoices/${invoice.id_invoice}`, {
+      const response = await fetch(`/api/receipts/${invoice.id_invoice}/pdf`, {
         headers: { Accept: "application/pdf" },
       });
 

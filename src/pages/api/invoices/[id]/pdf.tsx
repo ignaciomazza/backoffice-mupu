@@ -1,6 +1,5 @@
-// src/pages/api/invoices/[id]/pdf.tsx
+// src/pages/api/invoices/[id]/pdf.ts
 
-import React from "react";
 import type { NextApiRequest, NextApiResponse } from "next";
 import { PrismaClient } from "@prisma/client";
 import fs from "fs";
@@ -38,11 +37,19 @@ export default async function handler(
     return res.status(400).end("ID inválido");
   }
 
-  // Fetch invoice and related booking/titular/agency
+  // 1) Fetch invoice with related booking, titular (client) and agency
   const invoice = await prisma.invoice.findUnique({
     where: { id_invoice: id },
-    include: { booking: { include: { titular: true, agency: true } } },
+    include: {
+      booking: {
+        include: {
+          titular: true,
+          agency: true,
+        },
+      },
+    },
   });
+
   if (!invoice) {
     return res.status(404).end("Factura no encontrada");
   }
@@ -50,7 +57,7 @@ export default async function handler(
     return res.status(500).end("No hay datos para generar la factura");
   }
 
-  // Load logo if exists
+  // 2) Load logo if exists
   let logoBase64: string | undefined;
   try {
     const logoPath = path.join(process.cwd(), "public", "logo.png");
@@ -61,21 +68,53 @@ export default async function handler(
     // ignore
   }
 
-  // Cast payload to our interface
+  // 3) Cast payload
   const payload = invoice.payloadAfip as unknown as PayloadAfip;
-  const { voucherData, qrBase64 } = payload;
+  const {
+    voucherData,
+    qrBase64,
+    description21,
+    description10_5,
+    descriptionNonComputable,
+  } = payload;
 
-  // Prepare props for PDF component
+  // 4) Enrich voucherData with agency, client and booking info
+  const enrichedVoucher: VoucherData & {
+    emitterName: string;
+    emitterLegalName: string;
+    emitterTaxId?: string;
+    emitterAddress?: string;
+    recipient: string;
+    departureDate?: string;
+    returnDate?: string;
+    description21?: string[];
+    description10_5?: string[];
+    descriptionNonComputable?: string[];
+  } = {
+    ...voucherData,
+    emitterName: invoice.booking.agency.name,
+    emitterLegalName: invoice.booking.agency.legal_name,
+    emitterTaxId: invoice.booking.agency.tax_id,
+    emitterAddress: invoice.booking.agency.address ?? "",
+    recipient: invoice.recipient,
+    departureDate: invoice.booking.departure_date?.toISOString() ?? "",
+    returnDate: invoice.booking.return_date?.toISOString() ?? "",
+    description21,
+    description10_5,
+    descriptionNonComputable,
+  };
+
+  // 5) Prepare props for PDF component
   const data = {
     invoiceNumber: invoice.invoice_number,
     issueDate: invoice.issue_date,
-    voucherData,
-    qrBase64,
     currency: invoice.currency,
+    qrBase64,
     logoBase64,
+    voucherData: enrichedVoucher,
   };
 
-  // Render and stream PDF back to client
+  // 6) Render and stream PDF
   const stream = await renderToStream(<InvoiceDocument {...data} />);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader(
