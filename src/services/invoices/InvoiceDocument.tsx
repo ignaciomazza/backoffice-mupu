@@ -119,11 +119,10 @@ const styles = StyleSheet.create({
 
 const InvoiceDocument: React.FC<{
   invoiceNumber: string;
-  issueDate: Date;
   voucherData: VoucherData;
   qrBase64?: string;
   currency: string;
-}> = ({ invoiceNumber, issueDate, voucherData, qrBase64, currency }) => {
+}> = ({ invoiceNumber, voucherData, qrBase64, currency }) => {
   const {
     CbteTipo,
     PtoVta,
@@ -310,7 +309,10 @@ const InvoiceDocument: React.FC<{
         </View>
 
         {/* QR y CAE */}
-        {qrBase64 && <Image style={styles.qr} src={qrBase64} />}
+        {qrBase64 && (
+          // eslint-disable-next-line jsx-a11y/alt-text
+          <Image style={styles.qr} src={qrBase64} />
+        )}
         <Text>CAE N°: {CAE}</Text>
         <Text>Vto. CAE: {caeVto}</Text>
 
