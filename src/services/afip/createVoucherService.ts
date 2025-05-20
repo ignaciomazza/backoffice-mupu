@@ -1,13 +1,13 @@
+// src/services/afip/createVoucherService.ts
 import afip from "@/services/afip/afipConfig";
 import qrcode from "qrcode";
-import generateHtml from "@/services/afip/generateHtml";
+import { Prisma } from "@prisma/client";
 
 interface VoucherResponse {
   success: boolean;
   message: string;
-  details?: unknown;
+  details?: Prisma.JsonObject;
   qrBase64?: string;
-  facturaHtml?: string;
 }
 
 interface IVAEntry {
@@ -32,14 +32,10 @@ async function getValidExchangeRate(
         { MonId: currency, FchCotiz: formatted },
       );
       const rate = parseFloat(resp.ResultGet.MonCotiz);
-      if (rate) {
-        console.info(`[createVoucherService] Got rate ${rate}`);
-        return rate;
-      }
-    } catch (err) {
+      if (rate) return rate;
+    } catch {
       console.warn(
         `[createVoucherService] Cotización not available for ${formatted}, retrying…`,
-        err,
       );
     }
     date.setDate(date.getDate() - 1);
@@ -55,7 +51,7 @@ export async function createVoucherService(
   tipoFactura: number,
   receptorDocNumber: string,
   receptorDocTipo: number,
-  serviceDetails: {
+  serviceDetails: Array<{
     sale_price: number;
     taxableBase21: number;
     commission21: number;
@@ -67,26 +63,15 @@ export async function createVoucherService(
     vatOnCommission10_5?: number | null;
     taxableCardInterest?: number | null;
     vatOnCardInterest?: number | null;
-  }[],
+  }>,
   currency: string,
-  description21List: string[],
-  description10_5List: string[],
-  descriptionNonCompList: string[],
   exchangeRateManual?: number,
-  recipient?: string,
-  emitterName?: string,
-  emitterLegalName?: string,
-  emitterTaxId?: string,
-  emitterAddress?: string,
-  departureDate?: string,
-  returnDate?: string,
 ): Promise<VoucherResponse> {
   try {
     console.info(
-      `📤 Starting AFIP billing for receptor ${receptorDocNumber} (tipo ${receptorDocTipo})`,
+      `📤 AFIP billing for receptor ${receptorDocNumber} (tipo ${receptorDocTipo})`,
     );
-
-    // 1) Calcular totales
+    // Totals
     const saleTotal = serviceDetails.reduce((sum, s) => sum + s.sale_price, 0);
     const interestBase = serviceDetails.reduce(
       (sum, s) => sum + (s.taxableCardInterest ?? 0),
@@ -99,11 +84,9 @@ export async function createVoucherService(
     const adjustedTotal = parseFloat(
       (saleTotal + interestBase + interestVat).toFixed(2),
     );
-    console.info(
-      `saleTotal: ${saleTotal}, interestBase: ${interestBase}, interestVat: ${interestVat}, adjustedTotal: ${adjustedTotal}`,
-    );
+    console.info(`Adjusted total: ${adjustedTotal}`);
 
-    // 2) Construir entries de IVA
+    // IVA entries
     const base21 = serviceDetails.reduce(
       (sum, s) => sum + s.taxableBase21 + s.commission21,
       0,
@@ -120,7 +103,6 @@ export async function createVoucherService(
       (sum, s) => sum + (s.tax_105 ?? 0) + (s.vatOnCommission10_5 ?? 0),
       0,
     );
-
     const serviceIvaEntry: IVAEntry = {
       Id: 5,
       BaseImp: +base21.toFixed(2),
@@ -131,56 +113,53 @@ export async function createVoucherService(
       BaseImp: +interestBase.toFixed(2),
       Importe: +interestVat.toFixed(2),
     };
-
     const ivaEntries: IVAEntry[] = [];
-    if (base21 > 0 || imp21 > 0) ivaEntries.push(serviceIvaEntry);
-    if (base10_5 > 0 || imp10_5 > 0)
+    if (base21 || imp21) ivaEntries.push(serviceIvaEntry);
+    if (base10_5 || imp10_5)
       ivaEntries.push({
         Id: 4,
         BaseImp: +base10_5.toFixed(2),
         Importe: +imp10_5.toFixed(2),
       });
-    if (interestBase > 0 || interestVat > 0) ivaEntries.push(interestIvaEntry);
+    if (interestBase || interestVat) ivaEntries.push(interestIvaEntry);
 
-    // 3) Merge IVA entries
+    // Merge IVA entries by Id
     const mergedIvaEntries: IVAEntry[] = Object.values(
-      ivaEntries.reduce((acc: Record<number, IVAEntry>, cur: IVAEntry) => {
-        if (!acc[cur.Id]) acc[cur.Id] = { ...cur };
-        else {
-          acc[cur.Id].BaseImp += cur.BaseImp;
-          acc[cur.Id].Importe += cur.Importe;
-        }
-        return acc;
-      }, {}),
+      ivaEntries.reduce(
+        (acc, cur) => {
+          if (!acc[cur.Id]) acc[cur.Id] = { ...cur };
+          else {
+            acc[cur.Id].BaseImp += cur.BaseImp;
+            acc[cur.Id].Importe += cur.Importe;
+          }
+          return acc;
+        },
+        {} as Record<number, IVAEntry>,
+      ),
     );
-
-    const rawTotalIVA = mergedIvaEntries.reduce((sum, e) => sum + e.Importe, 0);
-    const totalIVA = parseFloat(rawTotalIVA.toFixed(2));
+    const totalIVA = parseFloat(
+      mergedIvaEntries.reduce((sum, e) => sum + e.Importe, 0).toFixed(2),
+    );
     const neto = parseFloat((adjustedTotal - totalIVA).toFixed(2));
     const totalBase = mergedIvaEntries.reduce((sum, e) => sum + e.BaseImp, 0);
-    if (Math.abs(neto - totalBase) > 0.01) {
-      const resto = parseFloat((neto - totalBase).toFixed(2));
-      mergedIvaEntries.push({ Id: 3, BaseImp: resto, Importe: 0 });
-    }
+    if (Math.abs(neto - totalBase) > 0.01)
+      mergedIvaEntries.push({
+        Id: 3,
+        BaseImp: parseFloat((neto - totalBase).toFixed(2)),
+        Importe: 0,
+      });
 
-    // 4) Obtener punto de venta y siguiente comprobante
-    console.info("Checking AFIP servers status");
+    // AFIP status & ptoVta
     const status = await afip.ElectronicBilling.getServerStatus();
     if (
       status.AppServer !== "OK" ||
       status.DbServer !== "OK" ||
       status.AuthServer !== "OK"
-    ) {
-      throw new Error("AFIP no disponible (App/DB/Auth).");
-    }
+    )
+      throw new Error("AFIP no disponible");
+    const pts = await afip.ElectronicBilling.getSalesPoints().catch(() => []);
+    const ptoVta = pts.length ? pts[0].Nro : 1;
 
-    let ptoVta = 1;
-    try {
-      const pts = await afip.ElectronicBilling.getSalesPoints();
-      if (pts.length) ptoVta = pts[0].Nro;
-    } catch {}
-
-    console.info("Getting next voucher number");
     const last = await afip.ElectronicBilling.getLastVoucher(
       ptoVta,
       tipoFactura,
@@ -196,20 +175,10 @@ export async function createVoucherService(
     const cbteFch =
       lastDate && Number(todayStr) < lastDate ? lastDate : Number(todayStr);
 
-    // 5) Asignar condición IVA automáticamente
-    // Si es Factura B (tipo 6) => Consumidor Final (5), si es Factura A (tipo 1) => Responsable Inscripto (1)
+    // IVA receptor condition
     const condId = tipoFactura === 6 ? 5 : 1;
-    console.info("Auto CondicionIVAReceptorId:", condId);
 
-    // Validación: no permitir Factura A si tipoFactura no es 1
-    if (tipoFactura === 1 && condId !== 1) {
-      return {
-        success: false,
-        message: "Tipo de factura no válido para la condición IVA automática",
-      };
-    }
-
-    // 6) Obtener cotizaciónón
+    // Exchange rate
     const cotiz =
       currency === "PES"
         ? 1
@@ -219,8 +188,8 @@ export async function createVoucherService(
             new Date(Date.now() - 86400000),
           )));
 
-    // 7) Armar payload y emitir
-    const voucherData = {
+    // Build voucher payload
+    const voucherData: Prisma.JsonObject = {
       CantReg: 1,
       PtoVta: ptoVta,
       CbteTipo: tipoFactura,
@@ -236,17 +205,15 @@ export async function createVoucherService(
       ImpIVA: totalIVA,
       MonId: currency,
       MonCotiz: cotiz,
-      Iva: mergedIvaEntries,
+      Iva: mergedIvaEntries as unknown as Prisma.JsonArray,
       CondicionIVAReceptorId: condId,
     };
-    console.info("Emitting voucher:", voucherData);
+    console.info("Emitting voucher", voucherData);
 
     const created = await afip.ElectronicBilling.createVoucher(voucherData);
-    if (!created.CAE) {
-      return { success: false, message: "CAE no devuelto por AFIP" };
-    }
+    if (!created.CAE) return { success: false, message: "CAE no devuelto" };
 
-    // 8) Generar QR y HTML
+    // Generate QR
     const qrPayload = {
       ver: 1,
       fecha: todayStr,
@@ -265,38 +232,15 @@ export async function createVoucherService(
     const qrBase64 = await qrcode.toDataURL(
       `https://www.afip.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
     );
-    const facturaHtml = generateHtml(
-      {
-        ...voucherData,
-        ...created,
-        saleTotal,
-        serviceIvaEntry,
-        interestBase,
-        interestVat,
-        interestIvaEntry,
-        recipient,
-        emitterName,
-        emitterLegalName,
-        emitterTaxId,
-        emitterAddress,
-        departureDate,
-        returnDate,
-        description21: description21List,
-        description10_5: description10_5List,
-        descriptionNonComputable: descriptionNonCompList,
-      },
-      qrBase64,
-    );
 
     return {
       success: true,
       message: "Factura creada exitosamente.",
-      details: { ...voucherData, ...created },
+      details: { ...voucherData, ...created } as Prisma.JsonObject,
       qrBase64,
-      facturaHtml,
     };
-  } catch (err: unknown) {
-    console.error("[createVoucherService] Error:", err);
+  } catch (err) {
+    console.error("[createVoucherService] Error", err);
     return { success: false, message: (err as Error).message };
   }
 }

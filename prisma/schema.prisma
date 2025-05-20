@@ -89,7 +89,7 @@ model Booking {
 }
 
 model Service {
-  id_service                Int      @id @default(autoincrement())
+  id_service                Int           @id @default(autoincrement())
   type                      String
   description               String
   note                      String?
@@ -118,11 +118,12 @@ model Service {
   vatOnCardInterest         Float?
   departure_date            DateTime
   return_date               DateTime
-  created_at                DateTime @default(now())
+  created_at                DateTime      @default(now())
   booking_id                Int
-  booking                   Booking  @relation(fields: [booking_id], references: [id_booking], onDelete: Cascade)
+  booking                   Booking       @relation(fields: [booking_id], references: [id_booking], onDelete: Cascade)
   id_operator               Int
-  operator                  Operator @relation(fields: [id_operator], references: [id_operator], onDelete: Cascade)
+  operator                  Operator      @relation(fields: [id_operator], references: [id_operator], onDelete: Cascade)
+  InvoiceItem               InvoiceItem[]
 }
 
 model Operator {
@@ -146,21 +147,42 @@ model Operator {
 }
 
 model Invoice {
-  id_invoice        Int          @id @default(autoincrement())
-  invoice_number    String       @unique
-  issue_date        DateTime     @default(now())
+  id_invoice        Int           @id @default(autoincrement())
+  invoice_number    String        @unique
+  issue_date        DateTime      @default(now())
   total_amount      Float
   currency          String
   status            String
   type              String
   recipient         String
-  details           String?
   facturaHtml       String?
+  payloadAfip       Json?
   bookingId_booking Int
-  booking           Booking      @relation("BookingInvoices", fields: [bookingId_booking], references: [id_booking])
+  booking           Booking       @relation("BookingInvoices", fields: [bookingId_booking], references: [id_booking])
   client_id         Int
-  client            Client       @relation("ClientInvoices", fields: [client_id], references: [id_client])
+  client            Client        @relation("ClientInvoices", fields: [client_id], references: [id_client])
   credit_notes      CreditNote[]
+  InvoiceItem       InvoiceItem[]
+}
+
+model InvoiceItem {
+  id                  Int      @id @default(autoincrement())
+  invoiceId           Int
+  invoice             Invoice  @relation(fields: [invoiceId], references: [id_invoice], onDelete: Cascade)
+  serviceId           Int?
+  service             Service? @relation(fields: [serviceId], references: [id_service])
+  description         String
+  sale_price          Float
+  taxableBase21       Float
+  commission21        Float
+  tax_21              Float
+  vatOnCommission21   Float
+  taxableBase10_5     Float?
+  commission10_5      Float?
+  tax_105             Float?
+  vatOnCommission10_5 Float?
+  taxableCardInterest Float?
+  vatOnCardInterest   Float?
 }
 
 model CreditNote {
