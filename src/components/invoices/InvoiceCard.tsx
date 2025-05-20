@@ -22,7 +22,7 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
     value: number | undefined,
     currency: string | undefined,
   ): string => {
-    if (value === undefined || value === null || !currency) return "N/A";
+    if (value == null || !currency) return "N/A";
     return new Intl.NumberFormat("es-AR", {
       style: "currency",
       currency,
@@ -31,16 +31,13 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
 
   const downloadPDF = async () => {
     try {
-      const response = await fetch(`/api/receipts/${invoice.id_invoice}/pdf`, {
+      // 🔑 Aquí era /api/receipts/... y debe ser /api/invoices/...
+      const response = await fetch(`/api/invoices/${invoice.id_invoice}/pdf`, {
         headers: { Accept: "application/pdf" },
       });
-
       if (!response.ok) {
-        throw new Error(
-          `Error al descargar la factura ID: ${invoice.id_invoice}`,
-        );
+        throw new Error(`Error al descargar factura ID: ${invoice.id_invoice}`);
       }
-
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -49,8 +46,8 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
       link.click();
       window.URL.revokeObjectURL(url);
       toast.success("Factura descargada exitosamente.");
-    } catch (_error) {
-      console.error(_error);
+    } catch (err) {
+      console.error(err);
       toast.error("No se pudo descargar la factura.");
     }
   };
@@ -64,7 +61,7 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
       <p className="font-semibold">
         Destinatario/a:{" "}
         <span className="font-light">
-          {invoice.recipient || "N/A"} - ID {invoice.client_id}
+          {invoice.recipient || "N/A"} – ID {invoice.client_id}
         </span>
       </p>
       <p className="font-semibold">

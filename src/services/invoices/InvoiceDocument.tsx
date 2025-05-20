@@ -1,5 +1,4 @@
 // src/services/invoices/InvoiceDocument.tsx
-
 import React from "react";
 import path from "path";
 import {
@@ -94,27 +93,63 @@ const fmtCurr = (n: number, curr: string) => {
 };
 
 const styles = StyleSheet.create({
-  page: { fontFamily: "Poppins", fontSize: 11, padding: 20, color: "#333" },
+  page: {
+    fontFamily: "Poppins",
+    fontSize: 11,
+    padding: 20,
+    color: "#333",
+  },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 20,
   },
-  invoiceInfo: { textAlign: "center" },
-  section: { marginBottom: 10 },
+  invoiceInfo: {
+    textAlign: "center",
+  },
+  section: {
+    marginBottom: 10,
+  },
   table: {
     width: "100%",
     borderWidth: 1,
     borderColor: "#ddd",
     marginBottom: 10,
   },
-  row: { flexDirection: "row", borderBottomWidth: 1, borderColor: "#ddd" },
-  headerCell: { backgroundColor: "#f0f0f0", fontWeight: "bold" },
-  cellDesc: { width: "40%", padding: 4 },
-  cellNum: { width: "20%", padding: 4, textAlign: "right" },
-  summary: { flexDirection: "column", alignItems: "flex-end", marginTop: 5 },
-  qr: { width: 80, height: 80, marginTop: 10 },
-  footer: { fontSize: 9, textAlign: "center", marginTop: 10, color: "#555" },
+  row: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderColor: "#ddd",
+  },
+  headerCell: {
+    backgroundColor: "#f0f0f0",
+    fontWeight: "bold",
+  },
+  cellDesc: {
+    width: "40%",
+    padding: 4,
+  },
+  cellNum: {
+    width: "20%",
+    padding: 4,
+    textAlign: "right",
+  },
+  summary: {
+    flexDirection: "column",
+    alignItems: "flex-end",
+    marginTop: 5,
+  },
+  qr: {
+    width: 80,
+    height: 80,
+    marginTop: 10,
+  },
+  footer: {
+    fontSize: 9,
+    textAlign: "center",
+    marginTop: 10,
+    color: "#555",
+  },
 });
 
 const InvoiceDocument: React.FC<{
@@ -149,7 +184,7 @@ const InvoiceDocument: React.FC<{
     interestVat = 0,
   } = voucherData;
 
-  // === Ítems por categoría de IVA ===
+  // Ítems por categoría de IVA
   const items: LineItem[] = Iva.map((e, idx) => {
     let descArray: string[] = [];
     if (e.Id === 5) descArray = description21;
@@ -165,7 +200,7 @@ const InvoiceDocument: React.FC<{
     };
   });
 
-  // === Intereses ===
+  // Intereses
   const interestItems: LineItem[] = [];
   if (interestBase) {
     interestItems.push({
@@ -184,11 +219,14 @@ const InvoiceDocument: React.FC<{
     });
   }
 
-  // Formato fecha y CAE
-  const fechaEm =
-    typeof CbteFch === "string"
-      ? `${CbteFch.slice(6, 8)}/${CbteFch.slice(4, 6)}/${CbteFch.slice(0, 4)}`
-      : fmtDate(new Date(CbteFch.toString()));
+  // Formateo de la fecha de comprobante (CbteFch viene como YYYYMMDD)
+  const rawFch = CbteFch.toString().padStart(8, "0");
+  const fechaEm = `${rawFch.slice(6, 8)}/${rawFch.slice(
+    4,
+    6,
+  )}/${rawFch.slice(0, 4)}`;
+
+  // Formateo de Vto. CAE
   const caeVto = CAEFchVto.split("-").reverse().join("/");
 
   return (
@@ -235,7 +273,7 @@ const InvoiceDocument: React.FC<{
           </View>
         )}
 
-        {/* Ítems por categoría de IVA */}
+        {/* Items IVA */}
         <View style={styles.table}>
           <View style={[styles.row, styles.headerCell]}>
             <Text style={styles.cellDesc}>Descripción</Text>
@@ -281,7 +319,7 @@ const InvoiceDocument: React.FC<{
           </View>
         )}
 
-        {/* IVA resumen */}
+        {/* Resumen IVA */}
         <View style={styles.table}>
           <View style={[styles.row, styles.headerCell]}>
             <Text style={styles.cellDesc}>Tasa</Text>
@@ -299,7 +337,7 @@ const InvoiceDocument: React.FC<{
           ))}
         </View>
 
-        {/* Resumen final */}
+        {/* Total */}
         <View style={styles.summary}>
           <Text>Subtotal Neto: {fmtCurr(ImpNeto, currency)}</Text>
           <Text>IVA: {fmtCurr(ImpIVA, currency)}</Text>
