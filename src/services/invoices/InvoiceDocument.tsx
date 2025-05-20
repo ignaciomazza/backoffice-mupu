@@ -1,4 +1,4 @@
-// src/services/invoices/InvoiceDocument.tsx
+// src/components/InvoiceDocument.tsx
 import React from "react";
 import path from "path";
 import {
@@ -15,40 +15,32 @@ export interface VoucherData {
   CbteTipo: number;
   PtoVta: number;
   CbteDesde: number;
-  CbteFch: string | number;
+  CbteFch: string | number | Date;
   ImpTotal: number;
   ImpNeto: number;
   ImpIVA: number;
+  ImpOtrosTributos?: number;
   CAE: string;
   CAEFchVto: string;
   DocNro: number;
   recipient?: string;
+  recipientAddress?: string;
+  recipientCondIVA?: string;
   emitterName: string;
   emitterLegalName: string;
   emitterTaxId?: string;
   emitterAddress?: string;
+  emitterCondIVA?: string;
+  emitterIIBB?: string;
+  emitterActInicio?: string;
   departureDate?: string;
   returnDate?: string;
+  Iva?: Array<{ Id: number; BaseImp: number; Importe: number }>;
   description21?: string[];
   description10_5?: string[];
   descriptionNonComputable?: string[];
-  interestBase?: number;
-  interestVat?: number;
-  Iva?: Array<{
-    Id: number;
-    BaseImp: number;
-    Importe: number;
-  }>;
 }
 
-interface LineItem {
-  description: string;
-  quantity: number;
-  unitPrice: number;
-  subtotal: number;
-}
-
-// Registrar Poppins
 Font.register({
   family: "Poppins",
   fonts: [
@@ -63,101 +55,150 @@ Font.register({
   ],
 });
 
-// Formateo de fecha
-const fmtDate = (d: Date) =>
-  new Intl.DateTimeFormat("es-AR", {
+/**
+ * Formatea fechas:
+ * - Si es número tipo 20250520 -> 20/05/2025
+ * - Si es string "YYYY-MM-DD" -> DD/MM/YYYY
+ * - Si es Date u otro string ISO -> Intl.format con zona AR sin desfasaje
+ */
+const fmtDate = (raw: string | number | Date): string => {
+  const s = raw?.toString();
+  // YYYYMMDD numérico
+  if (/^\d{8}$/.test(s!)) {
+    return `${s!.slice(6, 8)}/${s!.slice(4, 6)}/${s!.slice(0, 4)}`;
+  }
+  // YYYY-MM-DD
+  const iso = s?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  }
+  // Date u otro string
+  const d = raw instanceof Date ? raw : new Date(s!);
+  if (isNaN(d.getTime())) return s!;
+  return new Intl.DateTimeFormat("es-AR", {
+    timeZone: "UTC",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
   }).format(d);
+};
 
-// Formateo numérico
-const fmtNum = (n: number) =>
-  new Intl.NumberFormat("es-AR", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-
-// Formateo monetario
-const fmtCurr = (n: number, curr: string) => {
+const safeFmtCurrency = (value: number, curr: string): string => {
+  let code = curr.toUpperCase();
+  if (code === "PES") code = "ARS";
+  else if (code === "DOL" || code === "U$S") code = "USD";
   try {
-    return new Intl.NumberFormat("es-AR", {
-      style: "currency",
-      currency: curr,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(n);
-  } catch {
-    return `${fmtNum(n)} ${curr}`;
-  }
+    if (code === "ARS" || code === "USD") {
+      return new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: code,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(value);
+    }
+  } catch {}
+  return `${value.toFixed(2)} ${code}`;
 };
 
 const styles = StyleSheet.create({
   page: {
     fontFamily: "Poppins",
-    fontSize: 11,
-    padding: 20,
+    fontSize: 10,
+    padding: 60,
     color: "#333",
   },
-  header: {
+  headerBand: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 10,
+    borderRadius: 6,
+    marginBottom: 12,
+  },
+  logo: { height: 40 },
+  invoiceType: {
+    color: "#333",
+    fontSize: 24,
+    fontWeight: "bold",
+    padding: "2px 10px 0px 12px",
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#333",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  invoiceTitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    textAlign: "center",
+    textTransform: "uppercase",
+    marginBottom: 12,
+    color: "#555",
+  },
+  infoTable: { marginBottom: 12 },
+  infoRow: { flexDirection: "row", marginBottom: 4 },
+  infoLabel: { width: "15%", fontWeight: "bold", color: "#555" },
+  infoValue: { width: "20%" },
+  parties: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 20,
+    marginBottom: 12,
   },
-  invoiceInfo: {
-    textAlign: "center",
+  partyBox: {
+    width: "48%",
+    backgroundColor: "#fafafa",
+    padding: 8,
+    borderRadius: 4,
   },
-  section: {
-    marginBottom: 10,
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: "bold",
+    marginBottom: 6,
+    textTransform: "uppercase",
+    color: "#555",
   },
   table: {
     width: "100%",
     borderWidth: 1,
-    borderColor: "#ddd",
-    marginBottom: 10,
+    borderColor: "#ccc",
+    borderRadius: 4,
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+  headerCell: {
+    flexDirection: "row",
+    backgroundColor: "#e8e8e8",
+    borderBottomWidth: 1,
+    borderColor: "#ccc",
   },
   row: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#eee",
   },
-  headerCell: {
-    backgroundColor: "#f0f0f0",
-    fontWeight: "bold",
+  rowAlt: {
+    backgroundColor: "#fcfcfc",
   },
-  cellDesc: {
-    width: "40%",
-    padding: 4,
-  },
-  cellNum: {
-    width: "20%",
-    padding: 4,
-    textAlign: "right",
-  },
+  cellCode: { width: "10%", padding: 6, fontSize: 8 },
+  cellDesc: { width: "40%", padding: 6, fontSize: 8 },
+  cellNum: { width: "15%", padding: 6, textAlign: "right", fontSize: 8 },
   summary: {
-    flexDirection: "column",
+    marginTop: 8,
+    borderTopWidth: 1,
+    borderColor: "#ccc",
+    paddingTop: 6,
     alignItems: "flex-end",
-    marginTop: 5,
   },
-  qr: {
-    width: 80,
-    height: 80,
-    marginTop: 10,
-  },
-  footer: {
-    fontSize: 9,
-    textAlign: "center",
-    marginTop: 10,
-    color: "#555",
-  },
+  qr: { width: 120, height: 120, marginTop: 10 },
+  footer: { fontSize: 8, textAlign: "center", marginTop: 36, color: "#777" },
 });
 
 const InvoiceDocument: React.FC<{
-  invoiceNumber: string;
   voucherData: VoucherData;
   qrBase64?: string;
   currency: string;
-}> = ({ invoiceNumber, voucherData, qrBase64, currency }) => {
+  logoBase64?: string;
+}> = ({ voucherData, qrBase64, currency, logoBase64 }) => {
   const {
     CbteTipo,
     PtoVta,
@@ -166,183 +207,152 @@ const InvoiceDocument: React.FC<{
     ImpTotal,
     ImpNeto,
     ImpIVA,
+    ImpOtrosTributos = 0,
     CAE,
     CAEFchVto,
     DocNro,
     recipient,
+    recipientAddress,
+    recipientCondIVA,
     emitterName,
     emitterLegalName,
     emitterTaxId,
     emitterAddress,
+    emitterCondIVA,
+    emitterIIBB,
+    emitterActInicio,
     departureDate,
     returnDate,
     Iva = [],
     description21 = [],
     description10_5 = [],
     descriptionNonComputable = [],
-    interestBase = 0,
-    interestVat = 0,
   } = voucherData;
 
-  // Ítems por categoría de IVA
-  const items: LineItem[] = Iva.map((e, idx) => {
-    let descArray: string[] = [];
-    if (e.Id === 5) descArray = description21;
-    else if (e.Id === 4) descArray = description10_5;
-    else descArray = descriptionNonComputable;
+  const fechaEm = fmtDate(CbteFch);
+  const caeVto = fmtDate(CAEFchVto);
 
+  // Construir ítems con descripciones según tasa
+  const items = Iva.map((e) => {
+    const rate = e.Id === 5 ? 21 : e.Id === 4 ? 10.5 : 0;
+    let desc: string;
+    if (rate === 21) desc = description21[0] || `IVA ${rate}%`;
+    else if (rate === 10.5) desc = description10_5[0] || `IVA ${rate}%`;
+    else desc = descriptionNonComputable[0] || `IVA ${rate}%`;
     const amount = e.BaseImp + e.Importe;
     return {
-      description: descArray[idx] ?? "Item",
+      code: "-",
+      description: desc,
       quantity: 1,
       unitPrice: amount,
       subtotal: amount,
     };
   });
 
-  // Intereses
-  const interestItems: LineItem[] = [];
-  if (interestBase) {
-    interestItems.push({
-      description: "Interés tarjeta",
-      quantity: 1,
-      unitPrice: interestBase,
-      subtotal: interestBase,
-    });
-  }
-  if (interestVat) {
-    interestItems.push({
-      description: "IVA sobre interés",
-      quantity: 1,
-      unitPrice: interestVat,
-      subtotal: interestVat,
-    });
-  }
-
-  // Formateo de la fecha de comprobante (CbteFch viene como YYYYMMDD)
-  const rawFch = CbteFch.toString().padStart(8, "0");
-  const fechaEm = `${rawFch.slice(6, 8)}/${rawFch.slice(
-    4,
-    6,
-  )}/${rawFch.slice(0, 4)}`;
-
-  // Formateo de Vto. CAE
-  const caeVto = CAEFchVto.split("-").reverse().join("/");
-
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.invoiceInfo}>
-            <Text>Factura {CbteTipo === 1 ? "A" : "B"}</Text>
-            <Text>N° {invoiceNumber}</Text>
-            <Text>Pto Vta: {PtoVta}</Text>
-            <Text>Cmp Nro: {CbteDesde}</Text>
-            <Text>Emisión: {fechaEm}</Text>
+        {/* Cabecera */}
+        <View style={styles.headerBand}>
+          {logoBase64 && (
+            // eslint-disable-next-line jsx-a11y/alt-text
+            <Image
+              style={styles.logo}
+              src={`data:image/png;base64,${logoBase64}`}
+            />
+          )}
+          <Text style={styles.invoiceType}>
+            {`${CbteTipo === 1 ? "A" : CbteTipo === 6 ? "B" : CbteTipo}`}
+          </Text>
+        </View>
+
+        {/* Título */}
+        <Text style={styles.invoiceTitle}>Comprobante Electrónico</Text>
+
+        {/* Datos generales */}
+        <View style={styles.infoTable}>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Pto. Venta:</Text>
+            <Text style={styles.infoValue}>{PtoVta}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>N°:</Text>
+            <Text style={styles.infoValue}>{CbteDesde}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Emisión:</Text>
+            <Text style={styles.infoValue}>{fechaEm}</Text>
+          </View>
+          {(departureDate || returnDate) && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Período:</Text>
+              <Text style={styles.infoRow}>
+                {departureDate && fmtDate(departureDate)}
+                {returnDate && ` al ${fmtDate(returnDate)}`}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Emisor y Receptor */}
+        <View style={styles.parties}>
+          <View style={styles.partyBox}>
+            <Text style={styles.sectionTitle}>Emisor</Text>
+            <Text>{emitterName}</Text>
+            <Text>Razón social: {emitterLegalName}</Text>
+            <Text>CUIT: {emitterTaxId}</Text>
+            <Text>Domicilio: {emitterAddress}</Text>
+            {emitterCondIVA && <Text>IVA: {emitterCondIVA}</Text>}
+            {emitterIIBB && <Text>IIBB: {emitterIIBB}</Text>}
+            {emitterActInicio && <Text>Inicio Act.: {emitterActInicio}</Text>}
+          </View>
+          <View style={styles.partyBox}>
+            <Text style={styles.sectionTitle}>Receptor</Text>
+            <Text>{recipient}</Text>
+            <Text>DNI/CUIT: {DocNro}</Text>
+            {recipientAddress && <Text>Domicilio: {recipientAddress}</Text>}
+            {recipientCondIVA && <Text>IVA: {recipientCondIVA}</Text>}
           </View>
         </View>
 
-        {/* Emisor */}
-        <View style={styles.section}>
-          <Text style={{ fontWeight: "bold" }}>Emisor</Text>
-          <Text>{emitterName}</Text>
-          <Text>Razón social: {emitterLegalName}</Text>
-          <Text>CUIT: {emitterTaxId}</Text>
-          <Text>{emitterAddress}</Text>
-        </View>
-
-        {/* Receptor */}
-        <View style={styles.section}>
-          <Text style={{ fontWeight: "bold" }}>Receptor</Text>
-          <Text>{recipient}</Text>
-          <Text>DNI/CUIT: {DocNro}</Text>
-        </View>
-
-        {/* Fechas de reserva */}
-        {(departureDate || returnDate) && (
-          <View style={styles.section}>
-            <Text>
-              <Text style={{ fontWeight: "bold" }}>Salida: </Text>
-              {departureDate ? fmtDate(new Date(departureDate)) : "-"}
-            </Text>
-            <Text>
-              <Text style={{ fontWeight: "bold" }}>Regreso: </Text>
-              {returnDate ? fmtDate(new Date(returnDate)) : "-"}
-            </Text>
-          </View>
-        )}
-
-        {/* Items IVA */}
+        {/* Detalle de ítems */}
         <View style={styles.table}>
-          <View style={[styles.row, styles.headerCell]}>
+          <View style={styles.headerCell}>
+            <Text style={styles.cellCode}>Código</Text>
             <Text style={styles.cellDesc}>Descripción</Text>
             <Text style={styles.cellNum}>Cant.</Text>
             <Text style={styles.cellNum}>Precio U.</Text>
             <Text style={styles.cellNum}>Subtotal</Text>
           </View>
           {items.map((it, i) => (
-            <View style={styles.row} key={i}>
+            <View
+              key={i}
+              style={i % 2 === 1 ? [styles.row, styles.rowAlt] : styles.row}
+            >
+              <Text style={styles.cellCode}>{it.code}</Text>
               <Text style={styles.cellDesc}>{it.description}</Text>
               <Text style={styles.cellNum}>{it.quantity}</Text>
               <Text style={styles.cellNum}>
-                {fmtCurr(it.unitPrice, currency)}
+                {safeFmtCurrency(it.unitPrice, currency)}
               </Text>
               <Text style={styles.cellNum}>
-                {fmtCurr(it.subtotal, currency)}
+                {safeFmtCurrency(it.subtotal, currency)}
               </Text>
             </View>
           ))}
         </View>
 
-        {/* Intereses */}
-        {interestItems.length > 0 && (
-          <View style={[styles.table, { marginBottom: 0 }]}>
-            <View style={[styles.row, styles.headerCell]}>
-              <Text style={styles.cellDesc}>Concepto</Text>
-              <Text style={styles.cellNum}>Cant.</Text>
-              <Text style={styles.cellNum}>Precio U.</Text>
-              <Text style={styles.cellNum}>Subtotal</Text>
-            </View>
-            {interestItems.map((it, i) => (
-              <View style={styles.row} key={i}>
-                <Text style={styles.cellDesc}>{it.description}</Text>
-                <Text style={styles.cellNum}>{it.quantity}</Text>
-                <Text style={styles.cellNum}>
-                  {fmtCurr(it.unitPrice, currency)}
-                </Text>
-                <Text style={styles.cellNum}>
-                  {fmtCurr(it.subtotal, currency)}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* Resumen IVA */}
-        <View style={styles.table}>
-          <View style={[styles.row, styles.headerCell]}>
-            <Text style={styles.cellDesc}>Tasa</Text>
-            <Text style={styles.cellNum}>Base</Text>
-            <Text style={styles.cellNum}>Importe</Text>
-          </View>
-          {Iva.map((e, i) => (
-            <View style={styles.row} key={i}>
-              <Text style={styles.cellDesc}>
-                {e.Id === 5 ? "21%" : e.Id === 4 ? "10.5%" : "No Gravado"}
-              </Text>
-              <Text style={styles.cellNum}>{fmtNum(e.BaseImp)}</Text>
-              <Text style={styles.cellNum}>{fmtNum(e.Importe)}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Total */}
+        {/* Resumen de totales */}
         <View style={styles.summary}>
-          <Text>Subtotal Neto: {fmtCurr(ImpNeto, currency)}</Text>
-          <Text>IVA: {fmtCurr(ImpIVA, currency)}</Text>
+          <Text>Subtotal Neto: {safeFmtCurrency(ImpNeto, currency)}</Text>
+          <Text>IVA: {safeFmtCurrency(ImpIVA, currency)}</Text>
+          {ImpOtrosTributos !== undefined && (
+            <Text>
+              Otros Tributos: {safeFmtCurrency(ImpOtrosTributos, currency)}
+            </Text>
+          )}
           <Text style={{ fontWeight: "bold" }}>
-            Total: {fmtCurr(ImpTotal, currency)}
+            Total: {safeFmtCurrency(ImpTotal, currency)}
           </Text>
         </View>
 
