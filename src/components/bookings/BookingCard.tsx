@@ -101,6 +101,12 @@ export default function BookingCard({
             </li>
           </ul>
           <p className="mt-4 font-semibold dark:font-medium">
+            Fecha de Creacion
+            <span className="ml-2 font-light">
+              {formatDate(booking.creation_date)}
+            </span>
+          </p>
+          <p className="mt-4 font-semibold dark:font-medium">
             Observaciones de administracion
           </p>
           <p className="font-light">
@@ -156,29 +162,34 @@ export default function BookingCard({
             </div>
           </div>
         ) : (
-          <button
-            onClick={() =>
-              setExpandedBookingId((prevId) =>
-                prevId === booking.id_booking ? null : booking.id_booking,
-              )
-            }
-            className="mt-4 flex items-center justify-center rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="size-6"
+          <div className="flex w-full items-end justify-between">
+            <button
+              onClick={() =>
+                setExpandedBookingId((prevId) =>
+                  prevId === booking.id_booking ? null : booking.id_booking,
+                )
+              }
+              className="mt-4 flex items-center justify-center rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 4.5v15m7.5-7.5h-15"
-              />
-            </svg>
-          </button>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="size-6"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 4.5v15m7.5-7.5h-15"
+                />
+              </svg>
+            </button>
+            <p className="text-sm font-light">
+              {formatDate(booking.creation_date)}
+            </p>
+          </div>
         )}
       </div>
     </motion.div>

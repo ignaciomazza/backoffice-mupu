@@ -75,6 +75,7 @@ export interface Booking {
   pax_count: number;
   clients: Client[]; // Acompañantes (opcional)
   services?: Service[];
+  creation_date: string;
 }
 
 export interface BookingFormData {

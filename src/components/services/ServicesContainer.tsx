@@ -217,7 +217,8 @@ export default function ServicesContainer({
               <p className="font-semibold dark:font-medium">
                 Titular
                 <span className="ml-2 font-light">
-                  {booking.titular.first_name} {booking.titular.last_name}
+                  {booking.titular.first_name} {booking.titular.last_name} -{" "}
+                  {booking.titular.id_client}
                 </span>
               </p>
               <div>
@@ -240,11 +241,12 @@ export default function ServicesContainer({
               </p>
               <ul className="ml-4 list-disc">
                 <li>
-                  {booking.titular.first_name} {booking.titular.last_name}
+                  {booking.titular.first_name} {booking.titular.last_name} -{" "}
+                  {booking.titular.id_client}
                 </li>
                 {booking.clients.map((client) => (
                   <li key={client.id_client}>
-                    {client.first_name} {client.last_name}
+                    {client.first_name} {client.last_name} - {client.id_client}
                   </li>
                 ))}
               </ul>
@@ -267,6 +269,9 @@ export default function ServicesContainer({
               <p className="font-light">
                 {booking.observation || "Sin observaciones"}
               </p>
+              <p className="text-end font-light">
+                {formatDate(booking.creation_date)}
+              </p>
             </div>
           )}
 
@@ -283,39 +288,43 @@ export default function ServicesContainer({
                 onBillingUpdate={onBillingUpdate}
               />
 
-              <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
-                Servicios Agregados
-              </h2>
-              <ServiceList
-                services={services}
-                expandedServiceId={expandedServiceId}
-                setExpandedServiceId={setExpandedServiceId}
-                startEditingService={(service) => {
-                  setEditingServiceId(service.id_service);
-                  setFormData({
-                    ...service,
-                    departure_date: service.departure_date
-                      ? new Date(service.departure_date)
-                          .toISOString()
-                          .split("T")[0]
-                      : "",
-                    return_date: service.return_date
-                      ? new Date(service.return_date)
-                          .toISOString()
-                          .split("T")[0]
-                      : "",
-                    id_operator: service.id_operator || 0,
-                    card_interest: service.card_interest || 0,
-                    card_interest_21: service.card_interest_21 || 0,
-                  });
-                  setIsFormVisible(true);
-                }}
-                deleteService={deleteService}
-              />
+              {services.length > 0 && (
+                <div>
+                  <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
+                    Servicios Agregados
+                  </h2>
+                  <ServiceList
+                    services={services}
+                    expandedServiceId={expandedServiceId}
+                    setExpandedServiceId={setExpandedServiceId}
+                    startEditingService={(service) => {
+                      setEditingServiceId(service.id_service);
+                      setFormData({
+                        ...service,
+                        departure_date: service.departure_date
+                          ? new Date(service.departure_date)
+                              .toISOString()
+                              .split("T")[0]
+                          : "",
+                        return_date: service.return_date
+                          ? new Date(service.return_date)
+                              .toISOString()
+                              .split("T")[0]
+                          : "",
+                        id_operator: service.id_operator || 0,
+                        card_interest: service.card_interest || 0,
+                        card_interest_21: service.card_interest_21 || 0,
+                      });
+                      setIsFormVisible(true);
+                    }}
+                    deleteService={deleteService}
+                  />
+                </div>
+              )}
 
               {(role === "administrativo" ||
                 role === "desarrollador" ||
-                role === "gerente") && (
+                role === "gerente") && services.length > 0 && (
                 <div className="mb-4 mt-8">
                   <ReceiptForm booking={booking} onCreated={onReceiptCreated} />
                 </div>
@@ -332,7 +341,7 @@ export default function ServicesContainer({
 
               {(role === "administrativo" ||
                 role === "desarrollador" ||
-                role === "gerente") && (
+                role === "gerente") && services.length > 0 && (
                 <div>
                   <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
                     Factura
@@ -353,7 +362,7 @@ export default function ServicesContainer({
 
               {(role === "administrativo" ||
                 role === "desarrollador" ||
-                role === "gerente") && (
+                role === "gerente") && services.length > 0 && (
                 <div className="my-8">
                   <h2 className="mb-4 text-xl font-semibold dark:font-medium">
                     Estado
