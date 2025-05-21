@@ -4,12 +4,17 @@
 import { Invoice } from "@/types";
 import { toast } from "react-toastify";
 import Spinner from "../Spinner";
+import { useState } from "react";
+
+type InvoiceApi = Invoice & { bookingId_booking?: number };
 
 interface InvoiceCardProps {
-  invoice: Invoice;
+  invoice: InvoiceApi;
 }
 
 export default function InvoiceCard({ invoice }: InvoiceCardProps) {
+  const [loading, setLoading] = useState(false);
+
   if (!invoice || !invoice.id_invoice) {
     return (
       <div className="flex h-40 items-center justify-center dark:text-white">
@@ -29,9 +34,19 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
     }).format(value);
   };
 
+  const slugify = (text: string): string =>
+    text
+      .toString()
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // Quitar acentos
+      .replace(/[^a-z0-9]+/g, "_") // Reemplazar no alfanuméricos por guión bajo
+      .replace(/^_+|_+$/g, ""); // Quitar guiones bajos al inicio o fin
+
   const downloadPDF = async () => {
+    setLoading(true);
     try {
-      // 🔑 Aquí era /api/receipts/... y debe ser /api/invoices/...
       const response = await fetch(`/api/invoices/${invoice.id_invoice}/pdf`, {
         headers: { Accept: "application/pdf" },
       });
@@ -42,13 +57,25 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `factura_${invoice.id_invoice}.pdf`;
+
+      const clientName = invoice.recipient
+        ? slugify(invoice.recipient)
+        : `cliente_${invoice.client_id}`;
+
+      // Aquí no usamos any, sino la propiedad opcional que definimos
+      const bookingId =
+        invoice.bookingId_booking ?? invoice.booking?.id_booking ?? "reserva";
+
+      const filename = `Factura_${clientName}_${bookingId}.pdf`.trim();
+      link.download = filename;
       link.click();
       window.URL.revokeObjectURL(url);
       toast.success("Factura descargada exitosamente.");
     } catch (err) {
       console.error(err);
       toast.error("No se pudo descargar la factura.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -83,9 +110,12 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
       </p>
       <button
         onClick={downloadPDF}
-        className="mt-3 block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+        disabled={loading}
+        className={`mt-3 w-full rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black ${
+          loading ? "cursor-not-allowed opacity-50" : ""
+        }`}
       >
-        Descargar PDF
+        {loading ? <Spinner /> : "Descargar PDF"}
       </button>
     </div>
   );

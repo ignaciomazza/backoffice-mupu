@@ -1,17 +1,17 @@
 "use client";
 import { useState } from "react";
-import { Receipt } from "@/types";
+import { Receipt, Booking } from "@/types";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
 
 interface ReceiptCardProps {
   receipt: Receipt;
+  booking: Booking;
 }
 
-export default function ReceiptCard({ receipt }: ReceiptCardProps) {
+export default function ReceiptCard({ receipt, booking }: ReceiptCardProps) {
   const [loading, setLoading] = useState(false);
 
-  // Si no hay recibo, mostrar spinner de carga
   if (!receipt || !receipt.id_receipt) {
     return (
       <div className="flex h-40 items-center justify-center dark:text-white">
@@ -20,25 +20,41 @@ export default function ReceiptCard({ receipt }: ReceiptCardProps) {
     );
   }
 
+  const slugify = (text: string): string =>
+    text
+      .toString()
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // Quitar acentos
+      .replace(/[^a-z0-9]+/g, "_") // No alfanum → underscore
+      .replace(/^_+|_+$/g, ""); // Quitar underscores al final/inicio
+
   const downloadPDF = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/receipts/${receipt.id_receipt}/pdf`, {
+      const res = await fetch(`/api/receipts/${receipt.id_receipt}/pdf`, {
         headers: { Accept: "application/pdf" },
       });
-      if (!response.ok) throw new Error();
+      if (!res.ok) throw new Error();
 
-      const blob = await response.blob();
+      const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `recibo_${receipt.id_receipt}.pdf`;
+
+      // Ahora sí tenemos booking.titular
+      const rawName =
+        booking.titular.company_name ||
+        `${booking.titular.first_name} ${booking.titular.last_name}`;
+      const clientName = slugify(rawName);
+      const bookingId = booking.id_booking;
+
+      link.download = `Recibo_${clientName}_${bookingId}.pdf`;
       link.click();
       window.URL.revokeObjectURL(url);
-
       toast.success("Recibo descargado exitosamente.");
-    } catch (error) {
-      console.error(error);
+    } catch {
       toast.error("No se pudo descargar el recibo.");
     } finally {
       setLoading(false);

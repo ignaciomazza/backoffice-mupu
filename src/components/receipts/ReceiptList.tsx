@@ -1,14 +1,15 @@
 // src/components/receipts/ReceiptList.tsx
-import { Receipt } from "@/types";
+import { Receipt, Booking } from "@/types";
 import ReceiptCard from "./ReceiptCard";
 import Spinner from "@/components/Spinner";
 import "react-toastify/dist/ReactToastify.css";
 
 interface ReceiptListProps {
   receipts: Receipt[];
+  booking: Booking;
 }
 
-export default function ReceiptList({ receipts }: ReceiptListProps) {
+export default function ReceiptList({ receipts, booking }: ReceiptListProps) {
   if (!receipts || receipts.length === 0) {
     return (
       <div className="flex h-40 items-center justify-center">
@@ -22,7 +23,11 @@ export default function ReceiptList({ receipts }: ReceiptListProps) {
       {receipts
         .filter((r) => r && r.id_receipt)
         .map((receipt) => (
-          <ReceiptCard key={receipt.id_receipt} receipt={receipt} />
+          <ReceiptCard
+            key={receipt.id_receipt}
+            receipt={receipt}
+            booking={booking}
+          />
         ))}
     </div>
   );

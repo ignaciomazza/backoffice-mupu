@@ -326,7 +326,7 @@ export default function ServicesContainer({
                   <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
                     Recibos
                   </h2>
-                  <ReceiptList receipts={receipts} />
+                  <ReceiptList receipts={receipts} booking={booking} />
                 </div>
               )}
 
