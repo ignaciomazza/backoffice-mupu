@@ -15,6 +15,7 @@ import { Booking, Service, Operator, Invoice, Receipt } from "@/types";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
 import ReceiptList from "@/components/receipts/ReceiptList";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 export type ServiceFormData = {
   type: string;
@@ -125,6 +126,36 @@ export default function ServicesContainer({
   role,
   onBookingUpdated,
 }: ServicesContainerProps) {
+  const router = useRouter();
+
+  const [bookingIds, setBookingIds] = useState<number[]>([]);
+
+  useEffect(() => {
+    const loadBookingIds = async () => {
+      try {
+        const res = await fetch("/api/bookings");
+        if (!res.ok) throw new Error("No se pudieron cargar los IDs");
+        const data: Booking[] = await res.json();
+        // 1) extraemos y ordenamos numéricamente:
+        const ids = data.map((b) => b.id_booking).sort((a, b) => a - b);
+        setBookingIds(ids);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    loadBookingIds();
+  }, []);
+
+  const currentIndex = booking
+    ? bookingIds.findIndex((id) => id === booking.id_booking)
+    : -1;
+
+  const prevId = currentIndex > 0 ? bookingIds[currentIndex - 1] : null;
+  const nextId =
+    currentIndex >= 0 && currentIndex < bookingIds.length - 1
+      ? bookingIds[currentIndex + 1]
+      : null;
+
   const [selectedStatus, setSelectedStatus] = useState("Pendiente");
   useEffect(() => {
     if (booking?.status) {
@@ -181,13 +212,75 @@ export default function ServicesContainer({
         </div>
       ) : (
         <>
-          <div className="mb-6">
+          <div className="mb-6 flex justify-between">
             <Link
               href="/bookings"
-              className="block w-fit rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+              className="flex w-fit rounded-full bg-black p-2 pr-4 text-center font-light text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
             >
-              Volver
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.3}
+                stroke="currentColor"
+                className="size-6"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.75 19.5 8.25 12l7.5-7.5"
+                />
+              </svg>
+              volver
             </Link>
+            <div className="flex gap-2">
+              <button
+                onClick={() =>
+                  prevId && router.push(`/bookings/services/${prevId}`)
+                }
+                disabled={!prevId}
+                className={`flex w-fit items-center rounded-full p-2 pr-4 text-center font-light transition-transform ${prevId ? "bg-black text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black" : "cursor-not-allowed bg-black/60 text-white/90 dark:bg-white/60 dark:text-black/90"}`}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.3}
+                  stroke="currentColor"
+                  className="size-6"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15.75 19.5 8.25 12l7.5-7.5"
+                  />
+                </svg>
+                anterior
+              </button>
+              <button
+                onClick={() =>
+                  nextId && router.push(`/bookings/services/${nextId}`)
+                }
+                disabled={!nextId}
+                className={`flex w-fit items-center rounded-full p-2 pl-4 text-center font-light transition-transform ${nextId ? "bg-black text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black" : "cursor-not-allowed bg-black/60 text-white/90 dark:bg-white/60 dark:text-black/90"}`}
+              >
+                siguiente
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.3}
+                  stroke="currentColor"
+                  className="size-6"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="m8.25 4.5 7.5 7.5-7.5 7.5"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
 
           {booking && (
@@ -324,11 +417,15 @@ export default function ServicesContainer({
 
               {(role === "administrativo" ||
                 role === "desarrollador" ||
-                role === "gerente") && services.length > 0 && (
-                <div className="mb-4 mt-8">
-                  <ReceiptForm booking={booking} onCreated={onReceiptCreated} />
-                </div>
-              )}
+                role === "gerente") &&
+                services.length > 0 && (
+                  <div className="mb-4 mt-8">
+                    <ReceiptForm
+                      booking={booking}
+                      onCreated={onReceiptCreated}
+                    />
+                  </div>
+                )}
 
               {receipts.length > 0 && (
                 <div>
@@ -341,55 +438,57 @@ export default function ServicesContainer({
 
               {(role === "administrativo" ||
                 role === "desarrollador" ||
-                role === "gerente") && services.length > 0 && (
-                <div>
-                  <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
-                    Factura
-                  </h2>
-                  <InvoiceForm
-                    formData={invoiceFormData}
-                    availableServices={availableServices}
-                    handleChange={handleInvoiceChange}
-                    handleSubmit={handleInvoiceSubmit}
-                    isFormVisible={isInvoiceFormVisible}
-                    setIsFormVisible={setIsInvoiceFormVisible}
-                    updateFormData={updateFormData}
-                    isSubmitting={isSubmitting}
-                  />
-                  {invoices.length > 0 && <InvoiceList invoices={invoices} />}
-                </div>
-              )}
+                role === "gerente") &&
+                services.length > 0 && (
+                  <div>
+                    <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
+                      Factura
+                    </h2>
+                    <InvoiceForm
+                      formData={invoiceFormData}
+                      availableServices={availableServices}
+                      handleChange={handleInvoiceChange}
+                      handleSubmit={handleInvoiceSubmit}
+                      isFormVisible={isInvoiceFormVisible}
+                      setIsFormVisible={setIsInvoiceFormVisible}
+                      updateFormData={updateFormData}
+                      isSubmitting={isSubmitting}
+                    />
+                    {invoices.length > 0 && <InvoiceList invoices={invoices} />}
+                  </div>
+                )}
 
               {(role === "administrativo" ||
                 role === "desarrollador" ||
-                role === "gerente") && services.length > 0 && (
-                <div className="my-8">
-                  <h2 className="mb-4 text-xl font-semibold dark:font-medium">
-                    Estado
-                  </h2>
-                  <div className="flex w-full items-center rounded-3xl text-center text-black shadow-md dark:border dark:border-white/50 dark:text-white">
-                    {["Pendiente", "Pago", "Facturado"].map((st, i) => (
-                      <div
-                        key={st}
-                        onClick={() => setSelectedStatus(st)}
-                        className={`basis-1/4 p-4 font-light tracking-wide hover:cursor-pointer md:p-6 ${i === 0 ? "rounded-l-3xl" : ""} ${i === 1 ? "border-x border-black/20 dark:border-white/20" : ""} ${
-                          selectedStatus === st
-                            ? "bg-black/5 dark:bg-white/5"
-                            : ""
-                        } `}
+                role === "gerente") &&
+                services.length > 0 && (
+                  <div className="my-8">
+                    <h2 className="mb-4 text-xl font-semibold dark:font-medium">
+                      Estado
+                    </h2>
+                    <div className="flex w-full items-center rounded-3xl text-center text-black shadow-md dark:border dark:border-white/50 dark:text-white">
+                      {["Pendiente", "Pago", "Facturado"].map((st, i) => (
+                        <div
+                          key={st}
+                          onClick={() => setSelectedStatus(st)}
+                          className={`basis-1/4 p-4 font-light tracking-wide hover:cursor-pointer md:p-6 ${i === 0 ? "rounded-l-3xl" : ""} ${i === 1 ? "border-x border-black/20 dark:border-white/20" : ""} ${
+                            selectedStatus === st
+                              ? "bg-black/5 dark:bg-white/5"
+                              : ""
+                          } `}
+                        >
+                          {st}
+                        </div>
+                      ))}
+                      <button
+                        onClick={handleSaveStatus}
+                        className="mx-4 basis-1/4 rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black md:mx-6"
                       >
-                        {st}
-                      </div>
-                    ))}
-                    <button
-                      onClick={handleSaveStatus}
-                      className="mx-4 basis-1/4 rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black md:mx-6"
-                    >
-                      Guardar
-                    </button>
+                        Guardar
+                      </button>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
             </>
           ) : (
             <div className="flex h-40 items-center justify-center">
