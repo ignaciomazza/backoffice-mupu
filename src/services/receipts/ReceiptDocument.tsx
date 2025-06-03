@@ -172,15 +172,13 @@ const styles = StyleSheet.create({
   },
   tableRowAlt: {
     backgroundColor: "#0A0A0A",
+    color: "#FFF",
   },
   tableCell: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    color: "#333",
   },
-  colDescription: { width: "60%" },
-  colPrice: { width: "20%", textAlign: "right" },
-  colInterest: { width: "20%", textAlign: "right" },
+  colDescription: { width: "100%" },
   paymentSection: {
     marginTop: 20,
     flexDirection: "row",
@@ -284,12 +282,6 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
             <Text style={[styles.tableHeaderCell, styles.colDescription]}>
               Descripción
             </Text>
-            <Text style={[styles.tableHeaderCell, styles.colPrice]}>
-              Precio
-            </Text>
-            <Text style={[styles.tableHeaderCell, styles.colInterest]}>
-              Interés
-            </Text>
           </View>
           {services.map((svc, i) => (
             <View
@@ -301,12 +293,6 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
             >
               <Text style={[styles.tableCell, styles.colDescription]}>
                 {svc.description}
-              </Text>
-              <Text style={[styles.tableCell, styles.colPrice]}>
-                {safeFmtCurrency(svc.salePrice, svc.currency)}
-              </Text>
-              <Text style={[styles.tableCell, styles.colInterest]}>
-                {safeFmtCurrency(svc.cardInterest, svc.currency)}
               </Text>
             </View>
           ))}

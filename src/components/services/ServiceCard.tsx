@@ -210,7 +210,17 @@ export default function ServiceCard({
             </button>
             <div className="flex gap-2">
               <button
-                onClick={() => startEditingService(service)}
+                onClick={() => {
+                  startEditingService(service);
+                  const form = document.getElementById("service-form");
+                  if (form) {
+                    const y =
+                      form.getBoundingClientRect().top +
+                      window.pageYOffset -
+                      window.innerHeight * 0.1;
+                    window.scrollTo({ top: y, behavior: "smooth" });
+                  }
+                }}
                 className="rounded-full bg-black px-6 py-2 text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
               >
                 Editar

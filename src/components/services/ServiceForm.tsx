@@ -129,6 +129,7 @@ export default function ServiceForm({
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
+      id="service-form"
       className="mb-6 space-y-3 overflow-hidden rounded-3xl p-4 text-black shadow-md dark:border dark:border-white md:p-6"
     >
       <div

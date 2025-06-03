@@ -233,54 +233,58 @@ export default function ServicesContainer({
               </svg>
               volver
             </Link>
-            <div className="flex gap-2">
-              <button
-                onClick={() =>
-                  prevId && router.push(`/bookings/services/${prevId}`)
-                }
-                disabled={!prevId}
-                className={`flex w-fit items-center rounded-full p-2 pr-4 text-center font-light transition-transform ${prevId ? "bg-black text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black" : "cursor-not-allowed bg-black/60 text-white/90 dark:bg-white/60 dark:text-black/90"}`}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.3}
-                  stroke="currentColor"
-                  className="size-6"
+            {(role === "gerente" ||
+              role === "administrativo" ||
+              role === "desarrollador") && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() =>
+                    nextId && router.push(`/bookings/services/${nextId}`)
+                  }
+                  disabled={!nextId}
+                  className={`flex w-fit items-center rounded-full p-2 pr-4 text-center font-light transition-transform ${nextId ? "bg-black text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black" : "cursor-not-allowed bg-black/60 text-white/90 dark:bg-white/60 dark:text-black/90"}`}
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M15.75 19.5 8.25 12l7.5-7.5"
-                  />
-                </svg>
-                anterior
-              </button>
-              <button
-                onClick={() =>
-                  nextId && router.push(`/bookings/services/${nextId}`)
-                }
-                disabled={!nextId}
-                className={`flex w-fit items-center rounded-full p-2 pl-4 text-center font-light transition-transform ${nextId ? "bg-black text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black" : "cursor-not-allowed bg-black/60 text-white/90 dark:bg-white/60 dark:text-black/90"}`}
-              >
-                siguiente
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.3}
-                  stroke="currentColor"
-                  className="size-6"
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.3}
+                    stroke="currentColor"
+                    className="size-6"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M15.75 19.5 8.25 12l7.5-7.5"
+                    />
+                  </svg>
+                  siguiente
+                </button>
+                <button
+                  onClick={() =>
+                    prevId && router.push(`/bookings/services/${prevId}`)
+                  }
+                  disabled={!prevId}
+                  className={`flex w-fit items-center rounded-full p-2 pl-4 text-center font-light transition-transform ${prevId ? "bg-black text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black" : "cursor-not-allowed bg-black/60 text-white/90 dark:bg-white/60 dark:text-black/90"}`}
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="m8.25 4.5 7.5 7.5-7.5 7.5"
-                  />
-                </svg>
-              </button>
-            </div>
+                  anterior
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.3}
+                    stroke="currentColor"
+                    className="size-6"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m8.25 4.5 7.5 7.5-7.5 7.5"
+                    />
+                  </svg>
+                </button>
+              </div>
+            )}
           </div>
 
           {booking && (
