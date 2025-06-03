@@ -59,6 +59,7 @@ interface ServicesContainerProps {
   operators: Operator[];
   invoices: Invoice[];
   receipts: Receipt[];
+  onReceiptDeleted?: (id: number) => void;
   onReceiptCreated?: (r: Receipt) => void;
   invoiceFormData: InvoiceFormData;
   formData: ServiceFormData;
@@ -101,6 +102,7 @@ export default function ServicesContainer({
   operators,
   invoices,
   receipts,
+  onReceiptDeleted,
   onReceiptCreated,
   invoiceFormData,
   formData,
@@ -436,7 +438,12 @@ export default function ServicesContainer({
                   <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
                     Recibos
                   </h2>
-                  <ReceiptList receipts={receipts} booking={booking} />
+                  <ReceiptList
+                    receipts={receipts}
+                    booking={booking}
+                    role={role}
+                    onReceiptDeleted={onReceiptDeleted}
+                  />
                 </div>
               )}
 

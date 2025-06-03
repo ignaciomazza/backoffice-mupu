@@ -7,9 +7,16 @@ import "react-toastify/dist/ReactToastify.css";
 interface ReceiptListProps {
   receipts: Receipt[];
   booking: Booking;
+  role: string;
+  onReceiptDeleted?: (id: number) => void;
 }
 
-export default function ReceiptList({ receipts, booking }: ReceiptListProps) {
+export default function ReceiptList({
+  receipts,
+  booking,
+  role,
+  onReceiptDeleted
+}: ReceiptListProps) {
   if (!receipts || receipts.length === 0) {
     return (
       <div className="flex h-40 items-center justify-center">
@@ -27,6 +34,8 @@ export default function ReceiptList({ receipts, booking }: ReceiptListProps) {
             key={receipt.id_receipt}
             receipt={receipt}
             booking={booking}
+            role={role}
+            onReceiptDeleted={onReceiptDeleted}
           />
         ))}
     </div>

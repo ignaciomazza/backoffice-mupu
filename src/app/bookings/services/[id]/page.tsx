@@ -184,6 +184,10 @@ export default function ServicesPage() {
     }
   }, []);
 
+  const handleReceiptDeleted = (id_receipt: number) => {
+    setReceipts((prev) => prev.filter((r) => r.id_receipt !== id_receipt));
+  };
+
   useEffect(() => {
     if (!token) return;
     const fetchProfile = async () => {
@@ -415,6 +419,7 @@ export default function ServicesPage() {
         operators={operators}
         invoices={invoices}
         receipts={receipts}
+        onReceiptDeleted={handleReceiptDeleted}
         onReceiptCreated={handleReceiptCreated}
         invoiceFormData={invoiceFormData}
         formData={formData}
