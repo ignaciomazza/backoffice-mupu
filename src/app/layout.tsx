@@ -13,8 +13,8 @@ const poppins = Poppins({
 });
 
 export const metadata = {
-  title: "Mupu Backoffice",
-  description: "Sistema de gestión para Mupu Viajes",
+  title: "Ofist",
+  description: "Sistema de gestión para Agencias de Viaje",
 };
 
 export default function RootLayout({

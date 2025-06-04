@@ -1,6 +1,4 @@
 // src/components/Spinner.tsx
-
-// src/components/Spinner.tsx
 "use client";
 
 export default function Spinner() {

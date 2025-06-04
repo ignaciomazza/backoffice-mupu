@@ -1,15 +1,15 @@
 // src/app/login/page.tsx
 
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import Spinner from "@/components/Spinner";
 import { toast, ToastContainer } from "react-toastify";
 import { motion, AnimatePresence } from "framer-motion";
 
-const backgroundText1 = "BACK OFFICE";
-const backgroundText2 = "by MUPU";
+const backgroundText1 = "OFIST PRO / OFIST LITE";
+const backgroundText2 = "SISTEMA DE GESTIÓN";
 
 const containerVariants = {
   hidden: {},
@@ -22,7 +22,7 @@ const containerVariants = {
 
 const letterVariants = {
   hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 0.05, y: 0 },
+  visible: { opacity: 0.02, y: 0 },
 };
 
 export default function LoginPage() {
@@ -30,15 +30,22 @@ export default function LoginPage() {
   const [password, setPassword] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [emailError, setEmailError] = useState<string>("");
+  const [passwordError, setPasswordError] = useState<string>("");
   const { setToken } = useAuth();
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement | null>(null);
 
-  // Estado para el loader previo
+  // Estado para el preload inicial (2 s)
   const [preloading, setPreloading] = useState(true);
   const [progress, setProgress] = useState(0);
 
+  // Spinner condicional al enviar (si demora >300 ms)
+  const [showSpinner, setShowSpinner] = useState(false);
+  let spinnerTimer: NodeJS.Timeout;
+
   useEffect(() => {
-    // Simula una carga de 2 segundos
+    // Simula carga inicial de 2 s
     const duration = 2000;
     const intervalTime = 50;
     const steps = duration / intervalTime;
@@ -55,9 +62,39 @@ export default function LoginPage() {
     return () => clearInterval(interval);
   }, []);
 
+  const validateEmail = (value: string) => {
+    const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return regex.test(value);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    formRef.current?.classList.remove("animate-shake");
+
+    // Validaciones en línea
+    let valid = true;
+    if (!validateEmail(email)) {
+      setEmailError("Por favor, ingresá un email válido.");
+      valid = false;
+    } else {
+      setEmailError("");
+    }
+    if (password.trim().length < 6) {
+      setPasswordError("La contraseña debe tener al menos 6 caracteres.");
+      valid = false;
+    } else {
+      setPasswordError("");
+    }
+    if (!valid) {
+      formRef.current?.classList.add("animate-shake");
+      return;
+    }
+
     setLoading(true);
+    spinnerTimer = setTimeout(() => {
+      setShowSpinner(true);
+    }, 300);
+
     try {
       const response = await fetch("/api/login", {
         method: "POST",
@@ -66,8 +103,12 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
 
+      clearTimeout(spinnerTimer);
+      setShowSpinner(false);
+
       if (!response.ok) {
         const errorData = await response.json();
+        formRef.current?.classList.add("animate-shake");
         toast.error(errorData.error || "Error al iniciar sesión");
         return;
       }
@@ -76,7 +117,10 @@ export default function LoginPage() {
       setToken(data.token);
       router.push("/");
     } catch (_error) {
+      clearTimeout(spinnerTimer);
+      setShowSpinner(false);
       console.error(_error);
+      formRef.current?.classList.add("animate-shake");
       toast.error("Ha ocurrido un error inesperado");
     } finally {
       setLoading(false);
@@ -84,24 +128,27 @@ export default function LoginPage() {
   };
 
   return (
-    <motion.div className="absolute top-0 flex size-full items-center justify-center overflow-hidden">
+    <motion.div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-white dark:bg-black">
+      {/* Preload inicial */}
       <AnimatePresence>
         {preloading && (
           <motion.div
             key="loader"
-            className="absolute inset-0 z-20 flex flex-col items-center justify-center"
+            className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white dark:bg-black"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
             <motion.div
-              className="mb-4 text-4xl font-bold"
+              className="mb-4 text-3xl font-light text-black dark:text-white"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.3, duration: 0.8 }}
-            ></motion.div>
-            <div className="h-1 w-64 overflow-hidden rounded-full bg-gray-300 dark:bg-gray-600">
+            >
+              Ofist
+            </motion.div>
+            <div className="h-1 w-64 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
               <motion.div
                 className="h-full bg-black dark:bg-white"
                 initial={{ width: 0 }}
@@ -113,10 +160,18 @@ export default function LoginPage() {
         )}
       </AnimatePresence>
 
+      {/* Spinner overlay al enviar, si tarda >300 ms */}
+      {showSpinner && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/80 dark:bg-black/80">
+          <Spinner />
+        </div>
+      )}
+
       {!preloading && (
         <>
+          {/* Fondo tipográfico grande, sólo en md+ */}
           <motion.div
-            className="pointer-events-none inset-0 hidden items-center justify-center gap-20 md:absolute md:flex md:flex-col"
+            className="pointer-events-none hidden items-center justify-center gap-16 md:absolute md:flex md:flex-col"
             variants={containerVariants}
             initial="hidden"
             animate="visible"
@@ -126,7 +181,7 @@ export default function LoginPage() {
                 <motion.span
                   key={index}
                   variants={letterVariants}
-                  className="relative select-none font-bold text-black dark:text-white md:text-[115px] lg:text-[155px] xl:text-[195px] 2xl:text-[220px]"
+                  className="select-none font-bold leading-none text-black dark:text-white md:text-[80px] lg:text-[100px] xl:text-[120px]"
                 >
                   {char === " " ? "\u00A0" : char}
                 </motion.span>
@@ -137,7 +192,7 @@ export default function LoginPage() {
                 <motion.span
                   key={index}
                   variants={letterVariants}
-                  className="relative select-none font-bold text-black dark:text-white md:text-[115px] lg:text-[155px] xl:text-[195px] 2xl:text-[220px]"
+                  className="select-none font-bold leading-none text-black dark:text-white md:text-[80px] lg:text-[100px] xl:text-[120px]"
                 >
                   {char === " " ? "\u00A0" : char}
                 </motion.span>
@@ -145,47 +200,103 @@ export default function LoginPage() {
             </div>
           </motion.div>
 
+          {/* Formulario de login */}
           <motion.form
+            ref={formRef}
             onSubmit={handleSubmit}
-            className="relative z-10 mx-2 mb-6 w-full max-w-xl space-y-4 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-[#ffffff4e] dark:bg-black"
-            initial={{ opacity: 0, scale: 0.95, y: 30 }}
+            className="relative z-10 mx-4 w-full max-w-md space-y-6 rounded-3xl bg-white p-8 shadow-xl transition-all duration-300 ease-in-out dark:border dark:border-white/20 dark:bg-black"
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -30 }}
+            exit={{ opacity: 0, scale: 0.9, y: -20 }}
             transition={{ type: "spring", stiffness: 80, damping: 15 }}
+            noValidate
           >
-            <h2 className="text-center text-2xl font-light dark:text-white">
+            {/* Título */}
+            <h2 className="text-center text-3xl font-medium dark:text-white">
               Iniciar Sesión
             </h2>
+
+            {/* Email */}
             <div className="space-y-1">
-              <label className="ml-2 block font-light dark:text-white">
+              <label
+                htmlFor="email"
+                className="ml-1 block text-sm font-medium dark:text-white"
+              >
                 Email
               </label>
-              <input
-                type="email"
-                value={email}
-                placeholder="juani@mupuviajes.com.ar"
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full rounded-2xl border border-black p-2 px-3 outline-none dark:bg-[#252525] dark:text-white"
-              />
+              <div className="relative">
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  placeholder="juani@mupuviajes.com.ar"
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  aria-invalid={!!emailError}
+                  aria-describedby="email-error"
+                  autoFocus
+                  className={`w-full rounded-xl border border-black/20 bg-white/90 px-4 py-2 pr-10 text-base outline-none transition-colors placeholder:text-black/50 focus:border-black focus:bg-white focus:ring-2 focus:ring-black dark:border-white/20 dark:bg-black/90 dark:text-white dark:placeholder:text-white/50 dark:focus:border-white dark:focus:bg-black dark:focus:ring-white ${
+                    emailError ? "border-red-600 focus:ring-red-300" : ""
+                  }`}
+                />
+                {/* Ícono de sobre */}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="absolute right-3 top-1/2 size-5 -translate-y-1/2 text-black/50 dark:text-white/50"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M21 12.79V7.5a2.5 2.5 0 00-2.5-2.5H5.5A2.5 2.5 0 003 7.5v9a2.5 2.5 0 002.5 2.5h9.29M21 12.79L12 18.5l-9-5.71"
+                  />
+                </svg>
+              </div>
+              {emailError && (
+                <span
+                  id="email-error"
+                  className="text-xs text-red-600 dark:text-red-400"
+                  role="alert"
+                  aria-live="polite"
+                >
+                  {emailError}
+                </span>
+              )}
             </div>
+
+            {/* Contraseña */}
             <div className="space-y-1">
-              <label className="ml-2 block font-light dark:text-white">
+              <label
+                htmlFor="password"
+                className="ml-1 block text-sm font-medium dark:text-white"
+              >
                 Contraseña
               </label>
               <div className="relative">
                 <input
+                  id="password"
                   type={showPassword ? "text" : "password"}
                   value={password}
-                  placeholder="Juani_123"
+                  placeholder="••••••••"
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="w-full rounded-2xl border border-black p-2 px-3 pr-12 outline-none dark:bg-[#252525] dark:text-white"
+                  aria-invalid={!!passwordError}
+                  aria-describedby="password-error"
+                  className={`w-full rounded-xl border border-black/20 bg-white/90 px-4 py-2 pr-12 text-base outline-none transition-colors placeholder:text-black/50 focus:border-black focus:bg-white focus:ring-2 focus:ring-black dark:border-white/20 dark:bg-black/90 dark:text-white dark:placeholder:text-white/50 dark:focus:border-white dark:focus:bg-black dark:focus:ring-white ${
+                    passwordError ? "border-red-600 focus:ring-red-300" : ""
+                  }`}
                 />
                 <button
+                  id="toggle-password-visibility"
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-sm opacity-50"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-black/75 transition-opacity hover:opacity-100 dark:text-white/75"
+                  aria-label={
+                    showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
+                  }
                 >
                   {showPassword ? (
                     <svg
@@ -194,7 +305,7 @@ export default function LoginPage() {
                       viewBox="0 0 24 24"
                       strokeWidth={1.5}
                       stroke="currentColor"
-                      className="size-6"
+                      className="size-5"
                     >
                       <path
                         strokeLinecap="round"
@@ -214,7 +325,7 @@ export default function LoginPage() {
                       viewBox="0 0 24 24"
                       strokeWidth={1.5}
                       stroke="currentColor"
-                      className="size-6"
+                      className="size-5"
                     >
                       <path
                         strokeLinecap="round"
@@ -225,20 +336,38 @@ export default function LoginPage() {
                   )}
                 </button>
               </div>
+              {passwordError && (
+                <span
+                  id="password-error"
+                  className="text-xs text-red-600 dark:text-red-400"
+                  role="alert"
+                  aria-live="polite"
+                >
+                  {passwordError}
+                </span>
+              )}
             </div>
-            <div className="flex w-full justify-center">
+
+            {/* Botón de Ingresar */}
+            <div className="flex justify-center">
               <button
                 type="submit"
                 disabled={loading}
-                className="rounded-full bg-black px-12 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-[#252525] dark:text-white"
+                className="flex w-full justify-center rounded-full bg-black px-12 py-3 text-base font-medium text-white transition-transform hover:scale-95 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-black active:scale-90 dark:bg-white dark:text-black dark:focus:ring-white"
               >
                 {loading ? <Spinner /> : "Ingresar"}
               </button>
             </div>
+
+            {/* Pie de página */}
+            <p className="mt-2 text-center text-xs text-black/50 dark:text-white/50">
+              © 2025 Ofist
+            </p>
           </motion.form>
         </>
       )}
-      <ToastContainer />
+
+      <ToastContainer position="top-right" autoClose={3000} />
     </motion.div>
   );
 }

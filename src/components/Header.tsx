@@ -15,8 +15,8 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
 
   return (
     <header className="fixed z-50 flex w-full items-center justify-between bg-white p-4 dark:bg-black md:top-0">
-      <h1 className="flex-auto text-lg font-semibold tracking-wide dark:font-medium md:text-center">
-        Back Office <span className="text-xs font-light">by MUPU</span>
+      <h1 className="flex-auto flex-col text-lg font-semibold tracking-wide dark:font-medium md:text-center">
+        Ofist <span className="text-xs font-light">Pro</span>
       </h1>
       <div className="absolute right-4 flex">
         <ThemeToggle />
