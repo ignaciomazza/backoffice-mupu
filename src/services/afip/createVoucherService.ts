@@ -66,12 +66,13 @@ export async function createVoucherService(
   }>,
   currency: string,
   exchangeRateManual?: number,
+  invoiceDate?: string,
 ): Promise<VoucherResponse> {
   try {
     console.info(
       `📤 AFIP billing for receptor ${receptorDocNumber} (tipo ${receptorDocTipo})`,
     );
-    // Totals
+    // Totales
     const saleTotal = serviceDetails.reduce((sum, s) => sum + s.sale_price, 0);
     const interestBase = serviceDetails.reduce(
       (sum, s) => sum + (s.taxableCardInterest ?? 0),
@@ -86,7 +87,7 @@ export async function createVoucherService(
     );
     console.info(`Adjusted total: ${adjustedTotal}`);
 
-    // IVA entries
+    // Entradas de IVA
     const base21 = serviceDetails.reduce(
       (sum, s) => sum + s.taxableBase21 + s.commission21,
       0,
@@ -123,7 +124,7 @@ export async function createVoucherService(
       });
     if (interestBase || interestVat) ivaEntries.push(interestIvaEntry);
 
-    // Merge IVA entries by Id
+    // Merge de entradas IVA por Id
     const mergedIvaEntries: IVAEntry[] = Object.values(
       ivaEntries.reduce(
         (acc, cur) => {
@@ -142,43 +143,63 @@ export async function createVoucherService(
     );
     const neto = parseFloat((adjustedTotal - totalIVA).toFixed(2));
     const totalBase = mergedIvaEntries.reduce((sum, e) => sum + e.BaseImp, 0);
-    if (Math.abs(neto - totalBase) > 0.01)
+    if (Math.abs(neto - totalBase) > 0.01) {
       mergedIvaEntries.push({
         Id: 3,
         BaseImp: parseFloat((neto - totalBase).toFixed(2)),
         Importe: 0,
       });
+    }
 
-    // AFIP status & ptoVta
+    // Estado de AFIP y punto de venta
     const status = await afip.ElectronicBilling.getServerStatus();
     if (
       status.AppServer !== "OK" ||
       status.DbServer !== "OK" ||
       status.AuthServer !== "OK"
-    )
+    ) {
       throw new Error("AFIP no disponible");
+    }
     const pts = await afip.ElectronicBilling.getSalesPoints().catch(() => []);
     const ptoVta = pts.length ? pts[0].Nro : 1;
 
-    const last = await afip.ElectronicBilling.getLastVoucher(
+    // Último comprobante y próximo número
+    const lastVoucherNumber = await afip.ElectronicBilling.getLastVoucher(
       ptoVta,
       tipoFactura,
     );
-    const next = last + 1;
-    const info = await afip.ElectronicBilling.getVoucherInfo(
-      last,
+    const next = lastVoucherNumber + 1;
+    const lastInfo = await afip.ElectronicBilling.getVoucherInfo(
+      lastVoucherNumber,
       ptoVta,
       tipoFactura,
     );
-    const lastDate = info ? parseInt(info.CbteFch, 10) : null;
-    const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    const cbteFch =
-      lastDate && Number(todayStr) < lastDate ? lastDate : Number(todayStr);
+    const lastDate = lastInfo ? parseInt(lastInfo.CbteFch, 10) : null;
 
-    // IVA receptor condition
+    // Determinar cbteFch (YYYYMMDD)
+    let cbteFch: number;
+    // Precalcular “hoy” en formato YYYYMMDD
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const todayStrFallback = `${yyyy}${mm}${dd}`;
+
+    if (invoiceDate) {
+      // Si el front envía invoiceDate en “YYYY-MM-DD”, convertir a “YYYYMMDD”
+      cbteFch = parseInt(invoiceDate.replace(/-/g, ""), 10);
+    } else {
+      // Si no vino invoiceDate, usar la lógica previa: si lastDate > hoy, usar lastDate; sino usar hoy.
+      cbteFch =
+        lastDate && Number(todayStrFallback) < lastDate
+          ? lastDate
+          : Number(todayStrFallback);
+    }
+
+    // Condición de IVA del receptor
     const condId = tipoFactura === 6 ? 5 : 1;
 
-    // Exchange rate
+    // Cotización de moneda
     const cotiz =
       currency === "PES"
         ? 1
@@ -188,7 +209,7 @@ export async function createVoucherService(
             new Date(Date.now() - 86400000),
           )));
 
-    // Build voucher payload
+    // Construir payload para AFIP
     const voucherData: Prisma.JsonObject = {
       CantReg: 1,
       PtoVta: ptoVta,
@@ -211,12 +232,19 @@ export async function createVoucherService(
     console.info("Emitting voucher", voucherData);
 
     const created = await afip.ElectronicBilling.createVoucher(voucherData);
-    if (!created.CAE) return { success: false, message: "CAE no devuelto" };
+    if (!created.CAE) {
+      return { success: false, message: "CAE no devuelto" };
+    }
 
-    // Generate QR
+    // Generar campo “fecha” para el QR: usar invoiceDate o todayStrFallback
+    const qrFecha = invoiceDate
+      ? invoiceDate.replace(/-/g, "")
+      : todayStrFallback;
+
+    // Generar QR Base64
     const qrPayload = {
       ver: 1,
-      fecha: todayStr,
+      fecha: qrFecha,
       cuit: parseInt(process.env.AGENCY_CUIT || "0", 10),
       ptoVta,
       tipoCmp: tipoFactura,
@@ -230,7 +258,9 @@ export async function createVoucherService(
       codAut: Number(created.CAE),
     };
     const qrBase64 = await qrcode.toDataURL(
-      `https://www.afip.gob.ar/fe/qr/?p=${Buffer.from(JSON.stringify(qrPayload)).toString("base64")}`,
+      `https://www.afip.gob.ar/fe/qr/?p=${Buffer.from(
+        JSON.stringify(qrPayload),
+      ).toString("base64")}`,
     );
 
     return {

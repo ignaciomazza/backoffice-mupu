@@ -14,6 +14,7 @@ export type InvoiceFormData = {
   description21: string[];
   description10_5: string[];
   descriptionNonComputable: string[];
+  invoiceDate?: string;
 };
 
 interface InvoiceFormProps {
@@ -92,6 +93,19 @@ export default function InvoiceForm({
   const desc21 = formData.description21;
   const desc10 = formData.description10_5;
   const descNon = formData.descriptionNonComputable;
+
+  const today = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  // resta 5 días
+  const dMin = new Date(today);
+  dMin.setDate(dMin.getDate() - 5);
+  const minDate = `${dMin.getFullYear()}-${pad(dMin.getMonth() + 1)}-${pad(dMin.getDate())}`;
+
+  // suma 5 días
+  const dMax = new Date(today);
+  dMax.setDate(dMax.getDate() + 5);
+  const maxDate = `${dMax.getFullYear()}-${pad(dMax.getMonth() + 1)}-${pad(dMax.getDate())}`;
 
   return (
     <motion.div
@@ -176,6 +190,22 @@ export default function InvoiceForm({
               <option value="1">Factura A</option>
               <option value="6">Factura B</option>
             </select>
+          </div>
+
+          <div>
+            <label className="ml-2 block dark:text-white">
+              Fecha de Factura
+            </label>
+            <input
+              type="date"
+              name="invoiceDate"
+              value={formData.invoiceDate || ""}
+              onChange={handleChange}
+              min={minDate}
+              max={maxDate}
+              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              required
+            />
           </div>
 
           <div>

@@ -46,6 +46,7 @@ interface InvoiceRequestBody {
   description21?: string[];
   description10_5?: string[];
   descriptionNonComputable?: string[];
+  invoiceDate?: string;
 }
 
 interface CreateResult {
@@ -66,6 +67,7 @@ export async function createInvoices(
     description21 = [],
     description10_5 = [],
     descriptionNonComputable = [],
+    invoiceDate,          
   } = data;
 
   // 1) Obtener reserva
@@ -135,7 +137,8 @@ export async function createInvoices(
         docType,
         svcs,
         afipCurrency,
-        exchangeRate
+        exchangeRate,
+        invoiceDate, 
       );
       if (!resp.success || !resp.details) continue;
 

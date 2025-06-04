@@ -1,4 +1,5 @@
 // src/pages/api/invoices/index.ts
+
 import type { NextApiRequest, NextApiResponse } from "next";
 import { z } from "zod";
 import { listInvoices, createInvoices } from "@/services/invoices";
@@ -35,6 +36,18 @@ const bodySchema = z.object({
   description21: z.array(z.string()).optional(),
   description10_5: z.array(z.string()).optional(),
   descriptionNonComputable: z.array(z.string()).optional(),
+  invoiceDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)")
+    .refine((s) => {
+      const d = new Date(s + "T00:00:00");
+      if (Number.isNaN(d.getTime())) return false;
+      // calculamos diferencia en días respecto a hoy:
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
+      return diff >= -5 && diff <= 5;
+    }, "La fecha de factura debe estar dentro de los 5 días anteriores o posteriores a hoy"),
 });
 
 export default async function handler(

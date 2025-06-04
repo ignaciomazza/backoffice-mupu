@@ -46,6 +46,7 @@ export default function ServicesPage() {
     description21: [],
     description10_5: [],
     descriptionNonComputable: [],
+    invoiceDate: "",
   });
 
   const [formData, setFormData] = useState<ServiceFormData>({
@@ -294,6 +295,7 @@ export default function ServicesPage() {
       description21: invoiceFormData.description21,
       description10_5: invoiceFormData.description10_5,
       descriptionNonComputable: invoiceFormData.descriptionNonComputable,
+      invoiceDate: invoiceFormData.invoiceDate,
     };
     setInvoiceLoading(true);
     try {
