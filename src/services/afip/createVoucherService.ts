@@ -151,6 +151,12 @@ export async function createVoucherService(
       });
     }
 
+    // ← Aquí inserta el redondeo de cada entrada IVA
+    mergedIvaEntries.forEach((e) => {
+      e.BaseImp = parseFloat(e.BaseImp.toFixed(2));
+      e.Importe = parseFloat(e.Importe.toFixed(2));
+    });
+
     // Estado de AFIP y punto de venta
     const status = await afip.ElectronicBilling.getServerStatus();
     if (

@@ -229,7 +229,7 @@ export default function LoginPage() {
                   id="email"
                   type="email"
                   value={email}
-                  placeholder="juani@mupuviajes.com.ar"
+                  placeholder="juanperez@correo.com"
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   aria-invalid={!!emailError}
