@@ -51,6 +51,7 @@ export default function BillingBreakdown({
   const baseNetoDesglose = round(
     costo - (montoIva21 + montoIva10_5) - otrosImpuestos,
   );
+  const transferFee = round(importeVenta * 0.024);
   const baseIva21 = montoIva21 > 0 ? round(montoIva21 / 0.21) : 0;
   const baseIva10_5 = montoIva10_5 > 0 ? round(montoIva10_5 / 0.105) : 0;
   const sumaBasesImponibles = round(baseIva21 + baseIva10_5);
@@ -258,8 +259,14 @@ export default function BillingBreakdown({
         <strong>21%:</strong> {formatCurrency(vatOnCardInterest)}
       </p>
 
+      <h4 className="mb-2 text-lg font-semibold">Costos por transaccion</h4>
+      <p className="mb-4">
+        <strong>2.4%:</strong> {formatCurrency(transferFee)}
+      </p>
+
       <p className="font-semibold">
-        Total Comisión (sin IVA): {formatCurrency(totalCommissionWithoutVAT)}
+        Total Comisión (sin IVA):{" "}
+        {formatCurrency(totalCommissionWithoutVAT - transferFee)}
       </p>
     </div>
   );

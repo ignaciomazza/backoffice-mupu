@@ -167,10 +167,11 @@ export default function ServicesContainer({
 
   if (!loading && !booking) {
     return (
-      <div className="flex size-64 flex-col items-center justify-center">
+      <div className="flex h-[80vh] w-full flex-col items-center justify-center">
         <Spinner />
-        <p className="mt-4 text-center dark:text-white">
-          No se encontraron datos de la reserva.
+        <p className="absolute top-[54vh] w-1/3 text-center font-light dark:text-white">
+          Si la carga de datos tarda mucho, revisa tu internet, recarga
+          nuevamente la pagina o vuelve a la anterior.
         </p>
       </div>
     );

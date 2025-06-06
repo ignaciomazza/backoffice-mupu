@@ -86,6 +86,13 @@ export default function SummaryCard({
                     <ul className="ml-4 list-disc font-light">
                       <li>
                         Intereses:{" "}
+                        {fmtCurrency(
+                          t.taxableCardInterest + t.vatOnCardInterest,
+                          currency,
+                        )}
+                      </li>
+                      <li>
+                        Intereses sin IVA:{" "}
                         {fmtCurrency(t.taxableCardInterest, currency)}
                       </li>
                       <li>IVA: {fmtCurrency(t.vatOnCardInterest, currency)}</li>
@@ -117,6 +124,13 @@ export default function SummaryCard({
                     </li>
                   </ul>
                 </div>
+
+                <div className="mx-auto w-full max-w-md">
+                  <p className="font-semibold">Costos por transaccion</p>
+                  <ul className="ml-4 list-disc font-light">
+                    <li>2.4%: {fmtCurrency(t.sale_price * 0.024, currency)}</li>
+                  </ul>
+                </div>
               </div>
 
               {/* Total Comisiones al final */}
@@ -125,7 +139,10 @@ export default function SummaryCard({
                   Total Comisiones (sin IVA)
                 </p>
                 <p className="mt-2 text-center font-light">
-                  {fmtCurrency(t.totalCommissionWithoutVAT, currency)}
+                  {fmtCurrency(
+                    t.totalCommissionWithoutVAT - t.sale_price * 0.024,
+                    currency,
+                  )}
                 </p>
               </div>
             </section>

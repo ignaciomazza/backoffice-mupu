@@ -135,12 +135,15 @@ export default function ServiceCard({
             ]}
           />
 
-          {(service.taxableCardInterest || service.vatOnCardInterest) && (
+          {(service.card_interest ||
+            service.vatOnCardInterest ||
+            service.taxableCardInterest) && (
             <ListSection
               title="Tarjeta"
               fmt={fmt}
               entries={[
-                { label: "Intereses", value: service.taxableCardInterest },
+                { label: "Intereses", value: service.card_interest },
+                { label: "Intereses sin IVA", value: service.taxableCardInterest },
                 { label: "IVA Intereses", value: service.vatOnCardInterest },
               ]}
             />
@@ -175,10 +178,21 @@ export default function ServiceCard({
             ]}
           />
 
+          <ListSection
+            title="Costos por transaccion"
+            fmt={fmt}
+            entries={[{ label: "2.4%", value: service.sale_price * 0.024 }]}
+          />
+
           <p className="font-semibold">
             Total (sin IVA){" "}
             <span className="font-light">
-              {fmt(service.totalCommissionWithoutVAT)}
+              {fmt(
+                service.totalCommissionWithoutVAT
+                  ? service.totalCommissionWithoutVAT -
+                      service.sale_price * 0.024
+                  : 0,
+              )}
             </span>
           </p>
         </div>
