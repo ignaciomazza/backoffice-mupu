@@ -14,12 +14,20 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
   const isLoginPage = pathname === "/login";
 
   return (
-    <header className="fixed z-50 flex w-full items-center justify-between bg-white p-4 dark:bg-black md:top-0">
-      <h1 className="flex-auto flex-col text-lg font-semibold tracking-wide dark:font-medium md:text-center">
-        Ofist <span className="text-xs font-light">Pro</span>
-      </h1>
+    <header
+      className={`fixed z-50 flex w-full items-center justify-between ${isLoginPage ? "" : "bg-white dark:bg-black"} p-4 md:top-0`}
+    >
+      <div className="flex w-full flex-auto justify-start md:justify-center">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/ofist.svg"
+          alt="Logo Ofist"
+          className={`h-9 w-fit ${isLoginPage ? "" : "dark:invert"}`}
+        />
+      </div>
+
       <div className="absolute right-4 flex">
-        <ThemeToggle />
+        {!isLoginPage && <ThemeToggle />}
         {!isLoginPage && (
           <button
             className="ml-4 block md:hidden"
