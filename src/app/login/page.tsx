@@ -144,7 +144,7 @@ export default function LoginPage() {
         {preloading ? (
           <motion.div
             key="loader"
-            className="absolute inset-0 z-20 flex items-center justify-center bg-black/30"
+            className="absolute inset-0 z-20 flex items-center justify-center"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
