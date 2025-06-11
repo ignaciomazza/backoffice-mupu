@@ -53,6 +53,8 @@ export default function SideBar({
         return ["desarrollador"].includes(role);
       case "/teams":
         return ["desarrollador", "gerente"].includes(role);
+      case "/invoices":
+        return ["desarrollador", "gerente", "administratvo"].includes(role);
 
       default:
         return true;
@@ -133,6 +135,21 @@ export default function SideBar({
                 onClick={closeMenu}
               >
                 Operadores
+              </Link>
+            </li>
+          )}
+          {hasAccess("/invoices") && (
+            <li className="transition-transform hover:scale-95 active:scale-90">
+              <Link
+                href="/invoices"
+                className={`block rounded-full py-2 text-center transition-colors duration-200 ${
+                  currentPath === "/operators"
+                    ? "bg-black text-white dark:bg-white dark:text-black"
+                    : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
+                }`}
+                onClick={closeMenu}
+              >
+                Facturas
               </Link>
             </li>
           )}

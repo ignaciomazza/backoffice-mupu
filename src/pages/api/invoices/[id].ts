@@ -17,8 +17,6 @@ export default async function handler(
     return res.status(400).json({ success: false, message: "ID inválido" });
   }
 
-  // Traigo la factura con sus datos de booking (titular y agency)
-  // y el campo payloadAfip (escalar JSON) se incluye automáticamente
   const invoice = await prisma.invoice.findUnique({
     where: { id_invoice: id },
     include: {
@@ -34,6 +32,5 @@ export default async function handler(
       .json({ success: false, message: "Factura no encontrada" });
   }
 
-  // Ya tienes invoice.payloadAfip aquí como JSON
   return res.status(200).json({ success: true, invoice });
 }

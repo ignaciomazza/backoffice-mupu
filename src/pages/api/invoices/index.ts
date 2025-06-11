@@ -2,6 +2,7 @@
 
 import type { NextApiRequest, NextApiResponse } from "next";
 import { z } from "zod";
+import prisma from "@/lib/prisma";
 import { listInvoices, createInvoices } from "@/services/invoices";
 
 const querySchema = z.object({
@@ -57,6 +58,28 @@ export default async function handler(
   console.info(`[Invoices API] ${req.method} ${req.url}`);
 
   if (req.method === "GET") {
+    const { from, to } = req.query;
+
+    // Filtrado por rango de fechas
+    if (from && to) {
+      const fromDate = new Date(from as string);
+      const toDate = new Date(to as string);
+      const invoices = await prisma.invoice.findMany({
+        where: {
+          issue_date: {
+            gte: fromDate,
+            lte: toDate,
+          },
+        },
+        include: {
+          booking: { include: { titular: true } },
+          client: { select: { first_name: true, last_name: true } },
+        },
+      });
+      return res.status(200).json({ success: true, invoices });
+    }
+
+    // Filtrado por bookingId
     const parsedQ = querySchema.safeParse(req.query);
     if (!parsedQ.success) {
       return res.status(400).json({
