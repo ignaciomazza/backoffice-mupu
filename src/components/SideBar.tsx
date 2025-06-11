@@ -143,7 +143,7 @@ export default function SideBar({
               <Link
                 href="/invoices"
                 className={`block rounded-full py-2 text-center transition-colors duration-200 ${
-                  currentPath === "/operators"
+                  currentPath === "/invoices"
                     ? "bg-black text-white dark:bg-white dark:text-black"
                     : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
                 }`}

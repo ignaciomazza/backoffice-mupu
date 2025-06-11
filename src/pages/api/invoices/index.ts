@@ -43,7 +43,6 @@ const bodySchema = z.object({
     .refine((s) => {
       const d = new Date(s + "T00:00:00");
       if (Number.isNaN(d.getTime())) return false;
-      // calculamos diferencia en días respecto a hoy:
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
@@ -60,22 +59,25 @@ export default async function handler(
   if (req.method === "GET") {
     const { from, to } = req.query;
 
-    // Filtrado por rango de fechas
+    // Filtrado por rango de fechas usando el campo CbteFch de Afip
     if (from && to) {
-      const fromDate = new Date(from as string);
-      const toDate = new Date(to as string);
+      // Convertir YYYY-MM-DD a entero YYYYMMDD
+      const fromInt = parseInt((from as string).replace(/-/g, ""), 10);
+      const toInt = parseInt((to as string).replace(/-/g, ""), 10);
+
       const invoices = await prisma.invoice.findMany({
         where: {
-          issue_date: {
-            gte: fromDate,
-            lte: toDate,
-          },
+          AND: [
+            { payloadAfip: { path: ["voucherData", "CbteFch"], gte: fromInt } },
+            { payloadAfip: { path: ["voucherData", "CbteFch"], lte: toInt } },
+          ],
         },
         include: {
           booking: { include: { titular: true } },
           client: { select: { first_name: true, last_name: true } },
         },
       });
+
       return res.status(200).json({ success: true, invoices });
     }
 

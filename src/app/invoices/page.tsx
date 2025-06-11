@@ -12,7 +12,6 @@ import Link from "next/link";
 interface Invoice {
   id_invoice: number;
   invoice_number: string;
-  issue_date: string;
   total_amount: number;
   currency: string; // "PES" o "DOL"
   type: string; // Tipo de factura (Factura A, B)
@@ -28,6 +27,11 @@ interface Invoice {
       commercial_address?: string;
     };
   };
+  payloadAfip: {
+    voucherData: {
+      CbteFch: number; // YYYYMMDD
+    };
+  };
 }
 
 export default function InvoicesPage() {
@@ -37,7 +41,7 @@ export default function InvoicesPage() {
   const [data, setData] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // 1) Formatter de montos: PES→ARS, DOL→USD
+  // Formatter de montos: PES→ARS, DOL→USD
   const fmt = useCallback((v?: number, curr?: string) => {
     const currency = curr === "DOL" ? "USD" : "ARS";
     return new Intl.NumberFormat("es-AR", {
@@ -46,7 +50,7 @@ export default function InvoicesPage() {
     }).format(v ?? 0);
   }, []);
 
-  // 2) Nombre del cliente: si hay razón social la usamos
+  // Nombre del cliente: si hay razón social la usamos
   const getClientName = (inv: Invoice) => {
     const { titular } = inv.booking;
     return titular.company_name?.trim()
@@ -54,6 +58,7 @@ export default function InvoicesPage() {
       : `${titular.first_name} ${titular.last_name}`;
   };
 
+  // Formatear dirección
   const formatAddress = (inv: Invoice) => {
     const { titular } = inv.booking;
     const parts: string[] = [];
@@ -71,6 +76,15 @@ export default function InvoicesPage() {
     return parts.join(", ");
   };
 
+  // Extraer y formatear fecha de comprobante
+  const getCbteDate = (inv: Invoice) => {
+    const raw = inv.payloadAfip.voucherData.CbteFch.toString();
+    const y = raw.slice(0, 4);
+    const m = raw.slice(4, 6);
+    const d = raw.slice(6, 8);
+    return new Date(`${y}-${m}-${d}T00:00:00`).toLocaleDateString("es-AR");
+  };
+
   const fetchInvoices = useCallback(async () => {
     if (!from || !to) {
       toast.error("Por favor completá ambas fechas");
@@ -83,9 +97,8 @@ export default function InvoicesPage() {
         credentials: token ? "include" : undefined,
       });
       const json = await res.json();
-      if (!json.success) {
+      if (!json.success)
         throw new Error(json.message || "Error al cargar facturas");
-      }
       setData(json.invoices);
     } catch (err: unknown) {
       toast.error((err as Error).message);
@@ -94,12 +107,12 @@ export default function InvoicesPage() {
     }
   }, [from, to, token]);
 
-  // 3) Descarga CSV sin la columna "Reserva" y con saltos de línea
+  // Descarga CSV usando fecha de comprobante
   const downloadCSV = () => {
     const header = ["Factura", "Fecha", "Cliente", "Dirección", "Total"];
     const rows = data.map((inv) => [
       inv.invoice_number,
-      new Date(inv.issue_date).toLocaleDateString("es-AR"),
+      getCbteDate(inv),
       getClientName(inv),
       formatAddress(inv),
       fmt(inv.total_amount, inv.currency),
@@ -114,7 +127,7 @@ export default function InvoicesPage() {
   };
 
   useEffect(() => {
-    // Podrías precargar facturas de hoy si querés
+    // Precarga opcional
   }, []);
 
   return (
@@ -144,7 +157,7 @@ export default function InvoicesPage() {
           </div>
           <button
             onClick={fetchInvoices}
-            className="self-end rounded-full bg-black px-6 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+            className="min-w-32 self-end rounded-full bg-black px-6 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
             disabled={loading}
           >
             {loading ? <Spinner /> : "Buscar"}
@@ -157,7 +170,7 @@ export default function InvoicesPage() {
           </div>
         ) : (
           data.length > 0 && (
-            <div className="overflow-x-auto rounded-3xl bg-black">
+            <div className="overflow-x-auto rounded-3xl bg-black dark:bg-[#252525]">
               <table className="w-full">
                 <thead>
                   <tr className="text-white">
@@ -174,59 +187,62 @@ export default function InvoicesPage() {
                   {data.map((inv) => (
                     <tr
                       key={inv.id_invoice}
-                      className="border border-black text-center"
+                      className="border border-black text-center dark:border-[#252525]"
                     >
-                      <td className="bg-white px-2 py-4 text-sm font-light">
+                      <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
                         {inv.invoice_number}
                       </td>
-                      <td className="bg-white px-2 py-4 text-sm font-light">
+                      <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
                         {inv.booking.id_booking}
                       </td>
-                      <td className="bg-white px-2 py-4 text-sm font-light">
-                        {new Date(inv.issue_date).toLocaleDateString("es-AR")}
+                      <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        {getCbteDate(inv)}
                       </td>
-                      <td className="bg-white px-2 py-4 text-sm font-light">
+                      <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
                         {getClientName(inv)}
                       </td>
-                      <td className="bg-white px-2 py-4 text-sm font-light">
+                      <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
                         {formatAddress(inv)}
                       </td>
-                      <td className="bg-white px-2 py-4 text-sm font-light">
+                      <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
                         {fmt(inv.total_amount, inv.currency)}
                       </td>
-                      <td className="bg-white px-2 py-4 text-sm">
-                        <Link
-                          href={`/api/invoices/${inv.id_invoice}/pdf`}
-                          target="_blank"
-                          className="rounded-full bg-black px-4 py-2 text-white"
-                        >
-                          Descargar
-                        </Link>
+                      <td className="bg-white text-sm dark:bg-black">
+                        <div className="flex items-center justify-center">
+                          <Link
+                            href={`/api/invoices/${inv.id_invoice}/pdf`}
+                            target="_blank"
+                            className="w-fit rounded-full bg-black px-4 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              strokeWidth={1.5}
+                              stroke="currentColor"
+                              className="size-6"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+                              />
+                            </svg>
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   ))}
-                  {data.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="p-3 text-center dark:text-white"
-                      >
-                        No hay facturas para ese rango.
-                      </td>
-                    </tr>
-                  )}
                 </tbody>
               </table>
-              {data.length > 0 && (
-                <div className="flex w-full justify-end px-4 py-2">
-                  <button
-                    onClick={downloadCSV}
-                    className="rounded-full bg-white px-4 py-2 text-black"
-                  >
-                    Descargar CSV
-                  </button>
-                </div>
-              )}
+              <div className="flex w-full justify-end px-4 py-2">
+                <button
+                  onClick={downloadCSV}
+                  className="w-fit rounded-full bg-white px-4 py-2 text-black transition-transform hover:scale-95 active:scale-90"
+                >
+                  Descargar Listado
+                </button>
+              </div>
             </div>
           )
         )}
