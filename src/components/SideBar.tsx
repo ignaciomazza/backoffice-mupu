@@ -54,7 +54,7 @@ export default function SideBar({
       case "/teams":
         return ["desarrollador", "gerente"].includes(role);
       case "/invoices":
-        return ["desarrollador", "gerente", "administratvo"].includes(role);
+        return ["desarrollador", "gerente", "administrativo"].includes(role);
 
       default:
         return true;
