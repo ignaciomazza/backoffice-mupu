@@ -14,7 +14,7 @@ import Spinner from "@/components/Spinner";
 import { Booking, Service, Operator, Invoice, Receipt } from "@/types";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
 import ReceiptList from "@/components/receipts/ReceiptList";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export type ServiceFormData = {
@@ -158,11 +158,31 @@ export default function ServicesContainer({
       : null;
 
   const [selectedClientStatus, setSelectedClientStatus] = useState("Pendiente");
+  const [selectedOperatorStatus, setSelectedOperatorStatus] =
+    useState("Pendiente");
+  const [selectedBookingStatus, setSelectedBookingStatus] = useState("Abierta");
   useEffect(() => {
-    if (booking?.clientStatus) {
+    if (booking) {
       setSelectedClientStatus(booking.clientStatus);
+      setSelectedOperatorStatus(booking.operatorStatus);
+      setSelectedBookingStatus(booking.status);
     }
   }, [booking]);
+
+  // Sólo habilita el botón si hubo algún cambio
+  const hasChanges = useMemo(() => {
+    if (!booking) return false;
+    return (
+      selectedClientStatus !== booking.clientStatus ||
+      selectedOperatorStatus !== booking.operatorStatus ||
+      selectedBookingStatus !== booking.status
+    );
+  }, [
+    booking,
+    selectedClientStatus,
+    selectedOperatorStatus,
+    selectedBookingStatus,
+  ]);
 
   if (!loading && !booking) {
     return (
@@ -176,7 +196,7 @@ export default function ServicesContainer({
     );
   }
 
-  const handleSaveClientStatus = async () => {
+  const handleSaveStatuses = async () => {
     if (!booking) return;
     try {
       const res = await fetch(`/api/bookings/${booking.id_booking}`, {
@@ -184,6 +204,8 @@ export default function ServicesContainer({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clientStatus: selectedClientStatus,
+          operatorStatus: selectedOperatorStatus,
+          status: selectedBookingStatus,
           details: booking.details,
           invoice_type: booking.invoice_type,
           invoice_observation: booking.invoice_observation,
@@ -199,10 +221,10 @@ export default function ServicesContainer({
       });
       if (!res.ok) throw new Error();
       const updated = await res.json();
-      toast.success("Estado actualizado!");
+      toast.success("¡Estados actualizados!");
       onBookingUpdated?.(updated);
     } catch {
-      toast.error("No se pudo actualizar el estado.");
+      toast.error("No se pudieron actualizar los estados.");
     }
   };
 
@@ -495,28 +517,109 @@ export default function ServicesContainer({
                 role === "gerente") &&
                 services.length > 0 && (
                   <div className="my-8">
-                    <h2 className="mb-4 text-xl font-semibold dark:font-medium">
-                      Estado
-                    </h2>
-                    <div className="flex w-full items-center rounded-3xl text-center text-black shadow-md dark:border dark:border-white/50 dark:text-white">
-                      {["Pendiente", "Pago", "Facturado"].map((st, i) => (
-                        <div
-                          key={st}
-                          onClick={() => setSelectedClientStatus(st)}
-                          className={`basis-1/4 p-4 font-light tracking-wide hover:cursor-pointer md:p-6 ${i === 0 ? "rounded-l-3xl" : ""} ${i === 1 ? "border-x border-black/20 dark:border-white/20" : ""} ${
-                            selectedClientStatus === st
-                              ? "bg-black/5 dark:bg-white/5"
-                              : ""
-                          } `}
-                        >
-                          {st}
+                    <h2 className="mb-4 text-xl dark:font-medium">Estados</h2>
+                    <div className="space-y-6">
+                      {/* selector de estados */}
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                        {/* Estado Cliente */}
+                        <div className="rounded-3xl bg-white p-4 shadow-md dark:border-white/20 dark:bg-black">
+                          <p className="mb-2 font-medium dark:font-medium">
+                            Cliente
+                          </p>
+                          <div className="flex gap-2">
+                            {["Pendiente", "Pago", "Facturado"].map((st) => (
+                              <div
+                                key={st}
+                                onClick={() => setSelectedClientStatus(st)}
+                                className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light ${
+                                  selectedClientStatus === st
+                                    ? "bg-black text-white"
+                                    : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
+                                }`}
+                              >
+                                {st}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      ))}
+
+                        {/* Estado Operador */}
+                        <div className="rounded-3xl bg-white p-4 shadow-md dark:border-white/20 dark:bg-black">
+                          <p className="mb-2 font-medium dark:font-medium">
+                            Operador
+                          </p>
+                          <div className="flex gap-2">
+                            {["Pendiente", "Pago"].map((st) => (
+                              <div
+                                key={st}
+                                onClick={() =>
+                                  setSelectedOperatorStatus(st.toLowerCase())
+                                }
+                                className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light ${
+                                  selectedOperatorStatus === st.toLowerCase()
+                                    ? "bg-black text-white"
+                                    : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
+                                }`}
+                              >
+                                {st}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Estado Reserva */}
+                        <div className="rounded-3xl bg-white p-4 shadow-md dark:border-white/20 dark:bg-black">
+                          <p className="mb-2 font-medium dark:font-medium">
+                            Reserva
+                          </p>
+                          <div className="flex gap-2">
+                            {["Abierta", "Bloqueada"].map((st) => (
+                              <div
+                                key={st}
+                                onClick={() =>
+                                  setSelectedBookingStatus(st.toLowerCase())
+                                }
+                                className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light ${
+                                  selectedBookingStatus === st.toLowerCase()
+                                    ? "bg-black text-white"
+                                    : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
+                                }`}
+                              >
+                                {st}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* botón de guardar con SVG */}
                       <button
-                        onClick={handleSaveClientStatus}
-                        className="mx-4 basis-1/4 rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black md:mx-6"
+                        onClick={handleSaveStatuses}
+                        disabled={!hasChanges}
+                        aria-label="Guardar estados"
+                        className={`ml-auto mr-4 flex items-center justify-center gap-2 rounded-full px-6 py-2 text-lg font-light transition-transform ${
+                          hasChanges
+                            ? "bg-black text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+                            : "cursor-not-allowed bg-black/30 text-white/60 dark:bg-white/30 dark:text-black/60"
+                        } `}
                       >
                         Guardar
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          strokeWidth={1.4}
+                          stroke="currentColor"
+                          className="size-6"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 
+                 2.25 0 0 0 21 18.75V16.5M16.5 12 12 
+                 16.5m0 0L7.5 12m4.5 4.5V3"
+                          />
+                        </svg>
                       </button>
                     </div>
                   </div>
