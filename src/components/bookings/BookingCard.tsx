@@ -38,7 +38,44 @@ export default function BookingCard({
       layoutId={`booking-${booking.id_booking}`}
       className="h-fit space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white/50 dark:bg-black dark:text-white"
     >
-      <p className="text-end text-xl font-light">{booking.id_booking}</p>
+      <div className="flex items-center justify-end gap-2">
+        <p className="font-light">{booking.id_booking}</p>
+        {booking.status === "Bloqueada" ? (
+          <div className="rounded-full bg-black p-2 text-white dark:bg-white dark:text-black">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.7}
+              stroke="currentColor"
+              className="size-4"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+              />
+            </svg>
+          </div>
+        ) : (
+          <div className="rounded-full bg-black p-2 text-white dark:bg-white dark:text-black">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.7}
+              stroke="currentColor"
+              className="size-4"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+              />
+            </svg>
+          </div>
+        )}
+      </div>
       <p className="font-semibold dark:font-medium">
         Detalle
         <span className="ml-2 font-light">{booking.details || "N/A"}</span>

@@ -564,7 +564,6 @@ export default function ServicesContainer({
                             ))}
                           </div>
                         </div>
-
                         {/* Estado Reserva */}
                         <div className="rounded-3xl bg-white p-4 shadow-md dark:border-white/20 dark:bg-black">
                           <p className="mb-2 font-medium dark:font-medium">
