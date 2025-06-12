@@ -20,6 +20,8 @@ type FilterRole = (typeof FILTROS)[number];
 
 type BookingFormData = {
   id_booking?: number;
+  clientStatus: string;
+  operatorStatus: string;
   status: string;
   details: string;
   note?: string;
@@ -63,11 +65,14 @@ export default function Page() {
 
   const ESTADOS = ["Todas", "Pendiente", "Pago", "Facturado"] as const;
   type Estado = (typeof ESTADOS)[number];
-  const [selectedStatus, setSelectedStatus] = useState<Estado>("Todas");
+  const [selectedClientStatus, setSelectedClientStatus] =
+    useState<Estado>("Todas");
 
   const [formData, setFormData] = useState<BookingFormData>({
     id_booking: undefined,
-    status: "Pendiente",
+    clientStatus: "Pendiente",
+    operatorStatus: "Pendiente",
+    status: "Abierta",
     details: "",
     note: "",
     invoice_type: "",
@@ -248,6 +253,8 @@ export default function Page() {
       formData.titular_id === 0 ||
       !formData.departure_date ||
       !formData.return_date ||
+      !formData.clientStatus ||
+      !formData.operatorStatus ||
       !formData.status ||
       !formData.id_user
     ) {
@@ -319,7 +326,9 @@ export default function Page() {
   const resetForm = () => {
     setFormData((prev) => ({
       id_booking: undefined,
-      status: "Pendiente",
+      clientStatus: "Pendiente",
+      operatorStatus: "Pendiente",
+      status: "Abierta",
       details: "",
       note: "",
       invoice_type: "",
@@ -340,6 +349,8 @@ export default function Page() {
   const startEditingBooking = (booking: Booking) => {
     setFormData({
       id_booking: booking.id_booking,
+      clientStatus: booking.clientStatus,
+      operatorStatus: booking.operatorStatus,
       status: booking.status,
       details: booking.details,
       note: booking.note || "",
@@ -395,7 +406,10 @@ export default function Page() {
       return true;
     })
     .filter((b) => {
-      return selectedStatus === "Todas" || b.status === selectedStatus;
+      return (
+        selectedClientStatus === "Todas" ||
+        b.clientStatus === selectedClientStatus
+      );
     })
     .sort((a, b) => b.id_booking - a.id_booking);
 
@@ -450,7 +464,7 @@ export default function Page() {
                 {ESTADOS.map((st, i) => (
                   <div
                     key={st}
-                    onClick={() => setSelectedStatus(st)}
+                    onClick={() => setSelectedClientStatus(st)}
                     className={`basis-1/4 p-2 font-light tracking-wide hover:cursor-pointer ${
                       i === 0 ? "rounded-l-2xl" : ""
                     } ${
@@ -458,7 +472,7 @@ export default function Page() {
                         ? "rounded-r-2xl"
                         : "border-r border-black/20 dark:border-white/20"
                     } ${
-                      selectedStatus === st
+                      selectedClientStatus === st
                         ? "bg-black text-white dark:bg-white dark:text-black"
                         : ""
                     } `}

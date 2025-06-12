@@ -40,6 +40,8 @@ export default async function handler(
     }
   } else if (req.method === "PUT") {
     const {
+      clientStatus,
+      operatorStatus,
       status,
       details,
       invoice_type,
@@ -56,6 +58,8 @@ export default async function handler(
 
     // Validación de campos obligatorios para la reserva
     if (
+      !clientStatus ||
+      !operatorStatus ||
       !status ||
       !details ||
       !invoice_type ||
@@ -136,6 +140,8 @@ export default async function handler(
       const booking = await prisma.booking.update({
         where: { id_booking: Number(id) },
         data: {
+          clientStatus,
+          operatorStatus,
           status,
           details,
           invoice_type,

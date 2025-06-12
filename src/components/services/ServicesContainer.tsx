@@ -158,10 +158,10 @@ export default function ServicesContainer({
       ? bookingIds[currentIndex + 1]
       : null;
 
-  const [selectedStatus, setSelectedStatus] = useState("Pendiente");
+  const [selectedClientStatus, setSelectedClientStatus] = useState("Pendiente");
   useEffect(() => {
-    if (booking?.status) {
-      setSelectedStatus(booking.status);
+    if (booking?.clientStatus) {
+      setSelectedClientStatus(booking.clientStatus);
     }
   }, [booking]);
 
@@ -177,14 +177,14 @@ export default function ServicesContainer({
     );
   }
 
-  const handleSaveStatus = async () => {
+  const handleSaveClientStatus = async () => {
     if (!booking) return;
     try {
       const res = await fetch(`/api/bookings/${booking.id_booking}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status: selectedStatus,
+          clientStatus: selectedClientStatus,
           details: booking.details,
           invoice_type: booking.invoice_type,
           invoice_observation: booking.invoice_observation,
@@ -306,7 +306,7 @@ export default function ServicesContainer({
               </p>
               <p className="font-semibold dark:font-medium">
                 Estado
-                <span className="ml-2 font-light">{booking.status || "-"}</span>
+                <span className="ml-2 font-light">{booking.clientStatus || "-"}</span>
               </p>
               <p className="font-semibold dark:font-medium">
                 Vendedor
@@ -482,9 +482,9 @@ export default function ServicesContainer({
                       {["Pendiente", "Pago", "Facturado"].map((st, i) => (
                         <div
                           key={st}
-                          onClick={() => setSelectedStatus(st)}
+                          onClick={() => setSelectedClientStatus(st)}
                           className={`basis-1/4 p-4 font-light tracking-wide hover:cursor-pointer md:p-6 ${i === 0 ? "rounded-l-3xl" : ""} ${i === 1 ? "border-x border-black/20 dark:border-white/20" : ""} ${
-                            selectedStatus === st
+                            selectedClientStatus === st
                               ? "bg-black/5 dark:bg-white/5"
                               : ""
                           } `}
@@ -493,7 +493,7 @@ export default function ServicesContainer({
                         </div>
                       ))}
                       <button
-                        onClick={handleSaveStatus}
+                        onClick={handleSaveClientStatus}
                         className="mx-4 basis-1/4 rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black md:mx-6"
                       >
                         Guardar

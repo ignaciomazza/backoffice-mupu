@@ -61,6 +61,8 @@ export interface Client {
 
 export interface Booking {
   id_booking: number;
+  clientStatus: string;
+  operatorStatus: string;
   status: string;
   details: string; // Obligatorio
   note?: string;
@@ -79,6 +81,8 @@ export interface Booking {
 }
 
 export interface BookingFormData {
+  clientStatus: string;
+  operatorStatus: string;
   status: string;
   details: string;
   note?: string;

@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 
 export interface BookingFormData {
   id_booking?: number;
+  clientStatus: string;
+  operatorStatus: string;
   status: string;
   details: string;
   invoice_type: string;

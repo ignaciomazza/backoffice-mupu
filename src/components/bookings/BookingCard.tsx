@@ -48,7 +48,7 @@ export default function BookingCard({
 
       <p className="font-semibold dark:font-medium">
         Estado
-        <span className="ml-2 font-light">{booking.status || "-"}</span>
+        <span className="ml-2 font-light">{booking.clientStatus || "-"}</span>
       </p>
       <p className="font-semibold dark:font-medium">
         Vendedor
