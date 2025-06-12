@@ -533,7 +533,7 @@ export default function ServicesContainer({
                                 onClick={() => setSelectedClientStatus(st)}
                                 className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light ${
                                   selectedClientStatus === st
-                                    ? "bg-black text-white"
+                                    ? "bg-black text-white dark:bg-white dark:text-black"
                                     : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
                                 }`}
                               >
@@ -552,12 +552,10 @@ export default function ServicesContainer({
                             {["Pendiente", "Pago"].map((st) => (
                               <div
                                 key={st}
-                                onClick={() =>
-                                  setSelectedOperatorStatus(st.toLowerCase())
-                                }
+                                onClick={() => setSelectedOperatorStatus(st)}
                                 className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light ${
-                                  selectedOperatorStatus === st.toLowerCase()
-                                    ? "bg-black text-white"
+                                  selectedOperatorStatus === st
+                                    ? "bg-black text-white dark:bg-white dark:text-black"
                                     : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
                                 }`}
                               >
@@ -576,12 +574,10 @@ export default function ServicesContainer({
                             {["Abierta", "Bloqueada"].map((st) => (
                               <div
                                 key={st}
-                                onClick={() =>
-                                  setSelectedBookingStatus(st.toLowerCase())
-                                }
+                                onClick={() => setSelectedBookingStatus(st)}
                                 className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light ${
-                                  selectedBookingStatus === st.toLowerCase()
-                                    ? "bg-black text-white"
+                                  selectedBookingStatus === st
+                                    ? "bg-black text-white dark:bg-white dark:text-black"
                                     : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
                                 }`}
                               >
