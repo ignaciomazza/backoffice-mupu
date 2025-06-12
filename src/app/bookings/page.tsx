@@ -567,6 +567,7 @@ export default function Page() {
             setExpandedBookingId={setExpandedBookingId}
             startEditingBooking={startEditingBooking}
             deleteBooking={deleteBooking}
+            role={profile?.role}
           />
         )}
 

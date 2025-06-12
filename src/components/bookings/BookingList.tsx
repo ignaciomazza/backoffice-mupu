@@ -11,6 +11,7 @@ interface BookingListProps {
   setExpandedBookingId: React.Dispatch<React.SetStateAction<number | null>>;
   startEditingBooking: (booking: Booking) => void;
   deleteBooking: (id: number) => void;
+  role?: string
 }
 
 export default function BookingList({
@@ -19,6 +20,7 @@ export default function BookingList({
   setExpandedBookingId,
   startEditingBooking,
   deleteBooking,
+  role,
 }: BookingListProps) {
   const formatDate = (dateString: string | undefined): string => {
     if (!dateString) return "N/A";
@@ -39,6 +41,7 @@ export default function BookingList({
           formatDate={formatDate}
           startEditingBooking={startEditingBooking}
           deleteBooking={deleteBooking}
+          role={role}
         />
       ))}
     </div>

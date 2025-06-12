@@ -304,8 +304,17 @@ export default function ServicesContainer({
                 </span>
               </p>
               <p className="font-semibold dark:font-medium">
-                Estado
-                <span className="ml-2 font-light">{booking.clientStatus || "-"}</span>
+                Estado Cliente
+                <span className="ml-2 font-light">
+                  {booking.clientStatus || "-"}
+                </span>
+              </p>
+              <p className="font-semibold dark:font-medium">
+                Estado Operador
+                <span className="ml-2 font-light">
+                  {booking.operatorStatus.charAt(0).toUpperCase() +
+                    booking.operatorStatus.slice(1).toLowerCase() || "-"}
+                </span>
               </p>
               <p className="font-semibold dark:font-medium">
                 Vendedor
@@ -316,8 +325,11 @@ export default function ServicesContainer({
               <p className="font-semibold dark:font-medium">
                 Titular
                 <span className="ml-2 font-light">
-                  {booking.titular.first_name} {booking.titular.last_name} -{" "}
-                  {booking.titular.id_client}
+                  {booking.titular.first_name.charAt(0).toUpperCase() +
+                    booking.titular.first_name.slice(1).toLowerCase()}{" "}
+                  {booking.titular.last_name.charAt(0).toUpperCase() +
+                    booking.titular.last_name.slice(1).toLowerCase()}{" "}
+                  - {booking.titular.id_client}
                 </span>
               </p>
               <div>
@@ -340,12 +352,19 @@ export default function ServicesContainer({
               </p>
               <ul className="ml-4 list-disc">
                 <li>
-                  {booking.titular.first_name} {booking.titular.last_name} -{" "}
-                  {booking.titular.id_client}
+                  {booking.titular.first_name.charAt(0).toUpperCase() +
+                    booking.titular.first_name.slice(1).toLowerCase()}{" "}
+                  {booking.titular.last_name.charAt(0).toUpperCase() +
+                    booking.titular.last_name.slice(1).toLowerCase()}{" "}
+                  - {booking.titular.id_client}
                 </li>
                 {booking.clients.map((client) => (
                   <li key={client.id_client}>
-                    {client.first_name} {client.last_name} - {client.id_client}
+                    {client.first_name.charAt(0).toUpperCase() +
+                      client.first_name.slice(1).toLowerCase()}{" "}
+                    {client.last_name.charAt(0).toUpperCase() +
+                      client.last_name.slice(1).toLowerCase()}{" "}
+                    - {client.id_client}
                   </li>
                 ))}
               </ul>
@@ -417,6 +436,8 @@ export default function ServicesContainer({
                       setIsFormVisible(true);
                     }}
                     deleteService={deleteService}
+                    role={role}
+                    status={booking.status}
                   />
                 </div>
               )}

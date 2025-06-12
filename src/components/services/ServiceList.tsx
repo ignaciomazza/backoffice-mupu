@@ -31,6 +31,8 @@ interface ServiceListProps {
   setExpandedServiceId: React.Dispatch<React.SetStateAction<number | null>>;
   startEditingService: (service: Service) => void;
   deleteService: (id: number) => void;
+  role: string;
+  status: string;
 }
 
 export default function ServiceList({
@@ -39,6 +41,8 @@ export default function ServiceList({
   setExpandedServiceId,
   startEditingService,
   deleteService,
+  role,
+  status,
 }: ServiceListProps) {
   const formatDate = (dateString?: string) =>
     dateString
@@ -96,6 +100,8 @@ export default function ServiceList({
             startEditingService={startEditingService}
             deleteService={deleteService}
             formatDate={formatDate}
+            role={role}
+            status={status}
           />
         ))}
       </div>
