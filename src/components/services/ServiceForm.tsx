@@ -9,7 +9,6 @@ import BillingBreakdown from "../BillingBreakdown";
 export type ServiceFormData = {
   type: string;
   description?: string;
-  note?: string;
   sale_price: number;
   cost_price: number;
   destination?: string;
@@ -218,17 +217,6 @@ export default function ServiceForm({
               onChange={handleChange}
               className="mt-1 w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
               placeholder="Detalle del servicio..."
-            />
-          </div>
-          <div>
-            <label className="ml-2 dark:text-white">Notas</label>
-            <textarea
-              name="note"
-              value={formData.note || ""}
-              onChange={handleChange}
-              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
-              rows={3}
-              placeholder="Notas..."
             />
           </div>
           <div className="grid grid-cols-2 gap-4">

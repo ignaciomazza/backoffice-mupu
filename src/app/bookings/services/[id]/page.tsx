@@ -52,7 +52,6 @@ export default function ServicesPage() {
   const [formData, setFormData] = useState<ServiceFormData>({
     type: "",
     description: "",
-    note: "",
     sale_price: 0,
     cost_price: 0,
     destination: "",
@@ -353,7 +352,6 @@ export default function ServicesPage() {
       setFormData({
         type: "",
         description: "",
-        note: "",
         sale_price: 0,
         cost_price: 0,
         destination: "",

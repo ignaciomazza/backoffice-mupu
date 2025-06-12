@@ -24,7 +24,6 @@ type BookingFormData = {
   operatorStatus: string;
   status: string;
   details: string;
-  note?: string;
   invoice_type: string;
   invoice_observation: string;
   observation: string;
@@ -74,7 +73,6 @@ export default function Page() {
     operatorStatus: "Pendiente",
     status: "Abierta",
     details: "",
-    note: "",
     invoice_type: "",
     invoice_observation: "",
     observation: "",
@@ -330,7 +328,6 @@ export default function Page() {
       operatorStatus: "Pendiente",
       status: "Abierta",
       details: "",
-      note: "",
       invoice_type: "",
       invoice_observation: "",
       observation: "",
@@ -353,7 +350,6 @@ export default function Page() {
       operatorStatus: booking.operatorStatus,
       status: booking.status,
       details: booking.details,
-      note: booking.note || "",
       invoice_type: booking.invoice_type || "",
       invoice_observation: booking.invoice_observation || "",
       observation: "",

@@ -20,7 +20,6 @@ import { useRouter } from "next/navigation";
 export type ServiceFormData = {
   type: string;
   description?: string;
-  note?: string;
   sale_price: number;
   cost_price: number;
   destination?: string;

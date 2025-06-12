@@ -70,7 +70,6 @@ model Booking {
   operatorStatus      String    @map("operator_status")
   status              String  
   details             String
-  note                String?
   invoice_type        String
   invoice_observation String?
   observation         String?

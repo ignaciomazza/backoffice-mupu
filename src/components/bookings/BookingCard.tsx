@@ -41,10 +41,6 @@ export default function BookingCard({
         Detalle
         <span className="ml-2 font-light">{booking.details || "N/A"}</span>
       </p>
-      <p className="font-semibold dark:font-medium">
-        Notas
-        <span className="ml-2 font-light">{booking.note || "N/A"}</span>
-      </p>
 
       <p className="font-semibold dark:font-medium">
         Estado

@@ -83,7 +83,6 @@ export default function ServiceCard({
   const generalInfo = [
     { label: "Tipo", content: service.type },
     { label: "Descripción", content: service.description || "–" },
-    { label: "Notas", content: service.note || "–" },
     { label: "Destino", content: service.destination || "–" },
     { label: "Operador", content: service.operator?.name || "–" },
     { label: "Referencia", content: service.reference || "–" },

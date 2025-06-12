@@ -65,7 +65,6 @@ export interface Booking {
   operatorStatus: string;
   status: string;
   details: string; // Obligatorio
-  note?: string;
   invoice_type: "Factura A" | "Factura B" | "Coordinar con administracion"; // Obligatorio
   observation?: string; // Obligatorio
   invoice_observation?: string;
@@ -85,7 +84,6 @@ export interface BookingFormData {
   operatorStatus: string;
   status: string;
   details: string;
-  note?: string;
   invoice_type: "Factura A" | "Factura B" | "Coordinar con administracion";
   observation?: string;
   invoice_observation?: string;
@@ -103,7 +101,6 @@ export interface Service {
   id_service: number;
   type: string;
   description: string;
-  note?: string;
   sale_price: number;
   cost_price: number;
   destination: string;

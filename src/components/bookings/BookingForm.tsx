@@ -200,13 +200,6 @@ export default function BookingForm({
                 span: "col-span-2",
               },
               {
-                name: "note",
-                label: "Nota",
-                type: "text",
-                placeholder: "Nota...",
-                span: "col-span-2",
-              },
-              {
                 name: "departure_date",
                 label: "Desde",
                 type: "date",
