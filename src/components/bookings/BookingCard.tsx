@@ -131,9 +131,8 @@ export default function BookingCard({
           </p>
           <Link
             href={`/bookings/services/${booking.id_booking}`}
-            className="mt-6 flex w-fit gap-2 rounded-full bg-black px-6 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+            className="mt-6 flex w-full gap-1 rounded-full bg-black p-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
           >
-            Reserva
             <svg
               xmlns="http://www.w3.org/2000/svg"
               fill="none"
@@ -148,6 +147,7 @@ export default function BookingCard({
                 d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H2.25"
               />
             </svg>
+            Reserva
           </Link>
         </div>
       )}
