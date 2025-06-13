@@ -229,7 +229,7 @@ export default function ServiceCard({
               </svg>
             </button>
             <div className="flex gap-2">
-              {(status === "abierta" ||
+              {(status === "Abierta" ||
                 role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") && (
@@ -263,7 +263,7 @@ export default function ServiceCard({
                   </svg>
                 </button>
               )}
-              {(status === "abierta" ||
+              {(status === "Abierta" ||
                 role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") && (

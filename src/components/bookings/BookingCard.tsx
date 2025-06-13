@@ -215,7 +215,7 @@ export default function BookingCard({
               </svg>
             </button>
             <div className="mt-4 flex gap-2">
-              {(booking.status === "abierta" ||
+              {(booking.status === "Abierta" ||
                 role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") && (
@@ -239,7 +239,7 @@ export default function BookingCard({
                   </svg>
                 </button>
               )}
-              {(booking.status === "abierta" ||
+              {(booking.status === "Abierta" ||
                 role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") && (
