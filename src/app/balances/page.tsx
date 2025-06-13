@@ -151,7 +151,12 @@ export default function BalancesPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Error al cargar reservas");
-      setData(json);
+      const sorted = json.sort(
+        (a: Booking, b: Booking) =>
+          new Date(b.creation_date).getTime() -
+          new Date(a.creation_date).getTime(),
+      );
+      setData(sorted);
     } catch (err: unknown) {
       toast.error((err as Error).message);
     } finally {
