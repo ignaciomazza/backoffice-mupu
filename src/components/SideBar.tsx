@@ -55,6 +55,8 @@ export default function SideBar({
         return ["desarrollador", "gerente"].includes(role);
       case "/invoices":
         return ["desarrollador", "gerente", "administrativo"].includes(role);
+      case "/balances":
+        return ["desarrollador", "gerente", "administrativo"].includes(role);
 
       default:
         return true;
@@ -150,6 +152,21 @@ export default function SideBar({
                 onClick={closeMenu}
               >
                 Facturas
+              </Link>
+            </li>
+          )}
+          {hasAccess("/balances") && (
+            <li className="transition-transform hover:scale-95 active:scale-90">
+              <Link
+                href="/balances"
+                className={`block rounded-full py-2 text-center transition-colors duration-200 ${
+                  currentPath === "/balances"
+                    ? "bg-black text-white dark:bg-white dark:text-black"
+                    : "hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black"
+                }`}
+                onClick={closeMenu}
+              >
+                Saldos
               </Link>
             </li>
           )}

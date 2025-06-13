@@ -1,6 +1,7 @@
+// src/app/invoices/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
 import Spinner from "@/components/Spinner";
@@ -8,13 +9,12 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Link from "next/link";
 
-// Definimos el tipo de datos de Invoice según lo que devuelve la API
 interface Invoice {
   id_invoice: number;
   invoice_number: string;
   total_amount: number;
-  currency: string; // "PES" o "DOL"
-  type: string; // Tipo de factura (Factura A, B)
+  currency: string; 
+  type: string; 
   booking: {
     id_booking: number;
     titular: {
@@ -29,7 +29,7 @@ interface Invoice {
   };
   payloadAfip: {
     voucherData: {
-      CbteFch: number; // YYYYMMDD
+      CbteFch: number; 
     };
   };
 }
@@ -41,7 +41,6 @@ export default function InvoicesPage() {
   const [data, setData] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Formatter de montos: PES→ARS, DOL→USD
   const fmt = useCallback((v?: number, curr?: string) => {
     const currency = curr === "DOL" ? "USD" : "ARS";
     return new Intl.NumberFormat("es-AR", {
@@ -50,7 +49,6 @@ export default function InvoicesPage() {
     }).format(v ?? 0);
   }, []);
 
-  // Nombre del cliente: si hay razón social la usamos
   const getClientName = (inv: Invoice) => {
     const { titular } = inv.booking;
     return titular.company_name?.trim()
@@ -58,7 +56,6 @@ export default function InvoicesPage() {
       : `${titular.first_name} ${titular.last_name}`;
   };
 
-  // Formatear dirección
   const formatAddress = (inv: Invoice) => {
     const { titular } = inv.booking;
     const parts: string[] = [];
@@ -76,7 +73,6 @@ export default function InvoicesPage() {
     return parts.join(", ");
   };
 
-  // Extraer y formatear fecha de comprobante
   const getCbteDate = (inv: Invoice) => {
     const raw = inv.payloadAfip.voucherData.CbteFch.toString();
     const y = raw.slice(0, 4);
@@ -107,7 +103,6 @@ export default function InvoicesPage() {
     }
   }, [from, to, token]);
 
-  // Descarga CSV usando fecha de comprobante
   const downloadCSV = () => {
     const header = ["Factura", "Fecha", "Cliente", "Dirección", "Total"];
     const rows = data.map((inv) => [
@@ -125,10 +120,6 @@ export default function InvoicesPage() {
     a.download = `facturas_${from}_${to}.csv`;
     a.click();
   };
-
-  useEffect(() => {
-    // Precarga opcional
-  }, []);
 
   return (
     <ProtectedRoute>
@@ -246,7 +237,6 @@ export default function InvoicesPage() {
             </div>
           )
         )}
-
         <ToastContainer position="bottom-right" />
       </div>
     </ProtectedRoute>

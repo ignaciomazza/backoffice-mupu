@@ -7,16 +7,49 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
+  // GET /api/bookings
   if (req.method === "GET") {
     try {
+      // 1) Obtener userId igual que antes
       const userId = Array.isArray(req.query.userId)
         ? Number(req.query.userId[0])
         : req.query.userId
           ? Number(req.query.userId)
           : null;
 
+      // 2) Parsear filtros mínimos
+      const parseCSV = (v?: string | string[]) =>
+        !v
+          ? undefined
+          : (Array.isArray(v) ? v.join(",") : v)
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+      const clientStatusArr = parseCSV(req.query.clientStatus);
+      const operatorStatusArr = parseCSV(req.query.operatorStatus);
+      const from =
+        typeof req.query.from === "string"
+          ? new Date(req.query.from)
+          : undefined;
+      const to =
+        typeof req.query.to === "string" ? new Date(req.query.to) : undefined;
+
+      // 3) Construir where (añadir sólo si existen)
+      const where: Prisma.BookingWhereInput = {};
+      if (userId) where.id_user = userId;
+      if (clientStatusArr?.length) {
+        where.clientStatus = { in: clientStatusArr };
+      }
+      if (operatorStatusArr?.length) {
+        where.operatorStatus = { in: operatorStatusArr };
+      }
+      if (from && to) {
+        where.creation_date = { gte: from, lte: to };
+      }
+
+      // 4) Query original + Receipt para deuda
       const bookings = await prisma.booking.findMany({
-        where: userId ? { id_user: userId } : {}, // si no viene userId, trae todo
+        where,
         include: {
           titular: true,
           user: true,
@@ -24,10 +57,29 @@ export default async function handler(
           clients: true,
           services: { include: { operator: true } },
           invoices: true,
+          Receipt: true, // <— añadimos recibos
         },
       });
 
-      return res.status(200).json(bookings);
+      // 5) Calcular totales y deuda
+      const enhanced = bookings.map((b) => {
+        const totalSale = b.services.reduce((sum, s) => sum + s.sale_price, 0);
+        const totalCommission = b.services.reduce(
+          (sum, s) => sum + (s.totalCommissionWithoutVAT ?? 0),
+          0,
+        );
+        const totalReceipts = b.Receipt.reduce((sum, r) => sum + r.amount, 0);
+        const debt = totalSale - totalReceipts;
+
+        return {
+          ...b,
+          totalSale,
+          totalCommission,
+          debt,
+        };
+      });
+
+      return res.status(200).json(enhanced);
     } catch (error) {
       console.error("Error fetching bookings:", error);
       return res.status(500).json({ error: "Error fetching bookings" });

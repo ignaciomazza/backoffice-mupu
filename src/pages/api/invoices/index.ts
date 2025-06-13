@@ -59,9 +59,7 @@ export default async function handler(
   if (req.method === "GET") {
     const { from, to } = req.query;
 
-    // Filtrado por rango de fechas usando el campo CbteFch de Afip
     if (from && to) {
-      // Convertir YYYY-MM-DD a entero YYYYMMDD
       const fromInt = parseInt((from as string).replace(/-/g, ""), 10);
       const toInt = parseInt((to as string).replace(/-/g, ""), 10);
 
@@ -81,7 +79,6 @@ export default async function handler(
       return res.status(200).json({ success: true, invoices });
     }
 
-    // Filtrado por bookingId
     const parsedQ = querySchema.safeParse(req.query);
     if (!parsedQ.success) {
       return res.status(400).json({
