@@ -89,7 +89,7 @@ export default function ReceiptCard({
   };
 
   return (
-    <div className="h-fit space-y-4 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white/50 dark:bg-black dark:text-white">
+    <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
       <div>
         <p className="font-semibold">N° Recibo:</p>
         <p className="font-light">{receipt.receipt_number}</p>
@@ -150,7 +150,7 @@ export default function ReceiptCard({
           <button
             onClick={deleteReceipt}
             disabled={loadingDelete || loadingPDF}
-            className={`w-fit rounded-full bg-red-600 px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-red-500 ${
+            className={`w-fit rounded-full bg-red-600 px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-red-800 ${
               loadingDelete || loadingPDF ? "cursor-not-allowed opacity-50" : ""
             }`}
           >

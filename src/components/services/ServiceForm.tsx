@@ -122,14 +122,14 @@ export default function ServiceForm({
   return (
     <motion.div
       layout
-      initial={{ maxHeight: 80, opacity: 1 }}
+      initial={{ maxHeight: 100, opacity: 1 }}
       animate={{
-        maxHeight: isFormVisible ? 700 : 80,
+        maxHeight: isFormVisible ? 700 : 100,
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
       id="service-form"
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl p-4 text-black shadow-md dark:border dark:border-white md:p-6"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
     >
       <div
         className="flex cursor-pointer items-center justify-between"

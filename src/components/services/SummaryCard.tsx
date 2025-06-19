@@ -38,7 +38,7 @@ export default function SummaryCard({
     currencies.length === 1 ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2";
 
   return (
-    <div className="w-full rounded-3xl p-4 shadow-md dark:border dark:border-white/50 dark:text-white sm:p-6">
+    <div className="mb-6 space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
       <h2 className="mb-6 text-center text-2xl font-semibold sm:text-3xl">
         Resumen
       </h2>
@@ -134,7 +134,7 @@ export default function SummaryCard({
               </div>
 
               {/* Total Comisiones al final */}
-              <div className="mt-6 border-t border-black/20 pt-4 dark:border-white/50">
+              <div className="mt-6 border-t border-black/20 pt-4 dark:border-white/20">
                 <p className="text-center font-semibold">
                   Total Comisiones (sin IVA)
                 </p>

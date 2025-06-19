@@ -456,7 +456,7 @@ export default function Page() {
             profile?.role === "administrativo" ||
             profile?.role === "desarrollador") && (
             <div className="flex flex-col space-y-4 md:flex-row md:justify-end md:space-x-4 md:space-y-0">
-              <div className="flex w-full items-center rounded-2xl border-black/20 text-center text-black shadow-md dark:border dark:border-white/50 dark:text-white">
+              <div className="flex w-full items-center rounded-2xl border-black/10 bg-white/10 text-center text-black shadow-md backdrop-blur dark:border dark:border-white/10 dark:text-white">
                 {ESTADOS.map((st, i) => (
                   <div
                     key={st}
@@ -479,7 +479,7 @@ export default function Page() {
               </div>
 
               <select
-                className="w-full cursor-pointer appearance-none rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white md:w-fit"
+                className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
                 value={selectedUserId!}
                 onChange={(e) => {
                   setSelectedUserId(Number(e.target.value));
@@ -495,7 +495,7 @@ export default function Page() {
 
               {profile?.role !== "lider" && (
                 <select
-                  className="w-full cursor-pointer appearance-none rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white md:w-fit"
+                  className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
                   value={selectedTeamId}
                   onChange={(e) => {
                     setSelectedTeamId(Number(e.target.value));
@@ -515,7 +515,7 @@ export default function Page() {
           )}
 
           <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:justify-between sm:space-x-4 sm:space-y-0">
-            <div className="relative flex w-full rounded-2xl px-4 py-2 shadow-md dark:border dark:border-white/50 dark:text-white">
+            <div className="relative flex w-full appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md backdrop-blur dark:border dark:border-white/10 dark:text-white">
               <input
                 type="text"
                 placeholder="Buscar reservas..."
@@ -544,13 +544,13 @@ export default function Page() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="w-full rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white md:w-fit"
+                className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
               />
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="w-full rounded-2xl bg-white p-2 px-3 text-black shadow-md outline-none dark:border dark:border-white/50 dark:bg-black dark:text-white md:w-fit"
+                className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
               />
             </div>
           </div>

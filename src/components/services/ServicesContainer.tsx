@@ -312,7 +312,7 @@ export default function ServicesContainer({
           </div>
 
           {booking && (
-            <div className="mb-6 space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black dark:text-white">
+            <div className="mb-6 space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
               <div className="mb-4 flex justify-between">
                 <h1 className="text-2xl font-semibold dark:font-medium">
                   Reserva
@@ -522,7 +522,7 @@ export default function ServicesContainer({
                       {/* selector de estados */}
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                         {/* Estado Cliente */}
-                        <div className="rounded-3xl bg-white p-4 shadow-md dark:border-white/20 dark:bg-black">
+                        <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-black shadow-md backdrop-blur dark:text-white">
                           <p className="mb-2 font-medium dark:font-medium">
                             Cliente
                           </p>
@@ -544,7 +544,7 @@ export default function ServicesContainer({
                         </div>
 
                         {/* Estado Operador */}
-                        <div className="rounded-3xl bg-white p-4 shadow-md dark:border-white/20 dark:bg-black">
+                        <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-black shadow-md backdrop-blur dark:text-white">
                           <p className="mb-2 font-medium dark:font-medium">
                             Operador
                           </p>
@@ -565,7 +565,7 @@ export default function ServicesContainer({
                           </div>
                         </div>
                         {/* Estado Reserva */}
-                        <div className="rounded-3xl bg-white p-4 shadow-md dark:border-white/20 dark:bg-black">
+                        <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-black shadow-md backdrop-blur dark:text-white">
                           <p className="mb-2 font-medium dark:font-medium">
                             Reserva
                           </p>

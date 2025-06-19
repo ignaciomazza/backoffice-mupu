@@ -80,7 +80,7 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
   };
 
   return (
-    <div className="space-y-3 rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white/50 dark:bg-black dark:text-white">
+    <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
       <p className="font-semibold">
         Número de Factura:{" "}
         <span className="font-light">{invoice.invoice_number || "N/A"}</span>

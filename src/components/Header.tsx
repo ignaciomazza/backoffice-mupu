@@ -15,15 +15,12 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
 
   return (
     <header
-      className={`fixed z-50 flex w-full items-center justify-between ${isLoginPage ? "" : "bg-white dark:bg-black"} p-4 md:top-0`}
+      className={`z-50 flex w-full items-center justify-between p-4 py-6 md:top-0`}
     >
       <div className="flex w-full flex-auto justify-start md:justify-center">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/ofist.svg"
-          alt="Logo Ofist"
-          className={`h-9 w-fit ${isLoginPage ? "" : "dark:invert"}`}
-        />
+        <p className="text-lg font-medium">
+          Ofis<span className="font-light">tur</span>
+        </p>
       </div>
 
       <div className="absolute right-4 flex">

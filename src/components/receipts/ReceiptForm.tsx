@@ -121,13 +121,13 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
   return (
     <motion.div
       layout
-      initial={{ maxHeight: 80, opacity: 1 }}
+      initial={{ maxHeight: 100, opacity: 1 }}
       animate={{
-        maxHeight: isFormVisible ? 1000 : 80,
+        maxHeight: isFormVisible ? 1000 : 100,
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-4 overflow-hidden rounded-3xl bg-white p-6 text-black shadow-md dark:border dark:border-white dark:bg-black"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
     >
       <div
         className="flex cursor-pointer items-center justify-between"

@@ -136,13 +136,13 @@ export default function BookingForm({
   return (
     <motion.div
       layout
-      initial={{ maxHeight: 80, opacity: 1 }}
+      initial={{ maxHeight: 100, opacity: 1 }}
       animate={{
-        maxHeight: isFormVisible ? 500 : 80,
+        maxHeight: isFormVisible ? 550 : 100,
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl p-4 text-black shadow-md dark:border dark:border-white md:p-6"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
     >
       <div
         className="flex cursor-pointer items-center justify-between"
@@ -240,7 +240,7 @@ export default function BookingForm({
                     onPaste: handleDatePaste,
                     onBlur: handleDateBlur,
                   })}
-                  className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                  className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   placeholder={placeholder}
                   required
                 />
@@ -256,7 +256,7 @@ export default function BookingForm({
                 name="invoice_type"
                 value={formData.invoice_type || ""}
                 onChange={handleChange}
-                className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                 required
               >
                 <option value="" disabled>
@@ -282,7 +282,7 @@ export default function BookingForm({
                 name="invoice_observation"
                 value={formData.invoice_observation || ""}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                 placeholder="Ej: Facturar a cliente con ID 342"
                 required
               />
@@ -309,7 +309,7 @@ export default function BookingForm({
                 if (["ArrowUp", "ArrowDown"].includes(e.key))
                   e.preventDefault();
               }}
-              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               min={1}
               placeholder="Ej: 342"
               required
@@ -382,7 +382,7 @@ export default function BookingForm({
                     onChange={(e) =>
                       handleAcompananteChange(index, e.target.value)
                     }
-                    className="mb-2 w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                    className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                     placeholder={`ID del acompañante ${index + 1}`}
                     onKeyDown={(e) => {
                       if (["ArrowUp", "ArrowDown"].includes(e.key))

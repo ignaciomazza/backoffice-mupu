@@ -111,13 +111,13 @@ export default function ClientForm({
   return (
     <motion.div
       layout
-      initial={{ maxHeight: 80, opacity: 1 }}
+      initial={{ maxHeight: 100, opacity: 1 }}
       animate={{
-        maxHeight: isFormVisible ? 550 : 80,
+        maxHeight: isFormVisible ? 550 : 100,
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl bg-white p-4 text-black shadow-md dark:border dark:border-white dark:bg-black md:p-6"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
     >
       <div
         className="flex cursor-pointer items-center justify-between"
@@ -189,7 +189,7 @@ export default function ClientForm({
                   name={name}
                   value={formData[name as keyof ClientFormData] || ""}
                   onChange={handleChange}
-                  className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide hover:cursor-pointer dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                  className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   required
                 >
                   <option value="" disabled>
@@ -215,7 +215,7 @@ export default function ClientForm({
                     onPaste: handleDatePaste,
                     onBlur: handleDateBlur,
                   })}
-                  className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                  className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   placeholder={type === "date" ? "Día/Mes/Año" : `${label}...`}
                   required={requiredFields.includes(name)}
                 />

@@ -2,9 +2,10 @@
 
 "use client";
 import { useState } from "react";
-import { usePathname } from "next/navigation"; 
+import { usePathname } from "next/navigation";
 import Header from "./Header";
 import SideBar from "./SideBar";
+import VantaBackground from "./VantaBackground";
 
 export default function LayoutWrapper({
   children,
@@ -12,15 +13,16 @@ export default function LayoutWrapper({
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const pathname = usePathname() || ""; 
+  const pathname = usePathname() || "";
 
   const toggleMenu = () => setMenuOpen(!menuOpen);
   const closeMenu = () => setMenuOpen(false);
 
-  const isLoginPage = pathname === "/login"; 
+  const isLoginPage = pathname === "/login";
 
   return (
-    <div className="flex min-h-screen flex-col bg-white text-black dark:bg-black dark:text-white">
+    <div className="flex min-h-screen flex-col text-black dark:text-white">
+      {!isLoginPage && <VantaBackground />}
       <Header toggleMenu={toggleMenu} menuOpen={menuOpen} />
       <div
         className={`flex flex-1 ${
@@ -31,11 +33,11 @@ export default function LayoutWrapper({
           <SideBar
             menuOpen={menuOpen}
             closeMenu={closeMenu}
-            currentPath={pathname} 
+            currentPath={pathname}
           />
         )}
         <main
-          className={`flex-1 px-6 py-20 ${
+          className={`flex-1 px-6 ${
             !isLoginPage
               ? "md:pl-56 md:pr-8"
               : "flex size-full items-center justify-center"
