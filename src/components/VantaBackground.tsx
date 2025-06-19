@@ -4,16 +4,12 @@ import * as THREE from "three";
 import initVantaFog, { VantaOptions } from "vanta/dist/vanta.fog.min";
 
 // Tipado manual del efecto Vanta
-interface VantaEffect {
-  destroy: () => void;
-}
+type VantaEffect = { destroy: () => void };
 
 export default function VantaBackground() {
   const vantaRef = useRef<HTMLDivElement>(null);
   const vantaEffect = useRef<VantaEffect | null>(null);
-  const [currentTheme, setCurrentTheme] = useState<"light" | "dark">(
-    document.documentElement.classList.contains("dark") ? "dark" : "light",
-  );
+  const [currentTheme, setCurrentTheme] = useState<"light" | "dark">("light");
 
   const getOptions = (theme: "light" | "dark"): VantaOptions => ({
     el: vantaRef.current!,
@@ -49,21 +45,30 @@ export default function VantaBackground() {
   }, []);
 
   useEffect(() => {
-    initEffect(currentTheme);
+    if (typeof document !== "undefined") {
+      const isDark = document.documentElement.classList.contains("dark");
+      const theme = isDark ? "dark" : "light";
+      setCurrentTheme(theme);
+      initEffect(theme);
+    }
 
     const observer = new MutationObserver(() => {
-      const isDark = document.documentElement.classList.contains("dark");
-      const newTheme: "light" | "dark" = isDark ? "dark" : "light";
-      if (newTheme !== currentTheme) {
-        setCurrentTheme(newTheme);
-        initEffect(newTheme);
+      if (typeof document !== "undefined") {
+        const isDarkNow = document.documentElement.classList.contains("dark");
+        const newTheme: "light" | "dark" = isDarkNow ? "dark" : "light";
+        if (newTheme !== currentTheme) {
+          setCurrentTheme(newTheme);
+          initEffect(newTheme);
+        }
       }
     });
 
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
+    if (typeof document !== "undefined") {
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["class"],
+      });
+    }
 
     return () => {
       observer.disconnect();
