@@ -13,8 +13,8 @@ interface Invoice {
   id_invoice: number;
   invoice_number: string;
   total_amount: number;
-  currency: string; 
-  type: string; 
+  currency: string;
+  type: string;
   booking: {
     id_booking: number;
     titular: {
@@ -29,7 +29,10 @@ interface Invoice {
   };
   payloadAfip: {
     voucherData: {
-      CbteFch: number; 
+      CbteFch: number; // YYYYMMDD
+      ImpNeto: number;
+      ImpIVA: number;
+      Iva: Array<{ Id: number; BaseImp: number; Importe: number }>;
     };
   };
 }
@@ -81,6 +84,25 @@ export default function InvoicesPage() {
     return new Date(`${y}-${m}-${d}T00:00:00`).toLocaleDateString("es-AR");
   };
 
+  const getTaxBreakdown = (inv: Invoice) => {
+    const ivaArr = inv.payloadAfip.voucherData.Iva || [];
+    let base21 = 0,
+      base105 = 0,
+      baseEx = 0;
+    ivaArr.forEach(({ Id, BaseImp, Importe }) => {
+      if (Id === 5) base21 += BaseImp + Importe;
+      else if (Id === 4) base105 += BaseImp + Importe;
+      else baseEx += BaseImp;
+    });
+    return {
+      base21,
+      base105,
+      baseEx,
+      neto: inv.payloadAfip.voucherData.ImpNeto,
+      iva: inv.payloadAfip.voucherData.ImpIVA,
+    };
+  };
+
   const fetchInvoices = useCallback(async () => {
     if (!from || !to) {
       toast.error("Por favor completá ambas fechas");
@@ -104,14 +126,33 @@ export default function InvoicesPage() {
   }, [from, to, token]);
 
   const downloadCSV = () => {
-    const header = ["Factura", "Fecha", "Cliente", "Dirección", "Total"];
-    const rows = data.map((inv) => [
-      inv.invoice_number,
-      getCbteDate(inv),
-      getClientName(inv),
-      formatAddress(inv),
-      fmt(inv.total_amount, inv.currency),
-    ]);
+    const header = [
+      "Factura",
+      "Fecha",
+      "Cliente",
+      "Dirección",
+      "Base21",
+      "Base10.5",
+      "Exento",
+      "Neto",
+      "IVA",
+      "Total",
+    ];
+    const rows = data.map((inv) => {
+      const { base21, base105, baseEx, neto, iva } = getTaxBreakdown(inv);
+      return [
+        inv.invoice_number,
+        getCbteDate(inv),
+        getClientName(inv),
+        formatAddress(inv),
+        base21.toString(),
+        base105.toString(),
+        baseEx.toString(),
+        neto.toString(),
+        iva.toString(),
+        fmt(inv.total_amount, inv.currency),
+      ];
+    });
     const csvContent = [header, ...rows].map((r) => r.join(";")).join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -170,60 +211,85 @@ export default function InvoicesPage() {
                     <th className="px-4 py-3 font-normal">Fecha</th>
                     <th className="px-4 py-3 font-normal">Cliente</th>
                     <th className="px-4 py-3 font-normal">Dirección</th>
+                    <th className="px-4 py-3 font-normal">Base 21%</th>
+                    <th className="px-4 py-3 font-normal">Base 10.5%</th>
+                    <th className="px-4 py-3 font-normal">Exento</th>
+                    <th className="px-4 py-3 font-normal">Neto</th>
+                    <th className="px-4 py-3 font-normal">IVA</th>
                     <th className="px-4 py-3 font-normal">Total</th>
                     <th className="px-4 py-3 font-normal">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.map((inv) => (
-                    <tr
-                      key={inv.id_invoice}
-                      className="border border-black text-center dark:border-[#252525]"
-                    >
-                      <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
-                        {inv.invoice_number}
-                      </td>
-                      <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
-                        {inv.booking.id_booking}
-                      </td>
-                      <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
-                        {getCbteDate(inv)}
-                      </td>
-                      <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
-                        {getClientName(inv)}
-                      </td>
-                      <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
-                        {formatAddress(inv)}
-                      </td>
-                      <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
-                        {fmt(inv.total_amount, inv.currency)}
-                      </td>
-                      <td className="bg-white text-sm dark:bg-black">
-                        <div className="flex items-center justify-center">
-                          <Link
-                            href={`/api/invoices/${inv.id_invoice}/pdf`}
-                            target="_blank"
-                            className="w-fit rounded-full bg-black px-4 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
-                          >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              strokeWidth={1.5}
-                              stroke="currentColor"
-                              className="size-6"
+                  {data.map((inv) => {
+                    const { base21, base105, baseEx, neto, iva } =
+                      getTaxBreakdown(inv);
+                    return (
+                      <tr
+                        key={inv.id_invoice}
+                        className="border border-black text-center dark:border-[#252525]"
+                      >
+                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                          {inv.invoice_number}
+                        </td>
+                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                          {inv.booking.id_booking}
+                        </td>
+                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                          {getCbteDate(inv)}
+                        </td>
+                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                          {getClientName(inv)}
+                        </td>
+                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                          {formatAddress(inv)}
+                        </td>
+                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                          {fmt(base21, inv.currency)}
+                        </td>
+                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                          {fmt(base105, inv.currency)}
+                        </td>
+                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                          {fmt(baseEx, inv.currency)}
+                        </td>
+                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                          {fmt(neto, inv.currency)}
+                        </td>
+                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                          {fmt(iva, inv.currency)}
+                        </td>
+                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                          {fmt(inv.total_amount, inv.currency)}
+                        </td>
+                        <td className="bg-white text-sm dark:bg-black">
+                          <div className="flex items-center justify-center">
+                            <Link
+                              href={`/api/invoices/${inv.id_invoice}/pdf`}
+                              target="_blank"
+                              className="w-fit rounded-full bg-black px-4 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
                             >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
-                              />
-                            </svg>
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                              {/* Icono de descarga */}
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth={1.5}
+                                stroke="currentColor"
+                                className="size-6"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+                                />
+                              </svg>
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               <div className="flex w-full justify-end px-4 py-2">
