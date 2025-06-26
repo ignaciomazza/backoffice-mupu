@@ -34,153 +34,158 @@ export default async function handler(
   if (typeof from !== "string" || typeof to !== "string") {
     return res.status(400).json({ error: "Parámetros from y to requeridos" });
   }
+
   const fromDate = new Date(from);
   const toDate = new Date(to);
   toDate.setHours(23, 59, 59, 999);
 
   try {
-    // 1) equipos
+    // 1) Construir mapas de equipos y usuarios
     const teams = await prisma.salesTeam.findMany({
       include: { user_teams: { include: { user: true } } },
     });
+
     const teamMap = new Map<
       number,
       { name: string; members: number[]; leaders: number[] }
     >();
-    teams.forEach((team) => {
-      const members = team.user_teams.map((ut) => ut.user.id_user);
-      const leaders = team.user_teams
-        .filter((ut) =>
-          ["lider", "gerente"].includes(ut.user.role.toLowerCase()),
-        )
-        .map((ut) => ut.user.id_user);
-      teamMap.set(team.id_team, { name: team.name, members, leaders });
+    const userToMemberTeams = new Map<number, number[]>();
+    const userToLeaderTeams = new Map<number, number[]>();
+
+    teams.forEach(({ id_team: teamId, name, user_teams }) => {
+      const members: number[] = [];
+      const leaders: number[] = [];
+
+      user_teams.forEach(({ user }) => {
+        const uid = user.id_user;
+        members.push(uid);
+        userToMemberTeams.set(uid, [
+          ...(userToMemberTeams.get(uid) || []),
+          teamId,
+        ]);
+
+        if (["lider", "gerente"].includes(user.role.toLowerCase())) {
+          leaders.push(uid);
+          userToLeaderTeams.set(uid, [
+            ...(userToLeaderTeams.get(uid) || []),
+            teamId,
+          ]);
+        }
+      });
+
+      teamMap.set(teamId, { name, members, leaders });
     });
 
-    // 2) servicios
+    // 2) Traer servicios
     const services = await prisma.service.findMany({
       where: { created_at: { gte: fromDate, lte: toDate } },
       include: { booking: { include: { user: true } } },
     });
 
-    // 3) totales y detalles
-    const totals = {
+    // 3) Inicializar totales y detalles
+    const totals: EarningsResponse["totals"] = {
       sellerComm: { ARS: 0, USD: 0 },
       leaderComm: { ARS: 0, USD: 0 },
       agencyShare: { ARS: 0, USD: 0 },
     };
     const itemsMap = new Map<string, EarningItem>();
 
-    services.forEach((svc) => {
-      const fee = svc.sale_price * 0.024; // 2.4% del total de venta
+    // Helper para agregar o actualizar entries
+    function addEarningEntry(
+      currency: "ARS" | "USD",
+      teamId: number,
+      userId: number,
+      userName: string,
+      sellerComm: number,
+      leaderComm: number,
+      agencyShare: number,
+    ) {
+      totals.sellerComm[currency] += sellerComm;
+      totals.leaderComm[currency] += leaderComm;
+      totals.agencyShare[currency] += agencyShare;
+
+      const key = `${currency}-${teamId}-${userId}`;
+      const existing = itemsMap.get(key);
+      if (existing) {
+        existing.totalSellerComm += sellerComm;
+        existing.totalLeaderComm += leaderComm;
+        existing.totalAgencyShare += agencyShare;
+      } else {
+        const teamName = teamMap.get(teamId)?.name || "Sin equipo";
+        itemsMap.set(key, {
+          currency,
+          userId,
+          userName,
+          teamId,
+          teamName,
+          totalSellerComm: sellerComm,
+          totalLeaderComm: leaderComm,
+          totalAgencyShare: agencyShare,
+        });
+      }
+    }
+
+    // 4) Procesar cada servicio
+    for (const svc of services) {
+      const fee = svc.sale_price * 0.024;
       const dbCommission = svc.totalCommissionWithoutVAT ?? 0;
-      let commissionBase = dbCommission - fee;
-      if (commissionBase < 0) commissionBase = 0;
+      const commissionBase = Math.max(dbCommission - fee, 0);
 
       const cur = svc.currency as "ARS" | "USD";
-      const sellerId = svc.booking.user.id_user;
-      const sellerName = `${svc.booking.user.first_name} ${svc.booking.user.last_name}`;
-      const sellerRole = svc.booking.user.role.toLowerCase();
+      const {
+        booking: { user },
+      } = svc;
+      const { id_user: sellerId, first_name, last_name, role } = user;
+      const sellerName = `${first_name} ${last_name}`;
+      const lowerRole = role.toLowerCase();
 
-      // líder/gerente
-      if (["lider", "gerente"].includes(sellerRole)) {
-        const isLeaderInAny = Array.from(teamMap.values()).some((t) =>
-          t.leaders.includes(sellerId),
-        );
-        let sellerComm: number;
-        const leaderComm = 0;
-        let agencyShare: number;
-        if (!isLeaderInAny && sellerRole === "gerente") {
+      const memberTeams = userToMemberTeams.get(sellerId) || [];
+      const leaderTeams = userToLeaderTeams.get(sellerId) || [];
+
+      let sellerComm = 0;
+      let leaderComm = 0;
+      let agencyShare = 0;
+      let targetTeams: number[] = [];
+
+      if (["lider", "gerente"].includes(lowerRole)) {
+        // líder o gerente
+        if (lowerRole === "gerente" && leaderTeams.length === 0) {
           sellerComm = 0;
           agencyShare = commissionBase;
         } else {
           sellerComm = commissionBase * 0.3;
           agencyShare = commissionBase - sellerComm;
         }
-        totals.sellerComm[cur] += sellerComm;
-        totals.leaderComm[cur] += leaderComm;
-        totals.agencyShare[cur] += agencyShare;
+        targetTeams = leaderTeams.length ? leaderTeams : [0];
+      } else {
+        // vendedor
+        sellerComm = commissionBase * 0.3;
+        leaderComm = commissionBase * 0.1;
+        agencyShare = commissionBase - sellerComm - leaderComm;
 
-        const key = `${cur}-0-${sellerId}`;
-        const e = itemsMap.get(key);
-        if (e) {
-          e.totalSellerComm += sellerComm;
-          e.totalAgencyShare += agencyShare;
-        } else {
-          itemsMap.set(key, {
-            currency: cur,
-            userId: sellerId,
-            userName: sellerName,
-            teamId: 0,
-            teamName: "Sin equipo",
-            totalSellerComm: sellerComm,
-            totalLeaderComm: leaderComm,
-            totalAgencyShare: agencyShare,
-          });
+        const totalLeaders = memberTeams.reduce(
+          (sum, t) => sum + (teamMap.get(t)?.leaders.length || 0),
+          0,
+        );
+        if (totalLeaders === 0) {
+          leaderComm = 0;
+          agencyShare = commissionBase - sellerComm;
         }
-        return;
+        targetTeams = memberTeams.length ? memberTeams : [0];
       }
 
-      // vendedor puro
-      let totalLeaders = 0;
-      teamMap.forEach((t) => {
-        if (t.members.includes(sellerId)) totalLeaders += t.leaders.length;
-      });
-      const sellerComm = commissionBase * 0.3;
-      let leaderComm = commissionBase * 0.1;
-      let agencyShare = commissionBase - sellerComm - leaderComm;
-      if (totalLeaders === 0) {
-        leaderComm = 0;
-        agencyShare = commissionBase - sellerComm;
-      }
-      totals.sellerComm[cur] += sellerComm;
-      totals.leaderComm[cur] += leaderComm;
-      totals.agencyShare[cur] += agencyShare;
-
-      let assigned = false;
-      teamMap.forEach((t, teamId) => {
-        if (!t.members.includes(sellerId)) return;
-        assigned = true;
-        const key = `${cur}-${teamId}-${sellerId}`;
-        const e = itemsMap.get(key);
-        if (e) {
-          e.totalSellerComm += sellerComm;
-          e.totalLeaderComm += leaderComm;
-          e.totalAgencyShare += agencyShare;
-        } else {
-          itemsMap.set(key, {
-            currency: cur,
-            userId: sellerId,
-            userName: sellerName,
-            teamId,
-            teamName: t.name,
-            totalSellerComm: sellerComm,
-            totalLeaderComm: leaderComm,
-            totalAgencyShare: agencyShare,
-          });
-        }
-      });
-      if (!assigned) {
-        const key = `${cur}-0-${sellerId}`;
-        const e = itemsMap.get(key);
-        if (e) {
-          e.totalSellerComm += sellerComm;
-          e.totalLeaderComm += leaderComm;
-          e.totalAgencyShare += agencyShare;
-        } else {
-          itemsMap.set(key, {
-            currency: cur,
-            userId: sellerId,
-            userName: sellerName,
-            teamId: 0,
-            teamName: "Sin equipo",
-            totalSellerComm: sellerComm,
-            totalLeaderComm: leaderComm,
-            totalAgencyShare: agencyShare,
-          });
-        }
-      }
-    });
+      targetTeams.forEach((teamId) =>
+        addEarningEntry(
+          cur,
+          teamId,
+          sellerId,
+          sellerName,
+          sellerComm,
+          leaderComm,
+          agencyShare,
+        ),
+      );
+    }
 
     return res.status(200).json({
       totals,
@@ -189,9 +194,7 @@ export default async function handler(
   } catch (err: unknown) {
     console.error("Error en earnings API:", err);
     const message =
-      err instanceof Error
-        ? err.message
-        : "Error obteniendo datos de ganancias";
+      err instanceof Error ? err.message : "Error obteniendo datos";
     return res.status(500).json({ error: message });
   }
 }

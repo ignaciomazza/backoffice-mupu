@@ -209,4 +209,5 @@ export interface Receipt {
   bookingId_booking: number;
   booking?: Booking; // opcionalmente puedes incluir los datos de la reserva
   serviceIds?: number[];
+  clientIds?: number[];
 }

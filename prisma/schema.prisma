@@ -68,7 +68,7 @@ model Booking {
   id_booking          Int       @id @default(autoincrement())
   clientStatus        String    @map("client_status")
   operatorStatus      String    @map("operator_status")
-  status              String  
+  status              String
   details             String
   invoice_type        String
   invoice_observation String?
@@ -222,4 +222,5 @@ model Receipt {
   bookingId_booking Int
   booking           Booking  @relation("BookingReceipt", fields: [bookingId_booking], references: [id_booking])
   serviceIds        Int[]
+  clientIds         Int[]    @default([])
 }

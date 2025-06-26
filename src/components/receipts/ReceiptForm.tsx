@@ -16,16 +16,16 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
   const [currency, setCurrency] = useState("");
   const [amountString, setAmountString] = useState("");
   const [amountCurrency, setAmountCurrency] = useState("");
-  // Nuevo: importe numérico ingresado manualmente
   const [manualAmount, setManualAmount] = useState("");
-  // Cantidad de servicios + array de IDs
   const [servicesCount, setServicesCount] = useState(1);
   const [idServices, setIdServices] = useState<string[]>([""]);
+  const [clientsCount, setClientsCount] = useState(1);
+  const [idClients, setIdClients] = useState<string[]>([""]);
 
   const [loading, setLoading] = useState(false);
   const [isFormVisible, setIsFormVisible] = useState(false);
 
-  const handleIncrement = () => {
+  const handleIncrementService = () => {
     setServicesCount((c) => c + 1);
     setIdServices((arr) => {
       const copy = [...arr];
@@ -34,16 +34,37 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
     });
   };
 
-  const handleDecrement = () => {
+  const handleDecrementService = () => {
     if (servicesCount <= 1) return;
     setServicesCount((c) => c - 1);
     setIdServices((arr) => arr.slice(0, -1));
+  };
+
+  const handleIncrementClient = () => {
+    setClientsCount((c) => c + 1);
+    setIdClients((arr) => {
+      const copy = [...arr];
+      copy.push("");
+      return copy;
+    });
+  };
+
+  const handleDecrementClient = () => {
+    if (clientsCount <= 1) return;
+    setClientsCount((c) => c - 1);
+    setIdClients((arr) => arr.slice(0, -1));
   };
 
   const handleServiceIdChange = (index: number, value: string) => {
     const copy = [...idServices];
     copy[index] = value;
     setIdServices(copy);
+  };
+
+  const handleCLientIdChange = (index: number, value: string) => {
+    const copy = [...idClients];
+    copy[index] = value;
+    setIdClients(copy);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -65,6 +86,16 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
     );
     if (!selected || selected.length !== serviceIds.length) {
       return toast.error("Alguno de los servicios no existe en esta reserva");
+    }
+
+    // Parsear IDs de clientes
+    const clientIds = idClients
+      .map((v) => parseInt(v.trim(), 10))
+      .filter((n) => !isNaN(n));
+
+    // Opcional: si querés forzar que coincida la cantidad de inputs:
+    if (clientIds.length !== idClients.length) {
+      return toast.error("Todos los clientes deben tener un ID válido");
     }
 
     // Parsear importe manual
@@ -96,6 +127,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
           amountCurrency,
           serviceIds,
           amount: finalAmount, // envío el importe final
+          clientIds,
         }),
       });
       if (!res.ok) throw new Error("Error guardando recibo");
@@ -111,6 +143,8 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
       setManualAmount("");
       setServicesCount(1);
       setIdServices([""]);
+      setClientsCount(1);
+      setIdClients([""]);
     } catch (err: unknown) {
       toast.error((err as Error).message);
     } finally {
@@ -127,7 +161,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+      className="mb-6 space-y-3 overflow-hidden overflow-y-scroll rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
     >
       <div
         className="flex cursor-pointer items-center justify-between"
@@ -183,7 +217,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
               type="text"
               value={amountString}
               onChange={(e) => setAmountString(e.target.value)}
-              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               placeholder="Ej: UN MILLON CIEN MIL"
               required
             />
@@ -195,7 +229,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
               name="currency"
               value={amountCurrency}
               onChange={(e) => setAmountCurrency(e.target.value)}
-              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide hover:cursor-pointer dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
             >
               <option value="" disabled>
                 Seleccionar moneda
@@ -214,7 +248,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
               step="0.01"
               value={manualAmount}
               onChange={(e) => setManualAmount(e.target.value)}
-              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               placeholder="Ej: 1000.50"
             />
             <p className="ml-2 text-sm text-gray-500 dark:text-gray-400">
@@ -228,7 +262,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
               type="text"
               value={concept}
               onChange={(e) => setConcept(e.target.value)}
-              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               placeholder="Ej: Pago total del paquete"
               required
             />
@@ -242,7 +276,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
               type="text"
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}
-              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               placeholder="Ej: Tarjeta de crédito -- No adedua saldo"
               required
             />
@@ -255,7 +289,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
             <div className="ml-2 flex items-center space-x-2 py-2">
               <button
                 type="button"
-                onClick={handleDecrement}
+                onClick={handleDecrementService}
                 className="rounded-full border border-black p-1 dark:border-white dark:text-white"
                 disabled={servicesCount <= 1}
               >
@@ -279,7 +313,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
               </span>
               <button
                 type="button"
-                onClick={handleIncrement}
+                onClick={handleIncrementService}
                 className="rounded-full border border-black p-1 dark:border-white dark:text-white"
               >
                 <svg
@@ -311,7 +345,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
                   type="number"
                   value={idServices[idx] || ""}
                   onChange={(e) => handleServiceIdChange(idx, e.target.value)}
-                  className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                  className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   placeholder={`ID del servicio ${idx + 1}`}
                   onKeyDown={(e) => {
                     if (["ArrowUp", "ArrowDown"].includes(e.key))
@@ -319,6 +353,82 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
                   }}
                   required
                 />
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="ml-2 block dark:text-white">
+              Cantidad de Clientes
+            </label>
+            <div className="ml-2 flex items-center space-x-2 py-2">
+              <button
+                type="button"
+                onClick={handleDecrementClient}
+                className="rounded-full border border-black p-1 dark:border-white dark:text-white"
+                disabled={clientsCount <= 1}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                  className="size-6"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 12h14"
+                  />
+                </svg>
+              </button>
+              <span className="rounded-full border border-black px-3 py-1 dark:border-white dark:text-white">
+                {clientsCount}
+              </span>
+              <button
+                type="button"
+                onClick={handleIncrementClient}
+                className="rounded-full border border-black p-1 dark:border-white dark:text-white"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                  className="size-6"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 4.5v15m7.5-7.5h-15"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="ml-2 block dark:text-white">ID del Cliente</label>
+            <div className="space-y-2">
+              {Array.from({ length: clientsCount }).map((_, idx) => (
+                <div key={idx}>
+                  <input
+                    type="number"
+                    value={idClients[idx] || ""}
+                    onChange={(e) => handleCLientIdChange(idx, e.target.value)}
+                    className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    placeholder={`ID del cliente ${idx + 1}`}
+                    onKeyDown={(e) => {
+                      if (["ArrowUp", "ArrowDown"].includes(e.key))
+                        e.preventDefault();
+                    }}
+                  />
+                  <p className="ml-2 mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Dejá vacío para calcularlo automáticamente
+                  </p>
+                </div>
               ))}
             </div>
           </div>

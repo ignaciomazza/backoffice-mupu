@@ -35,7 +35,6 @@ interface EarningsResponse {
   items: EarningItem[];
 }
 
-// Rango por defecto (últimos 30 días)
 function getDefaultRange() {
   const today = new Date();
   const past = new Date(today);
@@ -46,11 +45,10 @@ function getDefaultRange() {
   };
 }
 
-// Tooltip personalizado
 const MoneyTooltip = ({ active, payload }: TooltipProps<number, string>) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded bg-white p-2 shadow dark:bg-black dark:text-white">
+    <div className="space-y-2 rounded-3xl border border-white/10 bg-white/10 p-4 text-black shadow-md backdrop-blur-3xl dark:bg-black/10 dark:text-white">
       {payload.map((p) => {
         // Hacemos cast a nuestro tipo
         const item = p.payload as EarningItem;
@@ -70,16 +68,15 @@ const MoneyTooltip = ({ active, payload }: TooltipProps<number, string>) => {
   );
 };
 
-// Sección de gráfico reutilizable
 interface ChartSectionProps {
   title: string;
   data: EarningItem[];
   colors: [string, string, string];
 }
 const ChartSection: React.FC<ChartSectionProps> = ({ title, data, colors }) => (
-  <div className="mb-8 rounded-3xl bg-white p-4 text-black shadow dark:bg-black dark:text-white">
-    <h2 className="mb-4 text-xl font-semibold">{title}</h2>
-    <ResponsiveContainer width="100%" height={300}>
+  <div className="mb-8 h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+    <h2 className="mb-4 text-xl font-medium">{title}</h2>
+    <ResponsiveContainer width="100%" height={370}>
       <BarChart data={data} margin={{ bottom: 80 }}>
         <XAxis
           dataKey="userName"
@@ -91,7 +88,11 @@ const ChartSection: React.FC<ChartSectionProps> = ({ title, data, colors }) => (
         />
         <YAxis tick={{ fill: "currentColor", fontSize: 12 }} />
         <Tooltip content={<MoneyTooltip />} />
-        <Legend verticalAlign="top" wrapperStyle={{ color: "currentColor" }} />
+        <Legend
+          verticalAlign="top"
+          wrapperStyle={{ color: "currentColor" }}
+          height={80}
+        />
         <Bar
           dataKey="totalSellerComm"
           stackId="a"
@@ -180,7 +181,7 @@ export default function EarningsPage() {
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
-              className="rounded-xl border px-3 py-2 dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
               required
             />
           </div>
@@ -190,7 +191,7 @@ export default function EarningsPage() {
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              className="rounded-xl border px-3 py-2 dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
               required
             />
           </div>
@@ -208,22 +209,29 @@ export default function EarningsPage() {
             {(["ARS", "USD"] as const).map((cur) => (
               <div
                 key={cur}
-                className="rounded-3xl bg-white p-4 shadow dark:bg-black dark:text-white"
+                className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
               >
-                <p className="font-medium">Vendedores ({cur})</p>
-                <p className="mt-1 text-xl font-light">
-                  {formatCurrency(data.totals.sellerComm[cur], cur)}
-                </p>
+                <p className="text-end font-light tracking-wide">{cur}</p>
+                <div>
+                  <p className="font-medium">Vendedores</p>
+                  <p className="font-light tracking-wide">
+                    {formatCurrency(data.totals.sellerComm[cur], cur)}
+                  </p>
+                </div>
 
-                <p className="mt-3 font-medium">Líderes ({cur})</p>
-                <p className="mt-1 text-xl font-light">
-                  {formatCurrency(data.totals.leaderComm[cur], cur)}
-                </p>
+                <div>
+                  <p className="font-medium">Líderes</p>
+                  <p className="font-light tracking-wide">
+                    {formatCurrency(data.totals.leaderComm[cur], cur)}
+                  </p>
+                </div>
 
-                <p className="mt-3 font-medium">Agencia ({cur})</p>
-                <p className="mt-1 text-xl font-light">
-                  {formatCurrency(data.totals.agencyShare[cur], cur)}
-                </p>
+                <div>
+                  <p className="font-medium">Agencia</p>
+                  <p className="font-light tracking-wide">
+                    {formatCurrency(data.totals.agencyShare[cur], cur)}
+                  </p>
+                </div>
               </div>
             ))}
           </div>
@@ -231,7 +239,7 @@ export default function EarningsPage() {
 
         {itemsARS.length > 0 && (
           <ChartSection
-            title="Desglose ARS"
+            title="ARS"
             data={itemsARS}
             colors={["#000", "#4B5563", "#9CA3AF"]}
           />
@@ -239,30 +247,30 @@ export default function EarningsPage() {
 
         {itemsUSD.length > 0 && (
           <ChartSection
-            title="Desglose USD"
+            title="USD"
             data={itemsUSD}
             colors={["#000", "#4B5563", "#9CA3AF"]}
           />
         )}
 
         {itemsARS.length > 0 && (
-          <div className="mb-8 overflow-x-auto rounded-3xl bg-white p-4 shadow dark:bg-black dark:text-white">
-            <h3 className="mb-2 font-semibold">Detalle ARS</h3>
+          <div className="mb-8 h-fit space-y-3 overflow-x-auto rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+            <h3 className="mb-2 font-medium">ARS</h3>
             <table className="w-full text-center">
-              <thead className="bg-gray-100 dark:bg-gray-700">
-                <tr>
-                  <th className="px-4 py-2">Equipo</th>
-                  <th className="px-4 py-2">Vendedor</th>
-                  <th className="px-4 py-2">Comisión Vendedor</th>
-                  <th className="px-4 py-2">Comisión Líder</th>
-                  <th className="px-4 py-2">Agencia</th>
+              <thead className="">
+                <tr className="">
+                  <th className="px-4 py-2 font-medium">Equipo</th>
+                  <th className="px-4 py-2 font-medium">Vendedor</th>
+                  <th className="px-4 py-2 font-medium">Comisión Vendedor</th>
+                  <th className="px-4 py-2 font-medium">Comisión Líder</th>
+                  <th className="px-4 py-2 font-medium">Agencia</th>
                 </tr>
               </thead>
               <tbody>
                 {itemsARS.map((it) => (
                   <tr
                     key={`ARS-${it.teamId}-${it.userId}`}
-                    className="border odd:bg-gray-50 dark:border-white/20 dark:odd:bg-gray-800"
+                    className="border-b font-light dark:border-white/10"
                   >
                     <td className="px-4 py-2">{it.teamName}</td>
                     <td className="px-4 py-2">{it.userName}</td>
@@ -283,23 +291,23 @@ export default function EarningsPage() {
         )}
 
         {itemsUSD.length > 0 && (
-          <div className="mb-8 overflow-x-auto rounded-3xl bg-white p-4 shadow dark:bg-black dark:text-white">
-            <h3 className="mb-2 font-semibold">Detalle USD</h3>
+          <div className="mb-8 h-fit space-y-3 overflow-x-auto rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+            <h3 className="mb-2 font-medium">USD</h3>
             <table className="w-full text-center">
-              <thead className="bg-gray-100 dark:bg-gray-700">
+              <thead className="">
                 <tr>
-                  <th className="px-4 py-2">Equipo</th>
-                  <th className="px-4 py-2">Vendedor</th>
-                  <th className="px-4 py-2">Comisión Vendedor</th>
-                  <th className="px-4 py-2">Comisión Líder</th>
-                  <th className="px-4 py-2">Agencia</th>
+                  <th className="px-4 py-2 font-medium">Equipo</th>
+                  <th className="px-4 py-2 font-medium">Vendedor</th>
+                  <th className="px-4 py-2 font-medium">Comisión Vendedor</th>
+                  <th className="px-4 py-2 font-medium">Comisión Líder</th>
+                  <th className="px-4 py-2 font-medium">Agencia</th>
                 </tr>
               </thead>
               <tbody>
                 {itemsUSD.map((it) => (
                   <tr
                     key={`USD-${it.teamId}-${it.userId}`}
-                    className="border odd:bg-gray-50 dark:border-white/20 dark:odd:bg-gray-800"
+                    className="border-b font-light dark:border-white/10"
                   >
                     <td className="px-4 py-2">{it.teamName}</td>
                     <td className="px-4 py-2">{it.userName}</td>

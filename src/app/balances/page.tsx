@@ -200,94 +200,91 @@ export default function BalancesPage() {
         </h1>
 
         {/* Filtros */}
-        <div className="my-8 rounded-3xl bg-white p-6 shadow-md dark:border-white/20 dark:bg-black">
-          <h2 className="mb-4 text-xl font-medium dark:font-medium">Filtros</h2>
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {/* Estado Cliente */}
-              <div className="rounded-3xl bg-white p-4 shadow-md dark:border-white/20 dark:bg-black">
-                <p className="mb-2 font-medium dark:font-medium">
-                  Estado Cliente
-                </p>
-                <div className="flex gap-2">
-                  {["Pendiente", "Pago", "Facturado"].map((st) => (
-                    <div
-                      key={st}
-                      onClick={() =>
-                        toggle(clientStatusArr, setClientStatusArr, st)
-                      }
-                      className={`flex-1 cursor-pointer rounded-full px-4 py-2 text-center font-light ${
-                        clientStatusArr.includes(st)
-                          ? "bg-black text-white dark:bg-white dark:text-black"
-                          : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
-                      }`}
-                    >
-                      {st}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Estado Operador */}
-              <div className="rounded-3xl bg-white p-4 shadow-md dark:border-white/20 dark:bg-black">
-                <p className="mb-2 font-medium dark:font-medium">
-                  Estado Operador
-                </p>
-                <div className="flex gap-2">
-                  {["Pendiente", "Pago"].map((st) => (
-                    <div
-                      key={st}
-                      onClick={() =>
-                        toggle(operatorStatusArr, setOperatorStatusArr, st)
-                      }
-                      className={`flex-1 cursor-pointer rounded-full px-4 py-2 text-center font-light ${
-                        operatorStatusArr.includes(st)
-                          ? "bg-black text-white dark:bg-white dark:text-black"
-                          : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
-                      }`}
-                    >
-                      {st}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Fecha Desde */}
-              <div className="rounded-3xl bg-white p-4 shadow-md dark:border-white/20 dark:bg-black">
-                <label className="mb-2 block font-medium dark:font-medium">
-                  Desde
-                </label>
-                <input
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                  className="w-full rounded-2xl border border-black p-2 dark:border-white/50 dark:bg-[#252525] dark:text-white"
-                />
-              </div>
-
-              {/* Fecha Hasta */}
-              <div className="rounded-3xl bg-white p-4 shadow-md dark:border-white/20 dark:bg-black">
-                <label className="mb-2 block font-medium dark:font-medium">
-                  Hasta
-                </label>
-                <input
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  className="w-full rounded-2xl border border-black p-2 dark:border-white/50 dark:bg-[#252525] dark:text-white"
-                />
+        <div className="mb-6 space-y-6">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {/* Estado Cliente */}
+            <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+              <p className="mb-2 font-medium dark:font-medium">
+                Estado Cliente
+              </p>
+              <div className="flex gap-2">
+                {["Pendiente", "Pago", "Facturado"].map((st) => (
+                  <div
+                    key={st}
+                    onClick={() =>
+                      toggle(clientStatusArr, setClientStatusArr, st)
+                    }
+                    className={`flex-1 cursor-pointer rounded-full px-4 py-2 text-center font-light ${
+                      clientStatusArr.includes(st)
+                        ? "border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+                        : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
+                    }`}
+                  >
+                    {st}
+                  </div>
+                ))}
               </div>
             </div>
 
-            <div className="flex justify-end">
-              <button
-                onClick={fetchBookings}
-                disabled={loading}
-                className="flex items-center gap-2 rounded-full bg-black px-6 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
-              >
-                {loading ? <Spinner /> : "Buscar"}
-              </button>
+            {/* Estado Operador */}
+            <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+              <p className="mb-2 font-medium dark:font-medium">
+                Estado Operador
+              </p>
+              <div className="flex gap-2">
+                {["Pendiente", "Pago"].map((st) => (
+                  <div
+                    key={st}
+                    onClick={() =>
+                      toggle(operatorStatusArr, setOperatorStatusArr, st)
+                    }
+                    className={`flex-1 cursor-pointer rounded-full px-4 py-2 text-center font-light ${
+                      operatorStatusArr.includes(st)
+                        ? "border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+                        : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
+                    }`}
+                  >
+                    {st}
+                  </div>
+                ))}
+              </div>
             </div>
+
+            {/* Fecha Desde */}
+            <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+              <label className="mb-2 block font-medium dark:font-medium">
+                Desde
+              </label>
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
+              />
+            </div>
+
+            {/* Fecha Hasta */}
+            <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+              <label className="mb-2 block font-medium dark:font-medium">
+                Hasta
+              </label>
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              onClick={fetchBookings}
+              disabled={loading}
+              className="flex items-center gap-2 rounded-full bg-black px-6 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+            >
+              {loading ? <Spinner /> : "Buscar"}
+            </button>
           </div>
         </div>
 
@@ -300,18 +297,18 @@ export default function BalancesPage() {
           data.length > 0 && (
             <>
               <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-                <div className="rounded-3xl bg-white p-4 shadow dark:bg-black dark:text-white">
+                <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
                   <p className="text-lg font-medium">Total de reservas</p>
                   <p className="font-light">{stats.count}</p>
                 </div>
-                <div className="rounded-3xl bg-white p-4 shadow dark:bg-black dark:text-white">
+                <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
                   <p className="text-lg font-medium">Venta total</p>
                   <p className="font-light">
                     {fmtARS(stats.totals.ARS)}
                     {stats.totals.USD > 0 && ` y ${fmtUSD(stats.totals.USD)}`}
                   </p>
                 </div>
-                <div className="rounded-3xl bg-white p-4 shadow dark:bg-black dark:text-white">
+                <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
                   <p className="text-lg font-medium">Deuda total</p>
                   <p className="font-light">
                     {fmtARS(stats.debtTotals.ARS)}
@@ -320,10 +317,10 @@ export default function BalancesPage() {
                   </p>
                 </div>
               </div>
-              <div className="overflow-x-auto rounded-3xl bg-black dark:bg-[#252525]">
+              <div className="overflow-x-auto rounded-3xl border border-white/10 bg-white/10 text-black shadow-md backdrop-blur dark:text-white">
                 <table className="w-full">
                   <thead>
-                    <tr className="text-white">
+                    <tr className="text-black dark:text-white">
                       <th className="px-4 py-3 font-normal">Reserva</th>
                       <th className="px-4 py-3 font-normal">Titular</th>
                       <th className="px-4 py-3 font-normal">Cliente</th>
@@ -337,13 +334,13 @@ export default function BalancesPage() {
                     {data.map((b) => (
                       <tr
                         key={b.id_booking}
-                        className="border border-black text-center dark:border-[#252525]"
+                        className="border-t border-white/10"
                       >
-                        <td className="bg-white px-2 py-4 dark:bg-black">
+                        <td className="px-2 py-4">
                           <Link
                             href={`/bookings/services/${b.id_booking}`}
                             target={"blank"}
-                            className="m-auto flex w-fit items-center gap-1 text-black/70 hover:text-black dark:text-white/70 dark:hover:text-white"
+                            className="m-auto flex w-fit items-center gap-1 text-black/70 transition-colors hover:text-black dark:text-white/70 dark:hover:text-white"
                           >
                             {b.id_booking}
                             <svg
@@ -362,31 +359,31 @@ export default function BalancesPage() {
                             </svg>
                           </Link>
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="px-2 py-4 text-center text-sm font-light">
                           {`${b.titular.first_name} ${b.titular.last_name}`}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="px-2 py-4 text-center text-sm font-light">
                           {b.clientStatus}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="px-2 py-4 text-center text-sm font-light">
                           {b.operatorStatus}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="px-2 py-4 text-center text-sm font-light">
                           {new Date(b.creation_date).toLocaleDateString(
                             "es-AR",
                           )}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="px-2 py-4 text-center text-sm font-light">
                           {formatTotalByCurrency(b.services)}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="px-2 py-4 text-center text-sm font-light">
                           {formatDebtByCurrency(b.services, b.Receipt)}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <div className="flex w-full justify-end px-4 py-2">
+                <div className="flex w-full justify-end border-t border-white/10 px-4 py-2">
                   <button
                     onClick={downloadCSV}
                     className="w-fit rounded-full bg-white px-4 py-2 text-black transition-transform hover:scale-95 active:scale-90"

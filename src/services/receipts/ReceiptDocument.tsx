@@ -45,6 +45,13 @@ export interface ReceiptPdfData {
       logoBase64?: string;
     };
   };
+  recipients: Array<{
+    firstName: string;
+    lastName: string;
+    dni: string;
+    address: string;
+    locality: string;
+  }>;
 }
 
 // Registrar Poppins
@@ -101,7 +108,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     paddingTop: 40,
     paddingHorizontal: 60,
-    paddingBottom: 60, // deja espacio para el footer
+    paddingBottom: 60,
     lineHeight: 1.4,
     color: "#0A0A0A",
     position: "relative",
@@ -115,30 +122,16 @@ const styles = StyleSheet.create({
     marginBottom: 60,
   },
   logoSmall: { height: 40 },
-  header: {
-    color: "#0A0A0A",
-  },
-  headerText: {
-    fontSize: 14,
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
-  headerDate: {
-    fontSize: 8,
-    fontWeight: "light",
-    color: "#555",
-  },
+  header: { color: "#0A0A0A" },
+  headerText: { fontSize: 14, textTransform: "uppercase", marginBottom: 4 },
+  headerDate: { fontSize: 8, fontWeight: "light", color: "#555" },
   infoSection: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 20,
   },
   infoColumn: { width: "46%" },
-  infoLabel: {
-    fontWeight: "bold",
-    marginBottom: 4,
-    color: "#555",
-  },
+  infoLabel: { fontWeight: "bold", marginBottom: 4, color: "#555" },
   sectionTitle: {
     fontSize: 12,
     fontWeight: "bold",
@@ -167,29 +160,10 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#FFF",
   },
-  tableRow: {
-    flexDirection: "row",
-  },
-  tableRowAlt: {
-    backgroundColor: "#0A0A0A",
-    color: "#FFF",
-  },
-  tableCell: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
+  tableRow: { flexDirection: "row" },
+  tableRowAlt: { backgroundColor: "#0A0A0A", color: "#FFF" },
+  tableCell: { paddingHorizontal: 12, paddingVertical: 8 },
   colDescription: { width: "100%" },
-  paymentSection: {
-    marginTop: 20,
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  signatureLine: {
-    marginTop: 40,
-    borderTopWidth: 1,
-    borderColor: "#AAA",
-    width: "40%",
-  },
   footerContainer: {
     position: "absolute",
     bottom: 10,
@@ -198,10 +172,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 1.2,
   },
-  footerText: {
-    fontSize: 9,
-    color: "#888",
-  },
+  footerText: { fontSize: 9, color: "#888" },
 });
 
 const ReceiptDocument: React.FC<ReceiptPdfData> = ({
@@ -213,7 +184,8 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
   currency,
   services,
   amount_currency,
-  booking: { details, departureDate, returnDate, titular, agency },
+  booking: { details, departureDate, returnDate, agency },
+  recipients,
 }) => {
   return (
     <Document>
@@ -227,8 +199,6 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
               src={`data:image/png;base64,${agency.logoBase64}`}
             />
           )}
-
-          {/* Título */}
           <View style={styles.header}>
             <Text style={styles.headerText}>Recibo N° {receiptNumber}</Text>
             <Text style={styles.headerDate}>
@@ -236,17 +206,20 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
             </Text>
           </View>
         </View>
-
-        {/* Cliente / Agencia */}
+        {/* Cliente(s) / Agencia */}
         <View style={styles.infoSection}>
           <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>Cliente</Text>
-            <Text>
-              {titular.firstName} {titular.lastName} – DNI {titular.dni}
-            </Text>
-            <Text>
-              {titular.address}, {titular.locality}
-            </Text>
+            <Text style={styles.infoLabel}>Cliente(s)</Text>
+            {recipients.map((r, i) => (
+              <View key={i} style={{ marginBottom: 4 }}>
+                <Text>
+                  {r.firstName} {r.lastName} – DNI {r.dni}
+                </Text>
+                <Text>
+                  {r.address}, {r.locality}
+                </Text>
+              </View>
+            ))}
           </View>
           <View style={styles.infoColumn}>
             <Text style={styles.infoLabel}>Agencia</Text>
@@ -257,24 +230,6 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
             <Text>{agency.address}</Text>
           </View>
         </View>
-
-        {/* Pago y firma */}
-        <View style={styles.infoSection}>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>Servicio contratado</Text>
-            <Text>{details}</Text>
-          </View>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>
-              Servicio contratado Desde - Hasta
-            </Text>
-            <Text>
-              {fmtDate(new Date(departureDate))} -{" "}
-              {fmtDate(new Date(returnDate))}
-            </Text>
-          </View>
-        </View>
-
         {/* Servicios */}
         <Text style={styles.sectionTitle}>Detalle de servicios</Text>
         <View style={styles.tableContainer}>
@@ -297,8 +252,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
             </View>
           ))}
         </View>
-
-        {/* Monto total por moneda */}
+        {/* Monto y método */}
         <View style={styles.infoSection}>
           <View style={styles.infoColumn}>
             <Text style={styles.infoLabel}>En concepto de</Text>
@@ -309,8 +263,6 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
             <Text>{safeFmtCurrency(amount, amount_currency)}</Text>
           </View>
         </View>
-
-        {/* Monto en letras / Servicio contratado */}
         <View style={styles.infoSection}>
           <View style={styles.infoColumn}>
             <Text style={styles.infoLabel}>Monto</Text>
@@ -319,6 +271,29 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
           <View style={styles.infoColumn}>
             <Text style={styles.infoLabel}>Método de pago</Text>
             <Text>{currency}</Text>
+          </View>
+        </View>
+        {/* Pie */}
+        <View style={styles.footerContainer} fixed>
+          <Text style={styles.footerText}>
+            Este comprobante no es válido como factura.
+          </Text>
+        </View>
+
+        {/* Pago y firma */}
+        <View style={styles.infoSection}>
+          <View style={styles.infoColumn}>
+            <Text style={styles.infoLabel}>Servicio contratado</Text>
+            <Text>{details}</Text>
+          </View>
+          <View style={styles.infoColumn}>
+            <Text style={styles.infoLabel}>
+              Servicio contratado Desde - Hasta
+            </Text>
+            <Text>
+              {fmtDate(new Date(departureDate))} -{" "}
+              {fmtDate(new Date(returnDate))}
+            </Text>
           </View>
         </View>
 

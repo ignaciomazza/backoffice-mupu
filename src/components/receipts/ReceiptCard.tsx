@@ -133,6 +133,13 @@ export default function ReceiptCard({
         </p>
       </div>
 
+      {receipt.clientIds && receipt.clientIds.length > 0 && (
+        <div>
+          <p className="font-semibold">IDs de Cliente(s):</p>
+          <p className="font-light">{receipt.clientIds.join(", ")}</p>
+        </div>
+      )}
+
       <div className="mt-3 flex gap-2">
         <button
           onClick={downloadPDF}

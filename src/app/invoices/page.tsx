@@ -164,18 +164,18 @@ export default function InvoicesPage() {
 
   return (
     <ProtectedRoute>
-      <div className="p-6">
+      <div className="">
         <h1 className="mb-6 text-2xl font-semibold dark:text-white">
           Facturas por Fecha
         </h1>
-        <div className="mb-6 flex flex-wrap gap-4">
+        <div className="mb-6 flex w-full flex-wrap gap-4">
           <div>
             <label className="mb-1 block dark:text-white">Desde</label>
             <input
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
-              className="rounded-2xl border border-black p-2 dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
             />
           </div>
           <div>
@@ -184,7 +184,7 @@ export default function InvoicesPage() {
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              className="rounded-2xl border border-black p-2 dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
             />
           </div>
           <button
@@ -202,10 +202,10 @@ export default function InvoicesPage() {
           </div>
         ) : (
           data.length > 0 && (
-            <div className="overflow-x-auto rounded-3xl bg-black dark:bg-[#252525]">
-              <table className="w-full">
+            <div className="w-full rounded-3xl border border-white/10 bg-white/10 text-black shadow-md backdrop-blur dark:text-white">
+              <table className="">
                 <thead>
-                  <tr className="text-white">
+                  <tr className="text-black dark:text-white">
                     <th className="px-4 py-3 font-normal">Factura</th>
                     <th className="px-4 py-3 font-normal">Reserva</th>
                     <th className="px-4 py-3 font-normal">Fecha</th>
@@ -225,44 +225,41 @@ export default function InvoicesPage() {
                     const { base21, base105, baseEx, neto, iva } =
                       getTaxBreakdown(inv);
                     return (
-                      <tr
-                        key={inv.id_invoice}
-                        className="border border-black text-center dark:border-[#252525]"
-                      >
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                      <tr key={inv.id_invoice} className="text-center">
+                        <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-black dark:text-white">
                           {inv.invoice_number}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-black dark:text-white">
                           {inv.booking.id_booking}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-black dark:text-white">
                           {getCbteDate(inv)}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-black dark:text-white">
                           {getClientName(inv)}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-black dark:text-white">
                           {formatAddress(inv)}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-black dark:text-white">
                           {fmt(base21, inv.currency)}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-black dark:text-white">
                           {fmt(base105, inv.currency)}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-black dark:text-white">
                           {fmt(baseEx, inv.currency)}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-black dark:text-white">
                           {fmt(neto, inv.currency)}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-black dark:text-white">
                           {fmt(iva, inv.currency)}
                         </td>
-                        <td className="bg-white px-2 py-4 text-sm font-light dark:bg-black">
+                        <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-black dark:text-white">
                           {fmt(inv.total_amount, inv.currency)}
                         </td>
-                        <td className="bg-white text-sm dark:bg-black">
+                        <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-black dark:text-white">
                           <div className="flex items-center justify-center">
                             <Link
                               href={`/api/invoices/${inv.id_invoice}/pdf`}
@@ -292,7 +289,7 @@ export default function InvoicesPage() {
                   })}
                 </tbody>
               </table>
-              <div className="flex w-full justify-end px-4 py-2">
+              <div className="flex w-full justify-end border-t border-white/10 px-4 py-2">
                 <button
                   onClick={downloadCSV}
                   className="w-fit rounded-full bg-white px-4 py-2 text-black transition-transform hover:scale-95 active:scale-90"

@@ -1,4 +1,5 @@
 // src/pages/api/receipts/[id]/pdf.tsx
+
 import type { NextApiRequest, NextApiResponse } from "next";
 import { PrismaClient } from "@prisma/client";
 import fs from "fs";
@@ -22,27 +23,51 @@ export default async function handler(
   const id = parseInt(req.query.id as string, 10);
   if (isNaN(id)) return res.status(400).end("ID inválido");
 
+  // 1) Traer el recibo junto con los clientes de la reserva
   const receipt = await prisma.receipt.findUnique({
     where: { id_receipt: id },
     include: {
-      booking: { include: { titular: true, agency: true, services: true } },
+      booking: {
+        include: {
+          titular: true,
+          agency: true,
+          services: true,
+          clients: true, // <-- incluimos los clientes
+        },
+      },
     },
   });
   if (!receipt) return res.status(404).end("Recibo no encontrado");
 
-  // Carga logo
+  // 2) Lectura de logo
   const logoPath = path.join(process.cwd(), "public", "logo.png");
   let logoBase64: string | undefined;
   if (fs.existsSync(logoPath)) {
     logoBase64 = fs.readFileSync(logoPath).toString("base64");
   }
 
-  // Sólo los servicios seleccionados
+  // 3) Seleccionar sólo los servicios marcados
   const selectedServices = receipt.booking.services.filter((s) =>
     receipt.serviceIds.includes(s.id_service),
   );
 
-  const data: ReceiptPdfData = {
+  // 4) Determinar destinatarios: si clientIds no está vacío, uso esos clientes; si no, el titular
+  // Suponiendo que clientIds viene del receipt
+  const rawClients = await prisma.client.findMany({
+    where: { id_client: { in: receipt.clientIds } },
+  });
+  const recipients = rawClients.length ? rawClients : [receipt.booking.titular];
+
+  // 5) Armar objeto de datos para el PDF, incluyendo 'recipients'
+  const data: ReceiptPdfData & {
+    recipients: Array<{
+      firstName: string;
+      lastName: string;
+      dni: string;
+      address: string;
+      locality: string;
+    }>;
+  } = {
     receiptNumber: receipt.receipt_number,
     issueDate: receipt.issue_date ?? new Date(),
     concept: receipt.concept,
@@ -76,6 +101,13 @@ export default async function handler(
         logoBase64,
       },
     },
+    recipients: recipients.map((c) => ({
+      firstName: c.first_name,
+      lastName: c.last_name,
+      dni: c.dni_number ?? "-",
+      address: c.address ?? "-",
+      locality: c.locality ?? "-",
+    })),
   };
 
   const stream = await renderToStream(<ReceiptDocument {...data} />);

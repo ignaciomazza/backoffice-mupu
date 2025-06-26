@@ -9,7 +9,6 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  // -- Logs de entrada --
   console.log("=== Receipts API llamado ===");
   console.log("Método:", req.method);
   console.log("Body inicial:", req.body);
@@ -30,16 +29,23 @@ export default async function handler(
         amountString,
         amountCurrency,
         serviceIds,
+        clientIds = [], // <-- nuevo: IDs opcionales de cliente
         amount,
       } = req.body as {
-        booking: { id_booking: number; services?: { id_service: number }[] };
+        booking: {
+          id_booking: number;
+          services?: { id_service: number }[];
+          clients?: { id_client: number }[];
+        };
         concept: string;
         currency: string;
         amountString: string;
         amountCurrency: string;
         serviceIds: number[];
+        clientIds?: number[];
         amount: number;
       };
+
       console.log("Payload parseado:", {
         booking: { id_booking: booking?.id_booking },
         concept,
@@ -47,6 +53,7 @@ export default async function handler(
         amountString,
         amountCurrency,
         serviceIds,
+        clientIds,
         amount,
       });
 
@@ -64,6 +71,7 @@ export default async function handler(
           currency,
           amountString,
           serviceIds,
+          clientIds,
         });
         return res.status(400).json({
           error:
@@ -72,9 +80,9 @@ export default async function handler(
       }
 
       // 4) valida que cada serviceId exista en booking.services (opcional)
-      const serviciosEnBooking = booking.services;
+      const serviciosEnBooking = booking.services || [];
       if (
-        serviciosEnBooking &&
+        serviciosEnBooking.length &&
         serviceIds.some(
           (id) => !serviciosEnBooking.find((s) => s.id_service === id),
         )
@@ -88,7 +96,7 @@ export default async function handler(
           .json({ error: "Algún servicio no pertenece a la reserva" });
       }
 
-      // 5) calcula el próximo índice de recibo buscando los existentes
+      // 5) calcula el próximo índice de recibo
       const existing = await prisma.receipt.findMany({
         where: { receipt_number: { startsWith: `${booking.id_booking}-` } },
         select: { receipt_number: true },
@@ -110,6 +118,7 @@ export default async function handler(
         concept,
         currency,
         serviceIds,
+        clientIds,
       });
       const receipt = await prisma.receipt.create({
         data: {
@@ -121,6 +130,7 @@ export default async function handler(
           currency,
           booking: { connect: { id_booking: booking.id_booking } },
           serviceIds,
+          clientIds, // <-- guardamos aquí los IDs de cliente
         },
       });
       console.log("Después de create:", receipt);
@@ -145,12 +155,9 @@ export default async function handler(
       return res.status(405).end(`Method ${req.method} Not Allowed`);
     }
   } catch (err: unknown) {
-    // -- Log de error --
     console.log("Error en receipts API:", (err as Error)?.message ?? err);
-    return res
-      .status(500)
-      .json({
-        error: (err as Error)?.message ?? "Error interno al procesar recibo",
-      });
+    return res.status(500).json({
+      error: (err as Error)?.message ?? "Error interno al procesar recibo",
+    });
   }
 }
