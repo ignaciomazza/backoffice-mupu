@@ -29,7 +29,7 @@ export default function ThemeToggle() {
   };
 
   return (
-    <div className="flex items-center space-x-2">
+    <div className="flex items-center space-x-2 text-black dark:text-white">
       {theme === "light" ? (
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -63,10 +63,10 @@ export default function ThemeToggle() {
       )}
       <button
         onClick={toggleTheme}
-        className="relative flex h-5 w-10 items-center rounded-full bg-black p-0.5 transition-colors dark:bg-white"
+        className="relative flex h-5 w-10 items-center rounded-full bg-white/10 p-0.5 shadow-md backdrop-blur transition-colors"
       >
         <div
-          className={`size-4 rounded-full bg-white shadow-md transition-transform dark:bg-black ${
+          className={`size-4 rounded-full bg-sky-100 shadow-md transition-transform dark:bg-gray-500 ${
             theme === "dark" ? "translate-x-5" : "translate-x-0"
           }`}
         ></div>

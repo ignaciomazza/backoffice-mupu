@@ -2,8 +2,8 @@
 "use client";
 
 import Link from "next/link";
-import { useAuth } from "@/context/AuthContext";
-import { useRouter } from "next/navigation";
+// import { useAuth } from "@/context/AuthContext";
+// import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 
 interface SidebarProps {
@@ -17,8 +17,8 @@ export default function SideBar({
   closeMenu,
   currentPath,
 }: SidebarProps) {
-  const { setToken } = useAuth();
-  const router = useRouter();
+  // const { setToken } = useAuth();
+  // const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [role, setRole] = useState<string | null>(null);
 
@@ -65,15 +65,15 @@ export default function SideBar({
     }
   };
 
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", {
-      method: "POST",
-      credentials: "include",
-    });
-    setToken(null);
-    closeMenu();
-    router.push("/login");
-  };
+  // const handleLogout = async () => {
+  //   await fetch("/api/auth/logout", {
+  //     method: "POST",
+  //     credentials: "include",
+  //   });
+  //   setToken(null);
+  //   closeMenu();
+  //   router.push("/login");
+  // };
 
   if (!mounted) {
     return null;
@@ -81,18 +81,18 @@ export default function SideBar({
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-50 h-screen w-48 border-r border-white/10 bg-white/10 p-4 shadow-md backdrop-blur-lg transition-transform duration-300 md:translate-x-0 md:border-none md:bg-transparent md:shadow-none ${
+      className={`fixed left-0 top-0 z-50 h-screen w-44 border-r border-white/10 bg-white/10 p-4 shadow-md backdrop-blur-lg transition-transform duration-300 md:translate-x-0 md:border-none md:bg-transparent md:shadow-none ${
         menuOpen ? "translate-x-0" : "-translate-x-full"
       } md:block`}
     >
       <nav className="flex h-full flex-col">
-        <ul className="flex flex-1 flex-col justify-center space-y-3">
+        <ul className="flex flex-1 flex-col justify-center space-y-2 text-sm font-extralight">
           <li className="transition-transform hover:scale-95 active:scale-90">
             <Link
               href="/"
               className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
                 currentPath === "/"
-                  ? "border border-white/10 bg-white/10 shadow-md backdrop-blur"
+                  ? "bg-white/10 shadow-md backdrop-blur"
                   : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
               }`}
               onClick={closeMenu}
@@ -105,7 +105,7 @@ export default function SideBar({
               href="/clients"
               className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
                 currentPath === "/clients"
-                  ? "border border-white/10 bg-white/10 shadow-md backdrop-blur"
+                  ? "bg-white/10 shadow-md backdrop-blur"
                   : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
               }`}
               onClick={closeMenu}
@@ -119,7 +119,7 @@ export default function SideBar({
               className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
                 currentPath === "/bookings" ||
                 currentPath.includes("/bookings/")
-                  ? "border border-white/10 bg-white/10 shadow-md backdrop-blur"
+                  ? "bg-white/10 shadow-md backdrop-blur"
                   : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
               }`}
               onClick={closeMenu}
@@ -133,7 +133,7 @@ export default function SideBar({
                 href="/operators"
                 className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
                   currentPath === "/operators"
-                    ? "border border-white/10 bg-white/10 shadow-md backdrop-blur"
+                    ? "bg-white/10 shadow-md backdrop-blur"
                     : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
@@ -148,7 +148,7 @@ export default function SideBar({
                 href="/invoices"
                 className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
                   currentPath === "/invoices"
-                    ? "border border-white/10 bg-white/10 shadow-md backdrop-blur"
+                    ? "bg-white/10 shadow-md backdrop-blur"
                     : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
@@ -163,7 +163,7 @@ export default function SideBar({
                 href="/balances"
                 className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
                   currentPath === "/balances"
-                    ? "border border-white/10 bg-white/10 shadow-md backdrop-blur"
+                    ? "bg-white/10 shadow-md backdrop-blur"
                     : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
@@ -178,7 +178,7 @@ export default function SideBar({
                 href="/earnings"
                 className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
                   currentPath === "/earnings"
-                    ? "border border-white/10 bg-white/10 shadow-md backdrop-blur"
+                    ? "bg-white/10 shadow-md backdrop-blur"
                     : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
@@ -193,7 +193,7 @@ export default function SideBar({
                 href="/agency"
                 className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
                   currentPath === "/agency"
-                    ? "border border-white/10 bg-white/10 shadow-md backdrop-blur"
+                    ? "bg-white/10 shadow-md backdrop-blur"
                     : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
@@ -208,7 +208,7 @@ export default function SideBar({
                 href="/users"
                 className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
                   currentPath === "/users"
-                    ? "border border-white/10 bg-white/10 shadow-md backdrop-blur"
+                    ? "bg-white/10 shadow-md backdrop-blur"
                     : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
@@ -223,7 +223,7 @@ export default function SideBar({
                 href="/teams"
                 className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
                   currentPath === "/teams"
-                    ? "border border-white/10 bg-white/10 shadow-md backdrop-blur"
+                    ? "bg-white/10 shadow-md backdrop-blur"
                     : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
@@ -233,10 +233,10 @@ export default function SideBar({
             </li>
           )}
         </ul>
-        <div className="w-full">
+        {/* <div className="w-full">
           <button
             onClick={handleLogout}
-            className="flex w-full items-center justify-evenly rounded-full p-2 transition-all hover:scale-95 hover:bg-black hover:text-white active:scale-90 dark:hover:bg-white dark:hover:text-black"
+            className="absolute flex w-full items-center justify-evenly rounded-full p-2 transition-all hover:scale-95 hover:bg-black hover:text-white active:scale-90 dark:hover:bg-white dark:hover:text-black"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -256,7 +256,7 @@ export default function SideBar({
               Cerrar Sesion
             </p>
           </button>
-        </div>
+        </div> */}
       </nav>
     </aside>
   );

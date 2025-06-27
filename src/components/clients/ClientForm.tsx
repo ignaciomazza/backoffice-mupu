@@ -126,7 +126,7 @@ export default function ClientForm({
         <p className="text-lg font-medium dark:text-white">
           {editingClientId ? "Editar Cliente" : "Agregar Cliente"}
         </p>
-        <button className="rounded-full bg-black p-2 text-white dark:bg-white dark:text-black">
+        <button className="rounded-full bg-sky-100 p-2 text-black transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur">
           {isFormVisible ? (
             <svg
               xmlns="http://www.w3.org/2000/svg"

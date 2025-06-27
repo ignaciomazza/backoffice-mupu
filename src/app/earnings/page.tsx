@@ -75,7 +75,7 @@ interface ChartSectionProps {
 }
 const ChartSection: React.FC<ChartSectionProps> = ({ title, data, colors }) => (
   <div className="mb-8 h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
-    <h2 className="mb-4 text-xl font-medium">{title}</h2>
+    <h2 className="mb-4 text-center text-2xl font-medium">{title}</h2>
     <ResponsiveContainer width="100%" height={370}>
       <BarChart data={data} margin={{ bottom: 80 }}>
         <XAxis
@@ -163,7 +163,7 @@ export default function EarningsPage() {
 
   return (
     <ProtectedRoute>
-      <div className="p-6">
+      <div className="">
         <h1 className="mb-6 text-2xl font-semibold dark:text-white">
           Ganancias
         </h1>
@@ -181,7 +181,7 @@ export default function EarningsPage() {
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
-              className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
+              className="flex w-fit cursor-pointer appearance-none rounded-2xl bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:text-white"
               required
             />
           </div>
@@ -191,16 +191,36 @@ export default function EarningsPage() {
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
+              className="flex w-fit cursor-pointer appearance-none rounded-2xl bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:text-white"
               required
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="ml-auto rounded-full bg-black px-6 py-2 text-white hover:scale-95 active:scale-90 disabled:opacity-50 dark:bg-white dark:text-black"
+            className="ml-auto w-32 rounded-full bg-sky-100 py-2 text-black shadow-md transition-transform hover:scale-95 active:scale-90 disabled:opacity-50 dark:bg-white/10 dark:text-white dark:backdrop-blur"
           >
-            {loading ? <Spinner /> : "Buscar"}
+            {loading ? (
+              <Spinner />
+            ) : (
+              <div className="flex w-full items-center justify-center gap-2">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                  className="size-5"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+                  />
+                </svg>
+                <p>Buscar</p>
+              </div>
+            )}
           </button>
         </form>
 
@@ -239,17 +259,17 @@ export default function EarningsPage() {
 
         {itemsARS.length > 0 && (
           <ChartSection
-            title="ARS"
+            title="Pesos"
             data={itemsARS}
-            colors={["#000", "#4B5563", "#9CA3AF"]}
+            colors={["#ea580c", "#f97316", "#fb923c"]}
           />
         )}
 
         {itemsUSD.length > 0 && (
           <ChartSection
-            title="USD"
+            title="Dolares"
             data={itemsUSD}
-            colors={["#000", "#4B5563", "#9CA3AF"]}
+            colors={["#166534", "#16a34a", "#22c55e"]}
           />
         )}
 

@@ -15,7 +15,7 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
 
   return (
     <header
-      className={`z-50 flex w-full items-center justify-between p-4 py-6 md:top-0`}
+      className={`z-50 flex w-full items-center justify-between px-4 py-6 md:top-0`}
     >
       <div className="flex w-full flex-auto justify-start md:justify-center">
         <p className="text-lg font-medium">
@@ -23,7 +23,7 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
         </p>
       </div>
 
-      <div className="absolute right-4 flex">
+      <div className="absolute right-4 flex md:right-8">
         {!isLoginPage && <ThemeToggle />}
         {!isLoginPage && (
           <button

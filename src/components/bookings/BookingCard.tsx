@@ -41,7 +41,7 @@ export default function BookingCard({
       <div className="flex items-center justify-end gap-2">
         <p className="font-light">{booking.id_booking}</p>
         {booking.status === "Bloqueada" ? (
-          <div className="rounded-full bg-black p-2 text-white dark:bg-white dark:text-black">
+          <div className="rounded-full bg-sky-100 p-2 text-black dark:bg-white/10 dark:text-white dark:backdrop-blur">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               fill="none"
@@ -58,7 +58,7 @@ export default function BookingCard({
             </svg>
           </div>
         ) : (
-          <div className="rounded-full bg-black p-2 text-white dark:bg-white dark:text-black">
+          <div className="rounded-full bg-sky-100 p-2 text-black dark:bg-white/10 dark:text-white dark:backdrop-blur">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               fill="none"
@@ -168,7 +168,7 @@ export default function BookingCard({
           </p>
           <Link
             href={`/bookings/services/${booking.id_booking}`}
-            className="mt-6 flex w-full gap-1 rounded-full bg-black p-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+            className="mt-6 flex w-full gap-1 rounded-full bg-sky-100 p-2 text-black transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -197,7 +197,7 @@ export default function BookingCard({
                   prevId === booking.id_booking ? null : booking.id_booking,
                 )
               }
-              className="mt-4 rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+              className="mt-4 rounded-full bg-sky-100 p-2 text-black transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -220,7 +220,7 @@ export default function BookingCard({
                 role === "desarrollador" ||
                 role === "gerente") && (
                 <button
-                  className="rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+                  className="rounded-full bg-sky-100 px-6 py-2 text-center text-black transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
                   onClick={() => handleEdit(booking)}
                 >
                   <svg
@@ -273,7 +273,7 @@ export default function BookingCard({
                   prevId === booking.id_booking ? null : booking.id_booking,
                 )
               }
-              className="mt-4 flex items-center justify-center rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+              className="mt-4 rounded-full bg-sky-100 p-2 text-black transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"

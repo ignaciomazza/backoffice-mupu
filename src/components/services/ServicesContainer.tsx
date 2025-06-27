@@ -236,37 +236,48 @@ export default function ServicesContainer({
         </div>
       ) : (
         <>
-          <div className="mb-6 flex justify-between">
+          <div className="mb-4 flex flex-col justify-between gap-2 md:mb-6">
             <Link
+              className="group relative h-10 w-40 rounded-3xl bg-white/10 text-center text-xl font-semibold text-black shadow-md backdrop-blur dark:text-white"
               href="/bookings"
-              className="flex w-fit rounded-full bg-black p-2 pr-4 text-center font-light text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.3}
-                stroke="currentColor"
-                className="size-6"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15.75 19.5 8.25 12l7.5-7.5"
-                />
-              </svg>
-              volver
+              <div className="absolute left-1 top-1 z-10 grid h-8 w-1/4 place-items-center rounded-3xl bg-sky-100 duration-500 group-hover:w-[152px] dark:bg-gray-500">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.4}
+                  stroke="currentColor"
+                  className="size-5"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
+                  />
+                </svg>
+              </div>
+              <p className="flex h-full translate-x-2 items-center justify-center text-sm font-light">
+                volver
+              </p>
             </Link>
+            {role !== "gerente" &&
+              role !== "administrativo" &&
+              role !== "desarrollador" && (
+                <div className="flex justify-center">
+                  <h1 className="text-3xl font-semibold">Reserva</h1>
+                </div>
+              )}
             {(role === "gerente" ||
               role === "administrativo" ||
               role === "desarrollador") && (
-              <div className="flex gap-2">
+              <div className="hidden w-full justify-center gap-3 md:flex">
                 <button
                   onClick={() =>
                     nextId && router.push(`/bookings/services/${nextId}`)
                   }
                   disabled={!nextId}
-                  className={`flex w-fit items-center rounded-full p-2 pr-4 text-center font-light transition-transform ${nextId ? "bg-black text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black" : "cursor-not-allowed bg-black/60 text-white/90 dark:bg-white/60 dark:text-black/90"}`}
+                  className={`flex w-fit items-end rounded-full px-3 text-center text-sm font-extralight ${nextId ? "text-black/60 transition-all hover:text-black dark:text-white/60 hover:dark:text-white" : "cursor-not-allowed text-black/30 dark:text-white/30"}`}
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -274,7 +285,7 @@ export default function ServicesContainer({
                     viewBox="0 0 24 24"
                     strokeWidth={1.3}
                     stroke="currentColor"
-                    className="size-6"
+                    className="size-5"
                   >
                     <path
                       strokeLinecap="round"
@@ -284,12 +295,13 @@ export default function ServicesContainer({
                   </svg>
                   siguiente
                 </button>
+                <h1 className="w-fit text-3xl font-semibold">Reserva</h1>
                 <button
                   onClick={() =>
                     prevId && router.push(`/bookings/services/${prevId}`)
                   }
                   disabled={!prevId}
-                  className={`flex w-fit items-center rounded-full p-2 pl-4 text-center font-light transition-transform ${prevId ? "bg-black text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black" : "cursor-not-allowed bg-black/60 text-white/90 dark:bg-white/60 dark:text-black/90"}`}
+                  className={`flex w-fit items-end rounded-full px-3 text-center text-sm font-extralight ${nextId ? "text-black/60 transition-all hover:text-black dark:text-white/60 hover:dark:text-white" : "cursor-not-allowed text-black/30 dark:text-white/30"}`}
                 >
                   anterior
                   <svg
@@ -298,7 +310,7 @@ export default function ServicesContainer({
                     viewBox="0 0 24 24"
                     strokeWidth={1.3}
                     stroke="currentColor"
-                    className="size-6"
+                    className="size-5"
                   >
                     <path
                       strokeLinecap="round"
@@ -313,11 +325,11 @@ export default function ServicesContainer({
 
           {booking && (
             <div className="mb-6 space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
-              <div className="mb-4 flex justify-between">
-                <h1 className="text-2xl font-semibold dark:font-medium">
-                  Reserva
-                </h1>
-                <p className="text-xl font-light">{booking.id_booking}</p>
+              <div className="mb-4 flex items-center justify-between">
+                <p className="text-xl font-medium">{booking.id_booking}</p>
+                <p className="font-light">
+                  {formatDate(booking.creation_date)}
+                </p>
               </div>
               <p className="font-semibold dark:font-medium">
                 Detalle
@@ -408,9 +420,6 @@ export default function ServicesContainer({
               </p>
               <p className="font-light">
                 {booking.observation || "Sin observaciones"}
-              </p>
-              <p className="text-end font-light">
-                {formatDate(booking.creation_date)}
               </p>
             </div>
           )}
