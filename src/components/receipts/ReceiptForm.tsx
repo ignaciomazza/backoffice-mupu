@@ -170,7 +170,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
         <p className="text-lg font-medium dark:text-white">
           {isFormVisible ? "Cerrar Formulario" : "Crear Recibo"}
         </p>
-        <button className="rounded-full bg-sky-100 p-2 text-black transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur">
+        <button className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur">
           {isFormVisible ? (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -436,7 +436,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
           <button
             type="submit"
             disabled={loading}
-            className="h-10 w-40 rounded-full bg-black text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+            className="mt-4 rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
           >
             {loading ? <Spinner /> : "Crear Recibo"}
           </button>

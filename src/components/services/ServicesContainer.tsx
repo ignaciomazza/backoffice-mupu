@@ -137,7 +137,6 @@ export default function ServicesContainer({
         const res = await fetch("/api/bookings");
         if (!res.ok) throw new Error("No se pudieron cargar los IDs");
         const data: Booking[] = await res.json();
-        // 1) extraemos y ordenamos numéricamente:
         const ids = data.map((b) => b.id_booking).sort((a, b) => a - b);
         setBookingIds(ids);
       } catch (err) {
@@ -169,7 +168,6 @@ export default function ServicesContainer({
     }
   }, [booking]);
 
-  // Sólo habilita el botón si hubo algún cambio
   const hasChanges = useMemo(() => {
     if (!booking) return false;
     return (
@@ -322,7 +320,6 @@ export default function ServicesContainer({
               </div>
             )}
           </div>
-
           {booking && (
             <div className="mb-6 space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
               <div className="mb-4 flex items-center justify-between">
@@ -423,9 +420,11 @@ export default function ServicesContainer({
               </p>
             </div>
           )}
-
           {booking ? (
             <>
+              <div className="mb-4 mt-8 flex justify-center">
+                <p className="text-2xl font-medium">Servicios</p>
+              </div>
               <ServiceForm
                 formData={formData}
                 operators={operators}
@@ -436,12 +435,8 @@ export default function ServicesContainer({
                 setIsFormVisible={setIsFormVisible}
                 onBillingUpdate={onBillingUpdate}
               />
-
               {services.length > 0 && (
                 <div>
-                  <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
-                    Servicios Agregados
-                  </h2>
                   <ServiceList
                     services={services}
                     expandedServiceId={expandedServiceId}
@@ -472,41 +467,38 @@ export default function ServicesContainer({
                   />
                 </div>
               )}
-
+              {receipts.length > 0 && (
+                <div className="mb-4 mt-8 flex justify-center">
+                  <p className="text-2xl font-medium">Recibos</p>
+                </div>
+              )}
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") &&
                 services.length > 0 && (
-                  <div className="mb-4 mt-8">
+                  <div className="">
                     <ReceiptForm
                       booking={booking}
                       onCreated={onReceiptCreated}
                     />
                   </div>
                 )}
-
               {receipts.length > 0 && (
-                <div>
-                  <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
-                    Recibos
-                  </h2>
-                  <ReceiptList
-                    receipts={receipts}
-                    booking={booking}
-                    role={role}
-                    onReceiptDeleted={onReceiptDeleted}
-                  />
-                </div>
+                <ReceiptList
+                  receipts={receipts}
+                  booking={booking}
+                  role={role}
+                  onReceiptDeleted={onReceiptDeleted}
+                />
               )}
-
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") &&
                 services.length > 0 && (
                   <div>
-                    <h2 className="mb-4 mt-8 text-xl font-semibold dark:font-medium">
-                      Factura
-                    </h2>
+                    <div className="mb-4 mt-8 flex justify-center">
+                      <p className="text-2xl font-medium">Facturas</p>
+                    </div>
                     <InvoiceForm
                       formData={invoiceFormData}
                       availableServices={availableServices}
@@ -520,13 +512,11 @@ export default function ServicesContainer({
                     {invoices.length > 0 && <InvoiceList invoices={invoices} />}
                   </div>
                 )}
-
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") &&
                 services.length > 0 && (
                   <div className="my-8">
-                    <h2 className="mb-4 text-xl dark:font-medium">Estados</h2>
                     <div className="space-y-6">
                       {/* selector de estados */}
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -542,7 +532,7 @@ export default function ServicesContainer({
                                 onClick={() => setSelectedClientStatus(st)}
                                 className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light ${
                                   selectedClientStatus === st
-                                    ? "bg-black text-white dark:bg-white dark:text-black"
+                                    ? "rounded-3xl bg-sky-100 p-6 text-black shadow-sm transition-all dark:bg-white/10 dark:text-white dark:backdrop-blur"
                                     : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
                                 }`}
                               >
@@ -551,8 +541,6 @@ export default function ServicesContainer({
                             ))}
                           </div>
                         </div>
-
-                        {/* Estado Operador */}
                         <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-black shadow-md backdrop-blur dark:text-white">
                           <p className="mb-2 font-medium dark:font-medium">
                             Operador
@@ -564,7 +552,7 @@ export default function ServicesContainer({
                                 onClick={() => setSelectedOperatorStatus(st)}
                                 className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light ${
                                   selectedOperatorStatus === st
-                                    ? "bg-black text-white dark:bg-white dark:text-black"
+                                    ? "rounded-3xl bg-sky-100 p-6 text-black shadow-sm transition-all dark:bg-white/10 dark:text-white dark:backdrop-blur"
                                     : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
                                 }`}
                               >
@@ -573,7 +561,6 @@ export default function ServicesContainer({
                             ))}
                           </div>
                         </div>
-                        {/* Estado Reserva */}
                         <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-black shadow-md backdrop-blur dark:text-white">
                           <p className="mb-2 font-medium dark:font-medium">
                             Reserva
@@ -583,9 +570,9 @@ export default function ServicesContainer({
                               <div
                                 key={st}
                                 onClick={() => setSelectedBookingStatus(st)}
-                                className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light ${
+                                className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light transition-all ${
                                   selectedBookingStatus === st
-                                    ? "bg-black text-white dark:bg-white dark:text-black"
+                                    ? "rounded-3xl bg-sky-100 p-6 text-black shadow-sm dark:bg-white/10 dark:text-white dark:backdrop-blur"
                                     : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
                                 }`}
                               >
@@ -595,16 +582,14 @@ export default function ServicesContainer({
                           </div>
                         </div>
                       </div>
-
-                      {/* botón de guardar con SVG */}
                       <button
                         onClick={handleSaveStatuses}
                         disabled={!hasChanges}
                         aria-label="Guardar estados"
                         className={`ml-auto mr-4 flex items-center justify-center gap-2 rounded-full px-6 py-2 text-lg font-light transition-transform ${
                           hasChanges
-                            ? "bg-black text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
-                            : "cursor-not-allowed bg-black/30 text-white/60 dark:bg-white/30 dark:text-black/60"
+                            ? "bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+                            : "cursor-not-allowed bg-black/20 text-white/60 shadow-sm dark:bg-white/5 dark:text-white/30 dark:backdrop-blur"
                         } `}
                       >
                         Guardar

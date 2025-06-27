@@ -108,15 +108,34 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
       <p className="font-semibold">
         Estado: <span className="font-light">{invoice.status || "N/A"}</span>
       </p>
-      <button
-        onClick={downloadPDF}
-        disabled={loading}
-        className={`mt-3 w-full rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black ${
-          loading ? "cursor-not-allowed opacity-50" : ""
-        }`}
-      >
-        {loading ? <Spinner /> : "Descargar PDF"}
-      </button>
+      <div className="mt-3 flex justify-end">
+        <button
+          onClick={downloadPDF}
+          disabled={loading}
+          className={`rounded-full bg-sky-100 px-6 py-2 text-black transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur ${
+            loading ? "cursor-not-allowed opacity-50" : ""
+          }`}
+        >
+          {loading ? (
+            <Spinner />
+          ) : (
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+              stroke="currentColor"
+              className="size-6"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+              />
+            </svg>
+          )}
+        </button>
+      </div>
     </div>
   );
 }

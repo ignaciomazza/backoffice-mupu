@@ -39,10 +39,6 @@ export default function SummaryCard({
 
   return (
     <div className="mb-6 space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
-      <h2 className="mb-6 text-center text-2xl font-semibold sm:text-3xl">
-        Resumen
-      </h2>
-
       <div className={`grid ${colsClass} gap-6`}>
         {currencies.map((currency) => {
           const t = totalsByCurrency[currency];

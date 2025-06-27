@@ -105,10 +105,15 @@ export default function ServiceList({
           />
         ))}
       </div>
-      <SummaryCard
-        totalsByCurrency={totalsByCurrency}
-        fmtCurrency={fmtCurrency}
-      />
+      <div>
+        <div className="mb-4 mt-8 flex justify-center">
+          <p className="text-2xl font-medium">Resumen</p>
+        </div>
+        <SummaryCard
+          totalsByCurrency={totalsByCurrency}
+          fmtCurrency={fmtCurrency}
+        />
+      </div>
     </div>
   );
 }

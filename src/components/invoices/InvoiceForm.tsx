@@ -125,7 +125,7 @@ export default function InvoiceForm({
         <p className="text-lg font-medium dark:text-white">
           {isFormVisible ? "Cerrar Formulario" : "Crear Factura"}
         </p>
-        <button className="rounded-full bg-sky-100 p-2 text-black transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur">
+        <button className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur">
           {isFormVisible ? (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -173,7 +173,7 @@ export default function InvoiceForm({
             }
             handleSubmit(e);
           }}
-          className="max-h-[800px] space-y-3 overflow-y-auto"
+          className="max-h-[800px] space-y-3 overflow-y-auto py-2"
         >
           <div>
             <label className="ml-2 block dark:text-white">
@@ -183,7 +183,7 @@ export default function InvoiceForm({
               name="tipoFactura"
               value={formData.tipoFactura}
               onChange={handleChange}
-              className="w-full appearance-none rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               required
             >
               <option value="">Seleccionar</option>
@@ -203,7 +203,7 @@ export default function InvoiceForm({
               onChange={handleChange}
               min={minDate}
               max={maxDate}
-              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               required
             />
           </div>
@@ -218,7 +218,7 @@ export default function InvoiceForm({
               min={1}
               onChange={(e) => setClientCount(Number(e.target.value))}
               placeholder="Cantidad de clientes..."
-              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
             />
           </div>
           {Array.from({ length: clientCount }).map((_, idx) => (
@@ -235,7 +235,7 @@ export default function InvoiceForm({
                   updateFormData("clientIds", arr);
                 }}
                 placeholder={`ID del cliente ${idx + 1}`}
-                className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                 required
               />
             </div>
@@ -251,7 +251,7 @@ export default function InvoiceForm({
               min={1}
               onChange={(e) => setServiceCount(Number(e.target.value))}
               placeholder="Cantidad de servicios..."
-              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
             />
           </div>
           {Array.from({ length: serviceCount }).map((_, idx) => {
@@ -271,7 +271,7 @@ export default function InvoiceForm({
                     updateFormData("services", arr);
                   }}
                   placeholder={`ID del servicio ${idx + 1}`}
-                  className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                  className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   required
                 />
 
@@ -290,7 +290,7 @@ export default function InvoiceForm({
                           updateFormData("description21", arr);
                         }}
                         placeholder="Ej: Excursión guiada 21%"
-                        className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                        className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                       />
                     </div>
                   )}
@@ -309,7 +309,7 @@ export default function InvoiceForm({
                           updateFormData("description10_5", arr);
                         }}
                         placeholder="Ej: Servicio terrestre 10.5%"
-                        className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                        className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                       />
                     </div>
                   )}
@@ -328,7 +328,7 @@ export default function InvoiceForm({
                           updateFormData("descriptionNonComputable", arr);
                         }}
                         placeholder="Ej: Cargo no computable"
-                        className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+                        className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                       />
                     </div>
                   )}
@@ -351,14 +351,14 @@ export default function InvoiceForm({
                   ? `Cotización: ${fetchedExchangeRate}`
                   : "Cotización actual"
               }
-              className="w-full rounded-2xl border border-black p-2 px-3 outline-none placeholder:font-light placeholder:tracking-wide dark:border-white/50 dark:bg-[#252525] dark:text-white"
+              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
             />
           </div>
 
           <button
             type="submit"
             disabled={isSubmitting}
-            className="bg-black;text-center h-10 w-40 rounded-full text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+            className="mt-4 rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
           >
             {isSubmitting ? <Spinner /> : "Crear Factura"}
           </button>

@@ -210,7 +210,7 @@ export default function ServiceCard({
           <div className="mt-4 flex justify-between">
             <button
               onClick={toggleExpand}
-              className="rounded-full bg-black p-2 text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+              className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
             >
               {/* ícono “-” */}
               <svg
@@ -218,7 +218,7 @@ export default function ServiceCard({
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
-                strokeWidth={2}
+                strokeWidth={1.5}
                 className="size-6"
               >
                 <path
@@ -245,7 +245,7 @@ export default function ServiceCard({
                       window.scrollTo({ top: y, behavior: "smooth" });
                     }
                   }}
-                  className="rounded-full bg-black px-6 py-2 text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+                  className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -269,7 +269,7 @@ export default function ServiceCard({
                 role === "gerente") && (
                 <button
                   onClick={() => deleteService(service.id_service)}
-                  className="rounded-full bg-red-600 px-6 py-2 text-white hover:scale-95 active:scale-90 dark:bg-red-800"
+                  className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -292,7 +292,7 @@ export default function ServiceCard({
         ) : (
           <button
             onClick={toggleExpand}
-            className="mt-4 flex items-center justify-center rounded-full bg-black p-2 text-white hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+            className="mt-4 rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
           >
             {/* ícono “+” */}
             <svg
@@ -300,7 +300,7 @@ export default function ServiceCard({
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
-              strokeWidth={2}
+              strokeWidth={1.5}
               className="size-6"
             >
               <path
