@@ -269,7 +269,7 @@ export default function ServicesContainer({
         <>
           <div className="mb-4 flex flex-col justify-between gap-2 md:mb-6">
             <Link
-              className="group relative h-10 w-40 rounded-3xl bg-white/10 text-center text-xl font-semibold text-black shadow-md backdrop-blur dark:text-white"
+              className="group relative h-10 w-40 rounded-3xl bg-white/10 text-center text-xl font-semibold text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
               href="/bookings"
             >
               <div className="absolute left-1 top-1 z-10 grid h-8 w-1/4 place-items-center rounded-3xl bg-sky-100 duration-500 group-hover:w-[152px] dark:bg-gray-500">
@@ -308,7 +308,7 @@ export default function ServicesContainer({
                     nextId && router.push(`/bookings/services/${nextId}`)
                   }
                   disabled={!nextId}
-                  className={`flex w-fit items-end rounded-full px-3 text-center text-sm font-extralight ${nextId ? "text-black/60 transition-all hover:text-black dark:text-white/60 hover:dark:text-white" : "cursor-not-allowed text-black/30 dark:text-white/30"}`}
+                  className={`flex w-fit items-end rounded-full px-3 text-center text-sm font-extralight ${nextId ? "text-sky-950/60 transition-all hover:text-sky-950 dark:text-white/60 hover:dark:text-white" : "cursor-not-allowed text-sky-950/30 dark:text-white/30"}`}
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -332,7 +332,7 @@ export default function ServicesContainer({
                     prevId && router.push(`/bookings/services/${prevId}`)
                   }
                   disabled={!prevId}
-                  className={`flex w-fit items-end rounded-full px-3 text-center text-sm font-extralight ${nextId ? "text-black/60 transition-all hover:text-black dark:text-white/60 hover:dark:text-white" : "cursor-not-allowed text-black/30 dark:text-white/30"}`}
+                  className={`flex w-fit items-end rounded-full px-3 text-center text-sm font-extralight ${nextId ? "text-sky-950/60 transition-all hover:text-sky-950 dark:text-white/60 hover:dark:text-white" : "cursor-not-allowed text-sky-950/30 dark:text-white/30"}`}
                 >
                   anterior
                   <svg
@@ -354,7 +354,7 @@ export default function ServicesContainer({
             )}
           </div>
           {booking && (
-            <div className="mb-6 space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+            <div className="mb-6 space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
               <div className="mb-4 flex items-center justify-between">
                 <p className="text-xl font-medium">{booking.id_booking}</p>
                 <p className="font-light">
@@ -577,7 +577,7 @@ export default function ServicesContainer({
                       {/* selector de estados */}
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                         {/* Estado Cliente */}
-                        <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-black shadow-md backdrop-blur dark:text-white">
+                        <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
                           <p className="mb-2 font-medium dark:font-medium">
                             Cliente
                           </p>
@@ -588,8 +588,8 @@ export default function ServicesContainer({
                                 onClick={() => setSelectedClientStatus(st)}
                                 className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light ${
                                   selectedClientStatus === st
-                                    ? "rounded-3xl bg-sky-100 p-6 text-black shadow-sm transition-all dark:bg-white/10 dark:text-white dark:backdrop-blur"
-                                    : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
+                                    ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 transition-all dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                                    : "text-sky-950/70 hover:bg-sky-950/5 dark:text-white/70 dark:hover:bg-white/5"
                                 }`}
                               >
                                 {st}
@@ -597,7 +597,7 @@ export default function ServicesContainer({
                             ))}
                           </div>
                         </div>
-                        <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-black shadow-md backdrop-blur dark:text-white">
+                        <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
                           <p className="mb-2 font-medium dark:font-medium">
                             Operador
                           </p>
@@ -608,8 +608,8 @@ export default function ServicesContainer({
                                 onClick={() => setSelectedOperatorStatus(st)}
                                 className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light ${
                                   selectedOperatorStatus === st
-                                    ? "rounded-3xl bg-sky-100 p-6 text-black shadow-sm transition-all dark:bg-white/10 dark:text-white dark:backdrop-blur"
-                                    : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
+                                    ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 transition-all dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                                    : "text-sky-950/70 hover:bg-sky-950/5 dark:text-white/70 dark:hover:bg-white/5"
                                 }`}
                               >
                                 {st}
@@ -617,7 +617,7 @@ export default function ServicesContainer({
                             ))}
                           </div>
                         </div>
-                        <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-black shadow-md backdrop-blur dark:text-white">
+                        <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
                           <p className="mb-2 font-medium dark:font-medium">
                             Reserva
                           </p>
@@ -628,8 +628,8 @@ export default function ServicesContainer({
                                 onClick={() => setSelectedBookingStatus(st)}
                                 className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light transition-all ${
                                   selectedBookingStatus === st
-                                    ? "rounded-3xl bg-sky-100 p-6 text-black shadow-sm dark:bg-white/10 dark:text-white dark:backdrop-blur"
-                                    : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
+                                    ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                                    : "text-sky-950/70 hover:bg-sky-950/5 dark:text-white/70 dark:hover:bg-white/5"
                                 }`}
                               >
                                 {st}
@@ -644,8 +644,8 @@ export default function ServicesContainer({
                         aria-label="Guardar estados"
                         className={`ml-auto mr-4 flex items-center justify-center gap-2 rounded-full px-6 py-2 text-lg font-light transition-transform ${
                           hasChanges
-                            ? "bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
-                            : "cursor-not-allowed bg-black/20 text-white/60 shadow-sm dark:bg-white/5 dark:text-white/30 dark:backdrop-blur"
+                            ? "bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
+                            : "cursor-not-allowed bg-sky-950/20 text-white/60 shadow-sm shadow-sky-950/10 dark:bg-white/5 dark:text-white/30 dark:backdrop-blur"
                         } `}
                       >
                         Guardar

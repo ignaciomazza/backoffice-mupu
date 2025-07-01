@@ -117,7 +117,7 @@ export default function ClientForm({
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
       <div
         className="flex cursor-pointer items-center justify-between"
@@ -189,7 +189,7 @@ export default function ClientForm({
                   name={name}
                   value={formData[name as keyof ClientFormData] || ""}
                   onChange={handleChange}
-                  className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   required
                 >
                   <option value="" disabled>
@@ -215,7 +215,7 @@ export default function ClientForm({
                     onPaste: handleDatePaste,
                     onBlur: handleDateBlur,
                   })}
-                  className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   placeholder={type === "date" ? "Día/Mes/Año" : `${label}...`}
                   required={requiredFields.includes(name)}
                 />

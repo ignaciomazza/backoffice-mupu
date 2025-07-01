@@ -113,29 +113,29 @@ export default function ProtectedRoute({
       <AnimatePresence>
         {sessionExpired && (
           <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/75"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-sky-950/75"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.6, ease: "easeInOut" }}
           >
             <motion.div
-              className="mx-auto max-w-md rounded-3xl bg-white p-8 text-center shadow-lg dark:border dark:border-[#ffffff4e] dark:bg-black"
+              className="mx-auto max-w-md rounded-3xl bg-white p-8 text-center shadow-lg shadow-sky-950/10 dark:border dark:border-[#ffffff4e] dark:bg-sky-950"
               initial={{ scale: 0.8, opacity: 0, y: -50 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: 50 }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
             >
-              <h2 className="mb-4 text-2xl font-semibold text-black dark:text-white">
+              <h2 className="mb-4 text-2xl font-semibold text-sky-950 dark:text-white">
                 Sesión Expirada
               </h2>
-              <p className="mb-6 font-light text-black dark:text-white">
+              <p className="mb-6 font-light text-sky-950 dark:text-white">
                 Tu sesión ha expirado por inactividad. Presiona
                 &quot;Entendido&quot; para iniciar sesión nuevamente.
               </p>
               <button
                 onClick={handleModalAccept}
-                className="rounded-2xl bg-black px-4 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+                className="rounded-2xl bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
               >
                 Entendido
               </button>

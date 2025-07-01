@@ -29,7 +29,7 @@ export default function ThemeToggle() {
   };
 
   return (
-    <div className="flex items-center space-x-2 text-black dark:text-white">
+    <div className="flex items-center space-x-2 text-sky-950 dark:text-white">
       {theme === "light" ? (
         <svg
           xmlns="http://www.w3.org/2000/svg"

@@ -15,7 +15,7 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
 
   return (
     <header
-      className={`z-50 flex w-full items-center justify-between px-4 py-6 md:top-0`}
+      className={`z-50 flex w-full items-center justify-between px-4 py-6 text-sky-950 dark:text-white md:top-0`}
     >
       <div className="flex w-full flex-auto justify-start md:justify-center">
         <p className="text-lg font-medium">

@@ -16,7 +16,7 @@ export default function TeamCard({ team, onEdit, onDelete }: TeamCardProps) {
     <motion.div
       layout
       layoutId={`team-${team.id_team}`}
-      className="h-fit space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+      className="h-fit space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
       <h3 className="text-lg font-semibold dark:font-medium">{team.name}</h3>
       <ul className="ml-5 list-disc">
@@ -29,7 +29,7 @@ export default function TeamCard({ team, onEdit, onDelete }: TeamCardProps) {
       <div className="flex justify-end gap-4">
         <button
           onClick={() => onEdit(team)}
-          className="rounded-full bg-black px-6 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+          className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -48,7 +48,7 @@ export default function TeamCard({ team, onEdit, onDelete }: TeamCardProps) {
         </button>
         <button
           onClick={() => onDelete(team.id_team)}
-          className="rounded-full bg-red-600 px-6 py-2 text-white transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+          className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"

@@ -142,7 +142,7 @@ export default function BookingForm({
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
       <div
         className="flex cursor-pointer items-center justify-between"
@@ -240,7 +240,7 @@ export default function BookingForm({
                     onPaste: handleDatePaste,
                     onBlur: handleDateBlur,
                   })}
-                  className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   placeholder={placeholder}
                   required
                 />
@@ -256,7 +256,7 @@ export default function BookingForm({
                 name="invoice_type"
                 value={formData.invoice_type || ""}
                 onChange={handleChange}
-                className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                 required
               >
                 <option value="" disabled>
@@ -282,7 +282,7 @@ export default function BookingForm({
                 name="invoice_observation"
                 value={formData.invoice_observation || ""}
                 onChange={handleChange}
-                className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                 placeholder="Ej: Facturar a cliente con ID 342"
                 required
               />
@@ -309,7 +309,7 @@ export default function BookingForm({
                 if (["ArrowUp", "ArrowDown"].includes(e.key))
                   e.preventDefault();
               }}
-              className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               min={1}
               placeholder="Ej: 342"
               required
@@ -324,7 +324,7 @@ export default function BookingForm({
               <button
                 type="button"
                 onClick={handleDecrement}
-                className="rounded-full border border-black p-1 dark:border-white dark:text-white"
+                className="rounded-full border border-sky-950 p-1 dark:border-white dark:text-white"
                 disabled={formData.pax_count <= 1}
               >
                 <svg
@@ -342,13 +342,13 @@ export default function BookingForm({
                   />
                 </svg>
               </button>
-              <span className="rounded-full border border-black px-3 py-1 dark:border-white dark:text-white">
+              <span className="rounded-full border border-sky-950 px-3 py-1 dark:border-white dark:text-white">
                 {formData.pax_count - 1}
               </span>
               <button
                 type="button"
                 onClick={handleIncrement}
-                className="rounded-full border border-black p-1 dark:border-white dark:text-white"
+                className="rounded-full border border-sky-950 p-1 dark:border-white dark:text-white"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -382,7 +382,7 @@ export default function BookingForm({
                     onChange={(e) =>
                       handleAcompananteChange(index, e.target.value)
                     }
-                    className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                     placeholder={`ID del acompañante ${index + 1}`}
                     onKeyDown={(e) => {
                       if (["ArrowUp", "ArrowDown"].includes(e.key))

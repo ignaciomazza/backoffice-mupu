@@ -32,7 +32,7 @@ export default function TeamForm({
         opacity: isVisible ? 1 : 0,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
@@ -45,7 +45,7 @@ export default function TeamForm({
             onChange={(e) => onNameChange(e.target.value)}
             placeholder="Equipo Online"
             required
-            className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+            className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
           />
         </div>
         <div>
@@ -71,7 +71,7 @@ export default function TeamForm({
         <div className="flex w-full justify-end">
           <button
             type="submit"
-            className="w-1/4 rounded-full bg-black/10 px-4 py-2 text-center text-black backdrop-blur transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+            className="w-1/4 rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
           >
             Enviar
           </button>

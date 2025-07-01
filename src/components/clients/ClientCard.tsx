@@ -33,7 +33,7 @@ export default function ClientCard({
     <motion.div
       layout
       layoutId={`client-${client.id_client}`}
-      className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+      className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
       <p className="text-end text-xl font-light">{client.id_client}</p>
       <p className="font-semibold dark:font-medium">

@@ -73,7 +73,7 @@ export default function CreditNoteCard({ creditNote }: CreditNoteCardProps) {
 
   if (!voucherData) {
     return (
-      <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+      <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
         <p className="font-semibold">
           Número: <span className="font-light">{creditNote.credit_number}</span>
         </p>
@@ -109,7 +109,7 @@ export default function CreditNoteCard({ creditNote }: CreditNoteCardProps) {
   };
 
   return (
-    <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+    <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
       <div className="flex justify-between">
         <p className="text-xl font-semibold">{creditNote.credit_number}</p>
         <p className="font-light">{formatDate(CbteFch)}</p>
@@ -147,7 +147,7 @@ export default function CreditNoteCard({ creditNote }: CreditNoteCardProps) {
         <button
           onClick={downloadPDF}
           disabled={loading}
-          className={`rounded-full bg-sky-100 px-6 py-2 text-black transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur ${
+          className={`rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur ${
             loading ? "cursor-not-allowed opacity-50" : ""
           }`}
         >

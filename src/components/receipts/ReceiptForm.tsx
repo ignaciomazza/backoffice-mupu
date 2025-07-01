@@ -161,7 +161,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden overflow-y-scroll rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+      className="mb-6 space-y-3 overflow-hidden overflow-y-scroll rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
       <div
         className="flex cursor-pointer items-center justify-between"
@@ -217,7 +217,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
               type="text"
               value={amountString}
               onChange={(e) => setAmountString(e.target.value)}
-              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               placeholder="Ej: UN MILLON CIEN MIL"
               required
             />
@@ -229,7 +229,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
               name="currency"
               value={amountCurrency}
               onChange={(e) => setAmountCurrency(e.target.value)}
-              className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
             >
               <option value="" disabled>
                 Seleccionar moneda
@@ -248,7 +248,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
               step="0.01"
               value={manualAmount}
               onChange={(e) => setManualAmount(e.target.value)}
-              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               placeholder="Ej: 1000.50"
             />
             <p className="ml-2 text-sm text-gray-500 dark:text-gray-400">
@@ -262,7 +262,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
               type="text"
               value={concept}
               onChange={(e) => setConcept(e.target.value)}
-              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               placeholder="Ej: Pago total del paquete"
               required
             />
@@ -276,7 +276,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
               type="text"
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}
-              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               placeholder="Ej: Tarjeta de crédito -- No adedua saldo"
               required
             />
@@ -290,7 +290,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
               <button
                 type="button"
                 onClick={handleDecrementService}
-                className="rounded-full border border-black p-1 dark:border-white dark:text-white"
+                className="rounded-full border border-sky-950 p-1 dark:border-white dark:text-white"
                 disabled={servicesCount <= 1}
               >
                 <svg
@@ -308,13 +308,13 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
                   />
                 </svg>
               </button>
-              <span className="rounded-full border border-black px-3 py-1 dark:border-white dark:text-white">
+              <span className="rounded-full border border-sky-950 px-3 py-1 dark:border-white dark:text-white">
                 {servicesCount}
               </span>
               <button
                 type="button"
                 onClick={handleIncrementService}
-                className="rounded-full border border-black p-1 dark:border-white dark:text-white"
+                className="rounded-full border border-sky-950 p-1 dark:border-white dark:text-white"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -345,7 +345,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
                   type="number"
                   value={idServices[idx] || ""}
                   onChange={(e) => handleServiceIdChange(idx, e.target.value)}
-                  className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   placeholder={`ID del servicio ${idx + 1}`}
                   onKeyDown={(e) => {
                     if (["ArrowUp", "ArrowDown"].includes(e.key))
@@ -365,7 +365,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
               <button
                 type="button"
                 onClick={handleDecrementClient}
-                className="rounded-full border border-black p-1 dark:border-white dark:text-white"
+                className="rounded-full border border-sky-950 p-1 dark:border-white dark:text-white"
                 disabled={clientsCount <= 1}
               >
                 <svg
@@ -383,13 +383,13 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
                   />
                 </svg>
               </button>
-              <span className="rounded-full border border-black px-3 py-1 dark:border-white dark:text-white">
+              <span className="rounded-full border border-sky-950 px-3 py-1 dark:border-white dark:text-white">
                 {clientsCount}
               </span>
               <button
                 type="button"
                 onClick={handleIncrementClient}
-                className="rounded-full border border-black p-1 dark:border-white dark:text-white"
+                className="rounded-full border border-sky-950 p-1 dark:border-white dark:text-white"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -418,7 +418,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
                     type="number"
                     value={idClients[idx] || ""}
                     onChange={(e) => handleCLientIdChange(idx, e.target.value)}
-                    className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                     placeholder={`ID del cliente ${idx + 1}`}
                     onKeyDown={(e) => {
                       if (["ArrowUp", "ArrowDown"].includes(e.key))

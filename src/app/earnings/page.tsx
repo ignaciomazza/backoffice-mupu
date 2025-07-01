@@ -48,7 +48,7 @@ function getDefaultRange() {
 const MoneyTooltip = ({ active, payload }: TooltipProps<number, string>) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="space-y-2 rounded-3xl border border-white/10 bg-white/10 p-4 text-black shadow-md backdrop-blur-3xl dark:bg-black/10 dark:text-white">
+    <div className="space-y-2 rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur-3xl dark:bg-sky-950/10 dark:text-white">
       {payload.map((p) => {
         // Hacemos cast a nuestro tipo
         const item = p.payload as EarningItem;
@@ -74,7 +74,7 @@ interface ChartSectionProps {
   colors: [string, string, string];
 }
 const ChartSection: React.FC<ChartSectionProps> = ({ title, data, colors }) => (
-  <div className="mb-8 h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+  <div className="mb-8 h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
     <h2 className="mb-4 text-center text-2xl font-medium">{title}</h2>
     <ResponsiveContainer width="100%" height={370}>
       <BarChart data={data} margin={{ bottom: 80 }}>
@@ -163,8 +163,8 @@ export default function EarningsPage() {
 
   return (
     <ProtectedRoute>
-      <div className="">
-        <h1 className="mb-6 text-2xl font-semibold dark:text-white">
+      <div className="text-sky-950 dark:text-white">
+        <h1 className="mb-6 text-2xl font-semibold ">
           Ganancias
         </h1>
 
@@ -181,7 +181,7 @@ export default function EarningsPage() {
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
-              className="flex w-fit cursor-pointer appearance-none rounded-2xl bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:text-white"
+              className="flex w-fit cursor-pointer appearance-none rounded-2xl bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:text-white"
               required
             />
           </div>
@@ -191,14 +191,14 @@ export default function EarningsPage() {
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              className="flex w-fit cursor-pointer appearance-none rounded-2xl bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:text-white"
+              className="flex w-fit cursor-pointer appearance-none rounded-2xl bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:text-white"
               required
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="ml-auto w-32 rounded-full bg-sky-100 py-2 text-black shadow-md transition-transform hover:scale-95 active:scale-90 disabled:opacity-50 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+            className="ml-auto w-32 rounded-full bg-sky-100 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-50 dark:bg-white/10 dark:text-white dark:backdrop-blur"
           >
             {loading ? (
               <Spinner />
@@ -229,7 +229,7 @@ export default function EarningsPage() {
             {(["ARS", "USD"] as const).map((cur) => (
               <div
                 key={cur}
-                className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+                className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
               >
                 <p className="text-end font-light tracking-wide">{cur}</p>
                 <div>
@@ -274,7 +274,7 @@ export default function EarningsPage() {
         )}
 
         {itemsARS.length > 0 && (
-          <div className="mb-8 h-fit space-y-3 overflow-x-auto rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+          <div className="mb-8 h-fit space-y-3 overflow-x-auto rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
             <h3 className="mb-2 font-medium">ARS</h3>
             <table className="w-full text-center">
               <thead className="">
@@ -311,7 +311,7 @@ export default function EarningsPage() {
         )}
 
         {itemsUSD.length > 0 && (
-          <div className="mb-8 h-fit space-y-3 overflow-x-auto rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+          <div className="mb-8 h-fit space-y-3 overflow-x-auto rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
             <h3 className="mb-2 font-medium">USD</h3>
             <table className="w-full text-center">
               <thead className="">

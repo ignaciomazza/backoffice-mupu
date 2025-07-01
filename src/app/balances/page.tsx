@@ -195,7 +195,7 @@ export default function BalancesPage() {
   return (
     <ProtectedRoute>
       <div className="">
-        <h1 className="mb-6 text-2xl font-semibold dark:text-white">
+        <h1 className="mb-6 text-2xl font-semibold text-sky-950 dark:text-white">
           Reservas
         </h1>
 
@@ -203,7 +203,7 @@ export default function BalancesPage() {
         <div className="mb-6 space-y-6">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {/* Estado Cliente */}
-            <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+            <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
               <p className="mb-2 font-medium dark:font-medium">
                 Estado Cliente
               </p>
@@ -216,8 +216,8 @@ export default function BalancesPage() {
                     }
                     className={`flex-1 cursor-pointer rounded-full px-4 py-2 text-center font-light ${
                       clientStatusArr.includes(st)
-                        ? "border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
-                        : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
+                        ? "border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
+                        : "text-sky-950/70 hover:bg-sky-950/5 dark:text-white/70 dark:hover:bg-white/5"
                     }`}
                   >
                     {st}
@@ -227,7 +227,7 @@ export default function BalancesPage() {
             </div>
 
             {/* Estado Operador */}
-            <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+            <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
               <p className="mb-2 font-medium dark:font-medium">
                 Estado Operador
               </p>
@@ -240,8 +240,8 @@ export default function BalancesPage() {
                     }
                     className={`flex-1 cursor-pointer rounded-full px-4 py-2 text-center font-light ${
                       operatorStatusArr.includes(st)
-                        ? "border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
-                        : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/5"
+                        ? "border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
+                        : "text-sky-950/70 hover:bg-sky-950/5 dark:text-white/70 dark:hover:bg-white/5"
                     }`}
                   >
                     {st}
@@ -251,7 +251,7 @@ export default function BalancesPage() {
             </div>
 
             {/* Fecha Desde */}
-            <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+            <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
               <label className="mb-2 block font-medium dark:font-medium">
                 Desde
               </label>
@@ -259,12 +259,12 @@ export default function BalancesPage() {
                 type="date"
                 value={from}
                 onChange={(e) => setFrom(e.target.value)}
-                className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
+                className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
               />
             </div>
 
             {/* Fecha Hasta */}
-            <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+            <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
               <label className="mb-2 block font-medium dark:font-medium">
                 Hasta
               </label>
@@ -272,7 +272,7 @@ export default function BalancesPage() {
                 type="date"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
-                className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
+                className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
               />
             </div>
           </div>
@@ -281,7 +281,7 @@ export default function BalancesPage() {
             <button
               onClick={fetchBookings}
               disabled={loading}
-              className="ml-auto w-32 rounded-full bg-sky-100 py-2 text-black shadow-md transition-transform hover:scale-95 active:scale-90 disabled:opacity-50 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+              className="ml-auto w-32 rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-50 dark:bg-white/10 dark:text-white dark:backdrop-blur"
             >
               {loading ? (
                 <Spinner />
@@ -317,18 +317,18 @@ export default function BalancesPage() {
           data.length > 0 && (
             <>
               <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-                <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+                <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
                   <p className="text-lg font-medium">Total de reservas</p>
                   <p className="font-light">{stats.count}</p>
                 </div>
-                <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+                <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
                   <p className="text-lg font-medium">Venta total</p>
                   <p className="font-light">
                     {fmtARS(stats.totals.ARS)}
                     {stats.totals.USD > 0 && ` y ${fmtUSD(stats.totals.USD)}`}
                   </p>
                 </div>
-                <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+                <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
                   <p className="text-lg font-medium">Deuda total</p>
                   <p className="font-light">
                     {fmtARS(stats.debtTotals.ARS)}
@@ -337,10 +337,10 @@ export default function BalancesPage() {
                   </p>
                 </div>
               </div>
-              <div className="overflow-x-auto rounded-3xl border border-white/10 bg-white/10 text-black shadow-md backdrop-blur dark:text-white">
+              <div className="overflow-x-auto rounded-3xl border border-white/10 bg-white/10 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
                 <table className="w-full">
                   <thead>
-                    <tr className="text-black dark:text-white">
+                    <tr className="text-sky-950 dark:text-white">
                       <th className="px-4 py-3 font-normal">Reserva</th>
                       <th className="px-4 py-3 font-normal">Titular</th>
                       <th className="px-4 py-3 font-normal">Cliente</th>
@@ -360,7 +360,7 @@ export default function BalancesPage() {
                           <Link
                             href={`/bookings/services/${b.id_booking}`}
                             target={"blank"}
-                            className="m-auto flex w-fit items-center gap-1 text-black/70 transition-colors hover:text-black dark:text-white/70 dark:hover:text-white"
+                            className="m-auto flex w-fit items-center gap-1 text-sky-950/70 transition-colors hover:text-sky-950 dark:text-white/70 dark:hover:text-white"
                           >
                             {b.id_booking}
                             <svg
@@ -406,7 +406,7 @@ export default function BalancesPage() {
                 <div className="flex w-full justify-end border-t border-white/10 px-4 py-2">
                   <button
                     onClick={downloadCSV}
-                    className="w-fit rounded-full bg-white px-4 py-2 text-black transition-transform hover:scale-95 active:scale-90"
+                    className="w-fit rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
                   >
                     Descargar Listado
                   </button>

@@ -353,7 +353,7 @@ export default function Page() {
 
   return (
     <ProtectedRoute>
-      <section className="text-black dark:text-white">
+      <section className="text-sky-950 dark:text-white">
         <motion.div layout>
           <ClientForm
             formData={formData}
@@ -370,7 +370,7 @@ export default function Page() {
         </h2>
 
         <div className="mb-4 flex w-full items-center space-x-2">
-          <div className="relative flex w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md backdrop-blur dark:border dark:border-white/10 dark:text-white">
+          <div className="relative flex w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:border dark:border-white/10 dark:text-white">
             <input
               type="text"
               placeholder="Buscar clientes..."
@@ -400,7 +400,7 @@ export default function Page() {
             profile?.role === "desarrollador") && (
             <div className="flex gap-2">
               <select
-                className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 p-2 px-3 text-black shadow-md outline-none backdrop-blur dark:text-white md:w-fit"
+                className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 p-2 px-3 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:text-white md:w-fit"
                 value={selectedUserId!}
                 onChange={(e) => setSelectedUserId(Number(e.target.value))}
               >
@@ -414,7 +414,7 @@ export default function Page() {
 
               {profile.role !== "lider" && (
                 <select
-                  className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 p-2 px-3 text-black shadow-md outline-none backdrop-blur dark:text-white md:w-fit"
+                  className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 p-2 px-3 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:text-white md:w-fit"
                   value={selectedTeamId}
                   onChange={(e) => {
                     setSelectedTeamId(Number(e.target.value));

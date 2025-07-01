@@ -34,7 +34,7 @@ export default function OperatorCard({
     <motion.div
       layout
       layoutId={`operator-${operator.id_operator}`}
-      className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+      className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
       <p className="text-end text-xl font-light">{operator.id_operator}</p>
       <p className="font-semibold dark:font-medium">
@@ -120,7 +120,7 @@ export default function OperatorCard({
                   prevId === operator.id_operator ? null : operator.id_operator,
                 )
               }
-              className="mt-4 rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+              className="mt-4 rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -139,7 +139,7 @@ export default function OperatorCard({
             </button>
             <div className="mt-4 flex gap-2">
               <button
-                className="rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+                className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
                 onClick={() => handleEdit(operator)}
               >
                 <svg
@@ -158,7 +158,7 @@ export default function OperatorCard({
                 </svg>
               </button>
               <button
-                className="rounded-full bg-red-600 px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+                className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
                 onClick={() => deleteOperator(operator.id_operator)}
               >
                 <svg
@@ -185,7 +185,7 @@ export default function OperatorCard({
                 prevId === operator.id_operator ? null : operator.id_operator,
               )
             }
-            className="mt-4 flex items-center justify-center rounded-full bg-black p-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+            className="mt-4 flex items-center justify-center rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

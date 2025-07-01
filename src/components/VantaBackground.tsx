@@ -80,7 +80,7 @@ export default function VantaBackground() {
     <div
       ref={vantaRef}
       className={`fixed left-0 top-0 -z-10 min-h-screen w-full transition-colors duration-500 ${
-        currentTheme === "dark" ? "bg-black" : "bg-white"
+        currentTheme === "dark" ? "bg-sky-950" : "bg-white"
       }`}
     />
   );

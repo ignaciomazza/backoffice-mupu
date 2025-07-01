@@ -116,7 +116,7 @@ export default function InvoiceForm({
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
       <div
         className="flex cursor-pointer items-center justify-between"
@@ -183,7 +183,7 @@ export default function InvoiceForm({
               name="tipoFactura"
               value={formData.tipoFactura}
               onChange={handleChange}
-              className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               required
             >
               <option value="">Seleccionar</option>
@@ -203,7 +203,7 @@ export default function InvoiceForm({
               onChange={handleChange}
               min={minDate}
               max={maxDate}
-              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               required
             />
           </div>
@@ -218,7 +218,7 @@ export default function InvoiceForm({
               min={1}
               onChange={(e) => setClientCount(Number(e.target.value))}
               placeholder="Cantidad de clientes..."
-              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
             />
           </div>
           {Array.from({ length: clientCount }).map((_, idx) => (
@@ -235,7 +235,7 @@ export default function InvoiceForm({
                   updateFormData("clientIds", arr);
                 }}
                 placeholder={`ID del cliente ${idx + 1}`}
-                className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                 required
               />
             </div>
@@ -251,7 +251,7 @@ export default function InvoiceForm({
               min={1}
               onChange={(e) => setServiceCount(Number(e.target.value))}
               placeholder="Cantidad de servicios..."
-              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
             />
           </div>
           {Array.from({ length: serviceCount }).map((_, idx) => {
@@ -271,7 +271,7 @@ export default function InvoiceForm({
                     updateFormData("services", arr);
                   }}
                   placeholder={`ID del servicio ${idx + 1}`}
-                  className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   required
                 />
 
@@ -290,7 +290,7 @@ export default function InvoiceForm({
                           updateFormData("description21", arr);
                         }}
                         placeholder="Ej: Excursión guiada 21%"
-                        className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                        className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                       />
                     </div>
                   )}
@@ -309,7 +309,7 @@ export default function InvoiceForm({
                           updateFormData("description10_5", arr);
                         }}
                         placeholder="Ej: Servicio terrestre 10.5%"
-                        className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                        className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                       />
                     </div>
                   )}
@@ -328,7 +328,7 @@ export default function InvoiceForm({
                           updateFormData("descriptionNonComputable", arr);
                         }}
                         placeholder="Ej: Cargo no computable"
-                        className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                        className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                       />
                     </div>
                   )}
@@ -351,7 +351,7 @@ export default function InvoiceForm({
                   ? `Cotización: ${fetchedExchangeRate}`
                   : "Cotización actual"
               }
-              className="w-full rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
             />
           </div>
 

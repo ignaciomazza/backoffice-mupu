@@ -81,7 +81,7 @@ export default function SideBar({
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-50 h-screen w-44 border-r border-white/10 bg-white/10 p-4 shadow-md backdrop-blur-lg transition-transform duration-300 md:translate-x-0 md:border-none md:bg-transparent md:shadow-none ${
+      className={`fixed left-0 top-0 z-50 h-screen w-44 border-r border-white/10 bg-white/10 p-4 shadow-md shadow-sky-950/10 backdrop-blur-lg transition-transform duration-300 md:translate-x-0 md:border-none md:bg-transparent md:shadow-none ${
         menuOpen ? "translate-x-0" : "-translate-x-full"
       } md:block`}
     >
@@ -90,10 +90,10 @@ export default function SideBar({
           <li className="transition-transform hover:scale-95 active:scale-90">
             <Link
               href="/"
-              className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
+              className={`block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white ${
                 currentPath === "/"
-                  ? "bg-white/10 shadow-md backdrop-blur"
-                  : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
+                  ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
+                  : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
               }`}
               onClick={closeMenu}
             >
@@ -103,10 +103,10 @@ export default function SideBar({
           <li className="transition-transform hover:scale-95 active:scale-90">
             <Link
               href="/clients"
-              className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
+              className={`block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white ${
                 currentPath === "/clients"
-                  ? "bg-white/10 shadow-md backdrop-blur"
-                  : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
+                  ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
+                  : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
               }`}
               onClick={closeMenu}
             >
@@ -116,11 +116,11 @@ export default function SideBar({
           <li className="transition-transform hover:scale-95 active:scale-90">
             <Link
               href="/bookings"
-              className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
+              className={`block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white ${
                 currentPath === "/bookings" ||
                 currentPath.includes("/bookings/")
-                  ? "bg-white/10 shadow-md backdrop-blur"
-                  : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
+                  ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
+                  : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
               }`}
               onClick={closeMenu}
             >
@@ -131,10 +131,10 @@ export default function SideBar({
             <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
                 href="/operators"
-                className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
+                className={`block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white ${
                   currentPath === "/operators"
-                    ? "bg-white/10 shadow-md backdrop-blur"
-                    : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
+                    ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
+                    : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
               >
@@ -146,10 +146,10 @@ export default function SideBar({
             <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
                 href="/invoices"
-                className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
+                className={`block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white ${
                   currentPath === "/invoices"
-                    ? "bg-white/10 shadow-md backdrop-blur"
-                    : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
+                    ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
+                    : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
               >
@@ -161,10 +161,10 @@ export default function SideBar({
             <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
                 href="/balances"
-                className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
+                className={`block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white ${
                   currentPath === "/balances"
-                    ? "bg-white/10 shadow-md backdrop-blur"
-                    : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
+                    ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
+                    : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
               >
@@ -176,10 +176,10 @@ export default function SideBar({
             <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
                 href="/earnings"
-                className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
+                className={`block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white ${
                   currentPath === "/earnings"
-                    ? "bg-white/10 shadow-md backdrop-blur"
-                    : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
+                    ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
+                    : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
               >
@@ -191,10 +191,10 @@ export default function SideBar({
             <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
                 href="/agency"
-                className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
+                className={`block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white ${
                   currentPath === "/agency"
-                    ? "bg-white/10 shadow-md backdrop-blur"
-                    : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
+                    ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
+                    : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
               >
@@ -206,10 +206,10 @@ export default function SideBar({
             <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
                 href="/users"
-                className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
+                className={`block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white ${
                   currentPath === "/users"
-                    ? "bg-white/10 shadow-md backdrop-blur"
-                    : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
+                    ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
+                    : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
               >
@@ -221,10 +221,10 @@ export default function SideBar({
             <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
                 href="/teams"
-                className={`block rounded-full py-2 text-center text-black transition-colors duration-200 dark:text-white ${
+                className={`block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white ${
                   currentPath === "/teams"
-                    ? "bg-white/10 shadow-md backdrop-blur"
-                    : "hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
+                    ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
+                    : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
                 }`}
                 onClick={closeMenu}
               >
@@ -236,7 +236,7 @@ export default function SideBar({
         {/* <div className="w-full">
           <button
             onClick={handleLogout}
-            className="absolute flex w-full items-center justify-evenly rounded-full p-2 transition-all hover:scale-95 hover:bg-black hover:text-white active:scale-90 dark:hover:bg-white dark:hover:text-black"
+            className="absolute flex w-full items-center justify-evenly rounded-full p-2 transition-all hover:scale-95 hover:bg-sky-950 hover:text-white active:scale-90 dark:hover:bg-white dark:hover:text-sky-950"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -252,7 +252,7 @@ export default function SideBar({
                 d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75"
               />
             </svg>
-            <p className="font-light md:text-white md:dark:text-black">
+            <p className="font-light md:text-white md:dark:text-sky-950">
               Cerrar Sesion
             </p>
           </button>

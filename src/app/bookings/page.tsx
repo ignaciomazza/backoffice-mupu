@@ -433,7 +433,7 @@ export default function Page() {
 
   return (
     <ProtectedRoute>
-      <section className="text-black dark:text-white">
+      <section className="text-sky-950 dark:text-white">
         <motion.div layout>
           <BookingForm
             formData={formData}
@@ -456,7 +456,7 @@ export default function Page() {
             profile?.role === "administrativo" ||
             profile?.role === "desarrollador") && (
             <div className="flex flex-col space-y-4 md:flex-row md:justify-end md:space-x-4 md:space-y-0">
-              <div className="flex w-full items-center rounded-2xl border-black/10 bg-white/10 text-center text-black shadow-md backdrop-blur dark:border dark:border-white/10 dark:text-white">
+              <div className="flex w-full items-center rounded-2xl border-b border-sky-950/10 bg-white/10 text-center text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:border dark:border-white/10 dark:text-white">
                 {ESTADOS.map((st, i) => (
                   <div
                     key={st}
@@ -465,11 +465,11 @@ export default function Page() {
                       i === 0 ? "rounded-l-2xl" : ""
                     } ${
                       i === 3
-                        ? "rounded-r-2xl"
-                        : "border-r border-black/20 dark:border-white/20"
+                        ? "rounded-r-2xl border-r-sky-100/20"
+                        : "border-r border-sky-950/20 dark:border-white/20"
                     } ${
                       selectedClientStatus === st
-                        ? "bg-black text-white dark:bg-white dark:text-black"
+                        ? "border-b border-r border-b-sky-100 border-r-sky-950/20 bg-sky-100 text-sky-950 dark:border-none dark:bg-gray-500 dark:text-white"
                         : ""
                     } `}
                   >
@@ -479,7 +479,7 @@ export default function Page() {
               </div>
 
               <select
-                className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
+                className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
                 value={selectedUserId!}
                 onChange={(e) => {
                   setSelectedUserId(Number(e.target.value));
@@ -495,7 +495,7 @@ export default function Page() {
 
               {profile?.role !== "lider" && (
                 <select
-                  className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
+                  className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
                   value={selectedTeamId}
                   onChange={(e) => {
                     setSelectedTeamId(Number(e.target.value));
@@ -515,7 +515,7 @@ export default function Page() {
           )}
 
           <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:justify-between sm:space-x-4 sm:space-y-0">
-            <div className="relative flex w-full appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md backdrop-blur dark:border dark:border-white/10 dark:text-white">
+            <div className="relative flex w-full appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:border dark:border-white/10 dark:text-white">
               <input
                 type="text"
                 placeholder="Buscar reservas..."
@@ -544,13 +544,13 @@ export default function Page() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
+                className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
               />
               <input
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-black shadow-md outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
+                className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
               />
             </div>
           </div>
@@ -577,7 +577,7 @@ export default function Page() {
         <style jsx global>{`
           select option {
             background-color: white;
-            color: black;
+            color: sky-950;
           }
           .dark select option {
             background-color: black;

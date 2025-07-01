@@ -143,7 +143,7 @@ export default function TeamsPage() {
         <h1 className="mb-4 text-2xl font-bold">Equipos de Ventas</h1>
         <div
           onClick={() => setIsFormVisible((prev) => !prev)}
-          className="mx-2 my-12 flex cursor-pointer items-center justify-end gap-2 border-b border-black pb-1 text-lg font-medium text-black dark:border-white dark:text-white"
+          className="mx-2 my-12 flex cursor-pointer items-center justify-end gap-2 border-b border-sky-950 pb-1 text-lg font-medium text-sky-950 dark:border-white dark:text-white"
         >
           {isFormVisible ? (
             <p className="flex items-center gap-1">

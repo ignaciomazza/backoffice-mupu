@@ -39,7 +39,7 @@ export default function UserForm({
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
       <div
         className="flex cursor-pointer items-center justify-between"
@@ -48,7 +48,7 @@ export default function UserForm({
         <p className="text-lg font-medium dark:text-white">
           {editingUserId ? "Editar Usuario" : "Agregar Usuario"}
         </p>
-        <button className="rounded-full bg-sky-100 p-2 text-black transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur">
+        <button className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur">
           {isFormVisible ? (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -102,7 +102,7 @@ export default function UserForm({
                 placeholder={label}
                 value={String(formData[name as keyof typeof formData] || "")}
                 onChange={handleChange}
-                className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                 required={name !== "password" || !editingUserId}
               />
             </div>
@@ -113,7 +113,7 @@ export default function UserForm({
               name="role"
               value={formData.role}
               onChange={handleChange}
-              className="w-full appearance-none rounded-2xl border border-black/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
             >
               <option value="desarrollador">Desarrollador</option>
               <option value="gerente">Gerente</option>
@@ -126,7 +126,7 @@ export default function UserForm({
           <div className="md:col-span-2">
             <button
               type="submit"
-              className="block rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+              className="block rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
             >
               {editingUserId ? "Guardar Cambios" : "Agregar Usuario"}
             </button>

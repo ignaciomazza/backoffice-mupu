@@ -183,7 +183,7 @@ export default function OperatorsPage() {
 
   return (
     <ProtectedRoute>
-      <section className="text-black dark:text-white">
+      <section className="text-sky-950 dark:text-white">
         <motion.div layout>
           <OperatorForm
             formData={formData}

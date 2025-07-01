@@ -244,7 +244,7 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                 initial="hidden"
                 animate="visible"
                 transition={{ duration: 0.4 }}
-                className="self-start rounded-2xl border border-black p-3 font-light dark:border-white/50"
+                className="self-start rounded-2xl border border-sky-950 p-3 font-light dark:border-white/50"
               >
                 <AnimatedMessage
                   text={titleText}
@@ -261,7 +261,7 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   initial="hidden"
                   animate="visible"
                   transition={{ duration: 0.4 }}
-                  className="cursor-pointer self-end rounded-2xl bg-black p-3 text-white dark:bg-white dark:text-black"
+                  className="cursor-pointer self-end rounded-2xl bg-sky-950 p-3 text-white dark:bg-white dark:text-sky-950"
                 >
                   {conversationStep === 1 ? (
                     <AnimatedButton
@@ -281,7 +281,7 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   initial="hidden"
                   animate="visible"
                   transition={{ duration: 0.4 }}
-                  className="self-end rounded-2xl bg-black p-3 text-white dark:bg-white dark:text-black"
+                  className="self-end rounded-2xl bg-sky-950 p-3 text-white dark:bg-white dark:text-sky-950"
                 >
                   {conversationStep === 2 ? (
                     <AnimatedMessage
@@ -301,7 +301,7 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   initial="hidden"
                   animate="visible"
                   transition={{ duration: 0.4 }}
-                  className="self-start whitespace-pre-wrap rounded-2xl border border-black p-3 font-light dark:border-white/50"
+                  className="self-start whitespace-pre-wrap rounded-2xl border border-sky-950 p-3 font-light dark:border-white/50"
                 >
                   {conversationStep === 3 ? (
                     <AnimatedMessage
@@ -321,7 +321,7 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   initial="hidden"
                   animate="visible"
                   transition={{ duration: 0.4 }}
-                  className="cursor-pointer self-end rounded-2xl bg-black p-3 text-white dark:bg-white dark:text-black"
+                  className="cursor-pointer self-end rounded-2xl bg-sky-950 p-3 text-white dark:bg-white dark:text-sky-950"
                 >
                   {conversationStep === 4 ? (
                     <AnimatedButton
@@ -342,7 +342,7 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   initial="hidden"
                   animate="visible"
                   transition={{ duration: 0.4 }}
-                  className="self-start rounded-2xl border border-black p-3 dark:border-white/50"
+                  className="self-start rounded-2xl border border-sky-950 p-3 dark:border-white/50"
                 >
                   {conversationStep === 5 ? (
                     <AnimatedMessage
@@ -362,7 +362,7 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   initial="hidden"
                   animate="visible"
                   transition={{ duration: 0.4 }}
-                  className="self-start rounded-2xl border border-black p-3 dark:border-white/50"
+                  className="self-start rounded-2xl border border-sky-950 p-3 dark:border-white/50"
                 >
                   {conversationStep === 6 ? (
                     <AnimatedMessage
@@ -382,7 +382,7 @@ Muy pronto agregaré nuevas funcionalidades, como gráficos y otras herramientas
                   initial="hidden"
                   animate="visible"
                   transition={{ duration: 0.4 }}
-                  className="self-start rounded-2xl border border-black p-3 dark:border-white/50"
+                  className="self-start rounded-2xl border border-sky-950 p-3 dark:border-white/50"
                 >
                   <p className="font-light">
                     <span className="font-medium">Posición:</span>{" "}

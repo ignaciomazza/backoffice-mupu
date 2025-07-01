@@ -166,7 +166,7 @@ export default function UsersPage() {
 
   return (
     <ProtectedRoute>
-      <section className="text-black dark:text-white">
+      <section className="text-sky-950 dark:text-white">
         <motion.div layout>
           <UserForm
             formData={formData}

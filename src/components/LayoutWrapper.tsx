@@ -21,7 +21,7 @@ export default function LayoutWrapper({
   const isLoginPage = pathname === "/login";
 
   return (
-    <div className="flex min-h-screen flex-col text-black dark:text-white">
+    <div className="flex min-h-screen flex-col text-sky-950 dark:text-white">
       {!isLoginPage && <VantaBackground />}
       <Header toggleMenu={toggleMenu} menuOpen={menuOpen} />
       <div

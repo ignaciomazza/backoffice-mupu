@@ -12,7 +12,6 @@ export default function LoginPage() {
   const vantaRef = useRef<HTMLDivElement>(null);
   const vantaEffect = useRef<{ destroy(): void } | null>(null);
 
-  // Estados de formulario y carga
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
@@ -23,15 +22,12 @@ export default function LoginPage() {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
 
-  // Preloader
   const [preloading, setPreloading] = useState<boolean>(true);
   const [progress, setProgress] = useState<number>(0);
 
-  // Spinner en submit
   const [showSpinner, setShowSpinner] = useState<boolean>(false);
   let spinnerTimer: NodeJS.Timeout;
 
-  // Inicialización de Vanta
   useEffect(() => {
     if (vantaRef.current && !vantaEffect.current) {
       const options: VantaOptions = {
@@ -150,7 +146,7 @@ export default function LoginPage() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <div className="h-1 w-48 overflow-hidden rounded-full border border-white/20 bg-black/10 backdrop-blur">
+            <div className="h-1 w-48 overflow-hidden rounded-full border border-white/20 bg-sky-950/10 backdrop-blur">
               <motion.div
                 className="h-full bg-blue-400/80 backdrop-blur"
                 initial={{ width: 0 }}
@@ -164,7 +160,7 @@ export default function LoginPage() {
             key="form"
             ref={formRef}
             onSubmit={handleSubmit}
-            className="relative z-10 mx-4 w-full max-w-lg space-y-6 rounded-3xl border border-white/10 bg-white/30 p-8 shadow-xl backdrop-blur transition-colors duration-300 ease-in-out"
+            className="relative z-10 mx-4 w-full max-w-lg space-y-6 rounded-3xl border border-white/10 bg-white/30 p-8 shadow-xl shadow-sky-950/10 backdrop-blur transition-colors duration-300 ease-in-out"
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: -20 }}
@@ -172,7 +168,7 @@ export default function LoginPage() {
             style={{ willChange: "opacity, transform" }}
             noValidate
           >
-            <h2 className="text-center text-3xl text-black/80">
+            <h2 className="text-center text-3xl text-sky-950/80">
               Iniciar Sesión
             </h2>
 
@@ -180,7 +176,7 @@ export default function LoginPage() {
             <div className="space-y-1">
               <label
                 htmlFor="email"
-                className="ml-1 block text-sm font-light text-black/80"
+                className="ml-1 block text-sm font-light text-sky-950/80"
               >
                 Email
               </label>
@@ -195,13 +191,13 @@ export default function LoginPage() {
                   aria-invalid={!!emailError}
                   aria-describedby="email-error"
                   autoFocus
-                  className={`input-glass w-full rounded-xl border border-black/10 bg-white/10 px-4 py-2 pr-10 text-base text-black outline-none transition-colors placeholder:text-black/50 focus:border-black/30 focus:ring-1 focus:ring-black/30 ${
+                  className={`input-glass w-full rounded-xl border border-sky-950/10 bg-white/10 px-4 py-2 pr-10 text-base text-sky-950 outline-none transition-colors placeholder:text-sky-950/50 focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30 ${
                     emailError ? "border-red-600 focus:ring-red-300" : ""
                   }`}
                 />
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  className="absolute right-3 top-1/2 size-5 -translate-y-1/2 text-black/50"
+                  className="absolute right-3 top-1/2 size-5 -translate-y-1/2 text-sky-950/50"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -230,7 +226,7 @@ export default function LoginPage() {
             <div className="space-y-1">
               <label
                 htmlFor="password"
-                className="ml-1 block text-sm font-light text-black/80"
+                className="ml-1 block text-sm font-light text-sky-950/80"
               >
                 Contraseña
               </label>
@@ -244,7 +240,7 @@ export default function LoginPage() {
                   required
                   aria-invalid={!!passwordError}
                   aria-describedby="password-error"
-                  className={`input-glass w-full rounded-xl border border-black/10 bg-white/10 px-4 py-2 pr-10 text-base text-black outline-none transition-colors placeholder:text-black/50 focus:border-black/30 focus:ring-1 focus:ring-black/30 ${
+                  className={`input-glass w-full rounded-xl border border-sky-950/10 bg-white/10 px-4 py-2 pr-10 text-base text-sky-950 outline-none transition-colors placeholder:text-sky-950/50 focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30 ${
                     passwordError ? "border-red-600 focus:ring-red-300" : ""
                   }`}
                 />
@@ -252,7 +248,7 @@ export default function LoginPage() {
                   id="toggle-password-visibility"
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-black/75 transition-opacity hover:opacity-100"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-sky-950/75 transition-opacity hover:opacity-100 dark:text-white"
                   aria-label={
                     showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
                   }
@@ -312,13 +308,13 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex w-full justify-center rounded-full bg-white/10 px-12 py-3 text-base font-medium text-black/80 shadow-sm backdrop-blur transition-transform hover:scale-95 focus:outline-none focus:ring-1 focus:ring-black/50 active:scale-90"
+                className="flex w-full justify-center rounded-full bg-sky-100 px-12 py-3 text-base font-medium text-sky-950 shadow-sm shadow-sky-950/20 backdrop-blur transition-transform hover:scale-95 focus:outline-none focus:ring-1 focus:ring-sky-950/50 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
               >
                 {loading ? <Spinner /> : "Ingresar"}
               </button>
             </div>
 
-            <p className="mt-2 text-center text-xs font-light tracking-wide text-black/60">
+            <p className="mt-2 text-center text-xs font-light tracking-wide text-sky-950/60">
               © 2025 Ofist
             </p>
           </motion.form>
@@ -326,7 +322,7 @@ export default function LoginPage() {
       </AnimatePresence>
 
       {showSpinner && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80">
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-sky-950/80">
           <Spinner />
         </div>
       )}

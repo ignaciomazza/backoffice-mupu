@@ -36,7 +36,7 @@ export default function BookingCard({
     <motion.div
       layout
       layoutId={`booking-${booking.id_booking}`}
-      className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white"
+      className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
       <div className="flex items-center justify-end gap-2">
         <p className="font-light">{booking.id_booking}</p>

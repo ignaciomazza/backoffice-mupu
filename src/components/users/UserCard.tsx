@@ -21,7 +21,7 @@ export default function UserCard({
   };
 
   return (
-    <div className="h-fit space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+    <div className="h-fit space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
       <p className="font-light">{user.email}</p>
       <div className="ml-5 list-disc">
         <li className="font-normal">
@@ -43,7 +43,7 @@ export default function UserCard({
       <div>
         <div className="mt-4 flex justify-end gap-2">
           <button
-            className="rounded-full bg-black px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-white dark:text-black"
+            className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
             onClick={() => handleEdit(user)}
           >
             <svg
@@ -62,7 +62,7 @@ export default function UserCard({
             </svg>
           </button>
           <button
-            className="rounded-full bg-red-600 px-6 py-2 text-center text-white transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+            className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
             onClick={() => deleteUser(user.id_user)}
           >
             <svg

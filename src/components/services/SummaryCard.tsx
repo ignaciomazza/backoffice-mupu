@@ -38,7 +38,7 @@ export default function SummaryCard({
     currencies.length === 1 ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2";
 
   return (
-    <div className="mb-6 space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
+    <div className="mb-6 space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
       <div className={`grid ${colsClass} gap-6`}>
         {currencies.map((currency) => {
           const t = totalsByCurrency[currency];
@@ -130,7 +130,7 @@ export default function SummaryCard({
               </div>
 
               {/* Total Comisiones al final */}
-              <div className="mt-6 border-t border-black/20 pt-4 dark:border-white/20">
+              <div className="mt-6 border-t border-sky-950/20 pt-4 dark:border-white/20">
                 <p className="text-center font-semibold">
                   Total Comisiones (sin IVA)
                 </p>
