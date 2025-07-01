@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import Spinner from "@/components/Spinner";
 import { toast, ToastContainer } from "react-toastify";
 import { motion, AnimatePresence } from "framer-motion";
+import { div } from "framer-motion/client";
 
 export default function LoginPage() {
   const vantaRef = useRef<HTMLDivElement>(null);
@@ -38,7 +39,7 @@ export default function LoginPage() {
         gyroControls: false,
         minHeight: 200.0,
         minWidth: 200.0,
-        highlightColor: 0xd1ff,
+        highlightColor: 0xbae6fd,
         midtoneColor: 0xffffff,
         lowlightColor: 0xffffff,
         baseColor: 0xffffff,
@@ -134,7 +135,7 @@ export default function LoginPage() {
   return (
     <motion.div
       ref={vantaRef}
-      className="absolute inset-0 flex items-center justify-center overflow-hidden"
+      className="fixed left-0 top-0 flex min-h-screen w-full items-center justify-center overflow-hidden"
     >
       <AnimatePresence mode="wait" initial={false}>
         {preloading ? (
@@ -146,9 +147,9 @@ export default function LoginPage() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <div className="h-1 w-48 overflow-hidden rounded-full border border-white/20 bg-sky-950/10 backdrop-blur">
+            <div className="h-1 w-48 overflow-hidden rounded-full bg-sky-950/10 backdrop-blur">
               <motion.div
-                className="h-full bg-blue-400/80 backdrop-blur"
+                className="h-full bg-sky-200 backdrop-blur"
                 initial={{ width: 0 }}
                 animate={{ width: `${progress}%` }}
                 transition={{ duration: 0.05 }}
@@ -160,7 +161,7 @@ export default function LoginPage() {
             key="form"
             ref={formRef}
             onSubmit={handleSubmit}
-            className="relative z-10 mx-4 w-full max-w-lg space-y-6 rounded-3xl border border-white/10 bg-white/30 p-8 shadow-xl shadow-sky-950/10 backdrop-blur transition-colors duration-300 ease-in-out"
+            className="relative z-10 mx-4 w-full max-w-lg space-y-6 rounded-3xl border border-sky-100/10 bg-sky-100/30 p-8 shadow-xl shadow-sky-950/10 backdrop-blur transition-colors duration-300 ease-in-out"
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: -20 }}
@@ -308,9 +309,29 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex w-full justify-center rounded-full bg-sky-100 px-12 py-3 text-base font-medium text-sky-950 shadow-sm shadow-sky-950/20 backdrop-blur transition-transform hover:scale-95 focus:outline-none focus:ring-1 focus:ring-sky-950/50 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                className="flex w-full justify-center rounded-full bg-sky-100 px-12 py-3 text-base text-sky-950 shadow-sm shadow-sky-950/20 backdrop-blur transition-transform hover:scale-95 focus:outline-none focus:ring-1 focus:ring-sky-950/50 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
               >
-                {loading ? <Spinner /> : "Ingresar"}
+                {loading ? (
+                  <Spinner />
+                ) : (
+                  <div className="flex gap-1">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                      className="size-6"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H2.25"
+                      />
+                    </svg>
+                    <p className="">Ingresar</p>
+                  </div>
+                )}
               </button>
             </div>
 
