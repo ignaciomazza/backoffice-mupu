@@ -33,6 +33,9 @@ export async function createCreditNote(
 ): Promise<CreateCreditNoteResult> {
   const { invoiceId, tipoNota, exchangeRate, invoiceDate } = data;
 
+  // helper para redondear a 2 decimales
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
   // 1) Obtener factura original (scalar fields + relaciones)
   const orig = await prisma.invoice.findUnique({
     where: { id_invoice: invoiceId },
@@ -52,11 +55,9 @@ export async function createCreditNote(
   const payload = orig.payloadAfip as Prisma.JsonObject;
   const voucherData = (payload.voucherData || payload) as Prisma.JsonObject;
   const ivaLines =
-    (voucherData.Iva as Array<{
-      Id: number;
-      BaseImp: number;
-      Importe: number;
-    }>) || [];
+    (voucherData.Iva as
+      | Array<{ Id: number; BaseImp: number; Importe: number }>
+      | undefined) || [];
 
   const originalPtoVta = voucherData.PtoVta as number;
   const originalCbteTipo = voucherData.CbteTipo as number;
@@ -70,7 +71,7 @@ export async function createCreditNote(
   const desc10 = (payload.description10_5 as string[]) || [];
   const desc0 = (payload.descriptionNonComputable as string[]) || [];
 
-  // 4) Mapear cada línea de IVA a nuestro ServiceDetail
+  // 4) Mapear cada línea de IVA a nuestro ServiceDetail (con round2)
   type ServiceDetail = {
     sale_price: number;
     taxableBase21: number;
@@ -89,9 +90,8 @@ export async function createCreditNote(
   };
 
   const serviceDetails: ServiceDetail[] = ivaLines.map((iva) => {
-    const base = iva.BaseImp;
-    const tax = iva.Importe;
-    // identificar tipo
+    const base = round2(iva.BaseImp);
+    const tax = round2(iva.Importe);
     const is21 = iva.Id === 5;
     const is10 = iva.Id === 4;
     const is0 = iva.Id === 3;
@@ -103,7 +103,7 @@ export async function createCreditNote(
         : desc0[0] || "Exento";
 
     return {
-      sale_price: base + tax,
+      sale_price: round2(base + tax),
       taxableBase21: is21 ? base : 0,
       commission21: 0,
       tax_21: is21 ? tax : 0,
@@ -182,7 +182,7 @@ export async function createCreditNote(
           tx.creditNoteItem.create({
             data: {
               creditNoteId: note.id_credit_note,
-              serviceId: null, // no hace falta enlazar un servicio concreto
+              serviceId: null, // ya no enlazamos a un servicio concreto
               description: svc.description,
               sale_price: svc.sale_price,
               taxableBase21: svc.taxableBase21,
@@ -205,7 +205,7 @@ export async function createCreditNote(
 
     createdNote = note;
     createdItems = items;
-    break; // solo una moneda
+    break; // normalmente solo una moneda
   }
 
   if (!createdNote) {
