@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import Spinner from "@/components/Spinner";
 import { toast, ToastContainer } from "react-toastify";
 import { motion, AnimatePresence } from "framer-motion";
-import { div } from "framer-motion/client";
 
 export default function LoginPage() {
   const vantaRef = useRef<HTMLDivElement>(null);

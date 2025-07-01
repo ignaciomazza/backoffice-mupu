@@ -60,9 +60,10 @@ export async function createCreditNoteVoucher(
   currency: string,
   exchangeRateManual?: number,
   invoiceDate?: string,
-  cbtesAsoc?: Array<{ Tipo: number; PtoVta: number; Nro: number }>, // Comprobantes asociados
+  cbtesAsoc?: Array<{ Tipo: number; PtoVta: number; Nro: number }>,
 ): Promise<CreditNoteVoucherResponse> {
   try {
+    // Totales y ajustes
     const saleTotal = serviceDetails.reduce((sum, s) => sum + s.sale_price, 0);
     const interestBase = serviceDetails.reduce(
       (sum, s) => sum + (s.taxableCardInterest ?? 0),
@@ -94,6 +95,7 @@ export async function createCreditNoteVoucher(
     );
     const exento = serviceDetails.reduce((sum, s) => sum + s.nonComputable, 0);
 
+    // Armar líneas de IVA, ya redondeadas a 2 decimales
     const ivaEntries: IVAEntry[] = [];
     if (base21 || imp21)
       ivaEntries.push({
@@ -115,6 +117,7 @@ export async function createCreditNoteVoucher(
       });
     }
 
+    // Fusionar posibles entradas duplicadas
     const merged: Record<number, IVAEntry> = {};
     ivaEntries.forEach((e) => {
       if (!merged[e.Id]) merged[e.Id] = { ...e };
@@ -129,9 +132,12 @@ export async function createCreditNoteVoucher(
       Importe: parseFloat(e.Importe.toFixed(2)),
     }));
 
-    const totalIVA = mergedIva.reduce((sum, e) => sum + e.Importe, 0);
+    // Calcular total IVA y neto
+    const totalIVAraw = mergedIva.reduce((sum, e) => sum + e.Importe, 0);
+    const totalIVA = parseFloat(totalIVAraw.toFixed(2)); // <- redondeo aquí
     const neto = parseFloat((adjustedTotal - totalIVA).toFixed(2));
 
+    // Verificar estado de AFIP
     const status = await afip.ElectronicBilling.getServerStatus();
     if (
       status.AppServer !== "OK" ||
@@ -140,9 +146,9 @@ export async function createCreditNoteVoucher(
     )
       throw new Error("AFIP no disponible");
 
+    // Punto de venta y próximo número
     const pts = await afip.ElectronicBilling.getSalesPoints().catch(() => []);
     const ptoVta = pts.length ? pts[0].Nro : 1;
-
     const last = await afip.ElectronicBilling.getLastVoucher(ptoVta, tipoNota);
     const next = last + 1;
     const lastInfo = await afip.ElectronicBilling.getVoucherInfo(
@@ -152,8 +158,12 @@ export async function createCreditNoteVoucher(
     ).catch(() => null);
     const lastDate = lastInfo ? parseInt(lastInfo.CbteFch, 10) : null;
 
+    // Fecha de comprobante
     const now = new Date();
-    const todayStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    const todayStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(
+      2,
+      "0",
+    )}${String(now.getDate()).padStart(2, "0")}`;
     const cbteFch = invoiceDate
       ? parseInt(invoiceDate.replace(/-/g, ""), 10)
       : lastDate && Number(todayStr) < lastDate
@@ -161,7 +171,6 @@ export async function createCreditNoteVoucher(
         : Number(todayStr);
 
     const condId = tipoNota === 8 ? 5 : 1;
-
     const cotiz =
       currency === "PES"
         ? 1
@@ -171,6 +180,7 @@ export async function createCreditNoteVoucher(
             new Date(Date.now() - 86400000),
           )));
 
+    // === Aquí armamos el payload exacto para AFIP ===
     const voucherData: Prisma.JsonObject = {
       CantReg: 1,
       PtoVta: ptoVta,
@@ -185,7 +195,7 @@ export async function createCreditNoteVoucher(
       ImpTotal: adjustedTotal,
       ImpTotConc: 0,
       ImpNeto: neto,
-      ImpIVA: totalIVA,
+      ImpIVA: totalIVA, // <- redondeado
       MonId: currency,
       MonCotiz: cotiz,
       Iva: mergedIva as unknown as Prisma.JsonArray,
@@ -193,9 +203,11 @@ export async function createCreditNoteVoucher(
     };
     console.info("Emitting voucher", voucherData);
 
+    // Llamada a AFIP
     const created = await afip.ElectronicBilling.createVoucher(voucherData);
     if (!created.CAE) return { success: false, message: "CAE no devuelto" };
 
+    // Generar QR
     const qrFecha = invoiceDate ? invoiceDate.replace(/-/g, "") : todayStr;
     const qrPayload = {
       ver: 1,
