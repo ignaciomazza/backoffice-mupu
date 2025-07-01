@@ -12,6 +12,8 @@ import ServicesContainer, {
 import { InvoiceFormData } from "@/components/invoices/InvoiceForm";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
+import type { CreditNoteWithItems } from "@/services/creditNotes";
+import { CreditNoteFormData } from "@/components/credite-notes/CreditNoteForm";
 
 interface UserProfile {
   role: string;
@@ -34,6 +36,7 @@ export default function ServicesPage() {
   const [operators, setOperators] = useState<Operator[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [creditNotes, setCreditNotes] = useState<CreditNoteWithItems[]>([]);
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const { token } = useAuth();
@@ -95,6 +98,16 @@ export default function ServicesPage() {
     taxableCardInterest: 0,
     vatOnCardInterest: 0,
   });
+
+  const [creditNoteFormData, setCreditNoteFormData] =
+    useState<CreditNoteFormData>({
+      invoiceId: "",
+      tipoNota: "",
+      exchangeRate: "",
+      invoiceDate: "",
+    });
+  const [isCreditNoteFormVisible, setIsCreditNoteFormVisible] = useState(false);
+  const [isCreditNoteSubmitting, setIsCreditNoteSubmitting] = useState(false);
 
   const [editingServiceId, setEditingServiceId] = useState<number | null>(null);
   const [expandedServiceId, setExpandedServiceId] = useState<number | null>(
@@ -168,7 +181,23 @@ export default function ServicesPage() {
     }
   }, [id]);
 
-  // Callback que recarga la lista tras crear un recibo
+  const fetchCreditNotes = useCallback(async () => {
+    try {
+      // reunimos todas las llamadas por factura
+      const all = await Promise.all(
+        invoices.map((inv) =>
+          fetch(`/api/credit-notes?invoiceId=${inv.id_invoice}`)
+            .then((r) => (r.ok ? r.json() : { creditNotes: [] }))
+            .then((data) => data.creditNotes as CreditNoteWithItems[]),
+        ),
+      );
+      // aplanamos
+      setCreditNotes(all.flat());
+    } catch {
+      setCreditNotes([]);
+    }
+  }, [invoices]);
+
   const handleReceiptCreated = () => {
     fetchReceipts();
   };
@@ -220,6 +249,10 @@ export default function ServicesPage() {
   }, [id, fetchBooking, fetchServices, fetchInvoices, fetchReceipts]);
 
   useEffect(() => {
+    if (invoices.length) fetchCreditNotes();
+  }, [invoices, fetchCreditNotes]);
+
+  useEffect(() => {
     fetchOperators();
   }, [fetchOperators]);
 
@@ -266,11 +299,31 @@ export default function ServicesPage() {
     setInvoiceFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleCreditNoteChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+  ) => {
+    const { name, value } = e.target;
+    setCreditNoteFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
   const updateInvoiceFormData = (
     key: keyof InvoiceFormData,
     value: InvoiceFormData[keyof InvoiceFormData],
   ) => {
     setInvoiceFormData((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const updateCreditNoteFormData = <K extends keyof CreditNoteFormData>(
+    key: K,
+    value: CreditNoteFormData[K],
+  ) => {
+    setCreditNoteFormData((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
   };
 
   const handleInvoiceSubmit = async (e: React.FormEvent) => {
@@ -318,6 +371,59 @@ export default function ServicesPage() {
       toast.error((err as Error).message || "Error servidor.");
     } finally {
       setInvoiceLoading(false);
+    }
+  };
+
+  const handleCreditNoteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    // validación mínima
+    if (!creditNoteFormData.invoiceId || !creditNoteFormData.tipoNota) {
+      toast.error("Completa todos los campos requeridos.");
+      return;
+    }
+
+    const payload = {
+      invoiceId: Number(creditNoteFormData.invoiceId),
+      tipoNota: parseInt(creditNoteFormData.tipoNota, 10),
+      exchangeRate: creditNoteFormData.exchangeRate
+        ? parseFloat(creditNoteFormData.exchangeRate)
+        : undefined,
+      invoiceDate: creditNoteFormData.invoiceDate || undefined,
+    };
+
+    setIsCreditNoteSubmitting(true);
+    try {
+      const res = await fetch("/api/credit-notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Error al crear nota de crédito.");
+      }
+      const result = await res.json();
+      if (result.success) {
+        toast.success("Nota de crédito creada exitosamente!");
+        // refrescar lista de notas de crédito
+        handleCreditNoteCreated();
+        // opcional: limpiar formulario
+        setCreditNoteFormData({
+          invoiceId: "",
+          tipoNota: "",
+          exchangeRate: "",
+          invoiceDate: "",
+        });
+        setIsCreditNoteFormVisible(false);
+      } else {
+        toast.error(result.message || "Error al crear nota de crédito.");
+      }
+    } catch (error: unknown) {
+      // aquí tipeamos como unknown y comprobamos
+      const msg = error instanceof Error ? error.message : "Error de servidor.";
+      toast.error(msg);
+    } finally {
+      setIsCreditNoteSubmitting(false);
     }
   };
 
@@ -410,6 +516,8 @@ export default function ServicesPage() {
     setBooking(updated);
   };
 
+  const handleCreditNoteCreated = () => fetchCreditNotes();
+
   return (
     <ProtectedRoute>
       <ServicesContainer
@@ -419,8 +527,10 @@ export default function ServicesPage() {
         operators={operators}
         invoices={invoices}
         receipts={receipts}
-        onReceiptDeleted={handleReceiptDeleted}
+        creditNotes={creditNotes}
         onReceiptCreated={handleReceiptCreated}
+        onReceiptDeleted={handleReceiptDeleted}
+        onCreditNoteCreated={handleCreditNoteCreated}
         invoiceFormData={invoiceFormData}
         formData={formData}
         editingServiceId={editingServiceId}
@@ -444,6 +554,13 @@ export default function ServicesPage() {
         onBillingUpdate={handleBillingUpdate}
         role={userRole}
         onBookingUpdated={handleBookingUpdated}
+        creditNoteFormData={creditNoteFormData}
+        isCreditNoteFormVisible={isCreditNoteFormVisible}
+        setIsCreditNoteFormVisible={setIsCreditNoteFormVisible}
+        handleCreditNoteChange={handleCreditNoteChange}
+        updateCreditNoteFormData={updateCreditNoteFormData}
+        handleCreditNoteSubmit={handleCreditNoteSubmit}
+        isCreditNoteSubmitting={isCreditNoteSubmitting}
       />
     </ProtectedRoute>
   );

@@ -142,7 +142,7 @@ export default function Page() {
         }
 
         // si es líder, sus miembros
-        if (p.role === "lider") {
+        if (p?.role === "lider") {
           promises.push(
             fetch("/api/teams", {
               headers: { Authorization: `Bearer ${token}` },
@@ -504,7 +504,7 @@ export default function Page() {
                 >
                   <option value={0}>Todos los equipos</option>
                   <option value={-1}>Sin equipo</option>
-                  {teamsList.map((t) => (
+                  {teamsList?.map((t) => (
                     <option key={t.id_team} value={t.id_team}>
                       {t.name || `Equipo ${t.id_team}`}
                     </option>

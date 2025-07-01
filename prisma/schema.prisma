@@ -187,13 +187,37 @@ model InvoiceItem {
 }
 
 model CreditNote {
-  id_credit_note Int      @id @default(autoincrement())
-  credit_number  String   @unique
-  issue_date     DateTime @default(now())
-  amount         Float
-  details        String?
+  id_credit_note Int              @id @default(autoincrement())
+  credit_number  String           @unique
+  issue_date     DateTime         @default(now())
+  total_amount   Float
+  currency       String
+  status         String
+  type           String // "Nota A" | "Nota B"
+  recipient      String
+  payloadAfip    Json?
   invoiceId      Int
-  invoice        Invoice  @relation(fields: [invoiceId], references: [id_invoice])
+  invoice        Invoice          @relation(fields: [invoiceId], references: [id_invoice])
+  items          CreditNoteItem[]
+}
+
+model CreditNoteItem {
+  id                  Int        @id @default(autoincrement())
+  creditNoteId        Int
+  creditNote          CreditNote @relation(fields: [creditNoteId], references: [id_credit_note], onDelete: Cascade)
+  serviceId           Int?
+  description         String
+  sale_price          Float
+  taxableBase21       Float
+  commission21        Float
+  tax_21              Float
+  vatOnCommission21   Float
+  taxableBase10_5     Float?
+  commission10_5      Float?
+  tax_105             Float?
+  vatOnCommission10_5 Float?
+  taxableCardInterest Float?
+  vatOnCardInterest   Float?
 }
 
 model SalesTeam {

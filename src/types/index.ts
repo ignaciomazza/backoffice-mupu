@@ -163,6 +163,16 @@ export interface Invoice {
   currency: "USD" | "ARS";
   recipient: string;
   client_id: number;
+
+  // nuevo campo:
+  payloadAfip?: {
+    voucherData: {
+      CbteFch: number;
+      ImpNeto: number;
+      ImpIVA: number;
+      Iva: { Id: number; BaseImp: number; Importe: number }[];
+    };
+  };
 }
 
 // SalesTeam.ts: Tipo de equipo de ventas

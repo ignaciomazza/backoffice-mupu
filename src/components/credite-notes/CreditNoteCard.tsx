@@ -1,22 +1,31 @@
-// src/components/invoices/InvoiceCard.tsx
+// src/components/credit-notes/CreditNoteCard.tsx
 "use client";
-import { Invoice } from "@/types";
+import type { CreditNoteWithItems } from "@/services/creditNotes";
 import { toast } from "react-toastify";
 import Spinner from "../Spinner";
 import { useCallback, useState } from "react";
+import type { Prisma } from "@prisma/client";
 
-interface InvoiceCardProps {
-  invoice: Invoice;
+interface CreditNoteCardProps {
+  creditNote: CreditNoteWithItems;
 }
 
-export default function InvoiceCard({ invoice }: InvoiceCardProps) {
+type VoucherData = {
+  CbteFch: number;
+  Iva: Array<{ Id: number; BaseImp: number; Importe: number }>;
+  ImpNeto: number;
+  ImpIVA: number;
+  recipient: string;
+};
+
+export default function CreditNoteCard({ creditNote }: CreditNoteCardProps) {
   const [loading, setLoading] = useState(false);
 
   const fmt = useCallback((v?: number, curr?: string) => {
-    const currency = curr === "DOL" ? "USD" : "ARS";
+    const code = curr === "DOL" ? "USD" : "ARS";
     return new Intl.NumberFormat("es-AR", {
       style: "currency",
-      currency,
+      currency: code,
     }).format(v ?? 0);
   }, []);
 
@@ -32,40 +41,46 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
   const downloadPDF = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/invoices/${invoice.id_invoice}/pdf`, {
-        headers: { Accept: "application/pdf" },
-      });
+      const res = await fetch(
+        `/api/credit-notes/${creditNote.id_credit_note}/pdf`,
+        { headers: { Accept: "application/pdf" } },
+      );
       if (!res.ok) throw new Error();
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      const name = invoice.recipient
-        ? slugify(invoice.recipient)
-        : `cliente_${invoice.client_id}`;
-      const bookingId =
-        invoice.bookingId_booking ?? invoice.booking?.id_booking ?? "reserva";
-      link.download = `Factura_${name}_${bookingId}.pdf`;
+
+      const name = creditNote.recipient
+        ? slugify(creditNote.recipient)
+        : `cn_${creditNote.id_credit_note}`;
+
+      link.download = `NotaCred_${name}_${creditNote.id_credit_note}.pdf`;
       link.click();
       window.URL.revokeObjectURL(url);
-      toast.success("Factura descargada exitosamente.");
+      toast.success("Nota de crédito descargada exitosamente.");
     } catch {
-      toast.error("No se pudo descargar la factura.");
+      toast.error("No se pudo descargar la nota de crédito.");
     } finally {
       setLoading(false);
     }
   };
 
-  if (!invoice.payloadAfip) {
+  // Extraemos el payload AFIP como JsonObject
+  const raw = creditNote.payloadAfip as Prisma.JsonObject | null;
+  // payloadAfip ya contiene directamente los campos del voucher
+  const voucherData = raw as VoucherData | undefined;
+
+  if (!voucherData) {
     return (
       <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
         <p className="font-semibold">
-          Número: <span className="font-light">{invoice.invoice_number}</span>
+          Número: <span className="font-light">{creditNote.credit_number}</span>
         </p>
         <p className="font-semibold">
           Fecha:{" "}
           <span className="font-light">
-            {new Date(invoice.issue_date).toLocaleDateString("es-AR")}
+            {new Date(creditNote.issue_date).toLocaleDateString("es-AR")}
           </span>
         </p>
         <p className="font-light text-red-500">Sin datos AFIP</p>
@@ -73,7 +88,7 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
     );
   }
 
-  const { CbteFch, Iva, ImpNeto, ImpIVA } = invoice.payloadAfip.voucherData;
+  const { CbteFch, Iva, ImpNeto, ImpIVA } = voucherData;
 
   let base21 = 0,
     base105 = 0,
@@ -85,47 +100,47 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
     else exento += BaseImp;
   });
 
-  const getCbteDate = (raw: number) => {
-    const s = raw.toString();
-    const y = s.slice(0, 4);
-    const m = s.slice(4, 6);
-    const d = s.slice(6, 8);
+  const formatDate = (raw: number) => {
+    const s = raw.toString(),
+      y = s.slice(0, 4),
+      m = s.slice(4, 6),
+      d = s.slice(6, 8);
     return new Date(`${y}-${m}-${d}T00:00:00`).toLocaleDateString("es-AR");
   };
 
   return (
     <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-black shadow-md backdrop-blur dark:text-white">
       <div className="flex justify-between">
-        <p className="text-xl font-semibold">ID: {invoice.id_invoice}</p>
-        <p className="font-light">{getCbteDate(CbteFch)}</p>
+        <p className="text-xl font-semibold">{creditNote.credit_number}</p>
+        <p className="font-light">{formatDate(CbteFch)}</p>
       </div>
-      <p className="">Numero de Factura: {invoice.invoice_number}</p>
-      <p className="">
-        {invoice.recipient} – ID {invoice.client_id}
+      <p>
+        {creditNote.recipient} – Factura {creditNote.invoiceId}
       </p>
       <p className="flex justify-between">
         Base 21%{" "}
-        <span className="font-light">{fmt(base21, invoice.currency)}</span>
+        <span className="font-light">{fmt(base21, creditNote.currency)}</span>
       </p>
       <p className="flex justify-between">
         Base 10.5%{" "}
-        <span className="font-light">{fmt(base105, invoice.currency)}</span>
+        <span className="font-light">{fmt(base105, creditNote.currency)}</span>
       </p>
       <p className="flex justify-between">
         Exento{" "}
-        <span className="font-light">{fmt(exento, invoice.currency)}</span>
+        <span className="font-light">{fmt(exento, creditNote.currency)}</span>
       </p>
       <p className="flex justify-between">
         Neto{" "}
-        <span className="font-light">{fmt(ImpNeto, invoice.currency)}</span>
+        <span className="font-light">{fmt(ImpNeto, creditNote.currency)}</span>
       </p>
       <p className="flex justify-between">
-        IVA <span className="font-light">{fmt(ImpIVA, invoice.currency)}</span>
+        IVA{" "}
+        <span className="font-light">{fmt(ImpIVA, creditNote.currency)}</span>
       </p>
       <p className="flex justify-between">
         Total{" "}
         <span className="font-light">
-          {fmt(invoice.total_amount, invoice.currency)}
+          {fmt(creditNote.total_amount, creditNote.currency)}
         </span>
       </p>
       <div className="flex justify-end pt-3">

@@ -16,8 +16,6 @@ export default async function handler(
         : req.query.userId
           ? Number(req.query.userId)
           : null;
-
-      // 2) Parsear filtros mínimos
       const parseCSV = (v?: string | string[]) =>
         !v
           ? undefined
@@ -34,20 +32,13 @@ export default async function handler(
       const to =
         typeof req.query.to === "string" ? new Date(req.query.to) : undefined;
 
-      // 3) Construir where (añadir sólo si existen)
       const where: Prisma.BookingWhereInput = {};
       if (userId) where.id_user = userId;
-      if (clientStatusArr?.length) {
-        where.clientStatus = { in: clientStatusArr };
-      }
-      if (operatorStatusArr?.length) {
+      if (clientStatusArr?.length) where.clientStatus = { in: clientStatusArr };
+      if (operatorStatusArr?.length)
         where.operatorStatus = { in: operatorStatusArr };
-      }
-      if (from && to) {
-        where.creation_date = { gte: from, lte: to };
-      }
+      if (from && to) where.creation_date = { gte: from, lte: to };
 
-      // 4) Query original + Receipt para deuda
       const bookings = await prisma.booking.findMany({
         where,
         include: {
@@ -57,11 +48,10 @@ export default async function handler(
           clients: true,
           services: { include: { operator: true } },
           invoices: true,
-          Receipt: true, // <— añadimos recibos
+          Receipt: true,
         },
       });
 
-      // 5) Calcular totales y deuda
       const enhanced = bookings.map((b) => {
         const totalSale = b.services.reduce((sum, s) => sum + s.sale_price, 0);
         const totalCommission = b.services.reduce(
@@ -70,19 +60,14 @@ export default async function handler(
         );
         const totalReceipts = b.Receipt.reduce((sum, r) => sum + r.amount, 0);
         const debt = totalSale - totalReceipts;
-
-        return {
-          ...b,
-          totalSale,
-          totalCommission,
-          debt,
-        };
+        return { ...b, totalSale, totalCommission, debt };
       });
 
       return res.status(200).json(enhanced);
     } catch (error) {
       console.error("Error fetching bookings:", error);
-      return res.status(500).json({ error: "Error fetching bookings" });
+      // siempre devolvemos un array
+      return res.status(200).json([]);
     }
   } else if (req.method === "POST") {
     const {

@@ -1,17 +1,14 @@
 // src/services/invoices.ts
-
 import prisma from "@/lib/prisma";
 import { createVoucherService } from "@/services/afip/createVoucherService";
 import type { Invoice, InvoiceItem, Prisma } from "@prisma/client";
 
 export type InvoiceWithItems = Invoice & { InvoiceItem: InvoiceItem[] };
 
-// Ya no definimos RawVoucherDetails manualmente,
-// usamos directamente JsonObject de Prisma:
 type RawVoucherDetails = Prisma.JsonObject;
 
 export async function listInvoices(
-  bookingId: number
+  bookingId: number,
 ): Promise<InvoiceWithItems[]> {
   return prisma.invoice.findMany({
     where: { bookingId_booking: bookingId },
@@ -56,7 +53,7 @@ interface CreateResult {
 }
 
 export async function createInvoices(
-  data: InvoiceRequestBody
+  data: InvoiceRequestBody,
 ): Promise<CreateResult> {
   const {
     bookingId,
@@ -67,17 +64,15 @@ export async function createInvoices(
     description21 = [],
     description10_5 = [],
     descriptionNonComputable = [],
-    invoiceDate,          
+    invoiceDate,
   } = data;
 
-  // 1) Obtener reserva
   const booking = await prisma.booking.findUnique({
     where: { id_booking: bookingId },
     include: { agency: true },
   });
   if (!booking) return { success: false, message: "Reserva no encontrada." };
 
-  // 2) Detalles de servicio
   const rawServices = await prisma.service.findMany({
     where: { id_service: { in: services } },
   });
@@ -102,9 +97,37 @@ export async function createInvoices(
     };
   });
 
-  // 3) Agrupar por moneda
+  const numClients = clientIds.length;
+  const splitDetails: ServiceDetail[] = serviceDetails.map((s) => ({
+    ...s,
+    sale_price: parseFloat((s.sale_price / numClients).toFixed(2)),
+    taxableBase21: parseFloat((s.taxableBase21 / numClients).toFixed(2)),
+    commission21: parseFloat((s.commission21 / numClients).toFixed(2)),
+    tax_21: parseFloat((s.tax_21 / numClients).toFixed(2)),
+    vatOnCommission21: parseFloat(
+      (s.vatOnCommission21 / numClients).toFixed(2),
+    ),
+    taxableBase10_5: parseFloat(
+      ((s.taxableBase10_5 ?? 0) / numClients).toFixed(2),
+    ),
+    commission10_5: parseFloat(
+      ((s.commission10_5 ?? 0) / numClients).toFixed(2),
+    ),
+    tax_105: parseFloat(((s.tax_105 ?? 0) / numClients).toFixed(2)),
+    vatOnCommission10_5: parseFloat(
+      ((s.vatOnCommission10_5 ?? 0) / numClients).toFixed(2),
+    ),
+    taxableCardInterest: parseFloat(
+      ((s.taxableCardInterest ?? 0) / numClients).toFixed(2),
+    ),
+    vatOnCardInterest: parseFloat(
+      ((s.vatOnCardInterest ?? 0) / numClients).toFixed(2),
+    ),
+    nonComputable: parseFloat(((s.nonComputable ?? 0) / numClients).toFixed(2)),
+  }));
+
   const grouped: Record<string, ServiceDetail[]> = {};
-  serviceDetails.forEach((svc) => {
+  splitDetails.forEach((svc) => {
     const cur = svc.currency.toUpperCase();
     grouped[cur] = grouped[cur] ?? [];
     grouped[cur].push(svc);
@@ -114,7 +137,6 @@ export async function createInvoices(
 
   const invoicesResult: InvoiceWithItems[] = [];
 
-  // 4) Por cada grupo y cliente, crear factura en transacción
   for (const m in grouped) {
     const svcs = grouped[m];
     const afipCurrency = mapCurrency(m);
@@ -130,7 +152,6 @@ export async function createInvoices(
       const docType = isFactB ? 96 : 80;
       if (!docNumber) continue;
 
-      // 4.1) Llamada AFIP
       const resp = await createVoucherService(
         tipoFactura,
         docNumber!,
@@ -138,14 +159,11 @@ export async function createInvoices(
         svcs,
         afipCurrency,
         exchangeRate,
-        invoiceDate, 
+        invoiceDate,
       );
       if (!resp.success || !resp.details) continue;
 
-      // Aquí hacemos el cast a Prisma.JsonObject
       const details = resp.details as RawVoucherDetails;
-
-      // 4.2) Construir payloadAfip como JsonObject
       const payloadAfip: Prisma.JsonObject = {
         voucherData: details,
         afipResponse: {
@@ -158,7 +176,6 @@ export async function createInvoices(
         descriptionNonComputable,
       };
 
-      // 4.3) Transacción para crear invoice + items
       const created = await prisma.$transaction(async (tx) => {
         const inv = await tx.invoice.create({
           data: {
@@ -169,9 +186,8 @@ export async function createInvoices(
             status: "Autorizada",
             type: tipoFactura === 1 ? "Factura A" : "Factura B",
             recipient:
-              client.company_name ||
-              `${client.first_name} ${client.last_name}`,
-            payloadAfip,               // ✅ ahora coincide con JsonObject
+              client.company_name || `${client.first_name} ${client.last_name}`,
+            payloadAfip,
             bookingId_booking: bookingId,
             client_id: cid,
           },
@@ -196,8 +212,8 @@ export async function createInvoices(
                 taxableCardInterest: svc.taxableCardInterest,
                 vatOnCardInterest: svc.vatOnCardInterest,
               },
-            })
-          )
+            }),
+          ),
         );
 
         return tx.invoice.findUnique({

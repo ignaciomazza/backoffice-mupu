@@ -14,7 +14,12 @@ import Spinner from "@/components/Spinner";
 import { Booking, Service, Operator, Invoice, Receipt } from "@/types";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
 import ReceiptList from "@/components/receipts/ReceiptList";
+import CreditNoteList from "@/components/credite-notes/CreditNoteList";
+import CreditNoteForm, {
+  CreditNoteFormData,
+} from "../credite-notes/CreditNoteForm";
 import { useEffect, useMemo, useState } from "react";
+import type { CreditNoteWithItems } from "@/services/creditNotes";
 import { useRouter } from "next/navigation";
 
 export type ServiceFormData = {
@@ -58,8 +63,10 @@ interface ServicesContainerProps {
   operators: Operator[];
   invoices: Invoice[];
   receipts: Receipt[];
+  creditNotes: CreditNoteWithItems[];
   onReceiptDeleted?: (id: number) => void;
   onReceiptCreated?: (r: Receipt) => void;
+  onCreditNoteCreated?: () => void;
   invoiceFormData: InvoiceFormData;
   formData: ServiceFormData;
   editingServiceId: number | null;
@@ -92,6 +99,18 @@ interface ServicesContainerProps {
   onBillingUpdate?: (data: BillingData) => void;
   role: string;
   onBookingUpdated?: (updated: Booking) => void;
+  creditNoteFormData: CreditNoteFormData;
+  isCreditNoteFormVisible: boolean;
+  setIsCreditNoteFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
+  handleCreditNoteChange: (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+  ) => void;
+  updateCreditNoteFormData: (
+    key: keyof CreditNoteFormData,
+    value: CreditNoteFormData[keyof CreditNoteFormData],
+  ) => void;
+  handleCreditNoteSubmit: (e: React.FormEvent) => Promise<void>;
+  isCreditNoteSubmitting: boolean;
 }
 
 export default function ServicesContainer({
@@ -101,8 +120,10 @@ export default function ServicesContainer({
   operators,
   invoices,
   receipts,
+  creditNotes,
   onReceiptDeleted,
   onReceiptCreated,
+  onCreditNoteCreated,
   invoiceFormData,
   formData,
   editingServiceId,
@@ -126,6 +147,13 @@ export default function ServicesContainer({
   onBillingUpdate,
   role,
   onBookingUpdated,
+  creditNoteFormData,
+  isCreditNoteFormVisible,
+  setIsCreditNoteFormVisible,
+  handleCreditNoteChange,
+  updateCreditNoteFormData,
+  handleCreditNoteSubmit,
+  isCreditNoteSubmitting,
 }: ServicesContainerProps) {
   const router = useRouter();
 
@@ -224,6 +252,11 @@ export default function ServicesContainer({
     } catch {
       toast.error("No se pudieron actualizar los estados.");
     }
+  };
+
+  const handleLocalCreditNoteSubmit = async (e: React.FormEvent) => {
+    await handleCreditNoteSubmit(e);
+    onCreditNoteCreated?.();
   };
 
   return (
@@ -510,6 +543,29 @@ export default function ServicesContainer({
                       isSubmitting={isSubmitting}
                     />
                     {invoices.length > 0 && <InvoiceList invoices={invoices} />}
+                  </div>
+                )}
+              {(role === "administrativo" ||
+                role === "desarrollador" ||
+                role === "gerente") &&
+                services.length > 0 && (
+                  <div>
+                    <div className="mb-4 mt-8 flex justify-center">
+                      <p className="text-2xl font-medium">Notas de Crédito</p>
+                    </div>
+                    <CreditNoteForm
+                      formData={creditNoteFormData}
+                      availableServices={availableServices}
+                      handleChange={handleCreditNoteChange}
+                      handleSubmit={handleLocalCreditNoteSubmit}
+                      isFormVisible={isCreditNoteFormVisible}
+                      setIsFormVisible={setIsCreditNoteFormVisible}
+                      updateFormData={updateCreditNoteFormData}
+                      isSubmitting={isCreditNoteSubmitting}
+                    />
+                    {creditNotes.length > 0 && (
+                      <CreditNoteList creditNotes={creditNotes} />
+                    )}
                   </div>
                 )}
               {(role === "administrativo" ||
