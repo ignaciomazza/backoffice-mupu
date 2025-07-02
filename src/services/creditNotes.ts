@@ -19,6 +19,10 @@ interface CreateCreditNoteResult {
   items?: CreditNoteItem[];
 }
 
+interface InvoicePayload extends Prisma.JsonObject {
+  serviceDates?: Array<{ id_service: number; from: string; to: string }>;
+}
+
 export async function listCreditNotes(
   invoiceId: number,
 ): Promise<CreditNoteWithItems[]> {
@@ -54,6 +58,15 @@ export async function createCreditNote(
   // 2) Extraer datos AFIP para asociar comprobante
   const payload = orig.payloadAfip as Prisma.JsonObject;
   const voucherData = (payload.voucherData || payload) as Prisma.JsonObject;
+
+  // 2.b) Sacar las fechas de servicio que guardaste en la factura original
+  const serviceDates =
+    ((payload as InvoicePayload).serviceDates as Array<{
+      id_service: number;
+      from: string;
+      to: string;
+    }>) || [];
+
   const ivaLines =
     (voucherData.Iva as
       | Array<{ Id: number; BaseImp: number; Importe: number }>
@@ -144,6 +157,7 @@ export async function createCreditNote(
       exchangeRate,
       invoiceDate,
       cbtesAsoc,
+      serviceDates,
     );
     if (!resp.success || !resp.details) {
       return {
@@ -155,7 +169,7 @@ export async function createCreditNote(
     const det = resp.details as Prisma.JsonObject;
     const qrBase64 = resp.qrBase64;
 
-    // 7) Guardar en DB en una transacción
+    // 7) Guardar en DB en una transacción`
     const { note, items } = await prisma.$transaction(async (tx) => {
       const note = await tx.creditNote.create({
         data: {
@@ -172,6 +186,7 @@ export async function createCreditNote(
             ...det,
             qrBase64,
             CbtesAsoc: cbtesAsoc,
+            serviceDates,
           } as Prisma.JsonObject,
           invoiceId,
         },

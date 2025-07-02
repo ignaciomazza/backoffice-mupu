@@ -61,6 +61,7 @@ export async function createCreditNoteVoucher(
   exchangeRateManual?: number,
   invoiceDate?: string,
   cbtesAsoc?: Array<{ Tipo: number; PtoVta: number; Nro: number }>,
+  serviceDates?: Array<{ id_service: number; from: string; to: string }>,
 ): Promise<CreditNoteVoucherResponse> {
   try {
     // Totales y ajustes
@@ -180,22 +181,41 @@ export async function createCreditNoteVoucher(
             new Date(Date.now() - 86400000),
           )));
 
-    // === Aquí armamos el payload exacto para AFIP ===
+    // helper para pasar Date → YYYYMMDD (número)
+    // helper para pasar "YYYY-MM-DD" → YYYYMMDD numérico
+    const parseYmd = (s: string) => parseInt(s.replace(/-/g, ""), 10);
+
+    // si no vienen fechas, se omite o se usa cbteFch por defecto
+    let FchServDesde: number | undefined, FchServHasta: number | undefined;
+    if (serviceDates && serviceDates.length) {
+      const allFrom = serviceDates.map((sd) => parseYmd(sd.from));
+      const allTo = serviceDates.map((sd) => parseYmd(sd.to));
+      FchServDesde = Math.min(...allFrom);
+      FchServHasta = Math.max(...allTo);
+    }
+
+    // vencimiento = fecha de factura
+    const FchVtoPago = cbteFch;
+
+    // y al armar voucherData:
     const voucherData: Prisma.JsonObject = {
       CantReg: 1,
       PtoVta: ptoVta,
       CbteTipo: tipoNota,
-      Concepto: 1,
+      Concepto: 2,
       DocTipo: receptorDocTipo,
       DocNro: Number(receptorDocNumber),
       CbteDesde: next,
       CbteHasta: next,
       CbteFch: cbteFch,
+      ...(FchServDesde != null && { FchServDesde }),
+      ...(FchServHasta != null && { FchServHasta }),
+      FchVtoPago,
       ...(cbtesAsoc ? { CbtesAsoc: cbtesAsoc } : {}),
       ImpTotal: adjustedTotal,
       ImpTotConc: 0,
       ImpNeto: neto,
-      ImpIVA: totalIVA, // <- redondeado
+      ImpIVA: totalIVA,
       MonId: currency,
       MonCotiz: cotiz,
       Iva: mergedIva as unknown as Prisma.JsonArray,

@@ -29,6 +29,8 @@ export interface VoucherData {
   emitterTaxId?: string;
   emitterAddress?: string;
   recipient: string;
+  departureDate?: string;
+  returnDate?: string;
 }
 
 Font.register({
@@ -167,13 +169,7 @@ const CreditNoteDocument: React.FC<{
   logoBase64?: string;
   voucherData: VoucherData;
   items: CreditNoteItem[];
-}> = ({
-  currency,
-  qrBase64,
-  logoBase64,
-  voucherData,
-  items,
-}) => {
+}> = ({ currency, qrBase64, logoBase64, voucherData, items }) => {
   const {
     CbteTipo,
     PtoVta,
@@ -190,6 +186,8 @@ const CreditNoteDocument: React.FC<{
     emitterTaxId,
     emitterAddress,
     recipient,
+    departureDate,
+    returnDate,
   } = voucherData;
 
   const fechaEm = fmtDate(CbteFch);
@@ -237,6 +235,15 @@ const CreditNoteDocument: React.FC<{
             <Text style={styles.infoLabel}>Emisión:</Text>
             <Text style={styles.infoValue}>{fechaEm}</Text>
           </View>
+          {(departureDate || returnDate) && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Período:</Text>
+              <Text style={styles.infoValue}>
+                {departureDate && fmtDate(departureDate)}
+                {returnDate && ` al ${fmtDate(returnDate)}`}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Parties */}

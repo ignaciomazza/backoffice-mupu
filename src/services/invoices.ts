@@ -32,6 +32,8 @@ interface ServiceDetail {
   currency: string;
   description: string;
   nonComputable: number;
+  departure_date: Date;
+  return_date: Date;
 }
 
 interface InvoiceRequestBody {
@@ -94,6 +96,8 @@ export async function createInvoices(
       currency: s.currency,
       description: s.description,
       nonComputable: s.nonComputable ?? 0,
+      departure_date: s.departure_date,
+      return_date: s.return_date,
     };
   });
 
@@ -174,6 +178,11 @@ export async function createInvoices(
         description21,
         description10_5,
         descriptionNonComputable,
+        serviceDates: svcs.map((s) => ({
+          id_service: s.id_service,
+          from: s.departure_date.toISOString().slice(0, 10),
+          to: s.return_date.toISOString().slice(0, 10),
+        })),
       };
 
       const created = await prisma.$transaction(async (tx) => {

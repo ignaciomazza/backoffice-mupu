@@ -19,6 +19,7 @@ interface PayloadAfip {
   description21?: string[];
   description10_5?: string[];
   descriptionNonComputable?: string[];
+  serviceDates?: { from: string; to: string }[];
 }
 
 const prisma = new PrismaClient();
@@ -76,7 +77,25 @@ export default async function handler(
     description21,
     description10_5,
     descriptionNonComputable,
+    serviceDates = [],
   } = payload;
+
+  const parseYmd = (s: string) => {
+    // acepta "YYYY-MM-DD" o "YYYYMMDD"
+    const clean = s.includes("-") ? s.replace(/-/g, "") : s;
+    return new Date(
+      `${clean.substr(0, 4)}-${clean.substr(4, 2)}-${clean.substr(6, 2)}`,
+    );
+  };
+  let depDate: string | undefined, retDate: string | undefined;
+  if (serviceDates.length) {
+    const froms = serviceDates.map((sd) => parseYmd(sd.from));
+    const tos = serviceDates.map((sd) => parseYmd(sd.to));
+    const min = new Date(Math.min(...froms.map((d) => d.getTime())));
+    const max = new Date(Math.max(...tos.map((d) => d.getTime())));
+    depDate = min.toISOString().split("T")[0]; // "YYYY-MM-DD"
+    retDate = max.toISOString().split("T")[0];
+  }
 
   // 4) Enrich voucherData with agency, client and booking info
   const enrichedVoucher: VoucherData & {
@@ -97,8 +116,8 @@ export default async function handler(
     emitterTaxId: invoice.booking.agency.tax_id,
     emitterAddress: invoice.booking.agency.address ?? "",
     recipient: invoice.recipient,
-    departureDate: invoice.booking.departure_date?.toISOString() ?? "",
-    returnDate: invoice.booking.return_date?.toISOString() ?? "",
+    departureDate: depDate,
+    returnDate: retDate,
     description21,
     description10_5,
     descriptionNonComputable,

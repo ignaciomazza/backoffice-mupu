@@ -11,11 +11,9 @@ import CreditNoteDocument, {
 
 interface PayloadAfip {
   voucherData: VoucherData;
-  afipResponse?: {
-    CAE: string;
-    CAEFchVto: string;
-  };
+  afipResponse?: { CAE: string; CAEFchVto: string };
   qrBase64?: string;
+  serviceDates?: Array<{ id_service: number; from: string; to: string }>;
 }
 
 const prisma = new PrismaClient();
@@ -26,12 +24,14 @@ export default async function handler(
 ) {
   if (req.method !== "GET") {
     res.setHeader("Allow", ["GET"]);
-    return res.status(405).end(`Method ${req.method} Not Allowed`);
+    res.status(405).end(`Method ${req.method} Not Allowed`);
+    return;
   }
 
   const id = Number(req.query.id);
   if (Number.isNaN(id)) {
-    return res.status(400).end("ID inválido");
+    res.status(400).end("ID inválido");
+    return;
   }
 
   // 1) Obtener nota de crédito con sus relaciones
@@ -50,53 +50,52 @@ export default async function handler(
   });
 
   if (!creditNote) {
-    return res.status(404).end("Nota de crédito no encontrada");
+    res.status(404).end("Nota de crédito no encontrada");
+    return;
   }
   if (!creditNote.payloadAfip) {
-    return res.status(500).end("No hay datos AFIP para generar la nota");
+    res.status(500).end("No hay datos AFIP para generar la nota");
+    return;
   }
 
   // 2) Cargar logo si existe
   let logoBase64: string | undefined;
-  const logoPath = path.join(process.cwd(), "public", "logo.png");
-  if (fs.existsSync(logoPath)) {
-    logoBase64 = fs.readFileSync(logoPath).toString("base64");
+  try {
+    const logoPath = path.join(process.cwd(), "public", "logo.png");
+    if (fs.existsSync(logoPath)) {
+      logoBase64 = fs.readFileSync(logoPath).toString("base64");
+    }
+  } catch {
+    // ignore
   }
 
-  // 3) Reconstruir el payload como en facturas
-  const raw = creditNote.payloadAfip as unknown as VoucherData & {
-    CAEFchVto?: string;
-    qrBase64?: string;
+  // 3) Castear primero a unknown, luego a PayloadAfip
+  const payloadAfip = creditNote.payloadAfip as unknown as PayloadAfip;
+  const { voucherData, qrBase64, serviceDates = [] } = payloadAfip;
+
+  // 4) Calcular período desde/hasta
+  const parseYmd = (s: string) => {
+    const clean = s.includes("-") ? s.replace(/-/g, "") : s;
+    return new Date(
+      `${clean.slice(0, 4)}-${clean.slice(4, 2)}-${clean.slice(6, 2)}`,
+    );
   };
+  let depDate: string | undefined;
+  let retDate: string | undefined;
+  if (serviceDates.length) {
+    const fromDates = serviceDates.map((sd) => parseYmd(sd.from));
+    const toDates = serviceDates.map((sd) => parseYmd(sd.to));
+    const min = new Date(Math.min(...fromDates.map((d) => d.getTime())));
+    const max = new Date(Math.max(...toDates.map((d) => d.getTime())));
+    depDate = min.toISOString().split("T")[0];
+    retDate = max.toISOString().split("T")[0];
+  }
 
-  const payload: PayloadAfip = {
-    voucherData: {
-      CbteTipo: raw.CbteTipo,
-      PtoVta: raw.PtoVta,
-      CbteDesde: raw.CbteDesde,
-      CbteFch: raw.CbteFch,
-      ImpTotal: raw.ImpTotal,
-      ImpNeto: raw.ImpNeto,
-      ImpIVA: raw.ImpIVA,
-      CAE: raw.CAE,
-      CAEFchVto: raw.CAEFchVto ?? "",
-      DocNro: raw.DocNro,
-      emitterName: "", // se llenará abajo
-      emitterLegalName: "", // se llenará abajo
-      emitterTaxId: "",
-      emitterAddress: "",
-      recipient: "",
-    },
-    afipResponse:
-      raw.CAE && raw.CAEFchVto
-        ? { CAE: raw.CAE, CAEFchVto: raw.CAEFchVto }
-        : undefined,
-    qrBase64: raw.qrBase64,
-  };
+  // 5) Inyectar las fechas en voucherData
+  if (depDate) voucherData.departureDate = depDate;
+  if (retDate) voucherData.returnDate = retDate;
 
-  const { voucherData, qrBase64 } = payload;
-
-  // 4) Enriquecer datos de emisor y receptor
+  // 6) Enriquecer datos de emisor y receptor
   const { invoice } = creditNote;
   const { booking } = invoice;
   voucherData.emitterName = booking.agency.name;
@@ -107,7 +106,7 @@ export default async function handler(
     invoice.recipient ||
     `${booking.titular.first_name} ${booking.titular.last_name}`;
 
-  // 5) Preparar props para el PDF
+  // 7) Preparar props para el PDF
   const data = {
     creditNumber: creditNote.credit_number,
     issueDate: creditNote.issue_date,
@@ -118,7 +117,7 @@ export default async function handler(
     items: creditNote.items,
   };
 
-  // 6) Render y stream del PDF
+  // 8) Render y stream del PDF
   try {
     const stream = await renderToStream(<CreditNoteDocument {...data} />);
     res.setHeader("Content-Type", "application/pdf");

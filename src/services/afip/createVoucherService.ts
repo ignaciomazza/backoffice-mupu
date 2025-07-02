@@ -63,6 +63,8 @@ export async function createVoucherService(
     vatOnCommission10_5?: number | null;
     taxableCardInterest?: number | null;
     vatOnCardInterest?: number | null;
+    return_date: Date;
+    departure_date: Date;
   }>,
   currency: string,
   exchangeRateManual?: number,
@@ -205,16 +207,34 @@ export async function createVoucherService(
             new Date(Date.now() - 86400000),
           )));
 
+    // helper para pasar Date → YYYYMMDD (número)
+    const fmt = (d: Date) =>
+      parseInt(d.toISOString().slice(0, 10).replace(/-/g, ""), 10);
+
+    // obtenés todos los inicios y fin de servicios
+    const allFrom = serviceDetails.map((s) => fmt(s.departure_date));
+    const allTo = serviceDetails.map((s) => fmt(s.return_date));
+
+    // tomás el menor y el mayor
+    const FchServDesde = Math.min(...allFrom);
+    const FchServHasta = Math.max(...allTo);
+
+    // como ya están pagos, vencimiento = fecha de factura
+    const FchVtoPago = cbteFch;
+
     const voucherData: Prisma.JsonObject = {
       CantReg: 1,
       PtoVta: ptoVta,
       CbteTipo: tipoFactura,
-      Concepto: 1,
+      Concepto: 2,
       DocTipo: receptorDocTipo,
       DocNro: Number(receptorDocNumber),
       CbteDesde: next,
       CbteHasta: next,
       CbteFch: cbteFch,
+      FchServDesde: FchServDesde,
+      FchServHasta: FchServHasta,
+      FchVtoPago: FchVtoPago,
       ImpTotal: adjustedTotal,
       ImpTotConc: 0,
       ImpNeto: neto,
