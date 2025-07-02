@@ -1,4 +1,5 @@
 // src/app/bookings/page.tsx
+
 "use client";
 
 import React, { useState, useCallback, useMemo } from "react";

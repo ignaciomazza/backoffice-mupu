@@ -57,6 +57,23 @@ export default function BookingCard({
               />
             </svg>
           </div>
+        ) : booking.status === "Cancelada" ? (
+          <div className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white dark:backdrop-blur">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.7}
+              stroke="currentColor"
+              className="size-4"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636"
+              />
+            </svg>
+          </div>
         ) : (
           <div className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white dark:backdrop-blur">
             <svg

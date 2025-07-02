@@ -1,7 +1,7 @@
 // src/components/services/ServicesContainer.tsx
 
 "use client";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { toast, ToastContainer } from "react-toastify";
 import ServiceForm from "@/components/services/ServiceForm";
@@ -159,6 +159,18 @@ export default function ServicesContainer({
 
   const [bookingIds, setBookingIds] = useState<number[]>([]);
 
+  const [isEditingInvObs, setIsEditingInvObs] = useState(false);
+  const [invObsDraft, setInvObsDraft] = useState(
+    booking?.invoice_observation || "",
+  );
+  const [isSavingInvObs, setIsSavingInvObs] = useState(false);
+
+  const obsVariants = {
+    hidden: { opacity: 0, scale: 0.9 },
+    visible: { opacity: 1, scale: 1 },
+    exit: { opacity: 0, scale: 0.9 },
+  };
+
   useEffect(() => {
     const loadBookingIds = async () => {
       try {
@@ -257,6 +269,43 @@ export default function ServicesContainer({
   const handleLocalCreditNoteSubmit = async (e: React.FormEvent) => {
     await handleCreditNoteSubmit(e);
     onCreditNoteCreated?.();
+  };
+
+  const handleInvObsSave = async () => {
+    if (!booking) return;
+    setIsSavingInvObs(true);
+    try {
+      const res = await fetch(`/api/bookings/${booking.id_booking}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // mantenés todo igual que en handleSaveStatuses, pero solo cambiás invoice_observation
+          clientStatus: booking.clientStatus,
+          operatorStatus: booking.operatorStatus,
+          status: booking.status,
+          details: booking.details,
+          invoice_type: booking.invoice_type,
+          invoice_observation: booking.invoice_observation,
+          observation: invObsDraft,
+          titular_id: booking.titular.id_client,
+          id_agency: booking.agency.id_agency,
+          departure_date: booking.departure_date,
+          return_date: booking.return_date,
+          pax_count: booking.pax_count,
+          clients_ids: booking.clients.map((c) => c.id_client),
+          id_user: booking.user.id_user,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      const updated = await res.json();
+      onBookingUpdated?.(updated);
+      setIsEditingInvObs(false);
+      toast.success("Observación guardada");
+    } catch {
+      toast.error("Error al guardar observación");
+    } finally {
+      setIsSavingInvObs(false);
+    }
   };
 
   return (
@@ -448,9 +497,119 @@ export default function ServicesContainer({
               <p className="mt-4 font-semibold dark:font-medium">
                 Observaciones de administración
               </p>
-              <p className="font-light">
-                {booking.observation || "Sin observaciones"}
-              </p>
+              <li className="list-none">
+                <AnimatePresence initial={false}>
+                  {isEditingInvObs ? (
+                    <motion.div
+                      key="edit"
+                      layout
+                      variants={obsVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      transition={{ duration: 0.2 }}
+                      className="flex w-full flex-col gap-3"
+                    >
+                      <textarea
+                        className="w-full flex-1 rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white md:w-1/2"
+                        rows={3}
+                        value={invObsDraft}
+                        onChange={(e) => setInvObsDraft(e.target.value)}
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleInvObsSave}
+                          disabled={isSavingInvObs}
+                          className={`rounded-full px-6 py-2 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:backdrop-blur ${isSavingInvObs ? "bg-sky-100/50 text-sky-950/50 dark:bg-white/5 dark:text-white/50" : "bg-sky-100 text-sky-950 dark:bg-white/10 dark:text-white"}`}
+                        >
+                          {isSavingInvObs ? (
+                            <Spinner />
+                          ) : (
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              strokeWidth={1.7}
+                              stroke="currentColor"
+                              className="size-6"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z"
+                              />
+                            </svg>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsEditingInvObs(false);
+                            setInvObsDraft(booking.observation || "");
+                          }}
+                          className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            strokeWidth={1.7}
+                            stroke="currentColor"
+                            className="size-6"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M6 18 18 6M6 6l12 12"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="view"
+                      layout
+                      variants={obsVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      transition={{ duration: 0.2 }}
+                      className="flex items-center gap-1"
+                    >
+                      <p className="font-light">
+                        {booking.observation || "Sin observaciones"}
+                      </p>
+                      {(role === "administrativo" ||
+                        role === "gerente" ||
+                        role === "desarrollador") && (
+                        <button
+                          onClick={() => {
+                            setInvObsDraft(booking.observation || "Sin observaciones");
+                            setIsEditingInvObs(true);
+                          }}
+                          className="rounded-full p-2 text-sky-950 transition-transform hover:scale-95 active:scale-90 dark:text-white"
+                          title="Editar observación"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            strokeWidth={1.5}
+                            stroke="currentColor"
+                            className="size-6"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </li>
             </div>
           )}
           {booking ? (
@@ -508,7 +667,7 @@ export default function ServicesContainer({
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") &&
-                services.length > 0 && (
+                (services.length > 0 || receipts.length > 0) && (
                   <div className="">
                     <ReceiptForm
                       booking={booking}
@@ -527,7 +686,7 @@ export default function ServicesContainer({
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") &&
-                services.length > 0 && (
+                (services.length > 0 || invoices.length > 0) && (
                   <div>
                     <div className="mb-4 mt-8 flex justify-center">
                       <p className="text-2xl font-medium">Facturas</p>
@@ -548,7 +707,7 @@ export default function ServicesContainer({
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") &&
-                services.length > 0 && (
+                (services.length > 0 || creditNotes.length > 0) && (
                   <div>
                     <div className="mb-4 mt-8 flex justify-center">
                       <p className="text-2xl font-medium">Notas de Crédito</p>
@@ -571,7 +730,10 @@ export default function ServicesContainer({
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") &&
-                services.length > 0 && (
+                (services.length > 0 ||
+                  invoices.length > 0 ||
+                  receipts.length > 0 ||
+                  creditNotes.length > 0) && (
                   <div className="my-8">
                     <div className="space-y-6">
                       {/* selector de estados */}
@@ -622,7 +784,7 @@ export default function ServicesContainer({
                             Reserva
                           </p>
                           <div className="flex gap-2">
-                            {["Abierta", "Bloqueada"].map((st) => (
+                            {["Abierta", "Bloqueada", "Cancelada"].map((st) => (
                               <div
                                 key={st}
                                 onClick={() => setSelectedBookingStatus(st)}

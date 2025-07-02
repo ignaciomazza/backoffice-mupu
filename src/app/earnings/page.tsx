@@ -1,3 +1,5 @@
+// src/app/earnings/page.tsx
+
 "use client";
 
 import React, { useState, useCallback, useMemo } from "react";
@@ -24,6 +26,7 @@ interface EarningItem {
   totalSellerComm: number;
   totalLeaderComm: number;
   totalAgencyShare: number;
+  debt: number;
 }
 
 interface EarningsResponse {
@@ -47,23 +50,34 @@ function getDefaultRange() {
 
 const MoneyTooltip = ({ active, payload }: TooltipProps<number, string>) => {
   if (!active || !payload?.length) return null;
+
+  // Podés reusar este formateador
+  const format = (val: number, cur: "ARS" | "USD") =>
+    new Intl.NumberFormat("es-AR", { style: "currency", currency: cur }).format(
+      val,
+    );
+
+  // Como p.payload ya es tu EarningItem, tiene item.debt
   return (
-    <div className="space-y-2 rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur-3xl dark:bg-sky-950/10 dark:text-white">
+    <div className="space-y-2 rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md backdrop-blur dark:bg-sky-950/10 dark:text-white">
       {payload.map((p) => {
-        // Hacemos cast a nuestro tipo
         const item = p.payload as EarningItem;
         const cur = item.currency;
         const val = p.value ?? 0;
         return (
           <p key={p.dataKey} className="text-sm">
-            <strong>{p.name}:</strong>{" "}
-            {new Intl.NumberFormat("es-AR", {
-              style: "currency",
-              currency: cur,
-            }).format(val)}
+            <strong>{p.name}:</strong> {format(val, cur)}
           </p>
         );
       })}
+      {/* Nueva línea para mostrar la deuda */}
+      <p className="text-sm">
+        <strong>Deuda:</strong>{" "}
+        {format(
+          (payload[0].payload as EarningItem).debt,
+          (payload[0].payload as EarningItem).currency,
+        )}
+      </p>
     </div>
   );
 };
@@ -164,9 +178,7 @@ export default function EarningsPage() {
   return (
     <ProtectedRoute>
       <div className="text-sky-950 dark:text-white">
-        <h1 className="mb-6 text-2xl font-semibold ">
-          Ganancias
-        </h1>
+        <h1 className="mb-6 text-2xl font-semibold">Ganancias</h1>
 
         <form
           onSubmit={(e) => {
@@ -250,6 +262,17 @@ export default function EarningsPage() {
                   <p className="font-medium">Agencia</p>
                   <p className="font-light tracking-wide">
                     {formatCurrency(data.totals.agencyShare[cur], cur)}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium">Deuda</p>
+                  <p className="font-light tracking-wide">
+                    {formatCurrency(
+                      data.items
+                        .filter((i) => i.currency === cur)
+                        .reduce((sum, i) => sum + i.debt, 0),
+                      cur,
+                    )}
                   </p>
                 </div>
               </div>

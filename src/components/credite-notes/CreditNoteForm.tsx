@@ -4,6 +4,7 @@
 import { motion } from "framer-motion";
 import Spinner from "../Spinner";
 import { Service } from "@/types";
+import { useEffect, useState } from "react";
 
 export type CreditNoteFormData = {
   invoiceId: string;
@@ -36,7 +37,6 @@ export default function CreditNoteForm({
   setIsFormVisible,
   isSubmitting,
 }: CreditNoteFormProps) {
-
   // date bounds ±5 days
   const today = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -50,6 +50,22 @@ export default function CreditNoteForm({
   const maxDate = `${dMax.getFullYear()}-${pad(dMax.getMonth() + 1)}-${pad(
     dMax.getDate(),
   )}`;
+
+  const [fetchedExchangeRate, setFetchedExchangeRate] = useState<string>("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/exchangeRate");
+        const data = await res.json();
+        if (data.success) {
+          setFetchedExchangeRate(data.rate.toString());
+        }
+      } catch {
+        console.error("Error fetching exchange rate");
+      }
+    })();
+  }, []);
 
   return (
     <motion.div
@@ -107,10 +123,7 @@ export default function CreditNoteForm({
           exit={{ opacity: 0 }}
           onSubmit={(e) => {
             e.preventDefault();
-            if (
-              !formData.invoiceId ||
-              !formData.tipoNota 
-            ) {
+            if (!formData.invoiceId || !formData.tipoNota) {
               alert("Por favor, completa todos los campos requeridos.");
               return;
             }
@@ -173,7 +186,11 @@ export default function CreditNoteForm({
               name="exchangeRate"
               value={formData.exchangeRate || ""}
               onChange={handleChange}
-              placeholder="Ej: 350.00"
+              placeholder={
+                fetchedExchangeRate
+                  ? `Cotización: ${fetchedExchangeRate}`
+                  : "Cotización actual"
+              }
               className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
             />
           </div>
