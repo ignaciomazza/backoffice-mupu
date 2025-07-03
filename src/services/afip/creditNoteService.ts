@@ -194,23 +194,29 @@ export async function createCreditNoteVoucher(
       FchServHasta = Math.max(...allTo);
     }
 
-    // vencimiento = fecha de factura
     const FchVtoPago = cbteFch;
 
-    // y al armar voucherData:
+    const hasServiceDates = FchServDesde != null && FchServHasta != null;
+    const concepto = hasServiceDates ? 2 : 1;
+
     const voucherData: Prisma.JsonObject = {
       CantReg: 1,
       PtoVta: ptoVta,
       CbteTipo: tipoNota,
-      Concepto: 2,
+      Concepto: concepto,
       DocTipo: receptorDocTipo,
       DocNro: Number(receptorDocNumber),
       CbteDesde: next,
       CbteHasta: next,
       CbteFch: cbteFch,
-      ...(FchServDesde != null && { FchServDesde }),
-      ...(FchServHasta != null && { FchServHasta }),
-      FchVtoPago,
+
+      // sólo incluyo estas 3 props si realmente tengo fechas de servicio
+      ...(hasServiceDates && {
+        FchServDesde,
+        FchServHasta,
+        FchVtoPago,
+      }),
+
       ...(cbtesAsoc ? { CbtesAsoc: cbtesAsoc } : {}),
       ImpTotal: adjustedTotal,
       ImpTotConc: 0,
