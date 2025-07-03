@@ -1,5 +1,4 @@
 // src/pages/api/bookings/index.ts
-
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 
@@ -10,12 +9,14 @@ export default async function handler(
   // GET /api/bookings
   if (req.method === "GET") {
     try {
-      // 1) Obtener userId igual que antes
+      // 1) User ID
       const userId = Array.isArray(req.query.userId)
         ? Number(req.query.userId[0])
         : req.query.userId
           ? Number(req.query.userId)
-          : null;
+          : undefined;
+
+      // 2) Helper para status en CSV o string único
       const parseCSV = (v?: string | string[]) =>
         !v
           ? undefined
@@ -23,22 +24,52 @@ export default async function handler(
               .split(",")
               .map((s) => s.trim())
               .filter(Boolean);
+
+      // 3) Leer filtros de query
+      const status = Array.isArray(req.query.status)
+        ? req.query.status[0]
+        : (req.query.status as string) || undefined;
+
       const clientStatusArr = parseCSV(req.query.clientStatus);
       const operatorStatusArr = parseCSV(req.query.operatorStatus);
-      const from =
+
+      const creationFrom =
+        typeof req.query.creationFrom === "string"
+          ? new Date(req.query.creationFrom)
+          : undefined;
+      const creationTo =
+        typeof req.query.creationTo === "string"
+          ? new Date(req.query.creationTo)
+          : undefined;
+
+      const travelFrom =
         typeof req.query.from === "string"
           ? new Date(req.query.from)
           : undefined;
-      const to =
+      const travelTo =
         typeof req.query.to === "string" ? new Date(req.query.to) : undefined;
 
+      // 4) Armo el where dinámicamente
       const where: Prisma.BookingWhereInput = {};
-      if (userId) where.id_user = userId;
-      if (clientStatusArr?.length) where.clientStatus = { in: clientStatusArr };
-      if (operatorStatusArr?.length)
-        where.operatorStatus = { in: operatorStatusArr };
-      if (from && to) where.creation_date = { gte: from, lte: to };
 
+      if (userId) where.id_user = userId;
+      if (status && status !== "Todas") where.status = status;
+      if (clientStatusArr?.length && !clientStatusArr.includes("Todas"))
+        where.clientStatus = { in: clientStatusArr };
+      if (operatorStatusArr?.length && !operatorStatusArr.includes("Todas"))
+        where.operatorStatus = { in: operatorStatusArr };
+
+      if (creationFrom && creationTo) {
+        where.creation_date = { gte: creationFrom, lte: creationTo };
+      }
+
+      if (travelFrom && travelTo) {
+        where.departure_date = { gte: travelFrom };
+        // Para incluir también return_date dentro del rango:
+        where.return_date = { lte: travelTo };
+      }
+
+      // 5) Consulto en la BD
       const bookings = await prisma.booking.findMany({
         where,
         include: {
@@ -52,6 +83,7 @@ export default async function handler(
         },
       });
 
+      // 6) Agrego campos calculados
       const enhanced = bookings.map((b) => {
         const totalSale = b.services.reduce((sum, s) => sum + s.sale_price, 0);
         const totalCommission = b.services.reduce(
@@ -66,7 +98,7 @@ export default async function handler(
       return res.status(200).json(enhanced);
     } catch (error) {
       console.error("Error fetching bookings:", error);
-      // siempre devolvemos un array
+      // Siempre devolvemos un array
       return res.status(200).json([]);
     }
   } else if (req.method === "POST") {

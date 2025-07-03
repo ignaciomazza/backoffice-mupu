@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import BookingForm from "@/components/bookings/BookingForm";
 import BookingList from "@/components/bookings/BookingList";
+import FilterPanel from "@/components/bookings/FilterPanel";
 import Spinner from "@/components/Spinner";
 import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
@@ -50,22 +51,26 @@ export default function Page() {
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [teamsList, setTeamsList] = useState<SalesTeam[]>([]);
 
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [selectedTeamId, setSelectedTeamId] = useState<number>(0);
+  const [selectedUserId, setSelectedUserId] = useState(0);
+  const [selectedTeamId, setSelectedTeamId] = useState(0);
+
+  const [selectedBookingStatus, setSelectedBookingStatus] = useState("Todas");
+  const [selectedClientStatus, setSelectedClientStatus] = useState<
+    "Todas" | "Pendiente" | "Pago" | "Facturado"
+  >("Todas");
+  const [selectedOperatorStatus, setSelectedOperatorStatus] = useState("Todas");
+
+  const [creationFrom, setCreationFrom] = useState<string>("");
+  const [creationTo, setCreationTo] = useState<string>("");
+  const [travelFrom, setTravelFrom] = useState<string>("");
+  const [travelTo, setTravelTo] = useState<string>("");
 
   const [searchTerm, setSearchTerm] = useState<string>("");
-  const [dateFrom, setDateFrom] = useState<string>("");
-  const [dateTo, setDateTo] = useState<string>("");
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [expandedBookingId, setExpandedBookingId] = useState<number | null>(
     null,
   );
-
-  const ESTADOS = ["Todas", "Pendiente", "Pago", "Facturado"] as const;
-  type Estado = (typeof ESTADOS)[number];
-  const [selectedClientStatus, setSelectedClientStatus] =
-    useState<Estado>("Todas");
 
   const [formData, setFormData] = useState<BookingFormData>({
     id_booking: undefined,
@@ -183,35 +188,47 @@ export default function Page() {
 
     const fetchBookings = async () => {
       try {
-        let data: Booking[] = [];
-        if (selectedUserId && selectedUserId > 0) {
-          data = await fetch(`/api/bookings?userId=${selectedUserId}`).then(
-            (r) => r.json(),
-          );
-        } else {
-          const all = await fetch("/api/bookings").then(
-            (r) => r.json() as Promise<Booking[]>,
-          );
+        const qs = new URLSearchParams();
+        if (selectedUserId > 0) qs.append("userId", String(selectedUserId));
+        if (selectedTeamId > 0) qs.append("teamId", String(selectedTeamId));
+        if (selectedBookingStatus !== "Todas")
+          qs.append("status", selectedBookingStatus);
+        if (selectedClientStatus !== "Todas")
+          qs.append("clientStatus", selectedClientStatus);
+        if (selectedOperatorStatus !== "Todas")
+          qs.append("operatorStatus", selectedOperatorStatus);
+        if (creationFrom) qs.append("creationFrom", creationFrom);
+        if (creationTo) qs.append("creationTo", creationTo);
+        if (travelFrom) qs.append("from", travelFrom);
+        if (travelTo) qs.append("to", travelTo);
+
+        let data: Booking[] = await fetch(`/api/bookings?${qs}`).then((r) =>
+          r.json(),
+        );
+
+        // filtrado extra según rol y equipo...
+        if (selectedUserId === 0) {
           if (profile.role === "lider") {
             const ids = teamMembers.map((u) => u.id_user);
-            data = all.filter((b) => ids.includes(b.user.id_user));
-          } else if (selectedTeamId > 0) {
-            const ids = teamsList
+            data = data.filter((b) => ids.includes(b.user.id_user));
+          }
+          if (selectedTeamId > 0) {
+            const teamIds = teamsList
               .find((t) => t.id_team === selectedTeamId)!
               .user_teams.map((ut) => ut.user.id_user);
-            data = all.filter((b) => ids.includes(b.user.id_user));
-          } else if (selectedTeamId === -1) {
+            data = data.filter((b) => teamIds.includes(b.user.id_user));
+          }
+          if (selectedTeamId === -1) {
             const assigned = teamsList.flatMap((t) =>
               t.user_teams.map((ut) => ut.user.id_user),
             );
-            data = all.filter((b) => !assigned.includes(b.user.id_user));
-          } else {
-            data = all;
+            data = data.filter((b) => !assigned.includes(b.user.id_user));
           }
         }
+
         setBookings(data);
-      } catch {
-        console.error("Error fetching bookings");
+      } catch (error) {
+        console.error("Error fetching bookings:", error);
       } finally {
         setLoadingBookings(false);
       }
@@ -219,12 +236,19 @@ export default function Page() {
 
     fetchBookings();
   }, [
+    profile,
+    loadingFilters,
     selectedUserId,
     selectedTeamId,
-    teamsList,
-    profile,
+    selectedBookingStatus,
+    selectedClientStatus,
+    selectedOperatorStatus,
+    creationFrom,
+    creationTo,
+    travelFrom,
+    travelTo,
     teamMembers,
-    loadingFilters,
+    teamsList,
   ]);
 
   const handleChange = (
@@ -396,12 +420,6 @@ export default function Page() {
       );
     })
     .filter((b) => {
-      if (dateFrom && new Date(b.departure_date) < new Date(dateFrom))
-        return false;
-      if (dateTo && new Date(b.departure_date) > new Date(dateTo)) return false;
-      return true;
-    })
-    .filter((b) => {
       return (
         selectedClientStatus === "Todas" ||
         b.clientStatus === selectedClientStatus
@@ -451,109 +469,31 @@ export default function Page() {
         </h2>
 
         <div className="mb-4 space-y-4 text-sm md:text-base">
-          {(profile?.role === "lider" ||
-            profile?.role === "gerente" ||
-            profile?.role === "administrativo" ||
-            profile?.role === "desarrollador") && (
-            <div className="flex flex-col space-y-4 md:flex-row md:justify-end md:space-x-4 md:space-y-0">
-              <div className="flex w-full items-center rounded-2xl border-b border-sky-950/10 bg-white/10 text-center text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:border dark:border-white/10 dark:text-white">
-                {ESTADOS.map((st, i) => (
-                  <div
-                    key={st}
-                    onClick={() => setSelectedClientStatus(st)}
-                    className={`basis-1/4 p-2 font-light tracking-wide hover:cursor-pointer ${
-                      i === 0 ? "rounded-l-2xl" : ""
-                    } ${
-                      i === 3
-                        ? "rounded-r-2xl border-r-sky-100/20"
-                        : "border-r border-sky-950/20 dark:border-white/20"
-                    } ${
-                      selectedClientStatus === st
-                        ? "border-b border-r border-b-sky-100 border-r-sky-950/20 bg-sky-100 text-sky-950 dark:border-none dark:bg-gray-500 dark:text-white"
-                        : ""
-                    } `}
-                  >
-                    {st}
-                  </div>
-                ))}
-              </div>
-
-              <select
-                className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
-                value={selectedUserId!}
-                onChange={(e) => {
-                  setSelectedUserId(Number(e.target.value));
-                }}
-              >
-                <option value={0}>Todo el equipo</option>
-                {displayedTeamMembers.map((u) => (
-                  <option key={u.id_user} value={u.id_user}>
-                    {u.first_name} {u.last_name}
-                  </option>
-                ))}
-              </select>
-
-              {profile?.role !== "lider" && (
-                <select
-                  className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
-                  value={selectedTeamId}
-                  onChange={(e) => {
-                    setSelectedTeamId(Number(e.target.value));
-                    setSelectedUserId(0);
-                  }}
-                >
-                  <option value={0}>Todos los equipos</option>
-                  <option value={-1}>Sin equipo</option>
-                  {teamsList?.map((t) => (
-                    <option key={t.id_team} value={t.id_team}>
-                      {t.name || `Equipo ${t.id_team}`}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
-
-          <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:justify-between sm:space-x-4 sm:space-y-0">
-            <div className="relative flex w-full appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:border dark:border-white/10 dark:text-white">
-              <input
-                type="text"
-                placeholder="Buscar reservas..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-transparent outline-none placeholder:font-light placeholder:tracking-wide"
-              />
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="size-6"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
-                />
-              </svg>
-            </div>
-
-            <div className="flex space-x-2 md:space-x-4">
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
-              />
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="flex w-fit cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:border dark:border-white/10 dark:text-white"
-              />
-            </div>
-          </div>
+          <FilterPanel
+            role={profile?.role}
+            teams={teamsList}
+            displayedTeamMembers={displayedTeamMembers}
+            selectedUserId={selectedUserId}
+            setSelectedUserId={setSelectedUserId}
+            selectedTeamId={selectedTeamId}
+            setSelectedTeamId={setSelectedTeamId}
+            selectedBookingStatus={selectedBookingStatus}
+            setSelectedBookingStatus={setSelectedBookingStatus}
+            selectedClientStatus={selectedClientStatus}
+            setSelectedClientStatus={setSelectedClientStatus}
+            selectedOperatorStatus={selectedOperatorStatus}
+            setSelectedOperatorStatus={setSelectedOperatorStatus}
+            creationFrom={creationFrom}
+            setCreationFrom={setCreationFrom}
+            creationTo={creationTo}
+            setCreationTo={setCreationTo}
+            travelFrom={travelFrom}
+            setTravelFrom={setTravelFrom}
+            travelTo={travelTo}
+            setTravelTo={setTravelTo}
+            setSearchTerm={setSearchTerm}
+            searchTerm={searchTerm}
+          />
         </div>
 
         {isLoading ? (
