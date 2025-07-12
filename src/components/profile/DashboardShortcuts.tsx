@@ -37,7 +37,7 @@ const metrics: Metric[] = [
       </svg>
     ),
     span: { cols: 2, rows: 1 },
-    link: "/earnings",
+    link: "/",
   },
   {
     label: "Ventas y reservas",
@@ -81,7 +81,7 @@ const metrics: Metric[] = [
       </div>
     ),
     span: { cols: 2, rows: 2 },
-    link: "/bookings",
+    link: "/",
   },
   {
     label: "Nuevos clientes",
