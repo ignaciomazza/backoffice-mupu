@@ -33,6 +33,7 @@ interface Invoice {
       ImpNeto: number;
       ImpIVA: number;
       Iva: Array<{ Id: number; BaseImp: number; Importe: number }>;
+      MonCotiz?: number;
     };
   };
 }
@@ -136,10 +137,17 @@ export default function InvoicesPage() {
       "Exento",
       "Neto",
       "IVA",
+      "Cotización",
       "Total",
     ];
     const rows = data.map((inv) => {
       const { base21, base105, baseEx, neto, iva } = getTaxBreakdown(inv);
+
+      const cotiz =
+        inv.currency === "DOL"
+          ? (inv.payloadAfip.voucherData.MonCotiz?.toString() ?? "")
+          : "";
+
       return [
         inv.invoice_number,
         getCbteDate(inv),
@@ -150,6 +158,7 @@ export default function InvoicesPage() {
         baseEx.toString(),
         neto.toString(),
         iva.toString(),
+        cotiz,
         fmt(inv.total_amount, inv.currency),
       ];
     });
@@ -284,7 +293,6 @@ export default function InvoicesPage() {
                               target="_blank"
                               className="w-fit rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
                             >
-                              {/* Icono de descarga */}
                               <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 fill="none"
