@@ -1,52 +1,79 @@
 // src/components/profile/AnimatedMessage.tsx
 "use client";
-import { useState, useEffect } from "react";
+
+import { useState, useEffect, useCallback } from "react";
 
 type AnimatedMessageProps = {
   text: string;
-  speed?: number;
-  startDelay?: number;
+  speed?: number; 
+  variance?: number;
+  startDelay?: number; 
+  holdTime?: number; 
   className?: string;
   onComplete?: () => void;
 };
 
 export default function AnimatedMessage({
   text,
-  speed = 50,
-  startDelay = 0,
+  speed = 70,
+  variance = 0.3, 
+  startDelay = 500,
+  holdTime = 1500,
   className = "text-xl font-light",
   onComplete,
 }: AnimatedMessageProps) {
-  const [displayed, setDisplayed] = useState("");
-  const [done, setDone] = useState(false);
+  const [phase, setPhase] = useState<
+    "start-delay" | "typing" | "hold" | "deleting" | "done"
+  >("start-delay");
+  const [idx, setIdx] = useState(0);
+
+  const randomDelay = useCallback(() => {
+    const delta = speed * variance;
+    return speed - delta + Math.random() * delta * 2;
+  }, [speed, variance]);
 
   useEffect(() => {
-    let index = 0;
-    let typingTimer: NodeJS.Timeout;
-    const startTimer = setTimeout(() => {
-      const type = () => {
-        if (index <= text.length) {
-          setDisplayed(text.slice(0, index));
-          index++;
-          typingTimer = setTimeout(type, speed);
-        } else {
-          setDone(true);
-          onComplete?.();
-        }
-      };
-      type();
-    }, startDelay);
+    if (phase !== "start-delay") return;
+    const t = setTimeout(() => setPhase("typing"), startDelay);
+    return () => clearTimeout(t);
+  }, [phase, startDelay]);
 
-    return () => {
-      clearTimeout(startTimer);
-      clearTimeout(typingTimer);
-    };
-  }, [text, speed, startDelay, onComplete]);
+  useEffect(() => {
+    if (phase !== "typing") return;
+    if (idx < text.length) {
+      const t = setTimeout(() => setIdx((i) => i + 1), randomDelay());
+      return () => clearTimeout(t);
+    }
+    setPhase("hold");
+  }, [phase, idx, text.length, randomDelay]);
+
+  useEffect(() => {
+    if (phase !== "hold") return;
+    const t = setTimeout(() => setPhase("deleting"), holdTime);
+    return () => clearTimeout(t);
+  }, [phase, holdTime]);
+
+  useEffect(() => {
+    if (phase !== "deleting") return;
+    if (idx > 0) {
+      const t = setTimeout(() => setIdx((i) => i - 1), randomDelay());
+      return () => clearTimeout(t);
+    }
+    setPhase("done");
+  }, [phase, idx, randomDelay]);
+
+  useEffect(() => {
+    if (phase !== "done") return;
+    const t = setTimeout(() => onComplete?.(), 1000);
+    return () => clearTimeout(t);
+  }, [phase, onComplete]);
 
   return (
     <span className={className}>
-      {displayed}
-      {!done && <span className="cursor">|</span>}
+      {text.slice(0, idx)}
+      {(phase === "typing" || phase === "deleting") && (
+        <span className="cursor">|</span>
+      )}
       <style jsx>{`
         .cursor {
           display: inline-block;

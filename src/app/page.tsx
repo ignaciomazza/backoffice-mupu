@@ -1,10 +1,11 @@
 // src/app/profile/page.tsx
 "use client";
+
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import AnimatedMessage from "@/components/profile/AnimatedMessage";
 import DashboardShortcuts from "@/components/profile/DashboardShortcuts";
 
@@ -35,7 +36,9 @@ export default function ProfilePage() {
     })();
   }, [token]);
 
-  const titleText = `Hola${userProfile?.first_name ? `, ${userProfile.first_name}` : ""} :)`;
+  const titleText = `Hola${
+    userProfile?.first_name ? `, ${userProfile.first_name}` : ""
+  } :)`;
 
   return (
     <ProtectedRoute>
@@ -43,34 +46,54 @@ export default function ProfilePage() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="flex min-h-screen w-full flex-col items-center"
+        className="flex w-full flex-col items-center"
       >
-        {loading ? (
-          <div className="flex min-h-[80vh] items-center justify-center">
-            <Spinner />
-          </div>
-        ) : showGrid ? (
-          <div className="flex items-center justify-center p-4">
-            <DashboardShortcuts />
-          </div>
-        ) : (
-          <div className="flex h-[80vh] items-center justify-center p-4">
+        <AnimatePresence mode="wait">
+          {loading && (
             <motion.div
+              key="spinner"
+              initial={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="flex min-h-[80vh] items-center justify-center"
+            >
+              <Spinner />
+            </motion.div>
+          )}
+
+          {!loading && !showGrid && (
+            <motion.div
+              key="message"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.3, duration: 0.4 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="flex h-[80vh] items-center justify-center p-4"
             >
               <AnimatedMessage
                 text={titleText}
-                speed={50}
-                startDelay={500} // espera medio segundo tras el fade
-                onComplete={() => {
-                  setTimeout(() => setShowGrid(true), 1500);
-                }}
+                speed={70}
+                variance={0.3}
+                startDelay={500}
+                holdTime={1500}
+                onComplete={() => setShowGrid(true)}
               />
             </motion.div>
-          </div>
-        )}
+          )}
+
+          {showGrid && (
+            <motion.div
+              key="dashboard"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.4 }}
+              className="flex w-full items-center justify-center md:p-4"
+            >
+              <DashboardShortcuts />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.section>
     </ProtectedRoute>
   );

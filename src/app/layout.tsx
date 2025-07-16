@@ -1,5 +1,4 @@
 // src/app/layout.tsx
-
 import { Poppins } from "next/font/google";
 import "./globals.css";
 import LayoutWrapper from "@/components/LayoutWrapper";
@@ -13,7 +12,7 @@ const poppins = Poppins({
 });
 
 export const metadata = {
-  title: "Ofist",
+  title: "Ofistur",
   description: "Sistema de gestión para Agencias de Viaje",
 };
 

@@ -204,6 +204,7 @@ export default function ServiceForm({
               <option value="Tour">Tour</option>
               <option value="Circuito">Circuito</option>
               <option value="Crucero">Crucero</option>
+              <option value="Visa">Gestion de Visado</option>
             </select>
           </div>
           <div className="pt-1">
