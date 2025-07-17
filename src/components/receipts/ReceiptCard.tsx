@@ -136,7 +136,7 @@ export default function ReceiptCard({
           <p className="mt-1">{receipt.amount_string}</p>
         </div>
         <div className="col-span-2">
-          <p className="font-semibold">Servicios (IDs)</p>
+          <p className="font-semibold">Servicios (N°)</p>
           <p className="mt-1">
             {receipt.serviceIds?.length ? receipt.serviceIds.join(", ") : "–"}
           </p>

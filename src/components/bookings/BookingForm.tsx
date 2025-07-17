@@ -114,23 +114,27 @@ export default function BookingForm({
   };
 
   const handleIncrement = () => {
-    const newPaxCount = formData.pax_count + 1;
-    setFormData((prevData) => ({
-      ...prevData,
-      pax_count: newPaxCount,
-      clients_ids: Array(newPaxCount - 1).fill(""),
-    }));
+    setFormData((prev) => {
+      const newCount = prev.pax_count + 1;
+      return {
+        ...prev,
+        pax_count: newCount,
+        clients_ids: [...prev.clients_ids, 0],
+      };
+    });
   };
 
   const handleDecrement = () => {
-    if (formData.pax_count > 1) {
-      const newPaxCount = formData.pax_count - 1;
-      setFormData((prevData) => ({
-        ...prevData,
-        pax_count: newPaxCount,
-        clients_ids: Array(newPaxCount - 1).fill(""),
-      }));
-    }
+    setFormData((prev) => {
+      if (prev.pax_count <= 1) return prev;
+      const newCount = prev.pax_count - 1;
+      // cortamos el array al nuevo largo (newCount - 1)
+      return {
+        ...prev,
+        pax_count: newCount,
+        clients_ids: prev.clients_ids.slice(0, newCount - 1),
+      };
+    });
   };
 
   return (
@@ -371,7 +375,7 @@ export default function BookingForm({
           {formData.pax_count >= 2 && (
             <div>
               <label className="ml-2 block dark:text-white">
-                IDs de Acompañantes
+                N° de Acompañantes
               </label>
               {Array.from({ length: formData.pax_count - 1 }).map(
                 (_, index) => (
@@ -382,7 +386,7 @@ export default function BookingForm({
                     onChange={(e) =>
                       handleAcompananteChange(index, e.target.value)
                     }
-                    className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 mt-3 dark:text-white"
                     placeholder={`N° del acompañante ${index + 1}`}
                     onKeyDown={(e) => {
                       if (["ArrowUp", "ArrowDown"].includes(e.key))
