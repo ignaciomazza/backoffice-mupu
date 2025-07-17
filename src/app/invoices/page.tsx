@@ -128,18 +128,16 @@ export default function InvoicesPage() {
     setLoading(true);
 
     try {
+      const fetchOpts: RequestInit = {
+        cache: "no-store",
+        credentials: "include", // siempre incluí cookie de sesión
+        ...(token && { headers: { Authorization: `Bearer ${token}` } }),
+      };
       const [r1, r2] = await Promise.all([
-        fetch(`/api/invoices?from=${from}&to=${to}`, {
-          cache: "no-store",
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          credentials: token ? "include" : undefined,
-        }),
-        fetch(`/api/credit-notes?from=${from}&to=${to}`, {
-          cache: "no-store",
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          credentials: token ? "include" : undefined,
-        }),
+        fetch(`/api/invoices?from=${from}&to=${to}`, fetchOpts),
+        fetch(`/api/credit-notes?from=${from}&to=${to}`, fetchOpts),
       ]);
+
       const j1 = await r1.json();
       const j2 = await r2.json();
 
@@ -182,10 +180,7 @@ export default function InvoicesPage() {
       await Promise.all(
         all.map(async (row) => {
           try {
-            const res = await fetch(`/api/clients/${row.client_id}`, {
-              cache: "no-store",
-              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-            });
+            const res = await fetch(`/api/clients/${row.client_id}`, fetchOpts);
             const json = await res.json();
             const c = (json.client ?? json) as {
               address?: string;
