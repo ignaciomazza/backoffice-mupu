@@ -29,13 +29,19 @@ interface Invoice {
   };
   payloadAfip: {
     voucherData: {
-      CbteFch: number; // YYYYMMDD
+      CbteFch: number;
       ImpNeto: number;
       ImpIVA: number;
       Iva: Array<{ Id: number; BaseImp: number; Importe: number }>;
       MonCotiz?: number;
       qrBase64?: string;
     };
+  };
+  // from API include:
+  client: {
+    address?: string;
+    locality?: string;
+    postal_code?: string;
   };
 }
 
@@ -44,6 +50,8 @@ interface InvoiceRow extends Invoice {
   client_id: number;
   recipient?: string;
   address?: string;
+  locality?: string;
+  postal_code?: string;
 }
 
 interface RawCreditNote {
@@ -57,6 +65,11 @@ interface RawCreditNote {
   invoice: {
     client_id: number;
     booking: Invoice["booking"];
+    client?: {
+      address?: string;
+      locality?: string;
+      postal_code?: string;
+    };
   };
 }
 
@@ -79,20 +92,28 @@ export default function InvoicesPage() {
     inv.recipient ??
     `${inv.booking.titular.first_name} ${inv.booking.titular.last_name}`;
 
-  const getAddress = (inv: InvoiceRow) =>
-    inv.address ??
-    (() => {
-      const t = inv.booking.titular;
-      const parts: string[] = [];
-      if (inv.type === "Factura A" && t.commercial_address) {
-        parts.push(t.commercial_address);
-      } else if (t.address) {
-        parts.push(t.address);
-      }
-      const loc = [t.locality, t.postal_code].filter(Boolean).join(" ");
-      if (loc) parts.push(loc);
-      return parts.join(", ");
-    })();
+  const getAddress = (inv: InvoiceRow) => {
+    // 1) Junta sólo los campos reales del cliente
+    const clientPart = [inv.address, inv.locality, inv.postal_code]
+      .filter(Boolean)
+      .join(", ");
+    if (clientPart) return clientPart;
+
+    // 2) Si es nota de crédito, NO hacemos fallback
+    if (inv.isCredit) return "";
+
+    // 3) Para facturas sí hacemos el fallback que ya tenías
+    const t = inv.booking.titular;
+    const parts: string[] = [];
+    if (inv.type === "Factura A" && t.commercial_address) {
+      parts.push(t.commercial_address);
+    } else if (t.address) {
+      parts.push(t.address);
+    }
+    const loc = [t.locality, t.postal_code].filter(Boolean).join(" ");
+    if (loc) parts.push(loc);
+    return parts.join(", ");
+  };
 
   const getCbteDate = (inv: Invoice) => {
     const raw = inv.payloadAfip.voucherData.CbteFch.toString();
@@ -128,16 +149,18 @@ export default function InvoicesPage() {
     setLoading(true);
 
     try {
+      // Opciones únicas para todas las peticiones
       const fetchOpts: RequestInit = {
         cache: "no-store",
-        credentials: "include", // siempre incluí cookie de sesión
+        credentials: "include", // siempre incluye cookie de sesión
         ...(token && { headers: { Authorization: `Bearer ${token}` } }),
       };
+
+      // 1) Traer facturas y notas de crédito
       const [r1, r2] = await Promise.all([
         fetch(`/api/invoices?from=${from}&to=${to}`, fetchOpts),
         fetch(`/api/credit-notes?from=${from}&to=${to}`, fetchOpts),
       ]);
-
       const j1 = await r1.json();
       const j2 = await r2.json();
 
@@ -146,15 +169,18 @@ export default function InvoicesPage() {
       if (!j2.success)
         throw new Error(j2.message || "Error al cargar notas de crédito");
 
-      // 2) Mapear facturas
+      // 2) Mapear facturas incluyendo dirección del client
       const invs: InvoiceRow[] = j1.invoices.map((inv: InvoiceRow) => ({
         ...inv,
         isCredit: false,
         client_id: inv.client_id,
         recipient: inv.recipient,
+        address: inv.client.address,
+        locality: inv.client.locality,
+        postal_code: inv.client.postal_code,
       }));
 
-      // 3) Mapear notas de crédito
+      // 3) Mapear notas de crédito igual
       const crs: InvoiceRow[] = j2.creditNotes.map((cr: RawCreditNote) => ({
         id_invoice: cr.id_credit_note,
         invoice_number: cr.credit_number,
@@ -162,44 +188,28 @@ export default function InvoicesPage() {
         currency: cr.currency === "PES" ? "ARS" : cr.currency,
         type: cr.type,
         booking: cr.invoice.booking,
-        // *** aquí envolvemos el payload en voucherData ***
         payloadAfip: { voucherData: cr.payloadAfip },
         isCredit: true,
         client_id: cr.invoice.client_id,
         recipient: cr.recipient,
+        address: cr.invoice.client?.address,
+        locality: cr.invoice.client?.locality,
+        postal_code: cr.invoice.client?.postal_code,
       }));
 
-      // 4) Unir y ordenar
+      // 4) Unir y ordenar por fecha
       const all = [...invs, ...crs].sort((a, b) => {
         const fa = a.payloadAfip.voucherData.CbteFch;
         const fb = b.payloadAfip.voucherData.CbteFch;
         return fa - fb || a.id_invoice - b.id_invoice;
       });
 
-      // 5) Direcciones
-      await Promise.all(
-        all.map(async (row) => {
-          try {
-            const res = await fetch(`/api/clients/${row.client_id}`, fetchOpts);
-            const json = await res.json();
-            const c = (json.client ?? json) as {
-              address?: string;
-              postal_code?: string;
-              locality?: string;
-            };
-            row.address = [c.address, c.postal_code, c.locality]
-              .filter(Boolean)
-              .join(", ");
-          } catch (e) {
-            console.error(`Error fetching client ${row.client_id}`, e);
-          }
-        }),
-      );
-
+      // 5) ¡Sin más fetchs! ya tenemos address/locality/postal_code
       setData(all);
     } catch (err: unknown) {
-      console.error("fetchInvoices caught error:", err);
-      toast.error((err as Error).message);
+      console.error("fetchInvoices error:", err);
+      const msg = err instanceof Error ? err.message : "Error al cargar datos";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -232,19 +242,9 @@ export default function InvoicesPage() {
       const { base21, base105, baseEx, neto, iva } = getTaxBreakdown(inv);
 
       // 2.a) Split inverso de la dirección:
-      const rawAddr = inv.address ?? "";
-      const parts = rawAddr.split(",").map((s) => s.trim());
-      let localidad = "";
-      let codigoPostal = "";
-      let direccion = "";
-      if (parts.length >= 3) {
-        localidad = parts.pop()!;
-        codigoPostal = parts.pop()!;
-        direccion = parts.join(", ");
-      } else {
-        // fallback si no hay tantos
-        [direccion = "", codigoPostal = "", localidad = ""] = parts;
-      }
+      const direccion = inv.address ?? "";
+      const localidad = inv.locality ?? "";
+      const codigoPostal = inv.postal_code ?? "";
 
       // 2.b) Tipo de factura / nota:
       const tipo = inv.isCredit

@@ -71,7 +71,15 @@ export default async function handler(
         },
         include: {
           booking: { include: { titular: true } },
-          client: { select: { first_name: true, last_name: true } },
+          client: {
+            select: {
+              first_name: true,
+              last_name: true,
+              address: true,
+              locality: true,
+              postal_code: true,
+            },
+          },
         },
       });
 

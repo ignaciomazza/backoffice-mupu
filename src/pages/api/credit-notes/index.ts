@@ -61,6 +61,13 @@ export default async function handler(
           invoice: {
             include: {
               booking: { include: { titular: true } },
+              client: {
+                select: {
+                  address: true,
+                  locality: true,
+                  postal_code: true,
+                },
+              },
             },
           },
         },
