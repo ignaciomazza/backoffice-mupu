@@ -1,4 +1,5 @@
 // src/pages/api/credit-notes/index.ts
+
 import type { NextApiRequest, NextApiResponse } from "next";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
@@ -42,7 +43,7 @@ export default async function handler(
 
   if (req.method === "GET") {
     const { from, to } = req.query;
-
+    // --- filtro por rango de fechas ---
     if (typeof from === "string" && typeof to === "string") {
       const fromInt = parseInt(from.replace(/-/g, ""), 10);
       const toInt = parseInt(to.replace(/-/g, ""), 10);
@@ -50,16 +51,25 @@ export default async function handler(
       const creditNotes = await prisma.creditNote.findMany({
         where: {
           payloadAfip: {
-            path: ["voucherData", "CbteFch"],
+            path: ["CbteFch"], // aquí va directamente CbteFch
             gte: fromInt,
             lte: toInt,
           },
         },
-        include: { items: true },
+        include: {
+          items: true,
+          invoice: {
+            include: {
+              booking: { include: { titular: true } },
+            },
+          },
+        },
       });
+
       return res.status(200).json({ success: true, creditNotes });
     }
 
+    // --- búsqueda por invoiceId ---
     const parsedQ = querySchema.safeParse(req.query);
     if (!parsedQ.success) {
       return res.status(400).json({
@@ -80,24 +90,16 @@ export default async function handler(
         message: parsedB.error.errors.map((e) => e.message).join(", "),
       });
     }
-
     const { invoiceId, tipoNota, exchangeRate, invoiceDate } = parsedB.data;
-
-    const request = {
+    const result = await createCreditNote({
       invoiceId,
       tipoNota: tipoNota as 3 | 8,
       exchangeRate,
       invoiceDate,
-    };
-
-    const result = await createCreditNote(request);
+    });
     if (!result.success) {
-      return res.status(400).json({
-        success: false,
-        message: result.message,
-      });
+      return res.status(400).json({ success: false, message: result.message });
     }
-
     return res.status(201).json({
       success: true,
       creditNote: result.creditNote,

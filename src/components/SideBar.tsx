@@ -46,11 +46,11 @@ export default function SideBar({
     if (!role) return false;
     switch (route) {
       case "/operators":
-        return ["desarrollador", "administrativo"].includes(role);
+        return ["desarrollador", "administrativo", "gerente"].includes(role);
       case "/agency":
         return ["desarrollador", "gerente"].includes(role);
       case "/users":
-        return ["desarrollador"].includes(role);
+        return ["desarrollador", "gerente"].includes(role);
       case "/teams":
         return ["desarrollador", "gerente"].includes(role);
       case "/invoices":

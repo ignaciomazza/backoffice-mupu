@@ -34,7 +34,29 @@ interface Invoice {
       ImpIVA: number;
       Iva: Array<{ Id: number; BaseImp: number; Importe: number }>;
       MonCotiz?: number;
+      qrBase64?: string;
     };
+  };
+}
+
+interface InvoiceRow extends Invoice {
+  isCredit?: boolean;
+  client_id: number;
+  recipient?: string;
+  address?: string;
+}
+
+interface RawCreditNote {
+  id_credit_note: number;
+  credit_number: string;
+  total_amount: number;
+  currency: string;
+  type: string;
+  recipient?: string;
+  payloadAfip: Invoice["payloadAfip"]["voucherData"];
+  invoice: {
+    client_id: number;
+    booking: Invoice["booking"];
   };
 }
 
@@ -42,7 +64,7 @@ export default function InvoicesPage() {
   const { token } = useAuth();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [data, setData] = useState<Invoice[]>([]);
+  const [data, setData] = useState<InvoiceRow[]>([]);
   const [loading, setLoading] = useState(false);
 
   const fmt = useCallback((v?: number, curr?: string) => {
@@ -53,36 +75,30 @@ export default function InvoicesPage() {
     }).format(v ?? 0);
   }, []);
 
-  const getClientName = (inv: Invoice) => {
-    const { titular } = inv.booking;
-    return titular.company_name?.trim()
-      ? titular.company_name.trim()
-      : `${titular.first_name} ${titular.last_name}`;
-  };
+  const getClientName = (inv: InvoiceRow) =>
+    inv.recipient ??
+    `${inv.booking.titular.first_name} ${inv.booking.titular.last_name}`;
 
-  const formatAddress = (inv: Invoice) => {
-    const { titular } = inv.booking;
-    const parts: string[] = [];
-    if (inv.type === "Factura A") {
-      const dirComm = titular.commercial_address?.trim();
-      if (dirComm) parts.push(dirComm);
-    } else {
-      const dir = titular.address?.trim();
-      if (dir) parts.push(dir);
-    }
-    const loc = titular.locality?.trim() || "";
-    const cp = titular.postal_code?.trim() || "";
-    const locPart = [loc, cp].filter(Boolean).join(" ");
-    if (locPart) parts.push(locPart);
-    return parts.join(", ");
-  };
+  const getAddress = (inv: InvoiceRow) =>
+    inv.address ??
+    (() => {
+      const t = inv.booking.titular;
+      const parts: string[] = [];
+      if (inv.type === "Factura A" && t.commercial_address) {
+        parts.push(t.commercial_address);
+      } else if (t.address) {
+        parts.push(t.address);
+      }
+      const loc = [t.locality, t.postal_code].filter(Boolean).join(" ");
+      if (loc) parts.push(loc);
+      return parts.join(", ");
+    })();
 
   const getCbteDate = (inv: Invoice) => {
     const raw = inv.payloadAfip.voucherData.CbteFch.toString();
-    const y = raw.slice(0, 4);
-    const m = raw.slice(4, 6);
-    const d = raw.slice(6, 8);
-    return new Date(`${y}-${m}-${d}T00:00:00`).toLocaleDateString("es-AR");
+    return new Date(
+      `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}T00:00:00`,
+    ).toLocaleDateString("es-AR");
   };
 
   const getTaxBreakdown = (inv: Invoice) => {
@@ -110,16 +126,84 @@ export default function InvoicesPage() {
       return;
     }
     setLoading(true);
+
     try {
-      const res = await fetch(`/api/invoices?from=${from}&to=${to}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        credentials: token ? "include" : undefined,
+      const [r1, r2] = await Promise.all([
+        fetch(`/api/invoices?from=${from}&to=${to}`, {
+          cache: "no-store",
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          credentials: token ? "include" : undefined,
+        }),
+        fetch(`/api/credit-notes?from=${from}&to=${to}`, {
+          cache: "no-store",
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          credentials: token ? "include" : undefined,
+        }),
+      ]);
+      const j1 = await r1.json();
+      const j2 = await r2.json();
+
+      if (!j1.success)
+        throw new Error(j1.message || "Error al cargar facturas");
+      if (!j2.success)
+        throw new Error(j2.message || "Error al cargar notas de crédito");
+
+      // 2) Mapear facturas
+      const invs: InvoiceRow[] = j1.invoices.map((inv: InvoiceRow) => ({
+        ...inv,
+        isCredit: false,
+        client_id: inv.client_id,
+        recipient: inv.recipient,
+      }));
+
+      // 3) Mapear notas de crédito
+      const crs: InvoiceRow[] = j2.creditNotes.map((cr: RawCreditNote) => ({
+        id_invoice: cr.id_credit_note,
+        invoice_number: cr.credit_number,
+        total_amount: cr.total_amount,
+        currency: cr.currency === "PES" ? "ARS" : cr.currency,
+        type: cr.type,
+        booking: cr.invoice.booking,
+        // *** aquí envolvemos el payload en voucherData ***
+        payloadAfip: { voucherData: cr.payloadAfip },
+        isCredit: true,
+        client_id: cr.invoice.client_id,
+        recipient: cr.recipient,
+      }));
+
+      // 4) Unir y ordenar
+      const all = [...invs, ...crs].sort((a, b) => {
+        const fa = a.payloadAfip.voucherData.CbteFch;
+        const fb = b.payloadAfip.voucherData.CbteFch;
+        return fa - fb || a.id_invoice - b.id_invoice;
       });
-      const json = await res.json();
-      if (!json.success)
-        throw new Error(json.message || "Error al cargar facturas");
-      setData(json.invoices);
+
+      // 5) Direcciones
+      await Promise.all(
+        all.map(async (row) => {
+          try {
+            const res = await fetch(`/api/clients/${row.client_id}`, {
+              cache: "no-store",
+              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+            });
+            const json = await res.json();
+            const c = (json.client ?? json) as {
+              address?: string;
+              postal_code?: string;
+              locality?: string;
+            };
+            row.address = [c.address, c.postal_code, c.locality]
+              .filter(Boolean)
+              .join(", ");
+          } catch (e) {
+            console.error(`Error fetching client ${row.client_id}`, e);
+          }
+        }),
+      );
+
+      setData(all);
     } catch (err: unknown) {
+      console.error("fetchInvoices caught error:", err);
       toast.error((err as Error).message);
     } finally {
       setLoading(false);
@@ -127,11 +211,15 @@ export default function InvoicesPage() {
   }, [from, to, token]);
 
   const downloadCSV = () => {
+    // 1) Cabecera con las nuevas columnas
     const header = [
       "Factura",
+      "Tipo de factura",
       "Fecha",
       "Cliente",
       "Dirección",
+      "Localidad",
+      "Código Postal",
       "Base21",
       "Base10.5",
       "Exento",
@@ -140,29 +228,67 @@ export default function InvoicesPage() {
       "Cotización",
       "Total",
     ];
+
+    // Helper para escapar cada celda
+    const escapeCell = (text: string) => `"${text.replace(/"/g, '""')}"`;
+
+    // 2) Filas
     const rows = data.map((inv) => {
       const { base21, base105, baseEx, neto, iva } = getTaxBreakdown(inv);
 
+      // 2.a) Split inverso de la dirección:
+      const rawAddr = inv.address ?? "";
+      const parts = rawAddr.split(",").map((s) => s.trim());
+      let localidad = "";
+      let codigoPostal = "";
+      let direccion = "";
+      if (parts.length >= 3) {
+        localidad = parts.pop()!;
+        codigoPostal = parts.pop()!;
+        direccion = parts.join(", ");
+      } else {
+        // fallback si no hay tantos
+        [direccion = "", codigoPostal = "", localidad = ""] = parts;
+      }
+
+      // 2.b) Tipo de factura / nota:
+      const tipo = inv.isCredit
+        ? `Nota de crédito ${inv.type.slice(-1)}` // Nota A / B
+        : inv.type; // Factura A / B
+
+      // 2.c) Cotización si aplica
       const cotiz =
         inv.currency === "DOL"
           ? (inv.payloadAfip.voucherData.MonCotiz?.toString() ?? "")
           : "";
 
+      // 2.d) Total formateado
+      const total = fmt(inv.total_amount, inv.currency);
+
+      // 2.e) Construyo el array y lo escapo
       return [
         inv.invoice_number,
+        tipo,
         getCbteDate(inv),
         getClientName(inv),
-        formatAddress(inv),
+        direccion,
+        localidad,
+        codigoPostal,
         base21.toString(),
         base105.toString(),
         baseEx.toString(),
         neto.toString(),
         iva.toString(),
         cotiz,
-        fmt(inv.total_amount, inv.currency),
-      ];
+        total,
+      ].map(escapeCell);
     });
-    const csvContent = [header, ...rows].map((r) => r.join(";")).join("\n");
+
+    // 3) Generar contenido y disparar descarga usando ; como separador
+    const csvContent = [
+      header.map(escapeCell).join(";"),
+      ...rows.map((r) => r.join(";")),
+    ].join("\r\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -238,10 +364,10 @@ export default function InvoicesPage() {
                     <th className="px-4 py-3 font-normal">Fecha</th>
                     <th className="px-4 py-3 font-normal">Cliente</th>
                     <th className="px-4 py-3 font-normal">Dirección</th>
-                    <th className="px-4 py-3 font-normal">Base 21%</th>
+                    {/* <th className="px-4 py-3 font-normal">Base 21%</th>
                     <th className="px-4 py-3 font-normal">Base 10.5%</th>
                     <th className="px-4 py-3 font-normal">Exento</th>
-                    <th className="px-4 py-3 font-normal">Neto</th>
+                    <th className="px-4 py-3 font-normal">Neto</th> */}
                     <th className="px-4 py-3 font-normal">IVA</th>
                     <th className="px-4 py-3 font-normal">Total</th>
                     <th className="px-4 py-3 font-normal">Acciones</th>
@@ -249,15 +375,40 @@ export default function InvoicesPage() {
                 </thead>
                 <tbody>
                   {data.map((inv) => {
-                    const { base21, base105, baseEx, neto, iva } =
-                      getTaxBreakdown(inv);
+                    const { iva } = getTaxBreakdown(inv);
                     return (
                       <tr key={inv.id_invoice} className="text-center">
                         <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">
-                          {inv.invoice_number}
+                          {inv.isCredit ? (
+                            <span className="text-red-600">
+                              NC {inv.invoice_number}
+                            </span>
+                          ) : (
+                            inv.invoice_number
+                          )}
                         </td>
                         <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">
-                          {inv.booking.id_booking}
+                          <Link
+                            href={`/bookings/services/${inv.booking.id_booking}`}
+                            target={"blank"}
+                            className="m-auto flex w-fit items-center gap-1 text-sky-950/70 transition-colors hover:text-sky-950 dark:text-white/70 dark:hover:text-white"
+                          >
+                            {inv.booking.id_booking}
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              strokeWidth={2}
+                              stroke="currentColor"
+                              className="size-4"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+                              />
+                            </svg>
+                          </Link>
                         </td>
                         <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">
                           {getCbteDate(inv)}
@@ -266,9 +417,10 @@ export default function InvoicesPage() {
                           {getClientName(inv)}
                         </td>
                         <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">
-                          {formatAddress(inv)}
+                          {getAddress(inv)}
                         </td>
-                        <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">
+
+                        {/* <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">
                           {fmt(base21, inv.currency)}
                         </td>
                         <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">
@@ -279,7 +431,7 @@ export default function InvoicesPage() {
                         </td>
                         <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">
                           {fmt(neto, inv.currency)}
-                        </td>
+                        </td> */}
                         <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">
                           {fmt(iva, inv.currency)}
                         </td>
@@ -289,7 +441,11 @@ export default function InvoicesPage() {
                         <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">
                           <div className="flex items-center justify-center">
                             <Link
-                              href={`/api/invoices/${inv.id_invoice}/pdf`}
+                              href={
+                                inv.isCredit
+                                  ? `/api/credit-notes/${inv.id_invoice}/pdf`
+                                  : `/api/invoices/${inv.id_invoice}/pdf`
+                              }
                               target="_blank"
                               className="w-fit rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
                             >
