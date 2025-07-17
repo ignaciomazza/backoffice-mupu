@@ -1,6 +1,6 @@
 // src/context/AuthContext.tsx
 
-"use client";
+"use client"; 
 import React, { createContext, useContext, useState, useEffect } from "react";
 
 interface AuthContextType {
