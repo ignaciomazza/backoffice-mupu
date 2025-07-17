@@ -1,5 +1,6 @@
+// src/components/receipts/ReceiptCard.tsx
 "use client";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Receipt, Booking } from "@/types";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
@@ -20,23 +21,33 @@ export default function ReceiptCard({
   const [loadingPDF, setLoadingPDF] = useState(false);
   const [loadingDelete, setLoadingDelete] = useState(false);
 
-  if (!receipt || !receipt.id_receipt) {
+  // formateo de moneda
+  const fmt = useCallback((v?: number, curr?: string) => {
+    const currency = curr === "DOL" ? "USD" : "ARS";
+    return new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency,
+    }).format(v ?? 0);
+  }, []);
+
+  // obtiene nombre de cliente por ID
+  const getClientName = (id: number): string => {
+    if (booking.titular.id_client === id) {
+      return `${booking.titular.first_name} ${booking.titular.last_name} N° ${booking.titular.id_client}`;
+    }
+    const found = booking.clients?.find((c) => c.id_client === id);
+    return found
+      ? `${found.first_name} ${found.last_name} N° ${id}`
+      : `N° ${id}`;
+  };
+
+  if (!receipt?.id_receipt) {
     return (
       <div className="flex h-40 items-center justify-center dark:text-white">
         <Spinner />
       </div>
     );
   }
-
-  const slugify = (text: string): string =>
-    text
-      .toString()
-      .trim()
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "") // Quitar acentos
-      .replace(/[^a-z0-9]+/g, "_") // No alfanum → underscore
-      .replace(/^_+|_+$/g, ""); // Quitar underscores al final/inicio
 
   const downloadPDF = async () => {
     setLoadingPDF(true);
@@ -45,20 +56,21 @@ export default function ReceiptCard({
         headers: { Accept: "application/pdf" },
       });
       if (!res.ok) throw new Error();
-
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-
-      // Ahora sí tenemos booking.titular
+      // slugify para filename
       const rawName =
         booking.titular.company_name ||
         `${booking.titular.first_name} ${booking.titular.last_name}`;
-      const clientName = slugify(rawName);
-      const bookingId = booking.id_booking;
-
-      link.download = `Recibo_${clientName}_${bookingId}.pdf`;
+      const clientSlug = rawName
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      link.download = `Recibo_${clientSlug}_${booking.id_booking}.pdf`;
       link.click();
       window.URL.revokeObjectURL(url);
       toast.success("Recibo descargado exitosamente.");
@@ -78,9 +90,7 @@ export default function ReceiptCard({
       });
       if (!res.ok && res.status !== 204) throw new Error();
       toast.success("Recibo eliminado.");
-      if (onReceiptDeleted) {
-        onReceiptDeleted(receipt.id_receipt);
-      }
+      onReceiptDeleted?.(receipt.id_receipt);
     } catch {
       toast.error("No se pudo eliminar el recibo.");
     } finally {
@@ -90,63 +100,55 @@ export default function ReceiptCard({
 
   return (
     <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-      <div>
-        <p className="font-semibold">N° Recibo:</p>
-        <p className="font-light">{receipt.receipt_number}</p>
-      </div>
-
-      <div>
-        <p className="font-semibold">Fecha:</p>
-        <p className="font-light">
+      <header className="mb-4 flex items-center justify-between">
+        <div>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            N° {receipt.receipt_number}
+          </p>
+        </div>
+        <time className="text-sm text-gray-500 dark:text-gray-400">
           {receipt.issue_date
             ? new Date(receipt.issue_date).toLocaleDateString("es-AR")
-            : "N/A"}
-        </p>
-      </div>
-
-      <div>
-        <p className="font-semibold">Concepto:</p>
-        <p className="font-light">{receipt.concept}</p>
-      </div>
-
-      <div>
-        <p className="font-semibold">Monto numérico:</p>
-        <p className="font-light">{receipt.amount}</p>
-      </div>
-
-      <div>
-        <p className="font-semibold">Monto en letras:</p>
-        <p className="font-light">{receipt.amount_string}</p>
-      </div>
-
-      <div>
-        <p className="font-semibold">Moneda recibida:</p>
-        <p className="font-light">{receipt.currency}</p>
-      </div>
-
-      <div>
-        <p className="font-semibold">IDs de Servicio:</p>
-        <p className="font-light">
-          {receipt.serviceIds && receipt.serviceIds.length > 0
-            ? receipt.serviceIds.join(", ")
             : "–"}
-        </p>
+        </time>
+      </header>
+
+      {/* GRID DATOS */}
+      <div className="flex flex-col gap-3 text-sm">
+        <div>
+          <p className="font-semibold">Cliente</p>
+          <p className="mt-1">
+            {receipt.clientIds?.length
+              ? receipt.clientIds.map(getClientName).join(", ")
+              : `${booking.titular.first_name} ${booking.titular.last_name} N° ${booking.titular.id_client}`}
+          </p>
+        </div>
+        <div>
+          <p className="font-semibold">Moneda / Monto</p>
+          <p className="mt-1">{fmt(receipt.amount, receipt.currency)}</p>
+        </div>
+        <div className="col-span-2">
+          <p className="font-semibold">Concepto</p>
+          <p className="mt-1">{receipt.concept}</p>
+        </div>
+        <div className="col-span-2">
+          <p className="font-semibold">Monto en letras</p>
+          <p className="mt-1">{receipt.amount_string}</p>
+        </div>
+        <div className="col-span-2">
+          <p className="font-semibold">Servicios (IDs)</p>
+          <p className="mt-1">
+            {receipt.serviceIds?.length ? receipt.serviceIds.join(", ") : "–"}
+          </p>
+        </div>
       </div>
 
-      {receipt.clientIds && receipt.clientIds.length > 0 && (
-        <div>
-          <p className="font-semibold">IDs de Cliente(s):</p>
-          <p className="font-light">{receipt.clientIds.join(", ")}</p>
-        </div>
-      )}
-
-      <div className="mt-3 flex justify-end gap-2">
+      {/* FOOTER BOTONES */}
+      <footer className="mt-6 flex justify-end space-x-2">
         <button
           onClick={downloadPDF}
           disabled={loadingPDF}
-          className={`rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur ${
-            loadingPDF ? "cursor-not-allowed opacity-50" : ""
-          }`}
+          className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
         >
           {loadingPDF ? (
             <Spinner />
@@ -167,16 +169,13 @@ export default function ReceiptCard({
             </svg>
           )}
         </button>
-
         {(role === "administrativo" ||
           role === "desarrollador" ||
           role === "gerente") && (
           <button
             onClick={deleteReceipt}
             disabled={loadingDelete || loadingPDF}
-            className={`w-fit rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800 ${
-              loadingDelete || loadingPDF ? "cursor-not-allowed opacity-50" : ""
-            }`}
+            className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
           >
             {loadingDelete ? (
               <Spinner />
@@ -198,7 +197,7 @@ export default function ReceiptCard({
             )}
           </button>
         )}
-      </div>
+      </footer>
     </div>
   );
 }

@@ -128,6 +128,7 @@ export interface Service {
   return_date: string;
   booking_id: number;
   id_operator: number;
+  created_at: string;
 }
 
 // Operator.ts: Tipo de operador

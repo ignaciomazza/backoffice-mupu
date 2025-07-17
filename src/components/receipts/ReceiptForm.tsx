@@ -346,7 +346,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
                   value={idServices[idx] || ""}
                   onChange={(e) => handleServiceIdChange(idx, e.target.value)}
                   className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
-                  placeholder={`ID del servicio ${idx + 1}`}
+                  placeholder={`N° del servicio ${idx + 1}`}
                   onKeyDown={(e) => {
                     if (["ArrowUp", "ArrowDown"].includes(e.key))
                       e.preventDefault();
@@ -410,7 +410,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
           </div>
 
           <div>
-            <label className="ml-2 block dark:text-white">ID del Cliente</label>
+            <label className="ml-2 block dark:text-white">N° del Cliente</label>
             <div className="space-y-2">
               {Array.from({ length: clientsCount }).map((_, idx) => (
                 <div key={idx}>
@@ -419,7 +419,7 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
                     value={idClients[idx] || ""}
                     onChange={(e) => handleCLientIdChange(idx, e.target.value)}
                     className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
-                    placeholder={`ID del cliente ${idx + 1}`}
+                    placeholder={`N° del cliente ${idx + 1}`}
                     onKeyDown={(e) => {
                       if (["ArrowUp", "ArrowDown"].includes(e.key))
                         e.preventDefault();

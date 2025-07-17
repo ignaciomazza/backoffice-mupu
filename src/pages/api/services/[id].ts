@@ -8,7 +8,7 @@ export default async function handler(
   const { id } = req.query;
 
   if (!id || Array.isArray(id)) {
-    return res.status(400).json({ error: "ID de servicio inválido" });
+    return res.status(400).json({ error: "N° de servicio inválido" });
   }
 
   if (req.method === "PUT") {

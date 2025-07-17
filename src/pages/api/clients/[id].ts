@@ -12,7 +12,7 @@ export default async function handler(
   const clientId = Number(id);
 
   if (isNaN(clientId)) {
-    return res.status(400).json({ error: "ID de cliente inválido" });
+    return res.status(400).json({ error: "N° de cliente inválido" });
   }
 
   // GET /api/clients/:id

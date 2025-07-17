@@ -224,7 +224,7 @@ export default function InvoiceForm({
           {Array.from({ length: clientCount }).map((_, idx) => (
             <div key={idx}>
               <label className="ml-2 block dark:text-white">
-                ID del Cliente {idx + 1}
+                N° del Cliente {idx + 1}
               </label>
               <input
                 type="text"
@@ -234,7 +234,7 @@ export default function InvoiceForm({
                   arr[idx] = e.target.value;
                   updateFormData("clientIds", arr);
                 }}
-                placeholder={`ID del cliente ${idx + 1}`}
+                placeholder={`N° del cliente ${idx + 1}`}
                 className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                 required
               />
@@ -260,7 +260,7 @@ export default function InvoiceForm({
             return (
               <div key={idx} className="space-y-2">
                 <label className="ml-2 block dark:text-white">
-                  ID del Servicio {idx + 1}
+                  N° del Servicio {idx + 1}
                 </label>
                 <input
                   type="text"
@@ -270,7 +270,7 @@ export default function InvoiceForm({
                     arr[idx] = e.target.value;
                     updateFormData("services", arr);
                   }}
-                  placeholder={`ID del servicio ${idx + 1}`}
+                  placeholder={`N° del servicio ${idx + 1}`}
                   className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   required
                 />

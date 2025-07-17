@@ -99,9 +99,18 @@ export default function ServiceCard({
       className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md backdrop-blur dark:text-white"
     >
       {/* ID */}
-      <div className="flex w-full items-center justify-end">
-        <p className="text-xl font-light">{service.id_service}</p>
-      </div>
+      <header className="mb-4 flex items-center justify-between">
+        <div>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            N° {service.id_service}
+          </p>
+        </div>
+        <time className="text-sm text-gray-500 dark:text-gray-400">
+          {service.created_at
+            ? new Date(service.created_at).toLocaleDateString("es-AR")
+            : "–"}
+        </time>
+      </header>
 
       {/* Datos generales */}
       <div className="space-y-2">

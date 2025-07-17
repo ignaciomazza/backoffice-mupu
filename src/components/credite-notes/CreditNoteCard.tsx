@@ -110,10 +110,16 @@ export default function CreditNoteCard({ creditNote }: CreditNoteCardProps) {
 
   return (
     <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-      <div className="flex justify-between">
-        <p className="text-xl font-semibold">{creditNote.credit_number}</p>
-        <p className="font-light">{formatDate(CbteFch)}</p>
-      </div>
+      <header className="mb-4 flex items-center justify-between">
+        <div>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            N° {creditNote.credit_number}
+          </p>
+        </div>
+        <time className="text-sm text-gray-500 dark:text-gray-400">
+          {formatDate(CbteFch)}
+        </time>
+      </header>
       <p>
         {creditNote.recipient} – Factura {creditNote.invoiceId}
       </p>

@@ -10,7 +10,7 @@ export default async function handler(
   const { id } = req.query;
 
   if (!id || Array.isArray(id)) {
-    return res.status(400).json({ error: "ID de reserva inválido." });
+    return res.status(400).json({ error: "N° de reserva inválido." });
   }
 
   if (req.method === "GET") {

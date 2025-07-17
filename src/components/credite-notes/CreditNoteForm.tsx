@@ -133,13 +133,13 @@ export default function CreditNoteForm({
         >
           {/* Invoice ID */}
           <div>
-            <label className="ml-2 block dark:text-white">ID de Factura</label>
+            <label className="ml-2 block dark:text-white">N° de Factura</label>
             <input
               type="text"
               name="invoiceId"
               value={formData.invoiceId}
               onChange={handleChange}
-              placeholder="ID de la factura original"
+              placeholder="N° de la factura original"
               className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               required
             />

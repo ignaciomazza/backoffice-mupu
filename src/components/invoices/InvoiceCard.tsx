@@ -95,13 +95,19 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
 
   return (
     <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-      <div className="flex justify-between">
-        <p className="text-xl font-semibold">ID: {invoice.id_invoice}</p>
-        <p className="font-light">{getCbteDate(CbteFch)}</p>
-      </div>
-      <p className="">Numero de Factura: {invoice.invoice_number}</p>
+      <header className="mb-4 flex items-center justify-between">
+        <div>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            N° {invoice.id_invoice}
+          </p>
+        </div>
+        <time className="text-sm text-gray-500 dark:text-gray-400">
+          {getCbteDate(CbteFch)}
+        </time>
+      </header>
+      <p className="">Comprobante N° {invoice.invoice_number}</p>
       <p className="">
-        {invoice.recipient} – ID {invoice.client_id}
+        {invoice.recipient} – N° {invoice.client_id}
       </p>
       <p className="flex justify-between">
         Base 21%{" "}

@@ -9,7 +9,7 @@ export default async function handler(
 ) {
   const { id } = req.query;
   if (!id || Array.isArray(id)) {
-    return res.status(400).json({ error: "ID de equipo inválido." });
+    return res.status(400).json({ error: "N° de equipo inválido." });
   }
 
   const { method } = req;

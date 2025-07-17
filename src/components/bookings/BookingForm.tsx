@@ -283,14 +283,14 @@ export default function BookingForm({
                 value={formData.invoice_observation || ""}
                 onChange={handleChange}
                 className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
-                placeholder="Ej: Facturar a cliente con ID 342"
+                placeholder="Ej: Facturar aL cliente N° 342"
                 required
               />
             </div>
           </div>
 
           <div>
-            <label className="ml-2 block dark:text-white">ID del Titular</label>
+            <label className="ml-2 block dark:text-white">N° Titular</label>
             <input
               type="number"
               name="titular_id"
@@ -383,7 +383,7 @@ export default function BookingForm({
                       handleAcompananteChange(index, e.target.value)
                     }
                     className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
-                    placeholder={`ID del acompañante ${index + 1}`}
+                    placeholder={`N° del acompañante ${index + 1}`}
                     onKeyDown={(e) => {
                       if (["ArrowUp", "ArrowDown"].includes(e.key))
                         e.preventDefault();

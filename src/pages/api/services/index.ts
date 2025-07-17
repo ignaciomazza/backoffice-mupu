@@ -12,7 +12,7 @@ export default async function handler(
     const { bookingId, page = 1, limit = 10 } = req.query;
 
     if (!bookingId || Array.isArray(bookingId)) {
-      return res.status(400).json({ error: "ID de reserva inválido" });
+      return res.status(400).json({ error: "N° de reserva inválido" });
     }
 
     try {
@@ -74,7 +74,7 @@ export default async function handler(
     ) {
       return res.status(400).json({
         error:
-          "Faltan campos obligatorios: tipo, precios, moneda o ID de reserva.",
+          "Faltan campos obligatorios: tipo, precios, moneda o N° de reserva.",
       });
     }
 

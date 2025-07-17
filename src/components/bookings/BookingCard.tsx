@@ -39,7 +39,9 @@ export default function BookingCard({
       className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
       <div className="flex items-center justify-end gap-2">
-        <p className="font-light">{booking.id_booking}</p>
+        <p className="font-light text-gray-500 dark:text-gray-400">
+          N° {booking.id_booking}
+        </p>
         {booking.status === "Bloqueada" ? (
           <div className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white dark:backdrop-blur">
             <svg
