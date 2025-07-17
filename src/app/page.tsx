@@ -12,11 +12,25 @@ import DashboardShortcuts from "@/components/profile/DashboardShortcuts";
 type UserProfile = { first_name?: string };
 
 export default function ProfilePage() {
+  const { token } = useAuth();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showGrid, setShowGrid] = useState(false);
-  const { token } = useAuth();
 
+  // Mostrar mensaje solo la primera vez en la sesión
+  const [showWelcome, setShowWelcome] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return sessionStorage.getItem("welcomeShown") !== "true";
+  });
+  const [showGrid, setShowGrid] = useState(false);
+
+  // Si ya cargó el perfil y no hay que mostrar mensaje, mostrar el grid directo
+  useEffect(() => {
+    if (!loading && !showWelcome) {
+      setShowGrid(true);
+    }
+  }, [loading, showWelcome]);
+
+  // Fetch del perfil
   useEffect(() => {
     if (!token) return;
     (async () => {
@@ -36,9 +50,7 @@ export default function ProfilePage() {
     })();
   }, [token]);
 
-  const titleText = `Hola${
-    userProfile?.first_name ? `, ${userProfile.first_name}` : ""
-  } :)`;
+  const titleText = `Hola${userProfile?.first_name ? `, ${userProfile.first_name}` : ""} :)`;
 
   return (
     <ProtectedRoute>
@@ -61,7 +73,7 @@ export default function ProfilePage() {
             </motion.div>
           )}
 
-          {!loading && !showGrid && (
+          {!loading && showWelcome && !showGrid && (
             <motion.div
               key="message"
               initial={{ opacity: 0 }}
@@ -76,12 +88,15 @@ export default function ProfilePage() {
                 variance={0.3}
                 startDelay={500}
                 holdTime={1500}
-                onComplete={() => setShowGrid(true)}
+                onComplete={() => {
+                  sessionStorage.setItem("welcomeShown", "true");
+                  setShowWelcome(false);
+                }}
               />
             </motion.div>
           )}
 
-          {showGrid && (
+          {!loading && showGrid && (
             <motion.div
               key="dashboard"
               initial={{ opacity: 0, scale: 0.95 }}

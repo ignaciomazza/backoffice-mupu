@@ -386,7 +386,7 @@ export default function BookingForm({
                     onChange={(e) =>
                       handleAcompananteChange(index, e.target.value)
                     }
-                    className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 mt-3 dark:text-white"
+                    className="mt-3 w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                     placeholder={`N° del acompañante ${index + 1}`}
                     onKeyDown={(e) => {
                       if (["ArrowUp", "ArrowDown"].includes(e.key))
