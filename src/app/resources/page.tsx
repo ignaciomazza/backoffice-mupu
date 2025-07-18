@@ -11,7 +11,7 @@ import ResourceForm from "@/components/resources/ResourceForm";
 interface Resource {
   id_resource: number;
   title: string;
-  description?: string;
+  description: string | null;
   createdAt: string;
 }
 

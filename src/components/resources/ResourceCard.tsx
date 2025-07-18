@@ -7,7 +7,7 @@ import Link from "next/link";
 interface Resource {
   id_resource: number;
   title: string;
-  description?: string;
+  description: string | null;
   createdAt: string;
 }
 
@@ -23,7 +23,7 @@ export default function ResourceCard({
   setExpandedId,
 }: Props) {
   const isExpanded = expandedId === resource.id_resource;
-  const { description = "" } = resource;
+  const description = resource.description ?? "";
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
@@ -83,7 +83,7 @@ export default function ResourceCard({
 
       <p className="text-sm text-gray-600">{formatDate(resource.createdAt)}</p>
 
-      <p className="text-base">{displayText}</p>
+      <p className="text-base">{displayText || "Sin descripción."}</p>
 
       {isExpanded && (
         <Link

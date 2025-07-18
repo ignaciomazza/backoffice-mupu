@@ -11,7 +11,7 @@ interface ResourceFormProps {
   onCreated: (res: {
     id_resource: number;
     title: string;
-    description?: string;
+    description: string | null;
     createdAt: string;
   }) => void;
 }
