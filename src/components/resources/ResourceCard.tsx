@@ -23,7 +23,7 @@ export default function ResourceCard({
   setExpandedId,
 }: Props) {
   const isExpanded = expandedId === resource.id_resource;
-  const description = resource.description ?? "";
+  const description = resource.description ?? "Sin descripción.";
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
