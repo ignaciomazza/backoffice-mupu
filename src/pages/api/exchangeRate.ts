@@ -25,21 +25,21 @@ async function getValidExchangeRate(
   for (let i = 0; i < 5; i++) {
     // Si la fecha es fin de semana, se salta y se retrocede un día
     if (isWeekend(date)) {
-      const formattedWeekendDate = date
-        .toISOString()
-        .split("T")[0]
-        .replace(/-/g, "");
-      console.log(
-        `La fecha ${formattedWeekendDate} es fin de semana. Se omite.`,
-      );
+      // const formattedWeekendDate = date
+      //   .toISOString()
+      //   .split("T")[0]
+      //   .replace(/-/g, "");
+      // console.log(
+      //   `La fecha ${formattedWeekendDate} es fin de semana. Se omite.`,
+      // );
       date.setDate(date.getDate() - 1);
       continue;
     }
     const formattedDate = date.toISOString().split("T")[0].replace(/-/g, "");
     try {
-      console.log(
-        `Consultando cotización para ${currency} en la fecha ${formattedDate}`,
-      );
+      // console.log(
+      //   `Consultando cotización para ${currency} en la fecha ${formattedDate}`,
+      // );
       const cotizacionResponse = await afip.ElectronicBilling.executeRequest(
         "FEParamGetCotizacion",
         {
@@ -47,13 +47,13 @@ async function getValidExchangeRate(
           FchCotiz: formattedDate,
         },
       );
-      console.log("Respuesta de cotización:", cotizacionResponse);
+      // console.log("Respuesta de cotización:", cotizacionResponse);
 
       const rate = parseFloat(cotizacionResponse.ResultGet.MonCotiz);
       if (rate) {
-        console.info(
-          `Cotización oficial para ${currency} en ${formattedDate}: ${rate}`,
-        );
+        // console.info(
+        //   `Cotización oficial para ${currency} en ${formattedDate}: ${rate}`,
+        // );
         return rate;
       }
     } catch (error: unknown) {
@@ -82,11 +82,11 @@ export default async function handler(
     const yesterday = new Date(today);
     yesterday.setDate(today.getDate() - 1);
 
-    console.info(
-      `Iniciando consulta de cotización para DOL a partir de la fecha ${
-        yesterday.toISOString().split("T")[0]
-      }`,
-    );
+    // console.info(
+    //   `Iniciando consulta de cotización para DOL a partir de la fecha ${
+    //     yesterday.toISOString().split("T")[0]
+    //   }`,
+    // );
     // Obtenemos la cotización para el dólar ("DOL") a partir de yesterday
     const rate = await getValidExchangeRate("DOL", yesterday);
 

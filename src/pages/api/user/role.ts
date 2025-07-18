@@ -9,11 +9,11 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  console.log("[User Role] Request recibido");
+  // console.log("[User Role] Request recibido");
 
   const token = req.cookies.token;
   if (!token) {
-    console.log("[User Role] No se encontró token en cookies");
+    // console.log("[User Role] No se encontró token en cookies");
     return res.status(401).json({ error: "No autenticado" });
   }
 
@@ -23,7 +23,7 @@ export default async function handler(
       role: string;
     };
     const userId = decoded.userId;
-    console.log("[User Role] Buscando usuario con id:", userId);
+    // console.log("[User Role] Buscando usuario con id:", userId);
 
     const user = await prisma.user.findUnique({
       where: { id_user: userId },
@@ -31,11 +31,11 @@ export default async function handler(
     });
 
     if (!user) {
-      console.log("[User Role] Usuario no encontrado para id:", userId);
+      // console.log("[User Role] Usuario no encontrado para id:", userId);
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
 
-    console.log("[User Role] Usuario encontrado, rol:", user.role);
+    // console.log("[User Role] Usuario encontrado, rol:", user.role);
     return res.status(200).json({ role: user.role });
   } catch (error) {
     console.error("[User Role] Error al verificar token:", error);

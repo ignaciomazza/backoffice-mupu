@@ -112,14 +112,14 @@ export default async function handler(
     });
 
     // Debug: mostrar totales de venta
-    console.debug(
-      "saleTotalsByBooking:",
-      Array.from(saleTotalsByBooking.entries()).map(([bid, totals]) => ({
-        bookingId: bid,
-        owner: bookingOwners.get(bid),
-        totals,
-      })),
-    );
+    // console.debug(
+    //   "saleTotalsByBooking:",
+    //   Array.from(saleTotalsByBooking.entries()).map(([bid, totals]) => ({
+    //     bookingId: bid,
+    //     owner: bookingOwners.get(bid),
+    //     totals,
+    //   })),
+    // );
 
     // 4) Recibos sin filtrar por fecha
     const allReceipts = await prisma.receipt.findMany({
@@ -139,14 +139,14 @@ export default async function handler(
     );
 
     // Debug: mostrar recibos acumulados
-    console.debug(
-      "receiptsMap:",
-      Array.from(receiptsMap.entries()).map(([bid, sums]) => ({
-        bookingId: bid,
-        owner: bookingOwners.get(bid),
-        sums,
-      })),
-    );
+    // console.debug(
+    //   "receiptsMap:",
+    //   Array.from(receiptsMap.entries()).map(([bid, sums]) => ({
+    //     bookingId: bid,
+    //     owner: bookingOwners.get(bid),
+    //     sums,
+    //   })),
+    // );
 
     // 5) Validar bookings ≥40% pagado en su propia moneda
     const validBookingCurrency = new Set<string>();
@@ -160,17 +160,17 @@ export default async function handler(
     });
 
     // Debug: mostrar reservas válidas por moneda
-    console.debug(
-      "validBookingCurrency:",
-      Array.from(validBookingCurrency).map((key) => {
-        const [bidStr, cur] = key.split("-");
-        return {
-          bookingId: Number(bidStr),
-          currency: cur,
-          owner: bookingOwners.get(Number(bidStr)),
-        };
-      }),
-    );
+    // console.debug(
+    //   "validBookingCurrency:",
+    //   Array.from(validBookingCurrency).map((key) => {
+    //     const [bidStr, cur] = key.split("-");
+    //     return {
+    //       bookingId: Number(bidStr),
+    //       currency: cur,
+    //       owner: bookingOwners.get(Number(bidStr)),
+    //     };
+    //   }),
+    // );
 
     // 6) Calcular deuda por reserva
     const debtByBooking = new Map<number, { ARS: number; USD: number }>();
@@ -183,14 +183,14 @@ export default async function handler(
     });
 
     // Debug: mostrar deuda por reserva
-    console.debug(
-      "debtByBooking:",
-      Array.from(debtByBooking.entries()).map(([bid, debt]) => ({
-        bookingId: bid,
-        owner: bookingOwners.get(bid),
-        debt,
-      })),
-    );
+    // console.debug(
+    //   "debtByBooking:",
+    //   Array.from(debtByBooking.entries()).map(([bid, debt]) => ({
+    //     bookingId: bid,
+    //     owner: bookingOwners.get(bid),
+    //     debt,
+    //   })),
+    // );
 
     // 7) Filtrar servicios válidos
     const filteredServices = services.filter((svc) =>

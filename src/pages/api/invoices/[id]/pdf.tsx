@@ -28,20 +28,20 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  console.log("📥 Petición a /api/invoices/[id]/pdf", {
-    method: req.method,
-    query: req.query,
-  });
+  // console.log("📥 Petición a /api/invoices/[id]/pdf", {
+  //   method: req.method,
+  //   query: req.query,
+  // });
 
   if (req.method !== "GET") {
-    console.log("⚠️ Método no permitido:", req.method);
+    // console.log("⚠️ Método no permitido:", req.method);
     res.setHeader("Allow", ["GET"]);
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
   const id = parseInt(req.query.id as string, 10);
   if (isNaN(id)) {
-    console.log("❌ ID inválido recibido:", req.query.id);
+    // console.log("❌ ID inválido recibido:", req.query.id);
     return res.status(400).end("ID inválido");
   }
 
@@ -58,10 +58,10 @@ export default async function handler(
         },
       },
     });
-    console.log(
-      "🔍 Resultado consulta invoice:",
-      invoice ? "Encontrada" : "No encontrada",
-    );
+    // console.log(
+    //   "🔍 Resultado consulta invoice:",
+    //   invoice ? "Encontrada" : "No encontrada",
+    // );
   } catch (dbErr) {
     console.error("💥 Error al consultar factura en DB:", dbErr);
     return res.status(500).end("Error interno de base de datos");
@@ -71,7 +71,7 @@ export default async function handler(
     return res.status(404).end("Factura no encontrada");
   }
   if (!invoice.payloadAfip) {
-    console.log("🚫 No hay payload AFIP para factura:", id);
+    // console.log("🚫 No hay payload AFIP para factura:", id);
     return res.status(500).end("No hay datos para generar la factura");
   }
 
@@ -79,12 +79,12 @@ export default async function handler(
   let logoBase64: string | undefined;
   try {
     const logoPath = path.join(process.cwd(), "public", "logo.png");
-    console.log("🔎 Buscando logo en:", logoPath);
+    // console.log("🔎 Buscando logo en:", logoPath);
     if (fs.existsSync(logoPath)) {
       logoBase64 = fs.readFileSync(logoPath).toString("base64");
-      console.log("✅ Logo cargado");
+      // console.log("✅ Logo cargado");
     } else {
-      console.log("ℹ️ Logo no encontrado");
+      // console.log("ℹ️ Logo no encontrado");
     }
   } catch (logoErr) {
     console.error("⚠️ Error leyendo logo:", logoErr);
@@ -102,7 +102,7 @@ export default async function handler(
   } = payload;
 
   if (!voucherData) {
-    console.log("❌ voucherData ausente o inválido en payload:", payload);
+    // console.log("❌ voucherData ausente o inválido en payload:", payload);
     return res.status(500).end("Datos de voucher incompletos");
   }
 
@@ -116,14 +116,14 @@ export default async function handler(
   let depDate: string | undefined, retDate: string | undefined;
   if (serviceDates.length) {
     try {
-      console.log("📅 serviceDates:", serviceDates);
+      // console.log("📅 serviceDates:", serviceDates);
       const froms = serviceDates.map((sd) => parseYmd(sd.from));
       const tos = serviceDates.map((sd) => parseYmd(sd.to));
       const min = new Date(Math.min(...froms.map((d) => d.getTime())));
       const max = new Date(Math.max(...tos.map((d) => d.getTime())));
       depDate = min.toISOString().split("T")[0];
       retDate = max.toISOString().split("T")[0];
-      console.log("↔️ Fechas calculadas:", { depDate, retDate });
+      // console.log("↔️ Fechas calculadas:", { depDate, retDate });
     } catch (dateErr) {
       console.error("⚠️ Error calculando fechas:", dateErr);
     }
@@ -154,14 +154,14 @@ export default async function handler(
     description10_5,
     descriptionNonComputable,
   };
-  console.log("🏷️ Datos enriquecidos de voucher:", {
-    emitter: enrichedVoucher.emitterName,
-    recipient: enrichedVoucher.recipient,
-  });
+  // console.log("🏷️ Datos enriquecidos de voucher:", {
+  //   emitter: enrichedVoucher.emitterName,
+  //   recipient: enrichedVoucher.recipient,
+  // });
 
   // 6) Render y enviar PDF
   try {
-    console.log("📄 Generando PDF factura:", invoice.invoice_number);
+    // console.log("📄 Generando PDF factura:", invoice.invoice_number);
     const stream = await renderToStream(
       <InvoiceDocument
         {...{
@@ -180,7 +180,7 @@ export default async function handler(
       `attachment; filename=factura_${id}.pdf`,
     );
     stream.pipe(res);
-    console.log("✅ PDF factura enviado");
+    // console.log("✅ PDF factura enviado");
   } catch (err) {
     console.error("💥 Error generando PDF factura:", err);
     res

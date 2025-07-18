@@ -24,9 +24,9 @@ async function getValidExchangeRate(
   for (let i = 0; i < 5; i++) {
     const formatted = date.toISOString().slice(0, 10).replace(/-/g, "");
     try {
-      console.info(
-        `[createVoucherService] Fetching cotización for ${currency} on ${formatted}`,
-      );
+      // console.info(
+      //   `[createVoucherService] Fetching cotización for ${currency} on ${formatted}`,
+      // );
       const resp = await afip.ElectronicBilling.executeRequest(
         "FEParamGetCotizacion",
         { MonId: currency, FchCotiz: formatted },
@@ -34,9 +34,9 @@ async function getValidExchangeRate(
       const rate = parseFloat(resp.ResultGet.MonCotiz);
       if (rate) return rate;
     } catch {
-      console.warn(
-        `[createVoucherService] Cotización not available for ${formatted}, retrying…`,
-      );
+      // console.warn(
+      //   `[createVoucherService] Cotización not available for ${formatted}, retrying…`,
+      // );
     }
     date.setDate(date.getDate() - 1);
   }
@@ -71,9 +71,9 @@ export async function createVoucherService(
   invoiceDate?: string,
 ): Promise<VoucherResponse> {
   try {
-    console.info(
-      `📤 AFIP billing for receptor ${receptorDocNumber} (tipo ${receptorDocTipo})`,
-    );
+    // console.info(
+    //   `📤 AFIP billing for receptor ${receptorDocNumber} (tipo ${receptorDocTipo})`,
+    // );
     // Totales
     const saleTotal = serviceDetails.reduce((sum, s) => sum + s.sale_price, 0);
     const interestBase = serviceDetails.reduce(
@@ -87,7 +87,7 @@ export async function createVoucherService(
     const adjustedTotal = parseFloat(
       (saleTotal + interestBase + interestVat).toFixed(2),
     );
-    console.info(`Adjusted total: ${adjustedTotal}`);
+    // console.info(`Adjusted total: ${adjustedTotal}`);
 
     // Entradas de IVA
     const base21 = serviceDetails.reduce(
@@ -244,7 +244,7 @@ export async function createVoucherService(
       Iva: mergedIvaEntries as unknown as Prisma.JsonArray,
       CondicionIVAReceptorId: condId,
     };
-    console.info("Emitting voucher", voucherData);
+    // console.info("Emitting voucher", voucherData);
 
     const created = await afip.ElectronicBilling.createVoucher(voucherData);
     if (!created.CAE) {

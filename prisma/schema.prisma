@@ -250,3 +250,10 @@ model Receipt {
   serviceIds        Int[]
   clientIds         Int[]    @default([])
 }
+
+model Resources {
+  id_resource Int      @id @default(autoincrement())
+  createdAt   DateTime @default(now())
+  title       String
+  description String?
+}

@@ -176,7 +176,7 @@ export default function DashboardShortcuts() {
           { sellerARS: 0, leaderARS: 0, sellerUSD: 0, leaderUSD: 0 },
         );
 
-        console.log({ sellerARS, leaderARS, totalARS: sellerARS + leaderARS });
+        // console.log({ sellerARS, leaderARS, totalARS: sellerARS + leaderARS });
 
         setCommissionARS(sellerARS + leaderARS);
         setCommissionUSD(sellerUSD + leaderUSD);

@@ -57,20 +57,20 @@ export interface VoucherData {
 }
 
 const logoFilePath = path.join(process.cwd(), "public", "logo.png");
-console.log("Leyendo logo en ruta:", logoFilePath);
+// console.log("Leyendo logo en ruta:", logoFilePath);
 
 let logoBase64 = "";
 try {
   logoBase64 = fs.readFileSync(logoFilePath).toString("base64");
-  console.log("Logo cargado correctamente, tamaño base64:", logoBase64.length);
+  // console.log("Logo cargado correctamente, tamaño base64:", logoBase64.length);
 } catch (err) {
   console.warn("No pude leer el logo en:", logoFilePath, err);
 }
 
 const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
-  console.log("generateHtml invoked");
-  console.log("voucherData:", voucherData);
-  console.log("qrBase64 length:", qrBase64.length);
+  // console.log("generateHtml invoked");
+  // console.log("voucherData:", voucherData);
+  // console.log("qrBase64 length:", qrBase64.length);
 
   const {
     CbteTipo,
@@ -102,32 +102,32 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
     descriptionNonComputable = [],
   } = voucherData;
 
-  console.log("Desestructurando voucherData completo:", {
-    CbteTipo,
-    PtoVta,
-    CbteDesde,
-    CbteFch,
-    ImpTotal,
-    ImpNeto,
-    ImpIVA,
-    CAE,
-    CAEFchVto,
-    DocNro,
-    recipient,
-    emitterName,
-    emitterLegalName,
-    emitterTaxId,
-    emitterAddress,
-    departureDate,
-    returnDate,
-    saleTotal,
-    serviceIvaEntry,
-    interestBase,
-    interestVat,
-    lineItemsLength: lineItems?.length,
-    servicesLength: services.length,
-    IvaLength: Iva.length,
-  });
+  // console.log("Desestructurando voucherData completo:", {
+  //   CbteTipo,
+  //   PtoVta,
+  //   CbteDesde,
+  //   CbteFch,
+  //   ImpTotal,
+  //   ImpNeto,
+  //   ImpIVA,
+  //   CAE,
+  //   CAEFchVto,
+  //   DocNro,
+  //   recipient,
+  //   emitterName,
+  //   emitterLegalName,
+  //   emitterTaxId,
+  //   emitterAddress,
+  //   departureDate,
+  //   returnDate,
+  //   saleTotal,
+  //   serviceIvaEntry,
+  //   interestBase,
+  //   interestVat,
+  //   lineItemsLength: lineItems?.length,
+  //   servicesLength: services.length,
+  //   IvaLength: Iva.length,
+  // });
 
   const fechaEmision =
     typeof CbteFch === "string" && CbteFch !== "N/A"
@@ -138,13 +138,13 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
             6,
           )}/${CbteFch.toString().slice(0, 4)}`
         : "Fecha no disponible";
-  console.log("fechaEmision calculada:", fechaEmision);
+  // console.log("fechaEmision calculada:", fechaEmision);
 
   const caeVto =
     CAEFchVto && CAEFchVto !== "N/A"
       ? CAEFchVto.split("-").reverse().join("/")
       : "CAE no disponible";
-  console.log("caeVto calculada:", caeVto);
+  // console.log("caeVto calculada:", caeVto);
 
   const fmt = (n: number) => {
     const formatted = new Intl.NumberFormat("es-AR", {
@@ -152,21 +152,21 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
       currency: "ARS",
       minimumFractionDigits: 2,
     }).format(n);
-    console.log(`Formateando número ${n} como ${formatted}`);
+    // console.log(`Formateando número ${n} como ${formatted}`);
     return formatted;
   };
 
   let items: LineItem[];
-  console.log("Iniciando construcción de items...");
+  // console.log("Iniciando construcción de items...");
 
   if (Array.isArray(lineItems) && lineItems.length > 0) {
-    console.log("Usando lineItems pasados desde voucherData");
+    // console.log("Usando lineItems pasados desde voucherData");
     items = lineItems;
   } else if (services.length > 0 && (Iva.length > 0 || serviceIvaEntry)) {
-    console.log("Armando items dinámicos a partir de services e IVA");
+    // console.log("Armando items dinámicos a partir de services e IVA");
     const ivaArray =
       Iva.length > 0 ? Iva : serviceIvaEntry ? [serviceIvaEntry] : [];
-    console.log("ivaArray:", ivaArray);
+    // console.log("ivaArray:", ivaArray);
 
     items = services.flatMap((svc) =>
       ivaArray.map((ivaEntry) => {
@@ -186,12 +186,12 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
           unitPrice,
           subtotal,
         };
-        console.log("Item dinámico creado:", item);
+        // console.log("Item dinámico creado:", item);
         return item;
       }),
     );
   } else {
-    console.log("Usando fallback de descripciones para items");
+    // console.log("Usando fallback de descripciones para items");
     const parts: LineItem[] = [];
 
     if (serviceIvaEntry && serviceIvaEntry.BaseImp > 0) {
@@ -201,7 +201,7 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
         unitPrice: serviceIvaEntry.BaseImp + serviceIvaEntry.Importe,
         subtotal: serviceIvaEntry.BaseImp + serviceIvaEntry.Importe,
       };
-      console.log("Fallback 21%:", part21);
+      // console.log("Fallback 21%:", part21);
       parts.push(part21);
     }
 
@@ -213,7 +213,7 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
         unitPrice: entry105.BaseImp + entry105.Importe,
         subtotal: entry105.BaseImp + entry105.Importe,
       };
-      console.log("Fallback 10.5%:", part105);
+      // console.log("Fallback 10.5%:", part105);
       parts.push(part105);
     }
 
@@ -231,14 +231,14 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
           unitPrice: nonCompVal,
           subtotal: nonCompVal,
         };
-        console.log("Fallback no computable:", partNC);
+        // console.log("Fallback no computable:", partNC);
         parts.push(partNC);
       }
     }
     items = parts;
   }
 
-  console.log("Items finales:", items);
+  // console.log("Items finales:", items);
 
   const reservationInfo =
     departureDate && returnDate
@@ -251,7 +251,7 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
     )}</p>
     `
       : "";
-  console.log("reservationInfo HTML:", reservationInfo);
+  // console.log("reservationInfo HTML:", reservationInfo);
 
   return `
   <!DOCTYPE html>

@@ -7,7 +7,7 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  console.info(`[CreditNotes API] ${req.method} ${req.url}`);
+  // console.info(`[CreditNotes API] ${req.method} ${req.url}`);
 
   if (req.method !== "GET") {
     res.setHeader("Allow", ["GET"]);

@@ -53,7 +53,7 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  console.info(`[Invoices API] ${req.method} ${req.url}`);
+  // console.info(`[Invoices API] ${req.method} ${req.url}`);
 
   if (req.method === "GET") {
     const { from, to } = req.query;

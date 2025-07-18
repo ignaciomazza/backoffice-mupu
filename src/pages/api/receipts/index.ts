@@ -9,15 +9,15 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  console.log("=== Receipts API llamado ===");
-  console.log("Método:", req.method);
-  console.log("Body inicial:", req.body);
+  // console.log("=== Receipts API llamado ===");
+  // console.log("Método:", req.method);
+  // console.log("Body inicial:", req.body);
 
   try {
     if (req.method === "POST") {
       // 1) valida que venga un JSON
       if (!req.body || typeof req.body !== "object") {
-        console.log("Body inválido o vacío:", req.body);
+        // console.log("Body inválido o vacío:", req.body);
         return res.status(400).json({ error: "Body inválido o vacío" });
       }
 
@@ -46,16 +46,16 @@ export default async function handler(
         amount: number;
       };
 
-      console.log("Payload parseado:", {
-        booking: { id_booking: booking?.id_booking },
-        concept,
-        currency,
-        amountString,
-        amountCurrency,
-        serviceIds,
-        clientIds,
-        amount,
-      });
+      // console.log("Payload parseado:", {
+      //   booking: { id_booking: booking?.id_booking },
+      //   concept,
+      //   currency,
+      //   amountString,
+      //   amountCurrency,
+      //   serviceIds,
+      //   clientIds,
+      //   amount,
+      // });
 
       // 3) valida campos obligatorios
       if (
@@ -65,14 +65,14 @@ export default async function handler(
         !amountString ||
         !serviceIds?.length
       ) {
-        console.log("Validación de campos fallida:", {
-          bookingId: booking?.id_booking,
-          concept,
-          currency,
-          amountString,
-          serviceIds,
-          clientIds,
-        });
+        // console.log("Validación de campos fallida:", {
+        //   bookingId: booking?.id_booking,
+        //   concept,
+        //   currency,
+        //   amountString,
+        //   serviceIds,
+        //   clientIds,
+        // });
         return res.status(400).json({
           error:
             "Faltan datos requeridos: booking.id_booking, concept, currency, amountString, serviceIds",
@@ -87,10 +87,10 @@ export default async function handler(
           (id) => !serviciosEnBooking.find((s) => s.id_service === id),
         )
       ) {
-        console.log("ServiceId no encontrado en booking.services", {
-          serviceIds,
-          serviciosEnBooking,
-        });
+        // console.log("ServiceId no encontrado en booking.services", {
+        //   serviceIds,
+        //   serviciosEnBooking,
+        // });
         return res
           .status(400)
           .json({ error: "Algún servicio no pertenece a la reserva" });
@@ -107,19 +107,19 @@ export default async function handler(
       });
       const nextIdx = used.length ? Math.max(...used) + 1 : 1;
       const receiptNumber = `${booking.id_booking}-${nextIdx}`;
-      console.log("Nuevo receipt_number:", receiptNumber);
+      // console.log("Nuevo receipt_number:", receiptNumber);
 
       // 6) crea en la base
-      console.log("Antes de prisma.receipt.create:", {
-        receiptNumber,
-        amount,
-        amountString,
-        amountCurrency,
-        concept,
-        currency,
-        serviceIds,
-        clientIds,
-      });
+      // console.log("Antes de prisma.receipt.create:", {
+      //   receiptNumber,
+      //   amount,
+      //   amountString,
+      //   amountCurrency,
+      //   concept,
+      //   currency,
+      //   serviceIds,
+      //   clientIds,
+      // });
       const receipt = await prisma.receipt.create({
         data: {
           receipt_number: receiptNumber,
@@ -133,29 +133,29 @@ export default async function handler(
           clientIds, // <-- guardamos aquí los IDs de cliente
         },
       });
-      console.log("Después de create:", receipt);
+      // console.log("Después de create:", receipt);
 
       return res.status(201).json({ receipt });
     } else if (req.method === "GET") {
-      console.log("=== GET recibos para bookingId:", req.query.bookingId);
+      // console.log("=== GET recibos para bookingId:", req.query.bookingId);
       const bookingId = parseInt(req.query.bookingId as string, 10);
       if (isNaN(bookingId)) {
-        console.log("bookingId inválido:", req.query.bookingId);
+        // console.log("bookingId inválido:", req.query.bookingId);
         return res.status(400).json({ error: "bookingId inválido" });
       }
       const receipts = await prisma.receipt.findMany({
         where: { bookingId_booking: bookingId },
         orderBy: { issue_date: "desc" },
       });
-      console.log("Receipts encontrados:", receipts);
+      // console.log("Receipts encontrados:", receipts);
       return res.status(200).json({ receipts });
     } else {
-      console.log("Método no permitido:", req.method);
+      // console.log("Método no permitido:", req.method);
       res.setHeader("Allow", ["POST", "GET"]);
       return res.status(405).end(`Method ${req.method} Not Allowed`);
     }
   } catch (err: unknown) {
-    console.log("Error en receipts API:", (err as Error)?.message ?? err);
+    // console.log("Error en receipts API:", (err as Error)?.message ?? err);
     return res.status(500).json({
       error: (err as Error)?.message ?? "Error interno al procesar recibo",
     });

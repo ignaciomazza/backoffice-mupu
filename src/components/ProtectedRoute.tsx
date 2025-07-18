@@ -22,7 +22,7 @@ export default function ProtectedRoute({
   const resetInactivityTimer = useCallback(() => {
     if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
     inactivityTimerRef.current = setTimeout(() => {
-      console.log("[ProtectedRoute] Sesión expirada por inactividad");
+      // console.log("[ProtectedRoute] Sesión expirada por inactividad");
       setSessionExpired(true);
     }, INACTIVITY_TIMEOUT);
   }, [INACTIVITY_TIMEOUT]);
@@ -46,7 +46,7 @@ export default function ProtectedRoute({
 
   useEffect(() => {
     if (!loading && !token) {
-      console.log("[ProtectedRoute] No hay token, redirigiendo a /login");
+      // console.log("[ProtectedRoute] No hay token, redirigiendo a /login");
       router.push("/login");
     }
   }, [loading, token, router]);
@@ -58,12 +58,12 @@ export default function ProtectedRoute({
         try {
           const res = await fetch("/api/user/role");
           const data = await res.json();
-          console.log(
-            "[ProtectedRoute] Rol obtenido desde /api/user/role:",
-            data,
-          );
+          // console.log(
+          //   "[ProtectedRoute] Rol obtenido desde /api/user/role:",
+          //   data,
+          // );
           if (data.error) {
-            console.log("[ProtectedRoute] Error al obtener rol:", data.error);
+            // console.log("[ProtectedRoute] Error al obtener rol:", data.error);
             router.push("/login");
           } else if (data.role) {
             setRole(data.role.toLowerCase());
@@ -87,15 +87,15 @@ export default function ProtectedRoute({
       } else if (/^\/users(\/|$)/.test(pathname)) {
         allowedRoles = ["desarrollador"];
       }
-      console.log(
-        `[ProtectedRoute] Para la ruta "${pathname}", roles permitidos:`,
-        allowedRoles,
-      );
-      console.log("[ProtectedRoute] Rol del usuario:", role);
+      // console.log(
+      //   `[ProtectedRoute] Para la ruta "${pathname}", roles permitidos:`,
+      //   allowedRoles,
+      // );
+      // console.log("[ProtectedRoute] Rol del usuario:", role);
       if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
-        console.log(
-          `[ProtectedRoute] El rol "${role}" no está permitido para la ruta "${pathname}". Redirigiendo a /login`,
-        );
+        // console.log(
+        //   `[ProtectedRoute] El rol "${role}" no está permitido para la ruta "${pathname}". Redirigiendo a /login`,
+        // );
         router.push("/");
       }
     }

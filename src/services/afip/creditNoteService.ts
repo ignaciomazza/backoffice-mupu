@@ -227,7 +227,7 @@ export async function createCreditNoteVoucher(
       Iva: mergedIva as unknown as Prisma.JsonArray,
       CondicionIVAReceptorId: condId,
     };
-    console.info("Emitting voucher", voucherData);
+    // console.info("Emitting voucher", voucherData);
 
     // Llamada a AFIP
     const created = await afip.ElectronicBilling.createVoucher(voucherData);

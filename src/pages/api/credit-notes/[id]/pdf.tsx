@@ -15,13 +15,13 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  console.log("📥 Nueva petición a /api/credit-notes/[id]/pdf", {
-    method: req.method,
-    query: req.query,
-  });
+  // console.log("📥 Nueva petición a /api/credit-notes/[id]/pdf", {
+  //   method: req.method,
+  //   query: req.query,
+  // });
 
   if (req.method !== "GET") {
-    console.log("⚠️ Método no permitido:", req.method);
+    // console.log("⚠️ Método no permitido:", req.method);
     res.setHeader("Allow", ["GET"]);
     res.status(405).end(`Method ${req.method} Not Allowed`);
     return;
@@ -29,7 +29,7 @@ export default async function handler(
 
   const id = Number(req.query.id);
   if (Number.isNaN(id)) {
-    console.log("❌ ID inválido recibido:", req.query.id);
+    // console.log("❌ ID inválido recibido:", req.query.id);
     res.status(400).end("ID inválido");
     return;
   }
@@ -57,12 +57,12 @@ export default async function handler(
   }
 
   if (!creditNote) {
-    console.log("🔍 Nota de crédito no encontrada para id:", id);
+    // console.log("🔍 Nota de crédito no encontrada para id:", id);
     res.status(404).end("Nota de crédito no encontrada");
     return;
   }
   if (!creditNote.payloadAfip) {
-    console.log("🚫 No hay payload AFIP para nota de crédito:", id);
+    // console.log("🚫 No hay payload AFIP para nota de crédito:", id);
     res.status(500).end("No hay datos AFIP para generar la nota");
     return;
   }
@@ -71,12 +71,12 @@ export default async function handler(
   let logoBase64: string | undefined;
   try {
     const logoPath = path.join(process.cwd(), "public", "logo.png");
-    console.log("🔎 Buscando logo en:", logoPath);
+    // console.log("🔎 Buscando logo en:", logoPath);
     if (fs.existsSync(logoPath)) {
       logoBase64 = fs.readFileSync(logoPath).toString("base64");
-      console.log("✅ Logo cargado correctamente");
+      // console.log("✅ Logo cargado correctamente");
     } else {
-      console.log("ℹ️ Logo no encontrado, se usará sin logo");
+      // console.log("ℹ️ Logo no encontrado, se usará sin logo");
     }
   } catch (logoErr) {
     console.error("⚠️ Error leyendo logo:", logoErr);
@@ -134,10 +134,10 @@ export default async function handler(
     voucherData.recipient =
       invoice.recipient ||
       `${booking.titular.first_name} ${booking.titular.last_name}`;
-    console.log("🏷️ Datos de emisor y receptor inyectados:", {
-      emitter: voucherData.emitterName,
-      recipient: voucherData.recipient,
-    });
+    // console.log("🏷️ Datos de emisor y receptor inyectados:", {
+    //   emitter: voucherData.emitterName,
+    //   recipient: voucherData.recipient,
+    // });
   } catch (injectErr) {
     console.error("⚠️ Error inyectando datos de emisor/receptor:", injectErr);
   }
@@ -155,7 +155,7 @@ export default async function handler(
 
   // 8) Render y stream del PDF
   try {
-    console.log("📄 Generando PDF para nota:", data.creditNumber);
+    // console.log("📄 Generando PDF para nota:", data.creditNumber);
     const stream = await renderToStream(<CreditNoteDocument {...data} />);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
@@ -163,7 +163,7 @@ export default async function handler(
       `attachment; filename=nota_credito_${data.creditNumber}.pdf`,
     );
     stream.pipe(res);
-    console.log("✅ PDF enviado correctamente");
+    // console.log("✅ PDF enviado correctamente");
   } catch (err) {
     console.error("💥 Error generando PDF nota de crédito:", err);
     res
