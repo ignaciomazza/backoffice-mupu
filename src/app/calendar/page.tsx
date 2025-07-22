@@ -147,13 +147,29 @@ export default function CalendarPage() {
     if (!token || !profile) return;
 
     const qs = new URLSearchParams();
+
+    // 1) vendedor: solo sus propias reservas
     if (profile.role === "vendedor") {
       qs.append("userId", String(profile.id_user));
-    } else if (selectedVendor) {
-      qs.append("userId", String(selectedVendor));
+
+      // 2) líder: todos o uno de su equipo
+    } else if (profile.role === "lider") {
+      const ids = selectedVendor
+        ? [selectedVendor]
+        : allowedVendors.map((u) => u.id_user);
+      // enviamos un array de ids concatenados
+      qs.append("userIds", ids.join(","));
+
+      // 3) gerentes/otros: pueden ver todo o filtrar un único vendedor
+    } else {
+      if (selectedVendor) {
+        qs.append("userId", String(selectedVendor));
+      }
     }
-    if (selectedClientStatus !== "Todas")
+
+    if (selectedClientStatus !== "Todas") {
       qs.append("clientStatus", selectedClientStatus);
+    }
     if (dateRange.from) qs.append("from", dateRange.from);
     if (dateRange.to) qs.append("to", dateRange.to);
 
@@ -183,7 +199,14 @@ export default function CalendarPage() {
       })
       .catch(console.error)
       .finally(() => setLoadingEvents(false));
-  }, [token, profile, selectedVendor, selectedClientStatus, dateRange]);
+  }, [
+    token,
+    profile,
+    selectedVendor,
+    selectedClientStatus,
+    dateRange,
+    allowedVendors,
+  ]);
 
   const handleViewChange = (view: ViewOption) => {
     calendarRef.current?.getApi().changeView(view);

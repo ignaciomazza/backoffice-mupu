@@ -12,17 +12,34 @@ export default async function handler(
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const { userId, clientStatus, from, to } = req.query;
+  // Desestructuramos userId (single) y userIds (CSV)
+  const { userId, userIds, clientStatus, from, to } = req.query;
   const whereBooking: Prisma.BookingWhereInput = {};
 
-  if (typeof userId === "string") {
-    whereBooking.id_user = Number(userId);
+  // 1) Si viene userIds (p.ej. "5,12,27"), filtramos con IN
+  if (typeof userIds === "string") {
+    const ids = userIds
+      .split(",")
+      .map((idStr) => parseInt(idStr, 10))
+      .filter((n) => !isNaN(n));
+    if (ids.length) {
+      whereBooking.id_user = { in: ids };
+    }
+  }
+  // 2) Si viene solo un userId, filtramos por igualdad
+  else if (typeof userId === "string") {
+    const idNum = parseInt(userId, 10);
+    if (!isNaN(idNum)) {
+      whereBooking.id_user = idNum;
+    }
   }
 
+  // Filtrado por estado de cliente
   if (typeof clientStatus === "string" && clientStatus !== "Todas") {
     whereBooking.clientStatus = clientStatus;
   }
 
+  // Filtrado por rango de fechas
   if (typeof from === "string" && typeof to === "string") {
     const fDate = new Date(from);
     const tDate = new Date(to);
@@ -30,6 +47,7 @@ export default async function handler(
     whereBooking.departure_date = { gte: fDate, lte: tDate };
   }
 
+  // Traemos las reservas ya filtradas
   const bookings = await prisma.booking.findMany({
     where: whereBooking,
     include: { titular: true },
@@ -41,12 +59,13 @@ export default async function handler(
     start: b.departure_date,
   }));
 
+  // Notas siempre completas
   const notes = await prisma.calendarNote.findMany({
     include: { creator: { select: { first_name: true, last_name: true } } },
   });
   const noteEvents = notes.map((n) => ({
     id: `n-${n.id}`,
-    title: `${n.title}`,
+    title: n.title,
     start: n.date,
     extendedProps: {
       content: n.content,
