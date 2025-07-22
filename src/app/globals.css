@@ -30,7 +30,6 @@ body {
     border: none !important;
     background-color: transparent;
     padding: 0px 4px;
-    cursor: copy;
   }
 
   /* 2) Añadimos sólo border‑right a todas las celdas excepto a las de la última columna */
