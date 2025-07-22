@@ -1,5 +1,4 @@
 // src/pages/api/bookings/[id].ts
-
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 

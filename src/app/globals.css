@@ -21,6 +21,65 @@ body {
   color: var(--foreground);
 }
 
+@layer components {
+  /* 1) Eliminamos todos los bordes internos por defecto */
+  .fc .fc-scrollgrid,
+  .fc .fc-scrollgrid-section,
+  .fc .fc-scrollgrid th,
+  .fc .fc-scrollgrid td {
+    border: none !important;
+    background-color: transparent;
+    padding: 0px 4px;
+    cursor: copy;
+  }
+
+  /* 2) Añadimos sólo border‑right a todas las celdas excepto a las de la última columna */
+  .fc .fc-scrollgrid th:not(:last-child),
+  .fc .fc-scrollgrid td:not(:last-child) {
+    border-right: 1px solid rgb(8 47 73 / 0.1) !important;
+  }
+
+  /* 3) Añadimos sólo border‑bottom a todas las filas excepto a la última */
+  .fc .fc-scrollgrid tr:not(:last-child) td {
+    border-bottom: 1px solid rgb(8 47 73 / 0.1) !important;
+  }
+
+  /* 2) Añadimos sólo border‑right a todas las celdas excepto a las de la última columna */
+  .dark .fc .fc-scrollgrid th:not(:last-child),
+  .dark .fc .fc-scrollgrid td:not(:last-child) {
+    border-right: 1px solid rgb(255 255 255 / 0.1) !important;
+  }
+
+  /* 3) Añadimos sólo border‑bottom a todas las filas excepto a la última */
+  .dark .fc .fc-scrollgrid tr:not(:last-child) td {
+    border-bottom: 1px solid rgb(255 255 255 / 0.1) !important;
+  }
+
+  .fc-col-header-cell {
+    @apply font-light text-sky-950 dark:text-white;
+  }
+
+  .fc .fc-day-today {
+    background-color: rgba(8, 47, 73, 0.1) !important;
+  }
+
+  .dark .fc .fc-day-today {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+  }
+
+  .fc .fc-scrollgrid thead .fc-col-header-cell {
+    border: none !important;
+    background: transparent !important;
+    padding-bottom: 4px;
+  }
+
+  .dark .fc .fc-scrollgrid thead .fc-col-header-cell {
+    border: none !important;
+    background: transparent !important;
+    padding-bottom: 4px;
+  }
+}
+
 .custom-checkbox {
   appearance: none;
   -webkit-appearance: none; /* Para navegadores Webkit */
@@ -78,22 +137,31 @@ input[type="number"] {
 }
 
 @keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  20%, 60% { transform: translateX(-8px); }
-  40%, 80% { transform: translateX(8px); }
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-8px);
+  }
+  40%,
+  80% {
+    transform: translateX(8px);
+  }
 }
 .animate-shake {
   animation: shake 0.4s ease-in-out;
 }
 
 input:-webkit-autofill {
-  -webkit-box-shadow: 0 0 0px 1000px rgba(255,255,255,0.9) inset;
-  box-shadow: 0 0 0px 1000px rgba(255,255,255,0.9) inset;
+  -webkit-box-shadow: 0 0 0px 1000px rgba(255, 255, 255, 0.9) inset;
+  box-shadow: 0 0 0px 1000px rgba(255, 255, 255, 0.9) inset;
   -webkit-text-fill-color: #000 !important;
 }
 .dark input:-webkit-autofill {
-  -webkit-box-shadow: 0 0 0px 1000px rgba(0,0,0,0.9) inset;
-  box-shadow: 0 0 0px 1000px rgba(0,0,0,0.9) inset;
+  -webkit-box-shadow: 0 0 0px 1000px rgba(0, 0, 0, 0.9) inset;
+  box-shadow: 0 0 0px 1000px rgba(0, 0, 0, 0.9) inset;
   -webkit-text-fill-color: #fff !important;
 }
 

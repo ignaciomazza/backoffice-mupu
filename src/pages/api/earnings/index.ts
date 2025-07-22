@@ -1,5 +1,4 @@
 // src/pages/api/earnings/index.ts
-
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 

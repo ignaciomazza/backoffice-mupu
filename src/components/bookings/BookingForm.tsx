@@ -1,5 +1,4 @@
 // src/components/bookings/BookingForm.tsx
-
 import { ChangeEvent, FormEvent } from "react";
 import { motion } from "framer-motion";
 
