@@ -140,6 +140,7 @@ export default function QuoteForm({
         >
           <option value="norte-argentino">Norte Argentino</option>
           <option value="patagonia">Patagonia</option>
+          <option value="ski">Ski</option>
           <option value="iguazu">Iguazu</option>
           <option value="mendoza">Mendoza</option>
           <option value="brasil">Brasil</option>
