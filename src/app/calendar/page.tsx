@@ -9,6 +9,7 @@ import esLocale from "@fullcalendar/core/locales/es";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import Spinner from "@/components/Spinner";
+import ProtectedRoute from "@/components/ProtectedRoute";
 
 type ClientStatus = "Todas" | "Pendiente" | "Pago" | "Facturado";
 type ViewOption = "dayGridMonth" | "dayGridWeek";
@@ -388,306 +389,229 @@ export default function CalendarPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex justify-center">
-        <h1 className="text-3xl font-semibold">Calendario</h1>
-      </div>
-
-      <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="flex gap-2">
-            {(["dayGridMonth", "dayGridWeek"] as ViewOption[]).map((v) => (
-              <button
-                key={v}
-                onClick={() => handleViewChange(v)}
-                className={`cursor-pointer rounded-full px-4 py-2 ${
-                  currentView === v
-                    ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-                    : "text-sky-950/70 hover:bg-sky-950/5 dark:text-white/70 dark:hover:bg-white/5"
-                }`}
-              >
-                {v === "dayGridMonth" ? "Mes" : "Semana"}
-              </button>
-            ))}
-          </div>
-
-          {profile?.role !== "vendedor" && (
-            <div className="min-w-[200px] flex-1">
-              <label className="block cursor-text text-sm font-medium dark:text-white">
-                Vendedor
-              </label>
-              <input
-                list="vendors-list"
-                value={vendorInput}
-                onChange={(e) => setVendorInput(e.target.value)}
-                placeholder="Buscar vendedor..."
-                className="mt-1 w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"
-              />
-              <datalist id="vendors-list">
-                {allowedVendors.map((v) => (
-                  <option
-                    key={v.id_user}
-                    value={`${v.first_name} ${v.last_name}`}
-                  />
-                ))}
-              </datalist>
-            </div>
-          )}
-
-          <div>
-            <label className="block cursor-text text-sm font-medium dark:text-white">
-              Estado cliente
-            </label>
-            <select
-              value={selectedClientStatus}
-              onChange={(e) =>
-                setSelectedClientStatus(e.target.value as ClientStatus)
-              }
-              className="mt-1 cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"
-            >
-              <option>Todas</option>
-              <option>Pendiente</option>
-              <option>Pago</option>
-              <option>Facturado</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block cursor-text text-sm font-medium dark:text-white">
-              Rango fechas
-            </label>
-            <div className="mt-1 flex items-center gap-2">
-              <input
-                type="date"
-                value={dateRange.from}
-                onChange={(e) =>
-                  setDateRange((r) => ({ ...r, from: e.target.value }))
-                }
-                className="cursor-text rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"
-              />
-              <span className="text-sky-950 dark:text-white">–</span>
-              <input
-                type="date"
-                value={dateRange.to}
-                onChange={(e) =>
-                  setDateRange((r) => ({ ...r, to: e.target.value }))
-                }
-                className="cursor-text rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"
-              />
-            </div>
-          </div>
+    <ProtectedRoute>
+      <div className="space-y-6 p-6">
+        <div className="flex justify-center">
+          <h1 className="text-3xl font-semibold">Calendario</h1>
         </div>
-      </div>
 
-      <div className="">
-        {loadingEvents ? (
-          <div className="flex h-[400px] items-center justify-center">
-            <Spinner />
-          </div>
-        ) : (
-          <>
-            <div className="mb-4 flex items-center justify-center py-2">
-              <div className="flex gap-4">
+        <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="flex gap-2">
+              {(["dayGridMonth", "dayGridWeek"] as ViewOption[]).map((v) => (
                 <button
-                  onClick={() => calendarRef.current?.getApi().prev()}
-                  className="flex w-full items-center text-sm tracking-wide text-sky-950/60 transition-all hover:text-sky-950 dark:text-white/60 hover:dark:text-white"
+                  key={v}
+                  onClick={() => handleViewChange(v)}
+                  className={`cursor-pointer rounded-full px-4 py-2 ${
+                    currentView === v
+                      ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                      : "text-sky-950/70 hover:bg-sky-950/5 dark:text-white/70 dark:hover:bg-white/5"
+                  }`}
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="size-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={1.4}
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M15.75 19.5 8.25 12l7.5-7.5"
-                    />
-                  </svg>
-                  anterior
+                  {v === "dayGridMonth" ? "Mes" : "Semana"}
                 </button>
+              ))}
+            </div>
 
-                <p className="flex items-center gap-2 text-2xl font-semibold text-sky-950 dark:text-white">
-                  {calendarTitle}
-                  <span className="text-sm font-light text-sky-950/80 dark:text-white/80">
-                    {calendarYear}
-                  </span>
-                </p>
-
-                <button
-                  onClick={() => calendarRef.current?.getApi().next()}
-                  className="flex items-center text-sm tracking-wide text-sky-950/60 transition-all hover:text-sky-950 dark:text-white/60 hover:dark:text-white"
-                >
-                  siguiente
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="size-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={1.4}
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="m8.25 4.5 7.5 7.5-7.5 7.5"
+            {profile?.role !== "vendedor" && (
+              <div className="min-w-[200px] flex-1">
+                <label className="block cursor-text text-sm font-medium dark:text-white">
+                  Vendedor
+                </label>
+                <input
+                  list="vendors-list"
+                  value={vendorInput}
+                  onChange={(e) => setVendorInput(e.target.value)}
+                  placeholder="Buscar vendedor..."
+                  className="mt-1 w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"
+                />
+                <datalist id="vendors-list">
+                  {allowedVendors.map((v) => (
+                    <option
+                      key={v.id_user}
+                      value={`${v.first_name} ${v.last_name}`}
                     />
-                  </svg>
-                </button>
+                  ))}
+                </datalist>
+              </div>
+            )}
+
+            <div>
+              <label className="block cursor-text text-sm font-medium dark:text-white">
+                Estado cliente
+              </label>
+              <select
+                value={selectedClientStatus}
+                onChange={(e) =>
+                  setSelectedClientStatus(e.target.value as ClientStatus)
+                }
+                className="mt-1 cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"
+              >
+                <option>Todas</option>
+                <option>Pendiente</option>
+                <option>Pago</option>
+                <option>Facturado</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block cursor-text text-sm font-medium dark:text-white">
+                Rango fechas
+              </label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="date"
+                  value={dateRange.from}
+                  onChange={(e) =>
+                    setDateRange((r) => ({ ...r, from: e.target.value }))
+                  }
+                  className="cursor-text rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"
+                />
+                <span className="text-sky-950 dark:text-white">–</span>
+                <input
+                  type="date"
+                  value={dateRange.to}
+                  onChange={(e) =>
+                    setDateRange((r) => ({ ...r, to: e.target.value }))
+                  }
+                  className="cursor-text rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"
+                />
               </div>
             </div>
-            <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-              <FullCalendar
-                ref={calendarRef}
-                plugins={[dayGridPlugin, interactionPlugin]}
-                initialView={currentView}
-                timeZone="UTC"
-                locale={esLocale}
-                headerToolbar={false}
-                dayHeaderFormat={{ weekday: "long" }}
-                dayHeaderClassNames={() => ["capitalize"]}
-                datesSet={(arg) => {
-                  const fullTitle = arg.view.title;
-                  const onlyMonth = fullTitle.split(" ")[0];
-                  const parts = fullTitle.split(" ");
-                  setCalendarYear(parts[parts.length - 1]);
-                  setCalendarTitle(
-                    onlyMonth.charAt(0).toUpperCase() + onlyMonth.slice(1),
-                  );
-                }}
-                fixedWeekCount={false}
-                showNonCurrentDates={false}
-                buttonText={{ today: "Hoy" }}
-                events={events}
-                eventDidMount={handleEventDidMount}
-                eventClick={handleEventClick}
-                dateClick={handleDateClick}
-                height="auto"
-              />
-            </div>
-          </>
-        )}
-      </div>
-
-      {noteModal.open && noteModal.mode === "create" && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-sky-900/5 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur-2xl dark:bg-white/20 dark:text-white">
-            <h2 className="mb-2 flex justify-between text-lg font-semibold dark:text-white">
-              Nueva nota
-              <span className="text-base font-normal">
-                {new Date(noteModal.date).toLocaleDateString("es-AR")}
-              </span>
-            </h2>
-            <input
-              type="text"
-              placeholder="Título"
-              value={form.title}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, title: e.target.value }))
-              }
-              disabled={loadingNote}
-              className={`mb-2 w-full rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white ${
-                loadingNote ? "cursor-not-allowed opacity-50" : ""
-              }`}
-            />
-            <textarea
-              placeholder="Contenido"
-              value={form.content}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, content: e.target.value }))
-              }
-              disabled={loadingNote}
-              rows={4}
-              className={`mb-4 w-full rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white ${
-                loadingNote ? "cursor-not-allowed opacity-50" : ""
-              }`}
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setNoteModal((m) => ({ ...m, open: false }))}
-                className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
-                disabled={loadingNote}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="size-6"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M6 18 18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-              <button
-                onClick={submitNote}
-                disabled={loadingNote}
-                className={`rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur ${
-                  loadingNote
-                    ? "cursor-not-allowed bg-sky-100/80 text-sky-950/80 dark:text-white/50"
-                    : ""
-                }`}
-              >
-                {loadingNote ? <Spinner /> : "Crear"}
-              </button>
-            </div>
           </div>
         </div>
-      )}
 
-      {noteModal.open && noteModal.mode === "view" && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-sky-900/5 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur-2xl dark:bg-white/20 dark:text-white">
-            <h2 className="mb-2 text-xl font-semibold dark:text-white">
-              {noteModal.title}
-            </h2>
-            <p className="mb-1 text-sm text-gray-500 dark:text-gray-400">
-              Creada por <strong>{noteModal.creator}</strong> el{" "}
-              {new Date(noteModal.date).toLocaleDateString("es-AR")}
-            </p>
-            <div className="mb-6 whitespace-pre-wrap dark:text-white">
-              {noteModal.content || <em>(Sin contenido adicional)</em>}
+        <div className="">
+          {loadingEvents ? (
+            <div className="flex h-[400px] items-center justify-center">
+              <Spinner />
             </div>
-            <div className="flex gap-3">
-              <button
-                onClick={onEditClick}
-                className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="size-6"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
-                  />
-                </svg>
-              </button>
-              <button
-                onClick={() =>
-                  noteModal.id !== undefined && deleteNote(noteModal.id)
+          ) : (
+            <>
+              <div className="mb-4 flex items-center justify-center py-2">
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => calendarRef.current?.getApi().prev()}
+                    className="flex w-full items-center text-sm tracking-wide text-sky-950/60 transition-all hover:text-sky-950 dark:text-white/60 hover:dark:text-white"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="size-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.4}
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15.75 19.5 8.25 12l7.5-7.5"
+                      />
+                    </svg>
+                    anterior
+                  </button>
+
+                  <p className="flex items-center gap-2 text-2xl font-semibold text-sky-950 dark:text-white">
+                    {calendarTitle}
+                    <span className="text-sm font-light text-sky-950/80 dark:text-white/80">
+                      {calendarYear}
+                    </span>
+                  </p>
+
+                  <button
+                    onClick={() => calendarRef.current?.getApi().next()}
+                    className="flex items-center text-sm tracking-wide text-sky-950/60 transition-all hover:text-sky-950 dark:text-white/60 hover:dark:text-white"
+                  >
+                    siguiente
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="size-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.4}
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m8.25 4.5 7.5 7.5-7.5 7.5"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
+                <FullCalendar
+                  ref={calendarRef}
+                  plugins={[dayGridPlugin, interactionPlugin]}
+                  initialView={currentView}
+                  timeZone="UTC"
+                  locale={esLocale}
+                  headerToolbar={false}
+                  dayHeaderFormat={{ weekday: "long" }}
+                  dayHeaderClassNames={() => ["capitalize"]}
+                  datesSet={(arg) => {
+                    const fullTitle = arg.view.title;
+                    const onlyMonth = fullTitle.split(" ")[0];
+                    const parts = fullTitle.split(" ");
+                    setCalendarYear(parts[parts.length - 1]);
+                    setCalendarTitle(
+                      onlyMonth.charAt(0).toUpperCase() + onlyMonth.slice(1),
+                    );
+                  }}
+                  fixedWeekCount={false}
+                  showNonCurrentDates={false}
+                  buttonText={{ today: "Hoy" }}
+                  events={events}
+                  eventDidMount={handleEventDidMount}
+                  eventClick={handleEventClick}
+                  dateClick={handleDateClick}
+                  height="auto"
+                />
+              </div>
+            </>
+          )}
+        </div>
+
+        {noteModal.open && noteModal.mode === "create" && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+            <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-sky-900/5 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur-2xl dark:bg-white/20 dark:text-white">
+              <h2 className="mb-2 flex justify-between text-lg font-semibold dark:text-white">
+                Nueva nota
+                <span className="text-base font-normal">
+                  {new Date(noteModal.date).toLocaleDateString("es-AR")}
+                </span>
+              </h2>
+              <input
+                type="text"
+                placeholder="Título"
+                value={form.title}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, title: e.target.value }))
                 }
-                className={`rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800 ${
-                  loadingNote
-                    ? "cursor-not-allowed bg-red-600/80 text-red-100/80 dark:bg-red-800/80"
-                    : ""
-                }`}
                 disabled={loadingNote}
-              >
-                {loadingNote ? (
-                  <Spinner />
-                ) : (
+                className={`mb-2 w-full rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white ${
+                  loadingNote ? "cursor-not-allowed opacity-50" : ""
+                }`}
+              />
+              <textarea
+                placeholder="Contenido"
+                value={form.content}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, content: e.target.value }))
+                }
+                disabled={loadingNote}
+                rows={4}
+                className={`mb-4 w-full rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white ${
+                  loadingNote ? "cursor-not-allowed opacity-50" : ""
+                }`}
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setNoteModal((m) => ({ ...m, open: false }))}
+                  className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+                  disabled={loadingNote}
+                >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
@@ -699,16 +623,162 @@ export default function CalendarPage() {
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                      d="M6 18 18 6M6 6l12 12"
                     />
                   </svg>
-                )}
-              </button>
+                </button>
+                <button
+                  onClick={submitNote}
+                  disabled={loadingNote}
+                  className={`rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur ${
+                    loadingNote
+                      ? "cursor-not-allowed bg-sky-100/80 text-sky-950/80 dark:text-white/50"
+                      : ""
+                  }`}
+                >
+                  {loadingNote ? <Spinner /> : "Crear"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
-              <div className="flex w-full justify-end">
+        {noteModal.open && noteModal.mode === "view" && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+            <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-sky-900/5 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur-2xl dark:bg-white/20 dark:text-white">
+              <h2 className="mb-2 text-xl font-semibold dark:text-white">
+                {noteModal.title}
+              </h2>
+              <p className="mb-1 text-sm text-gray-500 dark:text-gray-400">
+                Creada por <strong>{noteModal.creator}</strong> el{" "}
+                {new Date(noteModal.date).toLocaleDateString("es-AR")}
+              </p>
+              <div className="mb-6 whitespace-pre-wrap dark:text-white">
+                {noteModal.content || <em>(Sin contenido adicional)</em>}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={onEditClick}
+                  className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    className="size-6"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                    />
+                  </svg>
+                </button>
+                <button
+                  onClick={() =>
+                    noteModal.id !== undefined && deleteNote(noteModal.id)
+                  }
+                  className={`rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800 ${
+                    loadingNote
+                      ? "cursor-not-allowed bg-red-600/80 text-red-100/80 dark:bg-red-800/80"
+                      : ""
+                  }`}
+                  disabled={loadingNote}
+                >
+                  {loadingNote ? (
+                    <Spinner />
+                  ) : (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                      className="size-6"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                      />
+                    </svg>
+                  )}
+                </button>
+
+                <div className="flex w-full justify-end">
+                  <button
+                    onClick={() => setNoteModal((m) => ({ ...m, open: false }))}
+                    className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                    disabled={loadingNote}
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                      className="size-6"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M6 18 18 6M6 6l12 12"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {noteModal.open && noteModal.mode === "edit" && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+            <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-sky-900/5 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur-2xl dark:bg-white/20 dark:text-white">
+              <h2 className="mb-2 text-xl font-semibold dark:text-white">
+                Editar nota: {noteModal.date}
+              </h2>
+              <input
+                type="text"
+                placeholder="Título"
+                value={form.title}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, title: e.target.value }))
+                }
+                disabled={loadingNote}
+                className={`mb-2 w-full rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white ${
+                  loadingNote ? "cursor-not-allowed opacity-50" : ""
+                }`}
+              />
+              <textarea
+                placeholder="Contenido"
+                value={form.content}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, content: e.target.value }))
+                }
+                disabled={loadingNote}
+                rows={4}
+                className={`mb-4 w-full rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white ${
+                  loadingNote ? "cursor-not-allowed opacity-50" : ""
+                }`}
+              />
+              <div className="flex justify-between">
+                <button
+                  onClick={updateNote}
+                  disabled={loadingNote}
+                  className={`rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur ${
+                    loadingNote
+                      ? "cursor-not-allowed bg-sky-100/80 text-sky-950/80 dark:text-white/50"
+                      : ""
+                  }`}
+                >
+                  {loadingNote ? "Guardando..." : "Guardar"}
+                </button>
                 <button
                   onClick={() => setNoteModal((m) => ({ ...m, open: false }))}
-                  className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                  className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
                   disabled={loadingNote}
                 >
                   <svg
@@ -729,75 +799,8 @@ export default function CalendarPage() {
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {noteModal.open && noteModal.mode === "edit" && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-sky-900/5 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur-2xl dark:bg-white/20 dark:text-white">
-            <h2 className="mb-2 text-xl font-semibold dark:text-white">
-              Editar nota: {noteModal.date}
-            </h2>
-            <input
-              type="text"
-              placeholder="Título"
-              value={form.title}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, title: e.target.value }))
-              }
-              disabled={loadingNote}
-              className={`mb-2 w-full rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white ${
-                loadingNote ? "cursor-not-allowed opacity-50" : ""
-              }`}
-            />
-            <textarea
-              placeholder="Contenido"
-              value={form.content}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, content: e.target.value }))
-              }
-              disabled={loadingNote}
-              rows={4}
-              className={`mb-4 w-full rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white ${
-                loadingNote ? "cursor-not-allowed opacity-50" : ""
-              }`}
-            />
-            <div className="flex justify-between">
-              <button
-                onClick={updateNote}
-                disabled={loadingNote}
-                className={`rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur ${
-                  loadingNote
-                    ? "cursor-not-allowed bg-sky-100/80 text-sky-950/80 dark:text-white/50"
-                    : ""
-                }`}
-              >
-                {loadingNote ? "Guardando..." : "Guardar"}
-              </button>
-              <button
-                onClick={() => setNoteModal((m) => ({ ...m, open: false }))}
-                className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
-                disabled={loadingNote}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="size-6"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M6 18 18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </ProtectedRoute>
   );
 }

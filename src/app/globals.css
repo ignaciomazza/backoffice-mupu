@@ -171,3 +171,12 @@ input.input-glass:-webkit-autofill {
   -webkit-text-fill-color: rgba(0, 0, 0, 0.8) !important;
   transition: background-color 5000s ease-in-out 0s;
 }
+
+.pdf-viewer > iframe {
+  background: transparent !important;
+}
+
+/* y el contenedor interno del visor (clase interna de React-PDF) */
+.pdf-viewer .react-pdf__Viewer__viewer {
+  background-color: transparent !important;
+}

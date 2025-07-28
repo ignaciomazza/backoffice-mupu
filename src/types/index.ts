@@ -222,3 +222,36 @@ export interface Receipt {
   serviceIds?: number[];
   clientIds?: number[];
 }
+
+// src/types/Quote.ts
+export interface Quote {
+  tripTitle: string;
+  dateRange: string;
+  flights: string[]; // cada línea un elemento
+  accommodation: string;
+  assistance: string;
+  transfers: string;
+  region: "argentina" | "brasil" | "caribe" | "europa";
+  price: number;
+  currency: "ARS" | "USD";
+  concept: string;
+  logoBase64?: string;
+}
+
+// src/types/Confirmation.ts
+
+export interface Confirmation {
+  confirmationNumber: string;
+  clientName: string;
+  issueDate: string;
+  expiryDate?: string;
+  paxCount: number;
+  services: {
+    title: string;
+    detail: string;
+  }[];
+  conditions: string;
+  total: number;
+  currency: "ARS" | "USD";
+  passengerData?: string;
+}
