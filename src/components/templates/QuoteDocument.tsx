@@ -17,7 +17,13 @@ import { parseMarkdown } from "@/lib/markdown";
 
 export type SimpleQuote = Pick<
   Quote,
-  "dateRange" | "region" | "price" | "currency" | "concept" | "phone" | "tripTitle"
+  | "dateRange"
+  | "region"
+  | "price"
+  | "currency"
+  | "concept"
+  | "phone"
+  | "tripTitle"
 >;
 
 interface QuoteDocumentProps {
@@ -146,7 +152,8 @@ const styles = StyleSheet.create({
 });
 
 export default function QuoteDocument({ quote, user }: QuoteDocumentProps) {
-  const { tripTitle, dateRange, region, price, currency, concept, phone } = quote;
+  const { tripTitle, dateRange, region, price, currency, concept, phone } =
+    quote;
 
   const fmtCurrency = (v: number) =>
     new Intl.NumberFormat("es-AR", { style: "currency", currency }).format(v);

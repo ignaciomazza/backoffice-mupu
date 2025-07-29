@@ -81,6 +81,7 @@ export default function NewDocPage() {
           <div className="mt-4 w-fit cursor-pointer rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur">
             {data && userProfile && (
               <PDFDownloadLink
+                key={JSON.stringify(data)}
                 document={
                   docType === "quote" ? (
                     <QuoteDocument
