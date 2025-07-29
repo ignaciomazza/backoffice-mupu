@@ -14,13 +14,7 @@ interface QuotePreviewProps {
 }
 
 export default function QuotePreview({ quote, user }: QuotePreviewProps) {
-  const { dateRange, region, price, currency, concept } = quote;
-
-  const fmtCurrency = (v: number) =>
-    new Intl.NumberFormat("es-AR", {
-      style: "currency",
-      currency,
-    }).format(v);
+  const { dateRange, region } = quote;
 
   const renderRich = (txt: string) =>
     parseMarkdown(txt).map((seg: Segment, i) => {
@@ -178,8 +172,18 @@ export default function QuotePreview({ quote, user }: QuotePreviewProps) {
             </div>
 
             <div className="mb-10">
-              <p className="text-xl font-bold">{fmtCurrency(price)}</p>
-              <p className="w-1/2 text-xl">{concept}</p>
+              <p className="text-lg font-medium">Detalle de precios</p>
+              {quote.items.map((it, i) => (
+                <div key={i} className="flex justify-between">
+                  <span>
+                    {new Intl.NumberFormat("es-AR", {
+                      style: "currency",
+                      currency: quote.currency,
+                    }).format(it.price)}
+                  </span>
+                  <span>{it.concept}</span>
+                </div>
+              ))}
             </div>
 
             <div className="mb-10 space-y-1">

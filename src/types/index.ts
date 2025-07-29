@@ -227,10 +227,6 @@ export interface Receipt {
 export interface Quote {
   tripTitle: string;
   dateRange: string;
-  flights: string[]; // cada línea un elemento
-  accommodation: string;
-  assistance: string;
-  transfers: string;
   region:
     | ""
     | "norte-argentino"
@@ -254,11 +250,10 @@ export interface Quote {
     | "california"
     | "seleccion"
     | "formula-1";
-  price: number;
   currency: "ARS" | "USD";
-  concept: string;
   phone: string;
   logoBase64?: string;
+  items: { price: number; concept: string }[];
 }
 
 // src/types/Confirmation.ts

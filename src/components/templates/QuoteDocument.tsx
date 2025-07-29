@@ -17,14 +17,10 @@ import { parseMarkdown } from "@/lib/markdown";
 
 export type SimpleQuote = Pick<
   Quote,
-  | "dateRange"
-  | "region"
-  | "price"
-  | "currency"
-  | "concept"
-  | "phone"
-  | "tripTitle"
->;
+  "tripTitle" | "dateRange" | "region" | "currency" | "phone"
+> & {
+  items: { price: number; concept: string }[];
+};
 
 interface QuoteDocumentProps {
   quote: SimpleQuote;
@@ -152,8 +148,7 @@ const styles = StyleSheet.create({
 });
 
 export default function QuoteDocument({ quote, user }: QuoteDocumentProps) {
-  const { tripTitle, dateRange, region, price, currency, concept, phone } =
-    quote;
+  const { tripTitle, dateRange, region, currency, phone } = quote;
 
   const fmtCurrency = (v: number) =>
     new Intl.NumberFormat("es-AR", { style: "currency", currency }).format(v);
@@ -306,10 +301,21 @@ export default function QuoteDocument({ quote, user }: QuoteDocumentProps) {
       <Page size="A4" style={styles.secondPage}>
         <View style={styles.content}>
           <View style={styles.section}>
-            <Text style={{ fontSize: 16, fontWeight: "bold" }}>
-              {fmtCurrency(price)}
-            </Text>
-            <Text style={{ fontSize: 14, fontWeight: "bold" }}>{concept}</Text>
+            {quote.items.map((it, i) => (
+              <View
+                key={i}
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  marginBottom: 8,
+                }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: "bold" }}>
+                  {fmtCurrency(it.price)}
+                </Text>
+                <Text style={{ fontSize: 12 }}>{it.concept}</Text>
+              </View>
+            ))}
           </View>
 
           <View style={styles.payment}>
