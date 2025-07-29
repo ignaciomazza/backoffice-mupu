@@ -17,7 +17,7 @@ import { parseMarkdown } from "@/lib/markdown";
 
 export type SimpleQuote = Pick<
   Quote,
-  "dateRange" | "region" | "price" | "currency" | "concept"
+  "dateRange" | "region" | "price" | "currency" | "concept" | "phone" | "tripTitle"
 >;
 
 interface QuoteDocumentProps {
@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
 });
 
 export default function QuoteDocument({ quote, user }: QuoteDocumentProps) {
-  const { dateRange, region, price, currency, concept } = quote;
+  const { tripTitle, dateRange, region, price, currency, concept, phone } = quote;
 
   const fmtCurrency = (v: number) =>
     new Intl.NumberFormat("es-AR", { style: "currency", currency }).format(v);
@@ -172,7 +172,7 @@ export default function QuoteDocument({ quote, user }: QuoteDocumentProps) {
                 fill="white"
               />
             </Svg>
-            <Text style={styles.contactText}>+54 9 11 5970 1234</Text>
+            <Text style={styles.contactText}>{phone}</Text>
           </View>
           <View style={styles.contactItem}>
             <Svg style={styles.icon} viewBox="0 0 24 24">
@@ -250,35 +250,48 @@ export default function QuoteDocument({ quote, user }: QuoteDocumentProps) {
                 marginBottom: 12,
               }}
             >
-              DATOS DEL VIAJE
+              {tripTitle}
             </Text>
-            {dateRange.split("\n").map((line, i) => (
-              <Text key={i} style={{ fontWeight: "300", marginBottom: 4 }}>
-                {parseMarkdown(line).map((seg, j) => {
-                  if (seg.type === "subtitle") {
-                    return (
-                      <Text
-                        key={j}
-                        style={{
-                          fontWeight: "bold",
-                          fontSize: 14,
-                        }}
-                      >
-                        {seg.text}
-                      </Text>
-                    );
-                  }
-                  if (seg.type === "bold") {
-                    return (
-                      <Text key={j} style={{ fontWeight: "bold" }}>
-                        {seg.text}
-                      </Text>
-                    );
-                  }
-                  return <Text key={j}>{seg.text}</Text>;
-                })}
-              </Text>
-            ))}
+            <Text
+              style={{
+                fontWeight: "300",
+                textAlign: "justify", // <- aquí
+              }}
+            >
+              {dateRange
+                .split("\n")
+                .reduce<React.ReactNode[]>((acc, line, idx, arr) => {
+                  // parseMarkdown devuelve un array de segmentos (texto / bold / subtitle)
+                  const segs = parseMarkdown(line).map((seg, j) => {
+                    if (seg.type === "subtitle") {
+                      return (
+                        <Text
+                          key={`subt-${idx}-${j}`}
+                          style={{ fontWeight: "bold", fontSize: 14 }}
+                        >
+                          {seg.text}
+                        </Text>
+                      );
+                    }
+                    if (seg.type === "bold") {
+                      return (
+                        <Text
+                          key={`bold-${idx}-${j}`}
+                          style={{ fontWeight: "bold" }}
+                        >
+                          {seg.text}
+                        </Text>
+                      );
+                    }
+                    return <Text key={`txt-${idx}-${j}`}>{seg.text}</Text>;
+                  });
+
+                  acc.push(...segs);
+                  // después de cada línea, agrego un salto
+                  if (idx < arr.length - 1) acc.push("\n");
+                  return acc;
+                }, [])}
+            </Text>
           </View>
         </View>
       </Page>
@@ -296,17 +309,25 @@ export default function QuoteDocument({ quote, user }: QuoteDocumentProps) {
             <Text style={{ fontSize: 14, fontWeight: "bold", marginBottom: 4 }}>
               FORMAS DE PAGO
             </Text>
-            <Text style={{ fontWeight: "300", fontSize: 12, lineHeight: 1.5 }}>
+            <Text
+              style={{
+                fontWeight: "300",
+                fontSize: 12,
+                lineHeight: 1.5,
+                textAlign: "justify", // <- aplicar JUSTIFY acá
+                marginBottom: 4,
+              }}
+            >
               Se reserva con el 50% del valor total del paquete – esto puede ser
               abonado en efectivo, transferencia y/o depósito – en dólares o en
-              pesos argentinos (para pesos argentinos se debe consultar
-              previamente la cotización del dólar del día). El saldo restante
-              puede ser abonado en plan de pagos. Es imprescindible que un mes
-              antes de la fecha de salida del viaje el paquete esté abonado en
-              su totalidad. Las cuotas pueden ser abonadas en efectivo,
-              transferencia y/o depósito – en dólares o en pesos argentinos
-              (para pesos argentinos se debe consultar previamente la cotización
-              del dólar del día).
+              pesos argentinos (para pesos hay que consultar cotización del
+              día).{"\n\n"}
+              El saldo restante puede ser abonado en plan de pagos.{"\n\n"}
+              Es imprescindible que un mes antes de la fecha de salida del viaje
+              el paquete esté abonado en su totalidad. Las cuotas pueden ser
+              abonadas en efectivo, transferencia y/o depósito – en dólares o en
+              pesos argentinos (para pesos hay que consultar cotización del
+              día).
             </Text>
           </View>
 

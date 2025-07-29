@@ -7,7 +7,13 @@ import Spinner from "../Spinner";
 
 export type SimpleQuote = Pick<
   Quote,
-  "tripTitle" | "dateRange" | "region" | "price" | "currency" | "concept"
+  | "tripTitle"
+  | "dateRange"
+  | "region"
+  | "price"
+  | "currency"
+  | "concept"
+  | "phone"
 > & {
   logoBase64?: string;
   regionBase64?: string;
@@ -20,10 +26,11 @@ export default function QuoteForm({
 }) {
   const [tripTitle, setTripTitle] = useState("");
   const [dateRange, setDateRange] = useState("");
-  const [region, setRegion] = useState<Quote["region"]>("argentina");
+  const [region, setRegion] = useState<Quote["region"]>("");
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState<Quote["currency"]>("ARS");
   const [concept, setConcept] = useState("");
+  const [phone, setPhone] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
@@ -31,7 +38,8 @@ export default function QuoteForm({
     const e: Record<string, string> = {};
     if (!tripTitle.trim()) e.tripTitle = "Requerido";
     if (!dateRange.trim()) e.dateRange = "Requerido";
-    if (isNaN(Number(price))) e.price = "Debe ser un número";
+    if (phone === "") e.phone = "Tenes que seleccionar un numero";
+    if (region === "") e.region = "Tenes que seleccionar una region";
     return e;
   };
 
@@ -72,6 +80,7 @@ export default function QuoteForm({
       setErrors(v);
       return;
     }
+
     setErrors({});
     setLoading(true);
 
@@ -90,6 +99,7 @@ export default function QuoteForm({
       price: Number(price),
       currency,
       concept,
+      phone,
       logoBase64,
       regionBase64,
     });
@@ -138,6 +148,9 @@ export default function QuoteForm({
           onChange={(e) => setRegion(e.target.value as Quote["region"])}
           className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
         >
+          <option value="" disabled>
+            Seleccionar
+          </option>
           <option value="norte-argentino">Norte Argentino</option>
           <option value="patagonia">Patagonia</option>
           <option value="ski">Ski</option>
@@ -160,6 +173,7 @@ export default function QuoteForm({
           <option value="seleccion">Seleccion Argentina</option>
           <option value="formula-1">Formula 1</option>
         </select>
+        {errors.region && <p className="text-red-500">{errors.region}</p>}
       </div>
 
       {/* Precio y moneda */}
@@ -199,6 +213,28 @@ export default function QuoteForm({
           placeholder="Precio por persona. Base Doble. Impuestos incluidos."
         />
         {errors.concept && <p className="text-red-500">{errors.concept}</p>}
+      </div>
+
+      {/* Telefono */}
+      <div>
+        <label>Telefono</label>
+        <select
+          value={phone}
+          onChange={(e) => setPhone(e.target.value as Quote["phone"])}
+          className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+        >
+          <option value="" disabled>
+            Seleccionar
+          </option>
+          <option value="+54 9 11 5970 1234">+54 9 11 5970 1234</option>
+          <option value="+54 9 11 2401 5658">+54 9 11 2401 5658</option>
+          <option value="+54 9 11 3422 4808">+54 9 11 3422 4808</option>
+          <option value="+54 9 11 4024 8903">+54 9 11 4024 8903</option>
+          <option value="+54 9 11 7061 7492">+54 9 11 7061 7492</option>
+          <option value="+54 9 11 2881 7030">+54 9 11 2881 7030</option>
+          <option value="+54 9 11 3648 1636">+54 9 11 3648 1636</option>
+        </select>
+        {errors.phone && <p className="text-red-500">{errors.phone}</p>}
       </div>
 
       <button

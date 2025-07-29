@@ -231,10 +231,33 @@ export interface Quote {
   accommodation: string;
   assistance: string;
   transfers: string;
-  region: "argentina" | "brasil" | "caribe" | "europa";
+  region:
+    | ""
+    | "norte-argentino"
+    | "patagonia"
+    | "ski"
+    | "iguazu"
+    | "mendoza"
+    | "brasil"
+    | "caribe"
+    | "peru"
+    | "safari"
+    | "desierto-africa"
+    | "europa"
+    | "norte-europa"
+    | "playa-europa"
+    | "auroras-boreales"
+    | "tailandia"
+    | "japon"
+    | "miami"
+    | "nueva-york"
+    | "california"
+    | "seleccion"
+    | "formula-1";
   price: number;
   currency: "ARS" | "USD";
   concept: string;
+  phone: string;
   logoBase64?: string;
 }
 
