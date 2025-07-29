@@ -6,6 +6,7 @@
 import React from "react";
 import { SimpleQuote } from "./QuoteForm";
 import { User } from "@/types";
+import { parseMarkdown, Segment } from "@/lib/markdown";
 
 interface QuotePreviewProps {
   quote: SimpleQuote;
@@ -20,6 +21,32 @@ export default function QuotePreview({ quote, user }: QuotePreviewProps) {
       style: "currency",
       currency,
     }).format(v);
+
+  const renderRich = (txt: string) =>
+    parseMarkdown(txt).map((seg: Segment, i) => {
+      if (seg.type === "subtitle") {
+        return (
+          <strong
+            key={i}
+            style={{
+              display: "inline-block",
+              fontWeight: "bold",
+              fontSize: "1.3em",
+            }}
+          >
+            {seg.text}
+          </strong>
+        );
+      }
+      if (seg.type === "bold") {
+        return (
+          <strong key={i} style={{ fontWeight: "bold" }}>
+            {seg.text}
+          </strong>
+        );
+      }
+      return <span key={i}>{seg.text}</span>;
+    });
 
   return (
     <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-10 text-white shadow-md shadow-sky-950/10 backdrop-blur">
@@ -124,7 +151,7 @@ export default function QuotePreview({ quote, user }: QuotePreviewProps) {
                 DATOS DEL VIAJE
               </p>
               <p className="mb-10 whitespace-pre-wrap font-light">
-                {dateRange}
+                {renderRich(dateRange)}
               </p>
             </div>
 

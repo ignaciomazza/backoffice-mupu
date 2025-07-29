@@ -13,6 +13,7 @@ import {
   Path,
 } from "@react-pdf/renderer";
 import { Quote, User } from "@/types";
+import { parseMarkdown } from "@/lib/markdown";
 
 export type SimpleQuote = Pick<
   Quote,
@@ -253,7 +254,29 @@ export default function QuoteDocument({ quote, user }: QuoteDocumentProps) {
             </Text>
             {dateRange.split("\n").map((line, i) => (
               <Text key={i} style={{ fontWeight: "300", marginBottom: 4 }}>
-                {line}
+                {parseMarkdown(line).map((seg, j) => {
+                  if (seg.type === "subtitle") {
+                    return (
+                      <Text
+                        key={j}
+                        style={{
+                          fontWeight: "bold",
+                          fontSize: 14,
+                        }}
+                      >
+                        {seg.text}
+                      </Text>
+                    );
+                  }
+                  if (seg.type === "bold") {
+                    return (
+                      <Text key={j} style={{ fontWeight: "bold" }}>
+                        {seg.text}
+                      </Text>
+                    );
+                  }
+                  return <Text key={j}>{seg.text}</Text>;
+                })}
               </Text>
             ))}
           </View>

@@ -14,7 +14,7 @@ export type SimpleQuote = Pick<
 };
 
 export default function QuoteForm({
-  onSubmit, 
+  onSubmit,
 }: {
   onSubmit: (data: SimpleQuote) => void;
 }) {
@@ -145,6 +145,7 @@ export default function QuoteForm({
           <option value="mendoza">Mendoza</option>
           <option value="brasil">Brasil</option>
           <option value="caribe">Caribe</option>
+          <option value="peru">Peru</option>
           <option value="safari">Safari</option>
           <option value="desierto-africa">Desierto de Africa</option>
           <option value="europa">Ciudad Europea</option>
