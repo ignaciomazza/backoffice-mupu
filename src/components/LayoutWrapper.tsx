@@ -45,6 +45,27 @@ export default function LayoutWrapper({
           {children}
         </main>
       </div>
+      <style jsx global>{`
+        /* Estilo del <select> en claro y oscuro */
+        select {
+          background-color: white;
+          color: #0f172a; /* tu clase text-sky-950 */
+        }
+        .dark select {
+          background-color: #000;
+          color: #fff;
+        }
+
+        /* Para las <option> */
+        select option {
+          background-color: white;
+          color: #0f172a;
+        }
+        .dark select option {
+          background-color: #000;
+          color: #fff;
+        }
+      `}</style>
     </div>
   );
 }
