@@ -3,8 +3,8 @@
 
 import React, { useState } from "react";
 import { Confirmation } from "@/types";
+import Spinner from "../Spinner";
 
-type ConfirmationRegion = "argentina" | "brasil" | "caribe" | "europa";
 type ConfirmationWithLogo = Confirmation & { logoBase64?: string };
 
 export default function ConfirmationForm({
@@ -16,25 +16,67 @@ export default function ConfirmationForm({
   const [clientName, setClientName] = useState("");
   const [issueDate, setIssueDate] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
-  const [paxCount, setPaxCount] = useState("");
+  const [payment, setPayment] = useState("");
+  const [phone, setPhone] = useState("");
   const [servicesText, setServicesText] = useState("");
-  const [conditions, setConditions] = useState("");
-  const [total, setTotal] = useState("");
+  const [itemsPassenger, setItemsPassenger] = useState([
+    { name: "", dni: "", birth: "" },
+  ] as {
+    name: string;
+    dni: string;
+    birth: string;
+  }[]);
+  const [items, setItems] = useState([{ price: "", concept: "" }] as {
+    price: string;
+    concept: string;
+  }[]);
   const [currency, setCurrency] = useState<Confirmation["currency"]>("ARS");
-  const [passengerData, setPassengerData] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loadingImg, setLoadingImg] = useState(false);
-  const [region, setRegion] = useState<ConfirmationRegion>("argentina");
 
   const validate = () => {
     const e: Record<string, string> = {};
     if (!confirmationNumber.trim()) e.confirmationNumber = "Requerido";
     if (!clientName.trim()) e.clientName = "Requerido";
     if (!issueDate.trim()) e.issueDate = "Requerido";
-    if (isNaN(Number(paxCount))) e.paxCount = "Debe ser número";
-    if (isNaN(Number(total))) e.total = "Debe ser número";
+    items.forEach((it, i) => {
+      if (!it.price) e[`price-${i}`] = "Requerido";
+      if (!it.concept.trim()) e[`concept-${i}`] = "Requerido";
+    });
     return e;
   };
+
+  const handleItemChange = (
+    idx: number,
+    field: "price" | "concept",
+    value: string,
+  ) => {
+    setItems((prev) =>
+      prev.map((it, i) => (i === idx ? { ...it, [field]: value } : it)),
+    );
+  };
+
+  const handleItemPassengerChange = (
+    idx: number,
+    field: "name" | "dni" | "birth",
+    value: string,
+  ) => {
+    setItemsPassenger((prev) =>
+      prev.map((it, i) => (i === idx ? { ...it, [field]: value } : it)),
+    );
+  };
+
+  const addItem = () =>
+    setItems((prev) => [...prev, { price: "", concept: "" }]);
+
+  const removeItem = (idx: number) =>
+    setItems((prev) => prev.filter((_, i) => i !== idx));
+
+  const addItemPassenger = () =>
+    setItemsPassenger((prev) => [...prev, { name: "", dni: "", birth: "" }]);
+
+  const removeItemPassenger = (idx: number) =>
+    setItemsPassenger((prev) => prev.filter((_, i) => i !== idx));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,10 +88,10 @@ export default function ConfirmationForm({
     setErrors({});
     setLoadingImg(true);
 
-    // Fetch logo según la región y convertir a Base64
+    // Fetch y Base64 del logo según región
     let logoBase64: string | undefined;
     try {
-      const res = await fetch(`/images/${region}.jpg`);
+      const res = await fetch(`/images/avion.jpg`);
       const blob = await res.blob();
       const buf = await blob.arrayBuffer();
       logoBase64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -58,147 +100,282 @@ export default function ConfirmationForm({
     }
     setLoadingImg(false);
 
-    // Convertir servicios: cada línea "Título:detalle"
-    const services = servicesText
-      .split("\n")
-      .map((line) => line.split(":"))
-      .filter((parts) => parts.length === 2)
-      .map(([title, detail]) => ({
-        title: title.trim(),
-        detail: detail.trim(),
-      }));
-
     onSubmit({
       confirmationNumber: confirmationNumber.trim(),
       clientName: clientName.trim(),
       issueDate: issueDate.trim(),
-      expiryDate: expiryDate.trim() || undefined,
-      paxCount: Number(paxCount),
-      services,
-      conditions: conditions.trim(),
-      total: Number(total),
+      expiryDate: expiryDate.trim(),
+      services: servicesText.trim(),
+      payment: payment.trim(),
+      itemsPassenger: itemsPassenger.map((it) => ({
+        name: it.name.trim(),
+        dni: it.dni.trim(),
+        birth: it.birth.trim(),
+      })),
+      items: items.map((it) => ({
+        price: Number(it.price),
+        concept: it.concept.trim(),
+      })),
       currency,
-      passengerData: passengerData.trim() || undefined,
+      phone,
       logoBase64,
     });
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form
+      onSubmit={handleSubmit}
+      className="mb-6 space-y-6 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
+    >
+      {/* Número de confirmación */}
       <div>
         <label>N° Confirmación</label>
         <input
           value={confirmationNumber}
           onChange={(e) => setConfirmationNumber(e.target.value)}
-          className="w-full border px-2 py-1"
+          className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+          placeholder="Ej: 12345"
         />
         {errors.confirmationNumber && (
           <p className="text-red-500">{errors.confirmationNumber}</p>
         )}
       </div>
 
+      {/* Nombre del cliente */}
       <div>
-        <label>Nombre Cliente</label>
+        <label>Titular</label>
         <input
           value={clientName}
           onChange={(e) => setClientName(e.target.value)}
-          className="w-full border px-2 py-1"
+          className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+          placeholder="Nombre completo"
         />
         {errors.clientName && (
           <p className="text-red-500">{errors.clientName}</p>
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      {/* Fechas */}
+      <div className="grid grid-cols-2 gap-3">
         <div>
-          <label>Fecha Emisión</label>
+          <label>Fecha de Alta</label>
           <input
             type="date"
             value={issueDate}
             onChange={(e) => setIssueDate(e.target.value)}
-            className="w-full border px-2 py-1"
+            className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
           />
           {errors.issueDate && (
             <p className="text-red-500">{errors.issueDate}</p>
           )}
         </div>
         <div>
-          <label>Fecha Vto. (opcional)</label>
+          <label>Fecha Vto.</label>
           <input
             type="date"
             value={expiryDate}
             onChange={(e) => setExpiryDate(e.target.value)}
-            className="w-full border px-2 py-1"
+            className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label>Pasajeros (cant.)</label>
-          <input
-            type="number"
-            value={paxCount}
-            onChange={(e) => setPaxCount(e.target.value)}
-            className="w-full border px-2 py-1"
-          />
-          {errors.paxCount && <p className="text-red-500">{errors.paxCount}</p>}
-        </div>
-        <div>
-          <label>Total</label>
-          <input
-            type="number"
-            step="0.01"
-            value={total}
-            onChange={(e) => setTotal(e.target.value)}
-            className="w-full border px-2 py-1"
-          />
-          {errors.total && <p className="text-red-500">{errors.total}</p>}
-        </div>
-      </div>
-
+      {/* Pax y total */}
       <div>
-        <label>Servicios (Título:detalle por línea)</label>
+        <label>Telefono</label>
+        <select
+          value={phone}
+          onChange={(e) => setPhone(e.target.value as Confirmation["phone"])}
+          className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+        >
+          <option value="" disabled>
+            Seleccionar
+          </option>
+          <option value="+54 9 11 5970 1234">+54 9 11 5970 1234</option>
+          <option value="+54 9 11 2401 5658">+54 9 11 2401 5658</option>
+          <option value="+54 9 11 3422 4808">+54 9 11 3422 4808</option>
+          <option value="+54 9 11 4024 8903">+54 9 11 4024 8903</option>
+          <option value="+54 9 11 7061 7492">+54 9 11 7061 7492</option>
+          <option value="+54 9 11 2881 7030">+54 9 11 2881 7030</option>
+          <option value="+54 9 11 3648 1636">+54 9 11 3648 1636</option>
+        </select>
+        {errors.phone && <p className="text-red-500">{errors.phone}</p>}
+      </div>
+
+      {/* Servicios */}
+      <div>
+        <label>Servicios </label>
         <textarea
           rows={3}
           value={servicesText}
           onChange={(e) => setServicesText(e.target.value)}
-          className="w-full border px-2 py-1"
+          className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+          placeholder="Escribir..."
         />
       </div>
-
       <div>
-        <label>Cláusulas / Condiciones</label>
-        <textarea
-          rows={3}
-          value={conditions}
-          onChange={(e) => setConditions(e.target.value)}
-          className="w-full border px-2 py-1"
-        />
-      </div>
-
-      <div>
-        <label>Datos pasajeros (opcional)</label>
-        <textarea
-          rows={2}
-          value={passengerData}
-          onChange={(e) => setPassengerData(e.target.value)}
-          className="w-full border px-2 py-1"
-        />
-      </div>
-
-      <div>
-        <label>Región</label>
-        <select
-          value={region}
-          onChange={(e) => setRegion(e.target.value as ConfirmationRegion)}
-          className="w-full border px-2 py-1"
+        <label>Datos pasajeros</label>
+        {itemsPassenger.map((it, idx) => (
+          <div key={idx} className="mb-3 flex w-full gap-3">
+            <input
+              type="text"
+              value={it.name}
+              onChange={(e) =>
+                handleItemPassengerChange(idx, "name", e.target.value)
+              }
+              className="basis-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+              placeholder="Nombre completo"
+            />
+            <input
+              type="text"
+              value={it.dni}
+              onChange={(e) =>
+                handleItemPassengerChange(idx, "dni", e.target.value)
+              }
+              className="basis-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+              placeholder="DNI"
+            />
+            <input
+              type="text"
+              value={it.birth}
+              onChange={(e) =>
+                handleItemPassengerChange(idx, "birth", e.target.value)
+              }
+              className="basis-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+              placeholder="Fecha de nacimiento"
+            />
+            {itemsPassenger.length > 1 && (
+              <button
+                type="button"
+                onClick={() => removeItemPassenger(idx)}
+                disabled={itemsPassenger.length === 1}
+                className="w-fit cursor-pointer rounded-full bg-red-600 p-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                  className="size-6"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 12h14"
+                  />
+                </svg>
+              </button>
+            )}
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addItemPassenger}
+          className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
         >
-          <option value="argentina">Argentina</option>
-          <option value="brasil">Brasil</option>
-          <option value="caribe">Caribe</option>
-          <option value="europa">Europa</option>
-        </select>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+            className="size-6"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 4.5v15m7.5-7.5h-15"
+            />
+          </svg>
+        </button>
+      </div>
+
+      {/* Precios y Conceptos */}
+      <div>
+        {items.map((it, idx) => (
+          <div key={idx}>
+            <div className="mb-1 flex w-full gap-3">
+              <div className="basis-full">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={it.price}
+                  onChange={(e) =>
+                    handleItemChange(idx, "price", e.target.value)
+                  }
+                  className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  placeholder="Precio"
+                />
+                {errors[`price-${idx}`] && (
+                  <p className="text-red-500">{errors[`price-${idx}`]}</p>
+                )}
+              </div>
+              <div className="basis-full">
+                <input
+                  value={it.concept}
+                  onChange={(e) =>
+                    handleItemChange(idx, "concept", e.target.value)
+                  }
+                  className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  placeholder="Descripción"
+                />
+                {errors[`concept-${idx}`] && (
+                  <p className="text-red-500">{errors[`concept-${idx}`]}</p>
+                )}
+              </div>
+              {items.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeItem(idx)}
+                  disabled={items.length === 1}
+                  className="w-fit cursor-pointer rounded-full bg-red-600 p-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    className="size-6"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M5 12h14"
+                    />
+                  </svg>
+                </button>
+              )}
+            </div>
+            <p className="mb-3 ml-1">
+              {new Intl.NumberFormat("es-AR", {
+                style: "currency",
+                currency: currency,
+              }).format(Number(it.price))}
+            </p>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addItem}
+          className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+            className="size-6"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 4.5v15m7.5-7.5h-15"
+            />
+          </svg>
+        </button>
       </div>
 
       <div>
@@ -208,15 +385,33 @@ export default function ConfirmationForm({
           onChange={(e) =>
             setCurrency(e.target.value as Confirmation["currency"])
           }
-          className="w-full border px-2 py-1"
+          className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
         >
           <option value="ARS">ARS</option>
           <option value="USD">USD</option>
         </select>
       </div>
 
-      <button type="submit" disabled={loadingImg} className="btn-primary">
-        {loadingImg ? "Procesando imagen…" : "Generar vista previa"}
+      {/* Nombre del cliente */}
+      <div>
+        <label>Plan de pago (opcional)</label>
+        <textarea
+          rows={3}
+          value={payment}
+          onChange={(e) => setPayment(e.target.value)}
+          className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+          placeholder="Pago"
+        />
+        {errors.clientName && <p className="text-red-500">{errors.payment}</p>}
+      </div>
+
+      {/* Botón */}
+      <button
+        type="submit"
+        disabled={loadingImg}
+        className="mt-4 w-44 rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+      >
+        {loadingImg ? <Spinner /> : "Vista previa"}
       </button>
     </form>
   );

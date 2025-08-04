@@ -150,40 +150,64 @@ export default function QuoteForm({
         {errors.dateRange && <p className="text-red-500">{errors.dateRange}</p>}
       </div>
 
-      {/* Región */}
-      <div>
-        <label>Región</label>
-        <select
-          value={region}
-          onChange={(e) => setRegion(e.target.value as Quote["region"])}
-          className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
-        >
-          <option value="" disabled>
-            Seleccionar
-          </option>
-          <option value="norte-argentino">Norte Argentino</option>
-          <option value="patagonia">Patagonia</option>
-          <option value="ski">Ski</option>
-          <option value="iguazu">Iguazu</option>
-          <option value="mendoza">Mendoza</option>
-          <option value="brasil">Brasil</option>
-          <option value="caribe">Caribe</option>
-          <option value="peru">Peru</option>
-          <option value="safari">Safari</option>
-          <option value="desierto-africa">Desierto de Africa</option>
-          <option value="europa">Ciudad Europea</option>
-          <option value="norte-europa">Norte Europeo</option>
-          <option value="playa-europa">Playa Europea</option>
-          <option value="auroras-boreales">Auroras Boreales</option>
-          <option value="tailandia">Tailandia</option>
-          <option value="japon">Japon</option>
-          <option value="miami">Miami</option>
-          <option value="nueva-york">Nueva York</option>
-          <option value="california">California</option>
-          <option value="seleccion">Seleccion Argentina</option>
-          <option value="formula-1">Formula 1</option>
-        </select>
-        {errors.region && <p className="text-red-500">{errors.region}</p>}
+      {/* Telefono */}
+      <div className="flex gap-3">
+        <div className="basis-full">
+          <label>Telefono</label>
+          <select
+            value={phone}
+            onChange={(e) => setPhone(e.target.value as Quote["phone"])}
+            className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+          >
+            <option value="" disabled>
+              Seleccionar
+            </option>
+            <option value="+54 9 11 5970 1234">+54 9 11 5970 1234</option>
+            <option value="+54 9 11 2401 5658">+54 9 11 2401 5658</option>
+            <option value="+54 9 11 3422 4808">+54 9 11 3422 4808</option>
+            <option value="+54 9 11 4024 8903">+54 9 11 4024 8903</option>
+            <option value="+54 9 11 7061 7492">+54 9 11 7061 7492</option>
+            <option value="+54 9 11 2881 7030">+54 9 11 2881 7030</option>
+            <option value="+54 9 11 3648 1636">+54 9 11 3648 1636</option>
+          </select>
+          {errors.phone && <p className="text-red-500">{errors.phone}</p>}
+        </div>
+
+        {/* Región */}
+        <div className="basis-full">
+          <label >Región</label>
+          <select
+            value={region}
+            onChange={(e) => setRegion(e.target.value as Quote["region"])}
+            className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+          >
+            <option value="" disabled>
+              Seleccionar
+            </option>
+            <option value="norte-argentino">Norte Argentino</option>
+            <option value="patagonia">Patagonia</option>
+            <option value="ski">Ski</option>
+            <option value="iguazu">Iguazu</option>
+            <option value="mendoza">Mendoza</option>
+            <option value="brasil">Brasil</option>
+            <option value="caribe">Caribe</option>
+            <option value="peru">Peru</option>
+            <option value="safari">Safari</option>
+            <option value="desierto-africa">Desierto de Africa</option>
+            <option value="europa">Ciudad Europea</option>
+            <option value="norte-europa">Norte Europeo</option>
+            <option value="playa-europa">Playa Europea</option>
+            <option value="auroras-boreales">Auroras Boreales</option>
+            <option value="tailandia">Tailandia</option>
+            <option value="japon">Japon</option>
+            <option value="miami">Miami</option>
+            <option value="nueva-york">Nueva York</option>
+            <option value="california">California</option>
+            <option value="seleccion">Seleccion Argentina</option>
+            <option value="formula-1">Formula 1</option>
+          </select>
+          {errors.region && <p className="text-red-500">{errors.region}</p>}
+        </div>
       </div>
 
       {/* Precios y Conceptos */}
@@ -280,28 +304,6 @@ export default function QuoteForm({
           <option value="ARS">ARS</option>
           <option value="USD">USD</option>
         </select>
-      </div>
-
-      {/* Telefono */}
-      <div>
-        <label>Telefono</label>
-        <select
-          value={phone}
-          onChange={(e) => setPhone(e.target.value as Quote["phone"])}
-          className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
-        >
-          <option value="" disabled>
-            Seleccionar
-          </option>
-          <option value="+54 9 11 5970 1234">+54 9 11 5970 1234</option>
-          <option value="+54 9 11 2401 5658">+54 9 11 2401 5658</option>
-          <option value="+54 9 11 3422 4808">+54 9 11 3422 4808</option>
-          <option value="+54 9 11 4024 8903">+54 9 11 4024 8903</option>
-          <option value="+54 9 11 7061 7492">+54 9 11 7061 7492</option>
-          <option value="+54 9 11 2881 7030">+54 9 11 2881 7030</option>
-          <option value="+54 9 11 3648 1636">+54 9 11 3648 1636</option>
-        </select>
-        {errors.phone && <p className="text-red-500">{errors.phone}</p>}
       </div>
 
       <button

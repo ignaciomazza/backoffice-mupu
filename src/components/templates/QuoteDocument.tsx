@@ -263,7 +263,6 @@ export default function QuoteDocument({ quote, user }: QuoteDocumentProps) {
               {dateRange
                 .split("\n")
                 .reduce<React.ReactNode[]>((acc, line, idx, arr) => {
-                  // parseMarkdown devuelve un array de segmentos (texto / bold / subtitle)
                   const segs = parseMarkdown(line).map((seg, j) => {
                     if (seg.type === "subtitle") {
                       return (
@@ -289,7 +288,6 @@ export default function QuoteDocument({ quote, user }: QuoteDocumentProps) {
                   });
 
                   acc.push(...segs);
-                  // después de cada línea, agrego un salto
                   if (idx < arr.length - 1) acc.push("\n");
                   return acc;
                 }, [])}

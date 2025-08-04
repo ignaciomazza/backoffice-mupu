@@ -258,18 +258,16 @@ export interface Quote {
 
 // src/types/Confirmation.ts
 
+// src/types/Confirmation.ts
 export interface Confirmation {
   confirmationNumber: string;
   clientName: string;
   issueDate: string;
-  expiryDate?: string;
-  paxCount: number;
-  services: {
-    title: string;
-    detail: string;
-  }[];
-  conditions: string;
-  total: number;
+  expiryDate: string;
+  payment: string;
+  services: string;
+  itemsPassenger: { name: string; dni: string; birth: string }[];
+  items: { price: number; concept: string }[];
+  phone: string;
   currency: "ARS" | "USD";
-  passengerData?: string;
 }

@@ -11,10 +11,10 @@ import { Confirmation, User } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import Spinner from "@/components/Spinner";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import ConfirmationPreview from "@/components/templates/confirmationPreview";
 
-type ConfirmationWithLogo = Confirmation & { logoBase64?: string };
 type DocType = "quote" | "confirmation";
-type DocumentData = SimpleQuote | ConfirmationWithLogo;
+type DocumentData = SimpleQuote | Confirmation;
 
 export default function NewDocPage() {
   const [docType, setDocType] = useState<DocType>("quote");
@@ -61,7 +61,7 @@ export default function NewDocPage() {
             }}
           >
             <option value="quote">Cotización</option>
-            {/* <option value="confirmation">Confirmación</option> */}
+            <option value="confirmation">Confirmación</option>
           </select>
 
           {docType === "quote" ? (
@@ -74,9 +74,12 @@ export default function NewDocPage() {
           {data && docType === "quote" && userProfile && (
             <QuotePreview quote={data as SimpleQuote} user={userProfile} />
           )}
-          {/* {data && docType === "confirmation" && (
-                <ConfirmationPreview confirmation={data as ConfirmationWithLogo} />
-          )} */}
+          {data && docType === "confirmation" && userProfile && (
+            <ConfirmationPreview
+              confirmation={data as Confirmation}
+              user={userProfile}
+            />
+          )}
 
           <div className="mt-4 w-fit cursor-pointer rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur">
             {data && userProfile && (
@@ -90,7 +93,8 @@ export default function NewDocPage() {
                     />
                   ) : (
                     <ConfirmationDocument
-                      confirmation={data as ConfirmationWithLogo}
+                      confirmation={data as Confirmation}
+                      user={userProfile}
                     />
                   )
                 }
@@ -98,7 +102,7 @@ export default function NewDocPage() {
                   docType === "quote"
                     ? `${(data as SimpleQuote).tripTitle}.pdf`
                     : `Confirmacion_${
-                        (data as ConfirmationWithLogo).confirmationNumber
+                        (data as Confirmation).confirmationNumber
                       }.pdf`
                 }
               >
