@@ -1,4 +1,4 @@
-// drc/pages/api/operators/index.ts
+// src/pages/api/operators/index.ts
 
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
@@ -7,9 +7,20 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
+  // Parse agencyId from query string
+  const rawAgency = Array.isArray(req.query.agencyId)
+    ? req.query.agencyId[0]
+    : req.query.agencyId;
+  const agencyId = rawAgency ? Number(rawAgency) : null;
+
   if (req.method === "GET") {
+    if (agencyId === null) {
+      return res.status(400).json({ error: "Debe proporcionar agencyId" });
+    }
     try {
-      const operators = await prisma.operator.findMany();
+      const operators = await prisma.operator.findMany({
+        where: { id_agency: agencyId },
+      });
       return res.status(200).json(operators);
     } catch (error) {
       console.error(
@@ -32,9 +43,17 @@ export default async function handler(
       vat_status,
       legal_name,
       tax_id,
+      id_agency,
     } = req.body;
 
-    // Validar campos requeridos
+    // Ensure agency is provided
+    if (!id_agency) {
+      return res
+        .status(400)
+        .json({ error: "El campo 'id_agency' es obligatorio." });
+    }
+
+    // Required fields
     if (!name || !email || !tax_id) {
       return res.status(400).json({
         error: "Los campos 'name', 'email' y 'tax_id' son obligatorios.",
@@ -42,15 +61,17 @@ export default async function handler(
     }
 
     try {
-      // Verificar duplicados: se busca por email o tax_id
+      // Check duplicates within the same agency
       const duplicate = await prisma.operator.findFirst({
         where: {
+          id_agency,
           OR: [{ email }, { tax_id }],
         },
       });
       if (duplicate) {
         return res.status(400).json({
-          error: "Ya existe un operador con el mismo email o tax_id.",
+          error:
+            "Ya existe un operador con el mismo email o tax_id en esta agencia.",
         });
       }
 
@@ -68,6 +89,7 @@ export default async function handler(
           vat_status,
           legal_name,
           tax_id,
+          id_agency,
         },
       });
       return res.status(201).json(newOperator);

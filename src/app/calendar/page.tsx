@@ -20,6 +20,7 @@ interface User {
   first_name: string;
   last_name: string;
   role: string;
+  id_agency: number;
 }
 
 interface SalesTeam {
@@ -85,29 +86,40 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (!token) return;
+    setLoadingEvents(true);
+
+    // 1) Obtener perfil y luego vendors + teams de la misma agencia
     fetch("/api/user/profile", {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
-      .then((p: User) => setProfile(p))
-      .catch(console.error);
-  }, [token]);
-
-  useEffect(() => {
-    if (!token) return;
-    fetch("/api/users", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
-      .then(setVendors)
-      .catch(console.error);
-
-    fetch("/api/teams", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
-      .then(setSalesTeams)
-      .catch(console.error);
+      .then((r) => {
+        if (!r.ok) throw new Error("Error al obtener perfil");
+        return r.json() as Promise<User>;
+      })
+      .then((p) => {
+        setProfile(p);
+        // una vez tenemos el agencyId, disparar ambas cargas en paralelo
+        return Promise.all([
+          fetch(`/api/users?agencyId=${p.id_agency}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }).then((r) => {
+            if (!r.ok) throw new Error("Error al obtener vendedores");
+            return r.json() as Promise<User[]>;
+          }),
+          fetch(`/api/teams?agencyId=${p.id_agency}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }).then((r) => {
+            if (!r.ok) throw new Error("Error al obtener equipos");
+            return r.json() as Promise<SalesTeam[]>;
+          }),
+        ]);
+      })
+      .then(([users, teams]) => {
+        setVendors(users);
+        setSalesTeams(teams);
+      })
+      .catch(console.error)
+      .finally(() => setLoadingEvents(false));
   }, [token]);
 
   const allowedVendors = useMemo(() => {

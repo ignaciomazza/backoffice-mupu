@@ -10,19 +10,25 @@ generator client {
 }
 
 model Agency {
-  id_agency       Int       @id @default(autoincrement())
-  name            String
-  legal_name      String
-  address         String?
-  phone           String?
-  email           String?
-  tax_id          String
-  website         String?
-  foundation_date DateTime?
-  logo_url        String?
-  creation_date   DateTime  @default(now())
-  users           User[]
-  bookings        Booking[]
+  id_agency        Int         @id @default(autoincrement())
+  name             String
+  legal_name       String
+  address          String?
+  phone            String?
+  email            String?
+  tax_id           String
+  website          String?
+  foundation_date  DateTime?
+  logo_url         String?
+  afip_cert_base64 String?
+  afip_key_base64  String?
+  creation_date    DateTime    @default(now())
+  users            User[]
+  bookings         Booking[]
+  Client           Client[]
+  SalesTeam        SalesTeam[]
+  Resources        Resources[]
+  Operator         Operator[]
 }
 
 model User {
@@ -60,6 +66,8 @@ model Client {
   gender             String
   email              String?
   registration_date  DateTime  @default(now())
+  id_agency          Int
+  agency             Agency    @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   id_user            Int
   user               User      @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
   bookings           Booking[] @relation("BookingClients")
@@ -87,7 +95,7 @@ model Booking {
   services            Service[]
   departure_date      DateTime
   return_date         DateTime
-  pax_count           Int       @default(1)
+  pax_count           Int
   invoices            Invoice[] @relation("BookingInvoices")
   Receipt             Receipt[] @relation("BookingReceipt")
 }
@@ -148,6 +156,8 @@ model Operator {
   credit_balance    Float     @default(0)
   debit_balance     Float     @default(0)
   services          Service[]
+  id_agency         Int
+  agency            Agency    @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 }
 
 model Invoice {
@@ -196,7 +206,7 @@ model CreditNote {
   total_amount   Float
   currency       String
   status         String
-  type           String // "Nota A" | "Nota B"
+  type           String
   recipient      String
   payloadAfip    Json?
   invoiceId      Int
@@ -227,6 +237,8 @@ model SalesTeam {
   id_team    Int        @id @default(autoincrement())
   name       String
   user_teams UserTeam[]
+  id_agency  Int
+  agency     Agency     @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 }
 
 model UserTeam {
@@ -257,6 +269,8 @@ model Resources {
   createdAt   DateTime @default(now())
   title       String
   description String?
+  id_agency   Int
+  agency      Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 }
 
 model CalendarNote {

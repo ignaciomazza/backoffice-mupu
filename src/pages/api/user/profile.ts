@@ -74,6 +74,7 @@ export default async function handler(
 
     return res.status(200).json({
       id_user: userId,
+      id_agency: userProfile.id_agency,
       name: `${userProfile.first_name} ${userProfile.last_name}`,
       first_name: userProfile.first_name,
       last_name: userProfile.last_name,

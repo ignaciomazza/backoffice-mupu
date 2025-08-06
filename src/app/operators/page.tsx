@@ -10,9 +10,12 @@ import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import "react-toastify/dist/ReactToastify.css";
+import { useAuth } from "@/context/AuthContext";
 
 export default function OperatorsPage() {
+  const { token } = useAuth();
   const [operators, setOperators] = useState<Operator[]>([]);
+  const [agencyId, setAgencyId] = useState<number | null>(null);
   const [expandedOperatorId, setExpandedOperatorId] = useState<number | null>(
     null,
   );
@@ -30,6 +33,7 @@ export default function OperatorsPage() {
     legal_name: "",
     tax_id: "",
     registration_date: "",
+    id_agency: 0, // se inyectará desde el perfil
     credit_balance: 0,
     debit_balance: 0,
   });
@@ -39,27 +43,52 @@ export default function OperatorsPage() {
   );
   const [loadingOperators, setLoadingOperators] = useState<boolean>(true);
 
+  // 1) Obtener agencyId y pre-llenar formData.id_agency
   useEffect(() => {
-    setLoadingOperators(true);
-    fetch("/api/operators")
+    if (!token) return;
+    fetch("/api/user/profile", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then((res) => {
-        if (!res.ok) {
-          throw new Error("Error al obtener operadores");
-        }
+        if (!res.ok) throw new Error("No se pudo obtener el perfil");
         return res.json();
+      })
+      .then((profile) => {
+        setAgencyId(profile.id_agency);
+        setFormData((f) => ({
+          ...f,
+          id_agency: profile.id_agency,
+        }));
+      })
+      .catch((err) => {
+        console.error("Error fetching profile:", err);
+        toast.error("Error al obtener perfil de usuario");
+      });
+  }, [token]);
+
+  // 2) Cargar operadores filtrados por agencyId
+  useEffect(() => {
+    if (agencyId === null || !token) return;
+    setLoadingOperators(true);
+
+    fetch(`/api/operators?agencyId=${agencyId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("Error al obtener operadores");
+        return res.json() as Promise<Operator[]>;
       })
       .then((data) => {
         setOperators(data);
-        setLoadingOperators(false);
       })
-      .catch((error: unknown) => {
-        if (error instanceof Error) {
-          console.error("Error fetching operators:", error.message);
-          toast.error("Error al obtener operadores");
-        }
+      .catch((error) => {
+        console.error("Error fetching operators:", error);
+        toast.error("Error al obtener operadores");
+      })
+      .finally(() => {
         setLoadingOperators(false);
       });
-  }, []);
+  }, [agencyId, token]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
@@ -70,7 +99,6 @@ export default function OperatorsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!formData.name || !formData.email || !formData.tax_id) {
       toast.error("Falta completar campos!");
       return;
@@ -82,24 +110,25 @@ export default function OperatorsPage() {
     const method = editingOperatorId ? "PUT" : "POST";
 
     try {
-      const response = await fetch(url, {
+      const res = await fetch(url, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(formData),
       });
-
-      if (!response.ok) {
-        const errorResponse = await response.json();
-        throw new Error(errorResponse.error || "Error al guardar el operador.");
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Error al guardar el operador.");
       }
-
-      const operator = await response.json();
+      const operator = await res.json();
       setOperators((prev) =>
         editingOperatorId
           ? prev.map((op) =>
               op.id_operator === editingOperatorId ? operator : op,
             )
-          : [...prev, operator],
+          : [operator, ...prev],
       );
       toast.success(
         editingOperatorId
@@ -109,10 +138,11 @@ export default function OperatorsPage() {
     } catch (error: unknown) {
       if (error instanceof Error) {
         console.error("Error al guardar el operador:", error.message);
-        toast.error(error.message || "Error al guardar el operador.");
+        toast.error(error.message);
       }
+    } finally {
+      resetForm();
     }
-    resetForm();
   };
 
   const resetForm = () => {
@@ -130,6 +160,7 @@ export default function OperatorsPage() {
       legal_name: "",
       tax_id: "",
       registration_date: "",
+      id_agency: agencyId!, // mantenemos el agencyId actual
       credit_balance: 0,
       debit_balance: 0,
     });
@@ -152,6 +183,7 @@ export default function OperatorsPage() {
       legal_name: operator.legal_name,
       tax_id: operator.tax_id,
       registration_date: operator.registration_date,
+      id_agency: operator.id_agency,
       credit_balance: operator.credit_balance || 0,
       debit_balance: operator.debit_balance || 0,
     });
@@ -162,17 +194,15 @@ export default function OperatorsPage() {
 
   const deleteOperator = async (id_operator: number) => {
     try {
-      const response = await fetch(`/api/operators/${id_operator}`, {
+      const res = await fetch(`/api/operators/${id_operator}`, {
         method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
       });
-      if (response.ok) {
-        setOperators((prev) =>
-          prev.filter((op) => op.id_operator !== id_operator),
-        );
-        toast.success("Operador eliminado con éxito!");
-      } else {
-        throw new Error("Error al eliminar el operador.");
-      }
+      if (!res.ok) throw new Error("Error al eliminar el operador.");
+      setOperators((prev) =>
+        prev.filter((op) => op.id_operator !== id_operator),
+      );
+      toast.success("Operador eliminado con éxito!");
     } catch (error: unknown) {
       if (error instanceof Error) {
         console.error("Error al eliminar el operador:", error.message);

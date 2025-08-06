@@ -57,6 +57,7 @@ export interface Client {
   bookings?: Booking[];
   titular_bookings?: Booking[];
   invoices?: Invoice[];
+  id_agency: number;
 }
 
 export interface Booking {
@@ -150,6 +151,7 @@ export interface Operator {
   credit_balance: number;
   debit_balance: number;
   bookings?: Booking[];
+  id_agency: number;
 }
 
 // Invoice.ts: Tipo de factura
@@ -181,6 +183,7 @@ export interface SalesTeam {
   id_team: number;
   name: string;
   user_teams: UserTeam[];
+  id_agency: number;
 }
 
 // UserTeam.ts: Tipo de relación entre usuario y equipo de ventas

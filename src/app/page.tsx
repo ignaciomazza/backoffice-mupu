@@ -9,41 +9,51 @@ import { motion, AnimatePresence } from "framer-motion";
 import AnimatedMessage from "@/components/profile/AnimatedMessage";
 import DashboardShortcuts from "@/components/profile/DashboardShortcuts";
 
-type UserProfile = { first_name?: string };
+type UserProfile = {
+  id_user: number;
+  id_agency: number;
+  first_name: string;
+  last_name: string;
+  role: string;
+  position: string;
+};
 
 export default function ProfilePage() {
   const { token } = useAuth();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Mostrar mensaje solo la primera vez en la sesión
+  // Mostrar mensaje sólo la primera vez
   const [showWelcome, setShowWelcome] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return sessionStorage.getItem("welcomeShown") !== "true";
   });
   const [showGrid, setShowGrid] = useState(false);
 
-  // Si ya cargó el perfil y no hay que mostrar mensaje, mostrar el grid directo
+  // Cuando ya cargó el perfil y no hay mensaje, muestro el grid
   useEffect(() => {
     if (!loading && !showWelcome) {
       setShowGrid(true);
     }
   }, [loading, showWelcome]);
 
-  // Fetch del perfil
+  // Fetch del perfil, incluyendo id_agency
   useEffect(() => {
     if (!token) return;
+    setLoading(true);
+
     (async () => {
       try {
         const res = await fetch("/api/user/profile", {
           headers: { Authorization: `Bearer ${token}` },
-          credentials: "include",
+          // si tu API todavía usa cookie en lugar de header, añade:
+          // credentials: "include",
         });
         if (!res.ok) throw new Error("Error fetching profile");
         const data = (await res.json()) as UserProfile;
         setUserProfile(data);
-      } catch (error) {
-        console.error("Error fetching profile:", error);
+      } catch (err) {
+        console.error("Error fetching profile:", err);
       } finally {
         setLoading(false);
       }
@@ -96,7 +106,7 @@ export default function ProfilePage() {
             </motion.div>
           )}
 
-          {!loading && showGrid && (
+          {!loading && showGrid && userProfile && (
             <motion.div
               key="dashboard"
               initial={{ opacity: 0, scale: 0.95 }}
@@ -105,7 +115,7 @@ export default function ProfilePage() {
               transition={{ duration: 0.4 }}
               className="flex w-full items-center justify-center md:p-4"
             >
-              <DashboardShortcuts />
+              <DashboardShortcuts agencyId={userProfile.id_agency} />
             </motion.div>
           )}
         </AnimatePresence>

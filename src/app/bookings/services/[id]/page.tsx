@@ -17,6 +17,7 @@ import { CreditNoteFormData } from "@/components/credite-notes/CreditNoteForm";
 
 interface UserProfile {
   role: string;
+  id_agency: number;
 }
 
 type Role =
@@ -203,15 +204,24 @@ export default function ServicesPage() {
   };
 
   const fetchOperators = useCallback(async () => {
-    try {
-      const res = await fetch("/api/operators");
-      if (!res.ok) throw new Error("Error al obtener operadores");
-      const data = await res.json();
-      setOperators(data);
-    } catch {
-      toast.error("Error al obtener operadores.");
-    }
-  }, []);
+    if (!token || !userProfile) return;
+
+    const loadOperators = async () => {
+      try {
+        const res = await fetch(
+          `/api/operators?agencyId=${userProfile.id_agency}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (!res.ok) throw new Error("Error al obtener operadores");
+        const data = (await res.json()) as Operator[];
+        setOperators(data);
+      } catch {
+        toast.error("Error al obtener operadores.");
+      }
+    };
+
+    loadOperators();
+  }, [token, userProfile]);
 
   const handleReceiptDeleted = (id_receipt: number) => {
     setReceipts((prev) => prev.filter((r) => r.id_receipt !== id_receipt));

@@ -1,25 +1,49 @@
-// src/pages/api/clients/index.ts
-
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import jwt from "jsonwebtoken";
+
+const JWT_SECRET = process.env.JWT_SECRET || "tu_secreto_seguro";
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
+  // 1) Leer token de la cookie
+  const token = req.cookies.token;
+  if (!token) {
+    return res.status(401).json({ error: "Token no proporcionado" });
+  }
+
+  let payload: { userId: number };
   try {
+    payload = jwt.verify(token, JWT_SECRET) as { userId: number };
+  } catch (err) {
+    return res.status(401).json({ error: "Token inválido", err });
+  }
+
+  // 2) Cargar usuario para obtener id_agency
+  const dbUser = await prisma.user.findUnique({
+    where: { id_user: payload.userId },
+  });
+  if (!dbUser) {
+    return res.status(401).json({ error: "Usuario no encontrado" });
+  }
+  const agencyId = dbUser.id_agency;
+
+  try {
+    // GET /api/clients?agencyId=...&userId=...
     if (req.method === "GET") {
-      // Parse userId from query if present
       const userId = Array.isArray(req.query.userId)
         ? Number(req.query.userId[0])
         : req.query.userId
           ? Number(req.query.userId)
           : null;
 
-      // Build filter
-      const where = userId ? { id_user: userId } : {};
+      const where = {
+        id_agency: agencyId,
+        ...(userId ? { id_user: userId } : {}),
+      };
 
-      // Fetch clients ordered by registration_date DESC
       const clients = await prisma.client.findMany({
         where,
         orderBy: { registration_date: "desc" },
@@ -29,6 +53,7 @@ export default async function handler(
       return res.status(200).json(clients);
     }
 
+    // POST /api/clients
     if (req.method === "POST") {
       const client = req.body;
       const requiredFields = [
@@ -39,7 +64,6 @@ export default async function handler(
         "nationality",
         "gender",
       ];
-
       for (const field of requiredFields) {
         if (!client[field]) {
           return res
@@ -47,7 +71,6 @@ export default async function handler(
             .json({ error: `El campo ${field} es obligatorio.` });
         }
       }
-
       if (!client.dni_number?.trim() && !client.passport_number?.trim()) {
         return res.status(400).json({
           error:
@@ -55,9 +78,9 @@ export default async function handler(
         });
       }
 
-      // Check duplicates
       const duplicate = await prisma.client.findFirst({
         where: {
+          id_agency: agencyId,
           OR: [
             { dni_number: client.dni_number },
             { passport_number: client.passport_number },
@@ -72,7 +95,6 @@ export default async function handler(
           ],
         },
       });
-
       if (duplicate) {
         return res
           .status(400)
@@ -97,6 +119,7 @@ export default async function handler(
           gender: client.gender,
           email: client.email || null,
           id_user: Number(client.id_user),
+          id_agency: agencyId,
         },
       });
 

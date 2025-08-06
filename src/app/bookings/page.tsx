@@ -9,7 +9,7 @@ import Spinner from "@/components/Spinner";
 import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { Booking, User, SalesTeam, UserTeam } from "@/types";
+import { Booking, User, SalesTeam } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 
 const FILTROS = [
@@ -101,79 +101,92 @@ export default function Page() {
     fetch("/api/user/profile", {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error("No se pudo obtener el perfil");
+        return res.json() as Promise<{
+          id_user: number;
+          role: FilterRole;
+          id_agency: number;
+        }>;
+      })
       .then((p) => {
         setProfile(p);
         setFormData((prev) => ({ ...prev, id_user: p.id_user }));
         setSelectedUserId(FILTROS.includes(p.role) ? 0 : p.id_user);
         setSelectedTeamId(0);
 
-        const promises: Promise<unknown>[] = [];
+        const headers = { Authorization: `Bearer ${token}` };
 
-        // lista de equipos
-        promises.push(
-          fetch("/api/teams", { headers: { Authorization: `Bearer ${token}` } })
-            .then((r) => r.json() as Promise<SalesTeam[]>)
-            .then((allTeams) => {
-              const teams =
-                p.role === "lider"
-                  ? allTeams.filter((t) =>
-                      t.user_teams.some(
-                        (ut: UserTeam) =>
-                          ut.user.id_user === p.id_user &&
-                          ut.user.role === "lider",
-                      ),
-                    )
-                  : allTeams;
-              setTeamsList(teams);
-            })
-            .catch((err) => console.error("Error fetching teams list:", err)),
-        );
+        // 1) Lista de equipos de la agencia
+        const teamsPromise = fetch(`/api/teams?agencyId=${p.id_agency}`, {
+          headers,
+        })
+          .then((r) => {
+            if (!r.ok) throw new Error("No se pudieron cargar los equipos");
+            return r.json() as Promise<SalesTeam[]>;
+          })
+          .then((allTeams) => {
+            const allowed =
+              p.role === "lider"
+                ? allTeams.filter((t) =>
+                    t.user_teams.some(
+                      (ut) =>
+                        ut.user.id_user === p.id_user &&
+                        ut.user.role === "lider",
+                    ),
+                  )
+                : allTeams;
+            setTeamsList(allowed);
+          })
+          .catch((err) => console.error("Error fetching teams list:", err));
 
-        // si puede ver todos los usuarios
+        const promises: Promise<unknown>[] = [teamsPromise];
+
+        // 2) Si el rol permite ver todos los usuarios
         if (FILTROS.includes(p.role)) {
-          promises.push(
-            fetch("/api/users", {
-              headers: { Authorization: `Bearer ${token}` },
+          const usersPromise = fetch("/api/users", { headers })
+            .then((r) => {
+              if (!r.ok) throw new Error("Error al obtener usuarios");
+              return r.json() as Promise<User[]>;
             })
-              .then((r) => r.json() as Promise<User[]>)
-              .then((users) => {
-                const filtered = users.filter((u) =>
+            .then((users) => {
+              setTeamMembers(
+                users.filter((u) =>
                   ["vendedor", "lider", "gerente"].includes(u.role),
-                );
-                setTeamMembers(filtered);
-              })
-              .catch((err) => console.error("Error fetching users:", err)),
-          );
+                ),
+              );
+            })
+            .catch((err) => console.error("Error fetching users:", err));
+          promises.push(usersPromise);
         }
 
-        // si es líder, sus miembros
-        if (p?.role === "lider") {
-          promises.push(
-            fetch("/api/teams", {
-              headers: { Authorization: `Bearer ${token}` },
+        // 3) Si es líder, obtener solo sus miembros
+        if (p.role === "lider") {
+          const minePromise = fetch(`/api/teams?agencyId=${p.id_agency}`, {
+            headers,
+          })
+            .then((r) => {
+              if (!r.ok) throw new Error("No se pudieron cargar los equipos");
+              return r.json() as Promise<SalesTeam[]>;
             })
-              .then((r) => r.json() as Promise<SalesTeam[]>)
-              .then((teams) => {
-                const mine = teams.filter((t) =>
-                  t.user_teams.some(
-                    (ut: UserTeam) =>
-                      ut.user.id_user === p.id_user && ut.user.role === "lider",
-                  ),
-                );
-                const members = Array.from(
-                  new Map(
-                    mine
-                      .flatMap((t) =>
-                        t.user_teams.map((ut: UserTeam) => ut.user),
-                      )
-                      .map((u) => [u.id_user, u]),
-                  ).values(),
-                );
-                setTeamMembers(members as User[]);
-              })
-              .catch((err) => console.error("Error fetching my teams:", err)),
-          );
+            .then((allTeams) => {
+              const mine = allTeams.filter((t) =>
+                t.user_teams.some(
+                  (ut) =>
+                    ut.user.id_user === p.id_user && ut.user.role === "lider",
+                ),
+              );
+              const members = Array.from(
+                new Map(
+                  mine
+                    .flatMap((t) => t.user_teams.map((ut) => ut.user))
+                    .map((u) => [u.id_user, u]),
+                ).values(),
+              );
+              setTeamMembers(members as User[]);
+            })
+            .catch((err) => console.error("Error fetching my teams:", err));
+          promises.push(minePromise);
         }
 
         return Promise.all(promises);

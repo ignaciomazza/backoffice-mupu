@@ -20,46 +20,50 @@ export default function Page() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string | null>(null);
+  const [agencyId, setAgencyId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  //   Fetch resources
+  // 1) Fetch perfil para obtener role + agency
   useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/user/profile", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error("Error al obtener perfil");
+        const data = await res.json();
+        setRole(data.role);
+        setAgencyId(data.id_agency);
+      } catch (err) {
+        console.error("❌ Error fetching profile:", err);
+      }
+    })();
+  }, [token]);
+
+  // 2) Fetch resources filtrados por agencyId
+  useEffect(() => {
+    if (agencyId === null) return;
     setLoading(true);
-    fetch("/api/resources")
+    fetch(`/api/resources?agencyId=${agencyId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then((res) => {
-        if (!res.ok) {
-          throw new Error("Error al obtener usuarios");
-        }
-        return res.json();
+        if (!res.ok) throw new Error("Error al obtener recursos");
+        return res.json() as Promise<Resource[]>;
       })
       .then((data) => {
         setResources(data);
-        setLoading(false);
       })
-      .catch((error: unknown) => {
-        console.error("Error fetching users:", error);
+      .catch((err) => {
+        console.error("❌ Error fetching resources:", err);
+        setResources([]);
+      })
+      .finally(() => {
         setLoading(false);
       });
-  }, []);
-
-  // Fetch user role
-  useEffect(() => {
-    async function fetchProfile() {
-      try {
-        const res = await fetch(`/api/user/profile`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setRole(data.role);
-        }
-      } catch (err) {
-        console.error("Error fetching profile:", err);
-      }
-    }
-    if (token) fetchProfile();
-  }, [token]);
+  }, [agencyId, token]);
 
   const displayed = useMemo(() => {
     const term = searchTerm.toLowerCase();

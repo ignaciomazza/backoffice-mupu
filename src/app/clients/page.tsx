@@ -1,4 +1,3 @@
-
 "use client";
 import { useState, useEffect } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -26,6 +25,7 @@ export default function Page() {
   const [profile, setProfile] = useState<{
     id_user: number;
     role: FilterRole;
+    id_agency: number;
   } | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
@@ -47,6 +47,7 @@ export default function Page() {
   const [formData, setFormData] = useState<
     Omit<Client, "id_client" | "registration_date" | "user"> & {
       id_user: number;
+      id_agency: number;
     }
   >({
     first_name: "",
@@ -65,61 +66,79 @@ export default function Page() {
     gender: "",
     email: "",
     id_user: 0,
+    id_agency: 0,
   });
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
 
-  // 1) Fetch perfil y usuarios/equipos
   useEffect(() => {
     if (!token) return;
+
     fetch("/api/user/profile", {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
       .then((p) => {
+        // Guardamos perfil y preparamos el formData
         setProfile(p);
-        setFormData((f) => ({ ...f, id_user: p.id_user }));
+        setFormData((f) => ({
+          ...f,
+          id_user: p.id_user,
+          id_agency: p.id_agency,
+        }));
         setSelectedUserId(FILTROS.includes(p.role) ? 0 : p.id_user);
         setSelectedTeamId(0);
 
-        // equipos
-        fetch("/api/teams", { headers: { Authorization: `Bearer ${token}` } })
-          .then((r) => r.json() as Promise<SalesTeam[]>)
-          .then((all) => {
-            const teams =
+        // 1) Cargamos los equipos de la agencia
+        fetch(`/api/teams?agencyId=${p.id_agency}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then((r) => {
+            if (!r.ok) throw new Error("No se pudieron cargar los equipos");
+            return r.json() as Promise<SalesTeam[]>;
+          })
+          .then((allTeams) => {
+            const allowedTeams =
               p.role === "lider"
-                ? all.filter((t) =>
+                ? allTeams.filter((t) =>
                     t.user_teams.some(
                       (ut) =>
                         ut.user.id_user === p.id_user &&
                         ut.user.role === "lider",
                     ),
                   )
-                : all;
-            setTeamsList(teams);
+                : allTeams;
+            setTeamsList(allowedTeams);
           })
-          .catch((err) => console.error("Error fetching teams:", err));
+          .catch((err) => console.error("❌ Error fetching teams:", err));
 
-        // si puede ver todos los usuarios
+        // 2) Si el rol permite ver todos los usuarios, los cargamos
         if (FILTROS.includes(p.role)) {
-          fetch("/api/users", { headers: { Authorization: `Bearer ${token}` } })
-            .then((r) => r.json() as Promise<User[]>)
-            .then((users) => {
-              const filtered = users.filter((u) =>
-                ["vendedor", "lider", "gerente"].includes(u.role),
-              );
-              setAllUsers(filtered);
-              setTeamMembers(filtered);
+          fetch("/api/users", {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+            .then((r) => {
+              if (!r.ok) throw new Error("No se pudieron cargar los usuarios");
+              return r.json() as Promise<User[]>;
             })
-            .catch((err) => console.error("Error fetching users:", err));
+            .then((users) => {
+              setAllUsers(users);
+              setTeamMembers(users);
+            })
+            .catch((err) => console.error("❌ Error fetching users:", err));
         }
 
-        // si es líder, sus miembros
+        // 3) Si es líder, únicamente sus miembros
         if (p.role === "lider") {
-          fetch("/api/teams", { headers: { Authorization: `Bearer ${token}` } })
-            .then((r) => r.json() as Promise<SalesTeam[]>)
-            .then((all) => {
-              const mine = all.filter((t) =>
+          fetch(`/api/teams?agencyId=${p.id_agency}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+            .then((r) => {
+              if (!r.ok) throw new Error("No se pudieron cargar los equipos");
+              return r.json() as Promise<SalesTeam[]>;
+            })
+            .then((allTeams) => {
+              const myTeams = allTeams.filter((t) =>
                 t.user_teams.some(
                   (ut) =>
                     ut.user.id_user === p.id_user && ut.user.role === "lider",
@@ -127,24 +146,25 @@ export default function Page() {
               );
               const members = Array.from(
                 new Map(
-                  mine
+                  myTeams
                     .flatMap((t) => t.user_teams.map((ut) => ut.user))
                     .map((u) => [u.id_user, u]),
                 ).values(),
               );
               setTeamMembers(members as User[]);
             })
-            .catch((err) => console.error("Error fetching my teams:", err));
+            .catch((err) =>
+              console.error("❌ Error fetching my teams members:", err),
+            );
         }
       })
-      .catch((err) => console.error("Error fetching profile:", err));
+      .catch((err) => console.error("❌ Error fetching profile:", err));
   }, [token]);
 
-  // 2) Cuando cambia el equipo, actualizo teamMembers (pero no para líderes)
+  // 2) Al cambiar de equipo, recalcular miembros
   useEffect(() => {
     if (!profile || profile.role === "lider") return;
     setSelectedUserId(0);
-
     if (selectedTeamId > 0) {
       const team = teamsList.find((t) => t.id_team === selectedTeamId);
       setTeamMembers(team ? team.user_teams.map((ut) => ut.user) : []);
@@ -158,41 +178,32 @@ export default function Page() {
     }
   }, [selectedTeamId, teamsList, profile, allUsers]);
 
-  // 3) Fetch de clients según filtros, búsqueda y rol "lider"
+  // 3) Fetch de clientes (agencia + filtros + validación)
   useEffect(() => {
-    if (selectedUserId === null) return;
+    if (!profile || selectedUserId === null) return;
+
     setIsLoading(true);
     (async () => {
       try {
-        let data: Client[] = [];
-        if (selectedUserId > 0) {
-          const res = await fetch(`/api/clients?userId=${selectedUserId}`);
-          data = await res.json();
-        } else {
-          const res = await fetch("/api/clients");
-          const all: Client[] = await res.json();
+        let url = `/api/clients?agencyId=${profile.id_agency}`;
+        if (selectedUserId > 0) url += `&userId=${selectedUserId}`;
 
-          if (profile?.role === "lider") {
-            const ids = teamMembers.map((u) => u.id_user);
-            data = all.filter((c) => ids.includes(c.user.id_user));
-          } else if (selectedTeamId > 0) {
-            const ids = teamsList
-              .find((t) => t.id_team === selectedTeamId)!
-              .user_teams.map((ut) => ut.user.id_user);
-            data = all.filter((c) => ids.includes(c.user.id_user));
-          } else if (selectedTeamId === -1) {
-            const assigned = teamsList.flatMap((t) =>
-              t.user_teams.map((ut) => ut.user.id_user),
-            );
-            data = all.filter((c) => !assigned.includes(c.user.id_user));
-          } else {
-            data = all;
-          }
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error(`Status ${res.status}`);
+
+        const data = await res.json();
+        if (!Array.isArray(data)) {
+          console.error("❌ clients response is not array:", data);
+          setClients([]);
+          return;
         }
 
+        let filtered: Client[] = data;
         if (searchTerm.trim()) {
           const s = searchTerm.toLowerCase();
-          data = data.filter(
+          filtered = filtered.filter(
             (c) =>
               `${c.first_name} ${c.last_name}`.toLowerCase().includes(s) ||
               (c.dni_number || "").includes(s) ||
@@ -203,24 +214,18 @@ export default function Page() {
               (c.company_name || "").toLowerCase().includes(s),
           );
         }
-
-        setClients(data);
+        setClients(filtered);
       } catch (err) {
-        console.error("Error fetching clients:", err);
+        console.error("❌ Error fetching clients:", err);
         toast.error("Error al obtener clientes.");
+        setClients([]);
       } finally {
         setIsLoading(false);
       }
     })();
-  }, [
-    selectedUserId,
-    selectedTeamId,
-    teamsList,
-    searchTerm,
-    profile,
-    teamMembers,
-  ]);
+  }, [profile, selectedUserId, searchTerm, token]);
 
+  // Handlers de formulario, borrar, editar, etc...
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
@@ -230,47 +235,36 @@ export default function Page() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Validación de DNI/Pasaporte
     if (!formData.dni_number?.trim() && !formData.passport_number?.trim()) {
       toast.error(
         "El DNI y el Pasaporte son obligatorios. Debes cargar al menos uno",
       );
       return;
     }
-
     try {
       const url = editingClientId
         ? `/api/clients/${editingClientId}`
         : "/api/clients";
       const method = editingClientId ? "PUT" : "POST";
-
-      // Preparamos el payload convirtiendo birth_date a ISO o null
       const payload = {
         ...formData,
         birth_date: formData.birth_date
           ? new Date(formData.birth_date).toISOString()
           : null,
       };
-
-      const response = await fetch(url, {
+      const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-
-      const resData = await response.json();
-
-      if (response.ok) {
-        setClients((prev) =>
-          editingClientId
-            ? prev.map((c) => (c.id_client === editingClientId ? resData : c))
-            : [...prev, resData],
-        );
-        toast.success("Cliente guardado con éxito!");
-      } else {
-        throw new Error(resData.error || "Error al guardar el cliente");
-      }
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Error al guardar el cliente");
+      setClients((prev) =>
+        editingClientId
+          ? prev.map((c) => (c.id_client === editingClientId ? body : c))
+          : [...prev, body],
+      );
+      toast.success("Cliente guardado con éxito!");
     } catch (err: unknown) {
       console.error("Error al guardar el cliente:", err);
       toast.error(
@@ -278,7 +272,6 @@ export default function Page() {
           "Error al guardar el cliente. Intente nuevamente.",
       );
     } finally {
-      // Reseteamos el form, manteniendo id_user
       setFormData({
         first_name: "",
         last_name: "",
@@ -296,6 +289,7 @@ export default function Page() {
         gender: "",
         email: "",
         id_user: formData.id_user,
+        id_agency: formData.id_agency,
       });
       setIsFormVisible(false);
       setEditingClientId(null);
@@ -304,14 +298,13 @@ export default function Page() {
 
   const deleteClient = async (id: number) => {
     try {
-      const response = await fetch(`/api/clients/${id}`, { method: "DELETE" });
-      const resData = await response.json();
-      if (response.ok) {
-        setClients((prev) => prev.filter((c) => c.id_client !== id));
-        toast.success("Cliente eliminado con éxito!");
-      } else {
-        throw new Error(resData.error || "Error al eliminar el cliente");
+      const res = await fetch(`/api/clients/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Error al eliminar el cliente");
       }
+      setClients((prev) => prev.filter((c) => c.id_client !== id));
+      toast.success("Cliente eliminado con éxito!");
     } catch (err: unknown) {
       console.error("Error al eliminar el cliente:", err);
       toast.error(
@@ -341,15 +334,17 @@ export default function Page() {
       gender: client.gender || "",
       email: client.email || "",
       id_user: client.user.id_user,
+      id_agency: client.user.id_agency,
     });
     setEditingClientId(client.id_client);
     setIsFormVisible(true);
   };
 
-  const formatDate = (dateString: string | undefined) => {
+  const formatDate = (dateString?: string) => {
     if (!dateString) return "-";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("es-AR", { timeZone: "UTC" });
+    return new Date(dateString).toLocaleDateString("es-AR", {
+      timeZone: "UTC",
+    });
   };
 
   return (

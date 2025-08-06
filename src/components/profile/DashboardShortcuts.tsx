@@ -92,7 +92,11 @@ const DashboardCard: React.FC<DashboardCardProps> = ({
   );
 };
 
-export default function DashboardShortcuts() {
+interface Props {
+  agencyId: number;
+}
+
+export default function DashboardShortcuts({ agencyId }: Props) {
   const { token, setToken } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
@@ -128,7 +132,7 @@ export default function DashboardShortcuts() {
         const profile = await pr.json();
 
         // 2) Equipos
-        const tr = await fetch("/api/teams", {
+        const tr = await fetch(`/api/teams?agencyId=${agencyId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const teams: {
@@ -195,7 +199,7 @@ export default function DashboardShortcuts() {
           ),
         );
 
-        const cr = await fetch(`/api/clients?userId=${profile.id_user}`, {
+        const cr = await fetch(`/api/clients?userId=${profile.id_user}&agencyId=${agencyId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const clients: Client[] = await cr.json();
@@ -223,7 +227,7 @@ export default function DashboardShortcuts() {
         setLoadingMetrics(false);
       }
     })();
-  }, [token, defaultFrom, defaultTo]);
+  }, [token, defaultFrom, defaultTo, agencyId]);
 
   const metrics: Metric[] = [
     {
