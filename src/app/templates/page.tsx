@@ -81,35 +81,34 @@ export default function NewDocPage() {
             />
           )}
 
-          <div className="mt-4 w-fit cursor-pointer rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur">
-            {data && userProfile && (
-              <PDFDownloadLink
-                key={JSON.stringify(data)}
-                document={
-                  docType === "quote" ? (
-                    <QuoteDocument
-                      quote={data as SimpleQuote}
-                      user={userProfile}
-                    />
-                  ) : (
-                    <ConfirmationDocument
-                      confirmation={data as Confirmation}
-                      user={userProfile}
-                    />
-                  )
-                }
-                fileName={
-                  docType === "quote"
-                    ? `${(data as SimpleQuote).tripTitle}.pdf`
-                    : `Confirmacion_${
-                        (data as Confirmation).confirmationNumber
-                      }.pdf`
-                }
-              >
-                {({ loading }) => (loading ? <Spinner /> : "Descargar PDF")}
-              </PDFDownloadLink>
-            )}
-          </div>
+          {data && userProfile && (
+            <PDFDownloadLink
+              key={JSON.stringify(data)}
+              document={
+                docType === "quote" ? (
+                  <QuoteDocument
+                    quote={data as SimpleQuote}
+                    user={userProfile}
+                  />
+                ) : (
+                  <ConfirmationDocument
+                    confirmation={data as Confirmation}
+                    user={userProfile}
+                  />
+                )
+              }
+              fileName={
+                docType === "quote"
+                  ? `${(data as SimpleQuote).tripTitle}.pdf`
+                  : `Confirmacion_${
+                      (data as Confirmation).confirmationNumber
+                    }.pdf`
+              }
+              className="mt-4 block w-fit cursor-pointer rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+            >
+              {({ loading }) => (loading ? <Spinner /> : "Descargar PDF")}
+            </PDFDownloadLink>
+          )}
         </div>
       )}
     </ProtectedRoute>

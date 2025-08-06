@@ -175,7 +175,7 @@ export default function QuoteForm({
 
         {/* Región */}
         <div className="basis-full">
-          <label >Región</label>
+          <label>Región</label>
           <select
             value={region}
             onChange={(e) => setRegion(e.target.value as Quote["region"])}
@@ -197,6 +197,10 @@ export default function QuoteForm({
             <option value="europa">Ciudad Europea</option>
             <option value="norte-europa">Norte Europeo</option>
             <option value="playa-europa">Playa Europea</option>
+            <option value="francia">Francia</option>
+            <option value="italia">Italia</option>
+            <option value="marruecos">Marruecos</option>
+            <option value="turquia">Turquia</option>
             <option value="auroras-boreales">Auroras Boreales</option>
             <option value="tailandia">Tailandia</option>
             <option value="japon">Japon</option>
