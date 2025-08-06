@@ -74,7 +74,7 @@ export default function Page() {
     setResources((prev) => [newRes, ...prev]);
   };
 
-  const isManager = role === "gerente" || role === "desarrollador";
+  const isManager = role === "gerente" || role === "desarrollador" || role === "lider";
 
   return (
     <ProtectedRoute>

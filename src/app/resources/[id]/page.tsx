@@ -24,7 +24,7 @@ export default function ResourceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string | null>(null);
 
-  const isManager = role === "gerente" || role === "desarrollador";
+  const isManager = role === "gerente" || role === "desarrollador" || role === "lider";
 
   // Estados para edición inline
   const [isEditing, setIsEditing] = useState(false);
