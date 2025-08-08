@@ -1,7 +1,7 @@
 // src/app/bookings/services/[id]/page.tsx
 
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -119,14 +119,24 @@ export default function ServicesPage() {
   const [isInvoiceFormVisible, setIsInvoiceFormVisible] = useState(false);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
 
+  // ✅ Memoize headers para que no cambien en cada render
+  const authHeaders = useMemo(
+    () => (token ? { Authorization: `Bearer ${token}` } : undefined),
+    [token],
+  );
+
   const handleBillingUpdate = useCallback((data: typeof billingData) => {
     setBillingData(data);
   }, []);
 
   const fetchBooking = useCallback(async () => {
+    if (!id || !token) return;
     try {
       setLoading(true);
-      const res = await fetch(`/api/bookings/${id}`);
+      const res = await fetch(`/api/bookings/${id}`, {
+        headers: authHeaders,
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("Error al obtener la reserva");
       const data = await res.json();
       setBooking(data);
@@ -135,22 +145,28 @@ export default function ServicesPage() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, token, authHeaders]);
 
   const fetchServices = useCallback(async () => {
+    if (!id || !token) return;
     try {
-      const res = await fetch(`/api/services?bookingId=${id}`);
+      const res = await fetch(`/api/services?bookingId=${id}`, {
+        headers: authHeaders,
+      });
       if (!res.ok) throw new Error("Error al obtener los servicios");
       const data = await res.json();
       setServices(data.services);
     } catch {
       toast.error("Error al obtener los servicios.");
     }
-  }, [id]);
+  }, [id, token, authHeaders]);
 
   const fetchInvoices = useCallback(async () => {
+    if (!id || !token) return;
     try {
-      const res = await fetch(`/api/invoices?bookingId=${id}`);
+      const res = await fetch(`/api/invoices?bookingId=${id}`, {
+        headers: authHeaders,
+      });
       if (!res.ok) {
         if (res.status === 404 || res.status === 405) {
           setInvoices([]);
@@ -163,11 +179,14 @@ export default function ServicesPage() {
     } catch {
       setInvoices([]);
     }
-  }, [id]);
+  }, [id, token, authHeaders]);
 
   const fetchReceipts = useCallback(async () => {
+    if (!id || !token) return;
     try {
-      const res = await fetch(`/api/receipts?bookingId=${id}`);
+      const res = await fetch(`/api/receipts?bookingId=${id}`, {
+        headers: authHeaders,
+      });
       if (!res.ok) {
         if (res.status === 404 || res.status === 405) {
           setReceipts([]);
@@ -180,24 +199,25 @@ export default function ServicesPage() {
     } catch {
       setReceipts([]);
     }
-  }, [id]);
+  }, [id, token, authHeaders]);
 
   const fetchCreditNotes = useCallback(async () => {
+    if (!invoices.length || !token) return;
     try {
-      // reunimos todas las llamadas por factura
       const all = await Promise.all(
         invoices.map((inv) =>
-          fetch(`/api/credit-notes?invoiceId=${inv.id_invoice}`)
+          fetch(`/api/credit-notes?invoiceId=${inv.id_invoice}`, {
+            headers: authHeaders,
+          })
             .then((r) => (r.ok ? r.json() : { creditNotes: [] }))
             .then((data) => data.creditNotes as CreditNoteWithItems[]),
         ),
       );
-      // aplanamos
       setCreditNotes(all.flat());
     } catch {
       setCreditNotes([]);
     }
-  }, [invoices]);
+  }, [invoices, token, authHeaders]);
 
   const handleReceiptCreated = () => {
     fetchReceipts();
@@ -210,7 +230,7 @@ export default function ServicesPage() {
       try {
         const res = await fetch(
           `/api/operators?agencyId=${userProfile.id_agency}`,
-          { headers: { Authorization: `Bearer ${token}` } },
+          { headers: authHeaders },
         );
         if (!res.ok) throw new Error("Error al obtener operadores");
         const data = (await res.json()) as Operator[];
@@ -221,7 +241,7 @@ export default function ServicesPage() {
     };
 
     loadOperators();
-  }, [token, userProfile]);
+  }, [token, authHeaders, userProfile]);
 
   const handleReceiptDeleted = (id_receipt: number) => {
     setReceipts((prev) => prev.filter((r) => r.id_receipt !== id_receipt));
@@ -232,7 +252,7 @@ export default function ServicesPage() {
     const fetchProfile = async () => {
       try {
         const res = await fetch("/api/user/profile", {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: authHeaders,
           credentials: "include",
         });
         if (!res.ok) throw new Error("Error al obtener el perfil");
@@ -245,18 +265,17 @@ export default function ServicesPage() {
       }
     };
     fetchProfile();
-  }, [token]);
+  }, [token, authHeaders]);
 
   const userRole = (userProfile?.role?.toLowerCase() as Role) || undefined;
 
   useEffect(() => {
-    if (id) {
-      fetchBooking();
-      fetchServices();
-      fetchInvoices();
-      fetchReceipts();
-    }
-  }, [id, fetchBooking, fetchServices, fetchInvoices, fetchReceipts]);
+    if (!id || !token) return;
+    fetchBooking();
+    fetchServices();
+    fetchInvoices();
+    fetchReceipts();
+  }, [id, token, fetchBooking, fetchServices, fetchInvoices, fetchReceipts]);
 
   useEffect(() => {
     if (invoices.length) fetchCreditNotes();
@@ -363,7 +382,10 @@ export default function ServicesPage() {
     try {
       const res = await fetch("/api/invoices", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authHeaders || {}),
+        },
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
@@ -386,7 +408,6 @@ export default function ServicesPage() {
 
   const handleCreditNoteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // validación mínima
     if (!creditNoteFormData.invoiceId || !creditNoteFormData.tipoNota) {
       toast.error("Completa todos los campos requeridos.");
       return;
@@ -405,7 +426,10 @@ export default function ServicesPage() {
     try {
       const res = await fetch("/api/credit-notes", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authHeaders || {}),
+        },
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
@@ -415,9 +439,7 @@ export default function ServicesPage() {
       const result = await res.json();
       if (result.success) {
         toast.success("Nota de crédito creada exitosamente!");
-        // refrescar lista de notas de crédito
         handleCreditNoteCreated();
-        // opcional: limpiar formulario
         setCreditNoteFormData({
           invoiceId: "",
           tipoNota: "",
@@ -429,7 +451,6 @@ export default function ServicesPage() {
         toast.error(result.message || "Error al crear nota de crédito.");
       }
     } catch (error: unknown) {
-      // aquí tipeamos como unknown y comprobamos
       const msg = error instanceof Error ? error.message : "Error de servidor.";
       toast.error(msg);
     } finally {
@@ -450,14 +471,19 @@ export default function ServicesPage() {
       const payload = { ...formData, booking_id: id, ...billingData };
       const res = await fetch(url, {
         method: editingServiceId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authHeaders || {}),
+        },
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || "Error al guardar servicio.");
       }
-      const updated = await fetch(`/api/services?bookingId=${id}`);
+      const updated = await fetch(`/api/services?bookingId=${id}`, {
+        headers: authHeaders,
+      });
       const data = await updated.json();
       setServices(data.services);
       toast.success(
@@ -506,6 +532,7 @@ export default function ServicesPage() {
     try {
       const res = await fetch(`/api/services/${serviceId}`, {
         method: "DELETE",
+        headers: authHeaders,
       });
       if (!res.ok) throw new Error("Error al eliminar servicio.");
       setServices((prev) => prev.filter((s) => s.id_service !== serviceId));

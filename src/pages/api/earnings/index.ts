@@ -24,6 +24,12 @@ interface EarningsResponse {
   items: EarningItem[];
 }
 
+// Helper: "YYYY-MM-DD" -> Date local a las 00:00
+function ymdToLocalDate(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<EarningsResponse | { error: string }>,
@@ -38,12 +44,13 @@ export default async function handler(
     return res.status(400).json({ error: "Parámetros from y to requeridos" });
   }
 
-  const fromDate = new Date(from);
-  const toDate = new Date(to);
-  toDate.setHours(23, 59, 59, 999);
+  // Límites en horario local: [from, to+1 día)
+  const fromDate = ymdToLocalDate(from);
+  const toDateExclusive = ymdToLocalDate(to);
+  toDateExclusive.setDate(toDateExclusive.getDate() + 1);
 
   try {
-    // 1) Construir mapas de equipos y usuarios
+    // 1) Mapas de equipos y usuarios
     const teams = await prisma.salesTeam.findMany({
       include: { user_teams: { include: { user: true } } },
     });
@@ -79,9 +86,16 @@ export default async function handler(
       teamMap.set(teamId, { name, members, leaders });
     });
 
-    // 2) Traer servicios con booking.user
+    // 2) Traer servicios del rango (creados entre from y to, en local) con booking.user
     const services = await prisma.service.findMany({
-      where: { created_at: { gte: fromDate, lte: toDate } },
+      where: {
+        booking: {
+          creation_date: {
+            gte: fromDate,
+            lt: toDateExclusive,
+          },
+        },
+      },
       include: { booking: { include: { user: true } } },
     });
 
@@ -110,17 +124,7 @@ export default async function handler(
       saleTotalsByBooking.set(bid, prev);
     });
 
-    // Debug: mostrar totales de venta
-    // console.debug(
-    //   "saleTotalsByBooking:",
-    //   Array.from(saleTotalsByBooking.entries()).map(([bid, totals]) => ({
-    //     bookingId: bid,
-    //     owner: bookingOwners.get(bid),
-    //     totals,
-    //   })),
-    // );
-
-    // 4) Recibos sin filtrar por fecha
+    // 4) Recibos (sin filtrar por fecha, para deuda/validación)
     const allReceipts = await prisma.receipt.findMany({
       where: {
         bookingId_booking: { in: Array.from(saleTotalsByBooking.keys()) },
@@ -137,16 +141,6 @@ export default async function handler(
       },
     );
 
-    // Debug: mostrar recibos acumulados
-    // console.debug(
-    //   "receiptsMap:",
-    //   Array.from(receiptsMap.entries()).map(([bid, sums]) => ({
-    //     bookingId: bid,
-    //     owner: bookingOwners.get(bid),
-    //     sums,
-    //   })),
-    // );
-
     // 5) Validar bookings ≥40% pagado en su propia moneda
     const validBookingCurrency = new Set<string>();
     saleTotalsByBooking.forEach((totals, bid) => {
@@ -158,20 +152,7 @@ export default async function handler(
       });
     });
 
-    // Debug: mostrar reservas válidas por moneda
-    // console.debug(
-    //   "validBookingCurrency:",
-    //   Array.from(validBookingCurrency).map((key) => {
-    //     const [bidStr, cur] = key.split("-");
-    //     return {
-    //       bookingId: Number(bidStr),
-    //       currency: cur,
-    //       owner: bookingOwners.get(Number(bidStr)),
-    //     };
-    //   }),
-    // );
-
-    // 6) Calcular deuda por reserva
+    // 6) Deuda por reserva
     const debtByBooking = new Map<number, { ARS: number; USD: number }>();
     saleTotalsByBooking.forEach((totals, bid) => {
       const paid = receiptsMap.get(bid) || { ARS: 0, USD: 0 };
@@ -181,17 +162,7 @@ export default async function handler(
       });
     });
 
-    // Debug: mostrar deuda por reserva
-    // console.debug(
-    //   "debtByBooking:",
-    //   Array.from(debtByBooking.entries()).map(([bid, debt]) => ({
-    //     bookingId: bid,
-    //     owner: bookingOwners.get(bid),
-    //     debt,
-    //   })),
-    // );
-
-    // 7) Filtrar servicios válidos
+    // 7) Filtrar servicios válidos por % pago
     const filteredServices = services.filter((svc) =>
       validBookingCurrency.has(`${svc.booking.id_booking}-${svc.currency}`),
     );
@@ -248,6 +219,7 @@ export default async function handler(
     }
 
     for (const svc of filteredServices) {
+      // Base de comisión: totalCommissionWithoutVAT - 2.4% fee (no negativo)
       const fee = svc.sale_price * 0.024;
       const dbCommission = svc.totalCommissionWithoutVAT ?? 0;
       const commissionBase = Math.max(dbCommission - fee, 0);
@@ -267,6 +239,7 @@ export default async function handler(
       let targetTeams: number[] = [];
 
       if (["lider", "gerente"].includes(lowerRole)) {
+        // Lider/Gerente vendiendo: 30% vendedor, resto a agencia
         if (lowerRole === "gerente" && leaderTeams.length === 0) {
           sellerComm = 0;
           agencyShareAmt = commissionBase;
@@ -276,6 +249,7 @@ export default async function handler(
         }
         targetTeams = leaderTeams.length ? leaderTeams : [0];
       } else {
+        // Vendedor: 30% vendedor, 10% líderes de sus equipos (si no hay líderes, va a agencia)
         sellerComm = commissionBase * 0.3;
         leaderComm = commissionBase * 0.1;
         agencyShareAmt = commissionBase - sellerComm - leaderComm;

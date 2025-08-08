@@ -1,6 +1,7 @@
 // src/components/bookings/BookingForm.tsx
-import { ChangeEvent, FormEvent } from "react";
+import { ChangeEvent, FormEvent, useState } from "react";
 import { motion } from "framer-motion";
+import Spinner from "@/components/Spinner";
 
 export interface BookingFormData {
   id_booking?: number;
@@ -41,6 +42,18 @@ export default function BookingForm({
   isFormVisible,
   setIsFormVisible,
 }: BookingFormProps) {
+  const [loading, setLoading] = useState(false);
+
+  const localHandleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await handleSubmit(e); // el que ya tenés
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const formatIsoToDisplay = (iso: string): string => {
     if (!iso) return "";
     if (iso.includes("/")) return iso;
@@ -127,7 +140,6 @@ export default function BookingForm({
     setFormData((prev) => {
       if (prev.pax_count <= 1) return prev;
       const newCount = prev.pax_count - 1;
-      // cortamos el array al nuevo largo (newCount - 1)
       return {
         ...prev,
         pax_count: newCount,
@@ -190,7 +202,7 @@ export default function BookingForm({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          onSubmit={handleSubmit}
+          onSubmit={localHandleSubmit}
           className="max-h-[400px] space-y-3 overflow-y-auto md:pr-12"
         >
           <div className="md:grid md:grid-cols-2 md:gap-4">
@@ -400,9 +412,18 @@ export default function BookingForm({
           <div className="pb-2">
             <button
               type="submit"
-              className="mt-4 rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+              disabled={loading}
+              className={`mt-4 rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur ${
+                loading ? "cursor-not-allowed opacity-50" : ""
+              }`}
             >
-              {editingBookingId ? "Guardar Cambios" : "Agregar Reserva"}
+              {loading ? (
+                <Spinner />
+              ) : editingBookingId ? (
+                "Guardar Cambios"
+              ) : (
+                "Agregar Reserva"
+              )}
             </button>
           </div>
         </motion.form>

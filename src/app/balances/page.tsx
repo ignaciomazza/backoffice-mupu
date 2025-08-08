@@ -1,4 +1,4 @@
-// src/app/bookings/page.tsx
+// src/app/balances/page.tsx
 
 "use client";
 
@@ -28,6 +28,8 @@ interface Booking {
     amount_currency: "ARS" | "USD";
   }[];
 }
+
+const TAKE = 500; // pedir muchas por página; el backend capea en 100
 
 export default function BalancesPage() {
   const { token } = useAuth();
@@ -138,28 +140,49 @@ export default function BalancesPage() {
   const fetchBookings = useCallback(async () => {
     setLoading(true);
     try {
-      const qs = new URLSearchParams();
+      // filtros base
+      const qsBase = new URLSearchParams();
       if (clientStatusArr.length)
-        qs.append("clientStatus", clientStatusArr.join(","));
+        qsBase.append("clientStatus", clientStatusArr.join(","));
       if (operatorStatusArr.length)
-        qs.append("operatorStatus", operatorStatusArr.join(","));
-      if (from) qs.append("from", from);
-      if (to) qs.append("to", to);
+        qsBase.append("operatorStatus", operatorStatusArr.join(","));
+      if (from) qsBase.append("from", from);
+      if (to) qsBase.append("to", to);
+      qsBase.append("take", String(TAKE));
 
-      const res = await fetch(`/api/bookings?${qs.toString()}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        credentials: token ? "include" : undefined,
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Error al cargar reservas");
-      const sorted = json.sort(
-        (a: Booking, b: Booking) =>
+      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+
+      // Traer todas las páginas usando cursor
+      let all: Booking[] = [];
+      let cursor: number | null = null;
+
+      for (let i = 0; i < 50; i++) {
+        const qs = new URLSearchParams(qsBase);
+        if (cursor) qs.append("cursor", String(cursor));
+
+        const res = await fetch(`/api/bookings?${qs.toString()}`, {
+          headers,
+          credentials: headers ? "include" : undefined,
+        });
+
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.error || "Error al cargar reservas");
+
+        const pageItems = (json?.items ?? []) as Booking[];
+        all = all.concat(pageItems);
+        cursor = json?.nextCursor ?? null;
+        if (!cursor) break;
+      }
+
+      // Ordenar por fecha de creación (desc) como antes
+      const sorted = all.sort(
+        (a, b) =>
           new Date(b.creation_date).getTime() -
           new Date(a.creation_date).getTime(),
       );
       setData(sorted);
     } catch (err: unknown) {
-      toast.error((err as Error).message);
+      toast.error((err as Error).message || "Error al cargar reservas");
     } finally {
       setLoading(false);
     }

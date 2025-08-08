@@ -32,9 +32,9 @@ export default function TeamForm({
         opacity: isVisible ? 1 : 0,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
+      className="mb-6 space-y-3 overflow-auto rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
-      <form onSubmit={onSubmit} className="space-y-4">
+      <form onSubmit={onSubmit} className="h-full space-y-4">
         <div>
           <label className="mb-2 block text-lg dark:text-white">
             Nombre del Equipo
@@ -52,7 +52,7 @@ export default function TeamForm({
           <label className="mb-2 block text-lg dark:text-white">
             Seleccionar Miembros
           </label>
-          <ul className="space-y-2">
+          <ul className="max-h-96 space-y-2 overflow-y-auto">
             {users.map((user) => (
               <li key={user.id_user}>
                 <label className="flex items-center dark:text-white">

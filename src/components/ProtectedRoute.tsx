@@ -83,7 +83,7 @@ export default function ProtectedRoute({
       if (/^\/(teams|agency)(\/|$)/.test(pathname)) {
         allowedRoles = ["desarrollador", "gerente"];
       } else if (/^\/operators(\/|$)/.test(pathname)) {
-        allowedRoles = ["desarrollador", "administrativo"];
+        allowedRoles = ["desarrollador", "administrativo", "gerente"];
       } else if (/^\/users(\/|$)/.test(pathname)) {
         allowedRoles = ["desarrollador", "gerente"];
       }

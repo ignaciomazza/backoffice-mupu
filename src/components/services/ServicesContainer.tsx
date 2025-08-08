@@ -174,15 +174,34 @@ export default function ServicesContainer({
   useEffect(() => {
     const loadBookingIds = async () => {
       try {
-        const res = await fetch("/api/bookings");
-        if (!res.ok) throw new Error("No se pudieron cargar los IDs");
-        const data: Booking[] = await res.json();
-        const ids = data.map((b) => b.id_booking).sort((a, b) => a - b);
-        setBookingIds(ids);
+        const allIds: number[] = [];
+        let cursor: number | null = null;
+        const take = 200; // ajustá si querés traer más por página
+
+        while (true) {
+          const qs = new URLSearchParams({ take: String(take) });
+          if (cursor) qs.set("cursor", String(cursor));
+
+          const res = await fetch(`/api/bookings?${qs.toString()}`);
+          if (!res.ok) throw new Error("No se pudieron cargar los IDs");
+
+          const data = await res.json();
+          const pageItems = Array.isArray(data?.items) ? data.items : [];
+          allIds.push(
+            ...pageItems.map((b: { id_booking: number }) => b.id_booking),
+          );
+
+          if (!data?.nextCursor) break;
+          cursor = data.nextCursor;
+        }
+
+        allIds.sort((a, b) => a - b);
+        setBookingIds(allIds);
       } catch (err) {
         console.error(err);
       }
     };
+
     loadBookingIds();
   }, []);
 
@@ -584,7 +603,9 @@ export default function ServicesContainer({
                         role === "desarrollador") && (
                         <button
                           onClick={() => {
-                            setInvObsDraft(booking.observation || "Sin observaciones");
+                            setInvObsDraft(
+                              booking.observation || "Sin observaciones",
+                            );
                             setIsEditingInvObs(true);
                           }}
                           className="rounded-full p-2 text-sky-950 transition-transform hover:scale-95 active:scale-90 dark:text-white"

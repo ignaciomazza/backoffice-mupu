@@ -1,6 +1,6 @@
 // src/app/bookings/page.tsx
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import BookingForm from "@/components/bookings/BookingForm";
 import BookingList from "@/components/bookings/BookingList";
@@ -12,6 +12,7 @@ import "react-toastify/dist/ReactToastify.css";
 import { Booking, User, SalesTeam } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 
+// === Constantes / Tipos ===
 const FILTROS = [
   "lider",
   "gerente",
@@ -31,11 +32,30 @@ type BookingFormData = {
   observation: string;
   titular_id: number;
   id_user: number;
-  id_agency: number;
+  id_agency: number; // lo mantengo para no romper BookingForm; el backend lo ignora
   departure_date: string;
   return_date: string;
   pax_count: number;
   clients_ids: number[];
+};
+
+// === Hook simple para debouncing ===
+function useDebounced<T>(value: T, delay = 350): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+// Helper para ignorar aborts de fetch
+type AbortErrorLike = { name?: unknown; code?: unknown };
+
+const isAbortError = (e: unknown): e is AbortErrorLike => {
+  if (typeof e !== "object" || e === null) return false;
+  const { name, code } = e as AbortErrorLike;
+  return name === "AbortError" || code === "ABORT_ERR";
 };
 
 export default function Page() {
@@ -67,11 +87,60 @@ export default function Page() {
   const [travelTo, setTravelTo] = useState<string>("");
 
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const debouncedSearch = useDebounced(searchTerm, 400);
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [expandedBookingId, setExpandedBookingId] = useState<number | null>(
     null,
   );
+
+  const TAKE = 24; // tamaño de página sugerido
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Para evitar race conditions y cancelar requests
+  const fetchAbortRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef(0);
+
+  const buildBookingsQuery = useCallback(
+    (opts?: { cursor?: number | null }) => {
+      const qs = new URLSearchParams();
+      if (selectedUserId > 0) qs.append("userId", String(selectedUserId));
+      if (selectedTeamId !== 0) qs.append("teamId", String(selectedTeamId));
+      if (selectedBookingStatus !== "Todas")
+        qs.append("status", selectedBookingStatus);
+      if (selectedClientStatus !== "Todas")
+        qs.append("clientStatus", selectedClientStatus);
+      if (selectedOperatorStatus !== "Todas")
+        qs.append("operatorStatus", selectedOperatorStatus);
+      if (creationFrom) qs.append("creationFrom", creationFrom);
+      if (creationTo) qs.append("creationTo", creationTo);
+      if (travelFrom) qs.append("from", travelFrom);
+      if (travelTo) qs.append("to", travelTo);
+
+      // ⬇️ búsqueda server-side (ya la soporta tu API)
+      if (debouncedSearch.trim()) qs.append("q", debouncedSearch.trim());
+
+      qs.append("take", String(TAKE));
+      if (opts?.cursor) qs.append("cursor", String(opts.cursor));
+      return qs.toString();
+    },
+    [
+      selectedUserId,
+      selectedTeamId,
+      selectedBookingStatus,
+      selectedClientStatus,
+      selectedOperatorStatus,
+      creationFrom,
+      creationTo,
+      travelFrom,
+      travelTo,
+      debouncedSearch,
+    ],
+  );
+
+  const [isFormVisible, setIsFormVisible] = useState(false);
+  const [editingBookingId, setEditingBookingId] = useState<number | null>(null);
 
   const [formData, setFormData] = useState<BookingFormData>({
     id_booking: undefined,
@@ -90,165 +159,145 @@ export default function Page() {
     pax_count: 1,
     clients_ids: [],
   });
-  const [isFormVisible, setIsFormVisible] = useState(false);
-  const [editingBookingId, setEditingBookingId] = useState<number | null>(null);
 
-  // carga de perfil + filtros
+  // --- Carga de perfil + filtros ---
   useEffect(() => {
     if (!token) return;
     setLoadingFilters(true);
 
-    fetch("/api/user/profile", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("No se pudo obtener el perfil");
-        return res.json() as Promise<{
+    const abort = new AbortController();
+
+    (async () => {
+      try {
+        const profileRes = await fetch("/api/user/profile", {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: abort.signal,
+        });
+        if (!profileRes.ok) throw new Error("No se pudo obtener el perfil");
+        const p = (await profileRes.json()) as {
           id_user: number;
           role: FilterRole;
           id_agency: number;
-        }>;
-      })
-      .then((p) => {
+        };
+
         setProfile(p);
+        const roleNorm = p.role.toLowerCase() as FilterRole;
         setFormData((prev) => ({ ...prev, id_user: p.id_user }));
-        setSelectedUserId(FILTROS.includes(p.role) ? 0 : p.id_user);
+        setSelectedUserId(FILTROS.includes(roleNorm) ? 0 : p.id_user);
         setSelectedTeamId(0);
 
         const headers = { Authorization: `Bearer ${token}` };
 
-        // 1) Lista de equipos de la agencia
-        const teamsPromise = fetch(`/api/teams?agencyId=${p.id_agency}`, {
+        // 1) Equipos de la agencia
+        const teamsRes = await fetch(`/api/teams?agencyId=${p.id_agency}`, {
           headers,
-        })
-          .then((r) => {
-            if (!r.ok) throw new Error("No se pudieron cargar los equipos");
-            return r.json() as Promise<SalesTeam[]>;
-          })
-          .then((allTeams) => {
-            const allowed =
-              p.role === "lider"
-                ? allTeams.filter((t) =>
-                    t.user_teams.some(
-                      (ut) =>
-                        ut.user.id_user === p.id_user &&
-                        ut.user.role === "lider",
-                    ),
-                  )
-                : allTeams;
-            setTeamsList(allowed);
-          })
-          .catch((err) => console.error("Error fetching teams list:", err));
-
-        const promises: Promise<unknown>[] = [teamsPromise];
-
-        // 2) Si el rol permite ver todos los usuarios
-        if (FILTROS.includes(p.role)) {
-          const usersPromise = fetch("/api/users", { headers })
-            .then((r) => {
-              if (!r.ok) throw new Error("Error al obtener usuarios");
-              return r.json() as Promise<User[]>;
-            })
-            .then((users) => {
-              setTeamMembers(
-                users.filter((u) =>
-                  ["vendedor", "lider", "gerente"].includes(u.role),
-                ),
-              );
-            })
-            .catch((err) => console.error("Error fetching users:", err));
-          promises.push(usersPromise);
-        }
-
-        // 3) Si es líder, obtener solo sus miembros
-        if (p.role === "lider") {
-          const minePromise = fetch(`/api/teams?agencyId=${p.id_agency}`, {
-            headers,
-          })
-            .then((r) => {
-              if (!r.ok) throw new Error("No se pudieron cargar los equipos");
-              return r.json() as Promise<SalesTeam[]>;
-            })
-            .then((allTeams) => {
-              const mine = allTeams.filter((t) =>
+          signal: abort.signal,
+        });
+        if (!teamsRes.ok) throw new Error("No se pudieron cargar los equipos");
+        const allTeams = (await teamsRes.json()) as SalesTeam[];
+        const allowed =
+          p.role === "lider"
+            ? allTeams.filter((t) =>
                 t.user_teams.some(
                   (ut) =>
                     ut.user.id_user === p.id_user && ut.user.role === "lider",
                 ),
-              );
-              const members = Array.from(
-                new Map(
-                  mine
-                    .flatMap((t) => t.user_teams.map((ut) => ut.user))
-                    .map((u) => [u.id_user, u]),
-                ).values(),
-              );
-              setTeamMembers(members as User[]);
-            })
-            .catch((err) => console.error("Error fetching my teams:", err));
-          promises.push(minePromise);
+              )
+            : allTeams;
+        setTeamsList(allowed);
+
+        // 2) Usuarios visibles (según rol)
+        if (FILTROS.includes(p.role)) {
+          const usersRes = await fetch("/api/users", {
+            headers,
+            signal: abort.signal,
+          });
+          if (usersRes.ok) {
+            const users = (await usersRes.json()) as User[];
+            setTeamMembers(
+              users.filter((u) =>
+                ["vendedor", "lider", "gerente"].includes(u.role),
+              ),
+            );
+          }
         }
 
-        return Promise.all(promises);
-      })
-      .catch((err) => console.error("Error fetching profile:", err))
-      .finally(() => setLoadingFilters(false));
+        // 3) Si es líder, obtener solo sus miembros (de nuevo desde teams para evitar otra API)
+        if (p.role === "lider") {
+          const mine = allTeams.filter((t) =>
+            t.user_teams.some(
+              (ut) => ut.user.id_user === p.id_user && ut.user.role === "lider",
+            ),
+          );
+          const members = Array.from(
+            new Map(
+              mine.flatMap((t) =>
+                t.user_teams.map((ut) => [ut.user.id_user, ut.user]),
+              ),
+            ).values(),
+          );
+          setTeamMembers(members as User[]);
+        }
+      } catch (error: unknown) {
+        if (isAbortError(error)) return; // <- ignorá aborts
+        const msg =
+          error instanceof Error ? error.message : "Error inesperado.";
+        console.error(msg);
+        toast.error(msg);
+      } finally {
+        if (!abort.signal.aborted) setLoadingFilters(false);
+      }
+    })();
+
+    return () => abort.abort();
   }, [token]);
 
-  // carga de reservas
+  // --- Carga de reservas (primera página con cursor) ---
   useEffect(() => {
-    if (!profile || loadingFilters) return;
+    if (!profile || loadingFilters || !token) return;
+
     setLoadingBookings(true);
 
-    const fetchBookings = async () => {
+    // cancelar petición anterior si existe
+    fetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
+
+    const myRequestId = ++requestIdRef.current;
+
+    (async () => {
       try {
-        const qs = new URLSearchParams();
-        if (selectedUserId > 0) qs.append("userId", String(selectedUserId));
-        if (selectedTeamId > 0) qs.append("teamId", String(selectedTeamId));
-        if (selectedBookingStatus !== "Todas")
-          qs.append("status", selectedBookingStatus);
-        if (selectedClientStatus !== "Todas")
-          qs.append("clientStatus", selectedClientStatus);
-        if (selectedOperatorStatus !== "Todas")
-          qs.append("operatorStatus", selectedOperatorStatus);
-        if (creationFrom) qs.append("creationFrom", creationFrom);
-        if (creationTo) qs.append("creationTo", creationTo);
-        if (travelFrom) qs.append("from", travelFrom);
-        if (travelTo) qs.append("to", travelTo);
+        const qs = buildBookingsQuery();
+        const resp = await fetch(`/api/bookings?${qs}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        if (!resp.ok) throw new Error("No se pudieron obtener las reservas");
 
-        let data: Booking[] = await fetch(`/api/bookings?${qs}`).then((r) =>
-          r.json(),
-        );
+        const { items, nextCursor } = await resp.json();
+        // Evitar condiciones de carrera
+        if (myRequestId !== requestIdRef.current) return;
 
-        // filtrado extra según rol y equipo...
-        if (selectedUserId === 0) {
-          if (profile.role === "lider") {
-            const ids = teamMembers.map((u) => u.id_user);
-            data = data.filter((b) => ids.includes(b.user.id_user));
-          }
-          if (selectedTeamId > 0) {
-            const teamIds = teamsList
-              .find((t) => t.id_team === selectedTeamId)!
-              .user_teams.map((ut) => ut.user.id_user);
-            data = data.filter((b) => teamIds.includes(b.user.id_user));
-          }
-          if (selectedTeamId === -1) {
-            const assigned = teamsList.flatMap((t) =>
-              t.user_teams.map((ut) => ut.user.id_user),
-            );
-            data = data.filter((b) => !assigned.includes(b.user.id_user));
-          }
-        }
-
-        setBookings(data);
-      } catch (error) {
-        console.error("Error fetching bookings:", error);
+        setBookings(items);
+        setNextCursor(nextCursor);
+        setExpandedBookingId(null);
+      } catch (err: unknown) {
+        if (isAbortError(err)) return; // <- ignorá aborts por cambio de filtros/navegación
+        console.error("Error fetching bookings:", err);
+        const msg =
+          err instanceof Error ? err.message : "Error al obtener reservas.";
+        toast.error(msg);
       } finally {
-        setLoadingBookings(false);
+        if (
+          myRequestId === requestIdRef.current &&
+          !controller.signal.aborted
+        ) {
+          setLoadingBookings(false);
+        }
       }
-    };
+    })();
 
-    fetchBookings();
+    return () => controller.abort();
   }, [
     profile,
     loadingFilters,
@@ -261,8 +310,9 @@ export default function Page() {
     creationTo,
     travelFrom,
     travelTo,
-    teamMembers,
-    teamsList,
+    token,
+    buildBookingsQuery,
+    debouncedSearch, // importante, para no disparar por cada keypress
   ]);
 
   const handleChange = (
@@ -282,6 +332,7 @@ export default function Page() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validaciones front mínimas
     if (
       !formData.details.trim() ||
       !formData.invoice_type.trim() ||
@@ -303,9 +354,12 @@ export default function Page() {
       return;
     }
 
+    // Validación extra para Factura A (con auth)
     if (formData.invoice_type === "Factura A") {
       try {
-        const resClient = await fetch(`/api/clients/${formData.titular_id}`);
+        const resClient = await fetch(`/api/clients/${formData.titular_id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (!resClient.ok) {
           toast.error("No se pudo obtener la información del titular.");
           return;
@@ -337,25 +391,63 @@ export default function Page() {
 
       const response = await fetch(url, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(formData),
       });
 
       if (!response.ok) {
-        const errorResponse = await response.json();
-        throw new Error(errorResponse.error || "Error al guardar la reserva.");
+        let msg = "Error al guardar la reserva.";
+        try {
+          const err = await response.json();
+          msg = typeof err?.error === "string" ? err.error : msg;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg);
       }
 
-      fetch("/api/bookings")
-        .then((res) => res.json())
-        .then((data) => setBookings(data));
+      // Refrescar primera página con los filtros actuales
+      const qs = buildBookingsQuery();
+      const listResp = await fetch(`/api/bookings?${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!listResp.ok) throw new Error("No se pudo refrescar la lista.");
+      const { items, nextCursor } = await listResp.json();
+      setBookings(items);
+      setNextCursor(nextCursor);
+      setExpandedBookingId(null);
+
       toast.success("Reserva guardada con éxito!");
       resetForm();
     } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error(error.message);
-        toast.error(error.message || "Error inesperado.");
-      }
+      const msg = error instanceof Error ? error.message : "Error inesperado.";
+      console.error(msg);
+      toast.error(msg);
+    }
+  };
+
+  // Cargar más (append con cursor)
+  const loadMore = async () => {
+    if (!nextCursor || !token || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const qs = buildBookingsQuery({ cursor: nextCursor });
+      const resp = await fetch(`/api/bookings?${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) throw new Error("No se pudieron obtener más reservas");
+
+      const { items, nextCursor: newCursor } = await resp.json();
+      setBookings((prev) => [...prev, ...items]);
+      setNextCursor(newCursor);
+    } catch (e) {
+      console.error("loadMore:", e);
+      toast.error("No se pudieron cargar más reservas.");
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -370,7 +462,7 @@ export default function Page() {
       invoice_observation: "",
       observation: "",
       titular_id: 0,
-      id_user: prev.id_user!,
+      id_user: prev.id_user!, // mantener el usuario actual
       id_agency: 1,
       departure_date: "",
       return_date: "",
@@ -405,7 +497,10 @@ export default function Page() {
 
   const deleteBooking = async (id: number) => {
     try {
-      const res = await fetch(`/api/bookings/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/bookings/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         setBookings((prev) => prev.filter((b) => b.id_booking !== id));
         toast.success("Reserva eliminada con éxito!");
@@ -418,10 +513,11 @@ export default function Page() {
     }
   };
 
-  const displayedBookings = bookings
-    .filter((b) => {
-      if (!searchTerm.trim()) return true;
-      const s = searchTerm.toLowerCase();
+  // Nota: ya filtrás por q en el servidor; este extra es solo “client-side refine”
+  const displayedBookings = useMemo(() => {
+    if (!debouncedSearch.trim()) return bookings;
+    const s = debouncedSearch.toLowerCase();
+    return bookings.filter((b) => {
       return (
         b.id_booking.toString().includes(s) ||
         b.titular.id_client.toString().includes(s) ||
@@ -432,32 +528,23 @@ export default function Page() {
           `${c.first_name} ${c.last_name}`.toLowerCase().includes(s),
         )
       );
-    })
-    .filter((b) => {
-      return (
-        selectedClientStatus === "Todas" ||
-        b.clientStatus === selectedClientStatus
-      );
-    })
-    .sort((a, b) => b.id_booking - a.id_booking);
+    });
+  }, [bookings, debouncedSearch]);
 
   const displayedTeamMembers = useMemo(() => {
-    // Si elegiste “Sin equipo”
+    // “Sin equipo”
     if (selectedTeamId === -1) {
-      // Devuelvo los usuarios que NO están en ningún equipo
       const assignedIds = teamsList.flatMap((t) =>
         t.user_teams.map((ut) => ut.user.id_user),
       );
       return teamMembers.filter((u) => !assignedIds.includes(u.id_user));
     }
-
-    // Si elegiste un equipo específico
+    // Equipo específico
     if (selectedTeamId > 0) {
       const team = teamsList.find((t) => t.id_team === selectedTeamId);
       return team ? team.user_teams.map((ut) => ut.user) : [];
     }
-
-    // selectedTeamId === 0  → “Todo el equipo”
+    // Todo el equipo
     return teamMembers;
   }, [selectedTeamId, teamsList, teamMembers]);
 
@@ -522,6 +609,9 @@ export default function Page() {
             startEditingBooking={startEditingBooking}
             deleteBooking={deleteBooking}
             role={profile?.role}
+            hasMore={Boolean(nextCursor)}
+            onLoadMore={loadMore}
+            loadingMore={loadingMore}
           />
         )}
 

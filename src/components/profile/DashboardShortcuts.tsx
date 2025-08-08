@@ -110,17 +110,22 @@ export default function DashboardShortcuts({ agencyId }: Props) {
 
   const { from: defaultFrom, to: defaultTo } = useMemo(() => {
     const today = new Date();
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1); // 00:00 local
+    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0); // 00:00 local
+
+    const toYMD = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
     return {
-      from: firstDay.toISOString().slice(0, 10),
-      to: lastDay.toISOString().slice(0, 10),
+      from: toYMD(firstDay), // p.ej. 2025-08-01 (local)
+      to: toYMD(lastDay), // p.ej. 2025-08-31 (local)
     };
   }, []);
 
   useEffect(() => {
     if (!token) return;
     setLoadingMetrics(true);
+
     (async () => {
       try {
         // 1) Perfil
@@ -153,11 +158,11 @@ export default function DashboardShortcuts({ agencyId }: Props) {
         // 3) Comisiones
         const er = await fetch(
           `/api/earnings?from=${defaultFrom}&to=${defaultTo}`,
+          { headers: { Authorization: `Bearer ${token}` } },
         );
         if (!er.ok) throw new Error("Error al cargar comisiones");
         const { items } = (await er.json()) as EarningsResponse;
 
-        // Calculamos seller + leader de una sola pasada
         const { sellerARS, leaderARS, sellerUSD, leaderUSD } = items.reduce(
           (acc, i) => {
             const isMe = i.userId === profile.id_user;
@@ -180,28 +185,37 @@ export default function DashboardShortcuts({ agencyId }: Props) {
           { sellerARS: 0, leaderARS: 0, sellerUSD: 0, leaderUSD: 0 },
         );
 
-        // console.log({ sellerARS, leaderARS, totalARS: sellerARS + leaderARS });
-
         setCommissionARS(sellerARS + leaderARS);
         setCommissionUSD(sellerUSD + leaderUSD);
 
-        // Observaciones
-        const br = await fetch("/api/bookings", {
-          headers: { Authorization: `Bearer ${token}` },
-          credentials: "include",
-        });
-        const allBookings: Booking[] = await br.json();
-        setObsBookings(
-          allBookings.filter(
-            (b) =>
-              b.user.id_user === profile.id_user &&
-              b.observation?.trim() !== "",
-          ),
-        );
+        // 4) Reservas con observaciones (nuevo API → { items, nextCursor })
+        {
+          const br = await fetch("/api/bookings?take=24", {
+            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
+          });
+          if (br.ok) {
+            const {
+              items: bookingsPage,
+            }: { items: Booking[]; nextCursor: number | null } =
+              await br.json();
+            setObsBookings(
+              bookingsPage.filter(
+                (b) =>
+                  b.user.id_user === profile.id_user &&
+                  (b.observation?.trim() ?? "") !== "",
+              ),
+            );
+          } else {
+            setObsBookings([]);
+          }
+        }
 
-        const cr = await fetch(`/api/clients?userId=${profile.id_user}&agencyId=${agencyId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        // 5) Nuevos clientes (igual que antes)
+        const cr = await fetch(
+          `/api/clients?userId=${profile.id_user}&agencyId=${agencyId}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
         const clients: Client[] = await cr.json();
         setNewClientsCount(
           clients.filter((c) => {
@@ -210,17 +224,29 @@ export default function DashboardShortcuts({ agencyId }: Props) {
           }).length,
         );
 
-        const bm = await fetch(
-          `/api/bookings?userId=${profile.id_user}&creationFrom=${defaultFrom}&creationTo=${defaultTo}`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        const bookingsMonth: Booking[] = await bm.json();
-        setTotalBookings(bookingsMonth.length);
-        const pendings = bookingsMonth.filter(
-          (b) => b.clientStatus === "Pendiente",
-        );
-        setPendingBookingsArr(pendings);
-        setPendingBookings(pendings.length);
+        // 6) Métricas de reservas del mes (nuevo API → { items })
+        {
+          const bm = await fetch(
+            `/api/bookings?userId=${profile.id_user}&creationFrom=${defaultFrom}&creationTo=${defaultTo}&take=24`,
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          if (bm.ok) {
+            const {
+              items: monthItems,
+            }: { items: Booking[]; nextCursor: number | null } =
+              await bm.json();
+            setTotalBookings(monthItems.length);
+            const pendings = monthItems.filter(
+              (b) => b.clientStatus === "Pendiente",
+            );
+            setPendingBookingsArr(pendings);
+            setPendingBookings(pendings.length);
+          } else {
+            setTotalBookings(0);
+            setPendingBookingsArr([]);
+            setPendingBookings(0);
+          }
+        }
       } catch (error) {
         console.error("Error inicializando DashboardShortcuts:", error);
       } finally {
