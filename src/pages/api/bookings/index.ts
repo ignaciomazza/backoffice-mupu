@@ -238,6 +238,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         or.push({ clients: { some: { id_client: qNum } } });
       }
 
+      // ✅ Detalles de la reserva
+      or.push({ details: { contains: q, mode: "insensitive" } });
+
       // Nombre / Apellido (titular y acompañantes)
       or.push({
         titular: { first_name: { contains: q, mode: "insensitive" } },

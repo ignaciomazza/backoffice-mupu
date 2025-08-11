@@ -2,6 +2,8 @@
 import { ChangeEvent, FormEvent, useState } from "react";
 import { motion } from "framer-motion";
 import Spinner from "@/components/Spinner";
+import ClientPicker from "../clients/CLientPicker";
+import { Client } from "@/types";
 
 export interface BookingFormData {
   id_booking?: number;
@@ -22,6 +24,7 @@ export interface BookingFormData {
 }
 
 interface BookingFormProps {
+  token?: string | null;
   formData: BookingFormData;
   handleChange: (
     e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
@@ -34,6 +37,7 @@ interface BookingFormProps {
 }
 
 export default function BookingForm({
+  token,
   formData,
   handleChange,
   handleSubmit,
@@ -110,19 +114,6 @@ export default function BookingForm({
       target: { name, value: iso },
     } as ChangeEvent<HTMLInputElement>;
     handleChange(event);
-  };
-
-  const handleAcompananteChange = (index: number, value: string) => {
-    const newId = Number(value);
-    if (newId === formData.titular_id) {
-      alert("El titular no puede ser incluido como acompañante.");
-      return;
-    }
-    setFormData((prevData) => {
-      const newClientsIds = [...prevData.clients_ids];
-      newClientsIds[index] = newId;
-      return { ...prevData, clients_ids: newClientsIds };
-    });
   };
 
   const handleIncrement = () => {
@@ -305,29 +296,25 @@ export default function BookingForm({
           </div>
 
           <div>
-            <label className="ml-2 block dark:text-white">N° Titular</label>
-            <input
-              type="number"
-              name="titular_id"
-              value={formData.titular_id || ""}
-              onChange={(e) => {
-                const titularId = Number(e.target.value);
-                setFormData((prevData) => ({
-                  ...prevData,
-                  titular_id: titularId,
-                  clients_ids: prevData.clients_ids.filter(
-                    (id) => id !== titularId,
-                  ),
-                }));
-              }}
-              onKeyDown={(e) => {
-                if (["ArrowUp", "ArrowDown"].includes(e.key))
-                  e.preventDefault();
-              }}
-              className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
-              min={1}
-              placeholder="Ej: 342"
+            <ClientPicker
+              token={token}
+              label="Titular"
+              placeholder="Buscar por N° Cliente, DNI, Pasaporte, CUIT o Nombre..."
+              valueId={formData.titular_id || null}
+              excludeIds={formData.clients_ids.filter(Boolean)}
               required
+              onSelect={(c: Client) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  titular_id: c.id_client,
+                  clients_ids: prev.clients_ids.filter(
+                    (id) => id !== c.id_client,
+                  ),
+                }))
+              }
+              onClear={() =>
+                setFormData((prev) => ({ ...prev, titular_id: 0 }))
+              }
             />
           </div>
 
@@ -385,26 +372,42 @@ export default function BookingForm({
 
           {formData.pax_count >= 2 && (
             <div>
-              <label className="ml-2 block dark:text-white">
-                N° de Acompañantes
-              </label>
+              <label className="ml-2 block dark:text-white">Acompañantes</label>
+
               {Array.from({ length: formData.pax_count - 1 }).map(
-                (_, index) => (
-                  <input
-                    key={index}
-                    type="number"
-                    value={formData.clients_ids[index] || ""}
-                    onChange={(e) =>
-                      handleAcompananteChange(index, e.target.value)
-                    }
-                    className="mt-3 w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
-                    placeholder={`N° del acompañante ${index + 1}`}
-                    onKeyDown={(e) => {
-                      if (["ArrowUp", "ArrowDown"].includes(e.key))
-                        e.preventDefault();
-                    }}
-                  />
-                ),
+                (_, index) => {
+                  const currentId = formData.clients_ids[index] || null;
+                  const exclude = [
+                    formData.titular_id,
+                    ...formData.clients_ids.filter((_, i) => i !== index),
+                  ].filter(Boolean) as number[];
+
+                  return (
+                    <div key={index} className="mt-3">
+                      <ClientPicker
+                        token={token}
+                        label={`Acompañante ${index + 1}`}
+                        placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
+                        valueId={currentId}
+                        excludeIds={exclude}
+                        onSelect={(c: Client) =>
+                          setFormData((prev) => {
+                            const next = [...prev.clients_ids];
+                            next[index] = c.id_client;
+                            return { ...prev, clients_ids: next };
+                          })
+                        }
+                        onClear={() =>
+                          setFormData((prev) => {
+                            const next = [...prev.clients_ids];
+                            next[index] = 0;
+                            return { ...prev, clients_ids: next };
+                          })
+                        }
+                      />
+                    </div>
+                  );
+                },
               )}
             </div>
           )}

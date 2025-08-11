@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Client, User, SalesTeam } from "@/types";
 import { motion } from "framer-motion";
@@ -9,6 +9,7 @@ import ClientList from "@/components/clients/ClientList";
 import Spinner from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import "react-toastify/dist/ReactToastify.css";
+import FilterPanel from "@/components/clients/FilterPanel";
 
 const FILTROS = [
   "lider",
@@ -17,6 +18,16 @@ const FILTROS = [
   "desarrollador",
 ] as const;
 type FilterRole = (typeof FILTROS)[number];
+
+// Debounce helper
+function useDebounced<T>(value: T, delay = 350): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
 
 export default function Page() {
   const { token } = useAuth();
@@ -32,16 +43,22 @@ export default function Page() {
   const [teamsList, setTeamsList] = useState<SalesTeam[]>([]);
 
   // selecciones de filtros
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<number>(0);
   const [selectedTeamId, setSelectedTeamId] = useState<number>(0);
 
   // buscador
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const debouncedSearch = useDebounced(searchTerm, 400);
 
   // --- Clients state ---
   const [clients, setClients] = useState<Client[]>([]);
   const [expandedClientId, setExpandedClientId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // Paginación (API ahora retorna { items, nextCursor })
+  const TAKE = 24;
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
 
   // --- Form state ---
   const [formData, setFormData] = useState<
@@ -71,15 +88,27 @@ export default function Page() {
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
 
+  // Abort + race conditions control
+  const fetchAbortRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef(0);
+
+  // 1) Cargar perfil + equipos + usuarios visibles según rol
   useEffect(() => {
     if (!token) return;
 
-    fetch("/api/user/profile", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.json())
-      .then((p) => {
-        // Guardamos perfil y preparamos el formData
+    const abort = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch("/api/user/profile", {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: abort.signal,
+        });
+        if (!res.ok) throw new Error("No se pudo obtener el perfil");
+        const p = (await res.json()) as {
+          id_user: number;
+          id_agency: number;
+          role: FilterRole;
+        };
         setProfile(p);
         setFormData((f) => ({
           ...f,
@@ -89,79 +118,64 @@ export default function Page() {
         setSelectedUserId(FILTROS.includes(p.role) ? 0 : p.id_user);
         setSelectedTeamId(0);
 
-        // 1) Cargamos los equipos de la agencia
-        fetch(`/api/teams?agencyId=${p.id_agency}`, {
+        // Equipos de la agencia
+        const teamsRes = await fetch(`/api/teams?agencyId=${p.id_agency}`, {
           headers: { Authorization: `Bearer ${token}` },
-        })
-          .then((r) => {
-            if (!r.ok) throw new Error("No se pudieron cargar los equipos");
-            return r.json() as Promise<SalesTeam[]>;
-          })
-          .then((allTeams) => {
-            const allowedTeams =
-              p.role === "lider"
-                ? allTeams.filter((t) =>
-                    t.user_teams.some(
-                      (ut) =>
-                        ut.user.id_user === p.id_user &&
-                        ut.user.role === "lider",
-                    ),
-                  )
-                : allTeams;
-            setTeamsList(allowedTeams);
-          })
-          .catch((err) => console.error("❌ Error fetching teams:", err));
-
-        // 2) Si el rol permite ver todos los usuarios, los cargamos
-        if (FILTROS.includes(p.role)) {
-          fetch("/api/users", {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-            .then((r) => {
-              if (!r.ok) throw new Error("No se pudieron cargar los usuarios");
-              return r.json() as Promise<User[]>;
-            })
-            .then((users) => {
-              setAllUsers(users);
-              setTeamMembers(users);
-            })
-            .catch((err) => console.error("❌ Error fetching users:", err));
-        }
-
-        // 3) Si es líder, únicamente sus miembros
-        if (p.role === "lider") {
-          fetch(`/api/teams?agencyId=${p.id_agency}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-            .then((r) => {
-              if (!r.ok) throw new Error("No se pudieron cargar los equipos");
-              return r.json() as Promise<SalesTeam[]>;
-            })
-            .then((allTeams) => {
-              const myTeams = allTeams.filter((t) =>
+          signal: abort.signal,
+        });
+        if (!teamsRes.ok) throw new Error("No se pudieron cargar los equipos");
+        const allTeams = (await teamsRes.json()) as SalesTeam[];
+        const allowedTeams =
+          p.role === "lider"
+            ? allTeams.filter((t) =>
                 t.user_teams.some(
                   (ut) =>
                     ut.user.id_user === p.id_user && ut.user.role === "lider",
                 ),
-              );
-              const members = Array.from(
-                new Map(
-                  myTeams
-                    .flatMap((t) => t.user_teams.map((ut) => ut.user))
-                    .map((u) => [u.id_user, u]),
-                ).values(),
-              );
-              setTeamMembers(members as User[]);
-            })
-            .catch((err) =>
-              console.error("❌ Error fetching my teams members:", err),
-            );
+              )
+            : allTeams;
+        setTeamsList(allowedTeams);
+
+        // Usuarios visibles
+        if (FILTROS.includes(p.role)) {
+          const usersRes = await fetch("/api/users", {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: abort.signal,
+          });
+          if (!usersRes.ok)
+            throw new Error("No se pudieron cargar los usuarios");
+          const users = (await usersRes.json()) as User[];
+          setAllUsers(users);
+          setTeamMembers(users);
         }
-      })
-      .catch((err) => console.error("❌ Error fetching profile:", err));
+
+        // Si es líder: solo miembros de sus equipos
+        if (p.role === "lider") {
+          const myTeams = allowedTeams.filter((t) =>
+            t.user_teams.some(
+              (ut) => ut.user.id_user === p.id_user && ut.user.role === "lider",
+            ),
+          );
+          const members = Array.from(
+            new Map(
+              myTeams
+                .flatMap((t) => t.user_teams.map((ut) => ut.user))
+                .map((u) => [u.id_user, u]),
+            ).values(),
+          );
+          setTeamMembers(members as User[]);
+        }
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return;
+        console.error("❌ Error inicializando perfil/equipos/usuarios:", err);
+        toast.error("No se pudo inicializar la vista de clientes.");
+      }
+    })();
+
+    return () => abort.abort();
   }, [token]);
 
-  // 2) Al cambiar de equipo, recalcular miembros
+  // 2) Al cambiar de equipo (solo roles no-líder), recalcular miembros visibles
   useEffect(() => {
     if (!profile || profile.role === "lider") return;
     setSelectedUserId(0);
@@ -178,54 +192,92 @@ export default function Page() {
     }
   }, [selectedTeamId, teamsList, profile, allUsers]);
 
-  // 3) Fetch de clientes (agencia + filtros + validación)
+  // 3) Fetch de clientes (usa la nueva API: { items, nextCursor } y filtros server-side)
+  const buildClientsQuery = useCallback(
+    (opts?: { cursor?: number | null }) => {
+      const qs = new URLSearchParams();
+      if (selectedUserId > 0) qs.append("userId", String(selectedUserId));
+      if (selectedTeamId !== 0) qs.append("teamId", String(selectedTeamId));
+      if (debouncedSearch.trim()) qs.append("q", debouncedSearch.trim());
+      qs.append("take", String(TAKE));
+      if (opts?.cursor) qs.append("cursor", String(opts.cursor));
+      return qs.toString();
+    },
+    [selectedUserId, selectedTeamId, debouncedSearch],
+  );
+
   useEffect(() => {
-    if (!profile || selectedUserId === null) return;
+    if (!profile || !token) return;
 
     setIsLoading(true);
+
+    // cancelar petición anterior si existe
+    fetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
+    const myRequestId = ++requestIdRef.current;
+
     (async () => {
       try {
-        let url = `/api/clients?agencyId=${profile.id_agency}`;
-        if (selectedUserId > 0) url += `&userId=${selectedUserId}`;
-
-        const res = await fetch(url, {
+        const qs = buildClientsQuery();
+        const res = await fetch(`/api/clients?${qs}`, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
-        if (!res.ok) throw new Error(`Status ${res.status}`);
-
-        const data = await res.json();
-        if (!Array.isArray(data)) {
-          console.error("❌ clients response is not array:", data);
-          setClients([]);
-          return;
-        }
-
-        let filtered: Client[] = data;
-        if (searchTerm.trim()) {
-          const s = searchTerm.toLowerCase();
-          filtered = filtered.filter(
-            (c) =>
-              `${c.first_name} ${c.last_name}`.toLowerCase().includes(s) ||
-              (c.dni_number || "").includes(s) ||
-              (c.passport_number || "").includes(s) ||
-              (c.email || "").toLowerCase().includes(s) ||
-              c.id_client.toString() === s ||
-              (c.tax_id || "").toLowerCase().includes(s) ||
-              (c.company_name || "").toLowerCase().includes(s),
-          );
-        }
-        setClients(filtered);
+        if (!res.ok) throw new Error("Error al obtener clientes");
+        const { items, nextCursor } = await res.json();
+        if (myRequestId !== requestIdRef.current) return; // evita race
+        setClients(items as Client[]);
+        setNextCursor(nextCursor ?? null);
+        setExpandedClientId(null);
       } catch (err) {
+        if ((err as Error).name === "AbortError") return;
         console.error("❌ Error fetching clients:", err);
         toast.error("Error al obtener clientes.");
         setClients([]);
+        setNextCursor(null);
       } finally {
-        setIsLoading(false);
+        if (
+          myRequestId === requestIdRef.current &&
+          !controller.signal.aborted
+        ) {
+          setIsLoading(false);
+        }
       }
     })();
-  }, [profile, selectedUserId, searchTerm, token]);
 
-  // Handlers de formulario, borrar, editar, etc...
+    return () => controller.abort();
+  }, [
+    profile,
+    selectedUserId,
+    selectedTeamId,
+    debouncedSearch,
+    token,
+    buildClientsQuery,
+  ]);
+
+  // (Opcional) cargar más
+  const loadMore = async () => {
+    if (!nextCursor || !token || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const qs = buildClientsQuery({ cursor: nextCursor });
+      const res = await fetch(`/api/clients?${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("No se pudieron cargar más clientes");
+      const { items, nextCursor: newCursor } = await res.json();
+      setClients((prev) => [...prev, ...(items as Client[])]);
+      setNextCursor(newCursor ?? null);
+    } catch (e) {
+      console.error("loadMore clients:", e);
+      toast.error("No se pudieron cargar más clientes.");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // Handlers de formulario
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
@@ -235,35 +287,51 @@ export default function Page() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!formData.dni_number?.trim() && !formData.passport_number?.trim()) {
       toast.error(
         "El DNI y el Pasaporte son obligatorios. Debes cargar al menos uno",
       );
       return;
     }
+
+    // backend espera "YYYY-MM-DD" o fecha parseable local; normalizamos
+    const birthISO =
+      formData.birth_date && formData.birth_date.includes("T")
+        ? formData.birth_date.split("T")[0]
+        : formData.birth_date;
+
     try {
       const url = editingClientId
         ? `/api/clients/${editingClientId}`
         : "/api/clients";
       const method = editingClientId ? "PUT" : "POST";
-      const payload = {
-        ...formData,
-        birth_date: formData.birth_date
-          ? new Date(formData.birth_date).toISOString()
-          : null,
-      };
+      const payload = { ...formData, birth_date: birthISO };
+
       const res = await fetch(url, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(payload),
       });
+
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error || "Error al guardar el cliente");
-      setClients((prev) =>
-        editingClientId
-          ? prev.map((c) => (c.id_client === editingClientId ? body : c))
-          : [...prev, body],
-      );
+      if (!res.ok)
+        throw new Error(body?.error || "Error al guardar el cliente");
+
+      // Refrescar primera página con filtros actuales
+      const qs = buildClientsQuery();
+      const listRes = await fetch(`/api/clients?${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!listRes.ok) throw new Error("No se pudo refrescar la lista.");
+      const { items, nextCursor } = await listRes.json();
+      setClients(items as Client[]);
+      setNextCursor(nextCursor ?? null);
+      setExpandedClientId(null);
+
       toast.success("Cliente guardado con éxito!");
     } catch (err: unknown) {
       console.error("Error al guardar el cliente:", err);
@@ -272,7 +340,7 @@ export default function Page() {
           "Error al guardar el cliente. Intente nuevamente.",
       );
     } finally {
-      setFormData({
+      setFormData((prev) => ({
         first_name: "",
         last_name: "",
         phone: "",
@@ -288,9 +356,9 @@ export default function Page() {
         nationality: "",
         gender: "",
         email: "",
-        id_user: formData.id_user,
-        id_agency: formData.id_agency,
-      });
+        id_user: prev.id_user,
+        id_agency: prev.id_agency,
+      }));
       setIsFormVisible(false);
       setEditingClientId(null);
     }
@@ -298,10 +366,18 @@ export default function Page() {
 
   const deleteClient = async (id: number) => {
     try {
-      const res = await fetch(`/api/clients/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/clients/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Error al eliminar el cliente");
+        throw new Error(
+          body?.error ||
+            (res.status === 409
+              ? "El cliente tiene movimientos."
+              : "Error al eliminar el cliente"),
+        );
       }
       setClients((prev) => prev.filter((c) => c.id_client !== id));
       toast.success("Cliente eliminado con éxito!");
@@ -338,6 +414,7 @@ export default function Page() {
     });
     setEditingClientId(client.id_client);
     setIsFormVisible(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const formatDate = (dateString?: string) => {
@@ -365,70 +442,17 @@ export default function Page() {
           Clientes
         </h2>
 
-        <div className="mb-4 flex w-full items-center space-x-2">
-          <div className="relative flex w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:border dark:border-white/10 dark:text-white">
-            <input
-              type="text"
-              placeholder="Buscar clientes..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-transparent outline-none placeholder:font-light placeholder:tracking-wide"
-            />
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="size-6"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
-              />
-            </svg>
-          </div>
-
-          {(profile?.role === "lider" ||
-            profile?.role === "gerente" ||
-            profile?.role === "administrativo" ||
-            profile?.role === "desarrollador") && (
-            <div className="flex gap-2">
-              <select
-                className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 p-2 px-3 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:text-white md:w-fit"
-                value={selectedUserId!}
-                onChange={(e) => setSelectedUserId(Number(e.target.value))}
-              >
-                <option value={0}>Todo el equipo</option>
-                {teamMembers.map((u) => (
-                  <option key={u.id_user} value={u.id_user}>
-                    {u.first_name} {u.last_name}
-                  </option>
-                ))}
-              </select>
-
-              {profile.role !== "lider" && (
-                <select
-                  className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 p-2 px-3 text-sky-950 shadow-md shadow-sky-950/10 outline-none backdrop-blur dark:text-white md:w-fit"
-                  value={selectedTeamId}
-                  onChange={(e) => {
-                    setSelectedTeamId(Number(e.target.value));
-                    setSelectedUserId(0);
-                  }}
-                >
-                  <option value={0}>Todos los equipos</option>
-                  <option value={-1}>Sin equipo</option>
-                  {teamsList.map((t) => (
-                    <option key={t.id_team} value={t.id_team}>
-                      {t.name || `Equipo ${t.id_team}`}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
-        </div>
+        <FilterPanel
+          searchTerm={searchTerm}
+          setSearchTerm={setSearchTerm}
+          role={profile?.role}
+          selectedUserId={selectedUserId}
+          setSelectedUserId={setSelectedUserId}
+          selectedTeamId={selectedTeamId}
+          setSelectedTeamId={setSelectedTeamId}
+          displayedTeamMembers={teamMembers}
+          teams={teamsList}
+        />
 
         {isLoading ? (
           <div className="flex min-h-[50vh] items-center">
@@ -442,6 +466,9 @@ export default function Page() {
             formatDate={formatDate}
             startEditingClient={startEditingClient}
             deleteClient={deleteClient}
+            hasMore={Boolean(nextCursor)}
+            onLoadMore={loadMore}
+            loadingMore={loadingMore}
           />
         )}
 

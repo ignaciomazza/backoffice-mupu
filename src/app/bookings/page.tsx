@@ -520,6 +520,7 @@ export default function Page() {
     return bookings.filter((b) => {
       return (
         b.id_booking.toString().includes(s) ||
+        b.details.toLowerCase().includes(s) ||
         b.titular.id_client.toString().includes(s) ||
         `${b.titular.first_name} ${b.titular.last_name}`
           .toLowerCase()
@@ -555,6 +556,7 @@ export default function Page() {
       <section className="text-sky-950 dark:text-white">
         <motion.div layout>
           <BookingForm
+            token={token}
             formData={formData}
             handleChange={handleChange}
             handleSubmit={handleSubmit}
