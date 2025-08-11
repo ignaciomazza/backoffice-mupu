@@ -1,5 +1,4 @@
 // src/app/balances/page.tsx
-
 "use client";
 
 import React, { useState, useCallback, useMemo } from "react";
@@ -9,6 +8,7 @@ import Spinner from "@/components/Spinner";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Link from "next/link";
+import { authFetch } from "@/utils/authFetch";
 
 interface Booking {
   id_booking: number;
@@ -28,6 +28,12 @@ interface Booking {
     amount_currency: "ARS" | "USD";
   }[];
 }
+
+type BookingsAPI = {
+  items: Booking[];
+  nextCursor: number | null;
+  error?: string;
+};
 
 const TAKE = 500; // pedir muchas por página; el backend capea en 100
 
@@ -102,20 +108,17 @@ export default function BalancesPage() {
 
   const formatDebtByCurrency = useCallback(
     (services: Booking["services"], receipts: Booking["Receipt"]) => {
-      // Suma ventas por moneda
       const sales = services.reduce<Record<string, number>>((acc, s) => {
         acc[s.currency] = (acc[s.currency] || 0) + s.sale_price;
         return acc;
       }, {});
 
-      // Suma recibos por moneda (usamos amount_currency)
       const paid = receipts.reduce<Record<string, number>>((acc, r) => {
         const cur = r.amount_currency;
         acc[cur] = (acc[cur] || 0) + r.amount;
         return acc;
       }, {});
 
-      // Resta para deuda neta por moneda
       const debts: Record<string, number> = {};
       for (const cur of Object.keys(sales)) {
         debts[cur] = sales[cur] - (paid[cur] || 0);
@@ -140,7 +143,6 @@ export default function BalancesPage() {
   const fetchBookings = useCallback(async () => {
     setLoading(true);
     try {
-      // filtros base
       const qsBase = new URLSearchParams();
       if (clientStatusArr.length)
         qsBase.append("clientStatus", clientStatusArr.join(","));
@@ -150,7 +152,6 @@ export default function BalancesPage() {
       if (to) qsBase.append("to", to);
       qsBase.append("take", String(TAKE));
 
-      // Traer todas las páginas usando cursor
       let all: Booking[] = [];
       let cursor: number | null = null;
 
@@ -158,29 +159,31 @@ export default function BalancesPage() {
         const qs = new URLSearchParams(qsBase);
         if (cursor) qs.append("cursor", String(cursor));
 
-        const res = await fetch(`/api/bookings?${qs.toString()}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          credentials: "include",
-        });
+        const res = await authFetch(
+          `/api/bookings?${qs.toString()}`,
+          { cache: "no-store" },
+          token || undefined,
+        );
 
-        const json = await res.json();
+        const json: BookingsAPI = await res.json();
         if (!res.ok) throw new Error(json?.error || "Error al cargar reservas");
 
-        const pageItems = (json?.items ?? []) as Booking[];
+        const pageItems = Array.isArray(json.items) ? json.items : [];
         all = all.concat(pageItems);
-        cursor = json?.nextCursor ?? null;
+        cursor = json.nextCursor ?? null;
         if (!cursor) break;
       }
 
-      // Ordenar por fecha de creación (desc) como antes
       const sorted = all.sort(
         (a, b) =>
           new Date(b.creation_date).getTime() -
           new Date(a.creation_date).getTime(),
       );
       setData(sorted);
-    } catch (err: unknown) {
-      toast.error((err as Error).message || "Error al cargar reservas");
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Error al cargar reservas";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

@@ -12,6 +12,7 @@ import { useAuth } from "@/context/AuthContext";
 import Spinner from "@/components/Spinner";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import ConfirmationPreview from "@/components/templates/confirmationPreview";
+import { authFetch } from "@/utils/authFetch";
 
 type DocType = "quote" | "confirmation";
 type DocumentData = SimpleQuote | Confirmation;
@@ -24,24 +25,32 @@ export default function NewDocPage() {
   const [userProfile, setUserProfile] = useState<User | null>(null);
   const [loadingPage, setLoadingPage] = useState(true);
 
-  // Fetch del perfil
   useEffect(() => {
     if (!token) return;
+
+    const controller = new AbortController();
+
     (async () => {
       try {
-        const res = await fetch("/api/user/profile", {
-          headers: { Authorization: `Bearer ${token}` },
-          credentials: "include",
-        });
-        if (!res.ok) throw new Error("Error fetching profile");
-        const data = (await res.json()) as User;
+        setLoadingPage(true);
+        const res = await authFetch(
+          "/api/user/profile",
+          { signal: controller.signal },
+          token,
+        );
+        if (!res.ok) throw new Error("Error al cargar perfil");
+        const data: User = await res.json();
         setUserProfile(data);
       } catch (error) {
-        console.error("Error fetching profile:", error);
+        if ((error as DOMException)?.name !== "AbortError") {
+          console.error("Error fetching profile:", error);
+        }
       } finally {
-        setLoadingPage(false);
+        if (!controller.signal.aborted) setLoadingPage(false);
       }
     })();
+
+    return () => controller.abort();
   }, [token]);
 
   return (

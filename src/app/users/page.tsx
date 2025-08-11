@@ -1,6 +1,6 @@
 // src/app/users/page.tsx
-
 "use client";
+
 import { useState, useEffect } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import UserForm from "@/components/users/UserForm";
@@ -10,6 +10,8 @@ import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import "react-toastify/dist/ReactToastify.css";
+import { useAuth } from "@/context/AuthContext";
+import { authFetch } from "@/utils/authFetch";
 
 type UserFormData = {
   email: string;
@@ -22,6 +24,8 @@ type UserFormData = {
 };
 
 export default function UsersPage() {
+  const { token } = useAuth();
+
   const [users, setUsers] = useState<User[]>([]);
   const [formData, setFormData] = useState<UserFormData>({
     email: "",
@@ -37,24 +41,34 @@ export default function UsersPage() {
   const [loadingUsers, setLoadingUsers] = useState<boolean>(true);
 
   useEffect(() => {
-    setLoadingUsers(true);
-    fetch("/api/users")
-      .then((res) => {
+    if (!token) return;
+
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        setLoadingUsers(true);
+        const res = await authFetch(
+          "/api/users",
+          { signal: controller.signal },
+          token,
+        );
         if (!res.ok) {
           throw new Error("Error al obtener usuarios");
         }
-        return res.json();
-      })
-      .then((data) => {
+        const data: User[] = await res.json();
         setUsers(data);
-        setLoadingUsers(false);
-      })
-      .catch((error: unknown) => {
+      } catch (error: unknown) {
+        if ((error as DOMException)?.name === "AbortError") return;
         console.error("Error fetching users:", error);
         toast.error("Error al obtener usuarios");
-        setLoadingUsers(false);
-      });
-  }, []);
+      } finally {
+        if (!controller.signal.aborted) setLoadingUsers(false);
+      }
+    };
+    load();
+
+    return () => controller.abort();
+  }, [token]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
@@ -81,24 +95,33 @@ export default function UsersPage() {
     const method = editingUserId ? "PUT" : "POST";
 
     try {
-      const dataToSend = { ...formData };
+      const dataToSend: UserFormData = { ...formData };
+      // Si estamos editando y no cambiaron contraseña, no la enviamos
       if (editingUserId && !dataToSend.password) {
-        delete dataToSend.password;
+        delete (dataToSend as Partial<UserFormData>).password;
       }
 
-      const response = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(dataToSend),
-      });
+      const response = await authFetch(
+        url,
+        {
+          method,
+          body: JSON.stringify(dataToSend),
+        },
+        token,
+      );
 
       if (!response.ok) {
-        const errorResponse = await response.json();
-        throw new Error(errorResponse.error || "Error en la solicitud");
+        let message = "Error en la solicitud";
+        try {
+          const errorResponse = await response.json();
+          message = errorResponse.error || errorResponse.message || message;
+        } catch {
+          // ignore
+        }
+        throw new Error(message);
       }
 
-      const user = await response.json();
+      const user: User = await response.json();
       setUsers((prevUsers) =>
         editingUserId
           ? prevUsers.map((u) => (u.id_user === editingUserId ? user : u))
@@ -148,18 +171,19 @@ export default function UsersPage() {
 
   const deleteUser = async (id_user: number) => {
     try {
-      const response = await fetch(`/api/users/${id_user}`, {
-        method: "DELETE",
-      });
-      if (response.ok) {
-        setUsers((prevUsers) =>
-          prevUsers.filter((user) => user.id_user !== id_user),
-        );
-        toast.success("Usuario eliminado con éxito!");
-      } else {
+      const response = await authFetch(
+        `/api/users/${id_user}`,
+        { method: "DELETE" },
+        token,
+      );
+      if (!response.ok) {
         throw new Error("Error al eliminar el usuario");
       }
-    } catch (error) {
+      setUsers((prevUsers) =>
+        prevUsers.filter((user) => user.id_user !== id_user),
+      );
+      toast.success("Usuario eliminado con éxito!");
+    } catch (error: unknown) {
       console.error("Error al eliminar el usuario:", error);
       toast.error("Error al eliminar el usuario.");
     }

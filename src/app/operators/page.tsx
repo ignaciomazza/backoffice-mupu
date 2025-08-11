@@ -1,5 +1,4 @@
 // src/app/operators/page.tsx
-
 "use client";
 import { useState, useEffect } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -11,6 +10,7 @@ import { toast, ToastContainer } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "@/context/AuthContext";
+import { authFetch } from "@/utils/authFetch";
 
 export default function OperatorsPage() {
   const { token } = useAuth();
@@ -19,6 +19,7 @@ export default function OperatorsPage() {
   const [expandedOperatorId, setExpandedOperatorId] = useState<number | null>(
     null,
   );
+
   const [formData, setFormData] = useState<Omit<Operator, "id_operator">>({
     name: "",
     email: "",
@@ -33,10 +34,11 @@ export default function OperatorsPage() {
     legal_name: "",
     tax_id: "",
     registration_date: "",
-    id_agency: 0, // se inyectará desde el perfil
+    id_agency: 0, // se inyecta desde el perfil
     credit_balance: 0,
     debit_balance: 0,
   });
+
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingOperatorId, setEditingOperatorId] = useState<number | null>(
     null,
@@ -46,50 +48,57 @@ export default function OperatorsPage() {
   // 1) Obtener agencyId y pre-llenar formData.id_agency
   useEffect(() => {
     if (!token) return;
-    fetch("/api/user/profile", {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: "include",
-    })
-      .then((res) => {
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/user/profile",
+          { signal: controller.signal },
+          token,
+        );
         if (!res.ok) throw new Error("No se pudo obtener el perfil");
-        return res.json();
-      })
-      .then((profile) => {
+        const profile = await res.json();
         setAgencyId(profile.id_agency);
-        setFormData((f) => ({
-          ...f,
-          id_agency: profile.id_agency,
-        }));
-      })
-      .catch((err) => {
-        console.error("Error fetching profile:", err);
-        toast.error("Error al obtener perfil de usuario");
-      });
+        setFormData((f) => ({ ...f, id_agency: profile.id_agency }));
+      } catch (err) {
+        if ((err as DOMException)?.name !== "AbortError") {
+          console.error("Error fetching profile:", err);
+          toast.error("Error al obtener perfil de usuario");
+        }
+      }
+    })();
+
+    return () => controller.abort();
   }, [token]);
 
   // 2) Cargar operadores filtrados por agencyId
   useEffect(() => {
     if (agencyId === null || !token) return;
     setLoadingOperators(true);
+    const controller = new AbortController();
 
-    fetch(`/api/operators?agencyId=${agencyId}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: "include",
-    })
-      .then((res) => {
+    (async () => {
+      try {
+        const res = await authFetch(
+          `/api/operators?agencyId=${agencyId}`,
+          { signal: controller.signal },
+          token,
+        );
         if (!res.ok) throw new Error("Error al obtener operadores");
-        return res.json() as Promise<Operator[]>;
-      })
-      .then((data) => {
+        const data: Operator[] = await res.json();
         setOperators(data);
-      })
-      .catch((error) => {
-        console.error("Error fetching operators:", error);
-        toast.error("Error al obtener operadores");
-      })
-      .finally(() => {
-        setLoadingOperators(false);
-      });
+      } catch (error) {
+        if ((error as DOMException)?.name !== "AbortError") {
+          console.error("Error fetching operators:", error);
+          toast.error("Error al obtener operadores");
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoadingOperators(false);
+      }
+    })();
+
+    return () => controller.abort();
   }, [agencyId, token]);
 
   const handleChange = (
@@ -112,20 +121,25 @@ export default function OperatorsPage() {
     const method = editingOperatorId ? "PUT" : "POST";
 
     try {
-      const res = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      const res = await authFetch(
+        url,
+        {
+          method,
+          body: JSON.stringify(formData),
         },
-        credentials: "include",
-        body: JSON.stringify(formData),
-      });
+        token,
+      );
+
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Error al guardar el operador.");
+        let msg = "Error al guardar el operador.";
+        try {
+          const err = await res.json();
+          msg = err?.error || msg;
+        } catch {}
+        throw new Error(msg);
       }
-      const operator = await res.json();
+
+      const operator: Operator = await res.json();
       setOperators((prev) =>
         editingOperatorId
           ? prev.map((op) =>
@@ -133,12 +147,13 @@ export default function OperatorsPage() {
             )
           : [operator, ...prev],
       );
+
       toast.success(
         editingOperatorId
           ? "Operador actualizado con éxito!"
           : "Operador creado con éxito!",
       );
-    } catch (error: unknown) {
+    } catch (error) {
       if (error instanceof Error) {
         console.error("Error al guardar el operador:", error.message);
         toast.error(error.message);
@@ -163,7 +178,7 @@ export default function OperatorsPage() {
       legal_name: "",
       tax_id: "",
       registration_date: "",
-      id_agency: agencyId!, // mantenemos el agencyId actual
+      id_agency: agencyId!, // mantener agency actual
       credit_balance: 0,
       debit_balance: 0,
     });
@@ -197,17 +212,17 @@ export default function OperatorsPage() {
 
   const deleteOperator = async (id_operator: number) => {
     try {
-      const res = await fetch(`/api/operators/${id_operator}`, {
-        method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-      });
+      const res = await authFetch(
+        `/api/operators/${id_operator}`,
+        { method: "DELETE" },
+        token,
+      );
       if (!res.ok) throw new Error("Error al eliminar el operador.");
       setOperators((prev) =>
         prev.filter((op) => op.id_operator !== id_operator),
       );
       toast.success("Operador eliminado con éxito!");
-    } catch (error: unknown) {
+    } catch (error) {
       if (error instanceof Error) {
         console.error("Error al eliminar el operador:", error.message);
         toast.error("Error al eliminar el operador.");

@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
+import { authFetch } from "@/utils/authFetch";
 
 interface ResourceFormProps {
   onCreated: (res: {
@@ -64,27 +65,33 @@ export default function ResourceForm({ onCreated }: ResourceFormProps) {
     }
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/resources`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      const res = await authFetch(
+        "/api/resources",
+        {
+          method: "POST",
+          body: JSON.stringify({ title }),
         },
-        credentials: "include",
-        body: JSON.stringify({ title }),
-      });
+        token,
+      );
+
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || "Error al crear recurso");
+        let msg = "Error al crear recurso";
+        try {
+          const err = await res.json();
+          msg = err?.message || err?.error || msg;
+        } catch {}
+        throw new Error(msg);
       }
+
       const data = await res.json();
       const newResource = data.resource || data;
       onCreated(newResource);
       setTitle("");
       toast.success("Recurso creado");
     } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al crear recurso";
       console.error(err);
-      toast.error((err as Error).message);
+      toast.error(msg);
     } finally {
       setSubmitting(false);
     }

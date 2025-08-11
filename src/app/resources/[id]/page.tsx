@@ -8,6 +8,14 @@ import Spinner from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "react-toastify";
 import Link from "next/link";
+import { authFetch } from "@/utils/authFetch";
+
+interface Resource {
+  id_resource: number;
+  title: string;
+  description?: string | null;
+  createdAt: string;
+}
 
 export default function ResourceDetailPage() {
   const params = useParams();
@@ -15,12 +23,7 @@ export default function ResourceDetailPage() {
   const { token } = useAuth();
   const router = useRouter();
 
-  const [resource, setResource] = useState<{
-    id_resource: number;
-    title: string;
-    description?: string;
-    createdAt: string;
-  } | null>(null);
+  const [resource, setResource] = useState<Resource | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string | null>(null);
 
@@ -36,13 +39,27 @@ export default function ResourceDetailPage() {
   // 1) Carga perfil
   useEffect(() => {
     if (!token) return;
-    fetch("/api/user/profile", {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: "include",
-    })
-      .then((res) => res.json())
-      .then((data) => setRole(data.role))
-      .catch((err) => console.error("Error fetching profile:", err));
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/user/profile",
+          { signal: controller.signal },
+          token,
+        );
+        if (!res.ok) throw new Error("Error perfil");
+        const data = await res.json();
+        setRole(data.role);
+      } catch (err) {
+        if ((err as DOMException)?.name !== "AbortError") {
+          // opcional: toast.error("No se pudo cargar el perfil");
+          console.error("Error fetching profile:", err);
+        }
+      }
+    })();
+
+    return () => controller.abort();
   }, [token]);
 
   // 2) Carga recurso
@@ -52,20 +69,29 @@ export default function ResourceDetailPage() {
       return;
     }
     setLoading(true);
-    fetch(`/api/resources/${id}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: "include",
-    })
-      .then((res) => {
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          `/api/resources/${id}`,
+          { signal: controller.signal },
+          token,
+        );
         if (!res.ok) throw new Error(`Status ${res.status}`);
-        return res.json();
-      })
-      .then((data) => setResource(data))
-      .catch((err) => {
-        console.error("Error fetching resource:", err);
-        toast.error("No se pudo cargar el recurso");
-      })
-      .finally(() => setLoading(false));
+        const data: Resource = await res.json();
+        setResource(data);
+      } catch (err) {
+        if ((err as DOMException)?.name !== "AbortError") {
+          console.error("Error fetching resource:", err);
+          toast.error("No se pudo cargar el recurso");
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+
+    return () => controller.abort();
   }, [id, token]);
 
   // 3) Cuando el recurso llega, inicializo los campos de edición
@@ -86,11 +112,11 @@ export default function ResourceDetailPage() {
   const handleDelete = async () => {
     if (!confirm("¿Estás seguro de que deseas eliminar este recurso?")) return;
     try {
-      const res = await fetch(`/api/resources/${id}`, {
-        method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-      });
+      const res = await authFetch(
+        `/api/resources/${id}`,
+        { method: "DELETE" },
+        token,
+      );
       if (!res.ok) throw new Error(`Error ${res.status}`);
       toast.success("Recurso eliminado");
       router.push("/resources");
@@ -108,27 +134,30 @@ export default function ResourceDetailPage() {
     }
     setSaving(true);
     try {
-      const res = await fetch(`/api/resources/${id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      const res = await authFetch(
+        `/api/resources/${id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            title: titleEdit.trim(),
+            description: descEdit.trim() || null,
+          }),
         },
-        credentials: "include",
-        body: JSON.stringify({
-          title: titleEdit.trim(),
-          description: descEdit.trim() || null,
-        }),
-      });
+        token,
+      );
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Error al actualizar");
+        let msg = "Error al actualizar";
+        try {
+          const err = await res.json();
+          msg = err?.error || msg;
+        } catch {}
+        throw new Error(msg);
       }
-      const updated = await res.json();
+      const updated: Resource = await res.json();
       setResource(updated);
       toast.success("Recurso actualizado");
       setIsEditing(false);
-    } catch (err: unknown) {
+    } catch (err) {
       console.error("Error updating resource:", err);
       toast.error((err as Error).message);
     } finally {

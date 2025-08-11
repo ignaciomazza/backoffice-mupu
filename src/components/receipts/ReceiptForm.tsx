@@ -5,13 +5,15 @@ import { toast } from "react-toastify";
 import { Booking, Receipt, Service } from "@/types";
 import Spinner from "../Spinner";
 import { motion } from "framer-motion";
+import { authFetch } from "@/utils/authFetch";
 
 interface Props {
   booking: Booking;
   onCreated?: (receipt: Receipt) => void;
+  token: string | null;
 }
 
-export default function ReceiptForm({ booking, onCreated }: Props) {
+export default function ReceiptForm({ booking, onCreated, token }: Props) {
   const [concept, setConcept] = useState("");
   const [currency, setCurrency] = useState("");
   const [amountString, setAmountString] = useState("");
@@ -93,12 +95,11 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
       .map((v) => parseInt(v.trim(), 10))
       .filter((n) => !isNaN(n));
 
-    // Opcional: si querés forzar que coincida la cantidad de inputs:
     if (clientIds.length !== idClients.length) {
       return toast.error("Todos los clientes deben tener un ID válido");
     }
 
-    // Parsear importe manual
+    // Importe final
     let finalAmount: number;
     if (manualAmount.trim() !== "") {
       const parsed = parseFloat(manualAmount);
@@ -107,7 +108,6 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
       }
       finalAmount = parsed;
     } else {
-      // Si no se ingresó manualmente, sumo precios de servicios
       finalAmount = selected.reduce(
         (sum, svc) => sum + svc.sale_price + (svc.card_interest ?? 0),
         0,
@@ -116,26 +116,41 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
 
     setLoading(true);
     try {
-      const res = await fetch("/api/receipts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          booking,
-          concept,
-          currency,
-          amountString,
-          amountCurrency,
-          serviceIds,
-          amount: finalAmount, // envío el importe final
-          clientIds,
-        }),
-      });
-      if (!res.ok) throw new Error("Error guardando recibo");
+      const res = await authFetch(
+        "/api/receipts",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            booking,
+            concept,
+            currency,
+            amountString,
+            amountCurrency,
+            serviceIds,
+            amount: finalAmount,
+            clientIds,
+          }),
+        },
+        token,
+      );
+
+      if (!res.ok) {
+        let msg = "Error guardando recibo";
+        try {
+          const err = await res.json();
+          msg = err?.error || err?.message || msg;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg);
+      }
+
       const { receipt } = await res.json();
 
       toast.success("Recibo creado exitosamente.");
       onCreated?.(receipt);
-      // Opcional: resetear formulario
+
+      // reset
       setConcept("");
       setCurrency("");
       setAmountString("");
@@ -146,7 +161,8 @@ export default function ReceiptForm({ booking, onCreated }: Props) {
       setClientsCount(1);
       setIdClients([""]);
     } catch (err: unknown) {
-      toast.error((err as Error).message);
+      const msg = err instanceof Error ? err.message : "Error guardando recibo";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

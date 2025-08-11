@@ -7,6 +7,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
 import ResourceCard from "@/components/resources/ResourceCard";
 import ResourceForm from "@/components/resources/ResourceForm";
+import { authFetch } from "@/utils/authFetch";
 
 interface Resource {
   id_resource: number;
@@ -24,47 +25,59 @@ export default function Page() {
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  // 1) Fetch perfil para obtener role + agency
+  // 1) Perfil (role + agency)
   useEffect(() => {
     if (!token) return;
+    const controller = new AbortController();
+
     (async () => {
       try {
-        const res = await fetch("/api/user/profile", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          credentials: "include",
-        });
+        const res = await authFetch(
+          "/api/user/profile",
+          { signal: controller.signal },
+          token,
+        );
         if (!res.ok) throw new Error("Error al obtener perfil");
         const data = await res.json();
         setRole(data.role);
         setAgencyId(data.id_agency);
       } catch (err) {
-        console.error("❌ Error fetching profile:", err);
+        if ((err as DOMException)?.name !== "AbortError") {
+          console.error("❌ Error fetching profile:", err);
+        }
       }
     })();
+
+    return () => controller.abort();
   }, [token]);
 
-  // 2) Fetch resources filtrados por agencyId
+  // 2) Recursos por agencyId
   useEffect(() => {
-    if (agencyId === null) return;
+    if (agencyId === null || !token) return;
     setLoading(true);
-    fetch(`/api/resources?agencyId=${agencyId}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: "include",
-    })
-      .then((res) => {
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          `/api/resources?agencyId=${agencyId}`,
+          { signal: controller.signal },
+          token,
+        );
         if (!res.ok) throw new Error("Error al obtener recursos");
-        return res.json() as Promise<Resource[]>;
-      })
-      .then((data) => {
+        const data: Resource[] = await res.json();
         setResources(data);
-      })
-      .catch((err) => {
-        console.error("❌ Error fetching resources:", err);
-        setResources([]);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+      } catch (err) {
+        if ((err as DOMException)?.name !== "AbortError") {
+          console.error("❌ Error fetching resources:", err);
+          setResources([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+
+    return () => controller.abort();
   }, [agencyId, token]);
 
   const displayed = useMemo(() => {

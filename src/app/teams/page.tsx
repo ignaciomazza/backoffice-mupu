@@ -1,3 +1,4 @@
+// src/app/teams/page.tsx (o donde lo tengas)
 "use client";
 import { useState, useEffect } from "react";
 import { SalesTeam, User } from "@/types";
@@ -8,6 +9,7 @@ import Spinner from "@/components/Spinner";
 import "react-toastify/dist/ReactToastify.css";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
+import { authFetch } from "@/utils/authFetch";
 
 export default function TeamsPage() {
   const { token } = useAuth();
@@ -16,12 +18,26 @@ export default function TeamsPage() {
   const [agencyId, setAgencyId] = useState<number | null>(null);
   useEffect(() => {
     if (!token) return;
-    fetch("/api/user/profile", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
-      .then((p: { id_agency: number }) => setAgencyId(p.id_agency))
-      .catch(() => toast.error("Error al obtener perfil"));
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const r = await authFetch(
+          "/api/user/profile",
+          { signal: controller.signal },
+          token,
+        );
+        if (!r.ok) throw new Error("Error al obtener perfil");
+        const p: { id_agency: number } = await r.json();
+        setAgencyId(p.id_agency);
+      } catch (e) {
+        if ((e as DOMException)?.name !== "AbortError") {
+          toast.error("Error al obtener perfil");
+        }
+      }
+    })();
+
+    return () => controller.abort();
   }, [token]);
 
   const [name, setName] = useState("");
@@ -35,33 +51,54 @@ export default function TeamsPage() {
   // Cargar usuarios
   useEffect(() => {
     if (!token) return;
-    fetch("/api/users", {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: "include",
-    })
-      .then((res) => {
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/users",
+          { signal: controller.signal },
+          token,
+        );
         if (!res.ok) throw new Error();
-        return res.json() as Promise<User[]>;
-      })
-      .then(setUsers)
-      .catch(() => toast.error("Error al obtener usuarios"));
+        const data: User[] = await res.json();
+        setUsers(data);
+      } catch (e) {
+        if ((e as DOMException)?.name !== "AbortError") {
+          toast.error("Error al obtener usuarios");
+        }
+      }
+    })();
+
+    return () => controller.abort();
   }, [token]);
 
   // Cargar equipos de la agencia
   useEffect(() => {
     if (agencyId == null || !token) return;
     setLoadingTeams(true);
-    fetch(`/api/teams?agencyId=${agencyId}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: "include",
-    })
-      .then((res) => {
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          `/api/teams?agencyId=${agencyId}`,
+          { signal: controller.signal },
+          token,
+        );
         if (!res.ok) throw new Error();
-        return res.json() as Promise<SalesTeam[]>;
-      })
-      .then((data) => setTeams(data))
-      .catch(() => toast.error("Error al obtener equipos"))
-      .finally(() => setLoadingTeams(false));
+        const data: SalesTeam[] = await res.json();
+        setTeams(data);
+      } catch (e) {
+        if ((e as DOMException)?.name !== "AbortError") {
+          toast.error("Error al obtener equipos");
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoadingTeams(false);
+      }
+    })();
+
+    return () => controller.abort();
   }, [agencyId, token]);
 
   const handleFormSubmit = async (e: React.FormEvent) => {
@@ -83,23 +120,28 @@ export default function TeamsPage() {
     const method = editingTeamId ? "PUT" : "POST";
 
     try {
-      const res = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      const res = await authFetch(
+        url,
+        {
+          method,
+          body: JSON.stringify({
+            name,
+            userIds: selectedUserIds,
+            id_agency: agencyId,
+          }),
         },
-        credentials: "include",
-        body: JSON.stringify({
-          name,
-          userIds: selectedUserIds,
-          id_agency: agencyId,
-        }),
-      });
+        token,
+      );
+
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Error al guardar el equipo");
+        let msg = "Error al guardar el equipo";
+        try {
+          const err = await res.json();
+          msg = err?.error || msg;
+        } catch {}
+        throw new Error(msg);
       }
+
       const team: SalesTeam = await res.json();
       setTeams((prev) =>
         editingTeamId
@@ -112,7 +154,7 @@ export default function TeamsPage() {
       setSelectedUserIds([]);
       setEditingTeamId(null);
       setIsFormVisible(false);
-    } catch (err: unknown) {
+    } catch (err) {
       toast.error((err as Error).message);
     }
   };
@@ -126,16 +168,16 @@ export default function TeamsPage() {
 
   const handleDeleteTeam = async (id_team: number) => {
     try {
-      const res = await fetch(`/api/teams/${id_team}`, {
-        method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error();
+      const res = await authFetch(
+        `/api/teams/${id_team}`,
+        { method: "DELETE" },
+        token,
+      );
+      if (!res.ok) throw new Error("Error al eliminar el equipo");
       setTeams((prev) => prev.filter((t) => t.id_team !== id_team));
       toast.success("Equipo eliminado con éxito");
-    } catch {
-      toast.error("Error al eliminar el equipo");
+    } catch (e) {
+      toast.error((e as Error).message || "Error al eliminar el equipo");
     }
   };
 

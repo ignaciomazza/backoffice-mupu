@@ -11,6 +11,7 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { Booking, User, SalesTeam } from "@/types";
 import { useAuth } from "@/context/AuthContext";
+import { authFetch } from "@/utils/authFetch";
 
 // === Constantes / Tipos ===
 const FILTROS = [
@@ -117,10 +118,7 @@ export default function Page() {
       if (creationTo) qs.append("creationTo", creationTo);
       if (travelFrom) qs.append("from", travelFrom);
       if (travelTo) qs.append("to", travelTo);
-
-      // ⬇️ búsqueda server-side (ya la soporta tu API)
       if (debouncedSearch.trim()) qs.append("q", debouncedSearch.trim());
-
       qs.append("take", String(TAKE));
       if (opts?.cursor) qs.append("cursor", String(opts.cursor));
       return qs.toString();
@@ -169,11 +167,11 @@ export default function Page() {
 
     (async () => {
       try {
-        const profileRes = await fetch("/api/user/profile", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          credentials: "include",
-          signal: abort.signal,
-        });
+        const profileRes = await authFetch(
+          "/api/user/profile",
+          { signal: abort.signal, cache: "no-store" },
+          token || undefined,
+        );
         if (!profileRes.ok) throw new Error("No se pudo obtener el perfil");
         const p = (await profileRes.json()) as {
           id_user: number;
@@ -188,11 +186,11 @@ export default function Page() {
         setSelectedTeamId(0);
 
         // 1) Equipos de la agencia
-        const teamsRes = await fetch(`/api/teams?agencyId=${p.id_agency}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          credentials: "include",
-          signal: abort.signal,
-        });
+        const teamsRes = await authFetch(
+          `/api/teams?agencyId=${p.id_agency}`,
+          { signal: abort.signal, cache: "no-store" },
+          token || undefined,
+        );
         if (!teamsRes.ok) throw new Error("No se pudieron cargar los equipos");
         const allTeams = (await teamsRes.json()) as SalesTeam[];
         const allowed =
@@ -208,11 +206,11 @@ export default function Page() {
 
         // 2) Usuarios visibles (según rol)
         if (FILTROS.includes(p.role)) {
-          const usersRes = await fetch("/api/users", {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-            credentials: "include",
-            signal: abort.signal,
-          });
+          const usersRes = await authFetch(
+            "/api/users",
+            { signal: abort.signal, cache: "no-store" },
+            token || undefined,
+          );
           if (usersRes.ok) {
             const users = (await usersRes.json()) as User[];
             setTeamMembers(
@@ -223,7 +221,7 @@ export default function Page() {
           }
         }
 
-        // 3) Si es líder, obtener solo sus miembros (de nuevo desde teams para evitar otra API)
+        // 3) Si es líder, obtener sólo sus miembros
         if (p.role === "lider") {
           const mine = allTeams.filter((t) =>
             t.user_teams.some(
@@ -240,7 +238,7 @@ export default function Page() {
           setTeamMembers(members as User[]);
         }
       } catch (error: unknown) {
-        if (isAbortError(error)) return; // <- ignorá aborts
+        if (isAbortError(error)) return;
         const msg =
           error instanceof Error ? error.message : "Error inesperado.";
         console.error(msg);
@@ -269,22 +267,21 @@ export default function Page() {
     (async () => {
       try {
         const qs = buildBookingsQuery();
-        const resp = await fetch(`/api/bookings?${qs}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          credentials: "include",
-          signal: controller.signal,
-        });
+        const resp = await authFetch(
+          `/api/bookings?${qs}`,
+          { signal: controller.signal, cache: "no-store" },
+          token || undefined,
+        );
         if (!resp.ok) throw new Error("No se pudieron obtener las reservas");
 
         const { items, nextCursor } = await resp.json();
-        // Evitar condiciones de carrera
         if (myRequestId !== requestIdRef.current) return;
 
         setBookings(items);
         setNextCursor(nextCursor);
         setExpandedBookingId(null);
       } catch (err: unknown) {
-        if (isAbortError(err)) return; // <- ignorá aborts por cambio de filtros/navegación
+        if (isAbortError(err)) return;
         console.error("Error fetching bookings:", err);
         const msg =
           err instanceof Error ? err.message : "Error al obtener reservas.";
@@ -314,7 +311,7 @@ export default function Page() {
     travelTo,
     token,
     buildBookingsQuery,
-    debouncedSearch, // importante, para no disparar por cada keypress
+    debouncedSearch,
   ]);
 
   const handleChange = (
@@ -359,10 +356,11 @@ export default function Page() {
     // Validación extra para Factura A (con auth)
     if (formData.invoice_type === "Factura A") {
       try {
-        const resClient = await fetch(`/api/clients/${formData.titular_id}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          credentials: "include",
-        });
+        const resClient = await authFetch(
+          `/api/clients/${formData.titular_id}`,
+          { cache: "no-store" },
+          token || undefined,
+        );
         if (!resClient.ok) {
           toast.error("No se pudo obtener la información del titular.");
           return;
@@ -392,12 +390,11 @@ export default function Page() {
         : "/api/bookings";
       const method = editingBookingId ? "PUT" : "POST";
 
-      const response = await fetch(url, {
-        method,
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-        body: JSON.stringify(formData),
-      });
+      const response = await authFetch(
+        url,
+        { method, body: JSON.stringify(formData) },
+        token || undefined,
+      );
 
       if (!response.ok) {
         let msg = "Error al guardar la reserva.";
@@ -412,10 +409,11 @@ export default function Page() {
 
       // Refrescar primera página con los filtros actuales
       const qs = buildBookingsQuery();
-      const listResp = await fetch(`/api/bookings?${qs}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-      });
+      const listResp = await authFetch(
+        `/api/bookings?${qs}`,
+        { cache: "no-store" },
+        token || undefined,
+      );
       if (!listResp.ok) throw new Error("No se pudo refrescar la lista.");
       const { items, nextCursor } = await listResp.json();
       setBookings(items);
@@ -437,10 +435,11 @@ export default function Page() {
     setLoadingMore(true);
     try {
       const qs = buildBookingsQuery({ cursor: nextCursor });
-      const resp = await fetch(`/api/bookings?${qs}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-      });
+      const resp = await authFetch(
+        `/api/bookings?${qs}`,
+        { cache: "no-store" },
+        token || undefined,
+      );
       if (!resp.ok) throw new Error("No se pudieron obtener más reservas");
 
       const { items, nextCursor: newCursor } = await resp.json();
@@ -500,11 +499,11 @@ export default function Page() {
 
   const deleteBooking = async (id: number) => {
     try {
-      const res = await fetch(`/api/bookings/${id}`, {
-        method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-      });
+      const res = await authFetch(
+        `/api/bookings/${id}`,
+        { method: "DELETE" },
+        token || undefined,
+      );
       if (res.ok) {
         setBookings((prev) => prev.filter((b) => b.id_booking !== id));
         toast.success("Reserva eliminada con éxito!");

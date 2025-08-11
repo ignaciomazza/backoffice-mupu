@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import Spinner from "@/components/Spinner";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import { authFetch } from "@/utils/authFetch";
 
 type ClientStatus = "Todas" | "Pendiente" | "Pago" | "Facturado";
 type ViewOption = "dayGridMonth" | "dayGridWeek";
@@ -84,47 +85,53 @@ export default function CalendarPage() {
     content: "",
   });
 
+  // Perfil + vendors + teams
   useEffect(() => {
     if (!token) return;
     setLoadingEvents(true);
 
-    // 1) Obtener perfil y luego vendors + teams de la misma agencia
-    fetch("/api/user/profile", {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: "include",
-    })
-      .then((r) => {
-        if (!r.ok) throw new Error("Error al obtener perfil");
-        return r.json() as Promise<User>;
-      })
-      .then((p) => {
+    (async () => {
+      try {
+        const rProfile = await authFetch(
+          "/api/user/profile",
+          { cache: "no-store" },
+          token,
+        );
+        if (!rProfile.ok) throw new Error("Error al obtener perfil");
+        const p = (await rProfile.json()) as User;
         setProfile(p);
-        // una vez tenemos el agencyId, disparar ambas cargas en paralelo
-        return Promise.all([
-          fetch(`/api/users?agencyId=${p.id_agency}`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-            credentials: "include",
-          }).then((r) => {
-            if (!r.ok) throw new Error("Error al obtener vendedores");
-            return r.json() as Promise<User[]>;
-          }),
-          fetch(`/api/teams?agencyId=${p.id_agency}`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-            credentials: "include",
-          }).then((r) => {
-            if (!r.ok) throw new Error("Error al obtener equipos");
-            return r.json() as Promise<SalesTeam[]>;
-          }),
+
+        const [rUsers, rTeams] = await Promise.all([
+          authFetch(
+            `/api/users?agencyId=${p.id_agency}`,
+            { cache: "no-store" },
+            token,
+          ),
+          authFetch(
+            `/api/teams?agencyId=${p.id_agency}`,
+            { cache: "no-store" },
+            token,
+          ),
         ]);
-      })
-      .then(([users, teams]) => {
+        if (!rUsers.ok) throw new Error("Error al obtener vendedores");
+        if (!rTeams.ok) throw new Error("Error al obtener equipos");
+
+        const [users, teams] = (await Promise.all([
+          rUsers.json(),
+          rTeams.json(),
+        ])) as [User[], SalesTeam[]];
+
         setVendors(users);
         setSalesTeams(teams);
-      })
-      .catch(console.error)
-      .finally(() => setLoadingEvents(false));
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoadingEvents(false);
+      }
+    })();
   }, [token]);
 
+  // Vendedores permitidos según rol
   const allowedVendors = useMemo(() => {
     if (!profile) return [];
     if (profile.role === "vendedor") {
@@ -152,6 +159,7 @@ export default function CalendarPage() {
     return vendors;
   }, [profile, vendors, salesTeams]);
 
+  // Autocompletar -> id de vendedor
   useEffect(() => {
     const match = allowedVendors.find(
       (u) => `${u.first_name} ${u.last_name}` === vendorInput,
@@ -159,28 +167,20 @@ export default function CalendarPage() {
     setSelectedVendor(match ? match.id_user : 0);
   }, [vendorInput, allowedVendors]);
 
+  // Cargar eventos de calendario
   useEffect(() => {
     if (!token || !profile) return;
 
     const qs = new URLSearchParams();
-
-    // 1) vendedor: solo sus propias reservas
     if (profile.role === "vendedor") {
       qs.append("userId", String(profile.id_user));
-
-      // 2) líder: todos o uno de su equipo
     } else if (profile.role === "lider") {
       const ids = selectedVendor
         ? [selectedVendor]
         : allowedVendors.map((u) => u.id_user);
-      // enviamos un array de ids concatenados
       qs.append("userIds", ids.join(","));
-
-      // 3) gerentes/otros: pueden ver todo o filtrar un único vendedor
-    } else {
-      if (selectedVendor) {
-        qs.append("userId", String(selectedVendor));
-      }
+    } else if (selectedVendor) {
+      qs.append("userId", String(selectedVendor));
     }
 
     if (selectedClientStatus !== "Todas") {
@@ -190,10 +190,7 @@ export default function CalendarPage() {
     if (dateRange.to) qs.append("to", dateRange.to);
 
     setLoadingEvents(true);
-    fetch(`/api/calendar?${qs.toString()}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: "include",
-    })
+    authFetch(`/api/calendar?${qs.toString()}`, { cache: "no-store" }, token)
       .then((r) => r.json() as Promise<CalendarEvent[]>)
       .then((data) => {
         const reservas = data
@@ -249,7 +246,10 @@ export default function CalendarPage() {
       router.push(`/bookings/services/${event.id.slice(2)}`);
     } else {
       const id = Number(event.id.slice(2));
-      const { content, creator } = event.extendedProps!;
+      const { content, creator } = event.extendedProps as {
+        content: string;
+        creator: string;
+      };
       setNoteModal({
         open: true,
         mode: "view",
@@ -275,6 +275,7 @@ export default function CalendarPage() {
     }
   };
 
+  // Crear nota
   const submitNote = async () => {
     if (!form.title.trim()) {
       alert("El título es obligatorio");
@@ -283,19 +284,18 @@ export default function CalendarPage() {
 
     setLoadingNote(true);
     try {
-      const res = await fetch("/api/calendar/notes", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      const res = await authFetch(
+        "/api/calendar/notes",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            title: form.title.trim(),
+            content: form.content.trim(),
+            date: noteModal.date,
+          }),
         },
-        credentials: "include",
-        body: JSON.stringify({
-          title: form.title.trim(),
-          content: form.content.trim(),
-          date: noteModal.date,
-        }),
-      });
+        token,
+      );
 
       if (!res.ok) {
         const error = await res.json();
@@ -327,16 +327,17 @@ export default function CalendarPage() {
     }
   };
 
+  // Eliminar nota
   const deleteNote = async (id: number) => {
     if (!confirm("¿Seguro que querés eliminar esta nota?")) return;
 
     setLoadingNote(true);
     try {
-      const res = await fetch(`/api/calendar/${id}`, {
-        method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-      });
+      const res = await authFetch(
+        `/api/calendar/${id}`,
+        { method: "DELETE" },
+        token,
+      );
 
       if (res.status === 204) {
         setEvents((e) => e.filter((ev) => ev.id !== `n-${id}`));
@@ -351,23 +352,28 @@ export default function CalendarPage() {
     }
   };
 
+  // Actualizar nota
   const updateNote = async () => {
     if (!noteModal.id) return;
 
     setLoadingNote(true);
     try {
-      const res = await fetch(`/api/calendar/${noteModal.id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      const res = await authFetch(
+        `/api/calendar/${noteModal.id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            title: form.title.trim(),
+            content: form.content.trim(),
+          }),
         },
-        credentials: "include",
-        body: JSON.stringify({
-          title: form.title.trim(),
-          content: form.content.trim(),
-        }),
-      });
+        token,
+      );
+
+      if (!res.ok) {
+        alert("Error al actualizar");
+        return;
+      }
 
       if (!res.ok) {
         alert("Error al actualizar");
@@ -404,6 +410,8 @@ export default function CalendarPage() {
     });
     setNoteModal((m) => ({ ...m, mode: "edit" }));
   };
+
+  // --- aquí va el return JSX ---
 
   return (
     <ProtectedRoute>

@@ -21,6 +21,7 @@ import CreditNoteForm, {
 import { useEffect, useMemo, useState } from "react";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 import { useRouter } from "next/navigation";
+import { authFetch } from "@/utils/authFetch";
 
 export type ServiceFormData = {
   type: string;
@@ -57,6 +58,7 @@ interface BillingData {
 }
 
 interface ServicesContainerProps {
+  token: string | null;
   booking: Booking | null;
   services: Service[];
   availableServices: Service[];
@@ -114,6 +116,7 @@ interface ServicesContainerProps {
 }
 
 export default function ServicesContainer({
+  token,
   booking,
   services,
   availableServices,
@@ -256,32 +259,48 @@ export default function ServicesContainer({
   const handleSaveStatuses = async () => {
     if (!booking) return;
     try {
-      const res = await fetch(`/api/bookings/${booking.id_booking}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientStatus: selectedClientStatus,
-          operatorStatus: selectedOperatorStatus,
-          status: selectedBookingStatus,
-          details: booking.details,
-          invoice_type: booking.invoice_type,
-          invoice_observation: booking.invoice_observation,
-          observation: booking.observation,
-          titular_id: booking.titular.id_client,
-          id_agency: booking.agency.id_agency,
-          departure_date: booking.departure_date,
-          return_date: booking.return_date,
-          pax_count: booking.pax_count,
-          clients_ids: booking.clients.map((c) => c.id_client),
-          id_user: booking.user.id_user,
-        }),
-      });
-      if (!res.ok) throw new Error();
+      const res = await authFetch(
+        `/api/bookings/${booking.id_booking}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            clientStatus: selectedClientStatus,
+            operatorStatus: selectedOperatorStatus,
+            status: selectedBookingStatus,
+            details: booking.details,
+            invoice_type: booking.invoice_type,
+            invoice_observation: booking.invoice_observation,
+            observation: booking.observation,
+            titular_id: booking.titular.id_client,
+            id_agency: booking.agency.id_agency,
+            departure_date: booking.departure_date,
+            return_date: booking.return_date,
+            pax_count: booking.pax_count,
+            clients_ids: booking.clients.map((c) => c.id_client),
+            id_user: booking.user.id_user,
+          }),
+        },
+        token,
+      );
+
+      if (!res.ok) {
+        let msg = "No se pudieron actualizar los estados.";
+        try {
+          const err = await res.json();
+          if (typeof err?.error === "string") msg = err.error;
+        } catch {}
+        throw new Error(msg);
+      }
+
       const updated = await res.json();
       toast.success("¡Estados actualizados!");
       onBookingUpdated?.(updated);
-    } catch {
-      toast.error("No se pudieron actualizar los estados.");
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : "No se pudieron actualizar los estados.";
+      toast.error(msg);
     }
   };
 
@@ -294,34 +313,41 @@ export default function ServicesContainer({
     if (!booking) return;
     setIsSavingInvObs(true);
     try {
-      const res = await fetch(`/api/bookings/${booking.id_booking}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          // mantenés todo igual que en handleSaveStatuses, pero solo cambiás invoice_observation
-          clientStatus: booking.clientStatus,
-          operatorStatus: booking.operatorStatus,
-          status: booking.status,
-          details: booking.details,
-          invoice_type: booking.invoice_type,
-          invoice_observation: booking.invoice_observation,
-          observation: invObsDraft,
-          titular_id: booking.titular.id_client,
-          id_agency: booking.agency.id_agency,
-          departure_date: booking.departure_date,
-          return_date: booking.return_date,
-          pax_count: booking.pax_count,
-          clients_ids: booking.clients.map((c) => c.id_client),
-          id_user: booking.user.id_user,
-        }),
-      });
+      const res = await authFetch(
+        `/api/bookings/${booking.id_booking}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            // ⚠️ OJO: tu comentario dice “solo cambiar invoice_observation”
+            // pero acá estás guardando 'observation' con invObsDraft.
+            // Dejalo como necesites:
+            clientStatus: booking.clientStatus,
+            operatorStatus: booking.operatorStatus,
+            status: booking.status,
+            details: booking.details,
+            invoice_type: booking.invoice_type,
+            invoice_observation: booking.invoice_observation, // o invObsDraft si querés editar esto
+            observation: invObsDraft, // o booking.observation si NO querés editar esto
+            titular_id: booking.titular.id_client,
+            id_agency: booking.agency.id_agency,
+            departure_date: booking.departure_date,
+            return_date: booking.return_date,
+            pax_count: booking.pax_count,
+            clients_ids: booking.clients.map((c) => c.id_client),
+            id_user: booking.user.id_user,
+          }),
+        },
+        token,
+      );
       if (!res.ok) throw new Error();
       const updated = await res.json();
       onBookingUpdated?.(updated);
       setIsEditingInvObs(false);
       toast.success("Observación guardada");
-    } catch {
-      toast.error("Error al guardar observación");
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error ? e.message : "Error al guardar observación";
+      toast.error(msg);
     } finally {
       setIsSavingInvObs(false);
     }
@@ -693,6 +719,7 @@ export default function ServicesContainer({
                     <ReceiptForm
                       booking={booking}
                       onCreated={onReceiptCreated}
+                      token={token}
                     />
                   </div>
                 )}

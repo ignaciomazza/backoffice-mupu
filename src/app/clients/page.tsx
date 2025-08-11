@@ -10,6 +10,7 @@ import Spinner from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import "react-toastify/dist/ReactToastify.css";
 import FilterPanel from "@/components/clients/FilterPanel";
+import { authFetch } from "@/utils/authFetch";
 
 const FILTROS = [
   "lider",
@@ -99,11 +100,11 @@ export default function Page() {
     const abort = new AbortController();
     (async () => {
       try {
-        const res = await fetch("/api/user/profile", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          credentials: "include",
-          signal: abort.signal,
-        });
+        const res = await authFetch(
+          "/api/user/profile",
+          { cache: "no-store", signal: abort.signal },
+          token,
+        );
         if (!res.ok) throw new Error("No se pudo obtener el perfil");
         const p = (await res.json()) as {
           id_user: number;
@@ -120,11 +121,11 @@ export default function Page() {
         setSelectedTeamId(0);
 
         // Equipos de la agencia
-        const teamsRes = await fetch(`/api/teams?agencyId=${p.id_agency}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          credentials: "include",
-          signal: abort.signal,
-        });
+        const teamsRes = await authFetch(
+          `/api/teams?agencyId=${p.id_agency}`,
+          { cache: "no-store", signal: abort.signal },
+          token,
+        );
         if (!teamsRes.ok) throw new Error("No se pudieron cargar los equipos");
         const allTeams = (await teamsRes.json()) as SalesTeam[];
         const allowedTeams =
@@ -140,11 +141,11 @@ export default function Page() {
 
         // Usuarios visibles
         if (FILTROS.includes(p.role)) {
-          const usersRes = await fetch("/api/users", {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-            credentials: "include",
-            signal: abort.signal,
-          });
+          const usersRes = await authFetch(
+            "/api/users",
+            { cache: "no-store", signal: abort.signal },
+            token,
+          );
           if (!usersRes.ok)
             throw new Error("No se pudieron cargar los usuarios");
           const users = (await usersRes.json()) as User[];
@@ -223,11 +224,11 @@ export default function Page() {
     (async () => {
       try {
         const qs = buildClientsQuery();
-        const res = await fetch(`/api/clients?${qs}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          credentials: "include",
-          signal: controller.signal,
-        });
+        const res = await authFetch(
+          `/api/clients?${qs}`,
+          { cache: "no-store", signal: controller.signal },
+          token,
+        );
         if (!res.ok) throw new Error("Error al obtener clientes");
         const { items, nextCursor } = await res.json();
         if (myRequestId !== requestIdRef.current) return; // evita race
@@ -266,10 +267,11 @@ export default function Page() {
     setLoadingMore(true);
     try {
       const qs = buildClientsQuery({ cursor: nextCursor });
-      const res = await fetch(`/api/clients?${qs}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-      });
+      const res = await authFetch(
+        `/api/clients?${qs}`,
+        { cache: "no-store" },
+        token,
+      );
       if (!res.ok) throw new Error("No se pudieron cargar más clientes");
       const { items, nextCursor: newCursor } = await res.json();
       setClients((prev) => [...prev, ...(items as Client[])]);
@@ -313,15 +315,11 @@ export default function Page() {
       const method = editingClientId ? "PUT" : "POST";
       const payload = { ...formData, birth_date: birthISO };
 
-      const res = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
+      const res = await authFetch(
+        url,
+        { method, body: JSON.stringify(payload) },
+        token,
+      );
 
       const body = await res.json();
       if (!res.ok)
@@ -329,10 +327,11 @@ export default function Page() {
 
       // Refrescar primera página con filtros actuales
       const qs = buildClientsQuery();
-      const listRes = await fetch(`/api/clients?${qs}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-      });
+      const listRes = await authFetch(
+        `/api/clients?${qs}`,
+        { cache: "no-store" },
+        token,
+      );
       if (!listRes.ok) throw new Error("No se pudo refrescar la lista.");
       const { items, nextCursor } = await listRes.json();
       setClients(items as Client[]);
@@ -373,11 +372,11 @@ export default function Page() {
 
   const deleteClient = async (id: number) => {
     try {
-      const res = await fetch(`/api/clients/${id}`, {
-        method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-      });
+      const res = await authFetch(
+        `/api/clients/${id}`,
+        { method: "DELETE" },
+        token,
+      );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(

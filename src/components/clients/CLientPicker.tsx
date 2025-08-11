@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, useId } from "react";
 import type { Client } from "@/types";
 import Spinner from "@/components/Spinner";
+import { authFetch } from "@/utils/authFetch";
 
 type Props = {
   token?: string | null;
@@ -54,11 +55,13 @@ export default function ClientPicker({
     (async () => {
       try {
         setLoading(true);
-        const res = await fetch(`/api/clients?q=${valueId}&take=1`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          credentials: "include",
-          signal: controller.signal,
-        });
+        const res = await authFetch(
+          `/api/clients?q=${valueId}&take=1`,
+          { signal: controller.signal },
+          token ?? null,
+        );
+        if (!res.ok) return;
+
         const data = await res.json();
         const c: Client | undefined = Array.isArray(data?.items)
           ? data.items[0]
@@ -103,14 +106,13 @@ export default function ClientPicker({
     (async () => {
       try {
         setLoading(true);
-        const res = await fetch(
+        const res = await authFetch(
           `/api/clients?q=${encodeURIComponent(q)}&take=8`,
-          {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-            credentials: "include",
-            signal: controller.signal,
-          },
+          { signal: controller.signal },
+          token ?? null,
         );
+        if (!res.ok) return;
+
         const data = await res.json();
         const items: Client[] = Array.isArray(data?.items)
           ? data.items
@@ -148,6 +150,7 @@ export default function ClientPicker({
     setResults([]);
     onClear?.();
   };
+
   const inputBase =
     "w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
 
@@ -155,7 +158,7 @@ export default function ClientPicker({
     <div className="relative">
       {label && <label className="mb-1 block font-medium">{label}</label>}
 
-      <div className={`flex items-center gap-2`}>
+      <div className="flex items-center gap-2">
         <input
           type="text"
           role="combobox"
@@ -246,7 +249,7 @@ function compactIdentity(c: Client) {
     c.passport_number && `Pass ${c.passport_number}`,
     c.tax_id && `CUIT ${c.tax_id}`,
     c.email,
-  ].filter(Boolean);
+  ].filter(Boolean) as string[];
   return parts.join(" · ");
 }
 
@@ -256,6 +259,6 @@ function fullIdentity(c: Client) {
     c.passport_number && `Pasaporte: ${c.passport_number}`,
     c.tax_id && `CUIT: ${c.tax_id}`,
     c.email && `Email: ${c.email}`,
-  ].filter(Boolean);
+  ].filter(Boolean) as string[];
   return parts.join(" — ");
 }

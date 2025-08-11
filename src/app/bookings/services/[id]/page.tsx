@@ -1,7 +1,7 @@
 // src/app/bookings/services/[id]/page.tsx
 
 "use client";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -14,6 +14,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 import { CreditNoteFormData } from "@/components/credite-notes/CreditNoteForm";
+import { authFetch } from "@/utils/authFetch";
 
 interface UserProfile {
   role: string;
@@ -119,12 +120,6 @@ export default function ServicesPage() {
   const [isInvoiceFormVisible, setIsInvoiceFormVisible] = useState(false);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
 
-  // ✅ Memoize headers para que no cambien en cada render
-  const authHeaders = useMemo(
-    () => (token ? { Authorization: `Bearer ${token}` } : undefined),
-    [token],
-  );
-
   const handleBillingUpdate = useCallback((data: typeof billingData) => {
     setBillingData(data);
   }, []);
@@ -133,10 +128,11 @@ export default function ServicesPage() {
     if (!id || !token) return;
     try {
       setLoading(true);
-      const res = await fetch(`/api/bookings/${id}`, {
-        headers: authHeaders,
-        credentials: "include",
-      });
+      const res = await authFetch(
+        `/api/bookings/${id}`,
+        { cache: "no-store" },
+        token || undefined,
+      );
       if (!res.ok) throw new Error("Error al obtener la reserva");
       const data = await res.json();
       setBooking(data);
@@ -145,30 +141,32 @@ export default function ServicesPage() {
     } finally {
       setLoading(false);
     }
-  }, [id, token, authHeaders]);
+  }, [id, token]);
 
   const fetchServices = useCallback(async () => {
     if (!id || !token) return;
     try {
-      const res = await fetch(`/api/services?bookingId=${id}`, {
-        headers: authHeaders,
-        credentials: "include",
-      });
+      const res = await authFetch(
+        `/api/services?bookingId=${id}`,
+        { cache: "no-store" },
+        token || undefined,
+      );
       if (!res.ok) throw new Error("Error al obtener los servicios");
       const data = await res.json();
       setServices(data.services);
     } catch {
       toast.error("Error al obtener los servicios.");
     }
-  }, [id, token, authHeaders]);
+  }, [id, token]);
 
   const fetchInvoices = useCallback(async () => {
     if (!id || !token) return;
     try {
-      const res = await fetch(`/api/invoices?bookingId=${id}`, {
-        headers: authHeaders,
-        credentials: "include",
-      });
+      const res = await authFetch(
+        `/api/invoices?bookingId=${id}`,
+        { cache: "no-store" },
+        token || undefined,
+      );
       if (!res.ok) {
         if (res.status === 404 || res.status === 405) {
           setInvoices([]);
@@ -181,15 +179,16 @@ export default function ServicesPage() {
     } catch {
       setInvoices([]);
     }
-  }, [id, token, authHeaders]);
+  }, [id, token]);
 
   const fetchReceipts = useCallback(async () => {
     if (!id || !token) return;
     try {
-      const res = await fetch(`/api/receipts?bookingId=${id}`, {
-        headers: authHeaders,
-        credentials: "include",
-      });
+      const res = await authFetch(
+        `/api/receipts?bookingId=${id}`,
+        { cache: "no-store" },
+        token || undefined,
+      );
       if (!res.ok) {
         if (res.status === 404 || res.status === 405) {
           setReceipts([]);
@@ -202,26 +201,27 @@ export default function ServicesPage() {
     } catch {
       setReceipts([]);
     }
-  }, [id, token, authHeaders]);
+  }, [id, token]);
 
   const fetchCreditNotes = useCallback(async () => {
     if (!invoices.length || !token) return;
     try {
       const all = await Promise.all(
         invoices.map((inv) =>
-          fetch(`/api/credit-notes?invoiceId=${inv.id_invoice}`, {
-            headers: authHeaders,
-            credentials: "include",
-          })
+          authFetch(
+            `/api/credit-notes?invoiceId=${inv.id_invoice}`,
+            { cache: "no-store" },
+            token || undefined,
+          )
             .then((r) => (r.ok ? r.json() : { creditNotes: [] }))
-            .then((data) => data.creditNotes as CreditNoteWithItems[]),
+            .then((data) => (data.creditNotes as CreditNoteWithItems[]) || []),
         ),
       );
       setCreditNotes(all.flat());
     } catch {
       setCreditNotes([]);
     }
-  }, [invoices, token, authHeaders]);
+  }, [invoices, token]);
 
   const handleReceiptCreated = () => {
     fetchReceipts();
@@ -232,9 +232,10 @@ export default function ServicesPage() {
 
     const loadOperators = async () => {
       try {
-        const res = await fetch(
+        const res = await authFetch(
           `/api/operators?agencyId=${userProfile.id_agency}`,
-          { headers: authHeaders },
+          { cache: "no-store" },
+          token || undefined,
         );
         if (!res.ok) throw new Error("Error al obtener operadores");
         const data = (await res.json()) as Operator[];
@@ -245,7 +246,7 @@ export default function ServicesPage() {
     };
 
     loadOperators();
-  }, [token, authHeaders, userProfile]);
+  }, [token, userProfile]);
 
   const handleReceiptDeleted = (id_receipt: number) => {
     setReceipts((prev) => prev.filter((r) => r.id_receipt !== id_receipt));
@@ -255,10 +256,11 @@ export default function ServicesPage() {
     if (!token) return;
     const fetchProfile = async () => {
       try {
-        const res = await fetch("/api/user/profile", {
-          headers: authHeaders,
-          credentials: "include",
-        });
+        const res = await authFetch(
+          "/api/user/profile",
+          { cache: "no-store" },
+          token || undefined,
+        );
         if (!res.ok) throw new Error("Error al obtener el perfil");
         const data = await res.json();
         setUserProfile(data);
@@ -269,7 +271,7 @@ export default function ServicesPage() {
       }
     };
     fetchProfile();
-  }, [token, authHeaders]);
+  }, [token]);
 
   const userRole = (userProfile?.role?.toLowerCase() as Role) || undefined;
 
@@ -384,15 +386,14 @@ export default function ServicesPage() {
     };
     setInvoiceLoading(true);
     try {
-      const res = await fetch("/api/invoices", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authHeaders || {}),
+      const res = await authFetch(
+        "/api/invoices",
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
         },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
+        token || undefined,
+      );
       if (!res.ok) {
         const error = await res.json();
         throw new Error(error.message || "Error al crear factura.");
@@ -429,15 +430,14 @@ export default function ServicesPage() {
 
     setIsCreditNoteSubmitting(true);
     try {
-      const res = await fetch("/api/credit-notes", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authHeaders || {}),
+      const res = await authFetch(
+        "/api/credit-notes",
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
         },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
+        token || undefined,
+      );
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.message || "Error al crear nota de crédito.");
@@ -475,23 +475,23 @@ export default function ServicesPage() {
         ? `/api/services/${editingServiceId}`
         : "/api/services";
       const payload = { ...formData, booking_id: id, ...billingData };
-      const res = await fetch(url, {
-        method: editingServiceId ? "PUT" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authHeaders || {}),
+      const res = await authFetch(
+        url,
+        {
+          method: editingServiceId ? "PUT" : "POST",
+          body: JSON.stringify(payload),
         },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
+        token || undefined,
+      );
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || "Error al guardar servicio.");
       }
-      const updated = await fetch(`/api/services?bookingId=${id}`, {
-        headers: authHeaders,
-        credentials: "include",
-      });
+      const updated = await authFetch(
+        `/api/services?bookingId=${id}`,
+        { cache: "no-store" },
+        token || undefined,
+      );
       const data = await updated.json();
       setServices(data.services);
       toast.success(
@@ -538,10 +538,11 @@ export default function ServicesPage() {
 
   const deleteService = async (serviceId: number) => {
     try {
-      const res = await fetch(`/api/services/${serviceId}`, {
-        method: "DELETE",
-        headers: authHeaders,
-      });
+      const res = await authFetch(
+        `/api/services/${serviceId}`,
+        { method: "DELETE" },
+        token || undefined,
+      );
       if (!res.ok) throw new Error("Error al eliminar servicio.");
       setServices((prev) => prev.filter((s) => s.id_service !== serviceId));
       toast.success("Servicio eliminado.");
@@ -552,9 +553,7 @@ export default function ServicesPage() {
 
   const formatDate = (dateString?: string) =>
     dateString
-      ? new Date(dateString).toLocaleDateString("es-AR", {
-          timeZone: "UTC",
-        })
+      ? new Date(dateString).toLocaleDateString("es-AR", { timeZone: "UTC" })
       : "N/A";
 
   const handleBookingUpdated = (updated: Booking) => {
@@ -566,6 +565,7 @@ export default function ServicesPage() {
   return (
     <ProtectedRoute>
       <ServicesContainer
+        token={token}
         booking={booking}
         services={services}
         availableServices={services}

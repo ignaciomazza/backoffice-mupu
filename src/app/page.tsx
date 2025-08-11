@@ -8,6 +8,7 @@ import Spinner from "@/components/Spinner";
 import { motion, AnimatePresence } from "framer-motion";
 import AnimatedMessage from "@/components/profile/AnimatedMessage";
 import DashboardShortcuts from "@/components/profile/DashboardShortcuts";
+import { authFetch } from "@/utils/authFetch";
 
 type UserProfile = {
   id_user: number;
@@ -34,16 +35,17 @@ export default function ProfilePage() {
     if (!loading && !showWelcome) setShowGrid(true);
   }, [loading, showWelcome]);
 
-  // Fetch del perfil (nueva API)
+  // Fetch del perfil (usando authFetch)
   useEffect(() => {
     if (!token) return;
     setLoading(true);
     (async () => {
       try {
-        const res = await fetch("/api/user/profile", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          credentials: "include",
-        });
+        const res = await authFetch(
+          "/api/user/profile",
+          { cache: "no-store" },
+          token,
+        );
         if (!res.ok) throw new Error("Error fetching profile");
         const data = (await res.json()) as UserProfile;
         setUserProfile(data);

@@ -7,6 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import Spinner from "@/components/Spinner";
 import ThemeToggle from "@/components/ThemeToggle";
 import { Booking, Client } from "@/types";
+import { authFetch } from "@/utils/authFetch";
 
 type Metric = {
   label: string;
@@ -124,18 +125,16 @@ export default function DashboardShortcuts({ agencyId }: Props) {
     (async () => {
       try {
         // Perfil (para id_user)
-        const pr = await fetch("/api/user/profile", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-        });
+        const pr = await authFetch("/api/user/profile", {}, token);
         if (!pr.ok) throw new Error("No se pudo cargar perfil");
         const profile = await pr.json();
 
         // Equipos de la agencia
-        const tr = await fetch(`/api/teams?agencyId=${agencyId}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-        });
+        const tr = await authFetch(
+          `/api/teams?agencyId=${agencyId}`,
+          {},
+          token,
+        );
         const teams:
           | {
               id_team: number;
@@ -154,12 +153,10 @@ export default function DashboardShortcuts({ agencyId }: Props) {
         );
 
         // Comisiones (nueva API → { items })
-        const er = await fetch(
+        const er = await authFetch(
           `/api/earnings?from=${defaultFrom}&to=${defaultTo}`,
-          {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-          },
+          {},
+          token,
         );
         if (!er.ok) throw new Error("Error al cargar comisiones");
         const { items }: EarningsResponse = await er.json();
@@ -189,10 +186,7 @@ export default function DashboardShortcuts({ agencyId }: Props) {
 
         // Reservas con observaciones (primer page está ok para “atajos”)
         {
-          const br = await fetch("/api/bookings?take=24", {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-          });
+          const br = await authFetch("/api/bookings?take=24", {}, token);
           if (br.ok) {
             const {
               items: bookingsPage,
@@ -210,7 +204,7 @@ export default function DashboardShortcuts({ agencyId }: Props) {
           }
         }
 
-        // Nuevos clientes del mes (API nueva → { items, nextCursor })
+        // Nuevos clientes del mes
         setNewClientsCount(
           await countNewClientsForMonth({
             token,
@@ -221,7 +215,7 @@ export default function DashboardShortcuts({ agencyId }: Props) {
           }),
         );
 
-        // Reservas del mes (API nueva → { items, nextCursor })
+        // Reservas del mes
         {
           const { all } = await fetchAllBookingsForRange({
             token,
@@ -580,7 +574,7 @@ async function fetchAllBookingsForRange({
   from,
   to,
 }: {
-  token: string;
+  token: string | null;
   userId: number;
   from: string; // YYYY-MM-DD
   to: string; // YYYY-MM-DD
@@ -599,10 +593,7 @@ async function fetchAllBookingsForRange({
     });
     if (cursor) params.append("cursor", String(cursor));
 
-    const r = await fetch(`/api/bookings?${params.toString()}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-    });
+    const r = await authFetch(`/api/bookings?${params.toString()}`, {}, token);
     if (!r.ok) throw new Error("Error al cargar reservas del rango");
     const {
       items,
@@ -623,7 +614,7 @@ async function countNewClientsForMonth({
   from,
   to,
 }: {
-  token: string;
+  token: string | null;
   userId: number;
   agencyId: number;
   from: string;
@@ -642,10 +633,7 @@ async function countNewClientsForMonth({
     });
     if (cursor) params.append("cursor", String(cursor));
 
-    const r = await fetch(`/api/clients?${params.toString()}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "include",
-    });
+    const r = await authFetch(`/api/clients?${params.toString()}`, {}, token);
     if (!r.ok) throw new Error("Error al cargar clientes");
     const {
       items,

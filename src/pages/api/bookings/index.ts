@@ -173,8 +173,28 @@ function endOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 }
 
-// --- GET: list/paginate ---------------------------------------------------
+// ⬇️ helper: devuelve equipos donde el líder lidera y todos los id_user alcanzables
+async function getLeaderScope(authUserId: number, authAgencyId?: number) {
+  const teams = await prisma.salesTeam.findMany({
+    where: {
+      ...(authAgencyId ? { id_agency: authAgencyId } : {}),
+      user_teams: {
+        some: {
+          user: { id_user: authUserId, role: "lider" },
+        },
+      },
+    },
+    include: { user_teams: { select: { id_user: true } } },
+  });
 
+  const teamIds = teams.map((t) => t.id_team);
+  const userIds = new Set<number>([authUserId]); // incluirse a sí mismo
+  teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
+
+  return { teamIds, userIds: Array.from(userIds) };
+}
+
+// --- GET: list/paginate ---------------------------------------------------
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const id = (req as ReqWithRid)._rid || rid();
   (req as ReqWithRid)._rid = id;
@@ -189,7 +209,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const take = Math.min(Math.max(takeParam || 20, 1), 100);
     const cursor = req.query.cursor ? Number(req.query.cursor) : undefined;
 
-    // Filters
+    // Filters (crudos del query)
     const userId = Array.isArray(req.query.userId)
       ? Number(req.query.userId[0])
       : req.query.userId
@@ -208,73 +228,114 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const travelFrom = toLocalDate(req.query.from);
     const travelTo = toLocalDate(req.query.to);
 
-    // Teams
     const teamId = Array.isArray(req.query.teamId)
       ? Number(req.query.teamId[0])
       : req.query.teamId
         ? Number(req.query.teamId)
         : 0;
 
-    // Auth scope (para aplicar reglas de visibilidad por rol)
+    // Auth scope
     const authUser = await getUserFromAuth(req);
     const role = (authUser?.role || "").toString().toLowerCase();
     const authUserId = authUser?.id_user;
     const authAgencyId = authUser?.id_agency;
 
+    if (!authUserId) {
+      return res.status(401).json({ error: "No autenticado" });
+    }
+
     // where base
     const where: Prisma.BookingWhereInput = {};
 
-    // Búsqueda fulltext simple (server-side)
+    // Búsqueda server-side
     const q = typeof req.query.q === "string" ? req.query.q.trim() : undefined;
-
     if (q && q.length > 0) {
       const or: Prisma.BookingWhereInput[] = [];
       const qNum = Number(q);
-
-      // Si es número, permitir buscar por ids
       if (!isNaN(qNum)) {
         or.push({ id_booking: qNum });
         or.push({ titular: { id_client: qNum } });
         or.push({ clients: { some: { id_client: qNum } } });
       }
-
-      // ✅ Detalles de la reserva
       or.push({ details: { contains: q, mode: "insensitive" } });
-
-      // Nombre / Apellido (titular y acompañantes)
       or.push({
         titular: { first_name: { contains: q, mode: "insensitive" } },
       });
-      or.push({
-        titular: { last_name: { contains: q, mode: "insensitive" } },
-      });
+      or.push({ titular: { last_name: { contains: q, mode: "insensitive" } } });
       or.push({
         clients: { some: { first_name: { contains: q, mode: "insensitive" } } },
       });
       or.push({
         clients: { some: { last_name: { contains: q, mode: "insensitive" } } },
       });
-
       const prevAnd = Array.isArray(where.AND)
         ? where.AND
         : where.AND
           ? [where.AND]
           : [];
-
       where.AND = [...prevAnd, { OR: or }];
     }
 
-    // Scope por agencia (si la tenés en el token)
+    // Scope por agencia
     if (authAgencyId) {
       where.id_agency = authAgencyId;
     }
 
-    // Si viene userId explícito, filtramos por ese
+    // =====================  BLOQUE DE “LEADER LOCK-DOWN”  =====================
+    // Siempre calcular alcance del líder (ids de equipos e ids de usuarios) si corresponde
+    let leaderTeamIds: number[] = [];
+    let leaderUserIds: number[] = [];
+    const isLeader = role === "lider";
+
+    if (isLeader) {
+      const scope = await getLeaderScope(authUserId, authAgencyId);
+      leaderTeamIds = scope.teamIds;
+      leaderUserIds = scope.userIds;
+
+      // Si vino userId explícito, validar que esté en su alcance
+      if (userId && !leaderUserIds.includes(userId)) {
+        return res
+          .status(403)
+          .json({ error: "No autorizado: usuario fuera de tu equipo." });
+      }
+
+      // Si vino teamId explícito, validar que sea un equipo donde este usuario es líder
+      if (teamId > 0 && !leaderTeamIds.includes(teamId)) {
+        return res
+          .status(403)
+          .json({ error: "No autorizado: equipo fuera de tu alcance." });
+      }
+
+      // Para líderes **no** permitimos “sin equipo” (-1) por seguridad
+      if (teamId === -1) {
+        return res.status(403).json({
+          error:
+            "No autorizado: filtro de 'sin equipo' no disponible para líderes.",
+        });
+      }
+    }
+    // ========================================================================
+
+    // --- Enforce vendedor: no puede ver a otros ni usar teamId ---
+    if (role === "vendedor") {
+      // Si pidió userId distinto, bloquear
+      if (userId && userId !== authUserId) {
+        return res.status(403).json({ error: "No autorizado." });
+      }
+      // Si intenta filtrar por cualquier teamId, bloquear
+      if (teamId !== 0) {
+        return res.status(403).json({ error: "No autorizado." });
+      }
+      // Fuerza su propio alcance siempre
+      where.id_user = authUserId!;
+    }
+
+    // Filtro por userId (si llegó y es válido para el rol)
     if (userId && userId > 0) {
       where.id_user = userId;
     }
 
-    // Team filter server-side (solo si NO vino userId explícito, para no pisarlo)
+    // Team filter server-side (solo si NO vino userId explícito)
     if (!userId && teamId !== 0) {
       if (teamId > 0) {
         const team = await prisma.salesTeam.findUnique({
@@ -286,9 +347,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
             .status(403)
             .json({ error: "Equipo inválido para esta agencia." });
         }
+        // Si es líder, ya validamos que el team le pertenezca; usamos sus ids
         const ids = team.user_teams.map((ut) => ut.id_user);
         where.id_user = { in: ids.length ? ids : [-1] };
       } else if (teamId === -1) {
+        // Solo perfiles no-líder pueden pedir “sin equipo”
         const users = await prisma.user.findMany({
           where: {
             ...(authAgencyId ? { id_agency: authAgencyId } : {}),
@@ -301,7 +364,24 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
-    // Otros filtros (status simples)
+    // Hardening por rol cuando NO hay userId/TeamId concretos:
+    if (!where.id_user) {
+      if (!where.id_user) {
+        if (isLeader) {
+          where.id_user = {
+            in: leaderUserIds.length ? leaderUserIds : [authUserId!],
+          };
+        }
+        // gerente/administrativo/desarrollador → sin restricción extra
+      } else if (isLeader) {
+        where.id_user = {
+          in: leaderUserIds.length ? leaderUserIds : [authUserId],
+        };
+      }
+      // gerente/administrativo/desarrollador → sin restricción extra
+    }
+
+    // Otros filtros
     if (status && status !== "Todas") {
       where.status = status;
     }
@@ -312,7 +392,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       where.operatorStatus = { in: operatorStatusArr };
     }
 
-    // Fechas de creación (normalizadas a día)
+    // Fechas creación
     if (creationFrom) creationFrom = startOfDay(creationFrom);
     if (creationTo) creationTo = endOfDay(creationTo);
     if (creationFrom || creationTo) {
@@ -322,12 +402,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       };
     }
 
-    // Rango de viaje por overlap: (departure <= to) AND (return >= from)
+    // Overlap de viaje
     if (travelFrom || travelTo) {
       const travelCond: Prisma.BookingWhereInput = {};
       if (travelTo) travelCond.departure_date = { lte: travelTo };
       if (travelFrom) travelCond.return_date = { gte: travelFrom };
-
       if (Object.keys(travelCond).length > 0) {
         const prevAnd = Array.isArray(where.AND)
           ? where.AND
@@ -338,38 +417,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
-    // Hardening de visibilidad por rol (si NO pidieron userId ni teamId explícitos)
-    if (!userId && teamId === 0 && authUserId) {
-      if (role === "vendedor") {
-        where.id_user = authUserId;
-      } else if (role === "lider") {
-        const allTeams = await prisma.salesTeam.findMany({
-          where: authAgencyId ? { id_agency: authAgencyId } : undefined,
-          include: { user_teams: { include: { user: true } } },
-        });
-
-        const myTeams = allTeams.filter((t) =>
-          t.user_teams.some(
-            (ut) => ut.user.id_user === authUserId && ut.user.role === "lider",
-          ),
-        );
-
-        const memberIds = new Set<number>();
-        myTeams.forEach((t) =>
-          t.user_teams.forEach((ut) => memberIds.add(ut.id_user)),
-        );
-
-        if (memberIds.size === 0) {
-          where.id_user = authUserId; // fallback: ver sus propias reservas
-        } else {
-          where.id_user = { in: Array.from(memberIds) };
-        }
-      } else {
-        // gerente/administrativo/desarrollador → acceso amplio (sin restricción extra)
-      }
+    if (process.env.NODE_ENV !== "production") {
+      console.dir(where, { depth: null });
     }
-
-    console.dir(where, { depth: null });
 
     // Query
     const items = await prisma.booking.findMany({
@@ -387,6 +437,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       take: take + 1,
       ...(cursor ? { cursor: { id_booking: cursor }, skip: 1 } : {}),
     });
+
     const hasMore = items.length > take;
     const sliced = hasMore ? items.slice(0, take) : items;
     const nextCursor = hasMore ? sliced[sliced.length - 1].id_booking : null;

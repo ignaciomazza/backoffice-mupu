@@ -1,4 +1,6 @@
+// src/app/login/page.tsx
 "use client";
+
 import { useState, useEffect, useRef } from "react";
 import * as THREE from "three";
 import initVantaFog, { VantaOptions } from "vanta/dist/vanta.fog.min";
@@ -7,6 +9,7 @@ import { useRouter } from "next/navigation";
 import Spinner from "@/components/Spinner";
 import { toast, ToastContainer } from "react-toastify";
 import { motion, AnimatePresence } from "framer-motion";
+import { authFetch } from "@/utils/authFetch";
 
 export default function LoginPage() {
   const vantaRef = useRef<HTMLDivElement>(null);
@@ -26,7 +29,7 @@ export default function LoginPage() {
   const [progress, setProgress] = useState<number>(0);
 
   const [showSpinner, setShowSpinner] = useState<boolean>(false);
-  let spinnerTimer: NodeJS.Timeout;
+  const spinnerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (vantaRef.current && !vantaEffect.current) {
@@ -51,6 +54,13 @@ export default function LoginPage() {
     return () => {
       vantaEffect.current?.destroy();
       vantaEffect.current = null;
+    };
+  }, []);
+
+  // Limpieza del timeout si el componente se desmonta
+  useEffect(() => {
+    return () => {
+      if (spinnerTimerRef.current) clearTimeout(spinnerTimerRef.current);
     };
   }, []);
 
@@ -99,30 +109,47 @@ export default function LoginPage() {
     }
 
     setLoading(true);
-    spinnerTimer = setTimeout(() => {
+    spinnerTimerRef.current = setTimeout(() => {
       setShowSpinner(true);
     }, 300);
 
     try {
-      const response = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ email, password }),
-      });
-      clearTimeout(spinnerTimer);
+      const response = await authFetch(
+        "/api/login",
+        {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        },
+        null, // sin token en login
+      );
+
+      if (spinnerTimerRef.current) {
+        clearTimeout(spinnerTimerRef.current);
+        spinnerTimerRef.current = null;
+      }
       setShowSpinner(false);
+
       if (!response.ok) {
-        const errorData = await response.json();
+        let msg = "Error al iniciar sesión";
+        try {
+          const errorData = await response.json();
+          msg = errorData.error || msg;
+        } catch {
+          // por si la API no devuelve JSON
+        }
         formRef.current?.classList.add("animate-shake");
-        toast.error(errorData.error || "Error al iniciar sesión");
+        toast.error(msg);
         return;
       }
+
       const data = await response.json();
       setToken(data.token);
       router.push("/");
     } catch {
-      clearTimeout(spinnerTimer);
+      if (spinnerTimerRef.current) {
+        clearTimeout(spinnerTimerRef.current);
+        spinnerTimerRef.current = null;
+      }
       setShowSpinner(false);
       formRef.current?.classList.add("animate-shake");
       toast.error("Ha ocurrido un error inesperado");
@@ -136,14 +163,12 @@ export default function LoginPage() {
       {/* 1) Filtro SVG en la misma página */}
       <svg aria-hidden style={{ position: "absolute", width: 0, height: 0 }}>
         <filter id="noiseFilter">
-          {/* baseFrequency controla el “tamaño” del grano (0.1→ fino; 1→ grueso) */}
           <feTurbulence
             type="fractalNoise"
             baseFrequency="1"
             numOctaves="1"
             seed="2"
           >
-            {/* Animación de parpadeo: jugá con dur="0.5s"→rápido, "2s"→lento */}
             <animate
               attributeName="baseFrequency"
               dur="1s"
@@ -151,9 +176,7 @@ export default function LoginPage() {
               repeatCount="indefinite"
             />
           </feTurbulence>
-          {/* feComponentTransfer ajusta la opacidad global del filtro */}
           <feComponentTransfer>
-            {/* slope 0.05→muy suave; 0.2→más marcado */}
             <feFuncA type="linear" slope="0.2" />
           </feComponentTransfer>
         </filter>
@@ -164,7 +187,6 @@ export default function LoginPage() {
         ref={vantaRef}
         className="fixed inset-0 flex items-center justify-center overflow-hidden"
       >
-        {/* overlay que aplica el filtro SVG */}
         <div
           className="pointer-events-none absolute inset-0 z-10"
           style={{ filter: "url(#noiseFilter)" }}
