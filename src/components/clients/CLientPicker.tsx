@@ -194,21 +194,21 @@ export default function ClientPicker({
         <ul
           id={listboxId}
           role="listbox"
-          className="mt-2 w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+          className="mt-2 w-full appearance-none rounded-2xl border border-sky-950/10 p-2 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
         >
           {results.map((c) => (
             <li
               key={c.id_client}
               role="option"
               aria-selected={selected?.id_client === c.id_client}
-              className="cursor-pointer px-3 py-2 hover:bg-white/30 dark:hover:bg-white/10"
+              className="cursor-pointer rounded-xl px-3 py-2 hover:bg-white/30 dark:hover:bg-white/10"
               onClick={() => pick(c)}
             >
               <div className="flex justify-between">
                 <span className="font-medium">
                   {c.first_name} {c.last_name}
                 </span>
-                <span className="opacity-70">#{c.id_client}</span>
+                <span className="opacity-70">N° {c.id_client}</span>
               </div>
               <div className="text-xs opacity-80">{compactIdentity(c)}</div>
             </li>
@@ -218,12 +218,12 @@ export default function ClientPicker({
 
       {/* Resumen del seleccionado */}
       {selected && (
-        <div className="mt-2 rounded-xl border border-white/10 bg-white/10 p-2 text-sm dark:text-white">
+        <div className="mt-2 rounded-xl border border-white/10 bg-white/10 p-2 px-3 text-sm dark:text-white">
           <div className="flex justify-between">
             <span className="font-semibold">
               {selected.first_name} {selected.last_name}
             </span>
-            <span className="opacity-70">ID: {selected.id_client}</span>
+            <span className="opacity-70">N° {selected.id_client}</span>
           </div>
           <div className="mt-1 text-xs opacity-80">
             {fullIdentity(selected)}

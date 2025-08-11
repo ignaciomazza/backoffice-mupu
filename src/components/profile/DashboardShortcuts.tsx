@@ -1,5 +1,4 @@
 // src/components/profile/DashboardShortcuts.tsx
-// src/components/profile/DashboardShortcuts.tsx
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -23,9 +22,7 @@ interface EarningItem {
   teamId: number;
   totalSellerComm: number;
   totalLeaderComm: number;
-  // ...otros campos si los necesitas
 }
-
 interface EarningsResponse {
   items: EarningItem[];
 }
@@ -100,6 +97,7 @@ export default function DashboardShortcuts({ agencyId }: Props) {
   const { token, setToken } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
+
   const [obsBookings, setObsBookings] = useState<Booking[]>([]);
   const [pendingBookingsArr, setPendingBookingsArr] = useState<Booking[]>([]);
   const [commissionARS, setCommissionARS] = useState(0);
@@ -110,16 +108,13 @@ export default function DashboardShortcuts({ agencyId }: Props) {
 
   const { from: defaultFrom, to: defaultTo } = useMemo(() => {
     const today = new Date();
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1); // 00:00 local
-    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0); // 00:00 local
-
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
     const toYMD = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-    return {
-      from: toYMD(firstDay), // p.ej. 2025-08-01 (local)
-      to: toYMD(lastDay), // p.ej. 2025-08-31 (local)
-    };
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+        d.getDate(),
+      ).padStart(2, "0")}`;
+    return { from: toYMD(firstDay), to: toYMD(lastDay) };
   }, []);
 
   useEffect(() => {
@@ -128,22 +123,23 @@ export default function DashboardShortcuts({ agencyId }: Props) {
 
     (async () => {
       try {
-        // 1) Perfil
+        // Perfil (para id_user)
         const pr = await fetch("/api/user/profile", {
           headers: { Authorization: `Bearer ${token}` },
-          credentials: "include",
         });
         if (!pr.ok) throw new Error("No se pudo cargar perfil");
         const profile = await pr.json();
 
-        // 2) Equipos
+        // Equipos de la agencia
         const tr = await fetch(`/api/teams?agencyId=${agencyId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const teams: {
-          id_team: number;
-          user_teams: { user: { id_user: number; role: string } }[];
-        }[] = await tr.json();
+        const teams:
+          | {
+              id_team: number;
+              user_teams: { user: { id_user: number; role: string } }[];
+            }[]
+          | [] = (await tr.json()) ?? [];
 
         const leadersPerTeam = teams.reduce<Record<number, number[]>>(
           (acc, t) => {
@@ -155,13 +151,15 @@ export default function DashboardShortcuts({ agencyId }: Props) {
           {},
         );
 
-        // 3) Comisiones
+        // Comisiones (nueva API → { items })
         const er = await fetch(
           `/api/earnings?from=${defaultFrom}&to=${defaultTo}`,
-          { headers: { Authorization: `Bearer ${token}` } },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
         );
         if (!er.ok) throw new Error("Error al cargar comisiones");
-        const { items } = (await er.json()) as EarningsResponse;
+        const { items }: EarningsResponse = await er.json();
 
         const { sellerARS, leaderARS, sellerUSD, leaderUSD } = items.reduce(
           (acc, i) => {
@@ -171,14 +169,12 @@ export default function DashboardShortcuts({ agencyId }: Props) {
 
             if (i.currency === "ARS") {
               if (isMe) acc.sellerARS += i.totalSellerComm;
-              if (amILeader && leaders.length > 0) {
+              if (amILeader && leaders.length > 0)
                 acc.leaderARS += i.totalLeaderComm / leaders.length;
-              }
             } else {
               if (isMe) acc.sellerUSD += i.totalSellerComm;
-              if (amILeader && leaders.length > 0) {
+              if (amILeader && leaders.length > 0)
                 acc.leaderUSD += i.totalLeaderComm / leaders.length;
-              }
             }
             return acc;
           },
@@ -188,11 +184,10 @@ export default function DashboardShortcuts({ agencyId }: Props) {
         setCommissionARS(sellerARS + leaderARS);
         setCommissionUSD(sellerUSD + leaderUSD);
 
-        // 4) Reservas con observaciones (nuevo API → { items, nextCursor })
+        // Reservas con observaciones (primer page está ok para “atajos”)
         {
           const br = await fetch("/api/bookings?take=24", {
             headers: { Authorization: `Bearer ${token}` },
-            credentials: "include",
           });
           if (br.ok) {
             const {
@@ -211,41 +206,29 @@ export default function DashboardShortcuts({ agencyId }: Props) {
           }
         }
 
-        // 5) Nuevos clientes (igual que antes)
-        const cr = await fetch(
-          `/api/clients?userId=${profile.id_user}&agencyId=${agencyId}`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        const clients: Client[] = await cr.json();
+        // Nuevos clientes del mes (API nueva → { items, nextCursor })
         setNewClientsCount(
-          clients.filter((c) => {
-            const reg = c.registration_date.slice(0, 10);
-            return reg >= defaultFrom && reg <= defaultTo;
-          }).length,
+          await countNewClientsForMonth({
+            token,
+            userId: profile.id_user,
+            agencyId,
+            from: defaultFrom,
+            to: defaultTo,
+          }),
         );
 
-        // 6) Métricas de reservas del mes (nuevo API → { items })
+        // Reservas del mes (API nueva → { items, nextCursor })
         {
-          const bm = await fetch(
-            `/api/bookings?userId=${profile.id_user}&creationFrom=${defaultFrom}&creationTo=${defaultTo}&take=24`,
-            { headers: { Authorization: `Bearer ${token}` } },
-          );
-          if (bm.ok) {
-            const {
-              items: monthItems,
-            }: { items: Booking[]; nextCursor: number | null } =
-              await bm.json();
-            setTotalBookings(monthItems.length);
-            const pendings = monthItems.filter(
-              (b) => b.clientStatus === "Pendiente",
-            );
-            setPendingBookingsArr(pendings);
-            setPendingBookings(pendings.length);
-          } else {
-            setTotalBookings(0);
-            setPendingBookingsArr([]);
-            setPendingBookings(0);
-          }
+          const { all } = await fetchAllBookingsForRange({
+            token,
+            userId: profile.id_user,
+            from: defaultFrom,
+            to: defaultTo,
+          });
+          setTotalBookings(all.length);
+          const pendings = all.filter((b) => b.clientStatus === "Pendiente");
+          setPendingBookingsArr(pendings);
+          setPendingBookings(pendings.length);
         }
       } catch (error) {
         console.error("Error inicializando DashboardShortcuts:", error);
@@ -298,7 +281,7 @@ export default function DashboardShortcuts({ agencyId }: Props) {
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
-            d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z"
+            d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
           />
         </svg>
       ),
@@ -347,7 +330,7 @@ export default function DashboardShortcuts({ agencyId }: Props) {
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
-            d="M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 0 1 0 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 0 1 0-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375Z"
+            d="M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 0 1 0 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 0 1 0-5.198V6.375c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"
           />
         </svg>
       ),
@@ -399,11 +382,7 @@ export default function DashboardShortcuts({ agencyId }: Props) {
         </svg>
       ),
     },
-    {
-      label: "Tema",
-      icon: <ThemeToggle />,
-      isButton: true,
-    },
+    { label: "Tema", icon: <ThemeToggle />, isButton: true },
   ];
 
   const skeletonOrder: { cols: number; rows: number }[] = [
@@ -418,7 +397,6 @@ export default function DashboardShortcuts({ agencyId }: Props) {
   ];
 
   useEffect(() => setMounted(true), []);
-
   if (!mounted) return null;
 
   return (
@@ -537,7 +515,9 @@ export default function DashboardShortcuts({ agencyId }: Props) {
                   hidden: { opacity: 0, y: 20 },
                   visible: { opacity: 1, y: 0 },
                 }}
-                className={`flex h-full items-center justify-center ${isButton ? "" : "flex-col space-y-2"} rounded-3xl border border-white/10 bg-white/10 p-6 shadow-lg backdrop-blur-lg`}
+                className={`flex h-full items-center justify-center ${
+                  isButton ? "" : "flex-col space-y-2"
+                } rounded-3xl border border-white/10 bg-white/10 p-6 shadow-lg backdrop-blur-lg`}
                 title={label}
               >
                 {icon}
@@ -586,4 +566,95 @@ export default function DashboardShortcuts({ agencyId }: Props) {
       </motion.div>
     </AnimatePresence>
   );
+}
+
+/* ===================== helpers (paginación) ===================== */
+
+async function fetchAllBookingsForRange({
+  token,
+  userId,
+  from,
+  to,
+}: {
+  token: string;
+  userId: number;
+  from: string; // YYYY-MM-DD
+  to: string; // YYYY-MM-DD
+}): Promise<{ all: Booking[] }> {
+  const all: Booking[] = [];
+  let cursor: number | null = null;
+  let safety = 0;
+  const TAKE = 100; // el backend limita a 100
+
+  do {
+    const params = new URLSearchParams({
+      userId: String(userId),
+      creationFrom: from,
+      creationTo: to,
+      take: String(TAKE),
+    });
+    if (cursor) params.append("cursor", String(cursor));
+
+    const r = await fetch(`/api/bookings?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) throw new Error("Error al cargar reservas del rango");
+    const {
+      items,
+      nextCursor,
+    }: { items: Booking[]; nextCursor: number | null } = await r.json();
+    all.push(...items);
+    cursor = nextCursor;
+    safety++;
+  } while (cursor && safety < 50); // corta a 50 páginas por seguridad
+
+  return { all };
+}
+
+async function countNewClientsForMonth({
+  token,
+  userId,
+  agencyId,
+  from,
+  to,
+}: {
+  token: string;
+  userId: number;
+  agencyId: number;
+  from: string;
+  to: string;
+}): Promise<number> {
+  let count = 0;
+  let cursor: number | null = null;
+  let safety = 0;
+  const TAKE = 100;
+
+  do {
+    const params = new URLSearchParams({
+      userId: String(userId),
+      agencyId: String(agencyId),
+      take: String(TAKE),
+    });
+    if (cursor) params.append("cursor", String(cursor));
+
+    const r = await fetch(`/api/clients?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) throw new Error("Error al cargar clientes");
+    const {
+      items,
+      nextCursor,
+    }: { items: Client[]; nextCursor: number | null } = await r.json();
+
+    // filtramos por registro en el mes (formato YYYY-MM-DD...)
+    for (const c of items) {
+      const reg = (c.registration_date || "").slice(0, 10);
+      if (reg >= from && reg <= to) count++;
+    }
+
+    cursor = nextCursor;
+    safety++;
+  } while (cursor && safety < 50);
+
+  return count;
 }

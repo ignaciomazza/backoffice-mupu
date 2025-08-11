@@ -1,4 +1,4 @@
-// src/app/profile/page.tsx
+// src/app/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -30,24 +30,18 @@ export default function ProfilePage() {
   });
   const [showGrid, setShowGrid] = useState(false);
 
-  // Cuando ya cargó el perfil y no hay mensaje, muestro el grid
   useEffect(() => {
-    if (!loading && !showWelcome) {
-      setShowGrid(true);
-    }
+    if (!loading && !showWelcome) setShowGrid(true);
   }, [loading, showWelcome]);
 
-  // Fetch del perfil, incluyendo id_agency
+  // Fetch del perfil (nueva API)
   useEffect(() => {
     if (!token) return;
     setLoading(true);
-
     (async () => {
       try {
         const res = await fetch("/api/user/profile", {
           headers: { Authorization: `Bearer ${token}` },
-          // si tu API todavía usa cookie en lugar de header, añade:
-          // credentials: "include",
         });
         if (!res.ok) throw new Error("Error fetching profile");
         const data = (await res.json()) as UserProfile;
