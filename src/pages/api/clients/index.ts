@@ -99,7 +99,6 @@ async function getUserFromAuth(
     }
 
     if (!id_user || !id_agency) return null;
-
     return { id_user, id_agency, role, email: email ?? undefined };
   } catch {
     return null;
@@ -109,9 +108,8 @@ async function getUserFromAuth(
 function toLocalDate(v?: string): Date | undefined {
   if (!v) return undefined;
   const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) {
+  if (m)
     return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
-  }
   const d = new Date(v);
   return isNaN(d.getTime()) ? undefined : d;
 }
@@ -130,6 +128,21 @@ const userSelectSafe = {
   email: true,
 } as const;
 
+// Alcance de líder (equipos que lidera + ids de usuarios alcanzables)
+async function getLeaderScope(authUserId: number, authAgencyId: number) {
+  const teams = await prisma.salesTeam.findMany({
+    where: {
+      id_agency: authAgencyId,
+      user_teams: { some: { user: { id_user: authUserId, role: "lider" } } },
+    },
+    include: { user_teams: { select: { id_user: true } } },
+  });
+  const teamIds = teams.map((t) => t.id_team);
+  const userIds = new Set<number>([authUserId]);
+  teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
+  return { teamIds, userIds: Array.from(userIds) };
+}
+
 // ==== Handler principal ====
 export default async function handler(
   req: NextApiRequest,
@@ -139,6 +152,9 @@ export default async function handler(
   if (!auth?.id_user || !auth.id_agency) {
     return res.status(401).json({ error: "No autenticado o token inválido." });
   }
+
+  const role = (auth.role || "").toLowerCase();
+  const isLeader = role === "lider";
 
   // ===== GET: lista con filtros + cursor =====
   if (req.method === "GET") {
@@ -172,49 +188,48 @@ export default async function handler(
       const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
       const where: Prisma.ClientWhereInput = { id_agency: auth.id_agency };
-      const role = (auth.role || "").toLowerCase();
 
-      // ----- Autorización cuando viene userId explícito -----
-      if (userId > 0) {
-        if (role === "vendedor" && userId !== auth.id_user) {
+      // ======= Vendor lock (no teamId, no userId ajeno) =======
+      if (role === "vendedor") {
+        if (userId && userId !== auth.id_user) {
+          return res.status(403).json({ error: "No autorizado." });
+        }
+        if (teamId !== 0) {
+          return res.status(403).json({ error: "No autorizado." });
+        }
+        where.id_user = auth.id_user;
+      }
+
+      // ======= Leader lockdown / validaciones explícitas =======
+      let leaderScopeUserIds: number[] = [];
+      let leaderScopeTeamIds: number[] = [];
+      if (isLeader) {
+        const scope = await getLeaderScope(auth.id_user, auth.id_agency);
+        leaderScopeUserIds = scope.userIds;
+        leaderScopeTeamIds = scope.teamIds;
+
+        if (userId && !leaderScopeUserIds.includes(userId)) {
+          return res.status(403).json({ error: "Usuario fuera de tu equipo." });
+        }
+        if (teamId > 0 && !leaderScopeTeamIds.includes(teamId)) {
           return res
             .status(403)
-            .json({ error: "No autorizado para ver otros usuarios." });
+            .json({ error: "Equipo fuera de tu liderazgo." });
         }
-        if (role === "lider") {
-          const teams = await prisma.salesTeam.findMany({
-            where: { id_agency: auth.id_agency },
-            include: {
-              user_teams: {
-                select: {
-                  id_user: true,
-                  user: { select: { role: true } },
-                },
-              },
-            },
-          });
-          const myTeams = teams.filter((t) =>
-            t.user_teams.some(
-              (ut) => ut.id_user === auth.id_user && ut.user.role === "lider",
-            ),
-          );
-          const allowedIds = new Set<number>();
-          myTeams.forEach((t) =>
-            t.user_teams.forEach((ut) => allowedIds.add(ut.id_user)),
-          );
-          if (!allowedIds.has(userId)) {
-            return res
-              .status(403)
-              .json({ error: "Usuario fuera de tu equipo." });
-          }
+        if (teamId === -1) {
+          return res
+            .status(403)
+            .json({ error: "Filtro 'sin equipo' no disponible para líderes." });
         }
+      }
 
-        // Si pasó las validaciones, aplicamos el filtro
+      // ----- userId explícito (si no es vendedor, ya validado arriba para líder) -----
+      if (userId > 0 && role !== "vendedor") {
         where.id_user = userId;
       }
 
-      // ----- TeamId explícito (sin userId) -----
-      if (!userId && teamId !== 0) {
+      // ----- teamId explícito (solo si NO vino userId) -----
+      if (!userId && teamId !== 0 && role !== "vendedor") {
         if (teamId > 0) {
           const team = await prisma.salesTeam.findUnique({
             where: { id_team: teamId },
@@ -225,34 +240,10 @@ export default async function handler(
               .status(403)
               .json({ error: "Equipo inválido para esta agencia." });
           }
-
-          // Si es líder, validar que lidere ese equipo
-          if (role === "lider") {
-            const teamWithUsers = await prisma.salesTeam.findUnique({
-              where: { id_team: teamId },
-              include: {
-                user_teams: {
-                  select: {
-                    id_user: true,
-                    user: { select: { role: true } },
-                  },
-                },
-              },
-            });
-            const isLeaderOfTeam = !!teamWithUsers?.user_teams.some(
-              (ut) => ut.id_user === auth.id_user && ut.user.role === "lider",
-            );
-            if (!isLeaderOfTeam) {
-              return res
-                .status(403)
-                .json({ error: "Equipo no pertenece a tu liderazgo." });
-            }
-          }
-
           const ids = team.user_teams.map((ut) => ut.id_user);
           where.id_user = { in: ids.length ? ids : [-1] };
         } else if (teamId === -1) {
-          // "Sin equipo"
+          // "Sin equipo" (habilitado solo para no-líderes)
           const users = await prisma.user.findMany({
             where: { id_agency: auth.id_agency, sales_teams: { none: {} } },
             select: { id_user: true },
@@ -262,39 +253,22 @@ export default async function handler(
         }
       }
 
-      // ----- Visibilidad por rol cuando NO hay userId ni teamId -----
-      if (!userId && teamId === 0) {
-        if (role === "vendedor") {
-          where.id_user = auth.id_user;
-        } else if (role === "lider") {
-          const teams = await prisma.salesTeam.findMany({
-            where: { id_agency: auth.id_agency },
-            include: { user_teams: { include: { user: true } } },
-          });
-          const myTeams = teams.filter((t) =>
-            t.user_teams.some(
-              (ut) =>
-                ut.user.id_user === auth.id_user && ut.user.role === "lider",
-            ),
-          );
-          const memberIds = new Set<number>();
-          myTeams.forEach((t) =>
-            t.user_teams.forEach((ut) => memberIds.add(ut.id_user)),
-          );
-          where.id_user = memberIds.size
-            ? { in: Array.from(memberIds) }
-            : auth.id_user;
+      // ----- Visibilidad por rol cuando NO hay userId ni teamId (y no vendedor) -----
+      if (!where.id_user && role !== "vendedor") {
+        if (isLeader) {
+          where.id_user = {
+            in: leaderScopeUserIds.length ? leaderScopeUserIds : [auth.id_user],
+          };
         }
-        // gerente/administrativo/desarrollador → todo dentro de la agencia
+        // gerente/administrativo/desarrollador → todo dentro de la agencia (ya filtrado por id_agency)
       }
 
       // ----- Búsqueda simple -----
       if (q) {
         const or: Prisma.ClientWhereInput[] = [];
         const qNum = Number(q);
-        if (!isNaN(qNum)) {
-          or.push({ id_client: qNum });
-        }
+        if (!isNaN(qNum)) or.push({ id_client: qNum });
+
         const qLike = q;
         or.push({ first_name: { contains: qLike, mode: "insensitive" } });
         or.push({ last_name: { contains: qLike, mode: "insensitive" } });
@@ -369,6 +343,32 @@ export default async function handler(
         return res.status(400).json({ error: "Fecha de nacimiento inválida" });
       }
 
+      // Quién puede asignar a otro usuario
+      const canAssignOthers = [
+        "gerente",
+        "administrativo",
+        "desarrollador",
+        "lider",
+      ].includes(role);
+      let usedUserId: number = auth.id_user;
+
+      if (
+        canAssignOthers &&
+        typeof c.id_user === "number" &&
+        Number.isFinite(c.id_user)
+      ) {
+        usedUserId = Number(c.id_user);
+        // Si es líder y asigna a otro, debe estar en su alcance
+        if (role === "lider" && usedUserId !== auth.id_user) {
+          const scope = await getLeaderScope(auth.id_user, auth.id_agency);
+          if (!scope.userIds.includes(usedUserId)) {
+            return res
+              .status(403)
+              .json({ error: "No podés asignar fuera de tu equipo." });
+          }
+        }
+      }
+
       // Duplicados (en el scope de la agencia)
       const duplicate = await prisma.client.findFirst({
         where: {
@@ -377,11 +377,7 @@ export default async function handler(
             ...(dni ? [{ dni_number: dni }] : []),
             ...(pass ? [{ passport_number: pass }] : []),
             ...(c.tax_id ? [{ tax_id: String(c.tax_id).trim() }] : []),
-            {
-              first_name,
-              last_name,
-              birth_date: birth,
-            },
+            { first_name, last_name, birth_date: birth },
           ],
         },
       });
@@ -408,12 +404,10 @@ export default async function handler(
           nationality: c.nationality,
           gender: c.gender,
           email: String(c.email ?? "").trim() || null,
-          id_user: Number(c.id_user ?? auth.id_user),
-          id_agency: auth.id_agency,
+          id_user: usedUserId,
+          id_agency: auth.id_agency, // SIEMPRE desde el token
         },
-        include: {
-          user: { select: userSelectSafe },
-        },
+        include: { user: { select: userSelectSafe } },
       });
 
       return res.status(201).json(created);
