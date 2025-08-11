@@ -47,7 +47,8 @@ export default function OperatorsPage() {
   useEffect(() => {
     if (!token) return;
     fetch("/api/user/profile", {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
     })
       .then((res) => {
         if (!res.ok) throw new Error("No se pudo obtener el perfil");
@@ -72,7 +73,8 @@ export default function OperatorsPage() {
     setLoadingOperators(true);
 
     fetch(`/api/operators?agencyId=${agencyId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
     })
       .then((res) => {
         if (!res.ok) throw new Error("Error al obtener operadores");
@@ -116,6 +118,7 @@ export default function OperatorsPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify(formData),
       });
       if (!res.ok) {
@@ -196,7 +199,8 @@ export default function OperatorsPage() {
     try {
       const res = await fetch(`/api/operators/${id_operator}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Error al eliminar el operador.");
       setOperators((prev) =>

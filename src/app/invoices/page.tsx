@@ -153,7 +153,10 @@ export default function InvoicesPage() {
       const fetchOpts: RequestInit = {
         cache: "no-store",
         credentials: "include", // siempre incluye cookie de sesión
-        ...(token && { headers: { Authorization: `Bearer ${token}` } }),
+        ...(token && {
+          headers: { Authorization: `Bearer ${token}` },
+          credentials: "include",
+        }),
       };
 
       // 1) Traer facturas y notas de crédito

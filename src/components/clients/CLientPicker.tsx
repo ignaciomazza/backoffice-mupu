@@ -56,6 +56,7 @@ export default function ClientPicker({
         setLoading(true);
         const res = await fetch(`/api/clients?q=${valueId}&take=1`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
           signal: controller.signal,
         });
         const data = await res.json();
@@ -106,6 +107,7 @@ export default function ClientPicker({
           `/api/clients?q=${encodeURIComponent(q)}&take=8`,
           {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
+            credentials: "include",
             signal: controller.signal,
           },
         );

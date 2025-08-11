@@ -152,6 +152,7 @@ export default function ServicesPage() {
     try {
       const res = await fetch(`/api/services?bookingId=${id}`, {
         headers: authHeaders,
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Error al obtener los servicios");
       const data = await res.json();
@@ -166,6 +167,7 @@ export default function ServicesPage() {
     try {
       const res = await fetch(`/api/invoices?bookingId=${id}`, {
         headers: authHeaders,
+        credentials: "include",
       });
       if (!res.ok) {
         if (res.status === 404 || res.status === 405) {
@@ -186,6 +188,7 @@ export default function ServicesPage() {
     try {
       const res = await fetch(`/api/receipts?bookingId=${id}`, {
         headers: authHeaders,
+        credentials: "include",
       });
       if (!res.ok) {
         if (res.status === 404 || res.status === 405) {
@@ -208,6 +211,7 @@ export default function ServicesPage() {
         invoices.map((inv) =>
           fetch(`/api/credit-notes?invoiceId=${inv.id_invoice}`, {
             headers: authHeaders,
+            credentials: "include",
           })
             .then((r) => (r.ok ? r.json() : { creditNotes: [] }))
             .then((data) => data.creditNotes as CreditNoteWithItems[]),
@@ -386,6 +390,7 @@ export default function ServicesPage() {
           "Content-Type": "application/json",
           ...(authHeaders || {}),
         },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
@@ -430,6 +435,7 @@ export default function ServicesPage() {
           "Content-Type": "application/json",
           ...(authHeaders || {}),
         },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
@@ -475,6 +481,7 @@ export default function ServicesPage() {
           "Content-Type": "application/json",
           ...(authHeaders || {}),
         },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
@@ -483,6 +490,7 @@ export default function ServicesPage() {
       }
       const updated = await fetch(`/api/services?bookingId=${id}`, {
         headers: authHeaders,
+        credentials: "include",
       });
       const data = await updated.json();
       setServices(data.services);

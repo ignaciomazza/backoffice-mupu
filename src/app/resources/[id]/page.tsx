@@ -24,7 +24,8 @@ export default function ResourceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string | null>(null);
 
-  const isManager = role === "gerente" || role === "desarrollador" || role === "lider";
+  const isManager =
+    role === "gerente" || role === "desarrollador" || role === "lider";
 
   // Estados para edición inline
   const [isEditing, setIsEditing] = useState(false);
@@ -36,7 +37,8 @@ export default function ResourceDetailPage() {
   useEffect(() => {
     if (!token) return;
     fetch("/api/user/profile", {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
     })
       .then((res) => res.json())
       .then((data) => setRole(data.role))
@@ -51,7 +53,8 @@ export default function ResourceDetailPage() {
     }
     setLoading(true);
     fetch(`/api/resources/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
     })
       .then((res) => {
         if (!res.ok) throw new Error(`Status ${res.status}`);
@@ -85,7 +88,8 @@ export default function ResourceDetailPage() {
     try {
       const res = await fetch(`/api/resources/${id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
       if (!res.ok) throw new Error(`Error ${res.status}`);
       toast.success("Recurso eliminado");
@@ -110,6 +114,7 @@ export default function ResourceDetailPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify({
           title: titleEdit.trim(),
           description: descEdit.trim() || null,

@@ -125,14 +125,16 @@ export default function DashboardShortcuts({ agencyId }: Props) {
       try {
         // Perfil (para id_user)
         const pr = await fetch("/api/user/profile", {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
         });
         if (!pr.ok) throw new Error("No se pudo cargar perfil");
         const profile = await pr.json();
 
         // Equipos de la agencia
         const tr = await fetch(`/api/teams?agencyId=${agencyId}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
         });
         const teams:
           | {
@@ -155,7 +157,8 @@ export default function DashboardShortcuts({ agencyId }: Props) {
         const er = await fetch(
           `/api/earnings?from=${defaultFrom}&to=${defaultTo}`,
           {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
           },
         );
         if (!er.ok) throw new Error("Error al cargar comisiones");
@@ -187,7 +190,8 @@ export default function DashboardShortcuts({ agencyId }: Props) {
         // Reservas con observaciones (primer page está ok para “atajos”)
         {
           const br = await fetch("/api/bookings?take=24", {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
           });
           if (br.ok) {
             const {
@@ -596,7 +600,8 @@ async function fetchAllBookingsForRange({
     if (cursor) params.append("cursor", String(cursor));
 
     const r = await fetch(`/api/bookings?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
     });
     if (!r.ok) throw new Error("Error al cargar reservas del rango");
     const {
@@ -638,7 +643,8 @@ async function countNewClientsForMonth({
     if (cursor) params.append("cursor", String(cursor));
 
     const r = await fetch(`/api/clients?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
     });
     if (!r.ok) throw new Error("Error al cargar clientes");
     const {

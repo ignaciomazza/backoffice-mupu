@@ -150,8 +150,6 @@ export default function BalancesPage() {
       if (to) qsBase.append("to", to);
       qsBase.append("take", String(TAKE));
 
-      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-
       // Traer todas las páginas usando cursor
       let all: Booking[] = [];
       let cursor: number | null = null;
@@ -161,8 +159,8 @@ export default function BalancesPage() {
         if (cursor) qs.append("cursor", String(cursor));
 
         const res = await fetch(`/api/bookings?${qs.toString()}`, {
-          headers,
-          credentials: headers ? "include" : undefined,
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
         });
 
         const json = await res.json();

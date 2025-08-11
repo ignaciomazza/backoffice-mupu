@@ -170,7 +170,8 @@ export default function Page() {
     (async () => {
       try {
         const profileRes = await fetch("/api/user/profile", {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
           signal: abort.signal,
         });
         if (!profileRes.ok) throw new Error("No se pudo obtener el perfil");
@@ -186,11 +187,10 @@ export default function Page() {
         setSelectedUserId(FILTROS.includes(roleNorm) ? 0 : p.id_user);
         setSelectedTeamId(0);
 
-        const headers = { Authorization: `Bearer ${token}` };
-
         // 1) Equipos de la agencia
         const teamsRes = await fetch(`/api/teams?agencyId=${p.id_agency}`, {
-          headers,
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
           signal: abort.signal,
         });
         if (!teamsRes.ok) throw new Error("No se pudieron cargar los equipos");
@@ -209,7 +209,8 @@ export default function Page() {
         // 2) Usuarios visibles (según rol)
         if (FILTROS.includes(p.role)) {
           const usersRes = await fetch("/api/users", {
-            headers,
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            credentials: "include",
             signal: abort.signal,
           });
           if (usersRes.ok) {
@@ -269,7 +270,8 @@ export default function Page() {
       try {
         const qs = buildBookingsQuery();
         const resp = await fetch(`/api/bookings?${qs}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
           signal: controller.signal,
         });
         if (!resp.ok) throw new Error("No se pudieron obtener las reservas");
@@ -358,7 +360,8 @@ export default function Page() {
     if (formData.invoice_type === "Factura A") {
       try {
         const resClient = await fetch(`/api/clients/${formData.titular_id}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
         });
         if (!resClient.ok) {
           toast.error("No se pudo obtener la información del titular.");
@@ -391,10 +394,8 @@ export default function Page() {
 
       const response = await fetch(url, {
         method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
         body: JSON.stringify(formData),
       });
 
@@ -412,7 +413,8 @@ export default function Page() {
       // Refrescar primera página con los filtros actuales
       const qs = buildBookingsQuery();
       const listResp = await fetch(`/api/bookings?${qs}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
       if (!listResp.ok) throw new Error("No se pudo refrescar la lista.");
       const { items, nextCursor } = await listResp.json();
@@ -436,7 +438,8 @@ export default function Page() {
     try {
       const qs = buildBookingsQuery({ cursor: nextCursor });
       const resp = await fetch(`/api/bookings?${qs}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
       if (!resp.ok) throw new Error("No se pudieron obtener más reservas");
 
@@ -499,7 +502,8 @@ export default function Page() {
     try {
       const res = await fetch(`/api/bookings/${id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
       if (res.ok) {
         setBookings((prev) => prev.filter((b) => b.id_booking !== id));

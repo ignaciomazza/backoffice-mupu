@@ -36,7 +36,8 @@ export default function TeamsPage() {
   useEffect(() => {
     if (!token) return;
     fetch("/api/users", {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
     })
       .then((res) => {
         if (!res.ok) throw new Error();
@@ -51,7 +52,8 @@ export default function TeamsPage() {
     if (agencyId == null || !token) return;
     setLoadingTeams(true);
     fetch(`/api/teams?agencyId=${agencyId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
     })
       .then((res) => {
         if (!res.ok) throw new Error();
@@ -87,6 +89,7 @@ export default function TeamsPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify({
           name,
           userIds: selectedUserIds,
@@ -125,7 +128,8 @@ export default function TeamsPage() {
     try {
       const res = await fetch(`/api/teams/${id_team}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
       if (!res.ok) throw new Error();
       setTeams((prev) => prev.filter((t) => t.id_team !== id_team));

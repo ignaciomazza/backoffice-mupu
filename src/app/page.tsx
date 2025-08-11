@@ -41,7 +41,8 @@ export default function ProfilePage() {
     (async () => {
       try {
         const res = await fetch("/api/user/profile", {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
         });
         if (!res.ok) throw new Error("Error fetching profile");
         const data = (await res.json()) as UserProfile;

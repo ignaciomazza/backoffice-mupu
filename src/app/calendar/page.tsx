@@ -90,7 +90,8 @@ export default function CalendarPage() {
 
     // 1) Obtener perfil y luego vendors + teams de la misma agencia
     fetch("/api/user/profile", {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
     })
       .then((r) => {
         if (!r.ok) throw new Error("Error al obtener perfil");
@@ -101,13 +102,15 @@ export default function CalendarPage() {
         // una vez tenemos el agencyId, disparar ambas cargas en paralelo
         return Promise.all([
           fetch(`/api/users?agencyId=${p.id_agency}`, {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            credentials: "include",
           }).then((r) => {
             if (!r.ok) throw new Error("Error al obtener vendedores");
             return r.json() as Promise<User[]>;
           }),
           fetch(`/api/teams?agencyId=${p.id_agency}`, {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            credentials: "include",
           }).then((r) => {
             if (!r.ok) throw new Error("Error al obtener equipos");
             return r.json() as Promise<SalesTeam[]>;
@@ -188,7 +191,8 @@ export default function CalendarPage() {
 
     setLoadingEvents(true);
     fetch(`/api/calendar?${qs.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
     })
       .then((r) => r.json() as Promise<CalendarEvent[]>)
       .then((data) => {
@@ -285,6 +289,7 @@ export default function CalendarPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify({
           title: form.title.trim(),
           content: form.content.trim(),
@@ -329,9 +334,8 @@ export default function CalendarPage() {
     try {
       const res = await fetch(`/api/calendar/${id}`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
 
       if (res.status === 204) {
@@ -358,6 +362,7 @@ export default function CalendarPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify({
           title: form.title.trim(),
           content: form.content.trim(),

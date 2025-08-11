@@ -30,7 +30,8 @@ export default function Page() {
     (async () => {
       try {
         const res = await fetch("/api/user/profile", {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
         });
         if (!res.ok) throw new Error("Error al obtener perfil");
         const data = await res.json();
@@ -47,7 +48,8 @@ export default function Page() {
     if (agencyId === null) return;
     setLoading(true);
     fetch(`/api/resources?agencyId=${agencyId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
     })
       .then((res) => {
         if (!res.ok) throw new Error("Error al obtener recursos");
@@ -74,7 +76,8 @@ export default function Page() {
     setResources((prev) => [newRes, ...prev]);
   };
 
-  const isManager = role === "gerente" || role === "desarrollador" || role === "lider";
+  const isManager =
+    role === "gerente" || role === "desarrollador" || role === "lider";
 
   return (
     <ProtectedRoute>

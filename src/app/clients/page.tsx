@@ -100,7 +100,8 @@ export default function Page() {
     (async () => {
       try {
         const res = await fetch("/api/user/profile", {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
           signal: abort.signal,
         });
         if (!res.ok) throw new Error("No se pudo obtener el perfil");
@@ -120,7 +121,8 @@ export default function Page() {
 
         // Equipos de la agencia
         const teamsRes = await fetch(`/api/teams?agencyId=${p.id_agency}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
           signal: abort.signal,
         });
         if (!teamsRes.ok) throw new Error("No se pudieron cargar los equipos");
@@ -139,7 +141,8 @@ export default function Page() {
         // Usuarios visibles
         if (FILTROS.includes(p.role)) {
           const usersRes = await fetch("/api/users", {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            credentials: "include",
             signal: abort.signal,
           });
           if (!usersRes.ok)
@@ -221,7 +224,8 @@ export default function Page() {
       try {
         const qs = buildClientsQuery();
         const res = await fetch(`/api/clients?${qs}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
           signal: controller.signal,
         });
         if (!res.ok) throw new Error("Error al obtener clientes");
@@ -263,7 +267,8 @@ export default function Page() {
     try {
       const qs = buildClientsQuery({ cursor: nextCursor });
       const res = await fetch(`/api/clients?${qs}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
       if (!res.ok) throw new Error("No se pudieron cargar más clientes");
       const { items, nextCursor: newCursor } = await res.json();
@@ -314,6 +319,7 @@ export default function Page() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
 
@@ -324,7 +330,8 @@ export default function Page() {
       // Refrescar primera página con filtros actuales
       const qs = buildClientsQuery();
       const listRes = await fetch(`/api/clients?${qs}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
       if (!listRes.ok) throw new Error("No se pudo refrescar la lista.");
       const { items, nextCursor } = await listRes.json();
@@ -368,7 +375,8 @@ export default function Page() {
     try {
       const res = await fetch(`/api/clients/${id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {

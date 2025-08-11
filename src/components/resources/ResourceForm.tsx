@@ -70,6 +70,7 @@ export default function ResourceForm({ onCreated }: ResourceFormProps) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
+        credentials: "include",
         body: JSON.stringify({ title }),
       });
       if (!res.ok) {
