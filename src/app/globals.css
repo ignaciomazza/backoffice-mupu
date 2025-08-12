@@ -82,8 +82,8 @@ body {
 .custom-checkbox {
   appearance: none;
   -webkit-appearance: none; /* Para navegadores Webkit */
-  background-color: white;
-  border: 1px solid #131313;
+  background-color: #e0f2fe;
+  border: 1px solid #082f49;
   width: 20px;
   height: 20px;
   border-radius: 50%;
@@ -96,16 +96,16 @@ body {
 }
 
 .dark .custom-checkbox {
-  background-color: #131313;
-  border: 1px solid white;
+  background-color: #082f49;
+  border: 1px solid #e0f2fe;
 }
 
 .custom-checkbox:checked {
-  background-color: #131313;
+  background-color: #082f49;
 }
 
 .dark .custom-checkbox:checked {
-  background-color: white;
+  background-color: #e0f2fe;
 }
 
 .custom-checkbox:checked::after {
@@ -115,13 +115,13 @@ body {
   left: 7px;
   width: 4px;
   height: 8px;
-  border: solid white;
+  border: solid #e0f2fe;
   border-width: 0 1px 1px 0;
   transform: rotate(45deg);
 }
 
 .dark .custom-checkbox:checked::after {
-  border-color: #131313;
+  border-color: #082f49;
 }
 
 input[type="number"]::-webkit-inner-spin-button,

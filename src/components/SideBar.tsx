@@ -58,6 +58,8 @@ export default function SideBar({
         return ["desarrollador", "gerente", "administrativo"].includes(role);
       case "/earnings":
         return ["desarrollador", "gerente", "administrativo"].includes(role);
+      case "/investments":
+        return ["desarrollador", "gerente", "administrativo"].includes(role);
 
       default:
         return true;
@@ -168,6 +170,21 @@ export default function SideBar({
                 onClick={closeMenu}
               >
                 Saldos
+              </Link>
+            </li>
+          )}
+          {hasAccess("/investments") && (
+            <li className="transition-transform hover:scale-95 active:scale-90">
+              <Link
+                href="/investments"
+                className={`block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white ${
+                  currentPath === "/investments"
+                    ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
+                    : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
+                }`}
+                onClick={closeMenu}
+              >
+                Inversion
               </Link>
             </li>
           )}

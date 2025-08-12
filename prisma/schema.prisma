@@ -10,7 +10,7 @@ generator client {
 }
 
 model Agency {
-  id_agency        Int         @id @default(autoincrement())
+  id_agency        Int          @id @default(autoincrement())
   name             String
   legal_name       String
   address          String?
@@ -22,30 +22,33 @@ model Agency {
   logo_url         String?
   afip_cert_base64 String?
   afip_key_base64  String?
-  creation_date    DateTime    @default(now())
+  creation_date    DateTime     @default(now())
   users            User[]
   bookings         Booking[]
   Client           Client[]
   SalesTeam        SalesTeam[]
   Resources        Resources[]
   Operator         Operator[]
+  investments      Investment[]
 }
 
 model User {
-  id_user       Int            @id @default(autoincrement())
-  email         String         @unique
-  password      String
-  role          String
-  position      String?
-  first_name    String
-  last_name     String
-  creation_date DateTime       @default(now())
-  id_agency     Int
-  agency        Agency         @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
-  bookings      Booking[]
-  sales_teams   UserTeam[]
-  clients       Client[]
-  CalendarNote  CalendarNote[]
+  id_user                  Int            @id @default(autoincrement())
+  email                    String         @unique
+  password                 String
+  role                     String
+  position                 String?
+  first_name               String
+  last_name                String
+  creation_date            DateTime       @default(now())
+  id_agency                Int
+  agency                   Agency         @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  bookings                 Booking[]
+  sales_teams              UserTeam[]
+  clients                  Client[]
+  CalendarNote             CalendarNote[]
+  investmentsAsBeneficiary Investment[]   @relation("InvestmentUser")
+  investmentsCreated       Investment[]   @relation("InvestmentCreatedBy")
 }
 
 model Client {
@@ -139,7 +142,7 @@ model Service {
 }
 
 model Operator {
-  id_operator       Int       @id @default(autoincrement())
+  id_operator       Int          @id @default(autoincrement())
   name              String
   email             String?
   phone             String?
@@ -152,12 +155,13 @@ model Operator {
   vat_status        String?
   legal_name        String?
   tax_id            String?
-  registration_date DateTime  @default(now())
-  credit_balance    Float     @default(0)
-  debit_balance     Float     @default(0)
+  registration_date DateTime     @default(now())
+  credit_balance    Float        @default(0)
+  debit_balance     Float        @default(0)
   services          Service[]
   id_agency         Int
-  agency            Agency    @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  agency            Agency       @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  Investment        Investment[]
 }
 
 model Invoice {
@@ -281,4 +285,26 @@ model CalendarNote {
   createdBy Int
   creator   User     @relation(fields: [createdBy], references: [id_user], onDelete: Cascade)
   createdAt DateTime @default(now())
+}
+
+model Investment {
+  id_investment Int    @id @default(autoincrement())
+  id_agency     Int
+  agency        Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  category    String
+  description String
+  amount      Decimal   @db.Decimal(18, 2)
+  currency    String
+  created_at  DateTime  @default(now())
+  paid_at     DateTime?
+  operator_id Int?
+  operator    Operator? @relation(fields: [operator_id], references: [id_operator])
+  user_id Int?
+  user    User? @relation("InvestmentUser", fields: [user_id], references: [id_user])
+  created_by Int
+  createdBy  User @relation("InvestmentCreatedBy", fields: [created_by], references: [id_user])
+
+  @@index([id_agency, category])
+  @@index([created_at])
+  @@index([paid_at])
 }
