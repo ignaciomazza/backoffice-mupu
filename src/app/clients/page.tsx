@@ -118,7 +118,10 @@ export default function Page() {
           id_user: p.id_user,
           id_agency: p.id_agency,
         }));
-        setSelectedUserId(FILTROS.includes(p.role) ? 0 : p.id_user);
+        const viewAllRoles = ["vendedor", "lider", "gerente"] as const;
+        setSelectedUserId(
+          (viewAllRoles as readonly string[]).includes(p.role) ? 0 : p.id_user,
+        );
         setSelectedTeamId(0);
 
         // Equipos de la agencia

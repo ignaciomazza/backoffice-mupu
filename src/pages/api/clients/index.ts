@@ -155,7 +155,6 @@ export default async function handler(
   }
 
   const role = (auth.role || "").toLowerCase();
-  const isLeader = role === "lider";
 
   // ===== GET: lista con filtros + cursor =====
   if (req.method === "GET") {
@@ -187,84 +186,111 @@ export default async function handler(
       const teamId = teamIdParam || 0;
 
       const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
-
       const where: Prisma.ClientWhereInput = { id_agency: auth.id_agency };
 
-      // ======= Vendor lock (no teamId, no userId ajeno) =======
-      if (role === "vendedor") {
-        if (userId && userId !== auth.id_user) {
-          return res.status(403).json({ error: "No autorizado." });
-        }
-        if (teamId !== 0) {
-          return res.status(403).json({ error: "No autorizado." });
-        }
-        where.id_user = auth.id_user;
-      }
+      const roleNorm = (role || "").toLowerCase();
+      const canSeeAllAgency = ["vendedor", "lider", "gerente"].includes(
+        roleNorm,
+      );
 
-      // ======= Leader lockdown / validaciones explícitas =======
-      let leaderScopeUserIds: number[] = [];
-      let leaderScopeTeamIds: number[] = [];
-      if (isLeader) {
-        const scope = await getLeaderScope(auth.id_user, auth.id_agency);
-        leaderScopeUserIds = scope.userIds;
-        leaderScopeTeamIds = scope.teamIds;
+      // Si el rol es vendedor/líder/gerente → puede ver todos los clientes de la agencia.
+      // (NO forzamos where.id_user)
+      if (!canSeeAllAgency) {
+        // Para otros roles mantenemos el comportamiento previo:
+        // líderes restringidos a su alcance, etc.
+        let leaderScopeUserIds: number[] = [];
+        let leaderScopeTeamIds: number[] = [];
 
-        if (userId && !leaderScopeUserIds.includes(userId)) {
-          return res.status(403).json({ error: "Usuario fuera de tu equipo." });
-        }
-        if (teamId > 0 && !leaderScopeTeamIds.includes(teamId)) {
-          return res
-            .status(403)
-            .json({ error: "Equipo fuera de tu liderazgo." });
-        }
-        if (teamId === -1) {
-          return res
-            .status(403)
-            .json({ error: "Filtro 'sin equipo' no disponible para líderes." });
-        }
-      }
+        const isLeader = roleNorm === "lider";
+        if (isLeader) {
+          const scope = await getLeaderScope(auth.id_user, auth.id_agency);
+          leaderScopeUserIds = scope.userIds;
+          leaderScopeTeamIds = scope.teamIds;
 
-      // ----- userId explícito (si no es vendedor, ya validado arriba para líder) -----
-      if (userId > 0 && role !== "vendedor") {
-        where.id_user = userId;
-      }
-
-      // ----- teamId explícito (solo si NO vino userId) -----
-      if (!userId && teamId !== 0 && role !== "vendedor") {
-        if (teamId > 0) {
-          const team = await prisma.salesTeam.findUnique({
-            where: { id_team: teamId },
-            include: { user_teams: { select: { id_user: true } } },
-          });
-          if (!team || team.id_agency !== auth.id_agency) {
+          if (userId && !leaderScopeUserIds.includes(userId)) {
             return res
               .status(403)
-              .json({ error: "Equipo inválido para esta agencia." });
+              .json({ error: "Usuario fuera de tu equipo." });
           }
-          const ids = team.user_teams.map((ut) => ut.id_user);
-          where.id_user = { in: ids.length ? ids : [-1] };
-        } else if (teamId === -1) {
-          // "Sin equipo" (habilitado solo para no-líderes)
-          const users = await prisma.user.findMany({
-            where: { id_agency: auth.id_agency, sales_teams: { none: {} } },
-            select: { id_user: true },
-          });
-          const ids = users.map((u) => u.id_user);
-          where.id_user = { in: ids.length ? ids : [-1] };
+          if (teamId > 0 && !leaderScopeTeamIds.includes(teamId)) {
+            return res
+              .status(403)
+              .json({ error: "Equipo fuera de tu liderazgo." });
+          }
+          if (teamId === -1) {
+            return res.status(403).json({
+              error: "Filtro 'sin equipo' no disponible para líderes.",
+            });
+          }
         }
-      }
 
-      // ----- Visibilidad por rol cuando NO hay userId ni teamId (y no vendedor) -----
-      if (!where.id_user && role !== "vendedor") {
-        if (isLeader) {
+        // userId explícito (si no es vendedor y ya validado arriba para líder)
+        if (userId > 0) {
+          where.id_user = userId;
+        }
+
+        // teamId explícito (solo si NO vino userId)
+        if (!userId && teamId !== 0) {
+          if (teamId > 0) {
+            const team = await prisma.salesTeam.findUnique({
+              where: { id_team: teamId },
+              include: { user_teams: { select: { id_user: true } } },
+            });
+            if (!team || team.id_agency !== auth.id_agency) {
+              return res
+                .status(403)
+                .json({ error: "Equipo inválido para esta agencia." });
+            }
+            const ids = team.user_teams.map((ut) => ut.id_user);
+            where.id_user = { in: ids.length ? ids : [-1] };
+          } else if (teamId === -1) {
+            // "Sin equipo" (habilitado solo para no-líderes)
+            const users = await prisma.user.findMany({
+              where: { id_agency: auth.id_agency, sales_teams: { none: {} } },
+              select: { id_user: true },
+            });
+            const ids = users.map((u) => u.id_user);
+            where.id_user = { in: ids.length ? ids : [-1] };
+          }
+        }
+
+        // Visibilidad por rol cuando NO hay userId ni teamId (y no vendedor/líder/gerente)
+        if (!where.id_user && isLeader) {
           where.id_user = {
             in: leaderScopeUserIds.length ? leaderScopeUserIds : [auth.id_user],
           };
         }
-        // gerente/administrativo/desarrollador → todo dentro de la agencia (ya filtrado por id_agency)
+        // administrativo/desarrollador → ya están dentro de la agencia por id_agency
+      } else {
+        // canSeeAllAgency true:
+        // Si el caller mandó filtros explícitos, los aplicamos.
+        if (userId > 0) where.id_user = userId;
+
+        if (!userId && teamId !== 0) {
+          if (teamId > 0) {
+            const team = await prisma.salesTeam.findUnique({
+              where: { id_team: teamId },
+              include: { user_teams: { select: { id_user: true } } },
+            });
+            if (!team || team.id_agency !== auth.id_agency) {
+              return res
+                .status(403)
+                .json({ error: "Equipo inválido para esta agencia." });
+            }
+            const ids = team.user_teams.map((ut) => ut.id_user);
+            where.id_user = { in: ids.length ? ids : [-1] };
+          } else if (teamId === -1) {
+            const users = await prisma.user.findMany({
+              where: { id_agency: auth.id_agency, sales_teams: { none: {} } },
+              select: { id_user: true },
+            });
+            const ids = users.map((u) => u.id_user);
+            where.id_user = { in: ids.length ? ids : [-1] };
+          }
+        }
       }
 
-      // ----- Búsqueda simple -----
+      // Búsqueda simple
       if (q) {
         const or: Prisma.ClientWhereInput[] = [];
         const qNum = Number(q);
@@ -284,7 +310,7 @@ export default async function handler(
           : [{ OR: or }];
       }
 
-      // ----- Query con cursor -----
+      // Query con cursor
       const items = await prisma.client.findMany({
         where,
         include: {

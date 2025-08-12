@@ -56,7 +56,7 @@ export default function ClientPicker({
       try {
         setLoading(true);
         const res = await authFetch(
-          `/api/clients?q=${valueId}&take=1`,
+          `/api/clients?q=${valueId}&take=1&for=booking`,
           { signal: controller.signal },
           token ?? null,
         );
@@ -107,7 +107,7 @@ export default function ClientPicker({
       try {
         setLoading(true);
         const res = await authFetch(
-          `/api/clients?q=${encodeURIComponent(q)}&take=8`,
+          `/api/clients?q=${encodeURIComponent(q)}&take=8&for=booking`,
           { signal: controller.signal },
           token ?? null,
         );
