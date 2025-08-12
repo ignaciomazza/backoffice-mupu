@@ -1,9 +1,10 @@
-// src/pages/api/bookings/index.ts  (PARTE 1/2 - GET instrumentado)
+// src/pages/api/bookings/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 
+// ============ Tipos ============
 type DecodedUser = {
   id_user?: number;
   role?: string;
@@ -20,7 +21,7 @@ type BookingCreateBody = {
   invoice_observation: string;
   observation?: string;
   titular_id: number;
-  id_agency: number;
+  // id_agency: number;  // <- ignorado en backend, se usa el del token
   departure_date: string;
   return_date: string;
   pax_count: number;
@@ -39,39 +40,28 @@ type TokenPayload = JWTPayload & {
   email?: string;
 };
 
-type ReqWithRid = NextApiRequest & { _rid?: string };
+// ============ JWT SECRET (sin defaults, igual en todos los endpoints) ============
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
-const JWT_SECRET = process.env.JWT_SECRET || "changeme";
-
-// --- Helpers --------------------------------------------------------------
-
-function rid() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-/** Intenta extraer el token de Authorization o de cookies comunes */
+// ============ Helpers comunes ============
 function getTokenFromRequest(req: NextApiRequest): string | null {
-  const id = (req as ReqWithRid)._rid || rid();
-  (req as ReqWithRid)._rid = id;
+  // 1) cookie "token" (más robusto en prod)
+  if (req.cookies?.token) return req.cookies.token;
 
+  // 2) Authorization: Bearer
   const auth = req.headers.authorization || "";
-  if (auth.startsWith("Bearer ")) {
-    return auth.slice(7);
-  }
+  if (auth.startsWith("Bearer ")) return auth.slice(7);
 
-  // Fallback a cookies (según tu flujo de login/session)
+  // 3) otros posibles nombres de cookie
   const c = req.cookies || {};
-  const cookieCandidates = [
-    "token",
+  for (const k of [
     "session",
     "auth_token",
     "access_token",
-    "next-auth.session-token", // por si alguna vez usaste next-auth
-  ];
-  for (const k of cookieCandidates) {
-    if (c[k]) {
-      return c[k];
-    }
+    "next-auth.session-token",
+  ]) {
+    if (c[k]) return c[k]!;
   }
   return null;
 }
@@ -81,62 +71,51 @@ async function getUserFromAuth(
 ): Promise<DecodedUser | null> {
   try {
     const token = getTokenFromRequest(req);
-    if (!token) {
-      return null;
-    }
+    if (!token) return null;
 
     const { payload } = await jwtVerify(
       token,
       new TextEncoder().encode(JWT_SECRET),
     );
+    const p = payload as TokenPayload;
 
-    // 🔧 Mapear nombres alternativos del payload (tu sesión usa userId, no id_user)
-    const rawIdUser =
-      (payload as TokenPayload).id_user ??
-      (payload as TokenPayload).userId ??
-      (payload as TokenPayload).uid;
-    const rawAgencyId =
-      (payload as TokenPayload).id_agency ??
-      (payload as TokenPayload).agencyId ??
-      (payload as TokenPayload).aid;
+    const id_user = Number(p.id_user ?? p.userId ?? p.uid) || undefined;
+    const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || undefined;
+    const role = (p.role || "") as string | undefined;
+    const email = p.email;
 
-    const id_user = rawIdUser != null ? Number(rawIdUser) : undefined;
-    const role = (payload as TokenPayload).role as string | undefined;
-    const id_agency = rawAgencyId != null ? Number(rawAgencyId) : undefined;
-    const email = (payload as TokenPayload).email as string | undefined;
-
-    // 🔎 Si NO tenemos id_user pero sí email, lo buscamos por email
+    // completar por email si falta id_user
     if (!id_user && email) {
-      const user = await prisma.user.findUnique({ where: { email } });
-      if (user) {
-        return {
-          id_user: user.id_user,
-          role: user.role,
-          id_agency: user.id_agency,
-          email: user.email,
-        };
-      }
-    }
-
-    // 🔎 Si tenemos id_user pero NO id_agency, completar desde DB
-    if (id_user && !id_agency) {
-      const user = await prisma.user.findUnique({
-        where: { id_user },
-        select: { id_user: true, role: true, id_agency: true, email: true },
+      const u = await prisma.user.findUnique({
+        where: { email },
+        select: { id_user: true, id_agency: true, role: true, email: true },
       });
-      if (user) {
+      if (u)
         return {
-          id_user: user.id_user,
-          role: role ?? user.role,
-          id_agency: user.id_agency,
-          email: email ?? user.email ?? undefined,
+          id_user: u.id_user,
+          id_agency: u.id_agency,
+          role: u.role,
+          email: u.email,
         };
-      }
     }
 
-    return { id_user, role, id_agency, email };
-  } catch (e) {
-    console.warn("[auth] error verificando JWT:", e);
+    // completar agency si falta
+    if (id_user && !id_agency) {
+      const u = await prisma.user.findUnique({
+        where: { id_user },
+        select: { id_agency: true, role: true, email: true },
+      });
+      if (u)
+        return {
+          id_user,
+          id_agency: u.id_agency,
+          role: role ?? u.role,
+          email: email ?? u.email ?? undefined,
+        };
+    }
+
+    return { id_user, id_agency, role, email };
+  } catch {
     return null;
   }
 }
@@ -151,21 +130,20 @@ function parseCSV(v?: string | string[]) {
 
 function toLocalDate(v: unknown): Date | undefined {
   if (typeof v !== "string" || !v) return undefined;
-
-  // Si viene "YYYY-MM-DD" lo parseamos como LOCAL (no UTC)
   const ymd = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (ymd) {
-    const y = Number(ymd[1]);
-    const m = Number(ymd[2]);
-    const d = Number(ymd[3]);
-    return new Date(y, m - 1, d, 0, 0, 0, 0); // <- local midnight
-  }
-
-  // fallback para otros formatos
+  if (ymd)
+    return new Date(
+      Number(ymd[1]),
+      Number(ymd[2]) - 1,
+      Number(ymd[3]),
+      0,
+      0,
+      0,
+      0,
+    );
   const d = new Date(v);
   return isNaN(d.getTime()) ? undefined : d;
 }
-
 function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
 }
@@ -173,34 +151,25 @@ function endOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 }
 
-// ⬇️ helper: devuelve equipos donde el líder lidera y todos los id_user alcanzables
+// equipos que lidera + ids de usuarios alcanzables
 async function getLeaderScope(authUserId: number, authAgencyId?: number) {
   const teams = await prisma.salesTeam.findMany({
     where: {
       ...(authAgencyId ? { id_agency: authAgencyId } : {}),
-      user_teams: {
-        some: {
-          user: { id_user: authUserId, role: "lider" },
-        },
-      },
+      user_teams: { some: { user: { id_user: authUserId, role: "lider" } } },
     },
     include: { user_teams: { select: { id_user: true } } },
   });
-
   const teamIds = teams.map((t) => t.id_team);
-  const userIds = new Set<number>([authUserId]); // incluirse a sí mismo
+  const userIds = new Set<number>([authUserId]);
   teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
-
   return { teamIds, userIds: Array.from(userIds) };
 }
 
-// --- GET: list/paginate ---------------------------------------------------
+// ============ GET ============
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
-  const id = (req as ReqWithRid)._rid || rid();
-  (req as ReqWithRid)._rid = id;
-
   try {
-    // Pagination
+    // paginación
     const takeParam = Number(
       Array.isArray(req.query.take)
         ? req.query.take[0]
@@ -209,17 +178,15 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const take = Math.min(Math.max(takeParam || 20, 1), 100);
     const cursor = req.query.cursor ? Number(req.query.cursor) : undefined;
 
-    // Filters (crudos del query)
+    // filtros
     const userId = Array.isArray(req.query.userId)
       ? Number(req.query.userId[0])
       : req.query.userId
         ? Number(req.query.userId)
         : undefined;
-
     const status = Array.isArray(req.query.status)
       ? (req.query.status[0] as string)
       : (req.query.status as string) || undefined;
-
     const clientStatusArr = parseCSV(req.query.clientStatus);
     const operatorStatusArr = parseCSV(req.query.operatorStatus);
 
@@ -234,20 +201,20 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         ? Number(req.query.teamId)
         : 0;
 
-    // Auth scope
+    // auth
     const authUser = await getUserFromAuth(req);
     const role = (authUser?.role || "").toString().toLowerCase();
     const authUserId = authUser?.id_user;
     const authAgencyId = authUser?.id_agency;
 
-    if (!authUserId) {
+    if (!authUserId || !authAgencyId) {
       return res.status(401).json({ error: "No autenticado" });
     }
 
     // where base
-    const where: Prisma.BookingWhereInput = {};
+    const where: Prisma.BookingWhereInput = { id_agency: authAgencyId };
 
-    // Búsqueda server-side
+    // búsqueda simple
     const q = typeof req.query.q === "string" ? req.query.q.trim() : undefined;
     if (q && q.length > 0) {
       const or: Prisma.BookingWhereInput[] = [];
@@ -268,21 +235,17 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       or.push({
         clients: { some: { last_name: { contains: q, mode: "insensitive" } } },
       });
-      const prevAnd = Array.isArray(where.AND)
-        ? where.AND
-        : where.AND
-          ? [where.AND]
-          : [];
-      where.AND = [...prevAnd, { OR: or }];
+      where.AND = [
+        ...(Array.isArray(where.AND)
+          ? where.AND
+          : where.AND
+            ? [where.AND]
+            : []),
+        { OR: or },
+      ];
     }
 
-    // Scope por agencia
-    if (authAgencyId) {
-      where.id_agency = authAgencyId;
-    }
-
-    // =====================  BLOQUE DE “LEADER LOCK-DOWN”  =====================
-    // Siempre calcular alcance del líder (ids de equipos e ids de usuarios) si corresponde
+    // leader lockdown
     let leaderTeamIds: number[] = [];
     let leaderUserIds: number[] = [];
     const isLeader = role === "lider";
@@ -292,71 +255,56 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       leaderTeamIds = scope.teamIds;
       leaderUserIds = scope.userIds;
 
-      // Si vino userId explícito, validar que esté en su alcance
       if (userId && !leaderUserIds.includes(userId)) {
         return res
           .status(403)
           .json({ error: "No autorizado: usuario fuera de tu equipo." });
       }
-
-      // Si vino teamId explícito, validar que sea un equipo donde este usuario es líder
       if (teamId > 0 && !leaderTeamIds.includes(teamId)) {
         return res
           .status(403)
           .json({ error: "No autorizado: equipo fuera de tu alcance." });
       }
-
-      // Para líderes **no** permitimos “sin equipo” (-1) por seguridad
       if (teamId === -1) {
-        return res.status(403).json({
-          error:
-            "No autorizado: filtro de 'sin equipo' no disponible para líderes.",
-        });
+        return res
+          .status(403)
+          .json({
+            error: "No autorizado: 'sin equipo' no disponible para líderes.",
+          });
       }
     }
-    // ========================================================================
 
-    // --- Enforce vendedor: no puede ver a otros ni usar teamId ---
+    // vendedor: alcance propio, sin teamId
     if (role === "vendedor") {
-      // Si pidió userId distinto, bloquear
-      if (userId && userId !== authUserId) {
+      if (userId && userId !== authUserId)
         return res.status(403).json({ error: "No autorizado." });
-      }
-      // Si intenta filtrar por cualquier teamId, bloquear
-      if (teamId !== 0) {
+      if (teamId !== 0)
         return res.status(403).json({ error: "No autorizado." });
-      }
-      // Fuerza su propio alcance siempre
       where.id_user = authUserId!;
     }
 
-    // Filtro por userId (si llegó y es válido para el rol)
-    if (userId && userId > 0) {
+    // userId explícito
+    if (userId && userId > 0 && role !== "vendedor") {
       where.id_user = userId;
     }
 
-    // Team filter server-side (solo si NO vino userId explícito)
-    if (!userId && teamId !== 0) {
+    // teamId (si NO vino userId)
+    if (!userId && teamId !== 0 && role !== "vendedor") {
       if (teamId > 0) {
         const team = await prisma.salesTeam.findUnique({
           where: { id_team: teamId },
           include: { user_teams: { select: { id_user: true } } },
         });
-        if (!team || (authAgencyId && team.id_agency !== authAgencyId)) {
+        if (!team || team.id_agency !== authAgencyId) {
           return res
             .status(403)
             .json({ error: "Equipo inválido para esta agencia." });
         }
-        // Si es líder, ya validamos que el team le pertenezca; usamos sus ids
         const ids = team.user_teams.map((ut) => ut.id_user);
         where.id_user = { in: ids.length ? ids : [-1] };
       } else if (teamId === -1) {
-        // Solo perfiles no-líder pueden pedir “sin equipo”
         const users = await prisma.user.findMany({
-          where: {
-            ...(authAgencyId ? { id_agency: authAgencyId } : {}),
-            sales_teams: { none: {} },
-          },
+          where: { id_agency: authAgencyId, sales_teams: { none: {} } },
           select: { id_user: true },
         });
         const unassignedIds = users.map((u) => u.id_user);
@@ -364,35 +312,21 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
-    // Hardening por rol cuando NO hay userId/TeamId concretos:
-    if (!where.id_user) {
-      if (!where.id_user) {
-        if (isLeader) {
-          where.id_user = {
-            in: leaderUserIds.length ? leaderUserIds : [authUserId!],
-          };
-        }
-        // gerente/administrativo/desarrollador → sin restricción extra
-      } else if (isLeader) {
-        where.id_user = {
-          in: leaderUserIds.length ? leaderUserIds : [authUserId],
-        };
-      }
-      // gerente/administrativo/desarrollador → sin restricción extra
+    // hardening cuando no hay userId ni teamId
+    if (!where.id_user && isLeader) {
+      where.id_user = {
+        in: leaderUserIds.length ? leaderUserIds : [authUserId],
+      };
     }
 
-    // Otros filtros
-    if (status && status !== "Todas") {
-      where.status = status;
-    }
-    if (clientStatusArr?.length && !clientStatusArr.includes("Todas")) {
+    // otros filtros
+    if (status && status !== "Todas") where.status = status;
+    if (clientStatusArr?.length && !clientStatusArr.includes("Todas"))
       where.clientStatus = { in: clientStatusArr };
-    }
-    if (operatorStatusArr?.length && !operatorStatusArr.includes("Todas")) {
+    if (operatorStatusArr?.length && !operatorStatusArr.includes("Todas"))
       where.operatorStatus = { in: operatorStatusArr };
-    }
 
-    // Fechas creación
+    // fechas de creación
     if (creationFrom) creationFrom = startOfDay(creationFrom);
     if (creationTo) creationTo = endOfDay(creationTo);
     if (creationFrom || creationTo) {
@@ -402,26 +336,23 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       };
     }
 
-    // Overlap de viaje
+    // overlap de viaje
     if (travelFrom || travelTo) {
       const travelCond: Prisma.BookingWhereInput = {};
       if (travelTo) travelCond.departure_date = { lte: travelTo };
       if (travelFrom) travelCond.return_date = { gte: travelFrom };
       if (Object.keys(travelCond).length > 0) {
-        const prevAnd = Array.isArray(where.AND)
-          ? where.AND
-          : where.AND
-            ? [where.AND]
-            : [];
-        where.AND = [...prevAnd, travelCond];
+        where.AND = [
+          ...(Array.isArray(where.AND)
+            ? where.AND
+            : where.AND
+              ? [where.AND]
+              : []),
+          travelCond,
+        ];
       }
     }
 
-    if (process.env.NODE_ENV !== "production") {
-      console.dir(where, { depth: null });
-    }
-
-    // Query
     const items = await prisma.booking.findMany({
       where,
       include: {
@@ -455,13 +386,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     return res.status(200).json({ items: enhanced, nextCursor });
   } catch (error) {
-    console.error(`[bookings][GET] Error fetching bookings:`, error);
+    console.error(`[bookings][GET]`, error);
     return res.status(500).json({ error: "Error fetching bookings" });
   }
 }
 
-// --- POST: create ---------------------------------------------------------
-
+// ============ POST ============
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const body = (req.body ?? {}) as Partial<BookingCreateBody>;
   const {
@@ -473,7 +403,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     invoice_observation,
     observation,
     titular_id,
-    id_agency,
     departure_date,
     return_date,
     pax_count,
@@ -481,7 +410,18 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     id_user,
   } = body;
 
-  // Validaciones
+  // auth (siempre agencia y usuario del token/cookie)
+  const authUser = await getUserFromAuth(req);
+  const roleFromCookie = (req.cookies?.role || "").toLowerCase();
+  const role = (authUser?.role || roleFromCookie || "").toLowerCase();
+  const authUserId = authUser?.id_user;
+  const authAgencyId = authUser?.id_agency;
+
+  if (!authUserId || !authAgencyId) {
+    return res.status(401).json({ error: "No autenticado o token inválido." });
+  }
+
+  // validaciones
   if (
     !clientStatus ||
     !operatorStatus ||
@@ -490,58 +430,77 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     !invoice_type ||
     !invoice_observation ||
     !titular_id ||
-    !id_agency ||
     !departure_date ||
     !return_date
   ) {
-    console.warn("❌ Campos obligatorios faltantes");
     return res
       .status(400)
       .json({ error: "Todos los campos obligatorios deben ser completados" });
   }
 
-  // Parseo de fechas
+  // fechas
   const parsedDeparture = toLocalDate(departure_date);
   const parsedReturn = toLocalDate(return_date);
-
   if (!parsedDeparture || !parsedReturn) {
-    console.warn("❌ Fechas inválidas");
     return res.status(400).json({ error: "Fechas inválidas." });
   }
 
-  // Validar acompañantes
+  // acompañantes
   const companions: number[] = Array.isArray(clients_ids)
     ? clients_ids.map(Number)
     : [];
 
-  // Autenticación y rol
-  const authUser = await getUserFromAuth(req);
-
-  const roleFromCookie = (req.cookies?.role || "").toLowerCase();
-  const role = (authUser?.role || roleFromCookie || "").toLowerCase();
-  const authUserId = authUser?.id_user;
-
+  // quién puede asignar a otro usuario
   const canAssignOthers = [
     "gerente",
     "administrativo",
     "desarrollador",
     "lider",
   ].includes(role);
+  let usedUserId: number = authUserId;
 
-  let usedUserId: number | undefined;
-  if (canAssignOthers && typeof id_user === "number") {
+  if (
+    canAssignOthers &&
+    typeof id_user === "number" &&
+    Number.isFinite(id_user)
+  ) {
+    // si es líder y asigna a otro, validar que esté en su alcance
+    if (role === "lider" && id_user !== authUserId) {
+      const scope = await getLeaderScope(authUserId, authAgencyId);
+      if (!scope.userIds.includes(id_user)) {
+        return res
+          .status(403)
+          .json({ error: "No podés asignar fuera de tu equipo." });
+      }
+    }
     usedUserId = id_user;
-  } else {
-    usedUserId =
-      Number(authUserId) ||
-      (role === "vendedor" && typeof id_user === "number"
-        ? id_user
-        : undefined);
   }
 
-  if (!usedUserId) {
-    console.warn("❌ Usuario no autenticado o token inválido");
-    return res.status(401).json({ error: "No autenticado o token inválido." });
+  // titular y acompañantes deben ser de la misma agencia
+  const titular = await prisma.client.findUnique({
+    where: { id_client: Number(titular_id) },
+    select: { id_agency: true },
+  });
+  if (!titular || titular.id_agency !== authAgencyId) {
+    return res.status(400).json({ error: "Titular inválido para tu agencia." });
+  }
+  if (companions.length > 0) {
+    const comp = await prisma.client.findMany({
+      where: { id_client: { in: companions }, id_agency: authAgencyId },
+      select: { id_client: true },
+    });
+    const okIds = new Set(comp.map((c) => c.id_client));
+    const bad = companions.filter((id) => !okIds.has(id));
+    if (bad.length) {
+      return res
+        .status(400)
+        .json({ error: "Hay acompañantes que no pertenecen a tu agencia." });
+    }
+  }
+  if (companions.includes(Number(titular_id))) {
+    return res
+      .status(400)
+      .json({ error: "El titular no puede estar de acompañante." });
   }
 
   try {
@@ -556,26 +515,19 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         observation,
         departure_date: parsedDeparture,
         return_date: parsedReturn,
-        pax_count: Number(pax_count),
+        pax_count: Number(pax_count ?? 1),
         titular: { connect: { id_client: Number(titular_id) } },
         user: { connect: { id_user: usedUserId } },
-        agency: { connect: { id_agency: Number(id_agency) } },
-        clients: {
-          connect: companions.map((id) => ({ id_client: id })),
-        },
+        agency: { connect: { id_agency: authAgencyId } }, // <- SIEMPRE del token
+        clients: { connect: companions.map((id) => ({ id_client: id })) },
       },
-      include: {
-        titular: true,
-        user: true,
-        agency: true,
-        clients: true,
-      },
+      include: { titular: true, user: true, agency: true, clients: true },
     });
 
     return res.status(201).json(booking);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error("💥 Error creando la reserva:", message);
+    console.error("[bookings][POST]", message);
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
@@ -586,15 +538,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-// --- Router ---------------------------------------------------------------
+// ============ Router ============
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
   if (req.method === "GET") return handleGet(req, res);
   if (req.method === "POST") return handlePost(req, res);
-
-  console.warn(`⚠ Método ${req.method} no permitido`);
   res.setHeader("Allow", ["GET", "POST"]);
   return res.status(405).end(`Method ${req.method} Not Allowed`);
 }
