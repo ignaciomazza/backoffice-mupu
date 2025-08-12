@@ -23,21 +23,22 @@ type DecodedAuth = {
   email?: string;
 };
 
-// ==== JWT Secret (endurecido en prod) ====
-const RAW_SECRET = process.env.JWT_SECRET;
-if (process.env.NODE_ENV === "production" && !RAW_SECRET) {
-  throw new Error("JWT_SECRET no configurado");
-}
-const JWT_SECRET = RAW_SECRET ?? "changeme";
+// ==== JWT Secret (mismo en todos los endpoints, sin defaults) ====
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
 // ==== Helpers comunes ====
 function getTokenFromRequest(req: NextApiRequest): string | null {
+  // 1) Cookie "token" (más confiable en prod con proxies)
+  if (req.cookies?.token) return req.cookies.token;
+
+  // 2) Authorization: Bearer
   const auth = req.headers.authorization || "";
   if (auth.startsWith("Bearer ")) return auth.slice(7);
 
+  // 3) Otros nombres posibles de cookie
   const c = req.cookies || {};
   for (const k of [
-    "token",
     "session",
     "auth_token",
     "access_token",
