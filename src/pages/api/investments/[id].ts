@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 
-/** ===== Auth helpers (igual que index.ts) ===== */
+/** ===== Auth helpers (unificado con otros endpoints) ===== */
 type TokenPayload = JWTPayload & {
   id_user?: number;
   userId?: number;
@@ -21,24 +21,26 @@ type DecodedAuth = {
   email?: string;
 };
 
-const RAW_SECRET = process.env.JWT_SECRET;
-if (process.env.NODE_ENV === "production" && !RAW_SECRET) {
-  throw new Error("JWT_SECRET no configurado");
-}
-const JWT_SECRET = RAW_SECRET ?? "changeme";
+// Mismo criterio que clients/index.ts e investments/index.ts
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
+// Cookie "token" primero; luego Authorization: Bearer; luego otras cookies comunes
 function getTokenFromRequest(req: NextApiRequest): string | null {
+  if (req.cookies?.token) return req.cookies.token;
+
   const a = req.headers.authorization || "";
   if (a.startsWith("Bearer ")) return a.slice(7);
+
   const c = req.cookies || {};
   for (const k of [
-    "token",
     "session",
     "auth_token",
     "access_token",
     "next-auth.session-token",
   ]) {
-    if (c[k]) return c[k]!;
+    const v = c[k];
+    if (typeof v === "string" && v) return v;
   }
   return null;
 }
@@ -49,6 +51,7 @@ async function getUserFromAuth(
   try {
     const tok = getTokenFromRequest(req);
     if (!tok) return null;
+
     const { payload } = await jwtVerify(
       tok,
       new TextEncoder().encode(JWT_SECRET),
@@ -111,7 +114,7 @@ function safeNumber(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-/** ===== Scoped getters (evita el union problem del include/select) ===== */
+/** ===== Scoped getters ===== */
 function getInvestmentLite(id_investment: number, id_agency: number) {
   return prisma.investment.findFirst({
     where: { id_investment, id_agency },
@@ -139,7 +142,8 @@ export default async function handler(
   const auth = await getUserFromAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
 
-  const id = safeNumber(req.query.id);
+  const idParam = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+  const id = safeNumber(idParam);
   if (!id) return res.status(400).json({ error: "ID inválido" });
 
   if (req.method === "GET") {
@@ -149,7 +153,7 @@ export default async function handler(
         return res.status(404).json({ error: "Inversión no encontrada" });
       return res.status(200).json(inv);
     } catch (e) {
-      console.error("[investments][GET one]", e);
+      console.error("[investments/:id][GET]", e);
       return res.status(500).json({ error: "Error al obtener la inversión" });
     }
   }
@@ -239,7 +243,7 @@ export default async function handler(
 
       return res.status(200).json(updated);
     } catch (e) {
-      console.error("[investments][PUT]", e);
+      console.error("[investments/:id][PUT]", e);
       return res
         .status(500)
         .json({ error: "Error al actualizar la inversión" });
@@ -258,7 +262,7 @@ export default async function handler(
       await prisma.investment.delete({ where: { id_investment: id } });
       return res.status(204).end();
     } catch (e) {
-      console.error("[investments][DELETE]", e);
+      console.error("[investments/:id][DELETE]", e);
       return res.status(500).json({ error: "Error al eliminar la inversión" });
     }
   }

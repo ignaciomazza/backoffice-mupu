@@ -22,25 +22,29 @@ type DecodedAuth = {
   email?: string;
 };
 
-const RAW_SECRET = process.env.JWT_SECRET;
-if (process.env.NODE_ENV === "production" && !RAW_SECRET) {
-  throw new Error("JWT_SECRET no configurado");
-}
-const JWT_SECRET = RAW_SECRET ?? "changeme";
+// ==== JWT Secret (unificado con otros endpoints) ====
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
-// ==== helpers comunes (mismo patrón que clients/bookings) ====
+// ==== helpers comunes (mismo patrón que clients) ====
 function getTokenFromRequest(req: NextApiRequest): string | null {
+  // 1) Cookie "token"
+  if (req.cookies?.token) return req.cookies.token;
+
+  // 2) Authorization: Bearer
   const a = req.headers.authorization || "";
   if (a.startsWith("Bearer ")) return a.slice(7);
+
+  // 3) Otros nombres posibles de cookie
   const c = req.cookies || {};
   for (const k of [
-    "token",
     "session",
     "auth_token",
     "access_token",
     "next-auth.session-token",
   ]) {
-    if (c[k]) return c[k]!;
+    const v = c[k];
+    if (typeof v === "string" && v) return v;
   }
   return null;
 }
@@ -51,6 +55,7 @@ async function getUserFromAuth(
   try {
     const tok = getTokenFromRequest(req);
     if (!tok) return null;
+
     const { payload } = await jwtVerify(
       tok,
       new TextEncoder().encode(JWT_SECRET),
@@ -251,7 +256,8 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
             ],
           },
         },
-        { operator: { name: { contains: q, mode: "insensitive" } } }, 
+        // Para relación 1–1, usar `is`
+        { operator: { is: { name: { contains: q, mode: "insensitive" } } } },
       ];
       where.AND = [...prev, { OR: or }];
     }
@@ -287,10 +293,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const auth = await getUserFromAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
-
-  // Podés acotar creación a admin/gerente/administrativo:
-  // const allowed = ["gerente","administrativo","desarrollador"];
-  // if (!allowed.includes(auth.role)) return res.status(403).json({ error: "No autorizado" });
 
   try {
     const b = req.body ?? {};
