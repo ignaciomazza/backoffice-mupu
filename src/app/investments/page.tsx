@@ -670,9 +670,9 @@ export default function Page() {
 
         {/* FILTROS */}
         <div className="mb-4 flex items-center gap-2">
-          <div className="flex w-full items-center gap-2 rounded-2xl border border-sky-950/10 backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white">
+          <div className="flex w-full appearance-none items-center gap-2 rounded-2xl border border-white/10 bg-white/10 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white">
             <input
-              className="w-full bg-transparent p-2 px-3 outline-none"
+              className="w-full bg-transparent p-2 px-4 outline-none"
               placeholder="Buscar por texto, usuario u operador…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -703,7 +703,7 @@ export default function Page() {
           </div>
 
           <select
-            className="cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+            className="cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
           >
@@ -716,7 +716,7 @@ export default function Page() {
           </select>
 
           <select
-            className="cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+            className="cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
             value={currency}
             onChange={(e) => setCurrency(e.target.value)}
           >
@@ -727,7 +727,7 @@ export default function Page() {
 
           <button
             onClick={resetFilters}
-            className="h-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+            className="h-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:text-white"
             title="Limpiar filtros"
           >
             <svg
@@ -771,7 +771,7 @@ export default function Page() {
             <Spinner />
           </div>
         ) : items.length === 0 ? (
-          <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-center opacity-80">
+          <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-center text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white">
             No hay gastos para los filtros seleccionados.
           </div>
         ) : (
@@ -779,7 +779,7 @@ export default function Page() {
             {items.map((it) => (
               <div
                 key={it.id_investment}
-                className="rounded-3xl border border-white/10 bg-white/10 p-4"
+                className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-sm font-semibold">{it.category}</div>
