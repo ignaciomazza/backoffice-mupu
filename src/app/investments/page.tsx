@@ -789,7 +789,7 @@ export default function Page() {
                     </div>
                     <button
                       onClick={() => beginEdit(it)}
-                      className="rounded-full bg-sky-100 p-1.5 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+                      className="text-sky-950/50 transition-colors hover:text-sky-950 dark:text-white/50 dark:hover:text-white"
                       title="Editar gasto"
                     >
                       <svg
