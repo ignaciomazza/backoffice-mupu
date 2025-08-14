@@ -22,6 +22,7 @@ interface Booking {
   services: {
     sale_price: number;
     currency: "ARS" | "USD";
+    card_interest?: number; // interés de tarjeta (si aplica)
   }[];
   Receipt: {
     amount: number;
@@ -46,32 +47,6 @@ export default function BalancesPage() {
   const [data, setData] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const stats = useMemo(() => {
-    const totals = { ARS: 0, USD: 0 };
-    const paidTotals = { ARS: 0, USD: 0 };
-
-    data.forEach((b) => {
-      b.services.forEach((s) => {
-        totals[s.currency] = (totals[s.currency] || 0) + s.sale_price;
-      });
-      b.Receipt.forEach((r) => {
-        paidTotals[r.amount_currency] =
-          (paidTotals[r.amount_currency] || 0) + r.amount;
-      });
-    });
-
-    const debtTotals = {
-      ARS: totals.ARS - (paidTotals.ARS || 0),
-      USD: totals.USD - (paidTotals.USD || 0),
-    };
-
-    return {
-      count: data.length,
-      totals,
-      debtTotals,
-    };
-  }, [data]);
-
   const fmtARS = useCallback(
     (v: number) =>
       new Intl.NumberFormat("es-AR", {
@@ -92,36 +67,76 @@ export default function BalancesPage() {
     [],
   );
 
-  const formatTotalByCurrency = useCallback(
-    (services: Booking["services"]) => {
-      const sums = services.reduce<Record<string, number>>((acc, s) => {
-        acc[s.currency] = (acc[s.currency] || 0) + s.sale_price;
+  // Helpers para sumar por moneda (con/sin interés)
+  const sumByCurrency = useCallback(
+    (services: Booking["services"], withInterest: boolean) => {
+      return services.reduce<Record<string, number>>((acc, s) => {
+        const extra = withInterest ? (s.card_interest ?? 0) : 0;
+        acc[s.currency] = (acc[s.currency] || 0) + s.sale_price + extra;
         return acc;
       }, {});
+    },
+    [],
+  );
+
+  const sumReceiptsByCurrency = useCallback((receipts: Booking["Receipt"]) => {
+    return receipts.reduce<Record<string, number>>((acc, r) => {
+      acc[r.amount_currency] = (acc[r.amount_currency] || 0) + r.amount;
+      return acc;
+    }, {});
+  }, []);
+
+  const stats = useMemo(() => {
+    const totalsWithoutInterest = { ARS: 0, USD: 0 };
+    const totalsWithInterest = { ARS: 0, USD: 0 };
+    const paidTotals = { ARS: 0, USD: 0 };
+
+    data.forEach((b) => {
+      const sNoInt = sumByCurrency(b.services, false);
+      const sInt = sumByCurrency(b.services, true);
+      const paid = sumReceiptsByCurrency(b.Receipt);
+
+      totalsWithoutInterest.ARS += sNoInt.ARS || 0;
+      totalsWithoutInterest.USD += sNoInt.USD || 0;
+      totalsWithInterest.ARS += sInt.ARS || 0;
+      totalsWithInterest.USD += sInt.USD || 0;
+      paidTotals.ARS += paid.ARS || 0;
+      paidTotals.USD += paid.USD || 0;
+    });
+
+    const debtTotals = {
+      ARS: (totalsWithInterest.ARS || 0) - (paidTotals.ARS || 0),
+      USD: (totalsWithInterest.USD || 0) - (paidTotals.USD || 0),
+    };
+
+    return {
+      count: data.length,
+      totals: totalsWithoutInterest, // “Venta total” sin interés
+      debtTotals, // “Deuda” considerando interés de tarjeta
+    };
+  }, [data, sumByCurrency, sumReceiptsByCurrency]);
+
+  const formatTotalByCurrency = useCallback(
+    (services: Booking["services"]) => {
+      const sums = sumByCurrency(services, false); // sin interés
       const parts: string[] = [];
       if (sums["ARS"] != null) parts.push(fmtARS(sums["ARS"]));
       if (sums["USD"] != null) parts.push(fmtUSD(sums["USD"]));
       return parts.join(" y ");
     },
-    [fmtARS, fmtUSD],
+    [fmtARS, fmtUSD, sumByCurrency],
   );
 
   const formatDebtByCurrency = useCallback(
     (services: Booking["services"], receipts: Booking["Receipt"]) => {
-      const sales = services.reduce<Record<string, number>>((acc, s) => {
-        acc[s.currency] = (acc[s.currency] || 0) + s.sale_price;
-        return acc;
-      }, {});
-
-      const paid = receipts.reduce<Record<string, number>>((acc, r) => {
-        const cur = r.amount_currency;
-        acc[cur] = (acc[cur] || 0) + r.amount;
-        return acc;
-      }, {});
+      const salesWithInt = sumByCurrency(services, true); // con interés
+      const paid = sumReceiptsByCurrency(receipts);
 
       const debts: Record<string, number> = {};
-      for (const cur of Object.keys(sales)) {
-        debts[cur] = sales[cur] - (paid[cur] || 0);
+      for (const cur of ["ARS", "USD"]) {
+        const sale = salesWithInt[cur] || 0;
+        const pay = paid[cur] || 0;
+        if (sale !== 0 || pay !== 0) debts[cur] = sale - pay;
       }
 
       const parts: string[] = [];
@@ -129,7 +144,7 @@ export default function BalancesPage() {
       if (debts["USD"] != null) parts.push(fmtUSD(debts["USD"]));
       return parts.join(" y ");
     },
-    [fmtARS, fmtUSD],
+    [fmtARS, fmtUSD, sumByCurrency, sumReceiptsByCurrency],
   );
 
   const toggle = (
@@ -157,7 +172,7 @@ export default function BalancesPage() {
 
       for (let i = 0; i < 50; i++) {
         const qs = new URLSearchParams(qsBase);
-        if (cursor) qs.append("cursor", String(cursor));
+        if (cursor !== null) qs.append("cursor", String(cursor)); // respeta cursor=0
 
         const res = await authFetch(
           `/api/bookings?${qs.toString()}`,
@@ -171,7 +186,7 @@ export default function BalancesPage() {
         const pageItems = Array.isArray(json.items) ? json.items : [];
         all = all.concat(pageItems);
         cursor = json.nextCursor ?? null;
-        if (!cursor) break;
+        if (cursor === null) break;
       }
 
       const sorted = all.sort(
@@ -205,8 +220,8 @@ export default function BalancesPage() {
       b.clientStatus,
       b.operatorStatus,
       new Date(b.creation_date).toLocaleDateString("es-AR"),
-      formatTotalByCurrency(b.services),
-      formatDebtByCurrency(b.services, b.Receipt),
+      formatTotalByCurrency(b.services), // sin interés
+      formatDebtByCurrency(b.services, b.Receipt), // con interés
     ]);
     const csvContent = [header, ...rows].map((r) => r.join(";")).join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });

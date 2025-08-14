@@ -23,7 +23,49 @@ interface Totals {
   vatOnCommission21: number;
   vatOnCommission10_5: number;
   totalCommissionWithoutVAT: number;
+  /** Fallback cuando no hay desglose de intereses de tarjeta */
+  cardInterestRaw?: number;
 }
+
+/** Extendemos Service con los campos calculados que pueden venir del backend */
+type ServiceWithCalcs = Service &
+  Partial<{
+    taxableCardInterest: number;
+    vatOnCardInterest: number;
+    nonComputable: number;
+    taxableBase21: number;
+    taxableBase10_5: number;
+    commissionExempt: number;
+    commission21: number;
+    commission10_5: number;
+    vatOnCommission21: number;
+    vatOnCommission10_5: number;
+    totalCommissionWithoutVAT: number;
+    card_interest: number;
+  }>;
+
+/** Claves numéricas que sumamos y que existen en ServiceWithCalcs */
+type NumericKeys = Extract<keyof Totals, keyof ServiceWithCalcs>;
+
+const KEYS_TO_SUM: readonly NumericKeys[] = [
+  "sale_price",
+  "cost_price",
+  "tax_21",
+  "tax_105",
+  "exempt",
+  "other_taxes",
+  "taxableCardInterest",
+  "vatOnCardInterest",
+  "nonComputable",
+  "taxableBase21",
+  "taxableBase10_5",
+  "commissionExempt",
+  "commission21",
+  "commission10_5",
+  "vatOnCommission21",
+  "vatOnCommission10_5",
+  "totalCommissionWithoutVAT",
+];
 
 interface ServiceListProps {
   services: Service[];
@@ -53,9 +95,9 @@ export default function ServiceList({
     new Intl.NumberFormat("es-AR", {
       style: "currency",
       currency,
-    }).format(value);
+    }).format(value || 0);
 
-  // Agrupar y sumar totales por moneda
+  // Agrupar y sumar totales por moneda (incluye fallback card_interest -> cardInterestRaw)
   const totalsByCurrency = useMemo(() => {
     const zero: Totals = {
       sale_price: 0,
@@ -75,15 +117,32 @@ export default function ServiceList({
       vatOnCommission21: 0,
       vatOnCommission10_5: 0,
       totalCommissionWithoutVAT: 0,
+      cardInterestRaw: 0,
     };
-    return services.reduce<Record<string, Totals>>((acc, svc) => {
-      const c = svc.currency;
+
+    return services.reduce<Record<string, Totals>>((acc, s) => {
+      const svc = s as ServiceWithCalcs; // tipado enriquecido
+      const c = svc.currency || "ARS";
       if (!acc[c]) acc[c] = { ...zero };
-      Object.entries(svc).forEach(([key, val]) => {
-        if (typeof val === "number" && key in acc[c]) {
-          acc[c][key as keyof Totals]! += val;
+      const t = acc[c];
+
+      // Sumar campos conocidos
+      for (const k of KEYS_TO_SUM) {
+        const v = svc[k];
+        if (typeof v === "number" && Number.isFinite(v)) {
+          t[k] += v;
         }
-      });
+      }
+
+      // Fallback de tarjeta: si no hay desglose, usamos el bruto card_interest
+      const splitNoVAT = svc.taxableCardInterest ?? 0;
+      const splitVAT = svc.vatOnCardInterest ?? 0;
+      const raw = svc.card_interest ?? 0;
+
+      if (splitNoVAT + splitVAT <= 0 && raw > 0) {
+        t.cardInterestRaw = (t.cardInterestRaw || 0) + raw;
+      }
+
       return acc;
     }, {});
   }, [services]);

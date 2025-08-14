@@ -186,25 +186,36 @@ export default function QuotePreview({ quote, user }: QuotePreviewProps) {
               ))}
             </div>
 
-            <div className="mb-10 space-y-1">
-              <p className="text-lg font-medium">FORMAS DE PAGO</p>
-              <p className="whitespace-pre-wrap text-justify font-light leading-relaxed">
-                Se reserva con el 50% del valor total del paquete – esto puede
-                ser abonado en efectivo, transferencia y/o depósito – en dólares
-                o en pesos argentinos (para pesos hay que consultar cotización
-                del día).
-              </p>
-              <p className="whitespace-pre-wrap text-justify font-light leading-relaxed">
-                El saldo restante puede ser abonado en plan de pagos.
-              </p>
-              <p className="whitespace-pre-wrap text-justify font-light leading-relaxed">
-                Es imprescindible que un mes antes de la fecha de salida del
-                viaje el paquete esté abonado en su totalidad. Las cuotas pueden
-                ser abonadas en efectivo, transferencia y/o depósito – en
-                dólares o en pesos argentinos (para pesos hay que consultar
-                cotización del día).
-              </p>
-            </div>
+            {quote.currency === "USD" && (
+              <div className="mb-10 space-y-1">
+                <p className="text-lg font-medium">FORMAS DE PAGO</p>
+                <p className="whitespace-pre-wrap text-justify font-light leading-relaxed">
+                  Se reserva con el 50% del valor total del paquete – esto puede
+                  ser abonado en efectivo, transferencia y/o depósito – en
+                  dólares o en pesos argentinos (para pesos hay que consultar
+                  cotización del día).
+                </p>
+                <p className="whitespace-pre-wrap text-justify font-light leading-relaxed">
+                  El saldo restante puede ser abonado en plan de pagos.
+                </p>
+                <p className="whitespace-pre-wrap text-justify font-light leading-relaxed">
+                  Es imprescindible que un mes antes de la fecha de salida del
+                  viaje el paquete esté abonado en su totalidad. Las cuotas
+                  pueden ser abonadas en efectivo, transferencia y/o depósito –
+                  en dólares o en pesos argentinos (para pesos hay que consultar
+                  cotización del día).
+                </p>
+              </div>
+            )}
+
+            {quote.currency === "ARS" && (
+              <div className="mb-10 space-y-1">
+                <p className="text-lg font-medium">FORMAS DE PAGO</p>
+                <p className="whitespace-pre-wrap text-justify font-light leading-relaxed">
+                  Efectivo, transferencia o tarjeta de credito.
+                </p>
+              </div>
+            )}
 
             <div className="mb-10 flex w-full flex-col items-end justify-center text-xs font-light">
               <p>

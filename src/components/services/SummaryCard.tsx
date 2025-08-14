@@ -17,6 +17,8 @@ interface Totals {
   vatOnCommission21: number;
   vatOnCommission10_5: number;
   totalCommissionWithoutVAT: number;
+  /** Fallback cuando no viene el desglose de intereses (sin IVA / IVA) */
+  cardInterestRaw?: number;
 }
 
 interface SummaryCardProps {
@@ -42,6 +44,13 @@ export default function SummaryCard({
       <div className={`grid ${colsClass} gap-6`}>
         {currencies.map((currency) => {
           const t = totalsByCurrency[currency];
+
+          // Intereses de tarjeta: prioriza desglose (sin IVA + IVA); si no existe, usa bruto
+          const cardSplit =
+            (t.taxableCardInterest ?? 0) + (t.vatOnCardInterest ?? 0);
+          const cardTotal =
+            cardSplit > 0 ? cardSplit : (t.cardInterestRaw ?? 0);
+
           return (
             <section
               key={currency}
@@ -75,23 +84,19 @@ export default function SummaryCard({
                   </ul>
                 </div>
 
-                {/* Intereses Tarjeta (si aplica) */}
-                {(t.taxableCardInterest || t.vatOnCardInterest) > 0 && (
+                {/* Intereses Tarjeta (con fallback a bruto) */}
+                {cardTotal > 0 && (
                   <div className="mx-auto w-full max-w-md">
                     <p className="font-semibold">Tarjeta</p>
                     <ul className="ml-4 list-disc font-light">
-                      <li>
-                        Intereses:{" "}
-                        {fmtCurrency(
-                          t.taxableCardInterest + t.vatOnCardInterest,
-                          currency,
-                        )}
-                      </li>
+                      <li>Intereses: {fmtCurrency(cardTotal, currency)}</li>
                       <li>
                         Intereses sin IVA:{" "}
-                        {fmtCurrency(t.taxableCardInterest, currency)}
+                        {fmtCurrency(t.taxableCardInterest || 0, currency)}
                       </li>
-                      <li>IVA: {fmtCurrency(t.vatOnCardInterest, currency)}</li>
+                      <li>
+                        IVA: {fmtCurrency(t.vatOnCardInterest || 0, currency)}
+                      </li>
                     </ul>
                   </div>
                 )}
@@ -121,8 +126,9 @@ export default function SummaryCard({
                   </ul>
                 </div>
 
+                {/* Costos por transacción (2.4%) */}
                 <div className="mx-auto w-full max-w-md">
-                  <p className="font-semibold">Costos por transaccion</p>
+                  <p className="font-semibold">Costos por transacción</p>
                   <ul className="ml-4 list-disc font-light">
                     <li>2.4%: {fmtCurrency(t.sale_price * 0.024, currency)}</li>
                   </ul>
