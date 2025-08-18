@@ -156,7 +156,7 @@ export default function ClientPicker({
 
   return (
     <div className="relative">
-      {label && <label className="mb-1 block font-medium">{label}</label>}
+      {label && <label className="mb-1 ml-2 block font-medium">{label}</label>}
 
       <div className="flex items-center gap-2">
         <input

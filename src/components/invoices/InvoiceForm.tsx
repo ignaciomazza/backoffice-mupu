@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { useState, useEffect, useMemo } from "react";
 import Spinner from "@/components/Spinner";
 import { Client, Service } from "@/types";
-import ClientPicker from "@/components/clients/CLientPicker";
+import ClientPicker from "@/components/clients/ClientPicker";
 
 export type InvoiceFormData = {
   tipoFactura: string;

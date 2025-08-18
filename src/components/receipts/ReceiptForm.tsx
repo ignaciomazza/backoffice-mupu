@@ -6,7 +6,7 @@ import { Booking, Client, Receipt, Service } from "@/types";
 import Spinner from "@/components/Spinner";
 import { motion } from "framer-motion";
 import { authFetch } from "@/utils/authFetch";
-import ClientPicker from "@/components/clients/CLientPicker";
+import ClientPicker from "@/components/clients/ClientPicker";
 
 interface Props {
   booking: Booking;
@@ -240,102 +240,6 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
           onSubmit={handleSubmit}
           className="space-y-4"
         >
-          {/* Importe en palabras */}
-          <div>
-            <label className="ml-2 block dark:text-white">
-              Recibimos el equivalente a:
-            </label>
-            <input
-              type="text"
-              value={amountString}
-              onChange={(e) => setAmountString(e.target.value)}
-              className={inputBase}
-              placeholder="Ej: UN MILLON CIEN MIL"
-              required
-            />
-          </div>
-
-          {/* Moneda del importe en palabras */}
-          <div>
-            <label className="ml-2 dark:text-white">Moneda</label>
-            <select
-              name="currency"
-              value={amountCurrency}
-              onChange={(e) => setAmountCurrency(e.target.value)}
-              className={`${inputBase} appearance-none`}
-            >
-              <option value="" disabled>
-                Seleccionar moneda
-              </option>
-              <option value="USD">USD</option>
-              <option value="ARS">ARS</option>
-            </select>
-            {selectedServices.length > 0 && allSelectedSameCurrency && (
-              <p className="ml-2 mt-1 text-xs opacity-70">
-                Sugerido por servicios: {suggestedCurrency}
-              </p>
-            )}
-          </div>
-
-          {/* Importe numérico */}
-          <div>
-            <label className="ml-2 block dark:text-white">
-              Importe numérico:
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={manualAmount}
-              onChange={(e) => setManualAmount(e.target.value)}
-              className={inputBase}
-              placeholder="Ej: 1000.50"
-            />
-            <p className="ml-2 text-sm text-gray-500 dark:text-gray-400">
-              Dejá vacío para calcularlo automáticamente
-              {selectedServices.length > 0 && allSelectedSameCurrency && (
-                <>
-                  {" "}
-                  (Sugerido:{" "}
-                  {formatMoney(suggestedAmount, suggestedCurrency || "ARS")})
-                </>
-              )}
-            </p>
-            {selectedServices.length > 0 && !allSelectedSameCurrency && (
-              <p className="ml-2 mt-1 text-xs text-yellow-700 dark:text-yellow-300">
-                Los servicios seleccionados tienen monedas distintas. Ingresá el
-                Importe numérico.
-              </p>
-            )}
-          </div>
-
-          {/* Concepto */}
-          <div>
-            <label className="ml-2 block dark:text-white">Concepto:</label>
-            <input
-              type="text"
-              value={concept}
-              onChange={(e) => setConcept(e.target.value)}
-              className={inputBase}
-              placeholder="Ej: Pago total del paquete"
-              required
-            />
-          </div>
-
-          {/* Método de pago */}
-          <div>
-            <label className="ml-2 block dark:text-white">
-              Metodo de pago:
-            </label>
-            <input
-              type="text"
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              className={inputBase}
-              placeholder="Ej: Tarjeta de crédito -- No adeuda saldo"
-              required
-            />
-          </div>
-
           {/* Picker de servicios (multi) */}
           <div>
             <label className="ml-2 block dark:text-white">
@@ -465,6 +369,112 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
               </p>
             </div>
           ))}
+
+          {/* Importe en palabras */}
+          <div className="pt-4">
+            <label className="ml-2 block dark:text-white">
+              Recibimos el equivalente a:
+            </label>
+            <input
+              type="text"
+              value={amountString}
+              onChange={(e) => setAmountString(e.target.value)}
+              className={inputBase}
+              placeholder="Ej: UN MILLON CIEN MIL"
+              required
+            />
+          </div>
+
+          <div className="flex w-full gap-2">
+            {/* Importe numérico */}
+            <div className="w-full">
+              <label className="ml-2 block dark:text-white">
+                Importe numérico:
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={manualAmount}
+                onChange={(e) => setManualAmount(e.target.value)}
+                className={inputBase}
+                placeholder="Ej: 1000.50"
+              />
+              <div className="ml-2 mt-1 flex gap-4 text-sm text-gray-500 dark:text-gray-400">
+                {Number(manualAmount) > 0 && (
+                  <p>
+                    {formatMoney(Number(manualAmount), amountCurrency || "ARS")}
+                  </p>
+                )}
+                <p>
+                  Dejá vacío para calcularlo automáticamente
+                  {selectedServices.length > 0 && allSelectedSameCurrency && (
+                    <>
+                      {" "}
+                      (Sugerido:{" "}
+                      {formatMoney(suggestedAmount, suggestedCurrency || "ARS")}
+                      )
+                    </>
+                  )}
+                </p>
+              </div>
+              {selectedServices.length > 0 && !allSelectedSameCurrency && (
+                <p className="ml-2 mt-1 text-xs text-yellow-700 dark:text-yellow-300">
+                  Los servicios seleccionados tienen monedas distintas. Ingresá
+                  el Importe numérico.
+                </p>
+              )}
+            </div>
+            {/* Moneda del importe en palabras */}
+            <div>
+              <label className="ml-2 dark:text-white">Moneda</label>
+              <select
+                name="currency"
+                value={amountCurrency}
+                onChange={(e) => setAmountCurrency(e.target.value)}
+                className={`${inputBase} cursor-pointer appearance-none`}
+              >
+                <option value="" disabled>
+                  Seleccionar moneda
+                </option>
+                <option value="USD">USD</option>
+                <option value="ARS">ARS</option>
+              </select>
+              <p></p>
+              {selectedServices.length > 0 && allSelectedSameCurrency && (
+                <p className="ml-2 mt-1 text-xs opacity-70">
+                  Sugerido por servicios: {suggestedCurrency}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Concepto */}
+          <div>
+            <label className="ml-2 block dark:text-white">Concepto:</label>
+            <input
+              type="text"
+              value={concept}
+              onChange={(e) => setConcept(e.target.value)}
+              className={inputBase}
+              placeholder="Ej: Pago total del paquete"
+              required
+            />
+          </div>
+
+          {/* Método de pago */}
+          <div>
+            <label className="ml-2 block dark:text-white">
+              Metodo de pago:
+            </label>
+            <input
+              type="text"
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              className={inputBase}
+              placeholder="Ej: Tarjeta de crédito -- No adeuda saldo"
+              required
+            />
+          </div>
 
           <button
             type="submit"
