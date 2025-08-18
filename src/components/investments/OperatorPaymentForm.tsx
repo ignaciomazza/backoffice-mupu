@@ -135,7 +135,7 @@ export default function OperatorPaymentForm({
 
     // descripción sugerida con IDs
     if (selectedServices.length > 0) {
-      const ids = selectedServices.map((s) => `#${s.id_service}`).join(", ");
+      const ids = selectedServices.map((s) => `N° ${s.id_service}`).join(", ");
       const opName =
         operators.find((o) => o.id_operator === operatorIdFromSelection)
           ?.name || "Operador";
@@ -346,7 +346,7 @@ export default function OperatorPaymentForm({
                           ? "border-sky-300/40 bg-sky-100 text-sky-950 shadow-sm dark:bg-white/10 dark:text-white"
                           : "border-white/10 bg-white/10 hover:bg-white/20 dark:border-white/10 dark:bg-white/10"
                       }`}
-                      title={`Servicio #${svc.id_service}`}
+                      title={`Servicio N° ${svc.id_service}`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="text-sm font-medium">
@@ -380,7 +380,7 @@ export default function OperatorPaymentForm({
             {selectedServices.length > 0 && (
               <div className="ml-2 mt-2 text-xs opacity-70">
                 Seleccionados:{" "}
-                {selectedServices.map((s) => `#${s.id_service}`).join(", ")}
+                {selectedServices.map((s) => `N° ${s.id_service}`).join(", ")}
               </div>
             )}
           </div>

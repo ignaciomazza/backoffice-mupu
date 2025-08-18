@@ -240,7 +240,7 @@ export default function ClientPicker({
 }
 
 function displayClient(c: Client) {
-  return `${c.first_name ?? ""} ${c.last_name ?? ""} — #${c.id_client}`;
+  return `${c.first_name ?? ""} ${c.last_name ?? ""} — N° ${c.id_client}`;
 }
 
 function compactIdentity(c: Client) {
