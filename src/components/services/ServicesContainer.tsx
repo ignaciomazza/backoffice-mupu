@@ -15,6 +15,8 @@ import { Booking, Service, Operator, Invoice, Receipt } from "@/types";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
 import ReceiptList from "@/components/receipts/ReceiptList";
 import CreditNoteList from "@/components/credite-notes/CreditNoteList";
+import OperatorPaymentForm from "@/components/investments/OperatorPaymentForm";
+import OperatorPaymentList from "@/components/investments/OperatorPaymentList";
 import CreditNoteForm, {
   CreditNoteFormData,
 } from "../credite-notes/CreditNoteForm";
@@ -113,6 +115,7 @@ interface ServicesContainerProps {
   ) => void;
   handleCreditNoteSubmit: (e: React.FormEvent) => Promise<void>;
   isCreditNoteSubmitting: boolean;
+  onPaymentCreated?: () => void; // para refrescar contenedores hermanos si querés
 }
 
 export default function ServicesContainer({
@@ -157,6 +160,7 @@ export default function ServicesContainer({
   updateCreditNoteFormData,
   handleCreditNoteSubmit,
   isCreditNoteSubmitting,
+  onPaymentCreated,
 }: ServicesContainerProps) {
   const router = useRouter();
 
@@ -167,6 +171,8 @@ export default function ServicesContainer({
     booking?.invoice_observation || "",
   );
   const [isSavingInvObs, setIsSavingInvObs] = useState(false);
+
+  const [paymentsReloadKey, setPaymentsReloadKey] = useState(0);
 
   const obsVariants = {
     hidden: { opacity: 0, scale: 0.9 },
@@ -179,7 +185,7 @@ export default function ServicesContainer({
       try {
         const allIds: number[] = [];
         let cursor: number | null = null;
-        const take = 200; // ajustá si querés traer más por página
+        const take = 200;
 
         while (true) {
           const qs = new URLSearchParams({ take: String(take) });
@@ -318,16 +324,13 @@ export default function ServicesContainer({
         {
           method: "PUT",
           body: JSON.stringify({
-            // ⚠️ OJO: tu comentario dice “solo cambiar invoice_observation”
-            // pero acá estás guardando 'observation' con invObsDraft.
-            // Dejalo como necesites:
             clientStatus: booking.clientStatus,
             operatorStatus: booking.operatorStatus,
             status: booking.status,
             details: booking.details,
             invoice_type: booking.invoice_type,
-            invoice_observation: booking.invoice_observation, // o invObsDraft si querés editar esto
-            observation: invObsDraft, // o booking.observation si NO querés editar esto
+            invoice_observation: booking.invoice_observation,
+            observation: invObsDraft,
             titular_id: booking.titular.id_client,
             id_agency: booking.agency.id_agency,
             departure_date: booking.departure_date,
@@ -426,7 +429,7 @@ export default function ServicesContainer({
                     prevId && router.push(`/bookings/services/${prevId}`)
                   }
                   disabled={!prevId}
-                  className={`flex w-fit items-end rounded-full px-3 text-center text-sm font-extralight ${nextId ? "text-sky-950/60 transition-all hover:text-sky-950 dark:text-white/60 hover:dark:text-white" : "cursor-not-allowed text-sky-950/30 dark:text-white/30"}`}
+                  className={`flex w-fit items-end rounded-full px-3 text-center text-sm font-extralight ${prevId ? "text-sky-950/60 transition-all hover:text-sky-950 dark:text-white/60 hover:dark:text-white" : "cursor-not-allowed text-sky-950/30 dark:text-white/30"}`}
                 >
                   anterior
                   <svg
@@ -706,11 +709,9 @@ export default function ServicesContainer({
                   />
                 </div>
               )}
-              {receipts.length > 0 && (
-                <div className="mb-4 mt-8 flex justify-center">
-                  <p className="text-2xl font-medium">Recibos</p>
-                </div>
-              )}
+              <div className="mb-4 mt-8 flex justify-center">
+                <p className="text-2xl font-medium">Recibos</p>
+              </div>
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") &&
@@ -783,6 +784,11 @@ export default function ServicesContainer({
                   receipts.length > 0 ||
                   creditNotes.length > 0) && (
                   <div className="my-8">
+                    <div className="mb-4 mt-8 flex justify-center">
+                      <p className="text-2xl font-medium">
+                        Estado de la reserva
+                      </p>
+                    </div>
                     <div className="space-y-6">
                       {/* selector de estados */}
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -877,6 +883,31 @@ export default function ServicesContainer({
                         </svg>
                       </button>
                     </div>
+                  </div>
+                )}
+              {(role === "administrativo" ||
+                role === "desarrollador" ||
+                role === "gerente") &&
+                services.length > 0 && (
+                  <div>
+                    <div className="mb-4 mt-8 flex justify-center">
+                      <p className="text-2xl font-medium">Operador</p>
+                    </div>
+                    <OperatorPaymentForm
+                      token={token}
+                      booking={booking!}
+                      availableServices={services}
+                      operators={operators}
+                      onCreated={() => {
+                        setPaymentsReloadKey((k) => k + 1); // <--- dispara el refetch del listado
+                        onPaymentCreated?.(); // si el padre quiere enterarse también
+                      }}
+                    />
+                    <OperatorPaymentList
+                      token={token}
+                      bookingId={booking.id_booking}
+                      reloadKey={paymentsReloadKey}
+                    />
                   </div>
                 )}
             </>

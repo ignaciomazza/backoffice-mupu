@@ -9,6 +9,7 @@ import Spinner from "@/components/Spinner";
 import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import Link from "next/link";
 
 // ==== Tipos ====
 type Investment = {
@@ -25,6 +26,7 @@ type Investment = {
   user?: { id_user: number; first_name: string; last_name: string } | null;
   operator?: { id_operator: number; name: string } | null;
   createdBy?: { id_user: number; first_name: string; last_name: string } | null;
+  booking_id?: number | null;
 };
 
 type User = { id_user: number; first_name: string; last_name: string };
@@ -64,7 +66,6 @@ const DEFAULT_CATEGORIES = [
   "COMIDA",
   "DEBITO BANCARIO MACRO SRL",
   "DEBITO BANCARIO GALICIA SRL",
-  "OPERADOR",
   "SUELDO",
   "COMISION",
 ] as const;
@@ -811,7 +812,7 @@ export default function Page() {
                 </div>
 
                 <div className="mt-1 text-lg opacity-90">{it.description}</div>
-                <div className="mt-2 flex flex-wrap gap-4 text-sm">
+                <div className="mt-2 flex flex-wrap items-center gap-4 text-sm">
                   <span>
                     <b>Monto:</b>{" "}
                     {new Intl.NumberFormat("es-AR", {
@@ -841,6 +842,31 @@ export default function Page() {
                     <span className="opacity-80">
                       <b>Cargado por:</b> {it.createdBy.first_name}{" "}
                       {it.createdBy.last_name}
+                    </span>
+                  )}
+                  {it.booking_id && (
+                    <span className="flex w-fit items-center gap-2">
+                      <b>Reserva N° </b> {it.booking_id}
+                      <Link
+                        href={`/bookings/services/${it.booking_id}`}
+                        target="blank"
+                        className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          strokeWidth={2}
+                          stroke="currentColor"
+                          className="size-4"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+                          />
+                        </svg>
+                      </Link>
                     </span>
                   )}
                 </div>

@@ -143,6 +143,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const userId = safeNumber(
       Array.isArray(req.query.userId) ? req.query.userId[0] : req.query.userId,
     );
+    // 👇 NUEVO: filtro por bookingId
+    const bookingId = safeNumber(
+      Array.isArray(req.query.bookingId)
+        ? req.query.bookingId[0]
+        : req.query.bookingId,
+    );
 
     const createdFrom = toLocalDate(
       Array.isArray(req.query.createdFrom)
@@ -173,6 +179,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       ...(currency ? { currency } : {}),
       ...(operatorId ? { operator_id: operatorId } : {}),
       ...(userId ? { user_id: userId } : {}),
+      ...(bookingId ? { booking_id: bookingId } : {}), // 👈 NUEVO
     };
 
     if (createdFrom || createdTo) {
@@ -245,6 +252,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       const qNum = Number(q);
       const or: Prisma.InvestmentWhereInput[] = [
         ...(Number.isFinite(qNum) ? [{ id_investment: qNum }] : []),
+        ...(Number.isFinite(qNum) ? [{ booking_id: qNum }] : []), // 👈 NUEVO: búsqueda por N° de reserva
         { description: { contains: q, mode: "insensitive" } },
         { category: { contains: q, mode: "insensitive" } },
         { currency: { contains: q, mode: "insensitive" } },
@@ -270,6 +278,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         createdBy: {
           select: { id_user: true, first_name: true, last_name: true },
         },
+        booking: { select: { id_booking: true } }, // 👈 NUEVO: devolver booking asociada (si existe)
       },
       orderBy: { id_investment: "desc" },
       take: take + 1,
@@ -281,7 +290,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const nextCursor = hasMore ? sliced[sliced.length - 1].id_investment : null;
 
     return res.status(200).json({ items: sliced, nextCursor });
-  } catch (e) {
+  } catch (e: unknown) {
     console.error("[investments][GET]", e);
     return res
       .status(500)
@@ -313,6 +322,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const user_id = Number.isFinite(Number(b.user_id))
       ? Number(b.user_id)
       : undefined;
+    // 👇 NUEVO: booking_id opcional
+    const booking_id = Number.isFinite(Number(b.booking_id))
+      ? Number(b.booking_id)
+      : undefined;
 
     // Reglas según categoría
     if (category.toLowerCase() === "operador" && !operator_id) {
@@ -326,6 +339,21 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         .json({ error: "Para Sueldo/Comision, user_id es obligatorio" });
     }
 
+    // 👇 NUEVO: validar booking (si viene) y que sea de la misma agencia
+    let bookingIdToSave: number | null = null;
+    if (typeof booking_id === "number") {
+      const bkg = await prisma.booking.findFirst({
+        where: { id_booking: booking_id, id_agency: auth.id_agency },
+        select: { id_booking: true },
+      });
+      if (!bkg) {
+        return res
+          .status(400)
+          .json({ error: "La reserva no existe o no pertenece a tu agencia" });
+      }
+      bookingIdToSave = bkg.id_booking;
+    }
+
     const created = await prisma.investment.create({
       data: {
         id_agency: auth.id_agency,
@@ -337,12 +365,18 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         operator_id: operator_id ?? null,
         user_id: user_id ?? null,
         created_by: auth.id_user,
+        booking_id: bookingIdToSave, // 👈 NUEVO
       },
-      include: { user: true, operator: true, createdBy: true },
+      include: {
+        user: true,
+        operator: true,
+        createdBy: true,
+        booking: { select: { id_booking: true } }, // 👈 NUEVO
+      },
     });
 
     return res.status(201).json(created);
-  } catch (e) {
+  } catch (e: unknown) {
     console.error("[investments][POST]", e);
     return res.status(500).json({ error: "Error al crear gasto" });
   }

@@ -79,28 +79,29 @@ model Client {
 }
 
 model Booking {
-  id_booking          Int       @id @default(autoincrement())
-  clientStatus        String    @map("client_status")
-  operatorStatus      String    @map("operator_status")
+  id_booking          Int          @id @default(autoincrement())
+  clientStatus        String       @map("client_status")
+  operatorStatus      String       @map("operator_status")
   status              String
   details             String
   invoice_type        String
   invoice_observation String?
   observation         String?
-  creation_date       DateTime  @default(now())
+  creation_date       DateTime     @default(now())
   id_user             Int
-  user                User      @relation(fields: [id_user], references: [id_user])
+  user                User         @relation(fields: [id_user], references: [id_user])
   id_agency           Int
-  agency              Agency    @relation(fields: [id_agency], references: [id_agency])
+  agency              Agency       @relation(fields: [id_agency], references: [id_agency])
   titular_id          Int
-  titular             Client    @relation("Titular", fields: [titular_id], references: [id_client])
-  clients             Client[]  @relation("BookingClients")
+  titular             Client       @relation("Titular", fields: [titular_id], references: [id_client])
+  clients             Client[]     @relation("BookingClients")
   services            Service[]
   departure_date      DateTime
   return_date         DateTime
   pax_count           Int
-  invoices            Invoice[] @relation("BookingInvoices")
-  Receipt             Receipt[] @relation("BookingReceipt")
+  invoices            Invoice[]    @relation("BookingInvoices")
+  Receipt             Receipt[]    @relation("BookingReceipt")
+  investments         Investment[] @relation("BookingInvestments")
 }
 
 model Service {
@@ -288,23 +289,26 @@ model CalendarNote {
 }
 
 model Investment {
-  id_investment Int    @id @default(autoincrement())
+  id_investment Int       @id @default(autoincrement())
   id_agency     Int
-  agency        Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
-  category    String
-  description String
-  amount      Decimal   @db.Decimal(18, 2)
-  currency    String
-  created_at  DateTime  @default(now())
-  paid_at     DateTime?
-  operator_id Int?
-  operator    Operator? @relation(fields: [operator_id], references: [id_operator])
-  user_id Int?
-  user    User? @relation("InvestmentUser", fields: [user_id], references: [id_user])
-  created_by Int
-  createdBy  User @relation("InvestmentCreatedBy", fields: [created_by], references: [id_user])
+  agency        Agency    @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  category      String
+  description   String
+  amount        Decimal   @db.Decimal(18, 2)
+  currency      String
+  created_at    DateTime  @default(now())
+  paid_at       DateTime?
+  operator_id   Int?
+  operator      Operator? @relation(fields: [operator_id], references: [id_operator])
+  user_id       Int?
+  user          User?     @relation("InvestmentUser", fields: [user_id], references: [id_user])
+  created_by    Int
+  createdBy     User      @relation("InvestmentCreatedBy", fields: [created_by], references: [id_user])
+  booking_id    Int?
+  booking       Booking?  @relation("BookingInvestments", fields: [booking_id], references: [id_booking], onDelete: SetNull)
 
   @@index([id_agency, category])
   @@index([created_at])
   @@index([paid_at])
+  @@index([booking_id]) 
 }
