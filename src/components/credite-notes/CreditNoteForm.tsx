@@ -2,7 +2,7 @@
 
 "use client";
 import { motion } from "framer-motion";
-import Spinner from "../Spinner";
+import Spinner from "@/components/Spinner";
 import { Service } from "@/types";
 import { useEffect, useState } from "react";
 

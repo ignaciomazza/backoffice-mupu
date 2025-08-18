@@ -2,9 +2,9 @@
 "use client";
 import { motion } from "framer-motion";
 import { useState, useEffect, useMemo } from "react";
-import Spinner from "../Spinner";
+import Spinner from "@/components/Spinner";
 import { Client, Service } from "@/types";
-import ClientPicker from "@/components/clients/ClientPicker";
+import ClientPicker from "@/components/clients/CLientPicker";
 
 export type InvoiceFormData = {
   tipoFactura: string;

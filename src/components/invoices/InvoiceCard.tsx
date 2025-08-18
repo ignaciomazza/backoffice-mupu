@@ -2,7 +2,7 @@
 "use client";
 import { Invoice } from "@/types";
 import { toast } from "react-toastify";
-import Spinner from "../Spinner";
+import Spinner from "@/components/Spinner";
 import { useCallback, useState } from "react";
 
 interface InvoiceCardProps {

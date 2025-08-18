@@ -19,7 +19,7 @@ import OperatorPaymentForm from "@/components/investments/OperatorPaymentForm";
 import OperatorPaymentList from "@/components/investments/OperatorPaymentList";
 import CreditNoteForm, {
   CreditNoteFormData,
-} from "../credite-notes/CreditNoteForm";
+} from "@/components/credite-notes/CreditNoteForm";
 import { useEffect, useMemo, useState } from "react";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 import { useRouter } from "next/navigation";

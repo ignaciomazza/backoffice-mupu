@@ -4,7 +4,7 @@
 import { ChangeEvent, FormEvent } from "react";
 import { motion } from "framer-motion";
 import { Operator } from "@/types";
-import BillingBreakdown from "../BillingBreakdown";
+import BillingBreakdown from "@/components/BillingBreakdown";
 
 export type ServiceFormData = {
   type: string;

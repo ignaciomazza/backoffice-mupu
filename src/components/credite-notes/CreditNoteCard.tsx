@@ -2,7 +2,7 @@
 "use client";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 import { toast } from "react-toastify";
-import Spinner from "../Spinner";
+import Spinner from "@/components/Spinner";
 import { useCallback, useState } from "react";
 import type { Prisma } from "@prisma/client";
 

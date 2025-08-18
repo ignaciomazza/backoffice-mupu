@@ -1,6 +1,6 @@
 // src/components/credit-notes/CreditNoteList.tsx
 import CreditNoteCard from "./CreditNoteCard";
-import Spinner from "../Spinner";
+import Spinner from "@/components/Spinner";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 
 interface CreditNoteListProps {

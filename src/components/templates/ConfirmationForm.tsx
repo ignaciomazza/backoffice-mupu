@@ -3,7 +3,7 @@
 
 import React, { useState } from "react";
 import { Confirmation } from "@/types";
-import Spinner from "../Spinner";
+import Spinner from "@/components/Spinner";
 
 type ConfirmationWithLogo = Confirmation & { logoBase64?: string };
 

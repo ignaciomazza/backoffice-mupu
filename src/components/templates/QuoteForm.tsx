@@ -3,7 +3,7 @@
 
 import React, { useState } from "react";
 import { Quote } from "@/types";
-import Spinner from "../Spinner";
+import Spinner from "@/components/Spinner";
 
 export type SimpleQuote = Pick<
   Quote,

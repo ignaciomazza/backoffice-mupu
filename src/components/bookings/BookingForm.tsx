@@ -2,7 +2,7 @@
 import { ChangeEvent, FormEvent, useState } from "react";
 import { motion } from "framer-motion";
 import Spinner from "@/components/Spinner";
-import ClientPicker from "../clients/ClientPicker";
+import ClientPicker from "@/components/clients/CLientPicker";
 import { Client } from "@/types";
 
 export interface BookingFormData {

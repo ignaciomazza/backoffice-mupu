@@ -3,10 +3,10 @@
 import { useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { Booking, Client, Receipt, Service } from "@/types";
-import Spinner from "../Spinner";
+import Spinner from "@/components/Spinner";
 import { motion } from "framer-motion";
 import { authFetch } from "@/utils/authFetch";
-import ClientPicker from "@/components/clients/ClientPicker";
+import ClientPicker from "@/components/clients/CLientPicker";
 
 interface Props {
   booking: Booking;
