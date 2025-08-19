@@ -27,6 +27,16 @@ type Investment = {
   operator?: { id_operator: number; name: string } | null;
   createdBy?: { id_user: number; first_name: string; last_name: string } | null;
   booking_id?: number | null;
+
+  // NUEVO: metadata de pago
+  payment_method?: string | null;
+  account?: string | null;
+
+  // NUEVO: valor / contravalor (opcional)
+  base_amount?: number | null;
+  base_currency?: string | null;
+  counter_amount?: number | null;
+  counter_currency?: string | null;
 };
 
 type User = { id_user: number; first_name: string; last_name: string };
@@ -70,6 +80,22 @@ const DEFAULT_CATEGORIES = [
   "COMISION",
 ] as const;
 
+// NUEVO: opciones de selects (como receipts)
+const PAYMENT_METHOD_OPTIONS = [
+  "Efectivo",
+  "Transferencia",
+  "Depósito",
+  "Crédito",
+  "iata",
+] as const;
+
+const ACCOUNT_OPTIONS = [
+  "Banco Macro",
+  "Banco Nación",
+  "Banco Galicia",
+  "Mercado Pago",
+] as const;
+
 // ==== Componente ====
 export default function Page() {
   const { token } = useAuth();
@@ -105,6 +131,17 @@ export default function Page() {
     user_id: number | null;
     operator_id: number | null;
     paid_today: boolean;
+
+    // NUEVO: método/cuenta
+    payment_method: string;
+    account: string;
+
+    // NUEVO: conversión
+    use_conversion: boolean;
+    base_amount: string;
+    base_currency: string;
+    counter_amount: string;
+    counter_currency: string;
   }>({
     category: "",
     description: "",
@@ -114,6 +151,15 @@ export default function Page() {
     user_id: null,
     operator_id: null,
     paid_today: false,
+
+    payment_method: "",
+    account: "",
+
+    use_conversion: false,
+    base_amount: "",
+    base_currency: "ARS",
+    counter_amount: "",
+    counter_currency: "USD",
   });
 
   // === Estado de edición ===
@@ -129,6 +175,15 @@ export default function Page() {
       user_id: null,
       operator_id: null,
       paid_today: false,
+
+      payment_method: "",
+      account: "",
+
+      use_conversion: false,
+      base_amount: "",
+      base_currency: "ARS",
+      counter_amount: "",
+      counter_currency: "USD",
     });
     setEditingId(null);
   }
@@ -143,6 +198,21 @@ export default function Page() {
       user_id: inv.user_id ?? null,
       operator_id: inv.operator_id ?? null,
       paid_today: false,
+
+      payment_method: inv.payment_method ?? "",
+      account: inv.account ?? "",
+
+      // Si hay valor/contravalor en el registro, prendemos el toggle
+      use_conversion:
+        !!inv.base_amount ||
+        !!inv.base_currency ||
+        !!inv.counter_amount ||
+        !!inv.counter_currency,
+      base_amount: inv.base_amount != null ? String(inv.base_amount) : "",
+      base_currency: inv.base_currency ?? "ARS",
+      counter_amount:
+        inv.counter_amount != null ? String(inv.counter_amount) : "",
+      counter_currency: inv.counter_currency ?? "USD",
     });
     setEditingId(inv.id_investment);
     setIsFormOpen(true);
@@ -232,7 +302,6 @@ export default function Page() {
     if (!token) return;
     setLoadingList(true);
 
-    // cancelar anterior
     listAbortRef.current?.abort();
     const controller = new AbortController();
     listAbortRef.current = controller;
@@ -291,6 +360,25 @@ export default function Page() {
     }
   }, [token, nextCursor, loadingMore, buildQuery]);
 
+  // ========= Validación de conversión =========
+  const validateConversion = (): { ok: boolean; msg?: string } => {
+    // clave: si el toggle está apagado, no validar nada
+    if (!form.use_conversion) return { ok: true };
+
+    const bAmt = Number(form.base_amount);
+    const cAmt = Number(form.counter_amount);
+    if (!Number.isFinite(bAmt) || bAmt <= 0)
+      return { ok: false, msg: "Ingresá un Valor base válido (> 0)." };
+    if (!form.base_currency)
+      return { ok: false, msg: "Elegí la moneda del Valor base." };
+    if (!Number.isFinite(cAmt) || cAmt <= 0)
+      return { ok: false, msg: "Ingresá un Contravalor válido (> 0)." };
+    if (!form.counter_currency)
+      return { ok: false, msg: "Elegí la moneda del Contravalor." };
+
+    return { ok: true };
+  };
+
   // ========= Crear / Actualizar =========
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -315,12 +403,19 @@ export default function Page() {
       return;
     }
 
+    // Validación de conversión coherente
+    const conv = validateConversion();
+    if (!conv.ok) {
+      toast.error(conv.msg || "Revisá los datos de Valor/Contravalor");
+      return;
+    }
+
     const paid_at =
       form.paid_today && !form.paid_at
         ? new Date().toISOString().slice(0, 10)
         : form.paid_at || undefined;
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       category: form.category,
       description: form.description,
       amount: amountNum,
@@ -328,7 +423,27 @@ export default function Page() {
       paid_at,
       user_id: form.user_id ?? undefined,
       operator_id: form.operator_id ?? undefined,
+
+      // NUEVO: método/cuenta
+      payment_method: form.payment_method || undefined,
+      account: form.account || undefined,
     };
+
+    // NUEVO: incorporar conversión SOLO si el toggle está activo
+    if (form.use_conversion) {
+      const bAmt = Number(form.base_amount);
+      const cAmt = Number(form.counter_amount);
+      payload.base_amount =
+        Number.isFinite(bAmt) && bAmt > 0 ? bAmt : undefined;
+      payload.base_currency = form.base_currency
+        ? form.base_currency.toUpperCase()
+        : undefined;
+      payload.counter_amount =
+        Number.isFinite(cAmt) && cAmt > 0 ? cAmt : undefined;
+      payload.counter_currency = form.counter_currency
+        ? form.counter_currency.toUpperCase()
+        : undefined;
+    }
 
     setLoading(true);
     try {
@@ -379,13 +494,20 @@ export default function Page() {
     }
   };
 
+  // Métodos que requieren seleccionar cuenta
+  const methodsRequiringAccount = useMemo(
+    () => new Set<string>(["Transferencia", "Crédito"]),
+    [],
+  );
+  const showAccount = methodsRequiringAccount.has(form.payment_method);
+
   // ========= Helpers UI =========
   const isOperador = form.category.toLowerCase() === "operador";
   const isSueldo = form.category.toLowerCase() === "sueldo";
   const isComision = form.category.toLowerCase() === "comision";
 
   const input =
-    "w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
+    "w-full appearance-none rounded-2xl bg-white/50 border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
 
   const formatDate = (s?: string | null) =>
     s ? new Date(s).toLocaleDateString("es-AR", { timeZone: "UTC" }) : "-";
@@ -403,6 +525,76 @@ export default function Page() {
       return `${n.toFixed(2)} ${form.currency}`;
     }
   }, [form.amount, form.currency]);
+
+  const previewBase = useMemo(() => {
+    const n = Number(form.base_amount);
+    if (
+      !form.use_conversion ||
+      !Number.isFinite(n) ||
+      n <= 0 ||
+      !form.base_currency
+    )
+      return "";
+    try {
+      return new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: form.base_currency,
+      }).format(n);
+    } catch {
+      return `${n.toFixed(2)} ${form.base_currency}`;
+    }
+  }, [form.use_conversion, form.base_amount, form.base_currency]);
+
+  const previewCounter = useMemo(() => {
+    const n = Number(form.counter_amount);
+    if (
+      !form.use_conversion ||
+      !Number.isFinite(n) ||
+      n <= 0 ||
+      !form.counter_currency
+    )
+      return "";
+    try {
+      return new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: form.counter_currency,
+      }).format(n);
+    } catch {
+      return `${n.toFixed(2)} ${form.counter_currency}`;
+    }
+  }, [form.use_conversion, form.counter_amount, form.counter_currency]);
+
+  // Sincronía de sugeridos cuando se activa conversión
+  useEffect(() => {
+    if (form.use_conversion) {
+      if (!form.base_amount) {
+        setForm((f) => ({ ...f, base_amount: f.amount || "" }));
+      }
+      if (!form.base_currency) {
+        setForm((f) => ({ ...f, base_currency: f.currency || "ARS" }));
+      }
+      if (!form.counter_currency) {
+        setForm((f) => ({
+          ...f,
+          counter_currency: f.currency === "USD" ? "ARS" : "USD",
+        }));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.use_conversion]);
+
+  // Si cambia moneda/monto principal y conversión está activa, sincronizar base por defecto
+  useEffect(() => {
+    if (!form.use_conversion) return;
+    setForm((f) => ({
+      ...f,
+      base_currency: f.base_currency || f.currency || "ARS",
+      base_amount: f.base_amount || f.amount || "",
+      counter_currency:
+        f.counter_currency || (f.currency === "USD" ? "ARS" : "USD"),
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.currency, form.amount]);
 
   const totalsByCurrency = useMemo(() => {
     return items.reduce<Record<string, number>>((acc, it) => {
@@ -425,7 +617,7 @@ export default function Page() {
           layout
           initial={{ maxHeight: 100, opacity: 1 }}
           animate={{
-            maxHeight: isFormOpen ? 700 : 100,
+            maxHeight: isFormOpen ? 950 : 100,
             opacity: 1,
             transition: { duration: 0.4, ease: "easeInOut" },
           }}
@@ -564,6 +756,156 @@ export default function Page() {
                   <option value="ARS">ARS</option>
                   <option value="USD">USD</option>
                 </select>
+              </div>
+
+              {/* NUEVO: Método de pago / Cuenta */}
+              <div>
+                <label className="ml-2 block">Método de pago</label>
+                <select
+                  className={`${input} cursor-pointer`}
+                  value={form.payment_method}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, payment_method: e.target.value }))
+                  }
+                  required
+                >
+                  <option value="" disabled>
+                    Seleccionar método
+                  </option>
+                  {PAYMENT_METHOD_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {showAccount && (
+                <div>
+                  <label className="ml-2 block">Cuenta</label>
+                  <select
+                    className={`${input} cursor-pointer`}
+                    value={form.account}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, account: e.target.value }))
+                    }
+                    required={showAccount}
+                  >
+                    <option value="" disabled>
+                      Seleccionar cuenta
+                    </option>
+                    {ACCOUNT_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* NUEVO: Conversión (Valor / Contravalor) */}
+              <div className="rounded-2xl border border-white/10 p-3 md:col-span-2">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={form.use_conversion}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        use_conversion: e.target.checked,
+                      }))
+                    }
+                  />
+                  <span className="text-sm">Registrar valor / contravalor</span>
+                </label>
+
+                {form.use_conversion && (
+                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div>
+                      <p className="mb-1 text-sm font-medium">Valor base</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          inputMode="decimal"
+                          className={`col-span-2 ${input}`}
+                          placeholder="0.00"
+                          value={form.base_amount}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              base_amount: e.target.value,
+                            }))
+                          }
+                        />
+                        <select
+                          className={`${input} cursor-pointer`}
+                          value={form.base_currency}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              base_currency: e.target.value,
+                            }))
+                          }
+                        >
+                          <option value="ARS">ARS</option>
+                          <option value="USD">USD</option>
+                        </select>
+                      </div>
+                      {previewBase && (
+                        <div className="ml-1 mt-1 text-xs opacity-70">
+                          {previewBase}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <p className="mb-1 text-sm font-medium">Contravalor</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          inputMode="decimal"
+                          className={`col-span-2 ${input}`}
+                          placeholder="0.00"
+                          value={form.counter_amount}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              counter_amount: e.target.value,
+                            }))
+                          }
+                        />
+                        <select
+                          className={`${input} cursor-pointer`}
+                          value={form.counter_currency}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              counter_currency: e.target.value,
+                            }))
+                          }
+                        >
+                          <option value="ARS">ARS</option>
+                          <option value="USD">USD</option>
+                        </select>
+                      </div>
+                      {previewCounter && (
+                        <div className="ml-1 mt-1 text-xs opacity-70">
+                          {previewCounter}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="text-xs opacity-70 md:col-span-2">
+                      Se guarda el valor y contravalor <b>sin tipo de cambio</b>
+                      . Útil si pagás en una moneda pero el acuerdo está en
+                      otra.
+                    </div>
+                  </div>
+                )}
               </div>
 
               {isOperador && (
@@ -728,7 +1070,7 @@ export default function Page() {
 
           <button
             onClick={resetFilters}
-            className="h-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:text-white"
+            className="h-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
             title="Limpiar filtros"
           >
             <svg
@@ -826,6 +1168,34 @@ export default function Page() {
                   {it.paid_at && (
                     <span>
                       <b>Pagado:</b> {formatDate(it.paid_at)}
+                    </span>
+                  )}
+                  {it.payment_method && (
+                    <span>
+                      <b>Método:</b> {it.payment_method}
+                    </span>
+                  )}
+                  {it.account && (
+                    <span>
+                      <b>Cuenta:</b> {it.account}
+                    </span>
+                  )}
+                  {it.base_amount && it.base_currency && (
+                    <span>
+                      <b>Valor:</b>{" "}
+                      {new Intl.NumberFormat("es-AR", {
+                        style: "currency",
+                        currency: it.base_currency,
+                      }).format(it.base_amount)}
+                    </span>
+                  )}
+                  {it.counter_amount && it.counter_currency && (
+                    <span>
+                      <b>Contravalor:</b>{" "}
+                      {new Intl.NumberFormat("es-AR", {
+                        style: "currency",
+                        currency: it.counter_currency,
+                      }).format(it.counter_amount)}
                     </span>
                   )}
                   {it.operator && (

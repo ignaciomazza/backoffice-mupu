@@ -132,7 +132,7 @@ export default function QuoteForm({
         <input
           value={tripTitle}
           onChange={(e) => setTripTitle(e.target.value)}
-          className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+          className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
           placeholder="Escribir..."
         />
         {errors.tripTitle && <p className="text-red-500">{errors.tripTitle}</p>}
@@ -144,7 +144,7 @@ export default function QuoteForm({
         <textarea
           value={dateRange}
           onChange={(e) => setDateRange(e.target.value)}
-          className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+          className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
           placeholder="Escribir..."
         />
         {errors.dateRange && <p className="text-red-500">{errors.dateRange}</p>}
@@ -157,7 +157,7 @@ export default function QuoteForm({
           <select
             value={phone}
             onChange={(e) => setPhone(e.target.value as Quote["phone"])}
-            className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+            className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
           >
             <option value="" disabled>
               Seleccionar
@@ -179,7 +179,7 @@ export default function QuoteForm({
           <select
             value={region}
             onChange={(e) => setRegion(e.target.value as Quote["region"])}
-            className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+            className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
           >
             <option value="" disabled>
               Seleccionar
@@ -229,7 +229,7 @@ export default function QuoteForm({
                   onChange={(e) =>
                     handleItemChange(idx, "price", e.target.value)
                   }
-                  className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   placeholder="0.00"
                 />
                 {errors[`price-${idx}`] && (
@@ -243,7 +243,7 @@ export default function QuoteForm({
                   onChange={(e) =>
                     handleItemChange(idx, "concept", e.target.value)
                   }
-                  className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   placeholder="Descripción"
                 />
                 {errors[`concept-${idx}`] && (

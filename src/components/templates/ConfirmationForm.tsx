@@ -133,7 +133,7 @@ export default function ConfirmationForm({
         <input
           value={confirmationNumber}
           onChange={(e) => setConfirmationNumber(e.target.value)}
-          className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+          className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
           placeholder="Ej: 12345"
         />
         {errors.confirmationNumber && (
@@ -147,7 +147,7 @@ export default function ConfirmationForm({
         <input
           value={clientName}
           onChange={(e) => setClientName(e.target.value)}
-          className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+          className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
           placeholder="Nombre completo"
         />
         {errors.clientName && (
@@ -163,7 +163,7 @@ export default function ConfirmationForm({
             type="date"
             value={issueDate}
             onChange={(e) => setIssueDate(e.target.value)}
-            className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+            className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
           />
           {errors.issueDate && (
             <p className="text-red-500">{errors.issueDate}</p>
@@ -175,7 +175,7 @@ export default function ConfirmationForm({
             type="date"
             value={expiryDate}
             onChange={(e) => setExpiryDate(e.target.value)}
-            className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+            className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
           />
         </div>
       </div>
@@ -186,7 +186,7 @@ export default function ConfirmationForm({
         <select
           value={phone}
           onChange={(e) => setPhone(e.target.value as Confirmation["phone"])}
-          className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+          className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
         >
           <option value="" disabled>
             Seleccionar
@@ -209,7 +209,7 @@ export default function ConfirmationForm({
           rows={3}
           value={servicesText}
           onChange={(e) => setServicesText(e.target.value)}
-          className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+          className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
           placeholder="Escribir..."
         />
       </div>
@@ -223,7 +223,7 @@ export default function ConfirmationForm({
               onChange={(e) =>
                 handleItemPassengerChange(idx, "name", e.target.value)
               }
-              className="basis-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="basis-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
               placeholder="Nombre completo"
             />
             <input
@@ -232,7 +232,7 @@ export default function ConfirmationForm({
               onChange={(e) =>
                 handleItemPassengerChange(idx, "dni", e.target.value)
               }
-              className="basis-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="basis-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
               placeholder="DNI"
             />
             <input
@@ -241,7 +241,7 @@ export default function ConfirmationForm({
               onChange={(e) =>
                 handleItemPassengerChange(idx, "birth", e.target.value)
               }
-              className="basis-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="basis-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
               placeholder="Fecha de nacimiento"
             />
             {itemsPassenger.length > 1 && (
@@ -304,7 +304,7 @@ export default function ConfirmationForm({
                   onChange={(e) =>
                     handleItemChange(idx, "price", e.target.value)
                   }
-                  className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   placeholder="Precio"
                 />
                 {errors[`price-${idx}`] && (
@@ -317,7 +317,7 @@ export default function ConfirmationForm({
                   onChange={(e) =>
                     handleItemChange(idx, "concept", e.target.value)
                   }
-                  className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   placeholder="Descripción"
                 />
                 {errors[`concept-${idx}`] && (
@@ -399,7 +399,7 @@ export default function ConfirmationForm({
           rows={3}
           value={payment}
           onChange={(e) => setPayment(e.target.value)}
-          className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+          className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
           placeholder="Pago"
         />
         {errors.clientName && <p className="text-red-500">{errors.payment}</p>}

@@ -28,14 +28,11 @@ if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
 // ==== helpers comunes (mismo patrón que clients) ====
 function getTokenFromRequest(req: NextApiRequest): string | null {
-  // 1) Cookie "token"
   if (req.cookies?.token) return req.cookies.token;
 
-  // 2) Authorization: Bearer
   const a = req.headers.authorization || "";
   if (a.startsWith("Bearer ")) return a.slice(7);
 
-  // 3) Otros nombres posibles de cookie
   const c = req.cookies || {};
   for (const k of [
     "session",
@@ -114,6 +111,12 @@ function safeNumber(v: unknown): number | undefined {
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
 }
+
+// ==== NUEVO: helper para Decimal opcional (igual que en receipts) ====
+const toDec = (v: unknown) =>
+  v === undefined || v === null || v === ""
+    ? undefined
+    : new Prisma.Decimal(typeof v === "number" ? v : String(v));
 
 // ==== GET ====
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
@@ -252,7 +255,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       const qNum = Number(q);
       const or: Prisma.InvestmentWhereInput[] = [
         ...(Number.isFinite(qNum) ? [{ id_investment: qNum }] : []),
-        ...(Number.isFinite(qNum) ? [{ booking_id: qNum }] : []), // 👈 NUEVO: búsqueda por N° de reserva
+        ...(Number.isFinite(qNum) ? [{ booking_id: qNum }] : []), // 👈 búsqueda por N° de reserva
         { description: { contains: q, mode: "insensitive" } },
         { category: { contains: q, mode: "insensitive" } },
         { currency: { contains: q, mode: "insensitive" } },
@@ -264,7 +267,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
             ],
           },
         },
-        // Para relación 1–1, usar `is`
         { operator: { is: { name: { contains: q, mode: "insensitive" } } } },
       ];
       where.AND = [...prev, { OR: or }];
@@ -278,7 +280,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         createdBy: {
           select: { id_user: true, first_name: true, last_name: true },
         },
-        booking: { select: { id_booking: true } }, // 👈 NUEVO: devolver booking asociada (si existe)
+        booking: { select: { id_booking: true } }, // 👈 devuelve la reserva asociada (si existe)
       },
       orderBy: { id_investment: "desc" },
       take: take + 1,
@@ -322,10 +324,30 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const user_id = Number.isFinite(Number(b.user_id))
       ? Number(b.user_id)
       : undefined;
-    // 👇 NUEVO: booking_id opcional
+    // 👇 opcional
     const booking_id = Number.isFinite(Number(b.booking_id))
       ? Number(b.booking_id)
       : undefined;
+
+    // 👇 NUEVO: método de pago / cuenta (opcionales)
+    const payment_method =
+      typeof b.payment_method === "string"
+        ? b.payment_method.trim()
+        : undefined;
+    const account =
+      typeof b.account === "string" ? b.account.trim() : undefined;
+
+    // 👇 NUEVO: conversión (opcional, sin T.C. ni notas)
+    const base_amount = toDec(b.base_amount);
+    const base_currency =
+      typeof b.base_currency === "string" && b.base_currency
+        ? b.base_currency.toUpperCase()
+        : undefined;
+    const counter_amount = toDec(b.counter_amount);
+    const counter_currency =
+      typeof b.counter_currency === "string" && b.counter_currency
+        ? b.counter_currency.toUpperCase()
+        : undefined;
 
     // Reglas según categoría
     if (category.toLowerCase() === "operador" && !operator_id) {
@@ -339,7 +361,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         .json({ error: "Para Sueldo/Comision, user_id es obligatorio" });
     }
 
-    // 👇 NUEVO: validar booking (si viene) y que sea de la misma agencia
+    // Validar booking (si viene) y que sea de la misma agencia
     let bookingIdToSave: number | null = null;
     if (typeof booking_id === "number") {
       const bkg = await prisma.booking.findFirst({
@@ -365,13 +387,23 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         operator_id: operator_id ?? null,
         user_id: user_id ?? null,
         created_by: auth.id_user,
-        booking_id: bookingIdToSave, // 👈 NUEVO
+        booking_id: bookingIdToSave,
+
+        // 👇 NUEVO: guardar método de pago / cuenta si vienen
+        ...(payment_method ? { payment_method } : {}),
+        ...(account ? { account } : {}),
+
+        // 👇 NUEVO: guardar conversión si vienen
+        ...(base_amount ? { base_amount } : {}),
+        ...(base_currency ? { base_currency } : {}),
+        ...(counter_amount ? { counter_amount } : {}),
+        ...(counter_currency ? { counter_currency } : {}),
       },
       include: {
         user: true,
         operator: true,
         createdBy: true,
-        booking: { select: { id_booking: true } }, // 👈 NUEVO
+        booking: { select: { id_booking: true } },
       },
     });
 

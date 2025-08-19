@@ -16,7 +16,14 @@ interface Props {
 
 export default function ReceiptForm({ booking, onCreated, token }: Props) {
   const [concept, setConcept] = useState("");
-  const [currency, setCurrency] = useState(""); // método de pago
+
+  // NUEVO: selector de método de pago + cuenta
+  const [paymentMethod, setPaymentMethod] = useState("");
+  const [account, setAccount] = useState("");
+
+  // Este es el texto que ya existía: descripción del método de pago (se usa en el PDF)
+  const [paymentDescription, setPaymentDescription] = useState("");
+
   const [amountString, setAmountString] = useState("");
   const [amountCurrency, setAmountCurrency] = useState("");
   const [manualAmount, setManualAmount] = useState("");
@@ -100,7 +107,20 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
     clientIds.filter((_, i) => i !== idx).filter(Boolean) as number[];
 
   const inputBase =
-    "w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
+    "w-full rounded-2xl bg-white/50 border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
+
+  // === Conversión (SIN T.C. ni nota) ===
+  const [baseAmount, setBaseAmount] = useState<string>(""); // ej: 500
+  const [baseCurrency, setBaseCurrency] = useState<string>(""); // ej: USD
+  const [counterAmount, setCounterAmount] = useState<string>(""); // ej: 700000
+  const [counterCurrency, setCounterCurrency] = useState<string>(""); // ej: ARS
+
+  // Métodos que requieren seleccionar cuenta
+  const methodsRequiringAccount = useMemo(
+    () => new Set<string>(["Transferencia", "Deposito"]),
+    [],
+  );
+  const showAccount = methodsRequiringAccount.has(paymentMethod);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,6 +128,14 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
 
     if (selectedServiceIds.length === 0) {
       return toast.error("Seleccioná al menos un servicio de la reserva");
+    }
+
+    if (!paymentMethod) {
+      return toast.error("Seleccioná el método de pago");
+    }
+
+    if (showAccount && !account) {
+      return toast.error("Seleccioná la cuenta");
     }
 
     // clientes seleccionados (pueden quedar vacíos para auto-asignar)
@@ -133,6 +161,12 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
       finalAmount = suggestedAmount;
     }
 
+    // Conversión (opcional)
+    const payloadBaseAmount =
+      baseAmount.trim() !== "" ? parseFloat(baseAmount) : undefined;
+    const payloadCounterAmount =
+      counterAmount.trim() !== "" ? parseFloat(counterAmount) : undefined;
+
     setLoading(true);
     try {
       const res = await authFetch(
@@ -142,12 +176,26 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
           body: JSON.stringify({
             booking,
             concept,
-            currency, // método de pago
+
+            // Importante:
+            // - 'currency' = descripción texto del método (compat con PDF)
+            // - 'payment_method' = método seleccionado (select)
+            // - 'account' = cuenta (solo si aplica)
+            currency: paymentDescription,
+            payment_method: paymentMethod,
+            account: showAccount ? account : undefined,
+
             amountString,
             amountCurrency,
             serviceIds: selectedServiceIds,
             amount: finalAmount,
             clientIds: pickedClientIds, // opcional: puede ir vacío
+
+            // Conversión (opcional, sin T.C. ni nota)
+            base_amount: payloadBaseAmount,
+            base_currency: baseCurrency || undefined,
+            counter_amount: payloadCounterAmount,
+            counter_currency: counterCurrency || undefined,
           }),
         },
         token,
@@ -168,13 +216,19 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
 
       // reset
       setConcept("");
-      setCurrency("");
+      setPaymentMethod("");
+      setAccount("");
+      setPaymentDescription("");
       setAmountString("");
       setAmountCurrency("");
       setManualAmount("");
       setSelectedServiceIds([]);
       setClientsCount(1);
       setClientIds([null]);
+      setBaseAmount("");
+      setBaseCurrency("");
+      setCounterAmount("");
+      setCounterCurrency("");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error guardando recibo";
       toast.error(msg);
@@ -192,8 +246,9 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden overflow-y-scroll rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
+      className="mb-6 space-y-4 overflow-hidden overflow-y-scroll rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
+      {/* Header */}
       <div
         className="flex cursor-pointer items-center justify-between"
         onClick={() => setIsFormVisible(!isFormVisible)}
@@ -238,19 +293,19 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onSubmit={handleSubmit}
-          className="space-y-4"
+          className="space-y-6"
         >
-          {/* Picker de servicios (multi) */}
-          <div>
-            <label className="ml-2 block dark:text-white">
-              Servicios de la reserva
-            </label>
+          {/* 1) Servicios */}
+          <section className="space-y-2">
+            <p className="ml-2 text-xs font-semibold uppercase tracking-wide opacity-70">
+              1) Servicios de la reserva
+            </p>
             {servicesFromBooking.length === 0 ? (
-              <div className="mt-2 rounded-2xl border border-white/10 bg-white/10 p-3 text-sm opacity-80">
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sm opacity-80">
                 Esta reserva no tiene servicios cargados.
               </div>
             ) : (
-              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                 {servicesFromBooking.map((svc) => {
                   const isActive = selectedServiceIds.includes(svc.id_service);
                   return (
@@ -293,24 +348,26 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
               </div>
             )}
             {selectedServices.length > 0 && (
-              <div className="ml-2 mt-2 text-xs opacity-70">
+              <div className="ml-2 text-xs opacity-70">
                 Seleccionados:{" "}
                 {selectedServices.map((s) => `N° ${s.id_service}`).join(", ")}
               </div>
             )}
-          </div>
+          </section>
 
-          {/* Pickers de clientes (multi) */}
-          <div>
-            <label className="ml-2 block dark:text-white">
-              Cantidad de Clientes
-            </label>
-            <div className="ml-2 flex items-center space-x-2 py-2">
+          {/* 2) Clientes */}
+          <section className="space-y-3">
+            <p className="ml-2 text-xs font-semibold uppercase tracking-wide opacity-70">
+              2) Clientes
+            </p>
+
+            <div className="ml-2 flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleDecrementClient}
                 className="rounded-full border border-sky-950 p-1 dark:border-white dark:text-white"
                 disabled={clientsCount <= 1}
+                title="Quitar cliente"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -334,6 +391,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                 type="button"
                 onClick={handleIncrementClient}
                 className="rounded-full border border-sky-950 p-1 dark:border-white dark:text-white"
+                title="Agregar cliente"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -351,138 +409,258 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                 </svg>
               </button>
             </div>
-          </div>
 
-          {Array.from({ length: clientsCount }).map((_, idx) => (
-            <div key={idx}>
-              <ClientPicker
-                token={token}
-                label={`Cliente ${idx + 1}`}
-                placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
-                valueId={clientIds[idx] ?? null}
-                excludeIds={excludeForIndex(idx)}
-                onSelect={(c) => setClientAt(idx, c)}
-                onClear={() => setClientAt(idx, null)}
-              />
-              <p className="ml-2 mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Podés dejarlo vacío para calcularlo automáticamente.
-              </p>
+            <div className="space-y-3">
+              {Array.from({ length: clientsCount }).map((_, idx) => (
+                <div key={idx}>
+                  <ClientPicker
+                    token={token}
+                    label={`Cliente ${idx + 1}`}
+                    placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
+                    valueId={clientIds[idx] ?? null}
+                    excludeIds={excludeForIndex(idx)}
+                    onSelect={(c) => setClientAt(idx, c)}
+                    onClear={() => setClientAt(idx, null)}
+                  />
+                  <p className="ml-2 mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Podés dejarlo vacío para calcularlo automáticamente.
+                  </p>
+                </div>
+              ))}
             </div>
-          ))}
+          </section>
 
-          {/* Importe en palabras */}
-          <div className="pt-4">
-            <label className="ml-2 block dark:text-white">
-              Recibimos el equivalente a:
-            </label>
-            <input
-              type="text"
-              value={amountString}
-              onChange={(e) => setAmountString(e.target.value)}
-              className={inputBase}
-              placeholder="Ej: UN MILLON CIEN MIL"
-              required
-            />
-          </div>
+          {/* 3) Detalle del recibo */}
+          <section className="space-y-3">
+            <p className="ml-2 text-xs font-semibold uppercase tracking-wide opacity-70">
+              3) Detalle del recibo
+            </p>
 
-          <div className="flex w-full gap-2">
-            {/* Importe numérico */}
-            <div className="w-full">
-              <label className="ml-2 block dark:text-white">
-                Importe numérico:
-              </label>
+            {/* Concepto */}
+            <div>
+              <label className="ml-2 block dark:text-white">Concepto</label>
               <input
-                type="number"
-                step="0.01"
-                value={manualAmount}
-                onChange={(e) => setManualAmount(e.target.value)}
+                type="text"
+                value={concept}
+                onChange={(e) => setConcept(e.target.value)}
                 className={inputBase}
-                placeholder="Ej: 1000.50"
+                placeholder="Ej: Pago total del paquete"
+                required
               />
-              <div className="ml-2 mt-1 flex gap-4 text-sm text-gray-500 dark:text-gray-400">
-                {Number(manualAmount) > 0 && (
+            </div>
+
+            {/* Importe numérico + Moneda */}
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="md:col-span-2">
+                <label className="ml-2 block dark:text-white">
+                  Importe numérico
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={manualAmount}
+                  onChange={(e) => setManualAmount(e.target.value)}
+                  className={inputBase}
+                  placeholder="Ej: 1000.50"
+                />
+                <div className="ml-2 mt-1 flex flex-wrap items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+                  {Number(manualAmount) > 0 && (
+                    <p>
+                      {formatMoney(
+                        Number(manualAmount),
+                        amountCurrency || "ARS",
+                      )}
+                    </p>
+                  )}
                   <p>
-                    {formatMoney(Number(manualAmount), amountCurrency || "ARS")}
+                    Dejá vacío para calcularlo automáticamente
+                    {selectedServices.length > 0 && allSelectedSameCurrency && (
+                      <>
+                        {" "}
+                        (Sugerido:{" "}
+                        {formatMoney(
+                          suggestedAmount,
+                          suggestedCurrency || "ARS",
+                        )}
+                        )
+                      </>
+                    )}
+                  </p>
+                </div>
+                {selectedServices.length > 0 && !allSelectedSameCurrency && (
+                  <p className="ml-2 mt-1 text-xs text-yellow-700 dark:text-yellow-300">
+                    Los servicios seleccionados tienen monedas distintas.
+                    Ingresá el Importe numérico.
                   </p>
                 )}
-                <p>
-                  Dejá vacío para calcularlo automáticamente
-                  {selectedServices.length > 0 && allSelectedSameCurrency && (
-                    <>
-                      {" "}
-                      (Sugerido:{" "}
-                      {formatMoney(suggestedAmount, suggestedCurrency || "ARS")}
-                      )
-                    </>
-                  )}
-                </p>
               </div>
-              {selectedServices.length > 0 && !allSelectedSameCurrency && (
-                <p className="ml-2 mt-1 text-xs text-yellow-700 dark:text-yellow-300">
-                  Los servicios seleccionados tienen monedas distintas. Ingresá
-                  el Importe numérico.
-                </p>
-              )}
+
+              <div>
+                <label className="ml-2 dark:text-white">Moneda</label>
+                <select
+                  name="currency"
+                  value={amountCurrency}
+                  onChange={(e) => setAmountCurrency(e.target.value)}
+                  className={`${inputBase} cursor-pointer appearance-none`}
+                >
+                  <option value="" disabled>
+                    Seleccionar moneda
+                  </option>
+                  <option value="USD">USD</option>
+                  <option value="ARS">ARS</option>
+                </select>
+                {selectedServices.length > 0 && allSelectedSameCurrency && (
+                  <p className="ml-2 mt-1 text-xs opacity-70">
+                    Sugerido por servicios: {suggestedCurrency}
+                  </p>
+                )}
+              </div>
             </div>
-            {/* Moneda del importe en palabras */}
+
+            {/* Importe en palabras */}
             <div>
-              <label className="ml-2 dark:text-white">Moneda</label>
-              <select
-                name="currency"
-                value={amountCurrency}
-                onChange={(e) => setAmountCurrency(e.target.value)}
-                className={`${inputBase} cursor-pointer appearance-none`}
-              >
-                <option value="" disabled>
-                  Seleccionar moneda
-                </option>
-                <option value="USD">USD</option>
-                <option value="ARS">ARS</option>
-              </select>
-              <p></p>
-              {selectedServices.length > 0 && allSelectedSameCurrency && (
-                <p className="ml-2 mt-1 text-xs opacity-70">
-                  Sugerido por servicios: {suggestedCurrency}
-                </p>
+              <label className="ml-2 block dark:text-white">
+                Recibimos el equivalente a
+              </label>
+              <input
+                type="text"
+                value={amountString}
+                onChange={(e) => setAmountString(e.target.value)}
+                className={inputBase}
+                placeholder="Ej: UN MILLON CIEN MIL"
+                required
+              />
+            </div>
+          </section>
+
+          {/* 4) Pago */}
+          <section className="space-y-3">
+            <p className="ml-2 text-xs font-semibold uppercase tracking-wide opacity-70">
+              4) Pago
+            </p>
+
+            {/* Método de pago */}
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div>
+                <label className="ml-2 block dark:text-white">
+                  Método de pago
+                </label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  className={`${inputBase} cursor-pointer appearance-none`}
+                  required
+                >
+                  <option value="" disabled>
+                    Seleccionar método
+                  </option>
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="Transferencia">Transferencia</option>
+                  <option value="Deposito">Deposito</option>
+                  <option value="Crédito">Crédito</option>
+                  <option value="iata">iata</option>
+                </select>
+              </div>
+
+              {showAccount && (
+                <div>
+                  <label className="ml-2 block dark:text-white">Cuenta</label>
+                  <select
+                    value={account}
+                    onChange={(e) => setAccount(e.target.value)}
+                    className={`${inputBase} cursor-pointer appearance-none`}
+                    required={showAccount}
+                  >
+                    <option value="" disabled>
+                      Seleccionar cuenta
+                    </option>
+                    <option value="Banco Macro">Banco Macro</option>
+                    <option value="Banco Nación">Banco Nación</option>
+                    <option value="Banco Galicia">Banco Galicia</option>
+                    <option value="Mercado Pago">Mercado Pago</option>
+                  </select>
+                </div>
               )}
             </div>
-          </div>
 
-          {/* Concepto */}
-          <div>
-            <label className="ml-2 block dark:text-white">Concepto:</label>
-            <input
-              type="text"
-              value={concept}
-              onChange={(e) => setConcept(e.target.value)}
-              className={inputBase}
-              placeholder="Ej: Pago total del paquete"
-              required
-            />
-          </div>
+            {/* Descripción para PDF */}
+            <div>
+              <label className="ml-2 block dark:text-white">
+                Método de pago (detalle para el PDF)
+              </label>
+              <input
+                type="text"
+                value={paymentDescription}
+                onChange={(e) => setPaymentDescription(e.target.value)}
+                className={inputBase}
+                placeholder="Ej: Tarjeta de crédito — No adeuda saldo"
+                required
+              />
+            </div>
+          </section>
 
-          {/* Método de pago */}
-          <div>
-            <label className="ml-2 block dark:text-white">
-              Metodo de pago:
-            </label>
-            <input
-              type="text"
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              className={inputBase}
-              placeholder="Ej: Tarjeta de crédito -- No adeuda saldo"
-              required
-            />
-          </div>
+          {/* 5) Conversión (opcional) */}
+          <section className="space-y-2">
+            <div className="ml-2 text-xs font-semibold uppercase tracking-wide opacity-70">
+              5) Conversión (opcional)
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={baseAmount}
+                  onChange={(e) => setBaseAmount(e.target.value)}
+                  className={inputBase}
+                  placeholder="Base (ej: 500)"
+                />
+                <select
+                  value={baseCurrency}
+                  onChange={(e) => setBaseCurrency(e.target.value)}
+                  className={`${inputBase} cursor-pointer appearance-none`}
+                >
+                  <option value="" disabled>
+                    Moneda base
+                  </option>
+                  <option value="USD">USD</option>
+                  <option value="ARS">ARS</option>
+                </select>
+              </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-4 rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-          >
-            {loading ? <Spinner /> : "Crear Recibo"}
-          </button>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={counterAmount}
+                  onChange={(e) => setCounterAmount(e.target.value)}
+                  className={inputBase}
+                  placeholder="Contravalor (ej: 700000)"
+                />
+                <select
+                  value={counterCurrency}
+                  onChange={(e) => setCounterCurrency(e.target.value)}
+                  className={`${inputBase} cursor-pointer appearance-none`}
+                >
+                  <option value="" disabled>
+                    Moneda contra
+                  </option>
+                  <option value="USD">USD</option>
+                  <option value="ARS">ARS</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          {/* Acción */}
+          <div className="pt-2">
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-2 rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+            >
+              {loading ? <Spinner /> : "Crear Recibo"}
+            </button>
+          </div>
         </motion.form>
       )}
     </motion.div>

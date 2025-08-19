@@ -133,7 +133,7 @@ export default function ResourceForm({ onCreated }: ResourceFormProps) {
               name="title"
               value={title}
               onChange={handleChangeTitle}
-              className="h-full flex-auto rounded-2xl border border-sky-950/10 p-2 outline-none backdrop-blur placeholder:font-light dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="h-full flex-auto rounded-2xl border border-sky-950/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:border-white/10 dark:bg-white/10 dark:text-white"
               placeholder="Hotelerias de..."
               required
             />

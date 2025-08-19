@@ -185,7 +185,7 @@ export default function InvoiceForm({
   const maxDate = `${dMax.getFullYear()}-${pad(dMax.getMonth() + 1)}-${pad(dMax.getDate())}`;
 
   const input =
-    "w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
+    "w-full appearance-none bg-white/50 rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
 
   return (
     <motion.div
@@ -266,7 +266,7 @@ export default function InvoiceForm({
               name="tipoFactura"
               value={formData.tipoFactura}
               onChange={handleChange}
-              className={`${input} appearance-none`}
+              className={`${input} cursor-pointer appearance-none`}
               required
             >
               <option value="">Seleccionar</option>

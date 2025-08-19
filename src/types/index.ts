@@ -215,11 +215,26 @@ export interface Receipt {
   id_receipt: number;
   receipt_number: string;
   issue_date: string; // fecha de emisión en ISO
+
   amount: number; // monto numérico
   amount_string: string; // monto como texto ingresado
-  amount_currency: string;
+  amount_currency: string; // moneda del monto/letters (ej: "ARS" | "USD")
+
   concept: string;
+
+  // En este proyecto `currency` es la descripción del método de pago (se imprime en el PDF)
   currency: string;
+
+  // Nuevos campos
+  payment_method?: string | null; // método seleccionado (Efectivo, Transferencia, etc.)
+  account?: string | null; // cuenta usada si aplica
+
+  // Conversión (opcionales, sin T.C. ni notas)
+  base_amount?: number | string | null;
+  base_currency?: string | null;
+  counter_amount?: number | string | null;
+  counter_currency?: string | null;
+
   bookingId_booking: number;
   booking?: Booking; // opcionalmente puedes incluir los datos de la reserva
   serviceIds?: number[];

@@ -268,11 +268,19 @@ export default function InvoicesPage() {
       const tipo = inv.isCredit
         ? `Nota de crédito ${inv.type.slice(-1)}`
         : inv.type;
-      const cotiz =
-        inv.currency === "DOL"
-          ? (inv.payloadAfip.voucherData.MonCotiz?.toString() ?? "")
-          : "";
-      const total = fmt(inv.total_amount, inv.currency);
+
+      // Si la factura está en USD/DOL, mostramos la cotización formateada en ARS.
+      const isUsd = inv.currency === "DOL" || inv.currency === "USD";
+      const cotizacion = isUsd
+        ? fmt(inv.payloadAfip.voucherData.MonCotiz ?? undefined, "ARS")
+        : "";
+
+      const base21Fmt = fmt(base21, inv.currency);
+      const base105Fmt = fmt(base105, inv.currency);
+      const baseExFmt = fmt(baseEx, inv.currency);
+      const netoFmt = fmt(neto, inv.currency);
+      const ivaFmt = fmt(iva, inv.currency);
+      const totalFmt = fmt(inv.total_amount, inv.currency);
 
       return [
         inv.invoice_number,
@@ -282,13 +290,13 @@ export default function InvoicesPage() {
         direccion,
         localidad,
         codigoPostal,
-        base21.toString(),
-        base105.toString(),
-        baseEx.toString(),
-        neto.toString(),
-        iva.toString(),
-        cotiz,
-        total,
+        base21Fmt,
+        base105Fmt,
+        baseExFmt,
+        netoFmt,
+        ivaFmt,
+        cotizacion,
+        totalFmt,
       ].map(escapeCell);
     });
 

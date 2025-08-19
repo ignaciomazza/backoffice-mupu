@@ -27,6 +27,11 @@ interface Booking {
   Receipt: {
     amount: number;
     amount_currency: "ARS" | "USD";
+    // NUEVO: usar contravalor cuando exista
+    base_amount?: number | string | null;
+    base_currency?: "ARS" | "USD" | null;
+    counter_amount?: number | string | null;
+    counter_currency?: "ARS" | "USD" | null;
   }[];
 }
 
@@ -67,6 +72,12 @@ export default function BalancesPage() {
     [],
   );
 
+  const toNum = (v: number | string | null | undefined) => {
+    const n =
+      typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : NaN;
+    return Number.isFinite(n) ? n : 0;
+  };
+
   // Helpers para sumar por moneda (con/sin interés)
   const sumByCurrency = useCallback(
     (services: Booking["services"], withInterest: boolean) => {
@@ -79,9 +90,25 @@ export default function BalancesPage() {
     [],
   );
 
+  // Suma recibos por moneda usando CONTRAVALOR cuando exista;
+  // si no hay contravalor, usa amount/amount_currency.
   const sumReceiptsByCurrency = useCallback((receipts: Booking["Receipt"]) => {
     return receipts.reduce<Record<string, number>>((acc, r) => {
-      acc[r.amount_currency] = (acc[r.amount_currency] || 0) + r.amount;
+      // Preferir contravalor si ambas partes existen
+      if (
+        r.counter_currency &&
+        r.counter_amount !== null &&
+        r.counter_amount !== undefined
+      ) {
+        const cur = r.counter_currency;
+        const val = toNum(r.counter_amount);
+        acc[cur] = (acc[cur] || 0) + val;
+      } else if (r.amount_currency) {
+        // Fallback al monto original
+        const cur = r.amount_currency;
+        const val = toNum(r.amount);
+        acc[cur] = (acc[cur] || 0) + val;
+      }
       return acc;
     }, {});
   }, []);
@@ -112,7 +139,7 @@ export default function BalancesPage() {
     return {
       count: data.length,
       totals: totalsWithoutInterest, // “Venta total” sin interés
-      debtTotals, // “Deuda” considerando interés de tarjeta
+      debtTotals, // “Deuda” considerando interés de tarjeta y contravalores
     };
   }, [data, sumByCurrency, sumReceiptsByCurrency]);
 
@@ -221,7 +248,7 @@ export default function BalancesPage() {
       b.operatorStatus,
       new Date(b.creation_date).toLocaleDateString("es-AR"),
       formatTotalByCurrency(b.services), // sin interés
-      formatDebtByCurrency(b.services, b.Receipt), // con interés
+      formatDebtByCurrency(b.services, b.Receipt), // con interés y contravalor
     ]);
     const csvContent = [header, ...rows].map((r) => r.join(";")).join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });

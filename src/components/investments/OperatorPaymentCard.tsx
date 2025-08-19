@@ -20,10 +20,18 @@ export type InvestmentItem = {
   paid_at?: string | null;
   operator_id?: number | null;
   user_id?: number | null;
-  booking_id?: number | null; // si tu API/DB lo expone
+  booking_id?: number | null;
   operator?: OperatorLite | null;
   user?: UserLite | null;
   createdBy?: UserLite | null;
+
+  // Nuevos campos
+  payment_method?: string | null;
+  account?: string | null;
+  base_amount?: number | string | null;
+  base_currency?: string | null;
+  counter_amount?: number | string | null;
+  counter_currency?: string | null;
 };
 
 type Props = {
@@ -32,22 +40,38 @@ type Props = {
 
 function formatDate(s?: string | null) {
   if (!s) return "-";
-  // mostramos en es-AR y timezone UTC como en Investments
   return new Date(s).toLocaleDateString("es-AR", { timeZone: "UTC" });
 }
 
+function fmtMoney(v?: number | string | null, cur?: string | null) {
+  const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN;
+  const currency = (cur || "ARS").toUpperCase();
+  if (!Number.isFinite(n)) return "–";
+  try {
+    return new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+    }).format(n);
+  } catch {
+    return `${n.toFixed(2)} ${currency}`;
+  }
+}
+
 function OperatorPaymentCard({ item }: Props) {
-  const formattedAmount = useMemo(() => {
-    try {
-      return new Intl.NumberFormat("es-AR", {
-        style: "currency",
-        currency: item.currency,
-        minimumFractionDigits: 2,
-      }).format(item.amount);
-    } catch {
-      return `${item.amount.toFixed(2)} ${item.currency}`;
-    }
-  }, [item.amount, item.currency]);
+  const formattedAmount = useMemo(
+    () => fmtMoney(item.amount, item.currency),
+    [item.amount, item.currency],
+  );
+
+  const hasBase =
+    item.base_amount !== null &&
+    item.base_amount !== undefined &&
+    !!item.base_currency;
+  const hasCounter =
+    item.counter_amount !== null &&
+    item.counter_amount !== undefined &&
+    !!item.counter_currency;
 
   return (
     <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white">
@@ -72,6 +96,30 @@ function OperatorPaymentCard({ item }: Props) {
         <span>
           <b>Monto:</b> {formattedAmount}
         </span>
+
+        {/* Método de pago / Cuenta (opcionales) */}
+        {item.payment_method && (
+          <span>
+            <b>Método:</b> {item.payment_method}
+          </span>
+        )}
+        {item.account && (
+          <span>
+            <b>Cuenta:</b> {item.account}
+          </span>
+        )}
+
+        {/* Valor base / Contravalor */}
+        {(hasBase || hasCounter) && (
+          <span>
+            <b>Valor base / Contravalor:</b>{" "}
+            {hasBase ? fmtMoney(item.base_amount, item.base_currency) : "–"} /{" "}
+            {hasCounter
+              ? fmtMoney(item.counter_amount, item.counter_currency)
+              : "–"}
+          </span>
+        )}
+
         <span>
           <b>Creado:</b> {formatDate(item.created_at)}
         </span>

@@ -102,7 +102,7 @@ export default function UserForm({
                 placeholder={label}
                 value={String(formData[name as keyof typeof formData] || "")}
                 onChange={handleChange}
-                className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                 required={name !== "password" || !editingUserId}
               />
             </div>
@@ -113,7 +113,7 @@ export default function UserForm({
               name="role"
               value={formData.role}
               onChange={handleChange}
-              className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
             >
               <option value="desarrollador">Desarrollador</option>
               <option value="gerente">Gerente</option>

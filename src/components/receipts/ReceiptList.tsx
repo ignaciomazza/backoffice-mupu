@@ -15,7 +15,7 @@ export default function ReceiptList({
   receipts,
   booking,
   role,
-  onReceiptDeleted
+  onReceiptDeleted,
 }: ReceiptListProps) {
   if (!receipts || receipts.length === 0) {
     return (

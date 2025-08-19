@@ -246,7 +246,7 @@ export default function BookingForm({
                     onPaste: handleDatePaste,
                     onBlur: handleDateBlur,
                   })}
-                  className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                   placeholder={placeholder}
                   required
                 />
@@ -262,7 +262,7 @@ export default function BookingForm({
                 name="invoice_type"
                 value={formData.invoice_type || ""}
                 onChange={handleChange}
-                className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                 required
               >
                 <option value="" disabled>
@@ -288,7 +288,7 @@ export default function BookingForm({
                 name="invoice_observation"
                 value={formData.invoice_observation || ""}
                 onChange={handleChange}
-                className="w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                 placeholder="Ej: Facturar aL cliente N° 342"
                 required
               />

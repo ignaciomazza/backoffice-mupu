@@ -182,7 +182,7 @@ export default function ServiceForm({
               name="type"
               value={formData.type}
               onChange={handleChange}
-              className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               required
             >
               <option value="" disabled>
@@ -216,7 +216,7 @@ export default function ServiceForm({
               name="description"
               value={formData.description || ""}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               placeholder="Detalle del servicio..."
             />
           </div>
@@ -229,7 +229,7 @@ export default function ServiceForm({
                 value={formData.destination || ""}
                 onChange={handleChange}
                 placeholder="Destino..."
-                className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               />
             </div>
             <div>
@@ -240,7 +240,7 @@ export default function ServiceForm({
                 value={formData.reference || ""}
                 onChange={handleChange}
                 placeholder="Referencia..."
-                className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               />
             </div>
             <div>
@@ -257,7 +257,7 @@ export default function ServiceForm({
                 onPaste={handleDatePaste}
                 onBlur={handleDateBlur}
                 placeholder="dd/mm/yyyy"
-                className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               />
             </div>
             <div>
@@ -274,7 +274,7 @@ export default function ServiceForm({
                 onPaste={handleDatePaste}
                 onBlur={handleDateBlur}
                 placeholder="dd/mm/yyyy"
-                className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               />
             </div>
             <div>
@@ -283,7 +283,7 @@ export default function ServiceForm({
                 name="id_operator"
                 value={formData.id_operator || 0}
                 onChange={handleChange}
-                className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               >
                 <option value={0} disabled>
                   Seleccionar operador
@@ -301,7 +301,7 @@ export default function ServiceForm({
                 name="currency"
                 value={formData.currency}
                 onChange={handleChange}
-                className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
                 required
               >
                 <option value="" disabled>
@@ -322,7 +322,7 @@ export default function ServiceForm({
                 step="0.01"
                 min="0"
                 required
-                className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.cost_price)}
@@ -339,7 +339,7 @@ export default function ServiceForm({
                 step="0.01"
                 min="0"
                 required
-                className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.sale_price)}
@@ -355,7 +355,7 @@ export default function ServiceForm({
                 step="0.01"
                 min="0"
                 placeholder="21%..."
-                className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.tax_21 || 0)}
@@ -371,7 +371,7 @@ export default function ServiceForm({
                 step="0.01"
                 min="0"
                 placeholder="10.5%..."
-                className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.tax_105 || 0)}
@@ -387,7 +387,7 @@ export default function ServiceForm({
                 step="0.01"
                 min="0"
                 placeholder="Exento..."
-                className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.exempt || 0)}
@@ -403,7 +403,7 @@ export default function ServiceForm({
                 step="0.01"
                 min="0"
                 placeholder="Otros impuestos..."
-                className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.other_taxes || 0)}
@@ -419,7 +419,7 @@ export default function ServiceForm({
                 step="0.01"
                 min="0"
                 placeholder="Interes..."
-                className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.card_interest || 0)}
@@ -435,7 +435,7 @@ export default function ServiceForm({
                 step="0.01"
                 min="0"
                 placeholder="21%..."
-                className="w-full rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               />
               <p className="ml-2 text-sm dark:text-white">
                 {formatCurrency(formData.card_interest_21 || 0)}

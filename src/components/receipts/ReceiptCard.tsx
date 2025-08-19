@@ -21,14 +21,27 @@ export default function ReceiptCard({
   const [loadingPDF, setLoadingPDF] = useState(false);
   const [loadingDelete, setLoadingDelete] = useState(false);
 
-  // formateo de moneda
-  const fmt = useCallback((v?: number, curr?: string) => {
-    const currency = curr === "DOL" ? "USD" : "ARS";
-    return new Intl.NumberFormat("es-AR", {
-      style: "currency",
-      currency,
-    }).format(v ?? 0);
+  // Normaliza moneda (acepta string | null | undefined)
+  const normalizeCurrency = useCallback((c?: string | null) => {
+    const cu = (c || "").toUpperCase();
+    if (["USD", "DOL", "U$S", "US$"].includes(cu)) return "USD";
+    return "ARS";
   }, []);
+
+  // formateo de moneda (acepta number | string | null | undefined)
+  const fmt = useCallback(
+    (v?: number | string | null, curr?: string | null) => {
+      const n =
+        typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : 0;
+      const currency = normalizeCurrency(curr);
+      const safe = Number.isFinite(n) ? n : 0;
+      return new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency,
+      }).format(safe);
+    },
+    [normalizeCurrency],
+  );
 
   // obtiene nombre de cliente por ID
   const getClientName = (id: number): string => {
@@ -98,6 +111,16 @@ export default function ReceiptCard({
     }
   };
 
+  // datos de conversión (opcionales)
+  const hasBase =
+    receipt.base_amount !== null &&
+    receipt.base_amount !== undefined &&
+    !!receipt.base_currency;
+  const hasCounter =
+    receipt.counter_amount !== null &&
+    receipt.counter_amount !== undefined &&
+    !!receipt.counter_currency;
+
   return (
     <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
       <header className="mb-4 flex items-center justify-between">
@@ -123,24 +146,63 @@ export default function ReceiptCard({
               : `${booking.titular.first_name} ${booking.titular.last_name} N° ${booking.titular.id_client}`}
           </p>
         </div>
+
         <div>
           <p className="font-semibold">Moneda / Monto</p>
-          <p className="mt-1">{fmt(receipt.amount, receipt.currency)}</p>
+          {/* Usamos amount_currency para formatear el importe numérico */}
+          <p className="mt-1">{fmt(receipt.amount, receipt.amount_currency)}</p>
         </div>
+
         <div className="col-span-2">
           <p className="font-semibold">Concepto</p>
           <p className="mt-1">{receipt.concept}</p>
         </div>
+
         <div className="col-span-2">
           <p className="font-semibold">Monto en letras</p>
           <p className="mt-1">{receipt.amount_string}</p>
         </div>
+
         <div className="col-span-2">
           <p className="font-semibold">Servicios (N°)</p>
           <p className="mt-1">
             {receipt.serviceIds?.length ? receipt.serviceIds.join(", ") : "–"}
           </p>
         </div>
+
+        {/* Método de pago (select) */}
+        <div>
+          <p className="font-semibold">Método de pago</p>
+          <p className="mt-1">{receipt.payment_method || "–"}</p>
+        </div>
+
+        {/* Cuenta (solo si existe) */}
+        {receipt.account && (
+          <div>
+            <p className="font-semibold">Cuenta</p>
+            <p className="mt-1">{receipt.account}</p>
+          </div>
+        )}
+
+        {/* Descripción del método (texto que se imprime en el PDF) */}
+        <div className="col-span-2">
+          <p className="font-semibold">Descripción del método</p>
+          <p className="mt-1">{receipt.currency || "–"}</p>
+        </div>
+
+        {/* Conversión (sin T.C., solo valor base y contravalor) */}
+        {(hasBase || hasCounter) && (
+          <div className="col-span-2">
+            <p className="font-semibold">Valor base / Contravalor</p>
+            <p className="mt-1">
+              {hasBase ? fmt(receipt.base_amount, receipt.base_currency) : "–"}{" "}
+              /{" "}
+              {hasCounter
+                ? fmt(receipt.counter_amount, receipt.counter_currency)
+                : "–"}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* FOOTER BOTONES */}

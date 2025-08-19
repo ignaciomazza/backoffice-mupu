@@ -113,6 +113,24 @@ function safeNumber(v: unknown): number | undefined {
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
 }
+// Igual que en receipts/investments index: Decimal opcional
+const toDec = (v: unknown) =>
+  v === undefined || v === null || v === ""
+    ? undefined
+    : new Prisma.Decimal(typeof v === "number" ? v : String(v));
+// Normaliza updates string: string -> trimmed | null -> null | else -> undefined (no tocar)
+const normStrUpdate = (
+  v: unknown,
+  opts?: { upper?: boolean; allowEmpty?: boolean },
+): string | null | undefined => {
+  if (v === null) return null;
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (!t && !opts?.allowEmpty) return undefined;
+    return opts?.upper ? t.toUpperCase() : t;
+  }
+  return undefined;
+};
 
 /** ===== Scoped getters ===== */
 function getInvestmentLite(id_investment: number, id_agency: number) {
@@ -130,6 +148,7 @@ function getInvestmentFull(id_investment: number, id_agency: number) {
       createdBy: {
         select: { id_user: true, first_name: true, last_name: true },
       },
+      booking: { select: { id_booking: true } }, // incluir reserva asociada
     },
   });
 }
@@ -187,6 +206,49 @@ export default async function handler(
         b.operator_id === null ? null : safeNumber(b.operator_id);
       const user_id = b.user_id === null ? null : safeNumber(b.user_id);
 
+      // 👇 NUEVO: booking_id editable (validamos agencia si viene)
+      let booking_id: number | null | undefined = undefined;
+      if (b.booking_id !== undefined) {
+        if (b.booking_id === null) {
+          booking_id = null;
+        } else {
+          const bid = safeNumber(b.booking_id);
+          if (!bid) {
+            return res
+              .status(400)
+              .json({ error: "booking_id inválido (debe ser numérico)" });
+          }
+          const bkg = await prisma.booking.findFirst({
+            where: { id_booking: bid, id_agency: auth.id_agency },
+            select: { id_booking: true },
+          });
+          if (!bkg) {
+            return res.status(400).json({
+              error: "La reserva no existe o no pertenece a tu agencia",
+            });
+          }
+          booking_id = bid;
+        }
+      }
+
+      // 👇 NUEVO: método de pago / cuenta (acepta string o null para limpiar)
+      const payment_method = normStrUpdate(b.payment_method);
+      const account = normStrUpdate(b.account);
+
+      // 👇 NUEVO: conversión (acepta Decimal o null para limpiar)
+      const base_amount =
+        b.base_amount === null
+          ? null
+          : (toDec(b.base_amount) as Prisma.Decimal | undefined);
+      const counter_amount =
+        b.counter_amount === null
+          ? null
+          : (toDec(b.counter_amount) as Prisma.Decimal | undefined);
+      const base_currency = normStrUpdate(b.base_currency, { upper: true });
+      const counter_currency = normStrUpdate(b.counter_currency, {
+        upper: true,
+      });
+
       if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) {
         return res.status(400).json({ error: "El monto debe ser positivo" });
       }
@@ -201,11 +263,9 @@ export default async function handler(
         b.operator_id !== undefined &&
         operator_id == null
       ) {
-        return res
-          .status(400)
-          .json({
-            error: "Para categoría Operador, operator_id es obligatorio",
-          });
+        return res.status(400).json({
+          error: "Para categoría Operador, operator_id es obligatorio",
+        });
       }
       if (
         ["sueldo", "comision"].includes(nextCat) &&
@@ -217,7 +277,7 @@ export default async function handler(
           .json({ error: "Para Sueldo/Comision, user_id es obligatorio" });
       }
 
-      // Usamos UncheckedUpdate para poder setear FKs (operator_id / user_id)
+      // Usamos UncheckedUpdate para poder setear FKs y scalars opcionales
       const data: Prisma.InvestmentUncheckedUpdateInput = {};
       if (category !== undefined) data.category = category;
       if (description !== undefined) data.description = description;
@@ -226,6 +286,18 @@ export default async function handler(
       if (paid_at !== undefined) data.paid_at = paid_at;
       if (operator_id !== undefined) data.operator_id = operator_id;
       if (user_id !== undefined) data.user_id = user_id;
+      if (booking_id !== undefined) data.booking_id = booking_id;
+
+      // 👉 nuevos campos
+      if (payment_method !== undefined) data.payment_method = payment_method;
+      if (account !== undefined) data.account = account;
+
+      if (base_amount !== undefined) data.base_amount = base_amount;
+      if (base_currency !== undefined)
+        data.base_currency = base_currency || undefined;
+      if (counter_amount !== undefined) data.counter_amount = counter_amount;
+      if (counter_currency !== undefined)
+        data.counter_currency = counter_currency || undefined;
 
       const updated = await prisma.investment.update({
         where: { id_investment: id },
@@ -238,6 +310,7 @@ export default async function handler(
           createdBy: {
             select: { id_user: true, first_name: true, last_name: true },
           },
+          booking: { select: { id_booking: true } },
         },
       });
 

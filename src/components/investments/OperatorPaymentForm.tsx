@@ -15,6 +15,21 @@ type Props = {
   onCreated?: () => void;
 };
 
+const PAYMENT_METHOD_OPTIONS = [
+  "Efectivo",
+  "Transferencia",
+  "Depósito",
+  "Crédito",
+  "iata",
+] as const;
+
+const ACCOUNT_OPTIONS = [
+  "Banco Macro",
+  "Banco Nación",
+  "Banco Galicia",
+  "Mercado Pago",
+] as const;
+
 export default function OperatorPaymentForm({
   token,
   booking,
@@ -26,12 +41,10 @@ export default function OperatorPaymentForm({
 
   // === Servicios sólo de esta reserva ===
   const servicesFromBooking = useMemo<Service[]>(() => {
-    // Preferir services embebidos en booking, si existen
     const embedded = (booking as unknown as { services?: Service[] })?.services;
     if (embedded && Array.isArray(embedded) && embedded.length > 0) {
       return embedded;
     }
-    // Fallback: filtrar por booking_id en availableServices
     return (availableServices || []).filter(
       (s) =>
         (s as unknown as { booking_id?: number })?.booking_id ===
@@ -46,12 +59,23 @@ export default function OperatorPaymentForm({
     [servicesFromBooking, selectedIds],
   );
 
-  // === Campos (monto como string, estilo investments) ===
+  // === Campos básicos ===
   const [amount, setAmount] = useState<string>("");
   const [currency, setCurrency] = useState<string>("ARS");
   const [paidAt, setPaidAt] = useState<string>("");
   const [operatorId, setOperatorId] = useState<number | "">("");
   const [description, setDescription] = useState<string>("");
+
+  // === Método de pago / cuenta (opcionales) ===
+  const [paymentMethod, setPaymentMethod] = useState<string>("");
+  const [account, setAccount] = useState<string>("");
+
+  // === Conversión (valor / contravalor) ===
+  const [useConversion, setUseConversion] = useState<boolean>(false);
+  const [baseAmount, setBaseAmount] = useState<string>("");
+  const [baseCurrency, setBaseCurrency] = useState<string>("ARS");
+  const [counterAmount, setCounterAmount] = useState<string>("");
+  const [counterCurrency, setCounterCurrency] = useState<string>("USD");
 
   const [loading, setLoading] = useState(false);
 
@@ -102,6 +126,34 @@ export default function OperatorPaymentForm({
     }
   }, [amount, currency]);
 
+  const previewBase = useMemo(() => {
+    const n = Number(baseAmount);
+    if (!useConversion || !Number.isFinite(n) || n <= 0 || !baseCurrency)
+      return "";
+    try {
+      return new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: baseCurrency,
+      }).format(n);
+    } catch {
+      return `${n.toFixed(2)} ${baseCurrency}`;
+    }
+  }, [useConversion, baseAmount, baseCurrency]);
+
+  const previewCounter = useMemo(() => {
+    const n = Number(counterAmount);
+    if (!useConversion || !Number.isFinite(n) || n <= 0 || !counterCurrency)
+      return "";
+    try {
+      return new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: counterCurrency,
+      }).format(n);
+    } catch {
+      return `${n.toFixed(2)} ${counterCurrency}`;
+    }
+  }, [useConversion, counterAmount, counterCurrency]);
+
   // Al cambiar la selección, proponemos sugeridos coherentes
   useEffect(() => {
     // operador
@@ -110,7 +162,6 @@ export default function OperatorPaymentForm({
     } else if (selectedServices.length === 0) {
       setOperatorId("");
     } else {
-      // selección con operadores distintos => limpiar para forzar elección
       setOperatorId("");
       toast.info(
         "Seleccionaste servicios de operadores distintos. Elegí el operador manualmente.",
@@ -154,6 +205,27 @@ export default function OperatorPaymentForm({
     booking.id_booking,
   ]);
 
+  // Al activar la conversión, precompletar valor base con el monto/moneda del pago
+  useEffect(() => {
+    if (useConversion) {
+      if (!baseAmount) setBaseAmount(amount || "");
+      if (!baseCurrency) setBaseCurrency(currency || "ARS");
+      if (!counterCurrency)
+        setCounterCurrency(currency === "USD" ? "ARS" : "USD");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useConversion]);
+
+  // Si cambia la moneda del pago y tenemos conversión activa sin haber tocado base, sincronizamos sugeridos
+  useEffect(() => {
+    if (!useConversion) return;
+    if (!baseCurrency) setBaseCurrency(currency || "ARS");
+    if (!baseAmount) setBaseAmount(amount || "");
+    if (!counterCurrency)
+      setCounterCurrency(currency === "USD" ? "ARS" : "USD");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currency, amount]);
+
   // Toggle de selección con validación de operador homogéneo
   const toggleService = (svc: Service) => {
     const isSelected = selectedIds.includes(svc.id_service);
@@ -161,7 +233,6 @@ export default function OperatorPaymentForm({
       setSelectedIds((prev) => prev.filter((id) => id !== svc.id_service));
       return;
     }
-    // Si ya hay selección, impedir mezclar operadores distintos
     if (selectedServices.length > 0) {
       const baseOp = selectedServices[0].id_operator;
       if (baseOp && svc.id_operator && baseOp !== svc.id_operator) {
@@ -178,6 +249,31 @@ export default function OperatorPaymentForm({
     if (selectedServices.length === 0) return;
     setAmount(String(suggestedAmount || 0));
     if (suggestedCurrency) setCurrency(suggestedCurrency);
+    if (useConversion) {
+      setBaseAmount(String(suggestedAmount || 0));
+      setBaseCurrency(suggestedCurrency || currency || "ARS");
+      setCounterCurrency(
+        (suggestedCurrency || currency) === "USD" ? "ARS" : "USD",
+      );
+    }
+  };
+
+  // Validación de conversión coherente
+  const validateConversion = (): { ok: boolean; msg?: string } => {
+    if (!useConversion) return { ok: true }; // <- clave: si no hay conversión, no validar
+
+    const bAmt = Number(baseAmount);
+    const cAmt = Number(counterAmount);
+    if (!Number.isFinite(bAmt) || bAmt <= 0)
+      return { ok: false, msg: "Ingresá un Valor base válido (> 0)." };
+    if (!baseCurrency)
+      return { ok: false, msg: "Elegí la moneda del Valor base." };
+    if (!Number.isFinite(cAmt) || cAmt <= 0)
+      return { ok: false, msg: "Ingresá un Contravalor válido (> 0)." };
+    if (!counterCurrency)
+      return { ok: false, msg: "Elegí la moneda del Contravalor." };
+
+    return { ok: true };
   };
 
   // Submit
@@ -200,6 +296,12 @@ export default function OperatorPaymentForm({
       return;
     }
 
+    const conv = validateConversion();
+    if (!conv.ok) {
+      toast.error(conv.msg || "Revisá los datos de Valor/Contravalor");
+      return;
+    }
+
     setLoading(true);
     try {
       const ids = selectedServices.map((s) => s.id_service).join(", ");
@@ -207,15 +309,34 @@ export default function OperatorPaymentForm({
         description.trim() ||
         `Pago a operador | Reserva N° ${booking.id_booking} | Servicios ${ids}`;
 
-      const payload = {
+      const payload: Record<string, unknown> = {
         category: "OPERADOR",
         description: desc,
         amount: amountNum,
-        currency,
+        currency: (currency || "ARS").toUpperCase(),
         operator_id: Number(operatorId),
         paid_at: paidAt || undefined,
-        booking_id: booking.id_booking, // asociación opcional a la reserva
+        booking_id: booking.id_booking,
+        payment_method: paymentMethod || undefined,
+        account: account || undefined,
       };
+
+      // agregar conversión sólo si corresponde
+      if (useConversion) {
+        const bAmt = Number(baseAmount);
+        const cAmt = Number(counterAmount);
+
+        payload.base_amount =
+          Number.isFinite(bAmt) && bAmt > 0 ? bAmt : undefined;
+        payload.base_currency = baseCurrency
+          ? baseCurrency.toUpperCase()
+          : undefined;
+        payload.counter_amount =
+          Number.isFinite(cAmt) && cAmt > 0 ? cAmt : undefined;
+        payload.counter_currency = counterCurrency
+          ? counterCurrency.toUpperCase()
+          : undefined;
+      }
 
       const res = await authFetch(
         "/api/investments",
@@ -244,6 +365,13 @@ export default function OperatorPaymentForm({
       setOperatorId("");
       setPaidAt("");
       setDescription("");
+      setPaymentMethod("");
+      setAccount("");
+      setUseConversion(false);
+      setBaseAmount("");
+      setBaseCurrency("ARS");
+      setCounterAmount("");
+      setCounterCurrency("USD");
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Error al cargar el pago.";
@@ -253,16 +381,23 @@ export default function OperatorPaymentForm({
     }
   };
 
+  // Métodos que requieren seleccionar cuenta
+  const methodsRequiringAccount = useMemo(
+    () => new Set<string>(["Transferencia", "Crédito"]),
+    [],
+  );
+  const showAccount = methodsRequiringAccount.has(paymentMethod);
+
   // UI helpers
   const inputBase =
-    "w-full appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
+    "w-full appearance-none bg-white/50 rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
 
   return (
     <motion.div
       layout
       initial={{ maxHeight: 100, opacity: 1 }}
       animate={{
-        maxHeight: isFormVisible ? 1000 : 100,
+        maxHeight: isFormVisible ? 1400 : 100,
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
@@ -475,6 +610,131 @@ export default function OperatorPaymentForm({
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label className="ml-2 block dark:text-white">
+                Método de pago
+              </label>
+              <select
+                className={`${inputBase} cursor-pointer`}
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                required
+              >
+                <option value="" disabled>
+                  Seleccionar método
+                </option>
+                {PAYMENT_METHOD_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {showAccount && (
+              <div>
+                <label className="ml-2 block dark:text-white">Cuenta</label>
+                <select
+                  className={`${inputBase} cursor-pointer`}
+                  value={account}
+                  onChange={(e) => setAccount(e.target.value)}
+                  required={showAccount}
+                >
+                  <option value="" disabled>
+                    Seleccionar cuenta
+                  </option>
+                  {ACCOUNT_OPTIONS.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* Conversión (Valor / Contravalor) */}
+          <div className="rounded-2xl border border-white/10 p-3">
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={useConversion}
+                onChange={(e) => setUseConversion(e.target.checked)}
+              />
+              <span className="text-sm">Registrar valor / contravalor</span>
+            </label>
+
+            {useConversion && (
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-sm font-medium">Valor base</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      inputMode="decimal"
+                      className={`col-span-2 ${inputBase}`}
+                      placeholder="0.00"
+                      value={baseAmount}
+                      onChange={(e) => setBaseAmount(e.target.value)}
+                    />
+                    <select
+                      className={`${inputBase} cursor-pointer`}
+                      value={baseCurrency}
+                      onChange={(e) => setBaseCurrency(e.target.value)}
+                    >
+                      <option value="ARS">ARS</option>
+                      <option value="USD">USD</option>
+                    </select>
+                  </div>
+                  {previewBase && (
+                    <div className="ml-1 mt-1 text-xs opacity-70">
+                      {previewBase}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <p className="mb-1 text-sm font-medium">Contravalor</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      inputMode="decimal"
+                      className={`col-span-2 ${inputBase}`}
+                      placeholder="0.00"
+                      value={counterAmount}
+                      onChange={(e) => setCounterAmount(e.target.value)}
+                    />
+                    <select
+                      className={`${inputBase} cursor-pointer`}
+                      value={counterCurrency}
+                      onChange={(e) => setCounterCurrency(e.target.value)}
+                    >
+                      <option value="ARS">ARS</option>
+                      <option value="USD">USD</option>
+                    </select>
+                  </div>
+                  {previewCounter && (
+                    <div className="ml-1 mt-1 text-xs opacity-70">
+                      {previewCounter}
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-xs opacity-70 md:col-span-2">
+                  Se guarda el valor y contravalor **sin tipo de cambio**. Esto
+                  permite que, si pagás en una moneda pero el acuerdo está en
+                  otra, el sistema calcule correctamente la deuda usando el
+                  contravalor.
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Fecha */}
