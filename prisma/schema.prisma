@@ -263,7 +263,6 @@ model Receipt {
   amount_currency            String
   concept                    String
   currency                   String
-  payment_method_description String
   payment_method             String?
   account                    String?
   base_amount                Decimal? @db.Decimal(18, 2)
