@@ -144,9 +144,6 @@ export default function OperatorPaymentList({
 
   return (
     <div className={`space-y-3 ${className ?? ""}`}>
-      <div className="flex items-center justify-between">
-        <p className="text-lg font-medium">Pagos</p>
-      </div>
 
       <div className="space-y-3">
         {loadingList ? (

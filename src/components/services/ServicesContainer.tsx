@@ -11,16 +11,28 @@ import InvoiceForm, {
 } from "@/components/invoices/InvoiceForm";
 import InvoiceList from "@/components/invoices/InvoiceList";
 import Spinner from "@/components/Spinner";
-import { Booking, Service, Operator, Invoice, Receipt } from "@/types";
+import {
+  Booking,
+  Service,
+  Operator,
+  Invoice,
+  Receipt,
+  ClientPayment,
+  OperatorDue,
+} from "@/types";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
 import ReceiptList from "@/components/receipts/ReceiptList";
 import CreditNoteList from "@/components/credite-notes/CreditNoteList";
 import OperatorPaymentForm from "@/components/investments/OperatorPaymentForm";
 import OperatorPaymentList from "@/components/investments/OperatorPaymentList";
+import ClientPaymentForm from "@/components/client-payments/ClientPaymentForm";
+import ClientPaymentList from "@/components/client-payments/ClientPaymentList";
+import OperatorDueForm from "@/components/operator-dues/OperatorDueForm";
+import OperatorDueList from "@/components/operator-dues/OperatorDueList";
 import CreditNoteForm, {
   CreditNoteFormData,
 } from "@/components/credite-notes/CreditNoteForm";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 import { useRouter } from "next/navigation";
 import { authFetch } from "@/utils/authFetch";
@@ -249,6 +261,108 @@ export default function ServicesContainer({
     selectedOperatorStatus,
     selectedBookingStatus,
   ]);
+
+  // ===== Pagos de cliente (listar + refetch local) =====
+  const [clientPayments, setClientPayments] = useState<ClientPayment[]>([]);
+  const [clientPaymentsLoading, setClientPaymentsLoading] = useState(false);
+
+  const fetchClientPayments = useCallback(async () => {
+    if (!booking?.id_booking || !token) return;
+    try {
+      setClientPaymentsLoading(true);
+      const res = await authFetch(
+        `/api/client-payments?bookingId=${booking.id_booking}`,
+        { cache: "no-store" },
+        token,
+      );
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 405) {
+          setClientPayments([]);
+          return;
+        }
+        throw new Error("Error al obtener pagos de cliente");
+      }
+      const data = await res.json();
+      const items: ClientPayment[] = Array.isArray(data?.payments)
+        ? data.payments
+        : [];
+
+      // NEW: ordenar por fecha de vencimiento ascendente y luego por id
+      items.sort((a, b) => {
+        const da = new Date(a.due_date).getTime();
+        const db = new Date(b.due_date).getTime();
+        if (Number.isFinite(da) && Number.isFinite(db) && da !== db)
+          return da - db;
+        return (a.id_payment ?? 0) - (b.id_payment ?? 0);
+      });
+
+      setClientPayments(items);
+    } catch {
+      setClientPayments([]);
+    } finally {
+      setClientPaymentsLoading(false);
+    }
+  }, [booking?.id_booking, token]);
+
+  useEffect(() => {
+    fetchClientPayments();
+  }, [fetchClientPayments]);
+
+  const handleClientPaymentCreated = () => {
+    fetchClientPayments();
+  };
+
+  const handleClientPaymentDeleted = (id_payment: number) => {
+    setClientPayments((prev) =>
+      prev.filter((p) => p.id_payment !== id_payment),
+    );
+  };
+
+  // ===== Cuotas/Débitos al Operador (Operator Dues) =====
+  const [operatorDues, setOperatorDues] = useState<OperatorDue[]>([]);
+  const [operatorDuesLoading, setOperatorDuesLoading] = useState(false);
+
+  const fetchOperatorDues = useCallback(async () => {
+    if (!booking?.id_booking || !token) return;
+    try {
+      setOperatorDuesLoading(true);
+      const res = await authFetch(
+        `/api/operator-dues?bookingId=${booking.id_booking}`,
+        { cache: "no-store" },
+        token,
+      );
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 405) {
+          setOperatorDues([]);
+          return;
+        }
+        throw new Error("Error al obtener cuotas al operador");
+      }
+      const data = await res.json();
+      setOperatorDues(Array.isArray(data?.dues) ? data.dues : []);
+    } catch {
+      setOperatorDues([]);
+    } finally {
+      setOperatorDuesLoading(false);
+    }
+  }, [booking?.id_booking, token]);
+
+  useEffect(() => {
+    fetchOperatorDues();
+  }, [fetchOperatorDues]);
+
+  const handleOperatorDueDeleted = (id_due: number) => {
+    setOperatorDues((prev) => prev.filter((d) => d.id_due !== id_due));
+  };
+
+  const handleOperatorDueStatusChanged = (
+    id_due: number,
+    status: OperatorDue["status"],
+  ) => {
+    setOperatorDues((prev) =>
+      prev.map((d) => (d.id_due === id_due ? { ...d, status } : d)),
+    );
+  };
 
   if (!loading && !booking) {
     return (
@@ -709,34 +823,60 @@ export default function ServicesContainer({
                   />
                 </div>
               )}
-              <div className="mb-4 mt-8 flex justify-center">
-                <p className="text-2xl font-medium">Recibos</p>
-              </div>
-              {(role === "administrativo" ||
-                role === "desarrollador" ||
-                role === "gerente") &&
-                (services.length > 0 || receipts.length > 0) && (
-                  <div className="">
+              {booking && (
+                <div className="mb-16">
+                  <div className="mb-4 mt-8 flex justify-center">
+                    <p className="text-2xl font-medium">Pagos de Cliente</p>
+                  </div>
+
+                  {(role === "administrativo" ||
+                    role === "desarrollador" ||
+                    role === "gerente" ||
+                    role === "vendedor") &&
+                    (services.length > 0 || clientPayments.length > 0) && (
+                      <ClientPaymentForm
+                        token={token}
+                        booking={booking}
+                        onCreated={handleClientPaymentCreated}
+                      />
+                    )}
+                  <ClientPaymentList
+                    payments={clientPayments}
+                    booking={booking}
+                    role={role}
+                    loading={clientPaymentsLoading}
+                    onPaymentDeleted={handleClientPaymentDeleted}
+                  />
+                </div>
+              )}
+              <div className="mb-16">
+                <div className="mb-4 mt-8 flex justify-center">
+                  <p className="text-2xl font-medium">Recibos</p>
+                </div>
+                {(role === "administrativo" ||
+                  role === "desarrollador" ||
+                  role === "gerente") &&
+                  (services.length > 0 || receipts.length > 0) && (
                     <ReceiptForm
                       booking={booking}
                       onCreated={onReceiptCreated}
                       token={token}
                     />
-                  </div>
+                  )}
+                {receipts.length > 0 && (
+                  <ReceiptList
+                    receipts={receipts}
+                    booking={booking}
+                    role={role}
+                    onReceiptDeleted={onReceiptDeleted}
+                  />
                 )}
-              {receipts.length > 0 && (
-                <ReceiptList
-                  receipts={receipts}
-                  booking={booking}
-                  role={role}
-                  onReceiptDeleted={onReceiptDeleted}
-                />
-              )}
+              </div>
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") &&
                 (services.length > 0 || invoices.length > 0) && (
-                  <div>
+                  <div className="mb-16">
                     <div className="mb-4 mt-8 flex justify-center">
                       <p className="text-2xl font-medium">Facturas</p>
                     </div>
@@ -757,7 +897,7 @@ export default function ServicesContainer({
                 role === "desarrollador" ||
                 role === "gerente") &&
                 (services.length > 0 || creditNotes.length > 0) && (
-                  <div>
+                  <div className="mb-16">
                     <div className="mb-4 mt-8 flex justify-center">
                       <p className="text-2xl font-medium">Notas de Crédito</p>
                     </div>
@@ -887,12 +1027,38 @@ export default function ServicesContainer({
                 )}
               {(role === "administrativo" ||
                 role === "desarrollador" ||
-                role === "gerente") &&
-                services.length > 0 && (
-                  <div>
+                role === "gerente" ||
+                role === "vendedor") &&
+                booking &&
+                (services.length > 0 || operatorDues.length > 0) && (
+                  <div className="mb-16">
                     <div className="mb-4 mt-8 flex justify-center">
                       <p className="text-2xl font-medium">Operador</p>
                     </div>
+
+                    <OperatorDueForm
+                      token={token}
+                      booking={booking}
+                      availableServices={services}
+                      onCreated={fetchOperatorDues}
+                    />
+
+                    <OperatorDueList
+                      dues={operatorDues}
+                      booking={booking}
+                      role={role}
+                      loading={operatorDuesLoading}
+                      onDueDeleted={handleOperatorDueDeleted}
+                      onStatusChanged={handleOperatorDueStatusChanged}
+                    />
+                  </div>
+                )}
+
+              {(role === "administrativo" ||
+                role === "desarrollador" ||
+                role === "gerente") &&
+                services.length > 0 && (
+                  <div>
                     <OperatorPaymentForm
                       token={token}
                       booking={booking!}

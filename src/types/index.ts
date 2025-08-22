@@ -289,3 +289,37 @@ export interface Confirmation {
   phone: string;
   currency: "ARS" | "USD";
 }
+
+// OperatorDue (schema real)
+export interface OperatorDue {
+  id_due: number;
+  created_at: string;
+
+  booking_id: number;
+  booking?: Booking;
+
+  service_id: number;
+  service?: Service;
+
+  due_date: string;
+  concept: string;
+  status: string;
+  amount: number | string;
+  currency: string;
+}
+
+// ClientPayment (schema real)
+export interface ClientPayment {
+  id_payment: number;
+  created_at: string;
+
+  booking_id: number;
+  booking?: Booking;
+
+  client_id: number;
+  client?: Client;
+
+  amount: number | string;
+  currency: string;
+  due_date: string;
+}

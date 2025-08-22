@@ -298,7 +298,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
           {/* 1) Servicios */}
           <section className="space-y-2">
             <p className="ml-2 text-xs font-semibold uppercase tracking-wide opacity-70">
-              1) Servicios de la reserva
+              Servicios de la reserva
             </p>
             {servicesFromBooking.length === 0 ? (
               <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sm opacity-80">
@@ -358,7 +358,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
           {/* 2) Clientes */}
           <section className="space-y-3">
             <p className="ml-2 text-xs font-semibold uppercase tracking-wide opacity-70">
-              2) Clientes
+              Clientes
             </p>
 
             <div className="ml-2 flex items-center gap-2">
@@ -433,7 +433,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
           {/* 3) Detalle del recibo */}
           <section className="space-y-3">
             <p className="ml-2 text-xs font-semibold uppercase tracking-wide opacity-70">
-              3) Detalle del recibo
+              Detalle del recibo
             </p>
 
             {/* Concepto */}
@@ -536,7 +536,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
           {/* 4) Pago */}
           <section className="space-y-3">
             <p className="ml-2 text-xs font-semibold uppercase tracking-wide opacity-70">
-              4) Pago
+              Pago
             </p>
 
             {/* Método de pago */}
@@ -602,7 +602,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
           {/* 5) Conversión (opcional) */}
           <section className="space-y-2">
             <div className="ml-2 text-xs font-semibold uppercase tracking-wide opacity-70">
-              5) Conversión (opcional)
+              Conversión (opcional)
             </div>
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
               <div className="flex gap-2">
@@ -648,6 +648,12 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                   <option value="ARS">ARS</option>
                 </select>
               </div>
+              <p className="ml-2 text-sm text-gray-500 dark:text-gray-400">
+                {formatMoney(Number(baseAmount), baseCurrency || "ARS")}
+              </p>
+              <p className="ml-2 text-sm text-gray-500 dark:text-gray-400">
+                {formatMoney(Number(counterAmount), counterCurrency || "ARS")}
+              </p>
             </div>
           </section>
 
