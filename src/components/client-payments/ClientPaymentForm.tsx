@@ -495,7 +495,7 @@ export default function ClientPaymentForm({
                 <button
                   type="button"
                   onClick={autofillDueDates}
-                  className="w-full rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+                  className="w-full rounded-full mb-1 bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
                 >
                   Autorellenar fechas
                 </button>
