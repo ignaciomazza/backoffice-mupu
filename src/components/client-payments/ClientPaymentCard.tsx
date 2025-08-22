@@ -39,7 +39,9 @@ export default function ClientPaymentCard({
     if (!d) return "–";
     try {
       const dt = typeof d === "string" ? new Date(d) : d;
-      return dt.toLocaleDateString("es-AR");
+      return dt.toLocaleDateString("es-AR", {
+        timeZone: "UTC",
+      });
     } catch {
       return "–";
     }

@@ -1,4 +1,4 @@
-import { Booking, OperatorDue } from "@/types";
+import { Booking, Operator, OperatorDue } from "@/types";
 import Spinner from "@/components/Spinner";
 import OperatorDueCard from "@/components/operator-dues/OperatorDueCard";
 
@@ -9,6 +9,7 @@ interface Props {
   onDueDeleted?: (id: number) => void;
   onStatusChanged?: (id: number, status: OperatorDue["status"]) => void;
   loading?: boolean; // nuevo flag
+  operators: Operator[];
 }
 
 export default function OperatorDueList({
@@ -18,6 +19,7 @@ export default function OperatorDueList({
   onDueDeleted,
   onStatusChanged,
   loading = false,
+  operators,
 }: Props) {
   if (loading) {
     return (
@@ -44,6 +46,7 @@ export default function OperatorDueList({
             key={due.id_due}
             due={due}
             booking={booking}
+            operators={operators}
             role={role}
             onDueDeleted={onDueDeleted}
             onStatusChanged={onStatusChanged}

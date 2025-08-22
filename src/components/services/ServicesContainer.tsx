@@ -1047,6 +1047,7 @@ export default function ServicesContainer({
                       dues={operatorDues}
                       booking={booking}
                       role={role}
+                      operators={operators}
                       loading={operatorDuesLoading}
                       onDueDeleted={handleOperatorDueDeleted}
                       onStatusChanged={handleOperatorDueStatusChanged}

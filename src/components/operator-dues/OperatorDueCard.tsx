@@ -1,23 +1,10 @@
 "use client";
-import { useCallback, useMemo, useState } from "react";
-import { Booking, OperatorDue, Service } from "@/types";
+import { useMemo, useState, useCallback } from "react";
+import { Booking, Operator, OperatorDue, Service } from "@/types";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 
-interface Props {
-  due: OperatorDue;
-  booking: Booking;
-  role: string;
-  onDueDeleted?: (id: number) => void;
-  onStatusChanged?: (id: number, status: OperatorDue["status"]) => void;
-}
-
-const STATUS_OPTIONS: OperatorDue["status"][] = [
-  "PENDIENTE",
-  "PAGADA",
-  "CANCELADA",
-];
-
+// ---------- Helpers y tipos fuera del componente ----------
 type ServiceWithOperator = Service & {
   operator?: { id_operator: number; name?: string };
 };
@@ -28,12 +15,50 @@ function hasEmbeddedOperator(
   return !!s && "operator" in s && typeof s.operator === "object";
 }
 
+type ServiceWithIdOperator = Service & { id_operator?: number };
+
+function hasIdOperator(
+  s: Service | ServiceWithOperator | undefined,
+): s is Service & { id_operator: number } {
+  return !!s && typeof (s as ServiceWithIdOperator).id_operator === "number";
+}
+
+function getServiceOperatorId(
+  s: Service | ServiceWithOperator | undefined,
+): number | undefined {
+  if (!s) return undefined;
+  if (hasEmbeddedOperator(s) && typeof s.operator?.id_operator === "number") {
+    return s.operator.id_operator;
+  }
+  if (hasIdOperator(s)) {
+    return (s as ServiceWithIdOperator).id_operator!;
+  }
+  return undefined;
+}
+
+// ---------- Componente ----------
+interface Props {
+  due: OperatorDue;
+  booking: Booking;
+  role: string;
+  onDueDeleted?: (id: number) => void;
+  onStatusChanged?: (id: number, status: OperatorDue["status"]) => void;
+  operators: Operator[];
+}
+
+const STATUS_OPTIONS: OperatorDue["status"][] = [
+  "PENDIENTE",
+  "PAGADA",
+  "CANCELADA",
+];
+
 export default function OperatorDueCard({
   due,
   booking,
   role,
   onDueDeleted,
   onStatusChanged,
+  operators,
 }: Props) {
   const [loadingDelete, setLoadingDelete] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
@@ -63,18 +88,27 @@ export default function OperatorDueCard({
     [booking.services, due.service_id],
   );
 
-  // Nombre del operador:
-  // - Si el servicio viene con operator embebido, usarlo.
-  // - Si no, usar el id_operator del servicio.
+  // Índice de operadores por id (resolución O(1))
+  const operatorIndex = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const op of operators || []) {
+      if (op && typeof op.id_operator === "number") {
+        map.set(op.id_operator, op.name);
+      }
+    }
+    return map;
+  }, [operators]);
+
+  // Nombre del operador (embebido > por id > fallback)
   const operatorName = useMemo(() => {
     if (!service) return "Operador";
-    if (hasEmbeddedOperator(service) && service.operator?.name) {
-      return service.operator.name;
+    if (hasEmbeddedOperator(service) && service.operator?.name?.trim()) {
+      return service.operator.name!;
     }
-    // Si no viene embebido, al menos mostramos que hay un id_operator
-    if (service.id_operator) return `Operador #${service.id_operator}`;
-    return "Operador";
-  }, [service]);
+    const operatorId = getServiceOperatorId(service);
+    if (typeof operatorId !== "number") return "Operador";
+    return operatorIndex.get(operatorId) ?? `Operador #${operatorId}`;
+  }, [service, operatorIndex]);
 
   const statusColor = useMemo(() => {
     const s = (localStatus || "PENDIENTE").toUpperCase();
@@ -84,14 +118,6 @@ export default function OperatorDueCard({
       return "bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200";
     return "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200";
   }, [localStatus]);
-
-  if (typeof due.id_due !== "number") {
-    return (
-      <div className="flex h-40 items-center justify-center dark:text-white">
-        <Spinner />
-      </div>
-    );
-  }
 
   const deleteDue = async () => {
     if (!confirm("¿Seguro querés eliminar esta cuota al operador?")) return;
@@ -132,23 +158,25 @@ export default function OperatorDueCard({
     }
   };
 
+  // (JSX del return omitido a pedido)
+
   return (
     <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
       {/* Header */}
       <header className="mb-4 flex items-center justify-between">
+        <time className="text-sm text-gray-500 dark:text-gray-400">
+          Vto:{" "}
+          {due.due_date
+            ? new Date(due.due_date).toLocaleDateString("es-AR", {
+                timeZone: "UTC",
+              })
+            : "–"}
+        </time>
         <div className="flex items-center gap-2">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Cuota N° {due.id_due}
-          </p>
           <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor}`}>
             {(localStatus || "PENDIENTE").toUpperCase()}
           </span>
         </div>
-        <time className="text-sm text-gray-500 dark:text-gray-400">
-          {due.due_date
-            ? new Date(due.due_date).toLocaleDateString("es-AR")
-            : "–"}
-        </time>
       </header>
 
       {/* Body */}
@@ -169,10 +197,6 @@ export default function OperatorDueCard({
             <p className="font-semibold">Monto</p>
             <p className="mt-1">{fmtMoney(due.amount, due.currency)}</p>
           </div>
-          <div>
-            <p className="font-semibold">Moneda</p>
-            <p className="mt-1">{(due.currency || "ARS").toUpperCase()}</p>
-          </div>
         </div>
 
         <div className="col-span-2">
@@ -190,7 +214,7 @@ export default function OperatorDueCard({
           <div className="flex items-center gap-2">
             <label className="text-sm opacity-70">Estado</label>
             <select
-              className="cursor-pointer appearance-none rounded-full border border-white/20 bg-transparent px-3 py-1 text-center text-sm outline-none dark:text-white"
+              className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/50 px-2 py-1 text-center text-xs outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               value={localStatus}
               onChange={(e) =>
                 updateStatus(e.target.value as OperatorDue["status"])
