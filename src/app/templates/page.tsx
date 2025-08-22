@@ -74,9 +74,9 @@ export default function NewDocPage() {
           </select>
 
           {docType === "quote" ? (
-            <QuoteForm onSubmit={setData} />
+            <QuoteForm onSubmit={setData} token={token} />
           ) : (
-            <ConfirmationForm onSubmit={setData} />
+            <ConfirmationForm onSubmit={setData} token={token} />
           )}
 
           {/* vista previa */}

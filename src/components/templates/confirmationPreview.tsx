@@ -171,6 +171,9 @@ export default function ConfirmationPreview({
               <p className="mb-10 flex w-full justify-center text-xl font-semibold">
                 CONFIRMACIÓN DE SERVICIOS Y CONTRATO DE VIAJE
               </p>
+              <p className="mb-5 text-xl font-semibold text-white">
+                DATOS DE SERVICIOS CONFIRMADOS
+              </p>
               <div className="mb-10 space-y-1">
                 <p className="">
                   Confirmacion de servicios:{" "}
@@ -307,11 +310,19 @@ export default function ConfirmationPreview({
               ))}
             </div>
 
-            <p className="mb-20 text-justify font-light text-white">
-              {confirmation.payment}
-            </p>
+            <div className="mb-20">
+              <p className="mb-5 text-xl font-semibold text-white">
+                PLAN DE PAGO
+              </p>
+              <p className="text-justify font-light text-white">
+                {confirmation.payment}
+              </p>
+            </div>
 
             <div className="mb-20">
+              <p className="mb-5 text-xl font-semibold text-white">
+                CLIENTE/ S
+              </p>
               {confirmation.itemsPassenger.map((it, i) => (
                 <div key={i} className="grid grid-cols-3">
                   <p>{it.name}</p>

@@ -262,6 +262,7 @@ export default function ConfirmationDocument({
       <Page size="A4" style={styles.secondPage}>
         <View style={styles.content}>
           <View style={{ marginBottom: 24 }}>
+            <Text style={styles.label}>DATOS DE SERVICIOS CONFIRMADOS</Text>
             <Text style={{ marginBottom: 4 }}>
               <Text style={{ marginRight: 4 }}>N° Confirmación: </Text>
               <Text style={{ fontWeight: "300" }}>{confirmationNumber}</Text>
@@ -421,11 +422,13 @@ export default function ConfirmationDocument({
             ))}
           </View>
           <View style={styles.section}>
+            <Text style={styles.label}>PLAN DE PAGO</Text>
             <Text style={{ fontWeight: "300", textAlign: "justify" }}>
               {payment}
             </Text>
           </View>
           <View style={styles.section}>
+            <Text style={styles.label}>CLIENTE/ S</Text>
             {itemsPassenger.map((p, i) => (
               <View
                 key={i}

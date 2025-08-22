@@ -30,6 +30,7 @@ model Agency {
   Resources        Resources[]
   Operator         Operator[]
   investments      Investment[]
+  TextPreset       TextPreset[]
 }
 
 model User {
@@ -49,6 +50,7 @@ model User {
   CalendarNote             CalendarNote[]
   investmentsAsBeneficiary Investment[]   @relation("InvestmentUser")
   investmentsCreated       Investment[]   @relation("InvestmentCreatedBy")
+  TextPreset               TextPreset[]
 }
 
 model Client {
@@ -360,4 +362,23 @@ model ClientPayment {
 
   @@index([booking_id])
   @@index([client_id])
+}
+
+model TextPreset {
+  id_preset Int    @id @default(autoincrement())
+  title     String // nombre visible de la idea/maqueta
+  content   String // el texto a insertar (quote.dateRange o confirmation.servicesText)
+  doc_type  String // "quote" | "confirmation"
+
+  id_user Int
+  user    User @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
+
+  id_agency Int
+  agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([id_user, doc_type, title])
+  @@index([id_user, doc_type, created_at])
 }

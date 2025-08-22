@@ -4,6 +4,11 @@
 import React, { useState } from "react";
 import { Quote } from "@/types";
 import Spinner from "@/components/Spinner";
+import TextPresetPicker, {
+  DocType,
+} from "@/components/templates/TextPresetPicker";
+import { toast } from "react-toastify";
+import { authFetch } from "@/utils/authFetch";
 
 export type SimpleQuote = Pick<
   Quote,
@@ -16,8 +21,10 @@ export type SimpleQuote = Pick<
 
 export default function QuoteForm({
   onSubmit,
+  token,
 }: {
   onSubmit: (data: SimpleQuote) => void;
+  token?: string | null;
 }) {
   const [tripTitle, setTripTitle] = useState("");
   const [dateRange, setDateRange] = useState("");
@@ -30,6 +37,9 @@ export default function QuoteForm({
   }[]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+
+  // 👇 para forzar reload del picker cuando guardamos un preset
+  const [presetRefresh, setPresetRefresh] = useState(0);
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -44,11 +54,7 @@ export default function QuoteForm({
     return e;
   };
 
-  async function fetchBase64(
-    path: string,
-    quality = 0.2,
-    maxWidth = 800,
-  ): Promise<string | undefined> {
+  async function fetchBase64(path: string, quality = 0.2, maxWidth = 800) {
     try {
       const res = await fetch(path);
       if (!res.ok) throw new Error();
@@ -121,11 +127,52 @@ export default function QuoteForm({
     });
   };
 
+  // ===== Guardar preset (usa dateRange) =====
+  const savePreset = async () => {
+    try {
+      if (!token) return toast.error("No hay token de autenticación.");
+      const content = dateRange.trim();
+      if (!content) return toast.error("No hay contenido para guardar.");
+      const title = window.prompt("Nombre del preset:");
+      if (!title || !title.trim()) return;
+      const payload = {
+        title: title.trim(),
+        content,
+        doc_type: "quote" as DocType,
+      };
+      const res = await authFetch(
+        "/api/text-preset",
+        { method: "POST", body: JSON.stringify(payload) },
+        token,
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const msg =
+          (data?.error as string) ||
+          (data?.message as string) ||
+          "No se pudo guardar el preset.";
+        throw new Error(msg);
+      }
+      toast.success("Preset guardado.");
+      setPresetRefresh((n) => n + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error guardando preset.");
+    }
+  };
+
   return (
     <form
       onSubmit={handleSubmit}
       className="mb-6 space-y-6 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md backdrop-blur dark:text-white"
     >
+      {/* Presets */}
+      <TextPresetPicker
+        token={token ?? null}
+        docType="quote"
+        refreshSignal={presetRefresh}
+        onApply={(content) => setDateRange(content)}
+      />
+
       {/* Título del viaje */}
       <div>
         <label>Nombre del archivo</label>
@@ -140,17 +187,28 @@ export default function QuoteForm({
 
       {/* Datos del viaje */}
       <div>
-        <label>Datos del viaje</label>
+        <div className="mb-1 flex items-center justify-between">
+          <label>Datos del viaje</label>
+          <button
+            type="button"
+            onClick={savePreset}
+            className="rounded-full bg-sky-100 px-3 py-1 text-sm text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+            title="Guardar el texto actual como preset"
+          >
+            Guardar preset
+          </button>
+        </div>
         <textarea
           value={dateRange}
           onChange={(e) => setDateRange(e.target.value)}
+          rows={6}
           className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
           placeholder="Escribir..."
         />
         {errors.dateRange && <p className="text-red-500">{errors.dateRange}</p>}
       </div>
 
-      {/* Telefono */}
+      {/* Telefono + Región (igual que antes) */}
       <div className="flex gap-3">
         <div className="basis-full">
           <label>Telefono</label>
@@ -173,7 +231,6 @@ export default function QuoteForm({
           {errors.phone && <p className="text-red-500">{errors.phone}</p>}
         </div>
 
-        {/* Región */}
         <div className="basis-full">
           <label>Región</label>
           <select
@@ -214,7 +271,7 @@ export default function QuoteForm({
         </div>
       </div>
 
-      {/* Precios y Conceptos */}
+      {/* Precios y Conceptos (sin cambios) */}
       <div>
         <label className="font-medium">Precios y Conceptos</label>
         <div className="space-y-4">
@@ -257,12 +314,13 @@ export default function QuoteForm({
                   disabled={items.length === 1}
                   className="w-fit cursor-pointer rounded-full bg-red-600 p-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
                 >
+                  {/* minus icon */}
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
                     viewBox="0 0 24 24"
-                    strokeWidth={1.5}
+                    fill="none"
                     stroke="currentColor"
+                    strokeWidth={1.5}
                     className="size-6"
                   >
                     <path
@@ -281,12 +339,13 @@ export default function QuoteForm({
           onClick={addItem}
           className="mt-4 rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
         >
+          {/* plus icon */}
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            fill="none"
             viewBox="0 0 24 24"
-            strokeWidth={1.5}
+            fill="none"
             stroke="currentColor"
+            strokeWidth={1.5}
             className="size-6"
           >
             <path
@@ -303,7 +362,7 @@ export default function QuoteForm({
         <select
           value={currency}
           onChange={(e) => setCurrency(e.target.value as Quote["currency"])}
-          className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+          className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
         >
           <option value="ARS">ARS</option>
           <option value="USD">USD</option>

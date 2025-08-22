@@ -4,13 +4,20 @@
 import React, { useState } from "react";
 import { Confirmation } from "@/types";
 import Spinner from "@/components/Spinner";
+import TextPresetPicker, {
+  DocType,
+} from "@/components/templates/TextPresetPicker";
+import { authFetch } from "@/utils/authFetch";
+import { toast } from "react-toastify";
 
 type ConfirmationWithLogo = Confirmation & { logoBase64?: string };
 
 export default function ConfirmationForm({
   onSubmit,
+  token,
 }: {
   onSubmit: (data: ConfirmationWithLogo) => void;
+  token?: string | null;
 }) {
   const [confirmationNumber, setConfirmationNumber] = useState("");
   const [clientName, setClientName] = useState("");
@@ -21,11 +28,7 @@ export default function ConfirmationForm({
   const [servicesText, setServicesText] = useState("");
   const [itemsPassenger, setItemsPassenger] = useState([
     { name: "", dni: "", birth: "" },
-  ] as {
-    name: string;
-    dni: string;
-    birth: string;
-  }[]);
+  ] as { name: string; dni: string; birth: string }[]);
   const [items, setItems] = useState([{ price: "", concept: "" }] as {
     price: string;
     concept: string;
@@ -34,6 +37,10 @@ export default function ConfirmationForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loadingImg, setLoadingImg] = useState(false);
 
+  // Para forzar refetch del picker luego de guardar un preset
+  const [presetRefresh, setPresetRefresh] = useState(0);
+
+  // ===== Validación (igual que original) =====
   const validate = () => {
     const e: Record<string, string> = {};
     if (!confirmationNumber.trim()) e.confirmationNumber = "Requerido";
@@ -46,6 +53,7 @@ export default function ConfirmationForm({
     return e;
   };
 
+  // ===== Handlers de listas (igual que original) =====
   const handleItemChange = (
     idx: number,
     field: "price" | "concept",
@@ -78,6 +86,7 @@ export default function ConfirmationForm({
   const removeItemPassenger = (idx: number) =>
     setItemsPassenger((prev) => prev.filter((_, i) => i !== idx));
 
+  // ===== Submit (igual que original, con fetch de logo) =====
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const v = validate();
@@ -88,7 +97,7 @@ export default function ConfirmationForm({
     setErrors({});
     setLoadingImg(true);
 
-    // Fetch y Base64 del logo según región
+    // Fetch y Base64 del logo según región (misma ruta que original)
     let logoBase64: string | undefined;
     try {
       const res = await fetch(`/images/avion.jpg`);
@@ -122,11 +131,52 @@ export default function ConfirmationForm({
     });
   };
 
+  // ===== Guardar preset (usa servicesText) =====
+  const savePreset = async () => {
+    try {
+      if (!token) return toast.error("No hay token de autenticación.");
+      const content = servicesText.trim();
+      if (!content) return toast.error("No hay contenido para guardar.");
+      const title = window.prompt("Nombre del preset:");
+      if (!title || !title.trim()) return;
+      const payload = {
+        title: title.trim(),
+        content,
+        doc_type: "confirmation" as DocType,
+      };
+      const res = await authFetch(
+        "/api/text-preset",
+        { method: "POST", body: JSON.stringify(payload) },
+        token,
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const msg =
+          (data?.error as string) ||
+          (data?.message as string) ||
+          "No se pudo guardar el preset.";
+        throw new Error(msg);
+      }
+      toast.success("Preset guardado.");
+      setPresetRefresh((n) => n + 1);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error guardando preset.");
+    }
+  };
+
   return (
     <form
       onSubmit={handleSubmit}
       className="mb-6 space-y-6 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
+      {/* Presets (nuevo): picker + aplica sobre servicesText */}
+      <TextPresetPicker
+        token={token ?? null}
+        docType="confirmation"
+        refreshSignal={presetRefresh}
+        onApply={(content) => setServicesText(content)}
+      />
+
       {/* Número de confirmación */}
       <div>
         <label>N° Confirmación</label>
@@ -180,7 +230,7 @@ export default function ConfirmationForm({
         </div>
       </div>
 
-      {/* Pax y total */}
+      {/* Telefono (igual que original) */}
       <div>
         <label>Telefono</label>
         <select
@@ -202,9 +252,19 @@ export default function ConfirmationForm({
         {errors.phone && <p className="text-red-500">{errors.phone}</p>}
       </div>
 
-      {/* Servicios */}
+      {/* Servicios + Guardar preset (nuevo botón, textarea igual que original) */}
       <div>
-        <label>Servicios </label>
+        <div className="mb-1 flex items-center justify-between">
+          <label>Servicios</label>
+          <button
+            type="button"
+            onClick={savePreset}
+            className="rounded-full bg-sky-100 px-3 py-1 text-sm text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+            title="Guardar el texto actual como preset"
+          >
+            Guardar preset
+          </button>
+        </div>
         <textarea
           rows={3}
           value={servicesText}
@@ -213,6 +273,8 @@ export default function ConfirmationForm({
           placeholder="Escribir..."
         />
       </div>
+
+      {/* Datos pasajeros (igual que original) */}
       <div>
         <label>Datos pasajeros</label>
         {itemsPassenger.map((it, idx) => (
@@ -291,7 +353,7 @@ export default function ConfirmationForm({
         </button>
       </div>
 
-      {/* Precios y Conceptos */}
+      {/* Precios y Conceptos (igual que original, con preview por ítem) */}
       <div>
         {items.map((it, idx) => (
           <div key={idx}>
@@ -378,6 +440,7 @@ export default function ConfirmationForm({
         </button>
       </div>
 
+      {/* Moneda (igual) */}
       <div>
         <label>Moneda</label>
         <select
@@ -392,7 +455,7 @@ export default function ConfirmationForm({
         </select>
       </div>
 
-      {/* Nombre del cliente */}
+      {/* Plan de pago (igual) */}
       <div>
         <label>Plan de pago (opcional)</label>
         <textarea
@@ -402,7 +465,7 @@ export default function ConfirmationForm({
           className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
           placeholder="Pago"
         />
-        {errors.clientName && <p className="text-red-500">{errors.payment}</p>}
+        {errors.payment && <p className="text-red-500">{errors.payment}</p>}
       </div>
 
       {/* Botón */}
