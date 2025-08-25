@@ -1,53 +1,86 @@
 // src/pages/api/login/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
-import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import { SignJWT } from "jose";
 
-const JWT_SECRET = process.env.JWT_SECRET || "tu_secreto_seguro";
+/* ================== Config ================== */
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
+function normalizeRole(r?: string) {
+  return (r ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/^leader$/, "lider");
+}
+
+/* ================== Handler ================== */
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  // console.log("[Login] Método:", req.method);
   if (req.method !== "POST") {
     res.setHeader("Allow", ["POST"]);
-    console.log("[Login] Método no permitido:", req.method);
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
-  const { email, password } = req.body;
-  // console.log("[Login] Datos recibidos:", email);
+
   try {
+    const { email: rawEmail, password } = req.body ?? {};
+    const email = String(rawEmail ?? "")
+      .trim()
+      .toLowerCase();
+
+    if (!email || !password) {
+      return res
+        .status(400)
+        .json({ error: "Email y contraseña son obligatorios" });
+    }
+
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      // console.log("[Login] Usuario no encontrado para email:", email);
       return res.status(401).json({ error: "Credenciales inválidas" });
     }
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      // console.log("[Login] Contraseña inválida para:", email);
-      return res.status(401).json({ error: "Credenciales inválidas" });
-    }
-    const token = jwt.sign(
-      { userId: user.id_user, role: user.role },
-      JWT_SECRET,
-      { expiresIn: "12h" },
+
+    const isPasswordValid = await bcrypt.compare(
+      String(password),
+      user.password,
     );
-    // console.log("[Login] Token generado:", token);
-
-    // Configuramos la cookie según el entorno
-    let cookieOptions = "HttpOnly; Path=/; Max-Age=43200; SameSite=Lax";
-    if (process.env.NODE_ENV === "production") {
-      cookieOptions += "; Secure";
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: "Credenciales inválidas" });
     }
-    const cookieHeader = `token=${token}; ${cookieOptions}`;
-    // console.log("[Login] Set-Cookie header:", cookieHeader);
 
-    res.setHeader("Set-Cookie", cookieHeader);
+    // Payload consistente con el resto de la API
+    const claims = {
+      id_user: user.id_user,
+      id_agency: user.id_agency,
+      role: normalizeRole(user.role),
+      email: user.email,
+    };
+
+    const token = await new SignJWT(claims)
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setIssuedAt()
+      .setExpirationTime("12h")
+      .sign(new TextEncoder().encode(JWT_SECRET));
+
+    // Cookie segura (HttpOnly) y compatible con fetch credentials: "include"
+    // Max-Age 12h (43200s). SameSite=Lax para navegación normal.
+    const cookieParts = [
+      `token=${token}`,
+      "HttpOnly",
+      "Path=/",
+      "SameSite=Lax",
+      "Max-Age=43200",
+    ];
+    if (process.env.NODE_ENV === "production") cookieParts.push("Secure");
+
+    res.setHeader("Set-Cookie", cookieParts.join("; "));
+
     return res.status(200).json({ message: "Login successful", token });
   } catch (error) {
-    console.error("[Login] Error during login:", error);
+    console.error("[login][POST]", error);
     return res.status(500).json({ error: "Error al iniciar sesión" });
   }
 }

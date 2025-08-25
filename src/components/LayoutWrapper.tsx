@@ -36,7 +36,7 @@ export default function LayoutWrapper({
           />
         )}
         <main
-          className={`flex-1 px-6 pb-6 ${
+          className={`flex-1 pb-6 md:px-6 ${
             !isLoginPage
               ? "md:pl-48 md:pr-8"
               : "flex size-full items-center justify-center"

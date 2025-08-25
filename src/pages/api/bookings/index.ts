@@ -266,11 +266,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
           .json({ error: "No autorizado: equipo fuera de tu alcance." });
       }
       if (teamId === -1) {
-        return res
-          .status(403)
-          .json({
-            error: "No autorizado: 'sin equipo' no disponible para líderes.",
-          });
+        return res.status(403).json({
+          error: "No autorizado: 'sin equipo' no disponible para líderes.",
+        });
       }
     }
 

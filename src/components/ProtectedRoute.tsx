@@ -84,8 +84,6 @@ export default function ProtectedRoute({
         allowedRoles = ["desarrollador", "gerente"];
       } else if (/^\/operators(\/|$)/.test(pathname)) {
         allowedRoles = ["desarrollador", "administrativo", "gerente"];
-      } else if (/^\/users(\/|$)/.test(pathname)) {
-        allowedRoles = ["desarrollador", "gerente"];
       }
       // console.log(
       //   `[ProtectedRoute] Para la ruta "${pathname}", roles permitidos:`,

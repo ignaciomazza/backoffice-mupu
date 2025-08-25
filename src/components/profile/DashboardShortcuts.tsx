@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import Spinner from "@/components/Spinner";
-import ThemeToggle from "@/components/ThemeToggle";
 import { Booking, Client } from "@/types";
 import { authFetch } from "@/utils/authFetch";
 
@@ -41,8 +40,8 @@ const getSpanClasses = (span: { cols: number; rows: number }) => {
     span.cols === 1
       ? "col-span-1"
       : span.cols === 2
-        ? "col-span-2"
-        : `col-span-${span.cols}`;
+        ? "col-span-1 md:col-span-2"
+        : `md:col-span-${span.cols}`;
   const rowClass =
     span.rows === 1
       ? "row-span-1"
@@ -380,7 +379,6 @@ export default function DashboardShortcuts({ agencyId }: Props) {
         </svg>
       ),
     },
-    { label: "Tema", icon: <ThemeToggle />, isButton: true },
   ];
 
   const skeletonOrder: { cols: number; rows: number }[] = [
@@ -390,7 +388,6 @@ export default function DashboardShortcuts({ agencyId }: Props) {
     { cols: 1, rows: 2 },
     { cols: 1, rows: 1 },
     { cols: 2, rows: 1 },
-    { cols: 1, rows: 1 },
     { cols: 1, rows: 1 },
   ];
 
@@ -419,7 +416,7 @@ export default function DashboardShortcuts({ agencyId }: Props) {
                 hidden: { opacity: 0, y: 20 },
                 visible: { opacity: 1, y: 0 },
               }}
-              className={` col-span-${span.cols} row-span-${span.rows} animate-pulse rounded-3xl bg-sky-950/10 p-6 shadow-lg backdrop-blur-lg dark:border dark:border-white/10 dark:bg-white/10`}
+              className={`md:col-span-${span.cols} row-span-${span.rows} animate-pulse rounded-3xl bg-sky-950/10 p-6 shadow-lg backdrop-blur-lg dark:border dark:border-white/10 dark:bg-white/10`}
             />
           ))}
 
@@ -504,7 +501,7 @@ export default function DashboardShortcuts({ agencyId }: Props) {
           ))}
 
         {!loadingMetrics &&
-          shortcuts.map(({ href, label, icon, isButton }) => {
+          shortcuts.map(({ href, label, icon }) => {
             const box = (
               <motion.div
                 key={label}
@@ -513,17 +510,13 @@ export default function DashboardShortcuts({ agencyId }: Props) {
                   hidden: { opacity: 0, y: 20 },
                   visible: { opacity: 1, y: 0 },
                 }}
-                className={`flex h-full items-center justify-center ${
-                  isButton ? "" : "flex-col space-y-2"
-                } rounded-3xl border border-white/10 bg-white/10 p-6 shadow-lg backdrop-blur-lg`}
+                className={`flex h-full flex-col items-center justify-center space-y-2 rounded-3xl border border-white/10 bg-white/10 p-6 shadow-lg backdrop-blur-lg`}
                 title={label}
               >
                 {icon}
-                {!isButton && (
-                  <span className="mt-2 text-base font-medium text-sky-950 dark:text-white">
-                    {label}
-                  </span>
-                )}
+                <span className="mt-2 text-base font-medium text-sky-950 dark:text-white">
+                  {label}
+                </span>
               </motion.div>
             );
             return href ? (
@@ -541,7 +534,7 @@ export default function DashboardShortcuts({ agencyId }: Props) {
             hidden: { opacity: 0, y: 20 },
             visible: { opacity: 1, y: 0 },
           }}
-          className="col-span-1 flex h-1/2 w-1/3 cursor-pointer flex-col items-center justify-center rounded-3xl border border-red-400 bg-red-600/10 p-2 shadow-lg backdrop-blur-lg"
+          className="col-span-1 flex h-1/2 w-full cursor-pointer flex-col items-center justify-center rounded-3xl border border-red-400 bg-red-600/10 p-2 shadow-lg backdrop-blur-lg md:w-1/3"
           onClick={() => setToken(null)}
           title="Cerrar sesión"
         >

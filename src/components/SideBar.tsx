@@ -1,9 +1,6 @@
 // src/components/SideBar.tsx
 "use client";
-
 import Link from "next/link";
-// import { useAuth } from "@/context/AuthContext";
-// import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 
 interface SidebarProps {
@@ -17,8 +14,6 @@ export default function SideBar({
   closeMenu,
   currentPath,
 }: SidebarProps) {
-  // const { setToken } = useAuth();
-  // const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [role, setRole] = useState<string | null>(null);
 
@@ -48,8 +43,6 @@ export default function SideBar({
         return ["desarrollador", "administrativo", "gerente"].includes(role);
       case "/agency":
         return ["desarrollador", "gerente"].includes(role);
-      case "/users":
-        return ["desarrollador", "gerente"].includes(role);
       case "/teams":
         return ["desarrollador", "gerente"].includes(role);
       case "/invoices":
@@ -65,16 +58,6 @@ export default function SideBar({
         return true;
     }
   };
-
-  // const handleLogout = async () => {
-  //   await fetch("/api/auth/logout", {
-  //     method: "POST",
-  //     credentials: "include",
-  //   });
-  //   setToken(null);
-  //   closeMenu();
-  //   router.push("/login");
-  // };
 
   if (!mounted) {
     return null;
@@ -259,21 +242,23 @@ export default function SideBar({
               </Link>
             </li>
           )}
-          {hasAccess("/users") && (
-            <li className="transition-transform hover:scale-95 active:scale-90">
-              <Link
-                href="/users"
-                className={`block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white ${
-                  currentPath === "/users"
-                    ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
-                    : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
-                }`}
-                onClick={closeMenu}
-              >
-                Usuarios
-              </Link>
-            </li>
-          )}
+          <li className="transition-transform hover:scale-95 active:scale-90">
+            <Link
+              href="/users"
+              className={`block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white ${
+                currentPath === "/users"
+                  ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
+                  : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
+              }`}
+              onClick={closeMenu}
+            >
+              {role === "gerente" ||
+              role === "desarrollador" ||
+              role === "administrativo"
+                ? "Usuarios"
+                : "Usuario"}
+            </Link>
+          </li>
           {hasAccess("/teams") && (
             <li className="transition-transform hover:scale-95 active:scale-90">
               <Link
@@ -290,30 +275,6 @@ export default function SideBar({
             </li>
           )}
         </ul>
-        {/* <div className="w-full">
-          <button
-            onClick={handleLogout}
-            className="absolute flex w-full items-center justify-evenly rounded-full p-2 transition-all hover:scale-95 hover:bg-sky-950 hover:text-white active:scale-90 dark:hover:bg-white dark:hover:text-sky-950"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="size-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.4}
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75"
-              />
-            </svg>
-            <p className="font-light md:text-white md:dark:text-sky-950">
-              Cerrar Sesion
-            </p>
-          </button>
-        </div> */}
       </nav>
     </aside>
   );
