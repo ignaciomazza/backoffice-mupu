@@ -28,7 +28,10 @@ export default function ResourceDetailPage() {
   const [role, setRole] = useState<string | null>(null);
 
   const isManager =
-    role === "gerente" || role === "desarrollador" || role === "lider";
+    role === "gerente" ||
+    role === "desarrollador" ||
+    role === "lider" ||
+    role === "administrativo";
 
   // Estados para edición inline
   const [isEditing, setIsEditing] = useState(false);

@@ -90,7 +90,10 @@ export default function Page() {
   };
 
   const isManager =
-    role === "gerente" || role === "desarrollador" || role === "lider";
+    role === "gerente" ||
+    role === "desarrollador" ||
+    role === "lider" ||
+    role === "administrativo";
 
   return (
     <ProtectedRoute>

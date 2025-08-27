@@ -1,104 +1,158 @@
 // src/app/agency/page.tsx
-
 "use client";
-import { useState, useEffect } from "react";
+
+import { useEffect, useRef, useState } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import Spinner from "@/components/Spinner";
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+import { useAuth } from "@/context/AuthContext";
+import { authFetch } from "@/utils/authFetch";
 
-interface Agency {
-  id_agency: number;
-  name: string;
-  legal_name: string;
-  address: string;
-  phone: string;
-  email: string;
-  tax_id: string;
-  website: string;
-  foundation_date: string;
-}
+import AgencyHeader from "@/components/agency/AgencyHeader";
+import AgencyForm, {
+  type AgencyDTO as AgencyDTOForm,
+  type AgencyUpdateInput,
+} from "@/components/agency/AgencyForm";
+import AgencyReadOnlyCard from "@/components/agency/AgencyReadOnlyCard";
+import AgencyLogoCard from "@/components/agency/AgencyLogoCard";
+import AgencyAfipCard from "@/components/agency/AgencyAfipCard";
 
-// Función para formatear la fecha en dd/mm/yyyy
-const formatDate = (dateString: string): string => {
-  const date = new Date(dateString);
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0"); // Los meses empiezan en 0
-  const year = date.getUTCFullYear();
-  return `${day}/${month}/${year}`;
-};
+type AgencyDTO = AgencyDTOForm;
 
 export default function AgencyPage() {
-  const [agency, setAgency] = useState<Agency | null>(null);
-  const [isMounted, setIsMounted] = useState(false);
+  const { token } = useAuth();
 
+  const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const [agency, setAgency] = useState<AgencyDTO | null>(null);
+  const [role, setRole] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+
+  const logoRef = useRef<HTMLDivElement>(null);
+
+  const canEdit = role === "gerente" || role === "desarrollador";
+
+  useEffect(() => setMounted(true), []);
+
+  // Cargar rol (para habilitar edición) y datos de agencia
   useEffect(() => {
-    setIsMounted(true);
+    if (!token) return;
 
-    fetch("/api/agency")
-      .then((res) => res.json())
-      .then((data) => setAgency(data));
-  }, []);
+    const controller = new AbortController();
 
-  if (!isMounted) {
-    return null;
+    const load = async () => {
+      try {
+        setLoading(true);
+
+        // Rol
+        const rr = await authFetch(
+          "/api/user/role",
+          { signal: controller.signal },
+          token,
+        );
+        if (rr.ok) {
+          const { role: r } = await rr.json();
+          setRole((r || "").toLowerCase());
+        } else {
+          setRole(null);
+        }
+
+        // Agencia
+        const ar = await authFetch(
+          "/api/agency",
+          { signal: controller.signal },
+          token,
+        );
+        if (!ar.ok) throw new Error("Error al obtener la agencia");
+        const data: AgencyDTO = await ar.json();
+        setAgency(data);
+      } catch (e) {
+        console.error("[agency/page] load error:", e);
+        toast.error("No se pudo cargar la información de la agencia.");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    };
+
+    load();
+    return () => controller.abort();
+  }, [token]);
+
+  async function handleSave(input: AgencyUpdateInput) {
+    if (!token) return;
+    setSaving(true);
+    try {
+      const res = await authFetch(
+        "/api/agency",
+        {
+          method: "PUT",
+          body: JSON.stringify(input),
+        },
+        token,
+      );
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "Error al guardar cambios");
+      }
+
+      const updated: AgencyDTO = await res.json();
+      setAgency(updated);
+      setIsEditing(false);
+      toast.success("Agencia actualizada");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Error al guardar";
+      toast.error(msg);
+    } finally {
+      setSaving(false);
+    }
   }
+
+  if (!mounted) return null;
 
   return (
     <ProtectedRoute>
       <section className="text-sky-950 dark:text-white">
-        <h1 className="mb-4 text-2xl font-semibold dark:font-medium">
-          Información de la Agencia
-        </h1>
-        {agency ? (
-          <div className="mb-6 space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-            <p className="font-light">
-              <span className="mr-2 font-semibold dark:font-medium">
-                Nombre
-              </span>
-              {agency.name}
-            </p>
-            <p className="font-light">
-              <span className="mr-2 font-semibold dark:font-medium">
-                Razon Social
-              </span>
-              {agency.legal_name}
-            </p>
-            <p className="font-light">
-              <span className="mr-2 font-semibold dark:font-medium">
-                Dirección
-              </span>
-              {agency.address}
-            </p>
-            <p className="font-light">
-              <span className="mr-2 font-semibold dark:font-medium">
-                Teléfono
-              </span>
-              {agency.phone}
-            </p>
-            <p className="font-light">
-              <span className="mr-2 font-semibold dark:font-medium">Email</span>
-              {agency.email}
-            </p>
-            <p className="font-light">
-              <span className="mr-2 font-semibold dark:font-medium">CUIT</span>
-              {agency.tax_id}
-            </p>
-            <p className="font-light">
-              <span className="mr-2 font-semibold dark:font-medium">
-                Sitio Web
-              </span>
-              {agency.website}
-            </p>
-            <p className="font-light">
-              <span className="mr-2 font-semibold dark:font-medium">
-                Fecha de Fundación
-              </span>
-              {agency.foundation_date
-                ? formatDate(agency.foundation_date)
-                : "No disponible"}
-            </p>
+        <AgencyHeader
+          agency={agency}
+        />
+
+        {loading ? (
+          <div className="flex min-h-[40vh] items-center justify-center">
+            <Spinner />
           </div>
+        ) : agency ? (
+          <>
+            {isEditing && canEdit ? (
+              <AgencyForm
+                initial={agency}
+                isSaving={saving}
+                onSubmit={handleSave}
+                onCancel={() => setIsEditing(false)}
+              />
+            ) : (
+              <AgencyReadOnlyCard
+                agency={agency}
+                onEdit={canEdit ? () => setIsEditing(true) : undefined}
+              />
+            )}
+
+            {/* Sección secundaria: Logo y AFIP */}
+            <div className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div ref={logoRef}>
+                <AgencyLogoCard />
+              </div>
+              <AgencyAfipCard />
+            </div>
+          </>
         ) : (
           <p>No hay información disponible para la agencia.</p>
         )}
+
+        <ToastContainer />
       </section>
     </ProtectedRoute>
   );
