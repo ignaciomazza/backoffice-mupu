@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import Spinner from "@/components/Spinner";
 import { Client, Service } from "@/types";
 import ClientPicker from "@/components/clients/ClientPicker";
+import { authFetch } from "@/utils/authFetch";
 
 export type InvoiceFormData = {
   tipoFactura: string;
@@ -47,16 +48,37 @@ export default function InvoiceForm({
 }: InvoiceFormProps) {
   // ====== Cotización ======
   const [fetchedExchangeRate, setFetchedExchangeRate] = useState<string>("");
+
   useEffect(() => {
+    let alive = true;
     (async () => {
       try {
-        const res = await fetch("/api/exchangeRate");
-        const data = await res.json();
-        if (data.success) setFetchedExchangeRate(String(data.rate));
-      } catch {
-        console.error("Error fetching exchange rate");
+        const url = `/api/exchangeRate?ts=${Date.now()}`; // cache-buster
+        // Podés usar authFetch SIN token (igual manda cookies)
+        const res = await authFetch(url, { cache: "no-store" });
+
+        // Para depurar mejor:
+        const raw = await res.text();
+
+        if (!res.ok) {
+          setFetchedExchangeRate("");
+          return;
+        }
+
+        const data = JSON.parse(raw);
+
+        if (alive && data?.success && data.rate != null) {
+          setFetchedExchangeRate(String(data.rate));
+        } else if (alive) {
+          setFetchedExchangeRate("");
+        }
+      } catch (err) {
+        console.error("Error fetching exchange rate:", err);
       }
     })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // ====== Helpers ======
@@ -474,6 +496,11 @@ export default function InvoiceForm({
               }
               className={input}
             />
+            {fetchedExchangeRate && (
+              <div className="ml-2 mt-1 text-xs opacity-70">
+                Cotización detectada: {fetchedExchangeRate}
+              </div>
+            )}
           </div>
 
           <button

@@ -1,5 +1,6 @@
 // src/services/invoices.ts
 import prisma from "@/lib/prisma";
+import type { NextApiRequest } from "next";
 import { createVoucherService } from "@/services/afip/createVoucherService";
 import type { Invoice, InvoiceItem, Prisma } from "@prisma/client";
 
@@ -55,6 +56,7 @@ interface CreateResult {
 }
 
 export async function createInvoices(
+  req: NextApiRequest,
   data: InvoiceRequestBody,
 ): Promise<CreateResult> {
   const {
@@ -157,6 +159,7 @@ export async function createInvoices(
       if (!docNumber) continue;
 
       const resp = await createVoucherService(
+        req,
         tipoFactura,
         docNumber!,
         docType,

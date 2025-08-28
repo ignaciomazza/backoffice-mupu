@@ -1,72 +1,46 @@
 // src/pages/api/exchangeRate.ts
-
 import type { NextApiRequest, NextApiResponse } from "next";
-import afip from "@/services/afip/afipConfig";
+import {
+  getAfipFromRequest,
+  type AfipClient,
+} from "@/services/afip/afipConfig";
 
-/**
- * Verifica si una fecha es fin de semana.
- * Retorna true si es sábado (6) o domingo (0).
- */
 function isWeekend(date: Date): boolean {
-  const day = date.getDay(); // 0 = domingo, 6 = sábado
+  const day = date.getDay();
   return day === 0 || day === 6;
 }
 
-/**
- * Función auxiliar para obtener la cotización retrocediendo hasta 5 días hábiles.
- * @param currency - Identificador de la moneda (por ejemplo, "DOL")
- * @param startDate - Fecha a partir de la cual comenzar la búsqueda
- */
 async function getValidExchangeRate(
+  client: AfipClient,
   currency: string,
   startDate: Date,
 ): Promise<number> {
   const date = new Date(startDate);
   for (let i = 0; i < 5; i++) {
-    // Si la fecha es fin de semana, se salta y se retrocede un día
     if (isWeekend(date)) {
-      // const formattedWeekendDate = date
-      //   .toISOString()
-      //   .split("T")[0]
-      //   .replace(/-/g, "");
-      // console.log(
-      //   `La fecha ${formattedWeekendDate} es fin de semana. Se omite.`,
-      // );
       date.setDate(date.getDate() - 1);
       continue;
     }
-    const formattedDate = date.toISOString().split("T")[0].replace(/-/g, "");
+    const yyyymmdd = date.toISOString().split("T")[0].replace(/-/g, "");
     try {
-      // console.log(
-      //   `Consultando cotización para ${currency} en la fecha ${formattedDate}`,
-      // );
-      const cotizacionResponse = await afip.ElectronicBilling.executeRequest(
+      const resp = await client.ElectronicBilling.executeRequest(
         "FEParamGetCotizacion",
-        {
-          MonId: currency,
-          FchCotiz: formattedDate,
-        },
+        { MonId: currency, FchCotiz: yyyymmdd },
       );
-      // console.log("Respuesta de cotización:", cotizacionResponse);
-
-      const rate = parseFloat(cotizacionResponse.ResultGet.MonCotiz);
-      if (rate) {
-        // console.info(
-        //   `Cotización oficial para ${currency} en ${formattedDate}: ${rate}`,
-        // );
-        return rate;
-      }
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error(`Error para la fecha ${formattedDate}: ${error.message}`);
+      const rateStr = resp?.ResultGet?.MonCotiz;
+      const rate = rateStr ? parseFloat(rateStr) : NaN;
+      if (!Number.isNaN(rate) && rate > 0) return rate;
+    } catch (err) {
+      if (err instanceof Error) {
+        console.error(`Error para la fecha ${yyyymmdd}: ${err.message}`);
       }
     }
-    // Retrocede un día para la siguiente iteración
     date.setDate(date.getDate() - 1);
   }
+
   if (process.env.AFIP_ENV === "testing") {
     console.warn(
-      `No se pudo obtener la cotización en los últimos 5 días para ${currency}. Se usará un valor por defecto de 1.`,
+      `No se pudo obtener la cotización en los últimos 5 días para ${currency}. Se usará 1.`,
     );
     return 1;
   }
@@ -78,25 +52,33 @@ export default async function handler(
   res: NextApiResponse,
 ) {
   try {
+    // ⚠️ Requiere que tu middleware agregue x-user-id en el request.
+    const afipClient = await getAfipFromRequest(req);
+
     const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
+    const since = new Date(today);
+    since.setDate(today.getDate() - 1);
 
-    // console.info(
-    //   `Iniciando consulta de cotización para DOL a partir de la fecha ${
-    //     yesterday.toISOString().split("T")[0]
-    //   }`,
-    // );
-    // Obtenemos la cotización para el dólar ("DOL") a partir de yesterday
-    const rate = await getValidExchangeRate("DOL", yesterday);
-
+    const rate = await getValidExchangeRate(afipClient, "DOL", since);
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate",
+    );
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Surrogate-Control", "no-store");
+    // ETag distinto siempre para que el browser no pueda revalidar a 304
+    res.setHeader("ETag", `${Date.now()}`);
     return res.status(200).json({ success: true, rate });
   } catch (error: unknown) {
-    let message = "Error desconocido.";
-    if (error instanceof Error) {
-      message = error.message;
-      console.error("Error obteniendo la cotización del dólar:", error.message);
-    }
-    return res.status(500).json({ success: false, message });
+    const message =
+      error instanceof Error ? error.message : "Error desconocido.";
+    // Si falla por no tener x-user-id, devolvemos 401 para que el front no lo reintente en loop.
+    const status =
+      message.includes("x-user-id") || message.includes("agencia asociada")
+        ? 401
+        : 500;
+    console.error("Error obteniendo la cotización del dólar:", message);
+    return res.status(status).json({ success: false, message });
   }
 }

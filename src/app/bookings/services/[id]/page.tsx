@@ -384,6 +384,7 @@ export default function ServicesPage() {
       descriptionNonComputable: invoiceFormData.descriptionNonComputable,
       invoiceDate: invoiceFormData.invoiceDate,
     };
+    
     setInvoiceLoading(true);
     try {
       const res = await authFetch(

@@ -42,17 +42,29 @@ export default function AgencyPage() {
     if (!token) return;
 
     const controller = new AbortController();
+    const { signal } = controller;
 
-    const load = async () => {
+    // ✅ sin "any": chequea AbortError tanto en DOMException como en errores comunes
+    type NamedError = { name?: unknown };
+    const isAbortError = (e: unknown): boolean => {
+      if (e instanceof DOMException) return e.name === "AbortError";
+      if (typeof e === "object" && e !== null && "name" in e) {
+        const n = (e as NamedError).name;
+        return typeof n === "string" && n === "AbortError";
+      }
+      return false;
+    };
+
+    setLoading(true);
+
+    (async () => {
       try {
-        setLoading(true);
+        // Pedí rol y agencia en paralelo
+        const [rr, ar] = await Promise.all([
+          authFetch("/api/user/role", { signal, cache: "no-store" }, token),
+          authFetch("/api/agency", { signal, cache: "no-store" }, token),
+        ]);
 
-        // Rol
-        const rr = await authFetch(
-          "/api/user/role",
-          { signal: controller.signal },
-          token,
-        );
         if (rr.ok) {
           const { role: r } = await rr.json();
           setRole((r || "").toLowerCase());
@@ -60,24 +72,25 @@ export default function AgencyPage() {
           setRole(null);
         }
 
-        // Agencia
-        const ar = await authFetch(
-          "/api/agency",
-          { signal: controller.signal },
-          token,
-        );
-        if (!ar.ok) throw new Error("Error al obtener la agencia");
+        if (!ar.ok) {
+          const errText = await ar.text().catch(() => "");
+          throw new Error(errText || "Error al obtener la agencia");
+        }
         const data: AgencyDTO = await ar.json();
         setAgency(data);
       } catch (e) {
+        if (isAbortError(e)) {
+          // esperado en dev por Strict Mode / navegación; no mostrar toast
+          console.debug("[agency/page] fetch abortado");
+          return;
+        }
         console.error("[agency/page] load error:", e);
         toast.error("No se pudo cargar la información de la agencia.");
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!signal.aborted) setLoading(false);
       }
-    };
+    })();
 
-    load();
     return () => controller.abort();
   }, [token]);
 
@@ -116,9 +129,7 @@ export default function AgencyPage() {
   return (
     <ProtectedRoute>
       <section className="text-sky-950 dark:text-white">
-        <AgencyHeader
-          agency={agency}
-        />
+        <AgencyHeader agency={agency} />
 
         {loading ? (
           <div className="flex min-h-[40vh] items-center justify-center">

@@ -107,7 +107,7 @@ export default async function handler(
       });
     }
 
-    const result = await createInvoices(parsedB.data);
+    const result = await createInvoices(req, parsedB.data);
     if (!result.success) {
       return res.status(400).json({ success: false, message: result.message });
     }
