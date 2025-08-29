@@ -297,6 +297,9 @@ export default function ConfirmationPreview({
             </div>
 
             <div className="mb-20">
+              <p className="mb-5 text-xl font-semibold text-white">
+                DETALLE DE PRECIOS
+              </p>
               {confirmation.items.map((it, i) => (
                 <div key={i} className="flex flex-col">
                   <span className="mb-1 text-xl font-bold">
@@ -321,7 +324,7 @@ export default function ConfirmationPreview({
 
             <div className="mb-20">
               <p className="mb-5 text-xl font-semibold text-white">
-                CLIENTE/ S
+                DATOS DEL PASAJERO
               </p>
               {confirmation.itemsPassenger.map((it, i) => (
                 <div key={i} className="grid grid-cols-3">

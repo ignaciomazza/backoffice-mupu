@@ -1,5 +1,4 @@
 // src/components/templates/QuotePreview.tsx
-
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
@@ -172,7 +171,7 @@ export default function QuotePreview({ quote, user }: QuotePreviewProps) {
             </div>
 
             <div className="mb-10">
-              <p className="text-lg font-medium">Detalle de precios</p>
+              <p className="text-lg font-medium">DETALLE DE PRECIOS</p>
               {quote.items.map((it, i) => (
                 <div key={i} className="flex justify-between">
                   <span>

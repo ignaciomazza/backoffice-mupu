@@ -299,6 +299,9 @@ export default function QuoteDocument({ quote, user }: QuoteDocumentProps) {
       <Page size="A4" style={styles.secondPage}>
         <View style={styles.content}>
           <View style={styles.section}>
+            <Text style={{ fontSize: 14, fontWeight: "bold", marginBottom: 4 }}>
+              DETALLE DE PRECIOS
+            </Text>
             {quote.items.map((it, i) => (
               <View
                 key={i}
@@ -320,26 +323,41 @@ export default function QuoteDocument({ quote, user }: QuoteDocumentProps) {
             <Text style={{ fontSize: 14, fontWeight: "bold", marginBottom: 4 }}>
               FORMAS DE PAGO
             </Text>
-            <Text
-              style={{
-                fontWeight: "300",
-                fontSize: 12,
-                lineHeight: 1.5,
-                textAlign: "justify", // <- aplicar JUSTIFY acá
-                marginBottom: 4,
-              }}
-            >
-              Se reserva con el 50% del valor total del paquete – esto puede ser
-              abonado en efectivo, transferencia y/o depósito – en dólares o en
-              pesos argentinos (para pesos hay que consultar cotización del
-              día).{"\n\n"}
-              El saldo restante puede ser abonado en plan de pagos.{"\n\n"}
-              Es imprescindible que un mes antes de la fecha de salida del viaje
-              el paquete esté abonado en su totalidad. Las cuotas pueden ser
-              abonadas en efectivo, transferencia y/o depósito – en dólares o en
-              pesos argentinos (para pesos hay que consultar cotización del
-              día).
-            </Text>
+            {currency === "USD" && (
+              <Text
+                style={{
+                  fontWeight: "300",
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                  textAlign: "justify", // <- aplicar JUSTIFY acá
+                  marginBottom: 4,
+                }}
+              >
+                Se reserva con el 50% del valor total del paquete – esto puede
+                ser abonado en efectivo, transferencia y/o depósito – en dólares
+                o en pesos argentinos (para pesos hay que consultar cotización
+                del día).{"\n\n"}
+                El saldo restante puede ser abonado en plan de pagos.{"\n\n"}
+                Es imprescindible que un mes antes de la fecha de salida del
+                viaje el paquete esté abonado en su totalidad. Las cuotas pueden
+                ser abonadas en efectivo, transferencia y/o depósito – en
+                dólares o en pesos argentinos (para pesos hay que consultar
+                cotización del día).
+              </Text>
+            )}
+            {currency === "ARS" && (
+              <Text
+                style={{
+                  fontWeight: "300",
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                  textAlign: "justify",
+                  marginBottom: 4,
+                }}
+              >
+                Efectivo, transferencia o tarjeta de credito.
+              </Text>
+            )}
           </View>
 
           <View style={styles.agentInfo}>
