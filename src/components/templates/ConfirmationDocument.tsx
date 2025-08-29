@@ -261,6 +261,18 @@ export default function ConfirmationDocument({
       {/* Página 2: datos y servicios */}
       <Page size="A4" style={styles.secondPage}>
         <View style={styles.content}>
+          <View style={styles.section}>
+            <Text
+              style={{
+                fontSize: 16,
+                fontWeight: "bold",
+                textAlign: "center",
+                marginBottom: 12,
+              }}
+            >
+              CONFIRMACIÓN DE SERVICIOS Y CONTRATO DE VIAJE
+            </Text>
+          </View>
           <View style={{ marginBottom: 24 }}>
             <Text style={styles.label}>DATOS DE SERVICIOS CONFIRMADOS</Text>
             <Text style={{ marginBottom: 4 }}>
@@ -279,6 +291,70 @@ export default function ConfirmationDocument({
               <Text style={{ marginRight: 4 }}>Fecha de Vto: </Text>
               <Text style={{ fontWeight: "300" }}>{fmtDate(expiryDate)}</Text>
             </Text>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.label}>DATOS DEL PASAJERO</Text>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                marginBottom: 2,
+                marginTop: 4,
+              }}
+            >
+              <Text
+                style={{
+                  width: "100%",
+                  textAlign: "center",
+                  fontWeight: "bold",
+                  fontSize: 12,
+                }}
+              >
+                Nombre
+              </Text>
+              <Text
+                style={{
+                  width: "100%",
+                  textAlign: "center",
+                  fontWeight: "bold",
+                  fontSize: 12,
+                }}
+              >
+                Documento
+              </Text>
+              <Text
+                style={{
+                  width: "100%",
+                  textAlign: "center",
+                  fontWeight: "bold",
+                  fontSize: 12,
+                }}
+              >
+                Nacimiento
+              </Text>
+            </View>
+            {itemsPassenger.map((p, i) => (
+              <View
+                key={i}
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  marginBottom: 2,
+                  textAlign: "center",
+                }}
+              >
+                <Text style={{ width: "100%", textAlign: "center" }}>
+                  {p.name}
+                </Text>
+                <Text style={{ width: "100%", textAlign: "center" }}>
+                  {p.dni}
+                </Text>
+                <Text style={{ width: "100%", textAlign: "center" }}>
+                  {p.birth}
+                </Text>
+              </View>
+            ))}
           </View>
 
           <Text style={styles.label}>DETALLE DE SERVICIOS CONFIRMADOS</Text>
@@ -322,7 +398,10 @@ export default function ConfirmationDocument({
                 return acc;
               }, [])}
           </Text>
-
+        </View>
+      </Page>
+      <Page size="A4" style={styles.secondPage}>
+        <View style={styles.content}>
           <View style={styles.section}>
             <Text style={styles.label}>Cláusulas / Condiciones:</Text>
             <Text style={{ fontWeight: "300", textAlign: "justify" }}>
@@ -407,6 +486,7 @@ export default function ConfirmationDocument({
             </Text>
           </View>
           <View style={styles.section}>
+            <Text style={styles.label}>DETALLE DE PRECIOS</Text>
             {items.map((it, i) => (
               <View
                 key={i}
@@ -427,23 +507,7 @@ export default function ConfirmationDocument({
               {payment}
             </Text>
           </View>
-          <View style={styles.section}>
-            <Text style={styles.label}>CLIENTE/ S</Text>
-            {itemsPassenger.map((p, i) => (
-              <View
-                key={i}
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  marginBottom: 2,
-                }}
-              >
-                <Text>{p.name}</Text>
-                <Text>{p.dni}</Text>
-                <Text>{p.birth}</Text>
-              </View>
-            ))}
-          </View>
+
           <View style={styles.agentInfo}>
             <Text>
               {user.first_name} {user.last_name}

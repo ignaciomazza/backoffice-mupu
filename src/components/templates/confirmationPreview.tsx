@@ -200,6 +200,18 @@ export default function ConfirmationPreview({
                   </span>
                 </p>
               </div>
+              <div className="mb-20">
+                <p className="mb-5 text-xl font-semibold text-white">
+                  DATOS DEL PASAJERO
+                </p>
+                {confirmation.itemsPassenger.map((it, i) => (
+                  <div key={i} className="grid grid-cols-3">
+                    <p>{it.name}</p>
+                    <p>{it.dni}</p>
+                    <p>{it.birth}</p>
+                  </div>
+                ))}
+              </div>
               <p className="mb-5 text-xl font-semibold text-white">
                 DETALLE DE SERVICIOS CONFIRMADOS
               </p>
@@ -317,22 +329,9 @@ export default function ConfirmationPreview({
               <p className="mb-5 text-xl font-semibold text-white">
                 PLAN DE PAGO
               </p>
-              <p className="text-justify font-light text-white">
+              <p className="mb-10 whitespace-pre-wrap text-justify font-light">
                 {confirmation.payment}
               </p>
-            </div>
-
-            <div className="mb-20">
-              <p className="mb-5 text-xl font-semibold text-white">
-                DATOS DEL PASAJERO
-              </p>
-              {confirmation.itemsPassenger.map((it, i) => (
-                <div key={i} className="grid grid-cols-3">
-                  <p>{it.name}</p>
-                  <p>{it.dni}</p>
-                  <p>{it.birth}</p>
-                </div>
-              ))}
             </div>
 
             <p className="mb-20 whitespace-pre-wrap text-justify text-sm font-light text-white">
