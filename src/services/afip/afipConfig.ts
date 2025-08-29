@@ -173,7 +173,7 @@ async function resolveUserIdFromRequest(
   const auth = req.headers.authorization;
   if (auth?.startsWith("Bearer ")) token = auth.slice(7);
 
-  // 3) Cookie "token" (NextApiRequest ya tipa cookies como Record<string, string>)
+  // 3) Cookie "token"
   if (!token) {
     const cookieToken = req.cookies?.token;
     if (typeof cookieToken === "string" && cookieToken.length > 0) {
@@ -198,7 +198,7 @@ async function resolveUserIdFromRequest(
 }
 
 /** ------------------------------------------------------------------------
- *  API pública
+ *  API pública: AFIP por agencyId o por request
  *  --------------------------------------------------------------------- */
 export async function getAfipForAgency(agencyId: number): Promise<AfipClient> {
   const hit = cacheByAgency.get(agencyId);
@@ -231,6 +231,56 @@ export async function getAfipFromRequest(
   }
 
   return getAfipForAgency(agencyId);
+}
+
+/** ------------------------------------------------------------------------
+ *  CUIT real de la agencia (para QR, auditoría, etc.)
+ *  --------------------------------------------------------------------- */
+export async function getAgencyCUITFromRequest(
+  req: NextApiRequest,
+): Promise<number> {
+  const uid = await resolveUserIdFromRequest(req);
+  if (!uid) {
+    throw new Error(
+      "No se pudo resolver el usuario desde el request (x-user-id o token).",
+    );
+  }
+
+  const u = await prisma.user.findUnique({
+    where: { id_user: uid },
+    select: { id_agency: true },
+  });
+
+  const agencyId = u?.id_agency ?? 0;
+  if (!agencyId) {
+    throw new Error("El usuario no tiene agencia asociada.");
+  }
+
+  const agency = await prisma.agency.findUnique({
+    where: { id_agency: agencyId },
+    select: { tax_id: true },
+  });
+
+  const cuit = parseCUIT(agency?.tax_id);
+  if (!cuit) {
+    throw new Error("CUIT inválido o faltante para la agencia");
+  }
+
+  return cuit;
+}
+
+/** También por agencyId, útil cuando partís de una factura ya emitida */
+export async function getAgencyCUITForAgency(
+  agencyId: number,
+): Promise<number> {
+  const a = await prisma.agency.findUnique({
+    where: { id_agency: agencyId },
+    select: { tax_id: true },
+  });
+  if (!a) throw new Error("Agencia no encontrada");
+  const cuit = parseCUIT(a.tax_id);
+  if (!cuit) throw new Error("CUIT inválido o faltante para la agencia");
+  return cuit;
 }
 
 /** ------------------------------------------------------------------------

@@ -1,7 +1,12 @@
 // src/services/afip/creditNoteService.ts
-import afip from "@/services/afip/afipConfig";
-import type { Prisma } from "@prisma/client";
+import type { NextApiRequest } from "next";
+import { Prisma } from "@prisma/client";
 import qrcode from "qrcode";
+import {
+  getAfipFromRequest,
+  getAgencyCUITFromRequest,
+  type AfipClient,
+} from "@/services/afip/afipConfig";
 
 export interface IVAEntry {
   Id: number; // 5 = 21%, 4 = 10.5%, 3 = Exento
@@ -15,12 +20,12 @@ export interface ServiceDetail {
   commission21: number;
   tax_21: number;
   vatOnCommission21: number;
-  taxableBase10_5?: number;
-  commission10_5?: number;
-  tax_105?: number;
-  vatOnCommission10_5?: number;
-  taxableCardInterest?: number;
-  vatOnCardInterest?: number;
+  taxableBase10_5?: number | null;
+  commission10_5?: number | null;
+  tax_105?: number | null;
+  vatOnCommission10_5?: number | null;
+  taxableCardInterest?: number | null;
+  vatOnCardInterest?: number | null;
   nonComputable: number;
 }
 
@@ -38,17 +43,27 @@ type VoucherInfo = { CbteFch?: string | number } | null;
 type CreateVoucherResp = { CAE?: string; CAEFchVto?: string };
 type CotizResp = { ResultGet?: { MonCotiz?: string } };
 
-/** Busca cotización hacia atrás hasta 5 días, segura para TS y linters */
+function isWeekend(date: Date): boolean {
+  const d = date.getDay();
+  return d === 0 || d === 6;
+}
+
+/** Busca cotización hacia atrás hasta 5 días hábiles, segura para TS */
 async function getValidExchangeRate(
+  client: AfipClient,
   currency: string,
   startDate: Date,
 ): Promise<number> {
   const date = new Date(startDate);
 
   for (let i = 0; i < 5; i++) {
+    if (isWeekend(date)) {
+      date.setDate(date.getDate() - 1);
+      continue;
+    }
     const formatted = date.toISOString().slice(0, 10).replace(/-/g, "");
     try {
-      const resp = (await afip.ElectronicBilling.executeRequest(
+      const resp = (await client.ElectronicBilling.executeRequest(
         "FEParamGetCotizacion",
         { MonId: currency, FchCotiz: formatted },
       )) as CotizResp;
@@ -68,10 +83,13 @@ async function getValidExchangeRate(
 }
 
 /**
- * Emite Nota de Crédito (A=3 / B=8) en AFIP para la agencia indicada por issuerCUIT.
- * IMPORTANTE: el AFIP SDK debe estar inicializado para la misma agencia que emitió la factura.
+ * Emite Nota de Crédito (A=3 / B=8) en AFIP para la agencia del usuario del request.
+ * - Usa el CUIT real de la agencia para el QR (no .env).
+ * - Si hay fechas de servicio, Concepto = 2 y se informan FchServDesde/Hasta/Vto.
+ * - Acepta cotización manual o la busca automáticamente (últimos 5 días hábiles).
  */
 export async function createCreditNoteVoucher(
+  req: NextApiRequest,
   tipoNota: 3 | 8, // 3 = NC A, 8 = NC B
   receptorDocNumber: string,
   receptorDocTipo: number, // 80 = CUIT, 96 = DNI
@@ -81,10 +99,13 @@ export async function createCreditNoteVoucher(
   invoiceDate?: string, // YYYY-MM-DD
   cbtesAsoc?: Array<{ Tipo: number; PtoVta: number; Nro: number }>,
   serviceDates?: Array<{ id_service: number; from: string; to: string }>, // YYYY-MM-DD
-  issuerCUIT?: number, // CUIT de la agencia emisora (para el QR). Si no viene, omitimos el QR CUIT.
 ): Promise<CreditNoteVoucherResponse> {
   try {
-    // ===== Totales y ajustes =====
+    // ===== 1) Contexto AFIP y CUIT de la agencia del usuario =====
+    const afipClient = await getAfipFromRequest(req);
+    const agencyCUIT = await getAgencyCUITFromRequest(req);
+
+    // ===== 2) Totales y ajustes =====
     const saleTotal = serviceDetails.reduce((sum, s) => sum + s.sale_price, 0);
     const interestBase = serviceDetails.reduce(
       (sum, s) => sum + (s.taxableCardInterest ?? 0),
@@ -98,7 +119,7 @@ export async function createCreditNoteVoucher(
       (saleTotal + interestBase + interestVat).toFixed(2),
     );
 
-    // ===== Líneas IVA =====
+    // ===== 3) Líneas IVA =====
     const base21 = serviceDetails.reduce(
       (sum, s) => sum + s.taxableBase21 + s.commission21,
       0,
@@ -130,6 +151,14 @@ export async function createCreditNoteVoucher(
         BaseImp: +base10.toFixed(2),
         Importe: +imp10.toFixed(2),
       });
+    // Intereses con IVA 21% (si correspondiera)
+    if (interestBase || interestVat)
+      ivaEntries.push({
+        Id: 5,
+        BaseImp: +interestBase.toFixed(2),
+        Importe: +interestVat.toFixed(2),
+      });
+    // Exento explícito
     if (exento > 0)
       ivaEntries.push({
         Id: 3,
@@ -156,9 +185,20 @@ export async function createCreditNoteVoucher(
     const totalIVA = parseFloat(totalIVAraw.toFixed(2));
     const neto = parseFloat((adjustedTotal - totalIVA).toFixed(2));
 
-    // ===== Estado AFIP =====
+    // Asegurar que la suma de bases = neto (redondeos)
+    const baseSum = mergedIva.reduce((sum, e) => sum + e.BaseImp, 0);
+    const diff = parseFloat((neto - baseSum).toFixed(2));
+    if (Math.abs(diff) > 0.01) {
+      mergedIva.push({
+        Id: 3,
+        BaseImp: diff,
+        Importe: 0,
+      });
+    }
+
+    // ===== 4) Estado AFIP =====
     const status =
-      (await afip.ElectronicBilling.getServerStatus()) as ServerStatus;
+      (await afipClient.ElectronicBilling.getServerStatus()) as ServerStatus;
     if (
       status.AppServer !== "OK" ||
       status.DbServer !== "OK" ||
@@ -167,23 +207,26 @@ export async function createCreditNoteVoucher(
       throw new Error("AFIP no disponible");
     }
 
-    // ===== Punto de venta y numeración =====
-    const pts = (await afip.ElectronicBilling.getSalesPoints().catch(
+    // ===== 5) Punto de venta y numeración =====
+    const pts = (await afipClient.ElectronicBilling.getSalesPoints().catch(
       () => [],
     )) as SalesPoint[];
     const ptoVta = pts.length ? pts[0].Nro : 1;
 
-    const last = await afip.ElectronicBilling.getLastVoucher(ptoVta, tipoNota);
+    const last = await afipClient.ElectronicBilling.getLastVoucher(
+      ptoVta,
+      tipoNota,
+    );
     const next = last + 1;
 
-    const lastInfo = (await afip.ElectronicBilling.getVoucherInfo(
+    const lastInfo = (await afipClient.ElectronicBilling.getVoucherInfo(
       last,
       ptoVta,
       tipoNota,
     ).catch(() => null)) as VoucherInfo;
     const lastDate = lastInfo ? Number(lastInfo.CbteFch) : null;
 
-    // ===== Fecha de comprobante =====
+    // ===== 6) Fecha de comprobante =====
     const now = new Date();
     const todayStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(
       2,
@@ -196,18 +239,19 @@ export async function createCreditNoteVoucher(
         ? lastDate
         : Number(todayStr);
 
-    // ===== Moneda / Cotización =====
-    const condId = tipoNota === 8 ? 5 : 1;
+    // ===== 7) Moneda / Cotización =====
+    const condId = tipoNota === 8 ? 5 : 1; // B -> consumidor final (5), A -> responsable inscripto (1)
     const cotiz =
       currency === "PES"
         ? 1
         : (exchangeRateManual ??
           (await getValidExchangeRate(
+            afipClient,
             currency,
             new Date(Date.now() - 86400000),
           )));
 
-    // ===== Fechas de servicio (opcionales en NC) =====
+    // ===== 8) Fechas de servicio (NC de servicios) =====
     const parseYmd = (s: string) => Number(s.replace(/-/g, ""));
     let FchServDesde: number | undefined;
     let FchServHasta: number | undefined;
@@ -223,7 +267,7 @@ export async function createCreditNoteVoucher(
     const hasServiceDates = FchServDesde != null && FchServHasta != null;
     const concepto = hasServiceDates ? 2 : 1;
 
-    // ===== Payload de AFIP =====
+    // ===== 9) Payload de AFIP =====
     const voucherData: Prisma.JsonObject = {
       CantReg: 1,
       PtoVta: ptoVta,
@@ -252,8 +296,8 @@ export async function createCreditNoteVoucher(
       CondicionIVAReceptorId: condId,
     };
 
-    // ===== Emisión =====
-    const created = (await afip.ElectronicBilling.createVoucher(
+    // ===== 10) Emisión =====
+    const created = (await afipClient.ElectronicBilling.createVoucher(
       voucherData,
     )) as CreateVoucherResp;
 
@@ -261,8 +305,7 @@ export async function createCreditNoteVoucher(
       return { success: false, message: "CAE no devuelto" };
     }
 
-    // ===== QR =====
-    // Para el QR usamos el CUIT de la agencia emisora que nos pasan por parámetro.
+    // ===== 11) QR con CUIT real de la agencia =====
     const qrFecha = (
       invoiceDate
         ? invoiceDate
@@ -272,7 +315,7 @@ export async function createCreditNoteVoucher(
     const qrPayload: Record<string, unknown> = {
       ver: 1,
       fecha: qrFecha,
-      cuit: issuerCUIT ?? 0, // si no vino, queda 0; idealmente siempre pasar issuerCUIT real
+      cuit: agencyCUIT,
       ptoVta,
       tipoCmp: tipoNota,
       nroCmp: next,

@@ -43,6 +43,7 @@ export default async function handler(
 
   if (req.method === "GET") {
     const { from, to } = req.query;
+
     // --- filtro por rango de fechas ---
     if (typeof from === "string" && typeof to === "string") {
       const fromInt = parseInt(from.replace(/-/g, ""), 10);
@@ -51,7 +52,7 @@ export default async function handler(
       const creditNotes = await prisma.creditNote.findMany({
         where: {
           payloadAfip: {
-            path: ["CbteFch"], // aquí va directamente CbteFch
+            path: ["CbteFch"], // aquí va directamente CbteFch (AAAAMMDD numérico)
             gte: fromInt,
             lte: toInt,
           },
@@ -97,13 +98,17 @@ export default async function handler(
         message: parsedB.error.errors.map((e) => e.message).join(", "),
       });
     }
+
     const { invoiceId, tipoNota, exchangeRate, invoiceDate } = parsedB.data;
-    const result = await createCreditNote({
+
+    // 👇 AHORA pasamos el `req` al servicio para que use el AFIP de la agencia del usuario actual
+    const result = await createCreditNote(req, {
       invoiceId,
       tipoNota: tipoNota as 3 | 8,
       exchangeRate,
       invoiceDate,
     });
+
     if (!result.success) {
       return res.status(400).json({ success: false, message: result.message });
     }

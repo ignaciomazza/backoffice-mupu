@@ -1,8 +1,9 @@
 // src/services/afip/createVoucherService.ts
 import type { NextApiRequest } from "next";
-import prisma from "@/lib/prisma";
+// import prisma from "@/lib/prisma";
 import {
   getAfipFromRequest,
+  getAgencyCUITFromRequest,
   type AfipClient,
 } from "@/services/afip/afipConfig";
 import qrcode from "qrcode";
@@ -26,43 +27,43 @@ type ServerStatus = { AppServer: string; DbServer: string; AuthServer: string };
 type SalesPoint = { Nro: number };
 type LastInfo = { CbteFch?: string | number } | null;
 
-/** -------------- Helpers de contexto (AFIP + CUIT) -------------- */
-function parseCUIT(raw?: string | null): number {
-  const digits = (raw ?? "").replace(/\D/g, "");
-  return digits ? parseInt(digits, 10) : 0;
-}
+// /** -------------- Helpers de contexto (AFIP + CUIT) -------------- */
+// function parseCUIT(raw?: string | null): number {
+//   const digits = (raw ?? "").replace(/\D/g, "");
+//   return digits ? parseInt(digits, 10) : 0;
+// }
 
-async function resolveAgencyCUITFromRequest(
-  req: NextApiRequest,
-): Promise<number> {
-  const userIdHeader = req.headers["x-user-id"];
-  const uid =
-    typeof userIdHeader === "string"
-      ? parseInt(userIdHeader, 10)
-      : Array.isArray(userIdHeader)
-        ? parseInt(userIdHeader[0] ?? "", 10)
-        : NaN;
+// async function resolveAgencyCUITFromRequest(
+//   req: NextApiRequest,
+// ): Promise<number> {
+//   const userIdHeader = req.headers["x-user-id"];
+//   const uid =
+//     typeof userIdHeader === "string"
+//       ? parseInt(userIdHeader, 10)
+//       : Array.isArray(userIdHeader)
+//         ? parseInt(userIdHeader[0] ?? "", 10)
+//         : NaN;
 
-  if (!Number.isNaN(uid) && uid > 0) {
-    // Buscamos la agencia del usuario y su CUIT (tax_id)
-    const user = await prisma.user.findUnique({
-      where: { id_user: uid },
-      select: { id_agency: true },
-    });
+//   if (!Number.isNaN(uid) && uid > 0) {
+//     // Buscamos la agencia del usuario y su CUIT (tax_id)
+//     const user = await prisma.user.findUnique({
+//       where: { id_user: uid },
+//       select: { id_agency: true },
+//     });
 
-    if (user?.id_agency) {
-      const agency = await prisma.agency.findUnique({
-        where: { id_agency: user.id_agency },
-        select: { tax_id: true },
-      });
-      const cuit = parseCUIT(agency?.tax_id);
-      if (cuit) return cuit;
-    }
-  }
+//     if (user?.id_agency) {
+//       const agency = await prisma.agency.findUnique({
+//         where: { id_agency: user.id_agency },
+//         select: { tax_id: true },
+//       });
+//       const cuit = parseCUIT(agency?.tax_id);
+//       if (cuit) return cuit;
+//     }
+//   }
 
-  // Sin fallback a .env: si no hay CUIT, cortamos acá.
-  throw new Error("No se pudo resolver el CUIT de la agencia del usuario.");
-}
+//   // Sin fallback a .env: si no hay CUIT, cortamos acá.
+//   throw new Error("No se pudo resolver el CUIT de la agencia del usuario.");
+// }
 
 /** -------------- Cotización con AFIP (últimos 5 días hábiles) -------------- */
 function isWeekend(date: Date): boolean {
@@ -131,7 +132,7 @@ export async function createVoucherService(
   try {
     // 1) Resolver AFIP según la agencia del usuario + CUIT real de esa agencia
     const afipClient = await getAfipFromRequest(req);
-    const agencyCUIT = await resolveAgencyCUITFromRequest(req);
+    const agencyCUIT = await getAgencyCUITFromRequest(req);
 
     // 2) Totales
     const saleTotal = serviceDetails.reduce((sum, s) => sum + s.sale_price, 0);
