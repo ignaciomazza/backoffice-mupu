@@ -1,9 +1,13 @@
 // src/pages/api/investments/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
-import { jwtVerify } from "jose";
-import type { JWTPayload } from "jose";
+import { jwtVerify, type JWTPayload } from "jose";
 
+/* ========= JWT SECRET (igual en todos) ========= */
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
+
+/* ========= Tipos ========= */
 type TokenPayload = JWTPayload & {
   id_user?: number;
   userId?: number;
@@ -14,25 +18,19 @@ type TokenPayload = JWTPayload & {
   role?: string;
   email?: string;
 };
-
 type DecodedAuth = {
-  id_user: number;
-  id_agency: number;
-  role: string;
+  id_user?: number;
+  id_agency?: number;
+  role?: string;
   email?: string;
 };
 
-// ==== JWT Secret (unificado con otros endpoints) ====
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
-
-// ==== helpers comunes (mismo patrón que clients) ====
+/* ========= Helpers de auth (cookie primero) ========= */
 function getTokenFromRequest(req: NextApiRequest): string | null {
-  if (req.cookies?.token) return req.cookies.token;
-
-  const a = req.headers.authorization || "";
+  if (req.cookies?.token) return req.cookies.token; // 1) cookie (prod)
+  const a = req.headers.authorization || ""; // 2) Authorization
   if (a.startsWith("Bearer ")) return a.slice(7);
-
+  // 3) otras cookies posibles
   const c = req.cookies || {};
   for (const k of [
     "session",
@@ -61,9 +59,25 @@ async function getUserFromAuth(
 
     const id_user = Number(p.id_user ?? p.userId ?? p.uid) || undefined;
     const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || undefined;
-    const role = String(p.role || "").toLowerCase();
+    const role = p.role;
     const email = p.email;
 
+    // completar por email si falta id_user
+    if (!id_user && email) {
+      const u = await prisma.user.findUnique({
+        where: { email },
+        select: { id_user: true, id_agency: true, role: true, email: true },
+      });
+      if (u)
+        return {
+          id_user: u.id_user,
+          id_agency: u.id_agency,
+          role: u.role,
+          email: u.email,
+        };
+    }
+
+    // completar agency si falta
     if (id_user && !id_agency) {
       const u = await prisma.user.findUnique({
         where: { id_user },
@@ -73,32 +87,18 @@ async function getUserFromAuth(
         return {
           id_user,
           id_agency: u.id_agency,
-          role: role || u.role.toLowerCase(),
+          role: role ?? u.role,
           email: email ?? u.email ?? undefined,
         };
     }
 
-    if (!id_user && email) {
-      const u = await prisma.user.findUnique({
-        where: { email },
-        select: { id_user: true, id_agency: true, role: true },
-      });
-      if (u)
-        return {
-          id_user: u.id_user,
-          id_agency: u.id_agency,
-          role: u.role.toLowerCase(),
-          email,
-        };
-    }
-
-    if (!id_user || !id_agency) return null;
-    return { id_user, id_agency, role, email: email ?? undefined };
+    return { id_user, id_agency, role, email };
   } catch {
     return null;
   }
 }
 
+/* ========= Utils ========= */
 function toLocalDate(v?: string): Date | undefined {
   if (!v) return undefined;
   const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -107,51 +107,33 @@ function toLocalDate(v?: string): Date | undefined {
   const d = new Date(v);
   return isNaN(d.getTime()) ? undefined : d;
 }
-function safeNumber(v: unknown): number | undefined {
-  const n = Number(v);
+const safeNumber = (v: unknown) => {
+  const n = Number(Array.isArray(v) ? v[0] : v);
   return Number.isFinite(n) ? n : undefined;
-}
-
-// ==== NUEVO: helper para Decimal opcional (igual que en receipts) ====
+};
+// Decimal opcional
 const toDec = (v: unknown) =>
   v === undefined || v === null || v === ""
     ? undefined
     : new Prisma.Decimal(typeof v === "number" ? v : String(v));
 
-// ==== GET ====
+/* ========= GET ========= */
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const auth = await getUserFromAuth(req);
-  if (!auth) return res.status(401).json({ error: "No autenticado" });
+  if (!auth?.id_user || !auth.id_agency)
+    return res.status(401).json({ error: "No autenticado" });
 
   try {
-    const takeParam = safeNumber(
-      Array.isArray(req.query.take) ? req.query.take[0] : req.query.take,
-    );
-    const take = Math.min(Math.max(takeParam || 24, 1), 100);
+    const take = Math.min(Math.max(safeNumber(req.query.take) || 24, 1), 100);
+    const cursor = safeNumber(req.query.cursor);
 
-    const cursorParam = safeNumber(
-      Array.isArray(req.query.cursor) ? req.query.cursor[0] : req.query.cursor,
-    );
-    const cursor = cursorParam;
-
-    const category =
+    const categoryParam =
       typeof req.query.category === "string" ? req.query.category.trim() : "";
-    const currency =
+    const currencyParam =
       typeof req.query.currency === "string" ? req.query.currency.trim() : "";
-    const operatorId = safeNumber(
-      Array.isArray(req.query.operatorId)
-        ? req.query.operatorId[0]
-        : req.query.operatorId,
-    );
-    const userId = safeNumber(
-      Array.isArray(req.query.userId) ? req.query.userId[0] : req.query.userId,
-    );
-    // 👇 NUEVO: filtro por bookingId
-    const bookingId = safeNumber(
-      Array.isArray(req.query.bookingId)
-        ? req.query.bookingId[0]
-        : req.query.bookingId,
-    );
+    const operatorId = safeNumber(req.query.operatorId);
+    const userId = safeNumber(req.query.userId);
+    const bookingId = safeNumber(req.query.bookingId);
 
     const createdFrom = toLocalDate(
       Array.isArray(req.query.createdFrom)
@@ -178,11 +160,15 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     const where: Prisma.InvestmentWhereInput = {
       id_agency: auth.id_agency,
-      ...(category ? { category } : {}),
-      ...(currency ? { currency } : {}),
+      ...(categoryParam
+        ? { category: { equals: categoryParam, mode: "insensitive" } }
+        : {}), // case-insensitive
+      ...(currencyParam
+        ? { currency: { equals: currencyParam, mode: "insensitive" } }
+        : {}),
       ...(operatorId ? { operator_id: operatorId } : {}),
       ...(userId ? { user_id: userId } : {}),
-      ...(bookingId ? { booking_id: bookingId } : {}), // 👈 NUEVO
+      ...(bookingId ? { booking_id: bookingId } : {}),
     };
 
     if (createdFrom || createdTo) {
@@ -253,9 +239,10 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
           ? [where.AND]
           : [];
       const qNum = Number(q);
+      const isNum = Number.isFinite(qNum);
       const or: Prisma.InvestmentWhereInput[] = [
-        ...(Number.isFinite(qNum) ? [{ id_investment: qNum }] : []),
-        ...(Number.isFinite(qNum) ? [{ booking_id: qNum }] : []), // 👈 búsqueda por N° de reserva
+        ...(isNum ? [{ id_investment: qNum }] : []),
+        ...(isNum ? [{ booking_id: qNum }] : []),
         { description: { contains: q, mode: "insensitive" } },
         { category: { contains: q, mode: "insensitive" } },
         { currency: { contains: q, mode: "insensitive" } },
@@ -280,7 +267,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         createdBy: {
           select: { id_user: true, first_name: true, last_name: true },
         },
-        booking: { select: { id_booking: true } }, // 👈 devuelve la reserva asociada (si existe)
+        booking: { select: { id_booking: true } },
       },
       orderBy: { id_investment: "desc" },
       take: take + 1,
@@ -292,7 +279,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const nextCursor = hasMore ? sliced[sliced.length - 1].id_investment : null;
 
     return res.status(200).json({ items: sliced, nextCursor });
-  } catch (e: unknown) {
+  } catch (e) {
     console.error("[investments][GET]", e);
     return res
       .status(500)
@@ -300,16 +287,17 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-// ==== POST ====
+/* ========= POST ========= */
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const auth = await getUserFromAuth(req);
-  if (!auth) return res.status(401).json({ error: "No autenticado" });
+  if (!auth?.id_user || !auth.id_agency)
+    return res.status(401).json({ error: "No autenticado" });
 
   try {
     const b = req.body ?? {};
-    const category = String(b.category ?? "").trim(); // requerido
-    const description = String(b.description ?? "").trim(); // requerido
-    const currency = String(b.currency ?? "").trim(); // requerido
+    const category = String(b.category ?? "").trim();
+    const description = String(b.description ?? "").trim();
+    const currency = String(b.currency ?? "").trim();
     const amount = Number(b.amount);
     if (!category || !description || !currency || !Number.isFinite(amount)) {
       return res.status(400).json({
@@ -324,12 +312,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const user_id = Number.isFinite(Number(b.user_id))
       ? Number(b.user_id)
       : undefined;
-    // 👇 opcional
     const booking_id = Number.isFinite(Number(b.booking_id))
       ? Number(b.booking_id)
       : undefined;
 
-    // 👇 NUEVO: método de pago / cuenta (opcionales)
     const payment_method =
       typeof b.payment_method === "string"
         ? b.payment_method.trim()
@@ -337,7 +323,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const account =
       typeof b.account === "string" ? b.account.trim() : undefined;
 
-    // 👇 NUEVO: conversión (opcional, sin T.C. ni notas)
     const base_amount = toDec(b.base_amount);
     const base_currency =
       typeof b.base_currency === "string" && b.base_currency
@@ -349,7 +334,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         ? b.counter_currency.toUpperCase()
         : undefined;
 
-    // Reglas según categoría
     if (category.toLowerCase() === "operador" && !operator_id) {
       return res
         .status(400)
@@ -361,18 +345,17 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         .json({ error: "Para Sueldo/Comision, user_id es obligatorio" });
     }
 
-    // Validar booking (si viene) y que sea de la misma agencia
+    // validar booking (si viene) y pertenencia a la agencia
     let bookingIdToSave: number | null = null;
     if (typeof booking_id === "number") {
       const bkg = await prisma.booking.findFirst({
         where: { id_booking: booking_id, id_agency: auth.id_agency },
         select: { id_booking: true },
       });
-      if (!bkg) {
+      if (!bkg)
         return res
           .status(400)
           .json({ error: "La reserva no existe o no pertenece a tu agencia" });
-      }
       bookingIdToSave = bkg.id_booking;
     }
 
@@ -386,14 +369,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         paid_at: paid_at ?? null,
         operator_id: operator_id ?? null,
         user_id: user_id ?? null,
-        created_by: auth.id_user,
+        created_by: auth.id_user!,
         booking_id: bookingIdToSave,
-
-        // 👇 NUEVO: guardar método de pago / cuenta si vienen
         ...(payment_method ? { payment_method } : {}),
         ...(account ? { account } : {}),
-
-        // 👇 NUEVO: guardar conversión si vienen
         ...(base_amount ? { base_amount } : {}),
         ...(base_currency ? { base_currency } : {}),
         ...(counter_amount ? { counter_amount } : {}),
@@ -408,13 +387,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     });
 
     return res.status(201).json(created);
-  } catch (e: unknown) {
+  } catch (e) {
     console.error("[investments][POST]", e);
     return res.status(500).json({ error: "Error al crear gasto" });
   }
 }
 
-// ==== router ====
+/* ========= Router ========= */
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
