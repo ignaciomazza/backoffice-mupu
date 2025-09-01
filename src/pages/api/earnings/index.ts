@@ -1,6 +1,7 @@
 // src/pages/api/earnings/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { jwtVerify, type JWTPayload } from "jose";
 
 interface EarningItem {
   currency: "ARS" | "USD";
@@ -23,6 +24,62 @@ interface EarningsResponse {
   };
   items: EarningItem[];
 }
+
+/** ---------------- Helpers de sesión / agencia ---------------- */
+type MyJWTPayload = JWTPayload & { userId?: number; id_user?: number };
+
+async function resolveUserFromRequest(
+  req: NextApiRequest,
+): Promise<{ id_user: number; id_agency: number; role: string }> {
+  // 1) Header inyectado por middleware
+  const h = req.headers["x-user-id"];
+  const uidFromHeader =
+    typeof h === "string"
+      ? parseInt(h, 10)
+      : Array.isArray(h)
+        ? parseInt(h[0] ?? "", 10)
+        : NaN;
+  let uid: number | null =
+    Number.isFinite(uidFromHeader) && uidFromHeader > 0 ? uidFromHeader : null;
+
+  // 2) Authorization / Cookie (JWT)
+  if (!uid) {
+    let token: string | null = null;
+    const auth = req.headers.authorization;
+    if (auth?.startsWith("Bearer ")) token = auth.slice(7);
+    if (!token) {
+      const cookieToken = req.cookies?.token;
+      if (typeof cookieToken === "string" && cookieToken.length > 0) {
+        token = cookieToken;
+      }
+    }
+    if (token) {
+      try {
+        const secret = process.env.JWT_SECRET || "tu_secreto_seguro";
+        const { payload } = await jwtVerify(
+          token,
+          new TextEncoder().encode(secret),
+        );
+        const p = payload as MyJWTPayload;
+        uid = Number(p.userId ?? p.id_user ?? 0) || null;
+      } catch {
+        uid = null;
+      }
+    }
+  }
+
+  if (!uid) throw new Error("No se pudo resolver el usuario.");
+
+  const user = await prisma.user.findUnique({
+    where: { id_user: uid },
+    select: { id_user: true, id_agency: true, role: true },
+  });
+  if (!user?.id_agency)
+    throw new Error("El usuario no tiene agencia asociada.");
+
+  return { id_user: user.id_user, id_agency: user.id_agency, role: user.role };
+}
+/** -------------------------------------------------------------- */
 
 // Helper: "YYYY-MM-DD" -> Date local a las 00:00
 function ymdToLocalDate(ymd: string): Date {
@@ -50,8 +107,11 @@ export default async function handler(
   toDateExclusive.setDate(toDateExclusive.getDate() + 1);
 
   try {
-    // 1) Mapas de equipos y usuarios
+    const { id_agency } = await resolveUserFromRequest(req);
+
+    // 1) Equipos de la AGENCIA
     const teams = await prisma.salesTeam.findMany({
+      where: { id_agency },
       include: { user_teams: { include: { user: true } } },
     });
 
@@ -67,6 +127,9 @@ export default async function handler(
       const leaders: number[] = [];
 
       user_teams.forEach(({ user }) => {
+        // por las dudas, solo usuarios de la misma agencia
+        if (user.id_agency !== id_agency) return;
+
         const uid = user.id_user;
         members.push(uid);
         userToMemberTeams.set(uid, [
@@ -86,10 +149,11 @@ export default async function handler(
       teamMap.set(teamId, { name, members, leaders });
     });
 
-    // 2) Traer servicios del rango (creados entre from y to, en local) con booking.user
+    // 2) Servicios de BOOKING de la AGENCIA en el rango
     const services = await prisma.service.findMany({
       where: {
         booking: {
+          id_agency,
           creation_date: {
             gte: fromDate,
             lt: toDateExclusive,
@@ -118,13 +182,13 @@ export default async function handler(
     const saleTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
     services.forEach((svc) => {
       const bid = svc.booking.id_booking;
-      const cur = svc.currency as "ARS" | "USD";
+      const cur = (svc.currency as "ARS" | "USD") ?? "ARS";
       const prev = saleTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
       prev[cur] += svc.sale_price;
       saleTotalsByBooking.set(bid, prev);
     });
 
-    // 4) Recibos (sin filtrar por fecha, para deuda/validación)
+    // 4) Recibos (solo de las reservas ya filtradas por agencia)
     const allReceipts = await prisma.receipt.findMany({
       where: {
         bookingId_booking: { in: Array.from(saleTotalsByBooking.keys()) },
@@ -134,7 +198,7 @@ export default async function handler(
     const receiptsMap = new Map<number, { ARS: number; USD: number }>();
     allReceipts.forEach(
       ({ bookingId_booking: bid, amount, amount_currency }) => {
-        const cur = amount_currency as "ARS" | "USD";
+        const cur = (amount_currency as "ARS" | "USD") ?? "ARS";
         const prev = receiptsMap.get(bid) || { ARS: 0, USD: 0 };
         prev[cur] += amount;
         receiptsMap.set(bid, prev);
@@ -218,20 +282,26 @@ export default async function handler(
       }
     }
 
+    // Pre-armamos index de equipos/líderes del vendedor
+    const memberTeamsOf = (sellerId: number) =>
+      userToMemberTeams.get(sellerId) || [];
+    const leaderTeamsOf = (sellerId: number) =>
+      userToLeaderTeams.get(sellerId) || [];
+
     for (const svc of filteredServices) {
       // Base de comisión: totalCommissionWithoutVAT - 2.4% fee (no negativo)
       const fee = svc.sale_price * 0.024;
       const dbCommission = svc.totalCommissionWithoutVAT ?? 0;
       const commissionBase = Math.max(dbCommission - fee, 0);
 
-      const cur = svc.currency as "ARS" | "USD";
+      const cur = (svc.currency as "ARS" | "USD") ?? "ARS";
       const { user } = svc.booking;
       const sellerId = user.id_user;
       const sellerName = `${user.first_name} ${user.last_name}`;
       const lowerRole = user.role.toLowerCase();
 
-      const memberTeams = userToMemberTeams.get(sellerId) || [];
-      const leaderTeams = userToLeaderTeams.get(sellerId) || [];
+      const memberTeams = memberTeamsOf(sellerId);
+      const leaderTeams = leaderTeamsOf(sellerId);
 
       let sellerComm = 0;
       let leaderComm = 0;
@@ -239,7 +309,7 @@ export default async function handler(
       let targetTeams: number[] = [];
 
       if (["lider", "gerente"].includes(lowerRole)) {
-        // Lider/Gerente vendiendo: 30% vendedor, resto a agencia
+        // Lider/Gerente vendiendo: 30% vendedor, resto a agencia (si gerente sin equipos, 100% agencia)
         if (lowerRole === "gerente" && leaderTeams.length === 0) {
           sellerComm = 0;
           agencyShareAmt = commissionBase;
@@ -247,9 +317,9 @@ export default async function handler(
           sellerComm = commissionBase * 0.3;
           agencyShareAmt = commissionBase - sellerComm;
         }
-        targetTeams = leaderTeams.length ? leaderTeams : [0];
+        targetTeams = leaderTeams.length ? leaderTeams : [0]; // 0 = "Sin equipo"
       } else {
-        // Vendedor: 30% vendedor, 10% líderes de sus equipos (si no hay líderes, va a agencia)
+        // Vendedor: 30% vendedor, 10% líderes de sus equipos (si no hay líderes, 0% líder y resto agencia)
         sellerComm = commissionBase * 0.3;
         leaderComm = commissionBase * 0.1;
         agencyShareAmt = commissionBase - sellerComm - leaderComm;

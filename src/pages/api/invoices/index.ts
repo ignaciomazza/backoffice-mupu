@@ -1,8 +1,66 @@
-// src/pages/api/invoices/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { listInvoices, createInvoices } from "@/services/invoices";
+import { jwtVerify, type JWTPayload } from "jose";
+
+/** ------- helpers mínimos para multi-agencia ------- */
+type MyJWTPayload = JWTPayload & { userId?: number; id_user?: number };
+
+async function resolveUserIdFromRequest(
+  req: NextApiRequest,
+): Promise<number | null> {
+  // 1) Header inyectado por middleware (más barato si existe)
+  const h = req.headers["x-user-id"];
+  const uidFromHeader =
+    typeof h === "string"
+      ? parseInt(h, 10)
+      : Array.isArray(h)
+        ? parseInt(h[0] ?? "", 10)
+        : NaN;
+  if (Number.isFinite(uidFromHeader) && uidFromHeader > 0) return uidFromHeader;
+
+  // 2) Authorization: Bearer <token>
+  let token: string | null = null;
+  const auth = req.headers.authorization;
+  if (auth?.startsWith("Bearer ")) token = auth.slice(7);
+
+  // 3) Cookie "token"
+  if (!token) {
+    const cookieToken = req.cookies?.token;
+    if (typeof cookieToken === "string" && cookieToken.length > 0)
+      token = cookieToken;
+  }
+  if (!token) return null;
+
+  try {
+    const secret = process.env.JWT_SECRET || "tu_secreto_seguro";
+    const { payload } = await jwtVerify(
+      token,
+      new TextEncoder().encode(secret),
+    );
+    const p = payload as MyJWTPayload;
+    const uid = Number(p.userId ?? p.id_user ?? 0) || 0;
+    return uid > 0 ? uid : null;
+  } catch {
+    return null;
+  }
+}
+
+async function requireAgencyId(req: NextApiRequest): Promise<number> {
+  const uid = await resolveUserIdFromRequest(req);
+  if (!uid)
+    throw new Error("No se pudo resolver el usuario (x-user-id o token).");
+
+  const u = await prisma.user.findUnique({
+    where: { id_user: uid },
+    select: { id_agency: true },
+  });
+  const agencyId = u?.id_agency ?? 0;
+  if (!agencyId) throw new Error("El usuario no tiene agencia asociada.");
+  return agencyId;
+}
+/** ----------------------------------------------- */
 
 const querySchema = z.object({
   bookingId: z
@@ -56,46 +114,74 @@ export default async function handler(
   // console.info(`[Invoices API] ${req.method} ${req.url}`);
 
   if (req.method === "GET") {
-    const { from, to } = req.query;
+    try {
+      const agencyId = await requireAgencyId(req);
+      const { from, to } = req.query;
 
-    if (from && to) {
-      const fromInt = parseInt((from as string).replace(/-/g, ""), 10);
-      const toInt = parseInt((to as string).replace(/-/g, ""), 10);
+      if (from && to) {
+        const fromInt = parseInt((from as string).replace(/-/g, ""), 10);
+        const toInt = parseInt((to as string).replace(/-/g, ""), 10);
 
-      const invoices = await prisma.invoice.findMany({
-        where: {
-          AND: [
-            { payloadAfip: { path: ["voucherData", "CbteFch"], gte: fromInt } },
-            { payloadAfip: { path: ["voucherData", "CbteFch"], lte: toInt } },
-          ],
-        },
-        include: {
-          booking: { include: { titular: true } },
-          client: {
-            select: {
-              first_name: true,
-              last_name: true,
-              address: true,
-              locality: true,
-              postal_code: true,
+        const invoices = await prisma.invoice.findMany({
+          where: {
+            AND: [
+              {
+                payloadAfip: { path: ["voucherData", "CbteFch"], gte: fromInt },
+              },
+              { payloadAfip: { path: ["voucherData", "CbteFch"], lte: toInt } },
+              // 🔒 filtro multi-agencia
+              { booking: { id_agency: agencyId } },
+            ],
+          },
+          include: {
+            booking: { include: { titular: true } },
+            client: {
+              select: {
+                first_name: true,
+                last_name: true,
+                address: true,
+                locality: true,
+                postal_code: true,
+              },
             },
           },
-        },
-      });
+        });
 
+        return res.status(200).json({ success: true, invoices });
+      }
+
+      // --- búsqueda por bookingId ---
+      const parsedQ = querySchema.safeParse(req.query);
+      if (!parsedQ.success) {
+        return res.status(400).json({
+          success: false,
+          message: parsedQ.error.errors.map((e) => e.message).join(", "),
+        });
+      }
+
+      const agencyId2 = await requireAgencyId(req);
+      const bookingId = parsedQ.data.bookingId;
+
+      // Validamos que la reserva pertenezca a la misma agencia
+      const booking = await prisma.booking.findFirst({
+        where: { id_booking: bookingId, id_agency: agencyId2 },
+        select: { id_booking: true },
+      });
+      if (!booking) {
+        return res
+          .status(403)
+          .json({
+            success: false,
+            message: "Reserva no pertenece a tu agencia.",
+          });
+      }
+
+      const invoices = await listInvoices(bookingId);
       return res.status(200).json({ success: true, invoices });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error interno";
+      return res.status(400).json({ success: false, message: msg });
     }
-
-    const parsedQ = querySchema.safeParse(req.query);
-    if (!parsedQ.success) {
-      return res.status(400).json({
-        success: false,
-        message: parsedQ.error.errors.map((e) => e.message).join(", "),
-      });
-    }
-    const bookingId = parsedQ.data.bookingId;
-    const invoices = await listInvoices(bookingId);
-    return res.status(200).json({ success: true, invoices });
   }
 
   if (req.method === "POST") {
@@ -107,11 +193,19 @@ export default async function handler(
       });
     }
 
-    const result = await createInvoices(req, parsedB.data);
-    if (!result.success) {
-      return res.status(400).json({ success: false, message: result.message });
+    try {
+      // createInvoices ya usa AFIP por agencia del usuario vía req
+      const result = await createInvoices(req, parsedB.data);
+      if (!result.success) {
+        return res
+          .status(400)
+          .json({ success: false, message: result.message });
+      }
+      return res.status(201).json({ success: true, invoices: result.invoices });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error interno";
+      return res.status(400).json({ success: false, message: msg });
     }
-    return res.status(201).json({ success: true, invoices: result.invoices });
   }
 
   res.setHeader("Allow", ["GET", "POST"]);

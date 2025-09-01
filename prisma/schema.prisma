@@ -10,47 +10,50 @@ generator client {
 }
 
 model Agency {
-  id_agency        Int          @id @default(autoincrement())
-  name             String
-  legal_name       String
-  address          String?
-  phone            String?
-  email            String?
-  tax_id           String
-  website          String?
-  foundation_date  DateTime?
-  logo_url         String?
-  afip_cert_base64 String?
-  afip_key_base64  String?
-  creation_date    DateTime     @default(now())
-  users            User[]
-  bookings         Booking[]
-  Client           Client[]
-  SalesTeam        SalesTeam[]
-  Resources        Resources[]
-  Operator         Operator[]
-  investments      Investment[]
-  TextPreset       TextPreset[]
+  id_agency         Int                 @id @default(autoincrement())
+  name              String
+  legal_name        String
+  address           String?
+  phone             String?
+  email             String?
+  tax_id            String
+  website           String?
+  foundation_date   DateTime?
+  logo_url          String?
+  afip_cert_base64  String?
+  afip_key_base64   String?
+  creation_date     DateTime            @default(now())
+  users             User[]
+  bookings          Booking[]
+  Client            Client[]
+  SalesTeam         SalesTeam[]
+  Resources         Resources[]
+  Operator          Operator[]
+  investments       Investment[]
+  TextPreset        TextPreset[]
+  CommissionRuleSet CommissionRuleSet[]
 }
 
 model User {
-  id_user                  Int            @id @default(autoincrement())
-  email                    String         @unique
+  id_user                  Int                 @id @default(autoincrement())
+  email                    String              @unique
   password                 String
   role                     String
   position                 String?
   first_name               String
   last_name                String
-  creation_date            DateTime       @default(now())
+  creation_date            DateTime            @default(now())
   id_agency                Int
-  agency                   Agency         @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  agency                   Agency              @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   bookings                 Booking[]
   sales_teams              UserTeam[]
   clients                  Client[]
   CalendarNote             CalendarNote[]
-  investmentsAsBeneficiary Investment[]   @relation("InvestmentUser")
-  investmentsCreated       Investment[]   @relation("InvestmentCreatedBy")
+  investmentsAsBeneficiary Investment[]        @relation("InvestmentUser")
+  investmentsCreated       Investment[]        @relation("InvestmentCreatedBy")
   TextPreset               TextPreset[]
+  CommissionRuleSet        CommissionRuleSet[]
+  CommissionShare          CommissionShare[]
 }
 
 model Client {
@@ -381,4 +384,34 @@ model TextPreset {
 
   @@unique([id_user, doc_type, title])
   @@index([id_user, doc_type, created_at])
+}
+
+model CommissionRuleSet {
+  id_rule_set Int    @id @default(autoincrement())
+  id_agency   Int
+  agency      Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  owner_user_id Int
+  owner         User @relation(fields: [owner_user_id], references: [id_user], onDelete: Cascade)
+
+  valid_from DateTime @default(now())
+
+  own_pct Decimal @db.Decimal(5, 2)
+
+  shares CommissionShare[]
+
+  @@index([id_agency, owner_user_id, valid_from])
+}
+
+model CommissionShare {
+  id_share    Int               @id @default(autoincrement())
+  rule_set_id Int
+  ruleSet     CommissionRuleSet @relation(fields: [rule_set_id], references: [id_rule_set], onDelete: Cascade)
+
+  beneficiary_user_id Int
+  beneficiary         User @relation(fields: [beneficiary_user_id], references: [id_user], onDelete: Cascade)
+
+  percent Decimal @db.Decimal(5, 2)
+
+  @@unique([rule_set_id, beneficiary_user_id])
 }

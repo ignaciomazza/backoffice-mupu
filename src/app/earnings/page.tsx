@@ -1,5 +1,4 @@
 // src/app/earnings/page.tsx
-
 "use client";
 
 import React, { useState, useCallback, useMemo } from "react";
@@ -16,6 +15,8 @@ import {
   Legend,
   TooltipProps,
 } from "recharts";
+import { useAuth } from "@/context/AuthContext";
+import { authFetch } from "@/utils/authFetch";
 
 interface EarningItem {
   currency: "ARS" | "USD";
@@ -51,13 +52,11 @@ function getDefaultRange() {
 const MoneyTooltip = ({ active, payload }: TooltipProps<number, string>) => {
   if (!active || !payload?.length) return null;
 
-  // Podés reusar este formateador
   const format = (val: number, cur: "ARS" | "USD") =>
     new Intl.NumberFormat("es-AR", { style: "currency", currency: cur }).format(
       val,
     );
 
-  // Como p.payload ya es tu EarningItem, tiene item.debt
   return (
     <div className="space-y-2 rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md backdrop-blur dark:bg-sky-950/10 dark:text-white">
       {payload.map((p) => {
@@ -70,7 +69,6 @@ const MoneyTooltip = ({ active, payload }: TooltipProps<number, string>) => {
           </p>
         );
       })}
-      {/* Nueva línea para mostrar la deuda */}
       <p className="text-sm">
         <strong>Deuda:</strong>{" "}
         {format(
@@ -132,6 +130,7 @@ const ChartSection: React.FC<ChartSectionProps> = ({ title, data, colors }) => (
 );
 
 export default function EarningsPage() {
+  const { token } = useAuth();
   const { from: defaultFrom, to: defaultTo } = useMemo(getDefaultRange, []);
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(defaultTo);
@@ -152,9 +151,17 @@ export default function EarningsPage() {
       toast.error("El rango 'Desde' no puede ser posterior a 'Hasta'");
       return;
     }
+    if (!token) {
+      toast.error("Sesión no iniciada");
+      return;
+    }
     setLoading(true);
     try {
-      const res = await fetch(`/api/earnings?from=${from}&to=${to}`);
+      const res = await authFetch(
+        `/api/earnings?from=${from}&to=${to}`,
+        { cache: "no-store" },
+        token,
+      );
       if (!res.ok) throw new Error("Error al cargar ganancias");
       const json: EarningsResponse = await res.json();
       setData(json);
@@ -164,7 +171,7 @@ export default function EarningsPage() {
     } finally {
       setLoading(false);
     }
-  }, [from, to]);
+  }, [from, to, token]);
 
   const itemsARS = useMemo(
     () => data?.items.filter((i) => i.currency === "ARS") || [],
@@ -290,7 +297,7 @@ export default function EarningsPage() {
 
         {itemsUSD.length > 0 && (
           <ChartSection
-            title="Dolares"
+            title="Dólares"
             data={itemsUSD}
             colors={["#166534", "#16a34a", "#22c55e"]}
           />
@@ -300,8 +307,8 @@ export default function EarningsPage() {
           <div className="mb-8 h-fit space-y-3 overflow-x-auto rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
             <h3 className="mb-2 font-medium">ARS</h3>
             <table className="w-full text-center">
-              <thead className="">
-                <tr className="">
+              <thead>
+                <tr>
                   <th className="px-4 py-2 font-medium">Equipo</th>
                   <th className="px-4 py-2 font-medium">Vendedor</th>
                   <th className="px-4 py-2 font-medium">Comisión Vendedor</th>
@@ -337,7 +344,7 @@ export default function EarningsPage() {
           <div className="mb-8 h-fit space-y-3 overflow-x-auto rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
             <h3 className="mb-2 font-medium">USD</h3>
             <table className="w-full text-center">
-              <thead className="">
+              <thead>
                 <tr>
                   <th className="px-4 py-2 font-medium">Equipo</th>
                   <th className="px-4 py-2 font-medium">Vendedor</th>
