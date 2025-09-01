@@ -1,3 +1,4 @@
+// src/pages/api/invoices/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
@@ -10,7 +11,6 @@ type MyJWTPayload = JWTPayload & { userId?: number; id_user?: number };
 async function resolveUserIdFromRequest(
   req: NextApiRequest,
 ): Promise<number | null> {
-  // 1) Header inyectado por middleware (más barato si existe)
   const h = req.headers["x-user-id"];
   const uidFromHeader =
     typeof h === "string"
@@ -20,12 +20,10 @@ async function resolveUserIdFromRequest(
         : NaN;
   if (Number.isFinite(uidFromHeader) && uidFromHeader > 0) return uidFromHeader;
 
-  // 2) Authorization: Bearer <token>
   let token: string | null = null;
   const auth = req.headers.authorization;
   if (auth?.startsWith("Bearer ")) token = auth.slice(7);
 
-  // 3) Cookie "token"
   if (!token) {
     const cookieToken = req.cookies?.token;
     if (typeof cookieToken === "string" && cookieToken.length > 0)
@@ -62,11 +60,17 @@ async function requireAgencyId(req: NextApiRequest): Promise<number> {
 }
 /** ----------------------------------------------- */
 
+const getFirst = (v?: string | string[]) =>
+  Array.isArray(v) ? v[0] : (v ?? undefined);
+
+// ✅ bookingId siempre termina como number
 const querySchema = z.object({
-  bookingId: z
-    .string()
-    .regex(/^\d+$/, "bookingId debe ser un número")
-    .transform((s) => Number(s)),
+  bookingId: z.preprocess(
+    (v) => (Array.isArray(v) ? v[0] : v),
+    z.coerce.number().int().positive({
+      message: "bookingId debe ser un número positivo",
+    }),
+  ),
 });
 
 const bodySchema = z.object({
@@ -111,16 +115,16 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  // console.info(`[Invoices API] ${req.method} ${req.url}`);
-
   if (req.method === "GET") {
     try {
       const agencyId = await requireAgencyId(req);
-      const { from, to } = req.query;
 
-      if (from && to) {
-        const fromInt = parseInt((from as string).replace(/-/g, ""), 10);
-        const toInt = parseInt((to as string).replace(/-/g, ""), 10);
+      const fromStr = getFirst(req.query.from as string | string[] | undefined);
+      const toStr = getFirst(req.query.to as string | string[] | undefined);
+
+      if (fromStr && toStr) {
+        const fromInt = parseInt(fromStr.replace(/-/g, ""), 10);
+        const toInt = parseInt(toStr.replace(/-/g, ""), 10);
 
         const invoices = await prisma.invoice.findMany({
           where: {
@@ -129,7 +133,6 @@ export default async function handler(
                 payloadAfip: { path: ["voucherData", "CbteFch"], gte: fromInt },
               },
               { payloadAfip: { path: ["voucherData", "CbteFch"], lte: toInt } },
-              // 🔒 filtro multi-agencia
               { booking: { id_agency: agencyId } },
             ],
           },
@@ -151,7 +154,9 @@ export default async function handler(
       }
 
       // --- búsqueda por bookingId ---
-      const parsedQ = querySchema.safeParse(req.query);
+      const parsedQ = querySchema.safeParse({
+        bookingId: req.query.bookingId, // 👈 parseo solo el campo esperado
+      });
       if (!parsedQ.success) {
         return res.status(400).json({
           success: false,
@@ -159,12 +164,10 @@ export default async function handler(
         });
       }
 
-      const agencyId2 = await requireAgencyId(req);
-      const bookingId = parsedQ.data.bookingId;
+      const { bookingId } = parsedQ.data; // ✅ number
 
-      // Validamos que la reserva pertenezca a la misma agencia
       const booking = await prisma.booking.findFirst({
-        where: { id_booking: bookingId, id_agency: agencyId2 },
+        where: { id_booking: bookingId, id_agency: agencyId },
         select: { id_booking: true },
       });
       if (!booking) {
@@ -176,11 +179,14 @@ export default async function handler(
           });
       }
 
-      const invoices = await listInvoices(bookingId);
+      const invoices = await listInvoices(bookingId); // ✅ number
       return res.status(200).json({ success: true, invoices });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error interno";
-      return res.status(400).json({ success: false, message: msg });
+      const status = /x-user-id|usuario|agencia asociada/i.test(msg)
+        ? 401
+        : 500;
+      return res.status(status).json({ success: false, message: msg });
     }
   }
 
@@ -194,7 +200,6 @@ export default async function handler(
     }
 
     try {
-      // createInvoices ya usa AFIP por agencia del usuario vía req
       const result = await createInvoices(req, parsedB.data);
       if (!result.success) {
         return res
@@ -204,7 +209,10 @@ export default async function handler(
       return res.status(201).json({ success: true, invoices: result.invoices });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error interno";
-      return res.status(400).json({ success: false, message: msg });
+      const status = /x-user-id|usuario|agencia asociada/i.test(msg)
+        ? 401
+        : 500;
+      return res.status(status).json({ success: false, message: msg });
     }
   }
 
