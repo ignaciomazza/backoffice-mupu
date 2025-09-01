@@ -31,50 +31,54 @@ async function verifyToken(token: string): Promise<MyJWTPayload | null> {
   }
 }
 
-// ✅ PRIORIDAD: Authorization primero, cookie después
 function getToken(req: NextRequest): string | null {
+  // 1) Cookie
+  const cookieToken = req.cookies.get("token")?.value ?? null;
+  if (cookieToken) return cookieToken;
+
+  // 2) Authorization: Bearer
   const auth = req.headers.get("authorization");
   if (auth?.startsWith("Bearer ")) return auth.slice(7);
-  return req.cookies.get("token")?.value ?? null;
-}
 
-const PUBLIC_PATHS = new Set([
-  "/login",
-  "/favicon.ico",
-  "/api/login",
-  "/api/auth/session",
-  "/api/auth/logout", // para poder salir aunque el token esté roto
-  "/api/user/role", // opcional, si preferís que sea pública para el bootstrap de UI
-]);
+  return null;
+}
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // _next y assets quedan fuera por config.matcher; acá solo chequeamos públicas
-  for (const p of PUBLIC_PATHS) {
-    if (pathname === p || pathname.startsWith(p + "/")) {
-      return NextResponse.next();
-    }
+  // Rutas públicas
+  if (
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/_next") ||
+    pathname === "/favicon.ico" ||
+    pathname.startsWith("/api/login") ||
+    pathname.startsWith("/api/auth/session")
+  ) {
+    return NextResponse.next();
   }
 
   const token = getToken(req);
   if (!token) {
-    return pathname.startsWith("/api")
-      ? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-      : NextResponse.redirect(new URL("/login", req.url));
+    // Para páginas: redirigí
+    if (!pathname.startsWith("/api")) {
+      return NextResponse.redirect(new URL("/login", req.url));
+    }
+    // Para APIs: devolvé 401 JSON
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const payload = await verifyToken(token);
   if (!payload?.role) {
-    return pathname.startsWith("/api")
-      ? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-      : NextResponse.redirect(new URL("/login", req.url));
+    if (!pathname.startsWith("/api")) {
+      return NextResponse.redirect(new URL("/login", req.url));
+    }
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const role = normalizeRole(payload.role);
   const userId = Number(payload.userId ?? payload.id_user ?? 0) || 0;
 
-  // Guards opcionales por ruta
+  // Guardas por página (opcional; mantené las tuyas)
   if (!pathname.startsWith("/api")) {
     let allowed: string[] = [];
     if (/^\/(teams|agency)(\/|$)/.test(pathname)) {
@@ -89,6 +93,7 @@ export async function middleware(req: NextRequest) {
     }
   }
 
+  // Propagá info útil
   const headers = new Headers(req.headers);
   headers.set("x-user-id", String(userId));
   headers.set("x-user-role", role);
@@ -97,5 +102,6 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
+  // no interceptes assets estáticos ni imágenes
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

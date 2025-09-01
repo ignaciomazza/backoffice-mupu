@@ -1,4 +1,5 @@
 // src/pages/api/auth/logout.ts
+
 import { NextApiRequest, NextApiResponse } from "next";
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -7,9 +8,12 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const parts = ["token=;", "HttpOnly", "Path=/", "Max-Age=0", "SameSite=Lax"];
-  if (process.env.NODE_ENV === "production") parts.push("Secure"); // <-- flag, sin "=true"
+  res.setHeader(
+    "Set-Cookie",
+    `token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax; Secure=${
+      process.env.NODE_ENV === "production"
+    }`,
+  );
 
-  res.setHeader("Set-Cookie", parts.join("; "));
   return res.status(200).json({ message: "Logout successful" });
 }

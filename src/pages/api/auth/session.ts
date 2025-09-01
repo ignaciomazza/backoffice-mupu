@@ -17,9 +17,14 @@ type TokenPayload = JWTPayload & {
 };
 
 function getTokenFromRequest(req: NextApiRequest): string | null {
+  // 1) Cookie primaria
+  if (req.cookies?.token) return req.cookies.token;
+
+  // 2) Authorization: Bearer
   const auth = req.headers.authorization || "";
-  if (auth.startsWith("Bearer ")) return auth.slice(7); // ✅ primero Authorization
-  if (req.cookies?.token) return req.cookies.token; // luego cookie
+  if (auth.startsWith("Bearer ")) return auth.slice(7);
+
+  // 3) Otros posibles nombres de cookie (defensivo)
   const c = req.cookies || {};
   for (const k of [
     "session",
@@ -37,21 +42,15 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  res.setHeader(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, max-age=0",
-  );
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-  res.setHeader("ETag", Date.now().toString());
-
   if (req.method !== "GET") {
     res.setHeader("Allow", ["GET"]);
     return res.status(405).end(`Método ${req.method} no permitido`);
   }
 
   const token = getTokenFromRequest(req);
-  if (!token) return res.status(401).json({ error: "No autenticado" });
+  if (!token) {
+    return res.status(401).json({ error: "No autenticado" });
+  }
 
   try {
     const { payload } = await jwtVerify(
@@ -60,6 +59,8 @@ export default async function handler(
     );
     const p = payload as TokenPayload;
 
+    // Mantenemos { token } para compatibilidad con AuthContext.
+    // Sumamos "claims" (opcional) por si te resulta útil en el front.
     return res.status(200).json({
       token,
       claims: {
@@ -70,6 +71,7 @@ export default async function handler(
       },
     });
   } catch {
+    // Token inválido/expirado
     return res.status(401).json({ error: "Token inválido o expirado" });
   }
 }
