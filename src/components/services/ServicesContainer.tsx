@@ -889,6 +889,7 @@ export default function ServicesContainer({
                       setIsFormVisible={setIsInvoiceFormVisible}
                       updateFormData={updateFormData}
                       isSubmitting={isSubmitting}
+                      token={token}
                     />
                     {invoices.length > 0 && <InvoiceList invoices={invoices} />}
                   </div>

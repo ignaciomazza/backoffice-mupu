@@ -55,7 +55,11 @@ export default function InvoiceForm({
       try {
         const url = `/api/exchangeRate?ts=${Date.now()}`; // cache-buster
         // Podés usar authFetch SIN token (igual manda cookies)
-        const res = await authFetch(url, { cache: "no-store" });
+        const res = await authFetch(
+          url,
+          { cache: "no-store" },
+          token || undefined,
+        );
 
         // Para depurar mejor:
         const raw = await res.text();
@@ -79,7 +83,7 @@ export default function InvoiceForm({
     return () => {
       alive = false;
     };
-  }, []);
+  }, [token]);
 
   // ====== Helpers ======
   const arraysEqual = (a: string[], b: string[]) =>
