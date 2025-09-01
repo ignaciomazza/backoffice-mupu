@@ -158,7 +158,7 @@ type MyJWTPayload = JWTPayload & { userId?: number; id_user?: number };
 async function resolveUserIdFromRequest(
   req: NextApiRequest,
 ): Promise<number | null> {
-  // 1) Header inyectado por middleware
+  // 0) Header inyectado por middleware (si está, es lo más confiable)
   const h = req.headers["x-user-id"];
   const uidFromHeader =
     typeof h === "string"
@@ -168,33 +168,43 @@ async function resolveUserIdFromRequest(
         : NaN;
   if (Number.isFinite(uidFromHeader) && uidFromHeader > 0) return uidFromHeader;
 
-  // 2) Authorization: Bearer <token>
-  let token: string | null = null;
-  const auth = req.headers.authorization;
-  if (auth?.startsWith("Bearer ")) token = auth.slice(7);
+  // Reunimos candidatos de token y validamos hasta encontrar uno que funcione
+  const candidates: string[] = [];
 
-  // 3) Cookie "token"
-  if (!token) {
-    const cookieToken = req.cookies?.token;
-    if (typeof cookieToken === "string" && cookieToken.length > 0) {
-      token = cookieToken;
+  // 1) Authorization: Bearer <token> (prioridad)
+  const auth = req.headers.authorization;
+  if (auth?.startsWith("Bearer ")) candidates.push(auth.slice(7));
+
+  // 2) TODAS las ocurrencias de token= en el header Cookie (puede haber host-only y con Domain)
+  const rawCookie = req.headers.cookie ?? "";
+  const re = /(?:^|;\s*)token=([^;]+)/g;
+  for (let m; (m = re.exec(rawCookie)); ) {
+    try {
+      candidates.push(decodeURIComponent(m[1]));
+    } catch {
+      candidates.push(m[1]);
     }
   }
 
-  if (!token) return null;
-
-  try {
-    const secret = process.env.JWT_SECRET || "tu_secreto_seguro";
-    const { payload } = await jwtVerify(
-      token,
-      new TextEncoder().encode(secret),
-    );
-    const p = payload as MyJWTPayload;
-    const uid = Number(p.userId ?? p.id_user ?? 0) || 0;
-    return uid > 0 ? uid : null;
-  } catch {
-    return null;
+  // 3) Fallback al parser de Next (por si no estaba en el header por alguna razón)
+  if (req.cookies?.token && !candidates.includes(req.cookies.token)) {
+    candidates.push(req.cookies.token);
   }
+
+  if (candidates.length === 0) return null;
+
+  const secret = process.env.JWT_SECRET || "tu_secreto_seguro";
+  for (const t of candidates) {
+    try {
+      const { payload } = await jwtVerify(t, new TextEncoder().encode(secret));
+      const p = payload as MyJWTPayload;
+      const uid = Number(p.userId ?? p.id_user ?? 0) || 0;
+      if (uid > 0) return uid;
+    } catch {
+      // probar siguiente candidato
+    }
+  }
+  return null;
 }
 
 /** ------------------------------------------------------------------------
@@ -212,7 +222,6 @@ export async function getAfipForAgency(agencyId: number): Promise<AfipClient> {
 export async function getAfipFromRequest(
   req: NextApiRequest,
 ): Promise<AfipClient> {
-  // Intentamos header, luego JWT en Authorization/Cookie
   const uid = await resolveUserIdFromRequest(req);
   if (!uid) {
     throw new Error(

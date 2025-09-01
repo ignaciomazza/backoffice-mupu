@@ -8,9 +8,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "tu_secreto_seguro";
 type MyJWTPayload = JWTPayload & {
   userId?: number;
   id_user?: number;
-  id_agency?: number;
   role?: string;
-  email?: string;
 };
 
 function normalizeRole(r?: string) {
@@ -33,60 +31,50 @@ async function verifyToken(token: string): Promise<MyJWTPayload | null> {
   }
 }
 
+// ✅ PRIORIDAD: Authorization primero, cookie después
 function getToken(req: NextRequest): string | null {
-  // 1) Cookie
-  const cookieToken = req.cookies.get("token")?.value ?? null;
-  if (cookieToken) return cookieToken;
-
-  // 2) Authorization: Bearer
   const auth = req.headers.get("authorization");
   if (auth?.startsWith("Bearer ")) return auth.slice(7);
-
-  return null;
+  return req.cookies.get("token")?.value ?? null;
 }
 
-const PUBLIC_PATHS = [
+const PUBLIC_PATHS = new Set([
   "/login",
   "/favicon.ico",
   "/api/login",
   "/api/auth/session",
-];
+  "/api/auth/logout", // para poder salir aunque el token esté roto
+  "/api/user/role", // opcional, si preferís que sea pública para el bootstrap de UI
+]);
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Permitir assets y _next por config.matcher; acá chequeamos rutas públicas
-  if (
-    PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))
-  ) {
-    return NextResponse.next();
-  }
-
-  // Permitir preflights de CORS si llegan a APIs
-  if (req.method === "OPTIONS") {
-    return NextResponse.next();
+  // _next y assets quedan fuera por config.matcher; acá solo chequeamos públicas
+  for (const p of PUBLIC_PATHS) {
+    if (pathname === p || pathname.startsWith(p + "/")) {
+      return NextResponse.next();
+    }
   }
 
   const token = getToken(req);
   if (!token) {
-    if (pathname.startsWith("/api")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    return NextResponse.redirect(new URL("/login", req.url));
+    return pathname.startsWith("/api")
+      ? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      : NextResponse.redirect(new URL("/login", req.url));
   }
 
   const payload = await verifyToken(token);
   if (!payload?.role) {
-    if (pathname.startsWith("/api")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    return NextResponse.redirect(new URL("/login", req.url));
+    return pathname.startsWith("/api")
+      ? NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      : NextResponse.redirect(new URL("/login", req.url));
   }
 
   const role = normalizeRole(payload.role);
   const userId = Number(payload.userId ?? payload.id_user ?? 0) || 0;
 
-  // Guards de páginas (opcional; ajustá a tu gusto)
+  // Guards opcionales por ruta
   if (!pathname.startsWith("/api")) {
     let allowed: string[] = [];
     if (/^\/(teams|agency)(\/|$)/.test(pathname)) {
@@ -101,15 +89,13 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // Inyectar headers útiles a la request que sigue (páginas y APIs)
-  const forwarded = new Headers(req.headers);
-  forwarded.set("x-user-id", String(userId));
-  forwarded.set("x-user-role", role);
+  const headers = new Headers(req.headers);
+  headers.set("x-user-id", String(userId));
+  headers.set("x-user-role", role);
 
-  return NextResponse.next({ request: { headers: forwarded } });
+  return NextResponse.next({ request: { headers } });
 }
 
-// No interceptar archivos estáticos ni imágenes
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
