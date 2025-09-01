@@ -11,10 +11,10 @@ import OperatorPaymentCard, {
 
 type Props = {
   token: string | null;
-  bookingId?: number; // para listar pagos asociados a esta reserva
-  operatorId?: number; // opcional: filtrar por operador si lo necesitás
+  bookingId?: number; // listar pagos asociados a esta reserva
+  operatorId?: number; // opcional: filtrar por operador
   className?: string;
-  reloadKey?: number; // NUEVO: forzar refetch al cambiar
+  reloadKey?: number; // forzar refetch al cambiar
 };
 
 export default function OperatorPaymentList({
@@ -33,12 +33,12 @@ export default function OperatorPaymentList({
   const listAbortRef = useRef<AbortController | null>(null);
   const reqIdRef = useRef(0);
 
+  // 🔁 Cambio: usar q=operador (case-insensitive en el back) en lugar de category=OPERADOR
   const queryString = useMemo(() => {
     const qs = new URLSearchParams();
     qs.set("take", "24");
-    qs.set("category", "OPERADOR");
+    qs.set("q", "operador"); // <- match por contains insensible a mayúsculas
     if (operatorId) qs.set("operatorId", String(operatorId));
-    // Si tu API soporta bookingId, lo usamos
     if (bookingId) qs.set("bookingId", String(bookingId));
     return qs.toString();
   }, [bookingId, operatorId]);
@@ -53,17 +53,18 @@ export default function OperatorPaymentList({
     const myId = ++reqIdRef.current;
 
     try {
+      // 🧰 Cambio: credentials: "omit" para evitar cookies
       const res = await authFetch(
         `/api/investments?${queryString}`,
-        { cache: "no-store", signal: controller.signal },
+        { cache: "no-store", signal: controller.signal, credentials: "omit" },
         token,
       );
 
       if (!res.ok) {
-        // Fallback: si el backend aún no soporta bookingId
+        // Fallback por si tu back no soportara bookingId (lo filtramos client-side).
         const onlyCategory = await authFetch(
-          `/api/investments?take=24&category=OPERADOR${operatorId ? `&operatorId=${operatorId}` : ""}`,
-          { cache: "no-store", signal: controller.signal },
+          `/api/investments?take=24&q=operador${operatorId ? `&operatorId=${operatorId}` : ""}`,
+          { cache: "no-store", signal: controller.signal, credentials: "omit" },
           token,
         );
         if (!onlyCategory.ok) throw new Error("No se pudo obtener la lista");
@@ -98,12 +99,12 @@ export default function OperatorPaymentList({
     }
   }, [token, queryString, operatorId, bookingId]);
 
-  // Carga inicial / cuando cambian dependencias de la query
+  // Carga inicial / cuando cambien dependencias
   useEffect(() => {
     fetchList();
   }, [fetchList]);
 
-  // Refetch explícito cuando cambie reloadKey (después de crear un pago)
+  // Refetch explícito (después de crear un pago)
   useEffect(() => {
     if (reloadKey === undefined) return;
     fetchList();
@@ -116,9 +117,10 @@ export default function OperatorPaymentList({
       const baseQS = new URLSearchParams(queryString);
       baseQS.set("cursor", String(nextCursor));
 
+      // 🧰 Cambio: credentials: "omit" para evitar cookies
       const res = await authFetch(
         `/api/investments?${baseQS.toString()}`,
-        { cache: "no-store" },
+        { cache: "no-store", credentials: "omit" },
         token,
       );
       if (!res.ok) throw new Error("No se pudieron cargar más");
@@ -144,7 +146,6 @@ export default function OperatorPaymentList({
 
   return (
     <div className={`space-y-3 ${className ?? ""}`}>
-
       <div className="space-y-3">
         {loadingList ? (
           <div className="flex min-h-[16vh] items-center">
