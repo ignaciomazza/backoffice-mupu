@@ -1,5 +1,4 @@
 // src/pages/api/auth/logout.ts
-
 import { NextApiRequest, NextApiResponse } from "next";
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -8,12 +7,21 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  res.setHeader(
-    "Set-Cookie",
-    `token=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax; Secure=${
-      process.env.NODE_ENV === "production"
-    }`,
-  );
+  const isProd = process.env.NODE_ENV === "production";
+  const domain = process.env.AUTH_COOKIE_DOMAIN || ".ofistur.com";
 
+  const parts = [
+    "token=",
+    "HttpOnly",
+    "Path=/",
+    "SameSite=Lax",
+    "Max-Age=0", // elimina inmediatamente
+  ];
+  if (isProd) {
+    parts.push("Secure");
+    if (domain) parts.push(`Domain=${domain}`);
+  }
+
+  res.setHeader("Set-Cookie", parts.join("; "));
   return res.status(200).json({ message: "Logout successful" });
 }

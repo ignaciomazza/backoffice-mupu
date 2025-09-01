@@ -65,19 +65,22 @@ export default async function handler(
       .setExpirationTime("12h")
       .sign(new TextEncoder().encode(JWT_SECRET));
 
-    // Cookie segura (HttpOnly) y compatible con fetch credentials: "include"
-    // Max-Age 12h (43200s). SameSite=Lax para navegación normal.
-    const cookieParts = [
+    // Cookie segura (HttpOnly) para credenciales incluidas
+    const isProd = process.env.NODE_ENV === "production";
+    const domain = process.env.AUTH_COOKIE_DOMAIN || ".ofistur.com";
+    const parts = [
       `token=${token}`,
       "HttpOnly",
       "Path=/",
       "SameSite=Lax",
-      "Max-Age=43200",
+      "Max-Age=43200", // 12h
     ];
-    if (process.env.NODE_ENV === "production") cookieParts.push("Secure");
+    if (isProd) {
+      parts.push("Secure");
+      if (domain) parts.push(`Domain=${domain}`);
+    }
 
-    res.setHeader("Set-Cookie", cookieParts.join("; "));
-
+    res.setHeader("Set-Cookie", parts.join("; "));
     return res.status(200).json({ message: "Login successful", token });
   } catch (error) {
     console.error("[login][POST]", error);

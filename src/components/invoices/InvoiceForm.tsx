@@ -51,6 +51,7 @@ export default function InvoiceForm({
 
   useEffect(() => {
     let alive = true;
+    if (!token) return;
     (async () => {
       try {
         const url = `/api/exchangeRate?ts=${Date.now()}`; // cache-buster
