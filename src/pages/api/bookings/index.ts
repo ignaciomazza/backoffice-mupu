@@ -26,7 +26,8 @@ type BookingCreateBody = {
   return_date: string;
   pax_count: number;
   clients_ids: number[];
-  id_user?: number;
+  id_user?: number; // opcional: admins/líder pueden asignar creador
+  creation_date?: string; // opcional: SOLO admin/gerente/dev pueden fijar
 };
 
 type TokenPayload = JWTPayload & {
@@ -351,8 +352,48 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    // ======= ORDEN Y KEYSET PAGINATION POR creation_date + id_booking =======
+    // Más nuevas primero. Si querés más viejas primero, cambiar a "asc"
+    const orderBy: Prisma.BookingOrderByWithRelationInput[] = [
+      { creation_date: "desc" },
+      { id_booking: "desc" },
+    ];
+
+    // Si llega cursor (id_booking), buscamos su creation_date para construir el keyset
+    let keysetWhere: Prisma.BookingWhereInput | undefined = undefined;
+    if (cursor) {
+      const anchor = await prisma.booking.findUnique({
+        where: { id_booking: Number(cursor) },
+        select: { creation_date: true },
+      });
+      if (anchor) {
+        // Para orden DESC: traer estrictamente "después" del anchor
+        keysetWhere = {
+          OR: [
+            { creation_date: { lt: anchor.creation_date } },
+            {
+              AND: [
+                { creation_date: anchor.creation_date },
+                { id_booking: { lt: Number(cursor) } },
+              ],
+            },
+          ],
+        };
+        // Si usás ASC: usá 'gt' y 'gt' en vez de 'lt'
+      }
+    }
+
+    const baseAND = Array.isArray(where.AND)
+      ? where.AND
+      : where.AND
+        ? [where.AND]
+        : [];
+    const finalWhere: Prisma.BookingWhereInput = keysetWhere
+      ? { ...where, AND: [...baseAND, keysetWhere] }
+      : where;
+
     const items = await prisma.booking.findMany({
-      where,
+      where: finalWhere,
       include: {
         titular: true,
         user: true,
@@ -362,9 +403,8 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         invoices: true,
         Receipt: true,
       },
-      orderBy: { id_booking: "desc" },
+      orderBy,
       take: take + 1,
-      ...(cursor ? { cursor: { id_booking: cursor }, skip: 1 } : {}),
     });
 
     const hasMore = items.length > take;
@@ -406,6 +446,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     pax_count,
     clients_ids,
     id_user,
+    creation_date, // NUEVO
   } = body;
 
   // auth (siempre agencia y usuario del token/cookie)
@@ -436,7 +477,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       .json({ error: "Todos los campos obligatorios deben ser completados" });
   }
 
-  // fechas
+  // fechas de viaje
   const parsedDeparture = toLocalDate(departure_date);
   const parsedReturn = toLocalDate(return_date);
   if (!parsedDeparture || !parsedReturn) {
@@ -448,7 +489,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     ? clients_ids.map(Number)
     : [];
 
-  // quién puede asignar a otro usuario
+  // permisos para asignar creador
   const canAssignOthers = [
     "gerente",
     "administrativo",
@@ -472,6 +513,26 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       }
     }
     usedUserId = id_user;
+  }
+
+  // permisos para fijar fecha de creación (NO líderes)
+  const canEditCreationDate = [
+    "gerente",
+    "administrativo",
+    "desarrollador",
+  ].includes(role);
+  let parsedCreationDate: Date | undefined = undefined;
+  if (creation_date != null && creation_date !== "") {
+    if (!canEditCreationDate) {
+      return res.status(403).json({
+        error:
+          "No autorizado: solo administración/gerencia pueden fijar la fecha de creación.",
+      });
+    }
+    parsedCreationDate = toLocalDate(creation_date);
+    if (!parsedCreationDate) {
+      return res.status(400).json({ error: "creation_date inválida." });
+    }
   }
 
   // titular y acompañantes deben ser de la misma agencia
@@ -514,6 +575,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         departure_date: parsedDeparture,
         return_date: parsedReturn,
         pax_count: Number(pax_count ?? 1),
+        ...(parsedCreationDate ? { creation_date: parsedCreationDate } : {}),
         titular: { connect: { id_client: Number(titular_id) } },
         user: { connect: { id_user: usedUserId } },
         agency: { connect: { id_agency: authAgencyId } }, // <- SIEMPRE del token

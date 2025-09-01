@@ -16,23 +16,30 @@ type Metric = {
   value?: React.ReactNode;
 };
 
-interface EarningItem {
-  currency: "ARS" | "USD";
-  userId: number;
-  teamId: number;
-  totalSellerComm: number;
-  totalLeaderComm: number;
-}
-interface EarningsResponse {
-  items: EarningItem[];
-}
-
 interface DashboardCardProps {
   label: string;
   icon: JSX.Element;
   value: React.ReactNode;
   span: { cols: number; rows: number };
   link?: string;
+}
+
+// === Nuevos tipos usados por /api/earnings/my ===
+type Currency = "ARS" | "USD";
+type TotalsByCurrency = Record<Currency, number>;
+
+type MyEarningsTotals = {
+  seller: TotalsByCurrency; // lo que cobrás por tus reservas
+  beneficiary: TotalsByCurrency; // lo que cobrás de reservas de otros
+  grandTotal: TotalsByCurrency; // seller + beneficiary
+};
+
+type MyEarningsResponse = { totals: MyEarningsTotals };
+
+type ProfileMinimal = { id_user: number };
+
+interface Props {
+  agencyId: number;
 }
 
 const getSpanClasses = (span: { cols: number; rows: number }) => {
@@ -126,64 +133,20 @@ export default function DashboardShortcuts({ agencyId }: Props) {
         // Perfil (para id_user)
         const pr = await authFetch("/api/user/profile", {}, token);
         if (!pr.ok) throw new Error("No se pudo cargar perfil");
-        const profile = await pr.json();
+        const profile = (await pr.json()) as ProfileMinimal;
 
-        // Equipos de la agencia
-        const tr = await authFetch(
-          `/api/teams?agencyId=${agencyId}`,
-          {},
-          token,
-        );
-        const teams:
-          | {
-              id_team: number;
-              user_teams: { user: { id_user: number; role: string } }[];
-            }[]
-          | [] = (await tr.json()) ?? [];
-
-        const leadersPerTeam = teams.reduce<Record<number, number[]>>(
-          (acc, t) => {
-            acc[t.id_team] = t.user_teams
-              .filter((ut) => ["lider", "gerente"].includes(ut.user.role))
-              .map((ut) => ut.user.id_user);
-            return acc;
-          },
-          {},
-        );
-
-        // Comisiones (nueva API → { items })
+        // Comisiones del usuario (nueva API /api/earnings/my)
         const er = await authFetch(
-          `/api/earnings?from=${defaultFrom}&to=${defaultTo}`,
+          `/api/earnings/my?from=${defaultFrom}&to=${defaultTo}`,
           {},
           token,
         );
-        if (!er.ok) throw new Error("Error al cargar comisiones");
-        const { items }: EarningsResponse = await er.json();
+        if (!er.ok) throw new Error("Error al cargar mis comisiones");
+        const { totals } = (await er.json()) as MyEarningsResponse;
+        setCommissionARS(totals.grandTotal.ARS);
+        setCommissionUSD(totals.grandTotal.USD);
 
-        const { sellerARS, leaderARS, sellerUSD, leaderUSD } = items.reduce(
-          (acc, i) => {
-            const isMe = i.userId === profile.id_user;
-            const leaders = leadersPerTeam[i.teamId] || [];
-            const amILeader = leaders.includes(profile.id_user);
-
-            if (i.currency === "ARS") {
-              if (isMe) acc.sellerARS += i.totalSellerComm;
-              if (amILeader && leaders.length > 0)
-                acc.leaderARS += i.totalLeaderComm / leaders.length;
-            } else {
-              if (isMe) acc.sellerUSD += i.totalSellerComm;
-              if (amILeader && leaders.length > 0)
-                acc.leaderUSD += i.totalLeaderComm / leaders.length;
-            }
-            return acc;
-          },
-          { sellerARS: 0, leaderARS: 0, sellerUSD: 0, leaderUSD: 0 },
-        );
-
-        setCommissionARS(sellerARS + leaderARS);
-        setCommissionUSD(sellerUSD + leaderUSD);
-
-        // Reservas con observaciones (primer page está ok para “atajos”)
+        // Reservas con observaciones (primer page para “atajos”)
         {
           const br = await authFetch("/api/bookings?take=24", {}, token);
           if (br.ok) {

@@ -38,6 +38,8 @@ type BookingFormData = {
   return_date: string;
   pax_count: number;
   clients_ids: number[];
+  /** NUEVO: fecha de creación editable por admin/gerente/dev (YYYY-MM-DD) */
+  creation_date?: string;
 };
 
 // === Hook simple para debouncing ===
@@ -68,7 +70,7 @@ export default function Page() {
 
   const [profile, setProfile] = useState<{
     id_user: number;
-    role: FilterRole;
+    role: FilterRole | string;
   } | null>(null);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [teamsList, setTeamsList] = useState<SalesTeam[]>([]);
@@ -140,6 +142,14 @@ export default function Page() {
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingBookingId, setEditingBookingId] = useState<number | null>(null);
 
+  const todayYMD = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
   const [formData, setFormData] = useState<BookingFormData>({
     id_booking: undefined,
     clientStatus: "Pendiente",
@@ -156,6 +166,8 @@ export default function Page() {
     return_date: "",
     pax_count: 1,
     clients_ids: [],
+    // NUEVO: por defecto hoy (se podrá editar según rol)
+    creation_date: todayYMD(),
   });
 
   // --- Carga de perfil + filtros ---
@@ -175,14 +187,16 @@ export default function Page() {
         if (!profileRes.ok) throw new Error("No se pudo obtener el perfil");
         const p = (await profileRes.json()) as {
           id_user: number;
-          role: FilterRole;
+          role: string;
           id_agency: number;
         };
 
         setProfile(p);
-        const roleNorm = p.role.toLowerCase() as FilterRole;
+        const roleLower = (p.role || "").toLowerCase();
         setFormData((prev) => ({ ...prev, id_user: p.id_user }));
-        setSelectedUserId(FILTROS.includes(roleNorm) ? 0 : p.id_user);
+        setSelectedUserId(
+          FILTROS.includes(roleLower as FilterRole) ? 0 : p.id_user,
+        );
         setSelectedTeamId(0);
 
         // 1) Equipos de la agencia
@@ -194,7 +208,7 @@ export default function Page() {
         if (!teamsRes.ok) throw new Error("No se pudieron cargar los equipos");
         const allTeams = (await teamsRes.json()) as SalesTeam[];
         const allowed =
-          p.role === "lider"
+          roleLower === "lider"
             ? allTeams.filter((t) =>
                 t.user_teams.some(
                   (ut) =>
@@ -204,8 +218,8 @@ export default function Page() {
             : allTeams;
         setTeamsList(allowed);
 
-        // 2) Usuarios visibles (según rol)
-        if (FILTROS.includes(p.role)) {
+        // 2) Usuarios visibles (para asignar creador). Por ahora: vendedor/lider/gerente.
+        if (FILTROS.includes(roleLower as FilterRole)) {
           const usersRes = await authFetch(
             "/api/users",
             { signal: abort.signal, cache: "no-store" },
@@ -222,7 +236,7 @@ export default function Page() {
         }
 
         // 3) Si es líder, obtener sólo sus miembros
-        if (p.role === "lider") {
+        if (roleLower === "lider") {
           const mine = allTeams.filter((t) =>
             t.user_teams.some(
               (ut) => ut.user.id_user === p.id_user && ut.user.role === "lider",
@@ -322,7 +336,7 @@ export default function Page() {
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
-      [name]: ["pax_count", "titular_id"].includes(name)
+      [name]: ["pax_count", "titular_id", "id_user"].includes(name)
         ? Number(value)
         : value,
     }));
@@ -390,9 +404,12 @@ export default function Page() {
         : "/api/bookings";
       const method = editingBookingId ? "PUT" : "POST";
 
+      // Incluimos creation_date si viene (el backend la aceptará según rol)
+      const payload = { ...formData };
+
       const response = await authFetch(
         url,
-        { method, body: JSON.stringify(formData) },
+        { method, body: JSON.stringify(payload) },
         token || undefined,
       );
 
@@ -470,6 +487,7 @@ export default function Page() {
       return_date: "",
       pax_count: 1,
       clients_ids: [],
+      creation_date: todayYMD(), // NUEVO: se resetea a hoy
     }));
     setIsFormVisible(false);
     setEditingBookingId(null);
@@ -492,6 +510,10 @@ export default function Page() {
       return_date: booking.return_date.split("T")[0],
       pax_count: booking.pax_count || 1,
       clients_ids: booking.clients?.map((c) => c.id_client) || [],
+      // NUEVO: traemos la fecha de creación actual
+      creation_date: (booking.creation_date as unknown as string)?.split(
+        "T",
+      )[0],
     });
     setEditingBookingId(booking.id_booking || null);
     setIsFormVisible(true);
@@ -552,6 +574,18 @@ export default function Page() {
     return teamMembers;
   }, [selectedTeamId, teamsList, teamMembers]);
 
+  const roleLower = (profile?.role || "").toLowerCase();
+  const canPickCreator = [
+    "gerente",
+    "administrativo",
+    "desarrollador",
+  ].includes(roleLower);
+  const canEditCreationDate = [
+    "gerente",
+    "administrativo",
+    "desarrollador",
+  ].includes(roleLower);
+
   const isLoading = loadingFilters || loadingBookings;
 
   return (
@@ -567,6 +601,10 @@ export default function Page() {
             isFormVisible={isFormVisible}
             setFormData={setFormData}
             setIsFormVisible={setIsFormVisible}
+            /** NUEVO: props para poder elegir creador y fecha de creación */
+            canPickCreator={canPickCreator}
+            canEditCreationDate={canEditCreationDate}
+            creatorsList={teamMembers}
           />
         </motion.div>
 
@@ -576,7 +614,7 @@ export default function Page() {
 
         <div className="mb-4 space-y-4 text-sm md:text-base">
           <FilterPanel
-            role={profile?.role}
+            role={profile?.role as FilterRole}
             teams={teamsList}
             displayedTeamMembers={displayedTeamMembers}
             selectedUserId={selectedUserId}
@@ -613,7 +651,7 @@ export default function Page() {
             setExpandedBookingId={setExpandedBookingId}
             startEditingBooking={startEditingBooking}
             deleteBooking={deleteBooking}
-            role={profile?.role}
+            role={profile?.role as FilterRole}
             hasMore={Boolean(nextCursor)}
             onLoadMore={loadMore}
             loadingMore={loadingMore}

@@ -3,7 +3,7 @@ import { ChangeEvent, FormEvent, useState } from "react";
 import { motion } from "framer-motion";
 import Spinner from "@/components/Spinner";
 import ClientPicker from "@/components/clients/ClientPicker";
-import { Client } from "@/types";
+import { Client, User } from "@/types";
 
 export interface BookingFormData {
   id_booking?: number;
@@ -21,6 +21,8 @@ export interface BookingFormData {
   return_date: string;
   pax_count: number;
   clients_ids: number[];
+  /** NUEVO: fecha de creación (YYYY-MM-DD) */
+  creation_date?: string;
 }
 
 interface BookingFormProps {
@@ -34,6 +36,10 @@ interface BookingFormProps {
   isFormVisible: boolean;
   setFormData: React.Dispatch<React.SetStateAction<BookingFormData>>;
   setIsFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
+  /** NUEVO: controles de interfaz para admins/gerentes/devs */
+  canPickCreator?: boolean; // permite elegir id_user
+  canEditCreationDate?: boolean; // permite editar creation_date
+  creatorsList?: User[]; // lista de usuarios para el select de “Creador”
 }
 
 export default function BookingForm({
@@ -45,14 +51,20 @@ export default function BookingForm({
   setFormData,
   isFormVisible,
   setIsFormVisible,
+  canPickCreator = false,
+  canEditCreationDate = false,
+  creatorsList = [],
 }: BookingFormProps) {
   const [loading, setLoading] = useState(false);
+
+  // Toggle para mostrar/ocultar el bloque admin (creador/fecha de creación)
+  const [useAdminAdjust, setUseAdminAdjust] = useState(false);
 
   const localHandleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await handleSubmit(e); // el que ya tenés
+      await handleSubmit(e);
     } finally {
       setLoading(false);
     }
@@ -139,12 +151,14 @@ export default function BookingForm({
     });
   };
 
+  const canShowAdminBox = canPickCreator || canEditCreationDate;
+
   return (
     <motion.div
       layout
       initial={{ maxHeight: 100, opacity: 1 }}
       animate={{
-        maxHeight: isFormVisible ? 550 : 100,
+        maxHeight: isFormVisible ? 650 : 100,
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
@@ -194,8 +208,9 @@ export default function BookingForm({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onSubmit={localHandleSubmit}
-          className="max-h-[400px] space-y-3 overflow-y-auto md:pr-12"
+          className="max-h-[500px] space-y-3 overflow-y-auto md:pr-12"
         >
+          {/* Detalle + Fechas de viaje */}
           <div className="md:grid md:grid-cols-2 md:gap-4">
             {[
               {
@@ -253,6 +268,8 @@ export default function BookingForm({
               </div>
             ))}
           </div>
+
+          {/* Facturación */}
           <div className="md:grid md:grid-cols-2 md:gap-4">
             <div>
               <label className="ml-2 block dark:text-white">
@@ -289,12 +306,13 @@ export default function BookingForm({
                 value={formData.invoice_observation || ""}
                 onChange={handleChange}
                 className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
-                placeholder="Ej: Facturar aL cliente N° 342"
+                placeholder="Ej: Facturar al cliente N° 342"
                 required
               />
             </div>
           </div>
 
+          {/* Titular */}
           <div>
             <ClientPicker
               token={token}
@@ -318,6 +336,7 @@ export default function BookingForm({
             />
           </div>
 
+          {/* Acompañantes */}
           <div>
             <label className="ml-2 block dark:text-white">
               Cantidad de Acompañantes
@@ -412,6 +431,88 @@ export default function BookingForm({
             </div>
           )}
 
+          {/* ====== NUEVO: Bloque “Ajustes administrativos” con checkbox ====== */}
+          {canShowAdminBox && (
+            <div className="rounded-2xl border border-white/10 p-3">
+              <label className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={useAdminAdjust}
+                  onChange={(e) => setUseAdminAdjust(e.target.checked)}
+                />
+                <span className="text-sm">
+                  Ajustar creador y/o fecha de creación
+                </span>
+              </label>
+
+              {useAdminAdjust && (
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {/* Elegir Creador */}
+                  {canPickCreator && (
+                    <div>
+                      <p className="mb-1 text-sm font-medium">
+                        Creador de la reserva
+                      </p>
+                      <select
+                        className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+                        name="id_user"
+                        value={formData.id_user || 0}
+                        onChange={(e) => {
+                          const id = Number(e.target.value || 0);
+                          // reusamos handleChange para mantener una sola fuente
+                          const ev = {
+                            target: { name: "id_user", value: String(id) },
+                          } as unknown as ChangeEvent<HTMLSelectElement>;
+                          handleChange(ev);
+                        }}
+                      >
+                        <option value={0} disabled>
+                          Seleccionar…
+                        </option>
+                        {creatorsList.map((u) => (
+                          <option key={u.id_user} value={u.id_user}>
+                            {u.first_name} {u.last_name}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="ml-1 mt-1 text-xs opacity-70">
+                        Si no cambiás nada, queda el usuario actual.
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fecha de creación editable */}
+                  {canEditCreationDate && (
+                    <div>
+                      <p className="mb-1 text-sm font-medium">
+                        Fecha de creación
+                      </p>
+                      <input
+                        type="text"
+                        name="creation_date"
+                        placeholder="Día/Mes/Año"
+                        className="w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                        value={formatIsoToDisplay(formData.creation_date || "")}
+                        onChange={handleDateChange}
+                        onPaste={handleDatePaste}
+                        onBlur={handleDateBlur}
+                      />
+                      <div className="ml-1 mt-1 text-xs opacity-70">
+                        Si lo dejás vacío, el backend usará la fecha actual.
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-xs opacity-70 md:col-span-2">
+                    Estos ajustes requieren permisos y el backend valida el
+                    alcance.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Submit */}
           <div className="pb-2">
             <button
               type="submit"

@@ -5,17 +5,16 @@ import { jwtVerify, type JWTPayload } from "jose";
 
 interface EarningItem {
   currency: "ARS" | "USD";
-  userId: number;
+  userId: number; // dueño de la reserva (seller)
   userName: string;
   teamId: number;
   teamName: string;
   totalSellerComm: number;
-  totalLeaderComm: number;
+  totalLeaderComm: number; // <-- todos los beneficiarios distintos del dueño
   totalAgencyShare: number;
   debt: number;
   bookingIds: number[];
 }
-
 interface EarningsResponse {
   totals: {
     sellerComm: Record<"ARS" | "USD", number>;
@@ -25,63 +24,44 @@ interface EarningsResponse {
   items: EarningItem[];
 }
 
-/** ---------------- Helpers de sesión / agencia ---------------- */
-type MyJWTPayload = JWTPayload & { userId?: number; id_user?: number };
+// ===== Auth (para agencia) =====
+type TokenPayload = JWTPayload & {
+  id_user?: number;
+  userId?: number;
+  uid?: number;
+  id_agency?: number;
+  agencyId?: number;
+  aid?: number;
+  role?: string;
+};
+const JWT_SECRET = process.env.JWT_SECRET!;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
-async function resolveUserFromRequest(
+async function getAuth(
   req: NextApiRequest,
-): Promise<{ id_user: number; id_agency: number; role: string }> {
-  // 1) Header inyectado por middleware
-  const h = req.headers["x-user-id"];
-  const uidFromHeader =
-    typeof h === "string"
-      ? parseInt(h, 10)
-      : Array.isArray(h)
-        ? parseInt(h[0] ?? "", 10)
-        : NaN;
-  let uid: number | null =
-    Number.isFinite(uidFromHeader) && uidFromHeader > 0 ? uidFromHeader : null;
-
-  // 2) Authorization / Cookie (JWT)
-  if (!uid) {
-    let token: string | null = null;
-    const auth = req.headers.authorization;
-    if (auth?.startsWith("Bearer ")) token = auth.slice(7);
+): Promise<{ id_agency: number } | null> {
+  try {
+    const cookieTok = req.cookies?.token;
+    let token = cookieTok && typeof cookieTok === "string" ? cookieTok : null;
     if (!token) {
-      const cookieToken = req.cookies?.token;
-      if (typeof cookieToken === "string" && cookieToken.length > 0) {
-        token = cookieToken;
-      }
+      const auth = req.headers.authorization || "";
+      if (auth.startsWith("Bearer ")) token = auth.slice(7);
     }
-    if (token) {
-      try {
-        const secret = process.env.JWT_SECRET || "tu_secreto_seguro";
-        const { payload } = await jwtVerify(
-          token,
-          new TextEncoder().encode(secret),
-        );
-        const p = payload as MyJWTPayload;
-        uid = Number(p.userId ?? p.id_user ?? 0) || null;
-      } catch {
-        uid = null;
-      }
-    }
+    if (!token) return null;
+    const { payload } = await jwtVerify(
+      token,
+      new TextEncoder().encode(JWT_SECRET),
+    );
+    const p = payload as TokenPayload;
+    const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || 0;
+    if (!id_agency) return null;
+    return { id_agency };
+  } catch {
+    return null;
   }
-
-  if (!uid) throw new Error("No se pudo resolver el usuario.");
-
-  const user = await prisma.user.findUnique({
-    where: { id_user: uid },
-    select: { id_user: true, id_agency: true, role: true },
-  });
-  if (!user?.id_agency)
-    throw new Error("El usuario no tiene agencia asociada.");
-
-  return { id_user: user.id_user, id_agency: user.id_agency, role: user.role };
 }
-/** -------------------------------------------------------------- */
 
-// Helper: "YYYY-MM-DD" -> Date local a las 00:00
+// Helper: "YYYY-MM-DD" -> Date local 00:00
 function ymdToLocalDate(ymd: string): Date {
   const [y, m, d] = ymd.split("-").map(Number);
   return new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
@@ -96,99 +76,75 @@ export default async function handler(
     return res.status(405).json({ error: `Method ${req.method} not allowed` });
   }
 
+  const auth = await getAuth(req);
+  if (!auth) return res.status(401).json({ error: "No autenticado" });
+
   const { from, to } = req.query;
   if (typeof from !== "string" || typeof to !== "string") {
     return res.status(400).json({ error: "Parámetros from y to requeridos" });
   }
 
-  // Límites en horario local: [from, to+1 día)
   const fromDate = ymdToLocalDate(from);
   const toDateExclusive = ymdToLocalDate(to);
   toDateExclusive.setDate(toDateExclusive.getDate() + 1);
 
   try {
-    const { id_agency } = await resolveUserFromRequest(req);
-
-    // 1) Equipos de la AGENCIA
+    // 1) Equipos/usuarios de MI agencia (para etiquetar por equipo)
     const teams = await prisma.salesTeam.findMany({
-      where: { id_agency },
+      where: { id_agency: auth.id_agency },
       include: { user_teams: { include: { user: true } } },
     });
-
-    const teamMap = new Map<
-      number,
-      { name: string; members: number[]; leaders: number[] }
-    >();
+    const teamMap = new Map<number, { name: string; members: number[] }>();
     const userToMemberTeams = new Map<number, number[]>();
-    const userToLeaderTeams = new Map<number, number[]>();
-
-    teams.forEach(({ id_team: teamId, name, user_teams }) => {
-      const members: number[] = [];
-      const leaders: number[] = [];
-
-      user_teams.forEach(({ user }) => {
-        // por las dudas, solo usuarios de la misma agencia
-        if (user.id_agency !== id_agency) return;
-
-        const uid = user.id_user;
-        members.push(uid);
+    teams.forEach(({ id_team, name, user_teams }) => {
+      const members = user_teams.map((ut) => ut.user.id_user);
+      teamMap.set(id_team, { name, members });
+      members.forEach((uid) => {
         userToMemberTeams.set(uid, [
           ...(userToMemberTeams.get(uid) || []),
-          teamId,
+          id_team,
         ]);
-
-        if (["lider", "gerente"].includes(user.role.toLowerCase())) {
-          leaders.push(uid);
-          userToLeaderTeams.set(uid, [
-            ...(userToLeaderTeams.get(uid) || []),
-            teamId,
-          ]);
-        }
       });
-
-      teamMap.set(teamId, { name, members, leaders });
     });
 
-    // 2) Servicios de BOOKING de la AGENCIA en el rango
+    // 2) Servicios del rango (por creación de reserva) SOLO de mi agencia
     const services = await prisma.service.findMany({
       where: {
         booking: {
-          id_agency,
-          creation_date: {
-            gte: fromDate,
-            lt: toDateExclusive,
-          },
+          id_agency: auth.id_agency,
+          creation_date: { gte: fromDate, lt: toDateExclusive },
         },
       },
       include: { booking: { include: { user: true } } },
     });
 
-    // 2.1) Map de booking → dueño
+    // 2.1) Dueños (vendedores) de cada booking
     const bookingOwners = new Map<
       number,
-      { userId: number; userName: string }
+      { userId: number; userName: string; bookingCreatedAt: Date }
     >();
     services.forEach((svc) => {
-      const bid = svc.booking.id_booking;
-      if (!bookingOwners.has(bid)) {
-        bookingOwners.set(bid, {
-          userId: svc.booking.user.id_user,
-          userName: `${svc.booking.user.first_name} ${svc.booking.user.last_name}`,
+      const b = svc.booking;
+      if (!bookingOwners.has(b.id_booking)) {
+        bookingOwners.set(b.id_booking, {
+          userId: b.user.id_user,
+          userName: `${b.user.first_name} ${b.user.last_name}`,
+          bookingCreatedAt: b.creation_date,
         });
       }
     });
 
-    // 3) Venta total por reserva y moneda
+    // 3) Venta total por reserva/moneda (para deuda y 40%)
     const saleTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
     services.forEach((svc) => {
       const bid = svc.booking.id_booking;
-      const cur = (svc.currency as "ARS" | "USD") ?? "ARS";
+      const cur = (svc.currency as "ARS" | "USD") || "ARS";
       const prev = saleTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
       prev[cur] += svc.sale_price;
       saleTotalsByBooking.set(bid, prev);
     });
 
-    // 4) Recibos (solo de las reservas ya filtradas por agencia)
+    // 4) Recibos de esas reservas (misma agencia por FK booking)
     const allReceipts = await prisma.receipt.findMany({
       where: {
         bookingId_booking: { in: Array.from(saleTotalsByBooking.keys()) },
@@ -198,14 +154,14 @@ export default async function handler(
     const receiptsMap = new Map<number, { ARS: number; USD: number }>();
     allReceipts.forEach(
       ({ bookingId_booking: bid, amount, amount_currency }) => {
-        const cur = (amount_currency as "ARS" | "USD") ?? "ARS";
+        const cur = (amount_currency as "ARS" | "USD") || "ARS";
         const prev = receiptsMap.get(bid) || { ARS: 0, USD: 0 };
         prev[cur] += amount;
         receiptsMap.set(bid, prev);
       },
     );
 
-    // 5) Validar bookings ≥40% pagado en su propia moneda
+    // 5) Validar 40% cobrado en la misma moneda
     const validBookingCurrency = new Set<string>();
     saleTotalsByBooking.forEach((totals, bid) => {
       const paid = receiptsMap.get(bid) || { ARS: 0, USD: 0 };
@@ -226,12 +182,59 @@ export default async function handler(
       });
     });
 
-    // 7) Filtrar servicios válidos por % pago
+    // 7) Prefetch de REGLAS por usuario (versión por valid_from <= creation_date)
+    const uniqueOwners = Array.from(
+      new Set(Array.from(bookingOwners.values()).map((o) => o.userId)),
+    );
+    const ruleSets = await prisma.commissionRuleSet.findMany({
+      where: { id_agency: auth.id_agency, owner_user_id: { in: uniqueOwners } },
+      include: { shares: true },
+      orderBy: [{ owner_user_id: "asc" }, { valid_from: "asc" }], // ordenadas crecientes
+    });
+    const rulesByOwner = new Map<number, typeof ruleSets>();
+    ruleSets.forEach((rs) => {
+      const arr = rulesByOwner.get(rs.owner_user_id) || [];
+      arr.push(rs);
+      rulesByOwner.set(rs.owner_user_id, arr);
+    });
+
+    function resolveRule(ownerId: number, bookingCreatedAt: Date) {
+      const list = rulesByOwner.get(ownerId);
+      if (!list || list.length === 0)
+        return {
+          ownPct: 100,
+          shares: [] as Array<{ uid: number; pct: number }>,
+        };
+      // tomamos la última con valid_from <= bookingCreatedAt
+      let chosen = list[0];
+      for (const r of list) {
+        if (r.valid_from <= bookingCreatedAt) chosen = r;
+        else break;
+      }
+      if (chosen.valid_from > bookingCreatedAt) {
+        // todas empiezan después → usar default 100
+        return {
+          ownPct: 100,
+          shares: [] as Array<{ uid: number; pct: number }>,
+        };
+      }
+      return {
+        ownPct: Number(chosen.own_pct),
+        shares: chosen.shares.map((s) => ({
+          uid: s.beneficiary_user_id,
+          pct: Number(s.percent),
+        })),
+      };
+    }
+
+    // 8) Filtrar servicios válidos por % pago
     const filteredServices = services.filter((svc) =>
-      validBookingCurrency.has(`${svc.booking.id_booking}-${svc.currency}`),
+      validBookingCurrency.has(
+        `${svc.booking.id_booking}-${svc.currency as "ARS" | "USD"}`,
+      ),
     );
 
-    // 8) Procesar comisiones y agrupar
+    // 9) Agregación
     const totals = {
       sellerComm: { ARS: 0, USD: 0 },
       leaderComm: { ARS: 0, USD: 0 },
@@ -239,7 +242,7 @@ export default async function handler(
     };
     const itemsMap = new Map<string, EarningItem>();
 
-    function addEarningEntry(
+    function addRow(
       currency: "ARS" | "USD",
       teamId: number,
       userId: number,
@@ -256,7 +259,6 @@ export default async function handler(
 
       const key = `${currency}-${teamId}-${userId}`;
       const existing = itemsMap.get(key);
-
       if (existing) {
         existing.totalSellerComm += sellerComm;
         existing.totalLeaderComm += leaderComm;
@@ -266,7 +268,10 @@ export default async function handler(
           existing.bookingIds.push(bid);
         }
       } else {
-        const teamName = teamMap.get(teamId)?.name || "Sin equipo";
+        const teamName =
+          teamId === 0
+            ? "Sin equipo"
+            : teamMap.get(teamId)?.name || "Sin equipo";
         itemsMap.set(key, {
           currency,
           userId,
@@ -282,64 +287,40 @@ export default async function handler(
       }
     }
 
-    // Pre-armamos index de equipos/líderes del vendedor
-    const memberTeamsOf = (sellerId: number) =>
-      userToMemberTeams.get(sellerId) || [];
-    const leaderTeamsOf = (sellerId: number) =>
-      userToLeaderTeams.get(sellerId) || [];
-
     for (const svc of filteredServices) {
-      // Base de comisión: totalCommissionWithoutVAT - 2.4% fee (no negativo)
+      const bid = svc.booking.id_booking;
+      const cur = (svc.currency as "ARS" | "USD") || "ARS";
+      const {
+        userId: sellerId,
+        userName: sellerName,
+        bookingCreatedAt,
+      } = bookingOwners.get(bid)!;
+
+      // base de comisión (con tu ajuste actual)
       const fee = svc.sale_price * 0.024;
       const dbCommission = svc.totalCommissionWithoutVAT ?? 0;
       const commissionBase = Math.max(dbCommission - fee, 0);
 
-      const cur = (svc.currency as "ARS" | "USD") ?? "ARS";
-      const { user } = svc.booking;
-      const sellerId = user.id_user;
-      const sellerName = `${user.first_name} ${user.last_name}`;
-      const lowerRole = user.role.toLowerCase();
+      // regla efectiva por fecha de creación de la reserva
+      const { ownPct, shares } = resolveRule(sellerId, bookingCreatedAt);
 
-      const memberTeams = memberTeamsOf(sellerId);
-      const leaderTeams = leaderTeamsOf(sellerId);
+      const sellerComm = commissionBase * (ownPct / 100);
+      const leaderComm = shares.reduce(
+        (sum, s) => sum + commissionBase * (s.pct / 100),
+        0,
+      );
+      const agencyShareAmt = Math.max(
+        0,
+        commissionBase - sellerComm - leaderComm,
+      ); // resto a agencia
 
-      let sellerComm = 0;
-      let leaderComm = 0;
-      let agencyShareAmt = 0;
-      let targetTeams: number[] = [];
+      const debtForBooking = debtByBooking.get(bid)![cur];
+      const memberTeams = userToMemberTeams.get(sellerId) || [];
 
-      if (["lider", "gerente"].includes(lowerRole)) {
-        // Lider/Gerente vendiendo: 30% vendedor, resto a agencia (si gerente sin equipos, 100% agencia)
-        if (lowerRole === "gerente" && leaderTeams.length === 0) {
-          sellerComm = 0;
-          agencyShareAmt = commissionBase;
-        } else {
-          sellerComm = commissionBase * 0.3;
-          agencyShareAmt = commissionBase - sellerComm;
-        }
-        targetTeams = leaderTeams.length ? leaderTeams : [0]; // 0 = "Sin equipo"
-      } else {
-        // Vendedor: 30% vendedor, 10% líderes de sus equipos (si no hay líderes, 0% líder y resto agencia)
-        sellerComm = commissionBase * 0.3;
-        leaderComm = commissionBase * 0.1;
-        agencyShareAmt = commissionBase - sellerComm - leaderComm;
-
-        const totalLeaders = memberTeams.reduce(
-          (sum, t) => sum + (teamMap.get(t)?.leaders.length || 0),
-          0,
-        );
-        if (totalLeaders === 0) {
-          leaderComm = 0;
-          agencyShareAmt = commissionBase - sellerComm;
-        }
-        targetTeams = memberTeams.length ? memberTeams : [0];
-      }
-
-      const bid = svc.booking.id_booking;
-      const bookingDebt = debtByBooking.get(bid)![cur];
-
-      targetTeams.forEach((teamId) =>
-        addEarningEntry(
+      // Igual que antes: se reparte visualmente por cada equipo al que pertenece el vendedor (si ninguno, teamId=0)
+      const targetTeams = memberTeams.length ? memberTeams : [0];
+      for (const teamId of targetTeams) {
+        addRow(
           cur,
           teamId,
           sellerId,
@@ -347,10 +328,10 @@ export default async function handler(
           sellerComm,
           leaderComm,
           agencyShareAmt,
-          bookingDebt,
+          debtForBooking,
           bid,
-        ),
-      );
+        );
+      }
     }
 
     return res
@@ -358,8 +339,6 @@ export default async function handler(
       .json({ totals, items: Array.from(itemsMap.values()) });
   } catch (err: unknown) {
     console.error("Error en earnings API:", err);
-    const message =
-      err instanceof Error ? err.message : "Error obteniendo datos";
-    return res.status(500).json({ error: message });
+    return res.status(500).json({ error: "Error obteniendo datos" });
   }
 }
