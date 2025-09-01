@@ -5,71 +5,115 @@ import prisma from "@/lib/prisma";
 import { listInvoices, createInvoices } from "@/services/invoices";
 import { jwtVerify, type JWTPayload } from "jose";
 
-/** ------- helpers mínimos para multi-agencia ------- */
-type MyJWTPayload = JWTPayload & { userId?: number; id_user?: number };
+/* ================= JWT SECRET (igual que bookings) ================= */
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
-async function resolveUserIdFromRequest(
-  req: NextApiRequest,
-): Promise<number | null> {
-  const h = req.headers["x-user-id"];
-  const uidFromHeader =
-    typeof h === "string"
-      ? parseInt(h, 10)
-      : Array.isArray(h)
-        ? parseInt(h[0] ?? "", 10)
-        : NaN;
-  if (Number.isFinite(uidFromHeader) && uidFromHeader > 0) return uidFromHeader;
+/* ================= Tipos ================= */
+type TokenPayload = JWTPayload & {
+  id_user?: number;
+  userId?: number;
+  uid?: number;
+  role?: string;
+  id_agency?: number;
+  agencyId?: number;
+  aid?: number;
+  email?: string;
+};
 
-  let token: string | null = null;
-  const auth = req.headers.authorization;
-  if (auth?.startsWith("Bearer ")) token = auth.slice(7);
+type DecodedUser = {
+  id_user?: number;
+  id_agency?: number;
+  role?: string;
+  email?: string;
+};
 
-  if (!token) {
-    const cookieToken = req.cookies?.token;
-    if (typeof cookieToken === "string" && cookieToken.length > 0)
-      token = cookieToken;
+/* ================= Helpers de auth (copiados del patrón OK) ================= */
+function getTokenFromRequest(req: NextApiRequest): string | null {
+  // 1) cookie "token" (más robusto en prod)
+  if (req.cookies?.token) return req.cookies.token;
+
+  // 2) Authorization: Bearer
+  const auth = req.headers.authorization || "";
+  if (auth.startsWith("Bearer ")) return auth.slice(7);
+
+  // 3) otros posibles nombres de cookie
+  const c = req.cookies || {};
+  for (const k of [
+    "session",
+    "auth_token",
+    "access_token",
+    "next-auth.session-token",
+  ]) {
+    const v = c[k];
+    if (typeof v === "string" && v) return v;
   }
-  if (!token) return null;
+  return null;
+}
 
+async function getUserFromAuth(
+  req: NextApiRequest,
+): Promise<DecodedUser | null> {
   try {
-    const secret = process.env.JWT_SECRET || "tu_secreto_seguro";
+    const token = getTokenFromRequest(req);
+    if (!token) return null;
+
     const { payload } = await jwtVerify(
       token,
-      new TextEncoder().encode(secret),
+      new TextEncoder().encode(JWT_SECRET),
     );
-    const p = payload as MyJWTPayload;
-    const uid = Number(p.userId ?? p.id_user ?? 0) || 0;
-    return uid > 0 ? uid : null;
+    const p = payload as TokenPayload;
+
+    const id_user = Number(p.id_user ?? p.userId ?? p.uid) || undefined;
+    const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || undefined;
+    const role = p.role;
+    const email = p.email;
+
+    // completar por email si falta id_user
+    if (!id_user && email) {
+      const u = await prisma.user.findUnique({
+        where: { email },
+        select: { id_user: true, id_agency: true, role: true, email: true },
+      });
+      if (u)
+        return {
+          id_user: u.id_user,
+          id_agency: u.id_agency,
+          role: u.role,
+          email: u.email,
+        };
+    }
+
+    // completar agency si falta
+    if (id_user && !id_agency) {
+      const u = await prisma.user.findUnique({
+        where: { id_user },
+        select: { id_agency: true, role: true, email: true },
+      });
+      if (u)
+        return {
+          id_user,
+          id_agency: u.id_agency,
+          role: role ?? u.role,
+          email: email ?? u.email ?? undefined,
+        };
+    }
+
+    return { id_user, id_agency, role, email };
   } catch {
     return null;
   }
 }
 
-async function requireAgencyId(req: NextApiRequest): Promise<number> {
-  const uid = await resolveUserIdFromRequest(req);
-  if (!uid)
-    throw new Error("No se pudo resolver el usuario (x-user-id o token).");
-
-  const u = await prisma.user.findUnique({
-    where: { id_user: uid },
-    select: { id_agency: true },
-  });
-  const agencyId = u?.id_agency ?? 0;
-  if (!agencyId) throw new Error("El usuario no tiene agencia asociada.");
-  return agencyId;
-}
-/** ----------------------------------------------- */
-
-const getFirst = (v?: string | string[]) =>
+/* ================= Utils ================= */
+const first = (v?: string | string[]) =>
   Array.isArray(v) ? v[0] : (v ?? undefined);
 
-// ✅ bookingId siempre termina como number
+// bookingId puede venir como "145" o ["145"]
 const querySchema = z.object({
   bookingId: z.preprocess(
     (v) => (Array.isArray(v) ? v[0] : v),
-    z.coerce.number().int().positive({
-      message: "bookingId debe ser un número positivo",
-    }),
+    z.coerce.number().int().positive("bookingId debe ser un número positivo"),
   ),
 });
 
@@ -111,16 +155,24 @@ const bodySchema = z.object({
     }, "La fecha de factura debe estar dentro de los 5 días anteriores o posteriores a hoy"),
 });
 
+/* ================= Handler ================= */
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
+  /* ---------- GET ---------- */
   if (req.method === "GET") {
     try {
-      const agencyId = await requireAgencyId(req);
+      const auth = await getUserFromAuth(req);
+      if (!auth?.id_user || !auth.id_agency) {
+        return res
+          .status(401)
+          .json({ success: false, message: "No autenticado" });
+      }
 
-      const fromStr = getFirst(req.query.from as string | string[] | undefined);
-      const toStr = getFirst(req.query.to as string | string[] | undefined);
+      // rango de fechas opcional
+      const fromStr = first(req.query.from as string | string[] | undefined);
+      const toStr = first(req.query.to as string | string[] | undefined);
 
       if (fromStr && toStr) {
         const fromInt = parseInt(fromStr.replace(/-/g, ""), 10);
@@ -133,7 +185,7 @@ export default async function handler(
                 payloadAfip: { path: ["voucherData", "CbteFch"], gte: fromInt },
               },
               { payloadAfip: { path: ["voucherData", "CbteFch"], lte: toInt } },
-              { booking: { id_agency: agencyId } },
+              { booking: { id_agency: auth.id_agency } }, // 🔒 multi-agencia
             ],
           },
           include: {
@@ -153,21 +205,19 @@ export default async function handler(
         return res.status(200).json({ success: true, invoices });
       }
 
-      // --- búsqueda por bookingId ---
-      const parsedQ = querySchema.safeParse({
-        bookingId: req.query.bookingId, // 👈 parseo solo el campo esperado
-      });
+      // por bookingId
+      const parsedQ = querySchema.safeParse({ bookingId: req.query.bookingId });
       if (!parsedQ.success) {
         return res.status(400).json({
           success: false,
           message: parsedQ.error.errors.map((e) => e.message).join(", "),
         });
       }
+      const bookingId = parsedQ.data.bookingId; // number
 
-      const { bookingId } = parsedQ.data; // ✅ number
-
+      // valida que la reserva sea de la agencia del usuario
       const booking = await prisma.booking.findFirst({
-        where: { id_booking: bookingId, id_agency: agencyId },
+        where: { id_booking: bookingId, id_agency: auth.id_agency },
         select: { id_booking: true },
       });
       if (!booking) {
@@ -179,17 +229,16 @@ export default async function handler(
           });
       }
 
-      const invoices = await listInvoices(bookingId); // ✅ number
+      const invoices = await listInvoices(bookingId);
       return res.status(200).json({ success: true, invoices });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error interno";
-      const status = /x-user-id|usuario|agencia asociada/i.test(msg)
-        ? 401
-        : 500;
-      return res.status(status).json({ success: false, message: msg });
+      console.error("[invoices][GET]", msg);
+      return res.status(500).json({ success: false, message: msg });
     }
   }
 
+  /* ---------- POST ---------- */
   if (req.method === "POST") {
     const parsedB = bodySchema.safeParse(req.body);
     if (!parsedB.success) {
@@ -200,6 +249,7 @@ export default async function handler(
     }
 
     try {
+      // createInvoices ya resuelve agencia por el req (mismo token/cookie)
       const result = await createInvoices(req, parsedB.data);
       if (!result.success) {
         return res
@@ -209,10 +259,8 @@ export default async function handler(
       return res.status(201).json({ success: true, invoices: result.invoices });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error interno";
-      const status = /x-user-id|usuario|agencia asociada/i.test(msg)
-        ? 401
-        : 500;
-      return res.status(status).json({ success: false, message: msg });
+      console.error("[invoices][POST]", msg);
+      return res.status(500).json({ success: false, message: msg });
     }
   }
 
