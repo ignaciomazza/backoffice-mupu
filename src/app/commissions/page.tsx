@@ -15,7 +15,6 @@ type User = {
   last_name: string;
   role: string;
   id_agency: number;
-  email: string;
 };
 
 type ShareRow = { beneficiary_user_id: number; percent: number };
@@ -281,7 +280,7 @@ export default function CommissionsPage() {
               <option value={0}>Seleccionar…</option>
               {users.map((u) => (
                 <option key={u.id_user} value={u.id_user}>
-                  {u.first_name} {u.last_name} — {u.email}
+                  {u.first_name} {u.last_name}
                 </option>
               ))}
             </select>
@@ -354,7 +353,7 @@ export default function CommissionsPage() {
                       <option value={0}>Seleccionar…</option>
                       {availableBeneficiaries.map((u) => (
                         <option key={u.id_user} value={u.id_user}>
-                          {u.first_name} {u.last_name} — {u.email}
+                          {u.first_name} {u.last_name}
                         </option>
                       ))}
                     </select>
