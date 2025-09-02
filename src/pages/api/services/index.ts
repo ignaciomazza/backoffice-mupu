@@ -63,6 +63,8 @@ export default async function handler(
       card_interest_21,
       taxableCardInterest,
       vatOnCardInterest,
+      transfer_fee_pct,
+      transfer_fee_amount,
     } = req.body;
 
     if (
@@ -129,6 +131,8 @@ export default async function handler(
           card_interest_21: card_interest_21 || null,
           taxableCardInterest: taxableCardInterest || null,
           vatOnCardInterest: vatOnCardInterest || null,
+          transfer_fee_pct: transfer_fee_pct ?? null,
+          transfer_fee_amount: transfer_fee_amount ?? null,
         },
         include: { booking: true, operator: true },
       });

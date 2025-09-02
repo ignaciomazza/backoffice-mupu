@@ -5,7 +5,14 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { Booking, Service, Operator, Invoice, Receipt } from "@/types";
+import {
+  Booking,
+  Service,
+  Operator,
+  Invoice,
+  Receipt,
+  BillingData,
+} from "@/types";
 import ServicesContainer, {
   ServiceFormData,
 } from "@/components/services/ServicesContainer";
@@ -73,20 +80,7 @@ export default function ServicesPage() {
     return_date: "",
   });
 
-  const [billingData, setBillingData] = useState<{
-    nonComputable: number;
-    taxableBase21: number;
-    taxableBase10_5: number;
-    commissionExempt: number;
-    commission21: number;
-    commission10_5: number;
-    vatOnCommission21: number;
-    vatOnCommission10_5: number;
-    totalCommissionWithoutVAT: number;
-    impIVA: number;
-    taxableCardInterest: number;
-    vatOnCardInterest: number;
-  }>({
+  const [billingData, setBillingData] = useState<BillingData>({
     nonComputable: 0,
     taxableBase21: 0,
     taxableBase10_5: 0,
@@ -99,6 +93,8 @@ export default function ServicesPage() {
     impIVA: 0,
     taxableCardInterest: 0,
     vatOnCardInterest: 0,
+    transferFeeAmount: 0,
+    transferFeePct: 0.024,
   });
 
   const [creditNoteFormData, setCreditNoteFormData] =
@@ -120,7 +116,7 @@ export default function ServicesPage() {
   const [isInvoiceFormVisible, setIsInvoiceFormVisible] = useState(false);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
 
-  const handleBillingUpdate = useCallback((data: typeof billingData) => {
+  const handleBillingUpdate = useCallback((data: BillingData) => {
     setBillingData(data);
   }, []);
 
@@ -384,7 +380,7 @@ export default function ServicesPage() {
       descriptionNonComputable: invoiceFormData.descriptionNonComputable,
       invoiceDate: invoiceFormData.invoiceDate,
     };
-    
+
     setInvoiceLoading(true);
     try {
       const res = await authFetch(
@@ -475,7 +471,15 @@ export default function ServicesPage() {
       const url = editingServiceId
         ? `/api/services/${editingServiceId}`
         : "/api/services";
-      const payload = { ...formData, booking_id: id, ...billingData };
+
+      // 👇 armamos payload y agregamos los campos snake_case que espera el backend
+      const payload = {
+        ...formData,
+        booking_id: id,
+        ...billingData,
+        transfer_fee_pct: billingData.transferFeePct,
+        transfer_fee_amount: billingData.transferFeeAmount,
+      };
       const res = await authFetch(
         url,
         {
@@ -531,6 +535,8 @@ export default function ServicesPage() {
         impIVA: 0,
         taxableCardInterest: 0,
         vatOnCardInterest: 0,
+        transferFeeAmount: 0,
+        transferFeePct: 0.024,
       });
     } catch (err: unknown) {
       toast.error((err as Error).message || "Error al guardar servicio.");

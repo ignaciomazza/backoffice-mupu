@@ -1,3 +1,5 @@
+// src/pages/api/services/[id].ts
+
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 
@@ -41,6 +43,8 @@ export default async function handler(
       card_interest_21,
       taxableCardInterest,
       vatOnCardInterest,
+      transfer_fee_pct,
+      transfer_fee_amount,
     } = req.body;
 
     if (!type || sale_price === undefined || cost_price === undefined) {
@@ -81,6 +85,8 @@ export default async function handler(
           card_interest_21: card_interest_21 || null,
           taxableCardInterest: taxableCardInterest || null,
           vatOnCardInterest: vatOnCardInterest || null,
+          transfer_fee_pct: transfer_fee_pct ?? null,
+          transfer_fee_amount: transfer_fee_amount ?? null,
         },
       });
       return res.status(200).json(service);
@@ -94,11 +100,9 @@ export default async function handler(
       return res.status(200).json({ message: "Servicio eliminado con éxito." });
     } catch (error) {
       console.error("Error al eliminar servicio:", error);
-      return res
-        .status(500)
-        .json({
-          error: "No se pudo eliminar el servicio. Inténtalo nuevamente.",
-        });
+      return res.status(500).json({
+        error: "No se pudo eliminar el servicio. Inténtalo nuevamente.",
+      });
     }
   } else {
     res.setHeader("Allow", ["PUT", "DELETE"]);

@@ -19,6 +19,7 @@ interface Totals {
   totalCommissionWithoutVAT: number;
   /** Fallback cuando no viene el desglose de intereses (sin IVA / IVA) */
   cardInterestRaw?: number;
+  transferFeesAmount: number;
 }
 
 interface SummaryCardProps {
@@ -126,26 +127,26 @@ export default function SummaryCard({
                   </ul>
                 </div>
 
-                {/* Costos por transacción (2.4%) */}
+                {/* Costos por transferencia (NUEVO) */}
                 <div className="mx-auto w-full max-w-md">
-                  <p className="font-semibold">Costos por transacción</p>
+                  <p className="font-semibold">Costos por transferencia</p>
                   <ul className="ml-4 list-disc font-light">
-                    <li>2.4%: {fmtCurrency(t.sale_price * 0.024, currency)}</li>
+                    <li>{fmtCurrency(t.transferFeesAmount, currency)}</li>
                   </ul>
                 </div>
-              </div>
 
-              {/* Total Comisiones al final */}
-              <div className="mt-6 border-t border-sky-950/20 pt-4 dark:border-white/20">
-                <p className="text-center font-semibold">
-                  Total Comisiones (sin IVA)
-                </p>
-                <p className="mt-2 text-center font-light">
-                  {fmtCurrency(
-                    t.totalCommissionWithoutVAT - t.sale_price * 0.024,
-                    currency,
-                  )}
-                </p>
+                {/* Total Comisiones al final */}
+                <div className="mt-6 border-t border-sky-950/20 pt-4 dark:border-white/20">
+                  <p className="text-center font-semibold">
+                    Total Comisiones (sin IVA)
+                  </p>
+                  <p className="mt-2 text-center font-light">
+                    {fmtCurrency(
+                      t.totalCommissionWithoutVAT - t.transferFeesAmount,
+                      currency,
+                    )}
+                  </p>
+                </div>
               </div>
             </section>
           );

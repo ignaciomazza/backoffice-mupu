@@ -2,21 +2,7 @@
 "use client";
 
 import { useEffect } from "react";
-
-interface BillingData {
-  nonComputable: number;
-  taxableBase21: number;
-  taxableBase10_5: number;
-  commissionExempt: number;
-  commission21: number;
-  commission10_5: number;
-  vatOnCommission21: number;
-  vatOnCommission10_5: number;
-  totalCommissionWithoutVAT: number;
-  impIVA: number;
-  taxableCardInterest: number;
-  vatOnCardInterest: number;
-}
+import type { BillingData } from "@/types/index";
 
 interface BillingBreakdownProps {
   importeVenta: number;
@@ -29,6 +15,7 @@ interface BillingBreakdownProps {
   cardInterestIva: number;
   moneda?: string;
   onBillingUpdate?: (data: BillingData) => void;
+  transferFeePct?: number;
 }
 
 // Helper de redondeo
@@ -46,12 +33,13 @@ export default function BillingBreakdown({
   cardInterestIva,
   moneda = "ARS",
   onBillingUpdate,
+  transferFeePct = 0.024,
 }: BillingBreakdownProps) {
   // 1. Cálculos de base
   const baseNetoDesglose = round(
     costo - (montoIva21 + montoIva10_5) - otrosImpuestos,
   );
-  const transferFee = round(importeVenta * 0.024);
+  const transferFee = round(importeVenta * transferFeePct, 2);
   const baseIva21 = montoIva21 > 0 ? round(montoIva21 / 0.21) : 0;
   const baseIva10_5 = montoIva10_5 > 0 ? round(montoIva10_5 / 0.105) : 0;
   const sumaBasesImponibles = round(baseIva21 + baseIva10_5);
@@ -149,6 +137,8 @@ export default function BillingBreakdown({
         impIVA,
         taxableCardInterest,
         vatOnCardInterest,
+        transferFeeAmount: transferFee,
+        transferFeePct: transferFeePct,
       });
     }
   }, [
@@ -166,6 +156,8 @@ export default function BillingBreakdown({
     vatOnCardInterest,
     hasError,
     onBillingUpdate,
+    transferFee,
+    transferFeePct,
   ]);
 
   const formatCurrency = (v: number) =>
@@ -261,7 +253,8 @@ export default function BillingBreakdown({
 
       <h4 className="mb-2 text-lg font-semibold">Costos por transaccion</h4>
       <p className="mb-4">
-        <strong>2.4%:</strong> {formatCurrency(transferFee)}
+        <strong>{(transferFeePct * 100).toFixed(2)}%:</strong>{" "}
+        {formatCurrency(transferFee)}
       </p>
 
       <p className="font-semibold">

@@ -125,6 +125,8 @@ export interface Service {
   vatOnCommission10_5?: number;
   totalCommissionWithoutVAT?: number;
   impIVA?: number;
+  transfer_fee_pct?: number | null; // proporción (0.024)
+  transfer_fee_amount?: number | null;
   departure_date: string;
   return_date: string;
   booking_id: number;
@@ -322,4 +324,21 @@ export interface ClientPayment {
   amount: number | string;
   currency: string;
   due_date: string;
+}
+
+export interface BillingData {
+  nonComputable: number;
+  taxableBase21: number;
+  taxableBase10_5: number;
+  commissionExempt: number;
+  commission21: number;
+  commission10_5: number;
+  vatOnCommission21: number;
+  vatOnCommission10_5: number;
+  totalCommissionWithoutVAT: number;
+  impIVA: number;
+  taxableCardInterest: number;
+  vatOnCardInterest: number;
+  transferFeeAmount: number; // NUEVO: monto del costo por transferencia
+  transferFeePct: number;    // NUEVO: porcentaje aplicado (proporción, ej 0.024)
 }

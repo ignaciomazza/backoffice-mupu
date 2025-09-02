@@ -25,6 +25,7 @@ interface Totals {
   totalCommissionWithoutVAT: number;
   /** Fallback cuando no hay desglose de intereses de tarjeta */
   cardInterestRaw?: number;
+  transferFeesAmount: number;
 }
 
 /** Extendemos Service con los campos calculados que pueden venir del backend */
@@ -42,6 +43,8 @@ type ServiceWithCalcs = Service &
     vatOnCommission10_5: number;
     totalCommissionWithoutVAT: number;
     card_interest: number;
+    transfer_fee_pct: number | null;
+    transfer_fee_amount: number | null;
   }>;
 
 /** Claves numéricas que sumamos y que existen en ServiceWithCalcs */
@@ -75,6 +78,7 @@ interface ServiceListProps {
   deleteService: (id: number) => void;
   role: string;
   status: string;
+  agencyTransferFeePct: number;
 }
 
 export default function ServiceList({
@@ -85,6 +89,7 @@ export default function ServiceList({
   deleteService,
   role,
   status,
+  agencyTransferFeePct,
 }: ServiceListProps) {
   const formatDate = (dateString?: string) =>
     dateString
@@ -118,6 +123,7 @@ export default function ServiceList({
       vatOnCommission10_5: 0,
       totalCommissionWithoutVAT: 0,
       cardInterestRaw: 0,
+      transferFeesAmount: 0,
     };
 
     return services.reduce<Record<string, Totals>>((acc, s) => {
@@ -143,9 +149,21 @@ export default function ServiceList({
         t.cardInterestRaw = (t.cardInterestRaw || 0) + raw;
       }
 
+      const feeAmount =
+        svc.transfer_fee_amount != null
+          ? Number(svc.transfer_fee_amount)
+          : Number(svc.sale_price || 0) *
+            Number(
+              svc.transfer_fee_pct != null
+                ? svc.transfer_fee_pct
+                : agencyTransferFeePct,
+            );
+
+      if (Number.isFinite(feeAmount)) t.transferFeesAmount += feeAmount;
+
       return acc;
     }, {});
-  }, [services]);
+  }, [services, agencyTransferFeePct]);
 
   return (
     <div className="space-y-8">
@@ -161,6 +179,7 @@ export default function ServiceList({
             formatDate={formatDate}
             role={role}
             status={status}
+            agencyTransferFeePct={agencyTransferFeePct}
           />
         ))}
       </div>

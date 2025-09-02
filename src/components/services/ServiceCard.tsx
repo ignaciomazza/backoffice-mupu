@@ -27,6 +27,7 @@ interface ServiceCardProps {
   deleteService: (id: number) => void;
   role: string;
   status: string;
+  agencyTransferFeePct: number;
 }
 
 const Field: React.FC<{ label: string; children: React.ReactNode }> = ({
@@ -65,8 +66,19 @@ export default function ServiceCard({
   deleteService,
   role,
   status,
+  agencyTransferFeePct,
 }: ServiceCardProps) {
   const isExpanded = expandedServiceId === service.id_service;
+
+  const feeAmount = Number(
+    service.transfer_fee_amount ??
+      Number(service.sale_price || 0) *
+        Number(
+          service.transfer_fee_pct != null
+            ? service.transfer_fee_pct
+            : agencyTransferFeePct,
+        ),
+  );
 
   // Formatea cualquier valor (incluido undefined/null) a "$ 0,00"
   const fmt = useCallback(
@@ -194,9 +206,9 @@ export default function ServiceCard({
           />
 
           <ListSection
-            title="Costos por transaccion"
+            title="Costos por transferencia"
             fmt={fmt}
-            entries={[{ label: "2.4%", value: service.sale_price * 0.024 }]}
+            entries={[{ label: "", value: feeAmount }]}
           />
 
           <p className="font-semibold">
@@ -204,8 +216,7 @@ export default function ServiceCard({
             <span className="font-light">
               {fmt(
                 service.totalCommissionWithoutVAT
-                  ? service.totalCommissionWithoutVAT -
-                      service.sale_price * 0.024
+                  ? service.totalCommissionWithoutVAT - feeAmount
                   : 0,
               )}
             </span>

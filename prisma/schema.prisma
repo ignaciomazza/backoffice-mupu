@@ -22,6 +22,7 @@ model Agency {
   logo_url          String?
   afip_cert_base64  String?
   afip_key_base64   String?
+  transfer_fee_pct  Decimal?            @db.Decimal(9, 6) 
   creation_date     DateTime            @default(now())
   users             User[]
   bookings          Booking[]
@@ -140,6 +141,8 @@ model Service {
   card_interest_21          Float?
   taxableCardInterest       Float?
   vatOnCardInterest         Float?
+  transfer_fee_pct          Decimal?      @db.Decimal(9, 6) 
+  transfer_fee_amount       Decimal?      @db.Decimal(14, 2) 
   departure_date            DateTime
   return_date               DateTime
   created_at                DateTime      @default(now())

@@ -19,6 +19,7 @@ import {
   Receipt,
   ClientPayment,
   OperatorDue,
+  BillingData,
 } from "@/types";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
 import ReceiptList from "@/components/receipts/ReceiptList";
@@ -55,21 +56,6 @@ export type ServiceFormData = {
   departure_date: string;
   return_date: string;
 };
-
-interface BillingData {
-  nonComputable: number;
-  taxableBase21: number;
-  taxableBase10_5: number;
-  commissionExempt: number;
-  commission21: number;
-  commission10_5: number;
-  vatOnCommission21: number;
-  vatOnCommission10_5: number;
-  totalCommissionWithoutVAT: number;
-  impIVA: number;
-  taxableCardInterest: number;
-  vatOnCardInterest: number;
-}
 
 interface ServicesContainerProps {
   token: string | null;
@@ -186,11 +172,32 @@ export default function ServicesContainer({
 
   const [paymentsReloadKey, setPaymentsReloadKey] = useState(0);
 
+  const [agencyTransferFeePct, setAgencyTransferFeePct] =
+    useState<number>(0.024);
+
   const obsVariants = {
     hidden: { opacity: 0, scale: 0.9 },
     visible: { opacity: 1, scale: 1 },
     exit: { opacity: 0, scale: 0.9 },
   };
+
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/agency/transfer-fee", // 👈 tu nueva ruta
+          { cache: "no-store" },
+          token || undefined,
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const pct = Number(data?.transfer_fee_pct);
+          if (Number.isFinite(pct) && pct >= 0) setAgencyTransferFeePct(pct);
+        }
+      } catch {}
+    })();
+  }, [token]);
 
   useEffect(() => {
     const loadBookingIds = async () => {
@@ -790,6 +797,7 @@ export default function ServicesContainer({
                 isFormVisible={isFormVisible}
                 setIsFormVisible={setIsFormVisible}
                 onBillingUpdate={onBillingUpdate}
+                agencyTransferFeePct={agencyTransferFeePct}
               />
               {services.length > 0 && (
                 <div>
@@ -820,6 +828,7 @@ export default function ServicesContainer({
                     deleteService={deleteService}
                     role={role}
                     status={booking.status}
+                    agencyTransferFeePct={agencyTransferFeePct}
                   />
                 </div>
               )}

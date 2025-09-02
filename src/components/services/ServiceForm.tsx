@@ -3,7 +3,7 @@
 
 import { ChangeEvent, FormEvent } from "react";
 import { motion } from "framer-motion";
-import { Operator } from "@/types";
+import { Operator, BillingData } from "@/types";
 import BillingBreakdown from "@/components/BillingBreakdown";
 
 export type ServiceFormData = {
@@ -23,22 +23,8 @@ export type ServiceFormData = {
   id_operator: number;
   departure_date: string;
   return_date: string;
+  transfer_fee_pct?: number | null;
 };
-
-interface BillingData {
-  nonComputable: number;
-  taxableBase21: number;
-  taxableBase10_5: number;
-  commissionExempt: number;
-  commission21: number;
-  commission10_5: number;
-  vatOnCommission21: number;
-  vatOnCommission10_5: number;
-  totalCommissionWithoutVAT: number;
-  impIVA: number;
-  taxableCardInterest: number;
-  vatOnCardInterest: number;
-}
 
 type ServiceFormProps = {
   formData: ServiceFormData;
@@ -51,6 +37,7 @@ type ServiceFormProps = {
   isFormVisible: boolean;
   setIsFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
   onBillingUpdate?: (data: BillingData) => void;
+  agencyTransferFeePct: number;
 };
 
 export default function ServiceForm({
@@ -62,7 +49,14 @@ export default function ServiceForm({
   isFormVisible,
   setIsFormVisible,
   onBillingUpdate,
+  agencyTransferFeePct,
 }: ServiceFormProps) {
+  // porcentaje efectivo: override del servicio si existe; si no, el de agencia
+  const effectiveTransferFeePct =
+    formData.transfer_fee_pct != null
+      ? formData.transfer_fee_pct
+      : agencyTransferFeePct;
+
   const formatCurrency = (value: number) => {
     if (isNaN(value)) return "";
     return new Intl.NumberFormat("es-AR", {
@@ -455,6 +449,7 @@ export default function ServiceForm({
               cardInterestIva={formData.card_interest_21 || 0}
               moneda={formData.currency || "ARS"}
               onBillingUpdate={onBillingUpdate}
+              transferFeePct={effectiveTransferFeePct}
             />
           )}
           <button
