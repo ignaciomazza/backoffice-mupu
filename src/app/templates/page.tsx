@@ -1,5 +1,6 @@
 // src/app/templates/page.tsx
 "use client";
+
 import { useEffect, useState } from "react";
 import { PDFDownloadLink } from "@react-pdf/renderer";
 import QuoteForm, { SimpleQuote } from "@/components/templates/QuoteForm";
@@ -92,7 +93,7 @@ export default function NewDocPage() {
 
           {data && userProfile && (
             <PDFDownloadLink
-              key={JSON.stringify(data)}
+              key={`${docType}:${JSON.stringify(data)}`}
               document={
                 docType === "quote" ? (
                   <QuoteDocument

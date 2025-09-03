@@ -515,24 +515,26 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     usedUserId = id_user;
   }
 
-  // permisos para fijar fecha de creación (NO líderes)
+  // creación: vendedor => hoy; admin/gerente/dev pueden fijar; otros roles: se ignora
+  const isVendor = role === "vendedor";
   const canEditCreationDate = [
     "gerente",
     "administrativo",
     "desarrollador",
-  ].includes(role);
+  ].includes(role); // (NO líderes, igual que antes)
   let parsedCreationDate: Date | undefined = undefined;
-  if (creation_date != null && creation_date !== "") {
-    if (!canEditCreationDate) {
-      return res.status(403).json({
-        error:
-          "No autorizado: solo administración/gerencia pueden fijar la fecha de creación.",
-      });
+
+  if (isVendor) {
+    const now = new Date();
+    parsedCreationDate = startOfDay(now);
+  } else if (creation_date != null && creation_date !== "") {
+    if (canEditCreationDate) {
+      parsedCreationDate = toLocalDate(creation_date);
+      if (!parsedCreationDate) {
+        return res.status(400).json({ error: "creation_date inválida." });
+      }
     }
-    parsedCreationDate = toLocalDate(creation_date);
-    if (!parsedCreationDate) {
-      return res.status(400).json({ error: "creation_date inválida." });
-    }
+    // si no tiene permiso y manda algo: se ignora en silencio
   }
 
   // titular y acompañantes deben ser de la misma agencia

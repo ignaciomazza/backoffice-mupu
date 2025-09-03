@@ -1,6 +1,44 @@
-// src/types/index.ts
+// ===================== Tipos base compartidos =====================
 
-// User.ts: Tipo de usuario
+export type Currency = "ARS" | "USD";
+
+// DocType es solo TypeScript (NO prisma enum). Podés extender con strings.
+export type DocType =
+  | "confirmation"
+  | "quote"
+  | "voucher"
+  | "invoice"
+  | (string & {}); // permite strings personalizados
+
+// ===================== Usuario / Agencia =====================
+
+export interface AgencySocial {
+  instagram?: string;
+  facebook?: string;
+  twitter?: string;
+  tiktok?: string;
+  whatsapp?: string;
+  [k: string]: string | undefined;
+}
+
+export interface Agency {
+  id_agency: number;
+  name: string;
+  legal_name: string;
+  address?: string;
+  phone?: string;
+  phones: string[];
+  email?: string;
+  social?: AgencySocial | null;
+  tax_id: string;
+  website?: string;
+  foundation_date?: string;
+  logo_url?: string;
+  creation_date: string;
+  users?: User[];
+  bookings?: Booking[];
+}
+
 export interface User {
   id_user: number;
   email: string;
@@ -16,24 +54,8 @@ export interface User {
   sales_teams?: UserTeam[];
 }
 
-// Agency.ts: Tipo de agencia
-export interface Agency {
-  id_agency: number;
-  name: string;
-  legal_name: string;
-  address?: string;
-  phone?: string;
-  email?: string;
-  tax_id: string;
-  website?: string;
-  foundation_date?: string;
-  logo_url?: string;
-  creation_date: string;
-  users?: User[];
-  bookings?: Booking[];
-}
+// ===================== Clientes / Reservas / Servicios =====================
 
-// Client.ts: Tipo de cliente
 export interface Client {
   id_client: number;
   first_name: string;
@@ -65,19 +87,22 @@ export interface Booking {
   clientStatus: string;
   operatorStatus: string;
   status: string;
-  details: string; // Obligatorio
-  invoice_type: "Factura A" | "Factura B" | "Coordinar con administracion"; // Obligatorio
-  observation?: string; // Obligatorio
+  details: string;
+  invoice_type: "Factura A" | "Factura B" | "Coordinar con administracion";
+  observation?: string;
   invoice_observation?: string;
   titular: Client;
   user: User;
   agency: Agency;
-  departure_date: string; // Obligatorio
-  return_date: string; // Obligatorio
+  departure_date: string;
+  return_date: string;
   pax_count: number;
-  clients: Client[]; // Acompañantes (opcional)
+  clients: Client[];
   services?: Service[];
   creation_date: string;
+  totalSale?: number;
+  totalCommission?: number;
+  debt?: number;
 }
 
 export interface BookingFormData {
@@ -94,10 +119,9 @@ export interface BookingFormData {
   departure_date: string;
   return_date: string;
   pax_count: number;
-  clients_ids: number[]; // Opcional: IDs de acompañantes/clientes a facturar
+  clients_ids: number[];
 }
 
-// Service.ts: Tipo de servicio
 export interface Service {
   id_service: number;
   type: string;
@@ -125,7 +149,7 @@ export interface Service {
   vatOnCommission10_5?: number;
   totalCommissionWithoutVAT?: number;
   impIVA?: number;
-  transfer_fee_pct?: number | null; // proporción (0.024)
+  transfer_fee_pct?: number | null;
   transfer_fee_amount?: number | null;
   departure_date: string;
   return_date: string;
@@ -134,7 +158,6 @@ export interface Service {
   created_at: string;
 }
 
-// Operator.ts: Tipo de operador
 export interface Operator {
   id_operator: number;
   name: string;
@@ -156,7 +179,8 @@ export interface Operator {
   id_agency: number;
 }
 
-// Invoice.ts: Tipo de factura
+// ===================== Facturación / Recibos =====================
+
 export interface Invoice {
   id_invoice: number;
   invoice_number: string;
@@ -165,11 +189,9 @@ export interface Invoice {
   status: string;
   bookingId_booking: number;
   booking: Booking;
-  currency: "USD" | "ARS";
+  currency: Currency;
   recipient: string;
   client_id: number;
-
-  // nuevo campo:
   payloadAfip?: {
     voucherData: {
       CbteFch: number;
@@ -180,7 +202,30 @@ export interface Invoice {
   };
 }
 
-// SalesTeam.ts: Tipo de equipo de ventas
+export interface Receipt {
+  id_receipt: number;
+  receipt_number: string;
+  issue_date: string;
+  amount: number;
+  amount_string: string;
+  amount_currency: Currency;
+  concept: string;
+  // En este proyecto `currency` es la descripción del método de pago impresa en PDF
+  currency: string;
+  payment_method?: string | null;
+  account?: string | null;
+  base_amount?: number | string | null;
+  base_currency?: Currency | string | null;
+  counter_amount?: number | string | null;
+  counter_currency?: Currency | string | null;
+  bookingId_booking: number;
+  booking?: Booking;
+  serviceIds?: number[];
+  clientIds?: number[];
+}
+
+// ===================== Reportes / perfiles =====================
+
 export interface SalesTeam {
   id_team: number;
   name: string;
@@ -188,7 +233,6 @@ export interface SalesTeam {
   id_agency: number;
 }
 
-// UserTeam.ts: Tipo de relación entre usuario y equipo de ventas
 export interface UserTeam {
   id_user_team: number;
   id_user: number;
@@ -197,7 +241,6 @@ export interface UserTeam {
   sales_team: SalesTeam;
 }
 
-// UserProfile.ts: Tipo de perfil de usuario
 export interface UserProfile {
   name: string;
   email: string;
@@ -208,42 +251,115 @@ export interface UserProfile {
     details: string | null;
     totalServices: number;
     totalSales: number;
-    seller?: string; // Opcional
+    seller?: string;
   }[];
 }
 
-// Receipt.ts: Tipo de perfil de usuario
-export interface Receipt {
-  id_receipt: number;
-  receipt_number: string;
-  issue_date: string; // fecha de emisión en ISO
+// ===================== Cobranzas =====================
 
-  amount: number; // monto numérico
-  amount_string: string; // monto como texto ingresado
-  amount_currency: string; // moneda del monto/letters (ej: "ARS" | "USD")
-
+export interface OperatorDue {
+  id_due: number;
+  created_at: string;
+  booking_id: number;
+  booking?: Booking;
+  service_id: number;
+  service?: Service;
+  due_date: string;
   concept: string;
-
-  // En este proyecto `currency` es la descripción del método de pago (se imprime en el PDF)
-  currency: string;
-
-  // Nuevos campos
-  payment_method?: string | null; // método seleccionado (Efectivo, Transferencia, etc.)
-  account?: string | null; // cuenta usada si aplica
-
-  // Conversión (opcionales, sin T.C. ni notas)
-  base_amount?: number | string | null;
-  base_currency?: string | null;
-  counter_amount?: number | string | null;
-  counter_currency?: string | null;
-
-  bookingId_booking: number;
-  booking?: Booking; // opcionalmente puedes incluir los datos de la reserva
-  serviceIds?: number[];
-  clientIds?: number[];
+  status: string;
+  amount: number | string;
+  currency: Currency | string;
 }
 
-// src/types/Quote.ts
+export interface ClientPayment {
+  id_payment: number;
+  created_at: string;
+  booking_id: number;
+  booking?: Booking;
+  client_id: number;
+  client?: Client;
+  amount: number | string;
+  currency: Currency | string;
+  due_date: string;
+}
+
+export interface BillingData {
+  nonComputable: number;
+  taxableBase21: number;
+  taxableBase10_5: number;
+  commissionExempt: number;
+  commission21: number;
+  commission10_5: number;
+  vatOnCommission21: number;
+  vatOnCommission10_5: number;
+  totalCommissionWithoutVAT: number;
+  impIVA: number;
+  taxableCardInterest: number;
+  vatOnCardInterest: number;
+  transferFeeAmount: number;
+  transferFeePct: number;
+}
+
+// ===================== Templates: estructuras sugeridas =====================
+
+export interface ConfirmationTemplateConfig {
+  styles?: {
+    colors?: {
+      background?: string;
+      text?: string;
+      accent?: string;
+      overlayOpacity?: number;
+    };
+    fonts?: { heading?: string; body?: string };
+  };
+  coverImage?: { mode?: "url" | "none"; url?: string };
+  contactItems?: Array<
+    | "phones"
+    | "email"
+    | "website"
+    | "address"
+    | "instagram"
+    | "facebook"
+    | "twitter"
+    | "tiktok"
+  >;
+  labels?: {
+    header?: string;
+    confirmedData?: string;
+    pax?: string;
+    services?: string;
+    terms?: string;
+    planPago?: string;
+  };
+  termsAndConditions?: string;
+  metodosDePago?: Record<string, string>;
+}
+
+export interface QuoteTemplateConfig {
+  labels?: {
+    title?: string;
+    prices?: string;
+    planPago?: string;
+  };
+  metodosDePago?: Record<string, string>;
+}
+
+// Registro genérico de TemplateConfig
+export interface TemplateConfig<T extends DocType = DocType> {
+  id_template: number;
+  id_agency: number;
+  doc_type: T;
+  // 👇 sin `any`
+  config:
+    | ConfirmationTemplateConfig
+    | QuoteTemplateConfig
+    | Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+// ===================== Documentos (form data) =====================
+
 export interface Quote {
   tripTitle: string;
   dateRange: string;
@@ -270,15 +386,12 @@ export interface Quote {
     | "california"
     | "seleccion"
     | "formula-1";
-  currency: "ARS" | "USD";
+  currency: Currency;
   phone: string;
   logoBase64?: string;
   items: { price: number; concept: string }[];
 }
 
-// src/types/Confirmation.ts
-
-// src/types/Confirmation.ts
 export interface Confirmation {
   confirmationNumber: string;
   clientName: string;
@@ -289,56 +402,5 @@ export interface Confirmation {
   itemsPassenger: { name: string; dni: string; birth: string }[];
   items: { price: number; concept: string }[];
   phone: string;
-  currency: "ARS" | "USD";
-}
-
-// OperatorDue (schema real)
-export interface OperatorDue {
-  id_due: number;
-  created_at: string;
-
-  booking_id: number;
-  booking?: Booking;
-
-  service_id: number;
-  service?: Service;
-
-  due_date: string;
-  concept: string;
-  status: string;
-  amount: number | string;
-  currency: string;
-}
-
-// ClientPayment (schema real)
-export interface ClientPayment {
-  id_payment: number;
-  created_at: string;
-
-  booking_id: number;
-  booking?: Booking;
-
-  client_id: number;
-  client?: Client;
-
-  amount: number | string;
-  currency: string;
-  due_date: string;
-}
-
-export interface BillingData {
-  nonComputable: number;
-  taxableBase21: number;
-  taxableBase10_5: number;
-  commissionExempt: number;
-  commission21: number;
-  commission10_5: number;
-  vatOnCommission21: number;
-  vatOnCommission10_5: number;
-  totalCommissionWithoutVAT: number;
-  impIVA: number;
-  taxableCardInterest: number;
-  vatOnCardInterest: number;
-  transferFeeAmount: number; // NUEVO: monto del costo por transferencia
-  transferFeePct: number;    // NUEVO: porcentaje aplicado (proporción, ej 0.024)
+  currency: Currency;
 }

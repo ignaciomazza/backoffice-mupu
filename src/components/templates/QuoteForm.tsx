@@ -1,6 +1,5 @@
 // src/components/templates/QuoteForm.tsx
 "use client";
-
 import React, { useState } from "react";
 import { Quote } from "@/types";
 import Spinner from "@/components/Spinner";
