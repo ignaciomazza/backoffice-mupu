@@ -151,8 +151,8 @@ const bodySchema = z.object({
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
-      return diff >= -5 && diff <= 5;
-    }, "La fecha de factura debe estar dentro de los 5 días anteriores o posteriores a hoy"),
+      return diff >= -8 && diff <= 8;
+    }, "La fecha de factura debe estar dentro de los 8 días anteriores o posteriores a hoy"),
 });
 
 /* ================= Handler ================= */

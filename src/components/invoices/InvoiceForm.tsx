@@ -205,10 +205,10 @@ export default function InvoiceForm({
   const today = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   const dMin = new Date(today);
-  dMin.setDate(dMin.getDate() - 5);
+  dMin.setDate(dMin.getDate() - 8);
   const minDate = `${dMin.getFullYear()}-${pad(dMin.getMonth() + 1)}-${pad(dMin.getDate())}`;
   const dMax = new Date(today);
-  dMax.setDate(dMax.getDate() + 5);
+  dMax.setDate(dMax.getDate() + 8);
   const maxDate = `${dMax.getFullYear()}-${pad(dMax.getMonth() + 1)}-${pad(dMax.getDate())}`;
 
   const input =
