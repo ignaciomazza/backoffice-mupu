@@ -6,7 +6,9 @@ import { jwtVerify, type JWTPayload } from "jose";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 
-// ===================== Tipos internos =====================
+/* ============================================================================
+ * Tipos internos de Auth
+ * ========================================================================== */
 type TokenPayload = JWTPayload & {
   id_user?: number;
   userId?: number;
@@ -26,13 +28,13 @@ type DecodedUser = {
 };
 
 type UpsertBody = {
-  // JSON arbitrario, pero sin `any`
   config?: Prisma.InputJsonObject;
-  // modo merge profundo con lo existente
   mode?: "replace" | "merge";
 };
 
-// ===================== Auth helpers =====================
+/* ============================================================================
+ * Auth helpers
+ * ========================================================================== */
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
@@ -52,6 +54,52 @@ function getTokenFromRequest(req: NextApiRequest): string | null {
     if (c[k]) return c[k]!;
   }
   return null;
+}
+
+function scrubFonts(value: Prisma.InputJsonObject): Prisma.InputJsonObject {
+  const out = toMutable(value);
+
+  // Quitar styles.fonts completos
+  if (isInputJsonObject(out.styles)) {
+    const s = toMutable(out.styles as Prisma.InputJsonObject);
+    if (isInputJsonObject(s.fonts)) {
+      delete s.fonts;
+    }
+    out.styles = s as Prisma.InputJsonObject;
+  }
+
+  // Quitar payment.mupuStyle.font/bold
+  if (isInputJsonObject(out.payment)) {
+    const p = toMutable(out.payment as Prisma.InputJsonObject);
+    if (isInputJsonObject(p.mupuStyle)) {
+      const ms = toMutable(p.mupuStyle as Prisma.InputJsonObject);
+      delete ms.font;
+      delete ms.bold;
+      p.mupuStyle = ms as Prisma.InputJsonObject;
+    }
+    out.payment = p as Prisma.InputJsonObject;
+  }
+
+  // Quitar content.blocks[*].mupuStyle.font/bold
+  if (isInputJsonObject(out.content)) {
+    const c = toMutable(out.content as Prisma.InputJsonObject);
+    if (isInputJsonArray(c.blocks)) {
+      c.blocks = (c.blocks as Prisma.InputJsonArray).map((b) => {
+        if (isInputJsonObject(b) && isInputJsonObject(b.mupuStyle)) {
+          const blk = toMutable(b);
+          const ms = toMutable(b.mupuStyle as Prisma.InputJsonObject);
+          delete ms.font;
+          delete ms.bold;
+          blk.mupuStyle = ms as Prisma.InputJsonObject;
+          return blk as unknown as Prisma.InputJsonObject;
+        }
+        return b;
+      }) as Prisma.InputJsonArray;
+    }
+    out.content = c as Prisma.InputJsonObject;
+  }
+
+  return out as unknown as Prisma.InputJsonObject;
 }
 
 async function getUserFromAuth(
@@ -108,7 +156,9 @@ async function getUserFromAuth(
   }
 }
 
-// ===================== Guards/Helpers para InputJson* =====================
+/* ============================================================================
+ * Guards/helpers para Prisma.InputJson*
+ * ========================================================================== */
 function isInputJsonObject(v: unknown): v is Prisma.InputJsonObject {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -119,20 +169,18 @@ function isInputJsonArray(v: unknown): v is Prisma.InputJsonArray {
   return Array.isArray(v);
 }
 
-// tipos auxiliares mutables para evitar TS2542
 type InputJV = Prisma.InputJsonValue | null | undefined;
 type MutableInputJsonObject = { [k: string]: InputJV };
 function toMutable(obj: Prisma.InputJsonObject): MutableInputJsonObject {
   return { ...(obj as unknown as MutableInputJsonObject) };
 }
 
-// Deep merge para Prisma.InputJsonObject (objetos → merge profundo; arrays/primitivos → reemplazo)
+// Deep merge: objetos → merge profundo; arrays/primitivos → reemplazo
 function deepMergeInput(
   base: Prisma.InputJsonObject,
   patch: Prisma.InputJsonObject,
 ): Prisma.InputJsonObject {
   const out = toMutable(base);
-
   for (const key of Object.keys(patch)) {
     const pv = patch[key] as InputJV;
     const bv = base[key] as InputJV;
@@ -141,26 +189,25 @@ function deepMergeInput(
       out[key] = deepMergeInput(bv, pv) as InputJV;
       continue;
     }
-
     if (isInputJsonArray(pv)) {
       out[key] = pv;
       continue;
     }
-
-    // primitivo / null / undefined → reemplazo directo
-    out[key] = pv;
+    out[key] = pv; // primitivo / null / undefined
   }
-
   return out as unknown as Prisma.InputJsonObject;
 }
 
-// ===================== Zod inline (schemas mínimos) =====================
+/* ============================================================================
+ * Zod schemas (alineados al front actual)
+ * ========================================================================== */
+
+// ---- styles ----
 const zColors = z
   .object({
     background: z.string().optional(),
     text: z.string().optional(),
     accent: z.string().optional(),
-    overlayOpacity: z.number().min(0).max(1).optional(),
   })
   .partial();
 
@@ -171,22 +218,135 @@ const zFonts = z
   })
   .partial();
 
-const zCoverImage = z
+const zUi = z
   .object({
-    mode: z.enum(["url", "none"]).optional(),
-    url: z.string().optional(),
+    radius: z.enum(["sm", "md", "lg", "xl", "2xl"]).optional(),
+    contentWidth: z.enum(["narrow", "normal", "wide"]).optional(),
+    density: z.enum(["compact", "comfortable", "relaxed"]).optional(),
+    dividers: z.boolean().optional(),
   })
   .partial();
 
-const zCommon = z
+const zStyles = z
   .object({
-    styles: z
+    presetId: z.string().optional(), // compat
+    colors: zColors.optional(),
+    fonts: zFonts.optional(),
+    ui: zUi.optional(),
+    note: z.string().optional(),
+  })
+  .partial();
+
+// ---- coverImage ----
+
+const zCoverSavedItem = z.object({
+  name: z.string(),
+  url: z.string(),
+});
+
+const zCoverImage = z
+  .object({
+    mode: z.enum(["logo", "url", "none"]).optional(),
+    url: z.string().optional(), // URL seleccionada actual (si usás una)
+    saved: z.array(zCoverSavedItem).optional(), // Biblioteca de imágenes guardadas
+    urls: z.array(z.string()).optional(), // (opcional) lista plana de URLs
+  })
+  .partial();
+
+// ---- payment ----
+const zPayment = z
+  .object({
+    selectedIndex: z.number().int().min(0).nullable().optional(),
+    mupuStyle: z
       .object({
-        colors: zColors.optional(),
-        fonts: zFonts.optional(),
+        color: z.string().optional(),
       })
       .partial()
       .optional(),
+  })
+  .partial();
+
+// ---- content.blocks ----
+const zMupuStyle = z
+  .object({
+    color: z.string().optional(),
+    target: z.enum(["all", "keys", "values"]).optional(), // solo keyValue
+  })
+  .partial();
+
+const zBlockBase = z.object({
+  id: z.string(),
+  type: z.enum([
+    "heading",
+    "subtitle",
+    "paragraph",
+    "list",
+    "keyValue",
+    "twoColumns",
+    "threeColumns",
+  ]),
+  mode: z.enum(["fixed", "form"]),
+  label: z.string().optional(),
+  fieldKey: z.string().optional(),
+  mupuStyle: zMupuStyle.optional(),
+});
+
+const zBlockHeading = zBlockBase.extend({
+  type: z.literal("heading"),
+  text: z.string().optional(),
+  level: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+});
+const zBlockSubtitle = zBlockBase.extend({
+  type: z.literal("subtitle"),
+  text: z.string().optional(),
+});
+const zBlockParagraph = zBlockBase.extend({
+  type: z.literal("paragraph"),
+  text: z.string().optional(),
+});
+const zBlockList = zBlockBase.extend({
+  type: z.literal("list"),
+  items: z.array(z.string()).optional(),
+});
+const zBlockKeyValue = zBlockBase.extend({
+  type: z.literal("keyValue"),
+  pairs: z.array(z.object({ key: z.string(), value: z.string() })).optional(),
+});
+const zBlockTwoColumns = zBlockBase.extend({
+  type: z.literal("twoColumns"),
+  left: z.string().optional(),
+  right: z.string().optional(),
+});
+const zBlockThreeColumns = zBlockBase.extend({
+  type: z.literal("threeColumns"),
+  left: z.string().optional(),
+  center: z.string().optional(),
+  right: z.string().optional(),
+});
+
+const zContent = z
+  .object({
+    blocks: z
+      .array(
+        z.discriminatedUnion("type", [
+          zBlockHeading,
+          zBlockSubtitle,
+          zBlockParagraph,
+          zBlockList,
+          zBlockKeyValue,
+          zBlockTwoColumns,
+          zBlockThreeColumns,
+        ]),
+      )
+      .optional(),
+  })
+  .partial();
+
+// ---- raíz de config (común a tipos de doc) ----
+const zCommon = z
+  .object({
+    layout: z.enum(["layoutA", "layoutB", "layoutC"]).optional(),
+    styles: zStyles.optional(),
     coverImage: zCoverImage.optional(),
     contactItems: z
       .array(
@@ -202,6 +362,10 @@ const zCommon = z
         ]),
       )
       .optional(),
+    paymentOptions: z.array(z.string()).optional(),
+    payment: zPayment.optional(),
+    content: zContent.optional(),
+    // campos legacy compats (no usados por el front actual, pero no rompen)
     labels: z.record(z.string()).optional(),
     termsAndConditions: z.string().optional(),
     metodosDePago: z.record(z.string()).optional(),
@@ -216,58 +380,72 @@ function validateByDocType(docType: string, value: unknown) {
   return schema.parse(value ?? {});
 }
 
-// ===================== Defaults (para resolved=1) =====================
+/* ============================================================================
+ * Defaults usados en ?resolved=1 (alineados al front)
+ * ========================================================================== */
 const CFG_DEFAULTS: Record<string, Prisma.InputJsonObject> = {
   confirmation: {
+    layout: "layoutA",
     styles: {
-      colors: {
-        background: "#000000",
-        text: "#ffffff",
-        accent: "#ffffff",
-        overlayOpacity: 0.4,
-      },
+      colors: { background: "#111827", text: "#ffffff", accent: "#22C55E" },
       fonts: { heading: "Poppins", body: "Poppins" },
+      ui: {
+        radius: "xl",
+        contentWidth: "normal",
+        density: "comfortable",
+        dividers: true,
+      },
+      note: "",
     },
-    coverImage: { mode: "url", url: "/images/avion.jpg" },
-    contactItems: ["phones", "email", "website", "address", "instagram"],
-    labels: {
-      header: "Confirmación de servicios y contrato de viaje",
-      confirmedData: "DATOS DE SERVICIOS CONFIRMADOS",
-      pax: "DATOS DEL PASAJERO",
-      services: "DETALLE DE SERVICIOS CONFIRMADOS",
-      terms: "Cláusulas / Condiciones",
-      planPago: "PLAN DE PAGO",
-    },
-    termsAndConditions: "Condiciones generales disponibles en la agencia.",
-    metodosDePago: {
-      ARS: "Efectivo o transferencia.",
-      USD: "Transferencia en USD.",
-    },
+    coverImage: { mode: "logo", url: "", saved: [] },
+    contactItems: [
+      "website",
+      "address",
+      "phones",
+      "email",
+      "instagram",
+      "facebook",
+      "twitter",
+      "tiktok",
+    ],
+    paymentOptions: [],
+    payment: { selectedIndex: null },
+    content: { blocks: [] },
   },
   quote: {
+    layout: "layoutA",
     styles: {
-      colors: {
-        background: "#000000",
-        text: "#ffffff",
-        accent: "#ffffff",
-        overlayOpacity: 0.4,
-      },
+      colors: { background: "#111827", text: "#ffffff", accent: "#22C55E" },
       fonts: { heading: "Poppins", body: "Poppins" },
+      ui: {
+        radius: "xl",
+        contentWidth: "normal",
+        density: "comfortable",
+        dividers: true,
+      },
+      note: "",
     },
-    contactItems: ["phones", "email", "website", "address", "instagram"],
-    labels: {
-      title: "Propuesta de Viaje",
-      prices: "Precios",
-      planPago: "Formas de pago",
-    },
-    metodosDePago: {
-      ARS: "Transferencia en ARS.",
-      USD: "Transferencia en USD.",
-    },
+    coverImage: { mode: "logo", url: "", saved: [] },
+    contactItems: [
+      "website",
+      "address",
+      "phones",
+      "email",
+      "instagram",
+      "facebook",
+      "twitter",
+      "tiktok",
+    ],
+    paymentOptions: [],
+    payment: { selectedIndex: null },
+    content: { blocks: [] },
   },
 };
 
-// ===================== Handlers =====================
+/* ============================================================================
+ * Handlers
+ * ========================================================================== */
+
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   try {
     const auth = await getUserFromAuth(req);
@@ -297,7 +475,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         asInputJsonObject(defaults),
         asInputJsonObject(stored),
       );
-      // Validamos el resultado (por seguridad)
+      // Validar el resultado final
       validateByDocType(docType, payloadConfig);
     }
 
@@ -312,6 +490,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     });
   } catch (error) {
     console.error("[template-config][GET]", error);
+    // Si el error es de Zod, avisamos con 400
+    if (error instanceof z.ZodError) {
+      return res
+        .status(400)
+        .json({ error: "Config inválida", issues: error.issues });
+    }
     return res.status(500).json({ error: "Error obteniendo la configuración" });
   }
 }
@@ -348,8 +532,9 @@ async function handleUpsert(req: NextApiRequest, res: NextApiResponse) {
     // Validar con Zod y normalizar a InputJsonObject
     const validated = validateByDocType(docType, body.config ?? {});
     const incoming = asInputJsonObject(validated);
+    const sanitized = scrubFonts(incoming);
 
-    // obtenemos actual si existe
+    // obtener actual
     const current = await prisma.templateConfig.findUnique({
       where: {
         id_agency_doc_type: { id_agency: auth.id_agency, doc_type: docType },
@@ -359,7 +544,7 @@ async function handleUpsert(req: NextApiRequest, res: NextApiResponse) {
 
     let nextConfig: Prisma.InputJsonObject;
     if (mode === "merge" && current?.config) {
-      nextConfig = deepMergeInput(asInputJsonObject(current.config), incoming);
+      nextConfig = deepMergeInput(asInputJsonObject(current.config), sanitized);
     } else {
       nextConfig = incoming;
     }
@@ -387,6 +572,11 @@ async function handleUpsert(req: NextApiRequest, res: NextApiResponse) {
     });
   } catch (error) {
     console.error("[template-config][UPSERT]", error);
+    if (error instanceof z.ZodError) {
+      return res
+        .status(400)
+        .json({ error: "Config inválida", issues: error.issues });
+    }
     return res.status(500).json({ error: "Error guardando la configuración" });
   }
 }
@@ -425,7 +615,9 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-// ===================== Router =====================
+/* ============================================================================
+ * Router
+ * ========================================================================== */
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,

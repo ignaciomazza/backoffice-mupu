@@ -27,6 +27,7 @@ type CreateBody = {
   title?: string;
   content?: string;
   doc_type?: string; // "quote" | "confirmation"
+  data?: unknown; // NEW: formulario entero serializado
 };
 
 // ============ JWT ============
@@ -35,14 +36,9 @@ if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
 // ============ Helpers comunes ============
 function getTokenFromRequest(req: NextApiRequest): string | null {
-  // cookie "token"
   if (req.cookies?.token) return req.cookies.token;
-
-  // Authorization: Bearer
   const a = req.headers.authorization || "";
   if (a.startsWith("Bearer ")) return a.slice(7);
-
-  // otros nombres comunes de cookie
   const c = req.cookies || {};
   for (const k of [
     "session",
@@ -74,7 +70,6 @@ async function getUserFromAuth(
     const role = (p.role || "") as string | undefined;
     const email = p.email;
 
-    // completar por email si falta id_user
     if (!id_user && email) {
       const u = await prisma.user.findUnique({
         where: { email },
@@ -85,8 +80,6 @@ async function getUserFromAuth(
         id_agency = u.id_agency;
       }
     }
-
-    // completar agency si falta
     if (id_user && !id_agency) {
       const u = await prisma.user.findUnique({
         where: { id_user },
@@ -114,7 +107,6 @@ function normalizeDocType(v?: string): "quote" | "confirmation" | undefined {
 }
 
 // ============ GET ============
-// Lista presets del usuario autenticado (opcional: filtrar por doc_type, q; paginar con cursor)
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const auth = await getUserFromAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
@@ -130,14 +122,19 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     );
     const cursor = cursorParam;
 
-    const docType = normalizeDocType(
+    // Acepta docType o doc_type
+    const docTypeRaw =
       typeof req.query.docType === "string"
         ? req.query.docType
-        : Array.isArray(req.query.docType)
-          ? req.query.docType[0]
-          : undefined,
-    );
+        : typeof req.query.doc_type === "string"
+          ? req.query.doc_type
+          : Array.isArray(req.query.docType)
+            ? req.query.docType[0]
+            : Array.isArray(req.query.doc_type)
+              ? req.query.doc_type[0]
+              : undefined;
 
+    const docType = normalizeDocType(docTypeRaw);
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
     const where: Prisma.TextPresetWhereInput = {
@@ -168,7 +165,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       orderBy: { id_preset: "desc" },
       take: take + 1,
       ...(cursor ? { cursor: { id_preset: cursor }, skip: 1 } : {}),
-      // no incluimos relaciones, no son necesarias para el listado
     });
 
     const hasMore = items.length > take;
@@ -183,7 +179,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // ============ POST ============
-// Crea un preset propio para el usuario autenticado
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const auth = await getUserFromAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
@@ -192,22 +187,24 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const body = (req.body ?? {}) as CreateBody;
 
     const title = String(body.title ?? "").trim();
-    const content = String(body.content ?? "").trim();
     const doc_type = normalizeDocType(body.doc_type);
+    const content =
+      body.content !== undefined ? String(body.content ?? "") : undefined; // puede ser ""
+    const data = body.data ?? undefined; // NEW
 
-    if (!title || !content || !doc_type) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "title, content y doc_type ('quote' | 'confirmation') son obligatorios",
-        });
+    // NEW: validación flexible – al menos uno de content o data
+    if (!title || !doc_type || (content === undefined && data === undefined)) {
+      return res.status(400).json({
+        error:
+          "title y doc_type son obligatorios; además enviá 'content' o 'data'",
+      });
     }
 
     const created = await prisma.textPreset.create({
       data: {
         title,
-        content,
+        content: content ?? "", // permitimos vacío si solo usan data
+        data, // NEW
         doc_type,
         id_user: auth.id_user,
         id_agency: auth.id_agency,
@@ -221,13 +218,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       e instanceof Prisma.PrismaClientKnownRequestError &&
       e.code === "P2002"
     ) {
-      // viola @@unique([id_user, doc_type, title])
-      return res
-        .status(400)
-        .json({
-          error:
-            "Ya existe un preset con ese título para este tipo de documento",
-        });
+      return res.status(400).json({
+        error: "Ya existe un preset con ese título para este tipo de documento",
+      });
     }
     return res.status(500).json({ error: "Error al crear preset" });
   }

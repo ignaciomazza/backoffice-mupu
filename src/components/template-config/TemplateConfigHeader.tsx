@@ -1,3 +1,4 @@
+// src/components/template-config/TemplateConfigHeader.tsx
 "use client";
 
 import React from "react";

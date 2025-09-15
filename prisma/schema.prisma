@@ -391,6 +391,7 @@ model TextPreset {
   title     String // nombre visible de la idea/maqueta
   content   String // el texto a insertar (quote.dateRange o confirmation.servicesText)
   doc_type  String // "quote" | "confirmation"
+  data      Json?
 
   id_user Int
   user    User @relation(fields: [id_user], references: [id_user], onDelete: Cascade)

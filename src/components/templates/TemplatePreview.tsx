@@ -1,31 +1,29 @@
-// src/components/template-config/TemplateConfigPreview.tsx
+// src/components/templates/TemplatePreview.tsx
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { authFetch } from "@/utils/authFetch";
+import { useAgencyAndUser } from "@/lib/agencyUser";
+import {
+  asStringArray,
+  getAt,
+  mergeConfigWithFormValues,
+  normalizeConfig,
+} from "@/lib/templateConfig";
+import type {
+  DocType,
+  TemplateConfig,
+  TemplateFormValues,
+  ContentBlock,
+  Density,
+  Agency,
+} from "@/types/templates";
 
 /* =============================================================================
- * Tipos base + helpers
+ * Utils visuals
  * ========================================================================== */
 
-type AnyObj = Record<string, unknown>;
-export type Config = AnyObj;
-
-const isObject = (v: unknown): v is AnyObj =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
-
-function getAt<T>(obj: AnyObj, path: string[], fallback: T): T {
-  let cur: unknown = obj;
-  for (const k of path) {
-    if (!isObject(cur)) return fallback;
-    cur = (cur as AnyObj)[k];
-  }
-  return (cur as T) ?? fallback;
-}
-const asStringArray = (v: unknown): string[] =>
-  Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
 const cx = (...classes: Array<string | false | null | undefined>) =>
   classes.filter(Boolean).join(" ");
 
@@ -49,15 +47,12 @@ function luminance(hex: string): number {
   });
   return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
 }
-
 function withAlpha(color: string, alpha: number) {
-  // #RRGGBB -> rgba(r,g,b,a)
   if (color.startsWith("#")) {
     const rgb = hexToRgb(color);
     if (!rgb) return color;
     return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
   }
-  // rgb/rgba(...) -> fuerza nuevo alfa
   const m = color.match(/rgba?\(([^)]+)\)/);
   if (m) {
     const [r, g, b] = m[1]
@@ -66,29 +61,14 @@ function withAlpha(color: string, alpha: number) {
       .map((x) => x.trim());
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
-  // fallback
   return color;
 }
 
+const isBlank = (s?: string | null) => !s || s.trim().length === 0;
+
 /* =============================================================================
- * Bloques de contenido
+ * Tipografías / acentos / estilos por bloque
  * ========================================================================== */
-
-type BlockType =
-  | "heading"
-  | "subtitle"
-  | "paragraph"
-  | "list"
-  | "keyValue"
-  | "twoColumns"
-  | "threeColumns";
-type BlockMode = "fixed" | "form";
-
-/** Overrides por bloque (solo visibles para Mupu + fixed) */
-type MupuStyle = {
-  color?: string;
-  target?: "all" | "keys" | "values"; // solo keyValue
-};
 
 type BlockRole =
   | "h1"
@@ -101,148 +81,23 @@ type BlockRole =
   | "two"
   | "three";
 
-type BaseBlock = {
-  id: string;
-  type: BlockType;
-  mode: BlockMode;
-  label?: string;
-  fieldKey?: string;
-  mupuStyle?: MupuStyle;
-};
-
-type HeadingBlock = BaseBlock & {
-  type: "heading";
-  text?: string;
-  level?: 1 | 2 | 3;
-};
-type SubtitleBlock = BaseBlock & { type: "subtitle"; text?: string };
-type ParagraphBlock = BaseBlock & { type: "paragraph"; text?: string };
-type ListBlock = BaseBlock & { type: "list"; items?: string[] };
-type KeyValueBlock = BaseBlock & {
-  type: "keyValue";
-  pairs?: { key: string; value: string }[];
-};
-type TwoColumnsBlock = BaseBlock & {
-  type: "twoColumns";
-  left?: string;
-  right?: string;
-};
-type ThreeColumnsBlock = BaseBlock & {
-  type: "threeColumns";
-  left?: string;
-  center?: string;
-  right?: string;
-};
-
-type ContentBlock =
-  | HeadingBlock
-  | SubtitleBlock
-  | ParagraphBlock
-  | ListBlock
-  | KeyValueBlock
-  | TwoColumnsBlock
-  | ThreeColumnsBlock;
-
-function isBlock(v: unknown): v is ContentBlock {
-  if (!isObject(v)) return false;
-  const t = (v as AnyObj)["type"];
-  return (
-    t === "heading" ||
-    t === "subtitle" ||
-    t === "paragraph" ||
-    t === "list" ||
-    t === "keyValue" ||
-    t === "twoColumns" ||
-    t === "threeColumns"
-  );
+function resolveMupuTextStyle(
+  ms?: { color?: string },
+  _role?: BlockRole,
+): React.CSSProperties {
+  void _role; // evitar warning de var no usada
+  if (!ms) return {};
+  return { color: ms.color || undefined };
 }
 
 /* =============================================================================
- * Datos remotos: Agencia + Usuario
+ * UI tokens (igual que en TemplateConfigPreview)
  * ========================================================================== */
 
-type Agency = {
-  id?: number;
-  id_agency?: number;
-  name?: string;
-  legal_name?: string;
-  logo_url?: string;
-  address?: string;
-  website?: string;
-  // back clásico
-  phone?: string | null;
-  email?: string | null;
-  social?: Partial<{
-    instagram: string;
-    facebook: string;
-    twitter: string;
-    tiktok: string;
-  }> | null;
-  // variantes alternativas que a veces aparecen
-  phones?: string[];
-  emails?: string[];
-  socials?: Agency["social"];
-};
-type CurrentUser = {
-  first_name?: string;
-  last_name?: string;
-  email?: string;
-  phone?: string | null;
-};
+function useUiTokens(cfg: TemplateConfig) {
+  const rcfg = cfg as unknown as Record<string, unknown>;
 
-function useAgencyAndUser(token?: string | null) {
-  const [agency, setAgency] = useState<Agency>({});
-  const [user, setUser] = useState<CurrentUser>({});
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let mounted = true;
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-    (async () => {
-      try {
-        setLoading(true);
-
-        const agRes = await authFetch(
-          "/api/agency",
-          { cache: "no-store" },
-          token,
-        );
-        const agJson = (await agRes.json().catch(() => ({}))) as unknown;
-        const nextAgency = isObject(agJson) ? (agJson as Agency) : {};
-        if (mounted) setAgency(nextAgency);
-
-        const meRes = await authFetch(
-          "/api/user/profile",
-          { cache: "no-store" },
-          token,
-        );
-        const meJson = (await meRes.json().catch(() => ({}))) as unknown;
-        const nextUser = isObject(meJson) ? (meJson as CurrentUser) : {};
-        if (mounted) setUser(nextUser);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [token]);
-
-  return { agency, user, loading };
-}
-
-/* =============================================================================
- * Tokens UI (radius/padding/gaps/dividers) derivados de config
- * ========================================================================== */
-
-type Density = "compact" | "comfortable" | "relaxed";
-
-function useUiTokens(cfg: Config) {
-  // radius
-  const radius = getAt<string>(cfg, ["styles", "ui", "radius"], "2xl");
+  const radius = getAt<string>(rcfg, ["styles", "ui", "radius"], "2xl");
   const radiusClass =
     radius === "sm"
       ? "rounded-sm"
@@ -265,9 +120,8 @@ function useUiTokens(cfg: Config) {
             ? "rounded-xl"
             : "rounded-2xl";
 
-  // density (normalizada)
   const densityRaw = getAt<string>(
-    cfg,
+    rcfg,
     ["styles", "ui", "density"],
     "comfortable",
   );
@@ -296,9 +150,8 @@ function useUiTokens(cfg: Config) {
         ? "space-y-2"
         : "space-y-1";
 
-  // content max width
   const contentWidth = getAt<string>(
-    cfg,
+    rcfg,
     ["styles", "ui", "contentWidth"],
     "normal",
   );
@@ -309,8 +162,7 @@ function useUiTokens(cfg: Config) {
         ? "max-w-5xl"
         : "max-w-3xl";
 
-  // dividers
-  const dividers = getAt<boolean>(cfg, ["styles", "ui", "dividers"], true);
+  const dividers = getAt<boolean>(rcfg, ["styles", "ui", "dividers"], true);
 
   return {
     radiusClass,
@@ -327,20 +179,7 @@ function useUiTokens(cfg: Config) {
 }
 
 /* =============================================================================
- * Tipografías / acentos / estilos por bloque
- * ========================================================================== */
-
-function resolveMupuTextStyle(
-  ms?: { color?: string },
-  _role?: BlockRole,
-): React.CSSProperties {
-  void _role; // evitar warning de var no usada
-  if (!ms) return {};
-  return { color: ms.color || undefined };
-}
-
-/* =============================================================================
- * Componentes utilitarios
+ * Partes visuales
  * ========================================================================== */
 
 const CoverImage: React.FC<{
@@ -355,14 +194,13 @@ const CoverImage: React.FC<{
 
   if (mode === "url" && url) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={url}
         alt="cover"
         className={cx("w-full object-cover", innerRadiusClass)}
         style={{
           height:
-            density === "compact" ? 176 : density === "relaxed" ? 256 : 208,
+            density === "compact" ? 350 : density === "relaxed" ? 450 : 400,
         }}
       />
     );
@@ -418,32 +256,79 @@ const KeyValueRow: React.FC<{
  * Componente principal
  * ========================================================================== */
 
-type Props = { cfg: Config; docTypeLabel?: string };
+type Props = {
+  cfg: TemplateConfig; // config persistida para el doc_type
+  form?: TemplateFormValues | null; // elecciones + datos del usuario para ESTE documento
+  docType: DocType;
+  docTypeLabel?: string;
+  token?: string | null; // opcional: permite pasar token externo
+  showPlaceholders?: boolean; // si true, muestra {campo} en bloques form vacíos
+};
 
-const TemplateConfigPreview: React.FC<Props> = ({
+const TemplatePreview: React.FC<Props> = ({
   cfg,
+  form = null,
+  docType,
   docTypeLabel = "Documento",
+  token: propToken,
+  showPlaceholders = false,
 }) => {
-  const { token } = useAuth();
+  // Token: prioriza prop; si no está, usa contexto
+  const { token: ctxToken } = useAuth();
+  const token = propToken ?? ctxToken ?? null;
+
   const { agency, user, loading } = useAgencyAndUser(token);
 
-  // Layout actual
-  const layout = getAt<string>(cfg, ["layout"], "layoutA");
+  // Normalizamos config y mergeamos selections del form + agencia/usuario
+  const normalized = useMemo(
+    () => normalizeConfig(cfg, docType),
+    [cfg, docType],
+  );
+  const runtime = useMemo(
+    () =>
+      mergeConfigWithFormValues(normalized, form ?? undefined, agency, user),
+    [normalized, form, agency, user],
+  );
 
-  // Colores base + acento (SIEMPRE desde config)
-  const bg = getAt<string>(cfg, ["styles", "colors", "background"], "#111827");
-  const text = getAt<string>(cfg, ["styles", "colors", "text"], "#ffffff");
-  const accent = getAt<string>(cfg, ["styles", "colors", "accent"], "#22C55E");
+  const rCfg = runtime.config;
+  const rAgency = runtime.agency;
+  const rUser = runtime.user;
 
-  // Tipografías globales: ignoramos cfg.styles.fonts y forzamos por agencia
+  // ¿Es Mupu? (para overrides por bloque en fixed)
   const isMupuAgency =
-    (typeof agency.id === "number" && agency.id === 1) ||
-    (typeof agency.id_agency === "number" && agency.id_agency === 1);
+    (typeof (rAgency as Agency).id === "number" &&
+      (rAgency as Agency).id === 1) ||
+    (typeof (rAgency as Agency).id_agency === "number" &&
+      (rAgency as Agency).id_agency === 1);
+  const shouldApplyMupu = (b: ContentBlock) =>
+    isMupuAgency && b.mode === "fixed" && !!b.mupuStyle;
 
-  const headingFont = isMupuAgency ? "Arimo" : "Poppins";
+  // Bloques ya mergeados (memo fino para evitar casts dispersos)
+  const blocks = useMemo<ContentBlock[]>(
+    () => (rCfg.content?.blocks ?? []) as ContentBlock[],
+    [rCfg.content?.blocks],
+  );
+
+  // Etiqueta sensible y tipada
+  type LabelsCfg = { docTypeLabel?: string };
+  const labels = (rCfg as unknown as { labels?: LabelsCfg }).labels;
+  const docLabel = docTypeLabel ?? labels?.docTypeLabel ?? "Documento";
+
+  // Layout
+  const layout = rCfg.layout ?? "layoutA";
+
+  // Colores / tipografías
+  const bg = rCfg.styles?.colors?.background ?? "#111827";
+  const text = rCfg.styles?.colors?.text ?? "#ffffff";
+  const accent = rCfg.styles?.colors?.accent ?? "#22C55E";
+
+  const headingFont = isMupuAgency
+    ? "Arimo, sans-serif"
+    : (rCfg.styles?.fonts?.heading ?? "Poppins");
   const headingWeight = 600;
-  const bodyFont = isMupuAgency ? "Arimo" : "Poppins";
-
+  const bodyFont = isMupuAgency
+    ? "Arimo, sans-serif"
+    : (rCfg.styles?.fonts?.body ?? "Poppins");
   // UI tokens
   const {
     radiusClass,
@@ -456,84 +341,78 @@ const TemplateConfigPreview: React.FC<Props> = ({
     contentMaxW,
     density,
     dividers,
-  } = useUiTokens(cfg);
+  } = useUiTokens(rCfg);
 
-  // Portada
-  const coverMode = getAt<string>(cfg, ["coverImage", "mode"], "logo");
-  const coverUrl = getAt<string>(cfg, ["coverImage", "url"], "");
+  // Portada: ahora priorizamos la selección del vendedor (form.cover.url)
+  const selectedCoverUrl = form?.cover?.url ?? rCfg.coverImage?.url ?? "";
+  const coverMode = selectedCoverUrl
+    ? "url"
+    : (rCfg.coverImage?.mode ?? "logo");
+  const hasCoverUrl = coverMode === "url" && !!selectedCoverUrl;
 
-  // ===== Normalización de AGENCIA para evitar campos vacíos por naming =====
-  const normalized = useMemo(() => {
-    const website = (agency.website || "")?.toString();
-    const address = (agency.address || "")?.toString();
-
-    // phone: usar phones[0] o caer a phone
-    const phone =
-      (Array.isArray(agency.phones) && agency.phones.length > 0
-        ? agency.phones[0]
-        : agency.phone || "") || "";
-
-    // email: usar email o caer a emails[0]
-    const email =
-      agency.email ||
-      "" ||
-      (Array.isArray(agency.emails) && agency.emails.length > 0
-        ? agency.emails[0]
-        : "");
-
-    // social: admitir social o socials
-    const socialRaw = agency.social || agency.socials || {};
-    const socials = isObject(socialRaw)
-      ? (socialRaw as NonNullable<Agency["social"]>)
-      : {};
-
-    return { website, address, phone, email, socials };
-  }, [agency]);
-
-  // Datos de contacto a mostrar (desde config)
-  const contactItems = asStringArray(cfg["contactItems"]);
+  // Línea corporativa
+  const contactItems = asStringArray(rCfg.contactItems);
+  // Teléfono elegido por el vendedor (si hay)
+  const selectedPhoneFromForm = form?.contact?.phone ?? "";
   const corporateLine = useMemo(() => {
     const items: Array<{ label: string; value: string }> = [];
 
-    if (contactItems.includes("website") && normalized.website)
-      items.push({ label: "Web", value: normalized.website });
-    if (contactItems.includes("address") && normalized.address)
-      items.push({ label: "Dirección", value: normalized.address });
-    if (contactItems.includes("phones") && normalized.phone)
-      items.push({ label: "Tel", value: normalized.phone });
-    if (contactItems.includes("email") && normalized.email)
-      items.push({ label: "Mail", value: normalized.email });
+    const agencyWebsite = rAgency.website || "";
+    const agencyAddress = rAgency.address || "";
+    // Si el vendedor eligió un teléfono, usamos ése. Si no, el primero de agencia.
+    const phoneChosen =
+      selectedPhoneFromForm ||
+      (Array.isArray(rAgency.phones) && rAgency.phones[0]) ||
+      "";
+    const agencyEmail =
+      (Array.isArray(rAgency.emails) && rAgency.emails[0]) || "";
 
-    // (Si en el futuro permitís redes en el backend, ya queda armado)
-    if (contactItems.includes("instagram") && normalized.socials?.instagram)
-      items.push({ label: "Instagram", value: normalized.socials.instagram });
-    if (contactItems.includes("facebook") && normalized.socials?.facebook)
-      items.push({ label: "Facebook", value: normalized.socials.facebook });
-    if (contactItems.includes("twitter") && normalized.socials?.twitter)
-      items.push({ label: "Twitter", value: normalized.socials.twitter });
-    if (contactItems.includes("tiktok") && normalized.socials?.tiktok)
-      items.push({ label: "TikTok", value: normalized.socials.tiktok });
+    const ig = rAgency.socials?.instagram || "";
+    const fb = rAgency.socials?.facebook || "";
+    const tw = rAgency.socials?.twitter || "";
+    const tk = rAgency.socials?.tiktok || "";
+
+    if (contactItems.includes("website") && agencyWebsite)
+      items.push({ label: "Web", value: agencyWebsite });
+    if (contactItems.includes("address") && agencyAddress)
+      items.push({ label: "Dirección", value: agencyAddress });
+    if (contactItems.includes("phones") && phoneChosen)
+      items.push({ label: "Tel", value: phoneChosen });
+    if (contactItems.includes("email") && agencyEmail)
+      items.push({ label: "Mail", value: agencyEmail });
+
+    if (contactItems.includes("instagram") && ig)
+      items.push({ label: "Instagram", value: ig });
+    if (contactItems.includes("facebook") && fb)
+      items.push({ label: "Facebook", value: fb });
+    if (contactItems.includes("twitter") && tw)
+      items.push({ label: "Twitter", value: tw });
+    if (contactItems.includes("tiktok") && tk)
+      items.push({ label: "TikTok", value: tk });
 
     return items;
-  }, [contactItems, normalized]);
-
-  // Bloques de contenido
-  const blocks = useMemo(
-    () =>
-      (getAt<unknown[]>(cfg, ["content", "blocks"], []) || []).filter(
-        isBlock,
-      ) as ContentBlock[],
-    [cfg],
-  );
+  }, [
+    contactItems,
+    rAgency.website,
+    rAgency.address,
+    rAgency.phones,
+    rAgency.emails,
+    rAgency.socials?.instagram,
+    rAgency.socials?.facebook,
+    rAgency.socials?.twitter,
+    rAgency.socials?.tiktok,
+    selectedPhoneFromForm,
+  ]);
 
   // Derivados de agencia/usuario
-  const agencyName = agency.name || "Nombre de la agencia";
-  const legalName = agency.legal_name || agency.name || "Razón social";
-  const agencyLogo = agency.logo_url || "";
+  const agencyName = rAgency.name || "Nombre de la agencia";
+  const legalName = rAgency.legal_name || rAgency.name || "Razón social";
+  const agencyLogo = rAgency.logo_url || "";
   const hasLogo = Boolean(agencyLogo && agencyLogo.trim().length > 0);
   const sellerName =
-    [user.first_name, user.last_name].filter(Boolean).join(" ") || "Vendedor/a";
-  const sellerEmail = user.email || "vendedor@agencia.com";
+    [rUser.first_name, rUser.last_name].filter(Boolean).join(" ") ||
+    "Vendedor/a";
+  const sellerEmail = rUser.email || "vendedor@agencia.com";
 
   // Contraste (bordes, paneles, chips)
   const isLightBg = luminance(bg) >= 0.7;
@@ -544,11 +423,9 @@ const TemplateConfigPreview: React.FC<Props> = ({
     ? "rgba(0,0,0,0.06)"
     : "rgba(255,255,255,0.06)";
   const chipBg = isLightBg ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.06)";
-  const pillBg = isLightBg ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.08)";
   const borderColor = isLightBg
     ? withAlpha(accent, 0.35)
     : "rgba(255,255,255,0.10)";
-
   const dividerColor = isLightBg
     ? "rgba(0,0,0,0.10)"
     : "rgba(255,255,255,0.10)";
@@ -559,23 +436,25 @@ const TemplateConfigPreview: React.FC<Props> = ({
     color: accent,
   };
 
-  // ¿Es agencia Mupu? (para permitir overrides por bloque y pago)
-  const shouldApplyMupu = (b: ContentBlock) =>
-    isMupuAgency && b.mode === "fixed" && !!b.mupuStyle;
-
-  // ====== Vista previa de pago ======
-  const paymentOptions = asStringArray(getAt(cfg, ["paymentOptions"], []));
+  // Pago seleccionado → priorizamos la selección del vendedor (form.payment.selectedIndex)
+  type PaymentMupuStyle = {
+    color?: string;
+  };
+  const rcfg = rCfg as unknown as Record<string, unknown>;
+  const paymentOptions = asStringArray(
+    getAt<string[] | undefined>(rcfg, ["paymentOptions"], undefined),
+  );
   const paymentSelectedIndex =
-    getAt<number | null>(cfg, ["payment", "selectedIndex"], null) ?? null;
+    form?.payment?.selectedIndex ??
+    getAt<number | null>(rcfg, ["payment", "selectedIndex"], null) ??
+    null;
   const paymentSelected =
     paymentSelectedIndex !== null
       ? paymentOptions[paymentSelectedIndex] || ""
       : "";
-  const paymentMupuStyle = (getAt(cfg, ["payment", "mupuStyle"], null) ||
-    null) as {
-    color?: string;
-  } | null;
-
+  const paymentMupuStyle =
+    getAt<PaymentMupuStyle | null>(rcfg, ["payment", "mupuStyle"], null) ??
+    null;
   const paymentStyle =
     isMupuAgency && paymentMupuStyle
       ? resolveMupuTextStyle(paymentMupuStyle)
@@ -624,7 +503,7 @@ const TemplateConfigPreview: React.FC<Props> = ({
           )}
           style={chipStyle}
         >
-          {docTypeLabel}
+          {docLabel}
         </span>
       </div>
 
@@ -641,7 +520,7 @@ const TemplateConfigPreview: React.FC<Props> = ({
             <span
               key={`${it.label}-${i}`}
               className={cx("px-2 py-0.5")}
-              style={{ backgroundColor: pillBg, borderRadius: 8 }}
+              style={{ backgroundColor: chipBg, borderRadius: 8 }}
             >
               <b style={{ color: accent }}>{it.label}:</b>{" "}
               <span className="opacity-90" style={{ color: text }}>
@@ -657,8 +536,11 @@ const TemplateConfigPreview: React.FC<Props> = ({
 
   // Content
   const ContentBlocks: React.FC = () => {
-    const note = getAt<string>(cfg, ["styles", "note"], "");
+    const note = rCfg.styles?.note ?? "";
     const notesEnabled = (note || "").length > 0;
+
+    const shouldRenderPlaceholder = (node: React.ReactNode) =>
+      showPlaceholders ? node : null;
 
     return (
       <div className={cx(padX, "pb-6")}>
@@ -680,9 +562,11 @@ const TemplateConfigPreview: React.FC<Props> = ({
                 applyMs ? resolveMupuTextStyle(ms, role) : undefined;
 
               const placeholder =
-                b.mode === "form" ? (
-                  <span className="opacity-70">{`{${b.fieldKey || "campo"}}`}</span>
-                ) : null;
+                b.mode === "form"
+                  ? shouldRenderPlaceholder(
+                      <span className="opacity-70">{`{${b.fieldKey || "campo"}}`}</span>,
+                    )
+                  : null;
 
               const topDivider = dividers && index > 0 && (
                 <div
@@ -692,7 +576,15 @@ const TemplateConfigPreview: React.FC<Props> = ({
               );
 
               if (b.type === "heading") {
-                const { level = 1, text: textValue = "" } = b as HeadingBlock;
+                const level = b.level ?? 1;
+                const textValue = b.text ?? "";
+                if (
+                  b.mode === "form" &&
+                  isBlank(textValue) &&
+                  !showPlaceholders
+                )
+                  return null;
+
                 const size =
                   level === 1
                     ? "text-2xl"
@@ -715,19 +607,24 @@ const TemplateConfigPreview: React.FC<Props> = ({
                         ...(styleHeading || {}),
                         fontFamily: styleHeading?.fontFamily ?? headingFont,
                         fontWeight: styleHeading?.fontWeight ?? headingWeight,
-                        color:
-                          (applyMs && ms?.color) ||
-                          undefined /* si no, hereda */,
+                        color: (applyMs && ms?.color) || undefined,
                       }}
                     >
-                      {b.mode === "form" ? placeholder : textValue}
+                      {b.mode === "form"
+                        ? isBlank(textValue)
+                          ? placeholder
+                          : textValue
+                        : textValue}
                     </Tag>
                   </div>
                 );
               }
 
               if (b.type === "subtitle") {
-                const { text: t = "" } = b as SubtitleBlock;
+                const t = b.text ?? "";
+                if (b.mode === "form" && isBlank(t) && !showPlaceholders)
+                  return null;
+
                 const styleSubtitle = roleStyle("subtitle");
                 return (
                   <div key={b.id}>
@@ -736,33 +633,43 @@ const TemplateConfigPreview: React.FC<Props> = ({
                       className="text-lg font-medium opacity-95"
                       style={styleSubtitle}
                     >
-                      {b.mode === "form" ? placeholder : t}
+                      {b.mode === "form" ? (isBlank(t) ? placeholder : t) : t}
                     </h4>
                   </div>
                 );
               }
 
               if (b.type === "paragraph") {
-                const { text: t = "" } = b as ParagraphBlock;
+                const t = b.text ?? "";
+                if (b.mode === "form" && isBlank(t) && !showPlaceholders)
+                  return null;
+
                 const styleParagraph = roleStyle("paragraph");
                 return (
                   <div key={b.id}>
                     {topDivider}
                     <p className="leading-relaxed" style={styleParagraph}>
-                      {b.mode === "form" ? placeholder : t}
+                      {b.mode === "form" ? (isBlank(t) ? placeholder : t) : t}
                     </p>
                   </div>
                 );
               }
 
               if (b.type === "list") {
-                const { items = [] } = b as ListBlock;
+                const items = b.items ?? [];
+                if (
+                  b.mode === "form" &&
+                  items.length === 0 &&
+                  !showPlaceholders
+                )
+                  return null;
+
                 const styleList = roleStyle("list");
                 return (
                   <div key={b.id}>
                     {topDivider}
                     <ul className={cx("list-inside list-disc", listSpace)}>
-                      {b.mode === "form" ? (
+                      {b.mode === "form" && items.length === 0 ? (
                         <li style={styleList}>{placeholder}</li>
                       ) : (
                         items.map((it, i) => (
@@ -777,7 +684,14 @@ const TemplateConfigPreview: React.FC<Props> = ({
               }
 
               if (b.type === "keyValue") {
-                const { pairs = [] } = b as KeyValueBlock;
+                const pairs = b.pairs ?? [];
+                if (
+                  b.mode === "form" &&
+                  pairs.length === 0 &&
+                  !showPlaceholders
+                )
+                  return null;
+
                 const target = ms?.target ?? "all";
                 const styleKey =
                   applyMs && (target === "all" || target === "keys")
@@ -792,7 +706,7 @@ const TemplateConfigPreview: React.FC<Props> = ({
                   <div key={b.id} className="mt-2">
                     {topDivider}
                     <div className="grid gap-2">
-                      {b.mode === "form" ? (
+                      {b.mode === "form" && pairs.length === 0 ? (
                         <KeyValueRow
                           k={
                             <span className="opacity-70" style={styleKey}>
@@ -824,34 +738,49 @@ const TemplateConfigPreview: React.FC<Props> = ({
               }
 
               if (b.type === "twoColumns") {
-                const { left = "", right = "" } = b as TwoColumnsBlock;
+                const left = b.left ?? "";
+                const right = b.right ?? "";
+                const bothEmpty = isBlank(left) && isBlank(right);
+                if (b.mode === "form" && bothEmpty && !showPlaceholders)
+                  return null;
+
                 const styleTwo = roleStyle("two");
+                const cell = (content: string, key: string) => (
+                  <div
+                    key={key}
+                    className={cx("p-3", innerRadiusClass)}
+                    style={{ backgroundColor: panelBgStrong }}
+                  >
+                    <div style={styleTwo}>
+                      {b.mode === "form"
+                        ? isBlank(content)
+                          ? placeholder
+                          : content
+                        : content}
+                    </div>
+                  </div>
+                );
+
                 return (
                   <div key={b.id}>
                     {topDivider}
                     <div className={cx("grid md:grid-cols-2", gapGrid)}>
-                      {[left, right].map((content, i) => (
-                        <div
-                          key={i}
-                          className={cx("p-3", innerRadiusClass)}
-                          style={{ backgroundColor: panelBgStrong }}
-                        >
-                          <div style={styleTwo}>
-                            {b.mode === "form" ? placeholder : content}
-                          </div>
-                        </div>
-                      ))}
+                      {cell(left, "l")}
+                      {cell(right, "r")}
                     </div>
                   </div>
                 );
               }
 
               if (b.type === "threeColumns") {
-                const {
-                  left = "",
-                  center = "",
-                  right = "",
-                } = b as ThreeColumnsBlock;
+                const left = b.left ?? "";
+                const center = b.center ?? "";
+                const right = b.right ?? "";
+                const allEmpty =
+                  isBlank(left) && isBlank(center) && isBlank(right);
+                if (b.mode === "form" && allEmpty && !showPlaceholders)
+                  return null;
+
                 const styleThree = roleStyle("three");
                 const cell = (content: string, key: string) => (
                   <div
@@ -860,7 +789,11 @@ const TemplateConfigPreview: React.FC<Props> = ({
                     style={{ backgroundColor: panelBgStrong }}
                   >
                     <div style={styleThree}>
-                      {b.mode === "form" ? placeholder : content}
+                      {b.mode === "form"
+                        ? isBlank(content)
+                          ? placeholder
+                          : content
+                        : content}
                     </div>
                   </div>
                 );
@@ -903,7 +836,6 @@ const TemplateConfigPreview: React.FC<Props> = ({
 
         <div className="flex items-center gap-3 self-end md:self-auto">
           {hasLogo ? (
-            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={agencyLogo}
               alt="logo pequeño"
@@ -934,7 +866,7 @@ const TemplateConfigPreview: React.FC<Props> = ({
 
   return (
     <div
-      className={cx("col-span-2 h-fit border", radiusClass)}
+      className={cx(`col-span-2 h-fit border`, radiusClass)}
       style={{
         backgroundColor: bg,
         color: text,
@@ -946,7 +878,7 @@ const TemplateConfigPreview: React.FC<Props> = ({
         <>
           <CoverImage
             mode={coverMode}
-            url={coverUrl}
+            url={selectedCoverUrl}
             innerRadiusClass={innerRadiusClass}
             density={density}
             logoUrl={agencyLogo}
@@ -962,20 +894,19 @@ const TemplateConfigPreview: React.FC<Props> = ({
       {layout === "layoutB" && (
         <>
           <Header />
-          {coverMode === "url" && coverUrl ? (
+          {hasCoverUrl ? (
             <div className={cx(padX, "mt-4")}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={coverUrl}
+                src={selectedCoverUrl}
                 alt="cover"
                 className={cx("w-full object-cover", innerRadiusClass)}
                 style={{
                   height:
                     density === "compact"
-                      ? 160
+                      ? 350
                       : density === "relaxed"
-                        ? 240
-                        : 200,
+                        ? 450
+                        : 400,
                 }}
               />
             </div>
@@ -994,7 +925,6 @@ const TemplateConfigPreview: React.FC<Props> = ({
             style={{ backgroundColor: panelBgSoft }}
           >
             {hasLogo ? (
-              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={agencyLogo}
                 alt="logo"
@@ -1051,16 +981,15 @@ const TemplateConfigPreview: React.FC<Props> = ({
                 color: accent,
               }}
             >
-              {docTypeLabel}
+              {docLabel}
             </span>
           </aside>
 
           {/* Main */}
           <main className={cx("rounded-r-2xl p-2")}>
-            {coverMode === "url" && coverUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
+            {hasCoverUrl ? (
               <img
-                src={coverUrl}
+                src={selectedCoverUrl}
                 alt="cover"
                 className={cx("w-full object-cover", innerRadiusClass)}
                 style={{
@@ -1084,4 +1013,4 @@ const TemplateConfigPreview: React.FC<Props> = ({
   );
 };
 
-export default TemplateConfigPreview;
+export default TemplatePreview;

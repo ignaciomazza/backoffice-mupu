@@ -1,3 +1,4 @@
+// src/components/template-config/TemplateConfigContainer.tsx
 "use client";
 
 import React, {
@@ -8,14 +9,13 @@ import React, {
   useState,
 } from "react";
 import TemplateConfigHeader from "@/components/template-config/TemplateConfigHeader";
-import TemplateConfigForm, {
-  type Config,
-} from "@/components/template-config/TemplateConfigForm";
+import TemplateConfigForm from "@/components/template-config/TemplateConfigForm";
 import TemplateConfigPreview from "@/components/template-config/TemplateConfigPreview";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
+import { type Config } from "@/components/template-config/types";
 
 // ===== Tipos =====
 export type DocType = "quote" | "confirmation";
@@ -48,15 +48,15 @@ function toObj(v: unknown): Config {
 }
 
 // ===== Presets mínimos (fallback local por doc_type) =====
-// Nota: colores en escala de grises
 const LOCAL_DEFAULTS: Record<DocType, Config> = {
   confirmation: {
     styles: {
       colors: { background: "#111111", text: "#FFFFFF", accent: "#9CA3AF" },
       fonts: { heading: "Poppins", body: "Poppins" },
     },
-    coverImage: { mode: "logo" }, // por defecto logo de la agencia
-    contactItems: ["phones", "email", "website", "instagram"],
+    layout: "layoutA",
+    coverImage: { mode: "logo" },
+    contactItems: ["phones", "email", "website", "address"],
     content: { blocks: [] },
     paymentOptions: [],
   },
@@ -65,8 +65,9 @@ const LOCAL_DEFAULTS: Record<DocType, Config> = {
       colors: { background: "#FFFFFF", text: "#111111", accent: "#6B7280" },
       fonts: { heading: "Poppins", body: "Poppins" },
     },
+    layout: "layoutA",
     coverImage: { mode: "logo" },
-    contactItems: ["phones", "email", "website", "instagram"],
+    contactItems: ["phones", "email", "website", "address"],
     content: { blocks: [] },
     paymentOptions: [],
   },
@@ -169,14 +170,23 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
     if (!token) return;
     try {
       setSaving(true);
-      // Quitamos "mode": desde esta UI siempre se define la base completa
-      const payload = { config: cfg };
+
+      const contactItemsRaw = (cfg as Record<string, unknown>).contactItems;
+      const sanitized: Config = {
+        ...cfg,
+        contactItems: Array.isArray(contactItemsRaw)
+          ? contactItemsRaw.filter((x): x is string => typeof x === "string")
+          : [],
+      };
+
+      const payload = { config: sanitized };
 
       const res = await authFetch(
         `/api/template-config/${encodeURIComponent(docType)}`,
         { method: "PUT", body: JSON.stringify(payload) },
         token,
       );
+
       const body = (await res.json()) as
         | TemplateConfigRecord
         | { error?: string };

@@ -1,5 +1,4 @@
 // tailwind.config.ts
-
 import type { Config } from "tailwindcss";
 
 export default {
@@ -13,7 +12,10 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["var(--font-poppins)", "sans-serif"],
+        // Agregamos Arimo a la pila sans
+        sans: ["var(--font-poppins)", "var(--font-arimo)", "sans-serif"],
+        // Nueva familia para la manuscrita Reenie Beanie
+        hand: ["var(--font-reenie)", "cursive"],
       },
       colors: {
         background: "var(--background)",

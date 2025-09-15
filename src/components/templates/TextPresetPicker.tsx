@@ -5,84 +5,136 @@ import { useEffect, useMemo, useState } from "react";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 import { authFetch } from "@/utils/authFetch";
-import PresetEditorModal from "./PresetEditorModal";
 
+/* =========================
+ * Tipos
+ * ======================= */
 export type DocType = "quote" | "confirmation";
 
 export type TextPreset = {
   id_preset: number;
   title: string;
-  content: string;
-  doc_type: DocType;
+  content: string; // legacy
+  doc_type: DocType | string; // admitimos string por compatibilidad remota
+  data?: unknown; // JSON (nuevo)
   created_at: string;
+};
+
+type DataPresetEnvelope = {
+  version: number;
+  kind: "data";
+  data: { blocks: unknown };
 };
 
 type Props = {
   token: string | null;
   docType: DocType;
-  onApply: (content: string) => void;
+  onApply: (content: string) => void; // legacy
+  onApplyData?: (blocks: unknown) => void; // NUEVO: aplica JSON de bloques
   refreshSignal?: number;
 };
 
-// helpers localStorage
+/* =========================
+ * Helpers
+ * ======================= */
 const LS_VIEW = "textpresets:view";
 const LS_PIN = (doc: DocType) => `textpresets:pins:${doc}`;
 
+function isTextPreset(x: unknown): x is TextPreset {
+  if (typeof x !== "object" || x === null) return false;
+  const o = x as Record<string, unknown>;
+  return (
+    typeof o.id_preset === "number" &&
+    typeof o.title === "string" &&
+    typeof o.content === "string" &&
+    typeof o.created_at === "string" &&
+    typeof o.doc_type === "string"
+  );
+}
+
+function parseTextPresetArray(x: unknown): TextPreset[] {
+  if (!Array.isArray(x)) return [];
+  return x.filter(isTextPreset);
+}
+
+function isDataEnvelope(x: unknown): x is DataPresetEnvelope {
+  if (typeof x !== "object" || x === null) return false;
+  const o = x as Record<string, unknown>;
+  return (
+    o.kind === "data" &&
+    typeof (o as { kind?: unknown }).kind === "string" &&
+    typeof (o as { version?: unknown }).version !== "undefined" &&
+    typeof (o as { data?: unknown }).data === "object" &&
+    o !== null
+  );
+}
+
+/* =========================
+ * Componente
+ * ======================= */
 export default function TextPresetPicker({
   token,
   docType,
   onApply,
+  onApplyData,
   refreshSignal = 0,
 }: Props) {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<boolean>(false);
   const [presets, setPresets] = useState<TextPreset[]>([]);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState<string>("");
   const [view, setView] = useState<"compact" | "grid">("compact");
-  const [showAll, setShowAll] = useState(false);
-
-  // edición
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [editing, setEditing] = useState<TextPreset | null>(null);
+  const [showAll, setShowAll] = useState<boolean>(false);
 
   // favoritos
   const [pinned, setPinned] = useState<number[]>([]);
 
-  // cargar prefs
+  // cargar prefs iniciales
   useEffect(() => {
     const v =
       (localStorage.getItem(LS_VIEW) as "compact" | "grid") || "compact";
     setView(v);
+
     const pinsRaw = localStorage.getItem(LS_PIN(docType));
     try {
-      setPinned(pinsRaw ? (JSON.parse(pinsRaw) as number[]) : []);
+      const parsed: unknown = pinsRaw ? JSON.parse(pinsRaw) : [];
+      setPinned(
+        Array.isArray(parsed)
+          ? parsed.filter((n): n is number => typeof n === "number")
+          : [],
+      );
     } catch {
       setPinned([]);
     }
   }, [docType]);
 
-  // fetch
+  // fetch presets
   useEffect(() => {
     let abort = false;
     (async () => {
       if (!token) return;
       try {
         setLoading(true);
-        // Si tu API usa docType=, ajustá aquí.
         const res = await authFetch(
           `/api/text-preset?doc_type=${docType}&take=200`,
           {},
           token,
         );
-        if (!res.ok) throw new Error("No se pudieron cargar los presets");
-        const data = await res.json();
-        const items: TextPreset[] = Array.isArray(data?.items)
-          ? data.items
-          : Array.isArray(data)
-            ? data
-            : [];
+        if (!res.ok) {
+          throw new Error("No se pudieron cargar los presets");
+        }
+        const data: unknown = await res.json();
+
+        // La API puede devolver { items, nextCursor } o un array directo (compat)
+        const items: TextPreset[] = Array.isArray(
+          (data as { items?: unknown }).items,
+        )
+          ? parseTextPresetArray((data as { items: unknown }).items)
+          : parseTextPresetArray(data);
+
         if (!abort) setPresets(items);
-      } catch (e) {
-        if (!abort) toast.error(e instanceof Error ? e.message : String(e));
+      } catch (e: unknown) {
+        if (!abort)
+          toast.error(e instanceof Error ? e.message : "Error inesperado");
       } finally {
         if (!abort) setLoading(false);
       }
@@ -115,7 +167,6 @@ export default function TextPresetPicker({
   }, [q, presets, pinned]);
 
   const visible = useMemo(() => {
-    // en búsqueda mostrar todo; sin búsqueda limitar a 6 si no "ver todo"
     if (q.trim()) return filtered;
     if (showAll) return filtered;
     return filtered.slice(0, 6);
@@ -138,35 +189,59 @@ export default function TextPresetPicker({
 
   const askDelete = async (p: TextPreset) => {
     try {
-      if (!token) return toast.error("No hay token.");
+      if (!token) {
+        toast.error("No hay token.");
+        return;
+      }
       const ok = window.confirm(`¿Eliminar preset "${p.title}"?`);
       if (!ok) return;
+
       const res = await authFetch(
         `/api/text-preset/${p.id_preset}`,
         { method: "DELETE" },
         token,
       );
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error || "No se pudo eliminar el preset.");
+        let apiMsg = "No se pudo eliminar el preset.";
+        try {
+          const j: unknown = await res.json();
+          if (
+            typeof j === "object" &&
+            j !== null &&
+            "error" in j &&
+            typeof (j as { error?: unknown }).error === "string"
+          ) {
+            apiMsg = (j as { error: string }).error;
+          }
+        } catch {
+          // noop
+        }
+        throw new Error(apiMsg);
       }
+
       toast.success("Preset eliminado.");
-      // refrescar lista local
       setPresets((prev) => prev.filter((x) => x.id_preset !== p.id_preset));
-      // sacar de pins si corresponde
       setPinned((prev) => {
-        const next = prev.filter((id) => id !== p.id_preset);
+        const next = prev.filter((idNum) => idNum !== p.id_preset);
         localStorage.setItem(LS_PIN(docType), JSON.stringify(next));
         return next;
       });
-    } catch (e) {
+    } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Error eliminando preset.");
     }
   };
 
-  const openEdit = (p: TextPreset) => {
-    setEditing(p);
-    setEditorOpen(true);
+  const handleUse = (p: TextPreset) => {
+    // Si hay JSON con bloques y el padre soporta onApplyData, priorizar eso
+    if (onApplyData && p.data && isDataEnvelope(p.data)) {
+      const blocks = (p.data as DataPresetEnvelope).data?.blocks;
+      if (typeof blocks !== "undefined") {
+        onApplyData(blocks);
+        return;
+      }
+    }
+    // Fallback: legacy content (texto)
+    onApply(p.content);
   };
 
   const Item = ({ p }: { p: TextPreset }) => (
@@ -178,7 +253,7 @@ export default function TextPresetPicker({
     >
       <div
         className={`${view === "grid" ? "" : "min-w-0 flex-1"} cursor-pointer`}
-        onClick={() => onApply(p.content)}
+        onClick={() => handleUse(p)}
       >
         <div className="mb-1 flex items-center gap-2">
           <div className="truncate text-sm font-medium">{p.title}</div>
@@ -188,7 +263,7 @@ export default function TextPresetPicker({
             </span>
           )}
           <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide opacity-70">
-            {p.doc_type}
+            {String(p.doc_type)}
           </span>
         </div>
         <div
@@ -204,19 +279,11 @@ export default function TextPresetPicker({
       <div className="mt-2 flex shrink-0 items-center gap-1 self-start">
         <button
           type="button"
-          onClick={() => onApply(p.content)}
+          onClick={() => handleUse(p)}
           className="rounded-full px-2 py-1 text-xs opacity-80 hover:bg-white/20"
           title="Usar"
         >
           Usar
-        </button>
-        <button
-          type="button"
-          onClick={() => openEdit(p)}
-          className="rounded-full px-2 py-1 text-xs opacity-80 hover:bg-white/20"
-          title="Editar"
-        >
-          Editar
         </button>
         <button
           type="button"
@@ -240,6 +307,9 @@ export default function TextPresetPicker({
     </div>
   );
 
+  const onSearchChange = (ev: React.ChangeEvent<HTMLInputElement>) =>
+    setQ(ev.target.value);
+
   return (
     <div className="mb-4 space-y-2">
       {/* header */}
@@ -252,7 +322,7 @@ export default function TextPresetPicker({
             className="w-56 rounded-2xl border border-white/10 bg-white/10 p-2 px-3 text-sm outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:text-white"
             placeholder="Buscar…"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={onSearchChange}
           />
           <button
             type="button"
@@ -300,23 +370,6 @@ export default function TextPresetPicker({
           </button>
         </div>
       )}
-
-      {/* editor */}
-      <PresetEditorModal
-        open={editorOpen}
-        token={token}
-        preset={editing}
-        docType={docType}
-        onClose={() => setEditorOpen(false)}
-        onSaved={() => {
-          // para simplificar, refetch al cerrar (padre puede pasar refreshSignal si prefiere)
-          setEditorOpen(false);
-          setEditing(null);
-          // pequeño truco: forzamos recarga haciendo un setPresets local (se actualizará al guardar real)
-          // si querés refetch, podés levantar un "refreshSignal" desde el padre; acá actualizo editable in place:
-          // (el modal ya llama PUT; si querés que este componente rehaga GET, podés añadir un prop)
-        }}
-      />
     </div>
   );
 }
