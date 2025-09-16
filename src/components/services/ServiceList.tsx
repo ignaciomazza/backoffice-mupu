@@ -1,4 +1,3 @@
-// src/components/services/ServiceList.tsx
 "use client";
 import React, { useMemo } from "react";
 import ServiceCard from "./ServiceCard";
@@ -149,15 +148,15 @@ export default function ServiceList({
         t.cardInterestRaw = (t.cardInterestRaw || 0) + raw;
       }
 
+      const pct =
+        svc.transfer_fee_pct != null
+          ? Number(svc.transfer_fee_pct)
+          : Number(agencyTransferFeePct);
+
       const feeAmount =
         svc.transfer_fee_amount != null
           ? Number(svc.transfer_fee_amount)
-          : Number(svc.sale_price || 0) *
-            Number(
-              svc.transfer_fee_pct != null
-                ? svc.transfer_fee_pct
-                : agencyTransferFeePct,
-            );
+          : Number(svc.sale_price || 0) * pct;
 
       if (Number.isFinite(feeAmount)) t.transferFeesAmount += feeAmount;
 
@@ -171,7 +170,7 @@ export default function ServiceList({
         {services.map((service) => (
           <ServiceCard
             key={service.id_service}
-            service={service}
+            service={service as ServiceWithCalcs}
             expandedServiceId={expandedServiceId}
             setExpandedServiceId={setExpandedServiceId}
             startEditingService={startEditingService}
@@ -183,6 +182,7 @@ export default function ServiceList({
           />
         ))}
       </div>
+
       <div>
         <div className="mb-4 mt-8 flex justify-center">
           <p className="text-2xl font-medium">Resumen</p>

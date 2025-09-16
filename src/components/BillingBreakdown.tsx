@@ -1,7 +1,7 @@
 // src/components/BillingBreakdown.tsx
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import type { BillingData } from "@/types/index";
 
 interface BillingBreakdownProps {
@@ -35,7 +35,7 @@ export default function BillingBreakdown({
   onBillingUpdate,
   transferFeePct = 0.024,
 }: BillingBreakdownProps) {
-  // 1. Cálculos de base
+  /* ----------------- Cálculos (idénticos a tu versión) ----------------- */
   const baseNetoDesglose = round(
     costo - (montoIva21 + montoIva10_5) - otrosImpuestos,
   );
@@ -47,7 +47,6 @@ export default function BillingBreakdown({
     importeVenta <= costo ||
     baseNetoDesglose < montoExento + sumaBasesImponibles;
 
-  // 2. No computable y margen
   const nonComputable = hasError
     ? 0
     : round(
@@ -55,7 +54,6 @@ export default function BillingBreakdown({
       );
   const margen = round(importeVenta - costo);
 
-  // 3. Comisiones
   const porcentajeExento =
     baseNetoDesglose > 0 ? round(montoExento / baseNetoDesglose) : 0;
   let commissionExempt = 0,
@@ -64,11 +62,11 @@ export default function BillingBreakdown({
     vatOnCommission21 = 0,
     vatOnCommission10_5 = 0,
     totalCommissionWithoutVAT = 0;
+
   const defaultIVA = 0.21;
 
   if (!hasError) {
     if (montoIva21 === 0 && montoIva10_5 === 0) {
-      // Sin IVA declarado
       const F = round(
         porcentajeExento + (1 - porcentajeExento) * (1 + defaultIVA),
       );
@@ -79,7 +77,6 @@ export default function BillingBreakdown({
       vatOnCommission21 = round(commission21 * defaultIVA);
       totalCommissionWithoutVAT = round(commissionExempt + commission21);
     } else {
-      // Con IVA declarado
       const costoGravable = round(baseNetoDesglose - montoExento);
       const remanente = round(
         Math.max(0, costoGravable - (baseIva21 + baseIva10_5)),
@@ -106,12 +103,10 @@ export default function BillingBreakdown({
     }
   }
 
-  // 4. Intereses tarjeta
   const taxableCardInterest =
     cardInterestIva > 0 ? round(cardInterestIva / 0.21) : 0;
   const vatOnCardInterest = round(cardInterestIva);
 
-  // 5. Impuesto a usar en factura (incluye IVA de comisiones e intereses)
   const impIVA = round(
     montoIva21 +
       montoIva10_5 +
@@ -121,7 +116,6 @@ export default function BillingBreakdown({
     2,
   );
 
-  // Notificar siempre, hook incondicional
   useEffect(() => {
     if (onBillingUpdate && !hasError) {
       onBillingUpdate({
@@ -160,107 +154,125 @@ export default function BillingBreakdown({
     transferFeePct,
   ]);
 
-  const formatCurrency = (v: number) =>
-    new Intl.NumberFormat("es-AR", {
-      style: "currency",
-      currency: moneda,
-    }).format(v);
+  /* ----------------- Presentación ----------------- */
+  const fmt = useMemo(
+    () =>
+      new Intl.NumberFormat("es-AR", { style: "currency", currency: moneda }),
+    [moneda],
+  );
+  const f = (v: number) => fmt.format(v);
 
   if (hasError) {
     return (
-      <div className="mt-6 rounded-xl p-4 dark:text-white">
-        <p className="font-semibold text-red-600">
-          Error en los importes de costo, IVA o exento.
-        </p>
+      <div className="mt-6 rounded-2xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-sm shadow-sky-950/10 dark:text-white">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 rounded-full bg-rose-500/15 p-1.5 text-rose-600">
+            {/* icono error */}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="size-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+              />
+            </svg>
+          </div>
+          <div>
+            <p className="font-semibold text-rose-600">
+              Error en los importes de costo, IVA o exento.
+            </p>
+            <p className="mt-1 text-sm text-sky-950/70 dark:text-white/70">
+              Verificá que <strong>Venta &gt; Costo</strong> y que las bases
+              imponibles no superen el costo neto.
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
 
+  const kpiChip = (label: string, value: string) => (
+    <div className="rounded-full border border-white/10 bg-white/30 px-3 py-1 text-xs font-medium dark:bg-white/10">
+      <span className="opacity-70">{label}: </span>
+      <span>{value}</span>
+    </div>
+  );
+
+  const Row: React.FC<{ label: string; value: number }> = ({
+    label,
+    value,
+  }) => (
+    <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/5 px-3 py-2">
+      <span className="text-sm">{label}</span>
+      <span className="font-medium tabular-nums">{f(value)}</span>
+    </div>
+  );
+
   return (
-    <div className="mt-6 rounded-xl p-4 dark:text-white">
-      <h3 className="mb-2 text-xl font-semibold">Información</h3>
-      <div className="mb-4">
-        <p>
-          <strong>Venta:</strong> {formatCurrency(importeVenta)}
-        </p>
-        <p>
-          <strong>Costo:</strong> {formatCurrency(costo)}
-        </p>
-        <p>
-          <strong>IVA 21%:</strong> {formatCurrency(montoIva21)}
-        </p>
-        <p>
-          <strong>IVA 10.5%:</strong> {formatCurrency(montoIva10_5)}
-        </p>
-        <p>
-          <strong>Exento:</strong> {formatCurrency(montoExento)}
-        </p>
-        <p>
-          <strong>Otros Impuestos:</strong> {formatCurrency(otrosImpuestos)}
-        </p>
-        <p>
-          <strong>Intereses Tarjeta:</strong> {formatCurrency(cardInterest)}
-        </p>
-        <p>
-          <strong>IVA Intereses:</strong> {formatCurrency(cardInterestIva)}
-        </p>
+    <div className="mt-6 rounded-2xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-sm shadow-sky-950/10 dark:text-white">
+      {/* Resumen superior */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {kpiChip("Venta", f(importeVenta))}
+        {kpiChip("Costo", f(costo))}
+        {kpiChip("Margen", f(margen))}
+        {kpiChip(`${(transferFeePct * 100).toFixed(2)}% fee`, f(transferFee))}
       </div>
 
-      <h3 className="mb-2 text-xl font-semibold">Desglose de Facturación</h3>
-      <div className="mb-4">
-        <p>
-          <strong>No Computable:</strong> {formatCurrency(nonComputable)}
-        </p>
-        <p>
-          <strong>Gravado 21%:</strong> {formatCurrency(baseIva21)}
-        </p>
-        <p>
-          <strong>Gravado 10.5%:</strong> {formatCurrency(baseIva10_5)}
-        </p>
-        <p>
-          <strong>Gravado Intereses 21%:</strong>{" "}
-          {formatCurrency(taxableCardInterest)}
-        </p>
+      {/* Información base */}
+      <h3 className="mb-2 text-base font-semibold">Información</h3>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        <Row label="IVA 21%" value={montoIva21} />
+        <Row label="IVA 10,5%" value={montoIva10_5} />
+        <Row label="Exento" value={montoExento} />
+        <Row label="Otros Impuestos" value={otrosImpuestos} />
+        <Row label="Intereses Tarjeta" value={cardInterest} />
+        <Row label="IVA Intereses" value={cardInterestIva} />
       </div>
 
-      <h4 className="mb-2 text-lg font-semibold">Comisiones</h4>
-      <div className="mb-4">
-        <p>
-          <strong>Exenta:</strong> {formatCurrency(commissionExempt)}
-        </p>
-        <p>
-          <strong>21%:</strong> {formatCurrency(commission21)}
-        </p>
-        <p>
-          <strong>10.5%:</strong> {formatCurrency(commission10_5)}
-        </p>
+      {/* Desglose */}
+      <h3 className="mb-2 mt-6 text-base font-semibold">
+        Desglose de Facturación
+      </h3>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        <Row label="No Computable" value={nonComputable} />
+        <Row label="Gravado 21%" value={baseIva21} />
+        <Row label="Gravado 10,5%" value={baseIva10_5} />
+        <Row label="Gravado Intereses 21%" value={taxableCardInterest} />
       </div>
 
-      <h4 className="mb-2 text-lg font-semibold">IVA sobre Comisiones</h4>
-      <div className="mb-4">
-        <p>
-          <strong>21%:</strong> {formatCurrency(vatOnCommission21)}
-        </p>
-        <p>
-          <strong>10.5%:</strong> {formatCurrency(vatOnCommission10_5)}
-        </p>
+      {/* Comisiones */}
+      <h4 className="mb-2 mt-6 text-sm font-semibold">Comisiones</h4>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+        <Row label="Exenta" value={commissionExempt} />
+        <Row label="21%" value={commission21} />
+        <Row label="10,5%" value={commission10_5} />
       </div>
 
-      <h4 className="mb-2 text-lg font-semibold">IVA sobre Intereses</h4>
-      <p className="mb-4">
-        <strong>21%:</strong> {formatCurrency(vatOnCardInterest)}
-      </p>
+      {/* IVA sobre comisiones e intereses */}
+      <h4 className="mb-2 mt-6 text-sm font-semibold">IVA sobre Comisiones</h4>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        <Row label="21%" value={vatOnCommission21} />
+        <Row label="10,5%" value={vatOnCommission10_5} />
+      </div>
 
-      <h4 className="mb-2 text-lg font-semibold">Costos por transaccion</h4>
-      <p className="mb-4">
-        <strong>{(transferFeePct * 100).toFixed(2)}%:</strong>{" "}
-        {formatCurrency(transferFee)}
-      </p>
+      <h4 className="mb-2 mt-6 text-sm font-semibold">IVA sobre Intereses</h4>
+      <Row label="21%" value={vatOnCardInterest} />
 
-      <p className="font-semibold">
-        Total Comisión (sin IVA):{" "}
-        {formatCurrency(totalCommissionWithoutVAT - transferFee)}
-      </p>
+      {/* Totales */}
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/20 p-3">
+        <div className="text-sm opacity-70">
+          Total Comisión (sin IVA) – neta de fee
+        </div>
+        <div className="text-lg font-semibold tabular-nums">
+          {f(totalCommissionWithoutVAT - transferFee)}
+        </div>
+      </div>
     </div>
   );
 }
