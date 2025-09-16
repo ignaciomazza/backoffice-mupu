@@ -128,13 +128,19 @@ export default function BookingForm({
     handleChange(event);
   };
 
+  // Helpers para IDs válidos
+  const isValidId = (v: unknown): v is number =>
+    typeof v === "number" && Number.isFinite(v) && v > 0;
+
   const handleIncrement = () => {
     setFormData((prev) => {
+      // Aumentamos la cantidad de pax, pero NO pusheamos placeholders (0)
       const newCount = prev.pax_count + 1;
       return {
         ...prev,
         pax_count: newCount,
-        clients_ids: [...prev.clients_ids, 0],
+        // mantenemos el array tal cual; los slots vacíos se muestran por pax_count
+        clients_ids: [...prev.clients_ids],
       };
     });
   };
@@ -143,10 +149,12 @@ export default function BookingForm({
     setFormData((prev) => {
       if (prev.pax_count <= 1) return prev;
       const newCount = prev.pax_count - 1;
+      // recortamos el array para que no queden sobras
+      const next = prev.clients_ids.slice(0, Math.max(0, newCount - 1));
       return {
         ...prev,
         pax_count: newCount,
-        clients_ids: prev.clients_ids.slice(0, newCount - 1),
+        clients_ids: next,
       };
     });
   };
@@ -318,13 +326,16 @@ export default function BookingForm({
               token={token}
               label="Titular"
               placeholder="Buscar por N° Cliente, DNI, Pasaporte, CUIT o Nombre..."
-              valueId={formData.titular_id || null}
-              excludeIds={formData.clients_ids.filter(Boolean)}
+              valueId={
+                isValidId(formData.titular_id) ? formData.titular_id : null
+              }
+              excludeIds={formData.clients_ids.filter(isValidId)}
               required
               onSelect={(c: Client) =>
                 setFormData((prev) => ({
                   ...prev,
                   titular_id: c.id_client,
+                  // sacamos al titular si estaba como acompañante
                   clients_ids: prev.clients_ids.filter(
                     (id) => id !== c.id_client,
                   ),
@@ -395,11 +406,13 @@ export default function BookingForm({
 
               {Array.from({ length: formData.pax_count - 1 }).map(
                 (_, index) => {
-                  const currentId = formData.clients_ids[index] || null;
+                  const rawId = formData.clients_ids[index];
+                  const currentId = isValidId(rawId) ? rawId : null;
+
                   const exclude = [
                     formData.titular_id,
                     ...formData.clients_ids.filter((_, i) => i !== index),
-                  ].filter(Boolean) as number[];
+                  ].filter(isValidId) as number[];
 
                   return (
                     <div key={index} className="mt-3">
@@ -419,7 +432,8 @@ export default function BookingForm({
                         onClear={() =>
                           setFormData((prev) => {
                             const next = [...prev.clients_ids];
-                            next[index] = 0;
+                            // guardar NaN para “vacío” (se ignora al enviar)
+                            next[index] = Number.NaN;
                             return { ...prev, clients_ids: next };
                           })
                         }

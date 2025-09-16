@@ -211,7 +211,7 @@ export default async function handler(
       titular_id,
       departure_date,
       return_date,
-      pax_count,
+      // pax_count (se recalcula abajo, no se usa del body)
       clients_ids,
       id_user, // opcional: reasignar creador
       creation_date, // opcional: setear fecha de creación
@@ -248,15 +248,17 @@ export default async function handler(
     }
 
     try {
-      // Validaciones de acompañantes
+      // ===== Acompañantes: sanitizar placeholders, evitar duplicados y conflicto con titular
       const companions: number[] = Array.isArray(clients_ids)
-        ? clients_ids.map(Number)
+        ? clients_ids.map(Number).filter((id) => Number.isFinite(id) && id > 0)
         : [];
+
       if (companions.includes(Number(titular_id))) {
         return res.status(400).json({
           error: "El titular no puede estar en la lista de acompañantes.",
         });
       }
+
       const uniqueClients = new Set(companions);
       if (uniqueClients.size !== companions.length) {
         return res
@@ -264,16 +266,11 @@ export default async function handler(
           .json({ error: "IDs duplicados en los acompañantes." });
       }
 
-      // Verificar existencia de todos los IDs y datos del titular
+      // Verificar existencia de todos los IDs en la misma agencia (sin requisitos extra)
       const allClientIds = [Number(titular_id), ...companions];
       const existingClients = await prisma.client.findMany({
         where: { id_client: { in: allClientIds }, id_agency: authAgencyId },
-        select: {
-          id_client: true,
-          address: true,
-          postal_code: true,
-          locality: true,
-        },
+        select: { id_client: true },
       });
       const okIds = new Set(existingClients.map((c) => c.id_client));
       const missingIds = allClientIds.filter((id: number) => !okIds.has(id));
@@ -281,20 +278,6 @@ export default async function handler(
         return res
           .status(400)
           .json({ error: `IDs no válidos: ${missingIds.join(", ")}` });
-      }
-      const titularClient = existingClients.find(
-        (c) => c.id_client === Number(titular_id),
-      );
-      if (
-        !titularClient ||
-        !titularClient.address ||
-        !titularClient.postal_code ||
-        !titularClient.locality
-      ) {
-        return res.status(400).json({
-          error:
-            "El cliente titular debe tener dirección, código postal y localidad.",
-        });
       }
 
       // Fechas viaje
@@ -362,6 +345,9 @@ export default async function handler(
         }
       }
 
+      // pax_count consistente con acompañantes saneados
+      const nextPax = 1 + companions.length;
+
       const booking = await prisma.booking.update({
         where: { id_booking: bookingId },
         data: {
@@ -374,7 +360,7 @@ export default async function handler(
           observation,
           departure_date: parsedDeparture,
           return_date: parsedReturn,
-          pax_count: Number(pax_count ?? existing.pax_count ?? 1),
+          pax_count: nextPax,
           ...(parsedCreationDate ? { creation_date: parsedCreationDate } : {}),
           titular: { connect: { id_client: Number(titular_id) } },
           user: { connect: { id_user: usedUserId } },

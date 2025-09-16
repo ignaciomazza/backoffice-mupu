@@ -443,7 +443,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     titular_id,
     departure_date,
     return_date,
-    pax_count,
+    // pax_count: _paxFromClient,  // ignoramos el valor entrante
     clients_ids,
     id_user,
     creation_date, // NUEVO
@@ -460,7 +460,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     return res.status(401).json({ error: "No autenticado o token inválido." });
   }
 
-  // validaciones
+  // validaciones mínimas
   if (
     !clientStatus ||
     !operatorStatus ||
@@ -484,10 +484,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     return res.status(400).json({ error: "Fechas inválidas." });
   }
 
-  // acompañantes
-  const companions: number[] = Array.isArray(clients_ids)
-    ? clients_ids.map(Number)
+  // acompañantes: solo >0, únicos y que no incluyan titular
+  const companionsRaw: number[] = Array.isArray(clients_ids)
+    ? clients_ids.map(Number).filter((n) => Number.isFinite(n) && n > 0)
     : [];
+  const companions = Array.from(new Set(companionsRaw)).filter(
+    (id) => id !== Number(titular_id),
+  );
 
   // permisos para asignar creador
   const canAssignOthers = [
@@ -521,7 +524,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     "gerente",
     "administrativo",
     "desarrollador",
-  ].includes(role); // (NO líderes, igual que antes)
+  ].includes(role); // (NO líderes)
   let parsedCreationDate: Date | undefined = undefined;
 
   if (isVendor) {
@@ -545,6 +548,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   if (!titular || titular.id_agency !== authAgencyId) {
     return res.status(400).json({ error: "Titular inválido para tu agencia." });
   }
+
   if (companions.length > 0) {
     const comp = await prisma.client.findMany({
       where: { id_client: { in: companions }, id_agency: authAgencyId },
@@ -553,15 +557,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const okIds = new Set(comp.map((c) => c.id_client));
     const bad = companions.filter((id) => !okIds.has(id));
     if (bad.length) {
-      return res
-        .status(400)
-        .json({ error: "Hay acompañantes que no pertenecen a tu agencia." });
+      return res.status(400).json({
+        error: `Hay acompañantes que no pertenecen a tu agencia: ${bad.join(
+          ", ",
+        )}`,
+      });
     }
-  }
-  if (companions.includes(Number(titular_id))) {
-    return res
-      .status(400)
-      .json({ error: "El titular no puede estar de acompañante." });
   }
 
   try {
@@ -576,7 +577,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         observation,
         departure_date: parsedDeparture,
         return_date: parsedReturn,
-        pax_count: Number(pax_count ?? 1),
+        // pax_count siempre consistente con acompañantes reales
+        pax_count: 1 + companions.length,
         ...(parsedCreationDate ? { creation_date: parsedCreationDate } : {}),
         titular: { connect: { id_client: Number(titular_id) } },
         user: { connect: { id_user: usedUserId } },

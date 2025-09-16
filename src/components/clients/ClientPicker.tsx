@@ -39,7 +39,7 @@ export default function ClientPicker({
   // Para accesibilidad del listbox
   const listboxId = useId();
 
-  // Cargar el cliente actual si tenemos un id (modo edición)
+  // Cargar el cliente actual si tenemos un id (modo edición) —> **FIX: por ID exacto**
   useEffect(() => {
     if (!valueId) {
       setSelected(null);
@@ -55,21 +55,40 @@ export default function ClientPicker({
     (async () => {
       try {
         setLoading(true);
+
+        // 1) Intento exacto por ID
+        const byId = await authFetch(
+          `/api/clients/${valueId}`,
+          { signal: controller.signal, cache: "no-store" },
+          token ?? null,
+        );
+
+        if (byId.ok) {
+          const c = (await byId.json()) as Client;
+          if (c?.id_client === valueId) {
+            setSelected(c);
+            setTerm(displayClient(c));
+            return;
+          }
+        }
+
+        // 2) Fallback: búsqueda y match por id_client
         const res = await authFetch(
-          `/api/clients?q=${valueId}&take=1&for=booking`,
+          `/api/clients?q=${encodeURIComponent(String(valueId))}&take=8&for=booking`,
           { signal: controller.signal },
           token ?? null,
         );
         if (!res.ok) return;
 
         const data = await res.json();
-        const c: Client | undefined = Array.isArray(data?.items)
-          ? data.items[0]
+        const items: Client[] = Array.isArray(data?.items)
+          ? data.items
           : Array.isArray(data)
-            ? data[0]
-            : undefined;
+            ? data
+            : [];
 
-        if (c?.id_client === valueId) {
+        const c = items.find((x) => x.id_client === valueId);
+        if (c) {
           setSelected(c);
           setTerm(displayClient(c));
         }

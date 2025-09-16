@@ -61,6 +61,10 @@ const isAbortError = (e: unknown): e is AbortErrorLike => {
   return name === "AbortError" || code === "ABORT_ERR";
 };
 
+// IDs válidos (>0, número finito)
+const isValidId = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v) && v > 0;
+
 export default function Page() {
   const { token } = useAuth();
 
@@ -345,6 +349,15 @@ export default function Page() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Sanitizar acompañantes: solo ids válidos (>0), únicos y que no sean el titular
+    const sanitizedCompanions = Array.from(
+      new Set(
+        (formData.clients_ids || [])
+          .filter(isValidId)
+          .filter((id) => id !== formData.titular_id),
+      ),
+    );
+
     // Validaciones front mínimas
     if (
       !formData.details.trim() ||
@@ -362,7 +375,7 @@ export default function Page() {
       return;
     }
 
-    if (formData.clients_ids.includes(formData.titular_id)) {
+    if (sanitizedCompanions.includes(formData.titular_id)) {
       toast.error("El titular no puede estar de acompañante.");
       return;
     }
@@ -405,7 +418,12 @@ export default function Page() {
       const method = editingBookingId ? "PUT" : "POST";
 
       // Incluimos creation_date si viene (el backend la aceptará según rol)
-      const payload = { ...formData };
+      // Y enviamos pax_count consistente con acompañantes elegidos
+      const payload = {
+        ...formData,
+        pax_count: 1 + sanitizedCompanions.length,
+        clients_ids: sanitizedCompanions,
+      };
 
       const response = await authFetch(
         url,
@@ -494,6 +512,12 @@ export default function Page() {
   };
 
   const startEditingBooking = (booking: Booking) => {
+    const titularId = booking.titular?.id_client || 0;
+    // Acompañantes reales: excluir titular, solo IDs válidos
+    const companions = (booking.clients || [])
+      .map((c) => c.id_client)
+      .filter((id) => id !== titularId && isValidId(id));
+
     setFormData({
       id_booking: booking.id_booking,
       clientStatus: booking.clientStatus,
@@ -503,17 +527,17 @@ export default function Page() {
       invoice_type: booking.invoice_type || "",
       invoice_observation: booking.invoice_observation || "",
       observation: "",
-      titular_id: booking.titular?.id_client || 0,
+      titular_id: titularId,
       id_user: booking.user?.id_user || 0,
       id_agency: booking.agency?.id_agency || 0,
       departure_date: booking.departure_date.split("T")[0],
       return_date: booking.return_date.split("T")[0],
-      pax_count: booking.pax_count || 1,
-      clients_ids: booking.clients?.map((c) => c.id_client) || [],
-      // NUEVO: traemos la fecha de creación actual
-      creation_date: (booking.creation_date as unknown as string)?.split(
-        "T",
-      )[0],
+      pax_count: Math.max(1, 1 + companions.length),
+      clients_ids: companions,
+      // NUEVO: traemos la fecha de creación actual, segura
+      creation_date:
+        (booking.creation_date as unknown as string)?.split("T")[0] ||
+        todayYMD(),
     });
     setEditingBookingId(booking.id_booking || null);
     setIsFormVisible(true);
@@ -543,14 +567,15 @@ export default function Page() {
     if (!debouncedSearch.trim()) return bookings;
     const s = debouncedSearch.toLowerCase();
     return bookings.filter((b) => {
+      const titularFull = b.titular
+        ? `${b.titular.first_name} ${b.titular.last_name}`
+        : "";
       return (
         b.id_booking.toString().includes(s) ||
-        b.details.toLowerCase().includes(s) ||
-        b.titular.id_client.toString().includes(s) ||
-        `${b.titular.first_name} ${b.titular.last_name}`
-          .toLowerCase()
-          .includes(s) ||
-        b.clients.some((c) =>
+        (b.details || "").toLowerCase().includes(s) ||
+        (b.titular?.id_client ?? "").toString().includes(s) ||
+        titularFull.toLowerCase().includes(s) ||
+        (b.clients || []).some((c) =>
           `${c.first_name} ${c.last_name}`.toLowerCase().includes(s),
         )
       );
