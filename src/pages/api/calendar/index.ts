@@ -1,109 +1,163 @@
 // src/pages/api/calendar/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "@/lib/prisma";
-import type { Prisma } from "@prisma/client";
+import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 
-/** ----------------- helpers multi-agencia ----------------- */
-type MyJWTPayload = JWTPayload & { userId?: number; id_user?: number };
+/** ====== Auth local al endpoint (sin helpers externos) ====== */
+type TokenPayload = JWTPayload & {
+  id_user?: number;
+  userId?: number;
+  uid?: number;
+  role?: string;
+  id_agency?: number;
+  agencyId?: number;
+  aid?: number;
+  email?: string;
+};
 
-async function resolveUserFromRequest(
-  req: NextApiRequest,
-): Promise<{ id_user: number; id_agency: number; role: string }> {
-  // 1) Header inyectado por middleware
-  const h = req.headers["x-user-id"];
-  const uidFromHeader =
-    typeof h === "string"
-      ? parseInt(h, 10)
-      : Array.isArray(h)
-        ? parseInt(h[0] ?? "", 10)
-        : NaN;
-  let uid: number | null =
-    Number.isFinite(uidFromHeader) && uidFromHeader > 0 ? uidFromHeader : null;
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
-  // 2) Authorization / Cookie
-  if (!uid) {
-    let token: string | null = null;
-    const auth = req.headers.authorization;
-    if (auth?.startsWith("Bearer ")) token = auth.slice(7);
-    if (!token) {
-      const cookieToken = req.cookies?.token;
-      if (typeof cookieToken === "string" && cookieToken.length > 0) {
-        token = cookieToken;
-      }
-    }
-    if (token) {
-      try {
-        const secret = process.env.JWT_SECRET || "tu_secreto_seguro";
-        const { payload } = await jwtVerify(
-          token,
-          new TextEncoder().encode(secret),
-        );
-        const p = payload as MyJWTPayload;
-        uid = Number(p.userId ?? p.id_user ?? 0) || null;
-      } catch {
-        uid = null;
-      }
-    }
+function getTokenFromRequest(req: NextApiRequest): string | null {
+  // 1) Cookie "token" (lo más estable en prod)
+  if (req.cookies?.token) return req.cookies.token;
+
+  // 2) Authorization: Bearer <token>
+  const auth = req.headers.authorization || "";
+  if (auth.startsWith("Bearer ")) return auth.slice(7);
+
+  // 3) Otros nombres de cookie comunes (compat)
+  const c = req.cookies || {};
+  for (const k of [
+    "session",
+    "auth_token",
+    "access_token",
+    "next-auth.session-token",
+  ]) {
+    if (c[k]) return c[k]!;
   }
-
-  if (!uid) throw new Error("No se pudo resolver el usuario.");
-
-  const user = await prisma.user.findUnique({
-    where: { id_user: uid },
-    select: { id_user: true, id_agency: true, role: true },
-  });
-  if (!user?.id_agency)
-    throw new Error("El usuario no tiene agencia asociada.");
-
-  return { id_user: user.id_user, id_agency: user.id_agency, role: user.role };
+  return null;
 }
-/** --------------------------------------------------------- */
+
+async function getUserFromAuth(req: NextApiRequest) {
+  try {
+    const token = getTokenFromRequest(req);
+    if (!token) return null;
+
+    const { payload } = await jwtVerify(
+      token,
+      new TextEncoder().encode(JWT_SECRET),
+    );
+    const p = payload as TokenPayload;
+
+    // intentar obtener id_user / id_agency directamente del token
+    let id_user = Number(p.id_user ?? p.userId ?? p.uid) || undefined;
+    let id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || undefined;
+    let role = (p.role || "").toString();
+    const email = p.email;
+
+    // Completar agency si falta (por id_user)
+    if (id_user && !id_agency) {
+      const u = await prisma.user.findUnique({
+        where: { id_user },
+        select: { id_agency: true, role: true, email: true },
+      });
+      if (u) {
+        id_agency = u.id_agency;
+        if (!role) role = u.role;
+      }
+    }
+
+    // Completar id_user por email si faltara (poco común, pero útil)
+    if (!id_user && email) {
+      const u = await prisma.user.findUnique({
+        where: { email },
+        select: { id_user: true, id_agency: true, role: true },
+      });
+      if (u) {
+        id_user = u.id_user;
+        if (!id_agency) id_agency = u.id_agency;
+        if (!role) role = u.role;
+      }
+    }
+
+    if (!id_user || !id_agency) return null;
+    return { id_user, id_agency, role };
+  } catch {
+    return null;
+  }
+}
+/** ============================================================ */
+
+function toDateAtStart(v?: string): Date | undefined {
+  if (!v) return undefined;
+  const d = new Date(v);
+  if (isNaN(+d)) return undefined;
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function toDateAtEnd(v?: string): Date | undefined {
+  if (!v) return undefined;
+  const d = new Date(v);
+  if (isNaN(+d)) return undefined;
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
+  // coherencia con el resto de tu API: solo GET
   if (req.method !== "GET") {
     res.setHeader("Allow", ["GET"]);
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  try {
-    const { id_agency } = await resolveUserFromRequest(req);
+  // evitar que algún proxy navegue con caché
+  res.setHeader("Cache-Control", "no-store");
 
-    // Desestructuramos userId (single) y userIds (CSV)
+  try {
+    const auth = await getUserFromAuth(req);
+    if (!auth?.id_user || !auth.id_agency) {
+      return res.status(401).json({ error: "No autenticado o token inválido" });
+    }
+
+    const { id_agency } = auth;
+
+    // --------- parámetros ---------
     const { userId, userIds, clientStatus, from, to } = req.query;
+
     const whereBooking: Prisma.BookingWhereInput = { id_agency };
 
-    // 1) Si viene userIds (p.ej. "5,12,27"), filtramos con IN
+    // userIds CSV (p.ej. "5,12,27")
     if (typeof userIds === "string") {
       const ids = userIds
         .split(",")
-        .map((idStr) => parseInt(idStr, 10))
-        .filter((n) => !isNaN(n));
+        .map((s) => parseInt(s, 10))
+        .filter((n) => Number.isFinite(n));
       if (ids.length) whereBooking.id_user = { in: ids };
-    }
-    // 2) Si viene solo un userId, filtramos por igualdad
-    else if (typeof userId === "string") {
-      const idNum = parseInt(userId, 10);
-      if (!isNaN(idNum)) whereBooking.id_user = idNum;
+    } else if (typeof userId === "string") {
+      const n = parseInt(userId, 10);
+      if (Number.isFinite(n)) whereBooking.id_user = n;
     }
 
-    // Filtrado por estado de cliente
+    // estado de cliente (siempre dentro de la agencia)
     if (typeof clientStatus === "string" && clientStatus !== "Todas") {
       whereBooking.clientStatus = clientStatus;
     }
 
-    // Filtrado por rango de fechas
-    if (typeof from === "string" && typeof to === "string") {
-      const fDate = new Date(from);
-      const tDate = new Date(to);
-      tDate.setHours(23, 59, 59, 999);
-      whereBooking.departure_date = { gte: fDate, lte: tDate };
+    // rango por fecha de partida — extremos independientes
+    const gte = toDateAtStart(typeof from === "string" ? from : undefined);
+    const lte = toDateAtEnd(typeof to === "string" ? to : undefined);
+    if (gte || lte) {
+      whereBooking.departure_date = {
+        ...(gte ? { gte } : {}),
+        ...(lte ? { lte } : {}),
+      };
     }
 
-    // Traemos las reservas de la agencia
+    // --------- datos ---------
     const bookings = await prisma.booking.findMany({
       where: whereBooking,
       include: { titular: true },
@@ -115,7 +169,7 @@ export default async function handler(
       start: b.departure_date,
     }));
 
-    // Notas SOLO de la misma agencia (vía relación al creador)
+    // Notas de la misma agencia (se une por el creador)
     const notes = await prisma.calendarNote.findMany({
       where: { creator: { id_agency } },
       include: { creator: { select: { first_name: true, last_name: true } } },
@@ -134,6 +188,6 @@ export default async function handler(
     return res.status(200).json([...bookingEvents, ...noteEvents]);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Error interno";
-    return res.status(400).json({ error: msg });
+    return res.status(500).json({ error: msg });
   }
 }

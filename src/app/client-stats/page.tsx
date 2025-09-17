@@ -733,7 +733,7 @@ export default function ClientStatsPage() {
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/10 p-2">
-                60+ 
+                60+
                 <div className="mt-1 font-semibold">
                   {stats.ages.buckets.g60}
                 </div>

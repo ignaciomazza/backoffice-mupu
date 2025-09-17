@@ -411,8 +411,6 @@ export default function CalendarPage() {
     setNoteModal((m) => ({ ...m, mode: "edit" }));
   };
 
-  // --- aquí va el return JSX ---
-
   return (
     <ProtectedRoute>
       <div className="space-y-6 p-6">
