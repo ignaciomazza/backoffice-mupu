@@ -1,5 +1,3 @@
-// src/services/creditNotes/CreditNoteDocument.tsx
-
 import React from "react";
 import path from "path";
 import {
@@ -14,7 +12,7 @@ import {
 import type { CreditNoteItem } from "@prisma/client";
 
 export interface VoucherData {
-  CbteTipo: number;
+  CbteTipo: number; // 3: NC A, 8: NC B
   PtoVta: number;
   CbteDesde: number;
   CbteFch: string | number | Date;
@@ -48,29 +46,26 @@ Font.register({
 });
 
 const fmtDate = (raw: string | number | Date): string => {
-  const s = raw.toString();
-  if (/^\d{8}$/.test(s)) {
-    return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
+  const s = raw?.toString();
+  if (/^\d{8}$/.test(s || "")) {
+    return `${s!.slice(6, 8)}/${s!.slice(4, 6)}/${s!.slice(0, 4)}`;
   }
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (iso) {
-    return `${iso[3]}/${iso[2]}/${iso[1]}`;
-  }
-  const d = raw instanceof Date ? raw : new Date(s);
-  return isNaN(d.getTime())
-    ? s
-    : new Intl.DateTimeFormat("es-AR", {
-        timeZone: "UTC",
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      }).format(d);
+  const iso = s?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  const d = raw instanceof Date ? raw : new Date(s || "");
+  if (isNaN(d.getTime())) return String(s || "");
+  return new Intl.DateTimeFormat("es-AR", {
+    timeZone: "UTC",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(d);
 };
 
 const safeFmtCurrency = (value: number, curr: string): string => {
-  let code = curr.toUpperCase();
+  let code = (curr || "").toUpperCase();
   if (code === "PES") code = "ARS";
-  else if (code === "DOL") code = "USD";
+  if (code === "DOL" || code === "U$S") code = "USD";
   try {
     if (code === "ARS" || code === "USD") {
       return new Intl.NumberFormat("es-AR", {
@@ -80,26 +75,33 @@ const safeFmtCurrency = (value: number, curr: string): string => {
         maximumFractionDigits: 2,
       }).format(value);
     }
-  } catch {}
-  return `${value.toFixed(2)} ${code}`;
+  } catch {
+    // ignore
+  }
+  return `${(value ?? 0).toFixed(2)} ${code || ""}`;
 };
 
 const styles = StyleSheet.create({
   page: { fontFamily: "Poppins", fontSize: 10, padding: 60, color: "#333" },
   headerBand: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
+    padding: 10,
+    borderRadius: 6,
     marginBottom: 12,
   },
-  logo: { height: 40 },
+  logo: { height: 30 },
   noteType: {
+    color: "#333",
     fontSize: 24,
     fontWeight: "bold",
+    padding: "2px 10px 0px 12px",
+    borderRadius: 4,
     borderWidth: 1,
     borderColor: "#333",
-    padding: "2px 8px",
-    borderRadius: 4,
+    alignItems: "center",
+    justifyContent: "center",
   },
   title: {
     textAlign: "center",
@@ -167,9 +169,10 @@ const CreditNoteDocument: React.FC<{
   currency: string;
   qrBase64?: string;
   logoBase64?: string;
+  logoMime?: string;
   voucherData: VoucherData;
   items: CreditNoteItem[];
-}> = ({ currency, qrBase64, logoBase64, voucherData, items }) => {
+}> = ({ currency, qrBase64, logoBase64, logoMime, voucherData, items }) => {
   const {
     CbteTipo,
     PtoVta,
@@ -201,20 +204,21 @@ const CreditNoteDocument: React.FC<{
     subtotal: it.sale_price,
   }));
 
+  const logoSrc = logoBase64
+    ? `data:${logoMime || "image/png"};base64,${logoBase64}`
+    : undefined;
+
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         {/* Header */}
         <View style={styles.headerBand}>
-          {logoBase64 && (
+          {logoSrc && (
             // eslint-disable-next-line jsx-a11y/alt-text
-            <Image
-              style={styles.logo}
-              src={`data:image/png;base64,${logoBase64}`}
-            />
+            <Image style={styles.logo} src={logoSrc} />
           )}
           <Text style={styles.noteType}>
-            {CbteTipo === 3 ? "NC A" : CbteTipo === 8 ? "NC B" : CbteTipo}
+            {CbteTipo === 3 ? "NC A" : CbteTipo === 8 ? "NC B" : "NC"}
           </Text>
         </View>
 

@@ -69,7 +69,7 @@ const Row: React.FC<{ label: string; value: string }> = ({ label, value }) => (
 );
 
 const Chip: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <span className="rounded-full border border-white/10 bg-white/20 px-2.5 py-1 text-xs font-medium text-sky-950 dark:bg-white/10 dark:text-white">
+  <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-xs font-medium text-sky-900 dark:border-sky-800/40 dark:bg-sky-900/30 dark:text-sky-100">
     {children}
   </span>
 );

@@ -1,5 +1,3 @@
-// src/pages/api/credit-notes/[id]/pdf.ts
-
 import type { NextApiRequest, NextApiResponse } from "next";
 import { PrismaClient } from "@prisma/client";
 import fs from "fs";
@@ -9,19 +7,46 @@ import CreditNoteDocument, {
   VoucherData,
 } from "@/services/credit-notes/CreditNoteDocument";
 
+/** ===== Helper: traer logo por URL pública (Spaces/S3) a base64 + MIME ===== */
+async function fetchLogoFromUrl(
+  url?: string | null,
+): Promise<{ base64: string; mime: string } | null> {
+  if (!url) return null;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+
+    let mime = r.headers.get("content-type") || "";
+    const buf = Buffer.from(await r.arrayBuffer());
+
+    if (!mime) {
+      const u = url.toLowerCase();
+      if (u.endsWith(".jpg") || u.endsWith(".jpeg")) mime = "image/jpeg";
+      else if (u.endsWith(".png")) mime = "image/png";
+      else if (u.endsWith(".webp")) mime = "image/webp";
+      else mime = "image/png";
+    }
+    return { base64: buf.toString("base64"), mime };
+  } catch {
+    return null;
+  }
+}
+
 const prisma = new PrismaClient();
+
+/** Campos “de marca” que pueden o no existir en tu Agency */
+type AgencyBranding = {
+  id_agency?: number | null;
+  slug?: string | null;
+  logo_url?: string | null;
+  logo_filename?: string | null;
+};
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  // console.log("📥 Nueva petición a /api/credit-notes/[id]/pdf", {
-  //   method: req.method,
-  //   query: req.query,
-  // });
-
   if (req.method !== "GET") {
-    // console.log("⚠️ Método no permitido:", req.method);
     res.setHeader("Allow", ["GET"]);
     res.status(405).end(`Method ${req.method} Not Allowed`);
     return;
@@ -29,7 +54,6 @@ export default async function handler(
 
   const id = Number(req.query.id);
   if (Number.isNaN(id)) {
-    // console.log("❌ ID inválido recibido:", req.query.id);
     res.status(400).end("ID inválido");
     return;
   }
@@ -57,29 +81,63 @@ export default async function handler(
   }
 
   if (!creditNote) {
-    // console.log("🔍 Nota de crédito no encontrada para id:", id);
     res.status(404).end("Nota de crédito no encontrada");
     return;
   }
   if (!creditNote.payloadAfip) {
-    // console.log("🚫 No hay payload AFIP para nota de crédito:", id);
     res.status(500).end("No hay datos AFIP para generar la nota");
     return;
   }
 
-  // 2) Cargar logo si existe
+  // 2) Logo multi-agencia (URL pública con fallback a /public)
   let logoBase64: string | undefined;
+  let logoMime: string | undefined;
   try {
-    const logoPath = path.join(process.cwd(), "public", "logo.png");
-    // console.log("🔎 Buscando logo en:", logoPath);
-    if (fs.existsSync(logoPath)) {
-      logoBase64 = fs.readFileSync(logoPath).toString("base64");
-      // console.log("✅ Logo cargado correctamente");
-    } else {
-      // console.log("ℹ️ Logo no encontrado, se usará sin logo");
+    const agency = creditNote.invoice?.booking?.agency as unknown as
+      | AgencyBranding
+      | undefined;
+
+    // a) intentar S3/Spaces
+    const fetched = await fetchLogoFromUrl(agency?.logo_url ?? null);
+    if (fetched) {
+      logoBase64 = fetched.base64;
+      logoMime = fetched.mime;
     }
-  } catch (logoErr) {
-    console.error("⚠️ Error leyendo logo:", logoErr);
+
+    // b) fallbacks locales: /public/agencies/*
+    if (!logoBase64) {
+      const preferred: string[] = [];
+      const slug = agency?.slug ?? undefined;
+      const logoFile = agency?.logo_filename ?? undefined;
+
+      if (logoFile) preferred.push(logoFile);
+      if (slug) preferred.push(`logo_${slug}.png`);
+      if (agency?.id_agency) preferred.push(`logo_ag_${agency.id_agency}.png`);
+
+      for (const fname of preferred) {
+        const candidate = path.join(process.cwd(), "public", "agencies", fname);
+        if (fs.existsSync(candidate)) {
+          logoBase64 = fs.readFileSync(candidate).toString("base64");
+          logoMime =
+            candidate.toLowerCase().endsWith(".jpg") ||
+            candidate.toLowerCase().endsWith(".jpeg")
+              ? "image/jpeg"
+              : "image/png";
+          break;
+        }
+      }
+
+      // c) último fallback global
+      if (!logoBase64) {
+        const fallback = path.join(process.cwd(), "public", "logo.png");
+        if (fs.existsSync(fallback)) {
+          logoBase64 = fs.readFileSync(fallback).toString("base64");
+          logoMime = "image/png";
+        }
+      }
+    }
+  } catch (e) {
+    console.error("⚠️ Error obteniendo logo:", e);
   }
 
   // 3) Adaptarse a payload “flat” o anidado
@@ -94,9 +152,10 @@ export default async function handler(
   const serviceDates =
     "serviceDates" in raw && raw.serviceDates ? raw.serviceDates : [];
 
-  if (!voucherData.CAE) {
+  if (!voucherData?.CAE) {
     console.error("🚫 voucherData inválido:", voucherData);
-    return res.status(500).end("Datos del voucher incompletos");
+    res.status(500).end("Datos del voucher incompletos");
+    return;
   }
 
   // 4) Calcular período desde/hasta
@@ -119,11 +178,10 @@ export default async function handler(
     retDate = max.toISOString().split("T")[0];
   }
 
-  // 5) Inyectar las fechas en voucherData
   if (depDate) voucherData.departureDate = depDate;
   if (retDate) voucherData.returnDate = retDate;
 
-  // 6) Enriquecer datos de emisor y receptor
+  // 5) Enriquecer emisor/receptor
   try {
     const { invoice } = creditNote;
     const { booking } = invoice;
@@ -134,28 +192,23 @@ export default async function handler(
     voucherData.recipient =
       invoice.recipient ||
       `${booking.titular.first_name} ${booking.titular.last_name}`;
-    // console.log("🏷️ Datos de emisor y receptor inyectados:", {
-    //   emitter: voucherData.emitterName,
-    //   recipient: voucherData.recipient,
-    // });
   } catch (injectErr) {
-    console.error("⚠️ Error inyectando datos de emisor/receptor:", injectErr);
+    console.error("⚠️ Error inyectando emisor/receptor:", injectErr);
   }
 
-  // 7) Preparar props para el PDF
+  // 6) Render
   const data = {
     creditNumber: creditNote.credit_number,
     issueDate: creditNote.issue_date,
     currency: creditNote.currency,
     qrBase64,
     logoBase64,
+    logoMime,
     voucherData,
     items: creditNote.items,
   };
 
-  // 8) Render y stream del PDF
   try {
-    // console.log("📄 Generando PDF para nota:", data.creditNumber);
     const stream = await renderToStream(<CreditNoteDocument {...data} />);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
@@ -163,7 +216,6 @@ export default async function handler(
       `attachment; filename=nota_credito_${data.creditNumber}.pdf`,
     );
     stream.pipe(res);
-    // console.log("✅ PDF enviado correctamente");
   } catch (err) {
     console.error("💥 Error generando PDF nota de crédito:", err);
     res

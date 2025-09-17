@@ -17,14 +17,16 @@ export interface ReceiptPdfData {
   concept: string;
   amount: number;
   amountString: string;
-  currency: string; // método de pago global
+  /** Texto del método de pago (lo que mostrás en UI) */
+  currency: string;
+  /** Código ISO de la moneda del monto (ARS/USD) para formateo */
   amount_currency: string;
   services: Array<{
     id: number;
     description: string;
     salePrice: number;
     cardInterest: number;
-    currency: string; // ISO o texto libre
+    currency: string;
   }>;
   booking: {
     details: string;
@@ -43,6 +45,8 @@ export interface ReceiptPdfData {
       taxId: string;
       address: string;
       logoBase64?: string;
+      /** MIME del logo (image/png, image/jpeg, ...) */
+      logoMime?: string;
     };
   };
   recipients: Array<{
@@ -54,7 +58,7 @@ export interface ReceiptPdfData {
   }>;
 }
 
-// Registrar Poppins
+/* ====== Fuentes (servidor) ====== */
 Font.register({
   family: "Poppins",
   fonts: [
@@ -69,14 +73,13 @@ Font.register({
   ],
 });
 
-// Números con separadores y dos decimales
+/* ====== Utils ====== */
 const fmtNumber = (n: number) =>
   new Intl.NumberFormat("es-AR", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(n);
 
-// Moneda con Intl o fallback
 const fmtCurrency = (value: number, curr: string) =>
   new Intl.NumberFormat("es-AR", {
     style: "currency",
@@ -89,7 +92,9 @@ const safeFmtCurrency = (value: number, curr: string) => {
   if (/^[A-Z]{3}$/.test(curr)) {
     try {
       return fmtCurrency(value, curr);
-    } catch {}
+    } catch {
+      // fallback abajo
+    }
   }
   return `${fmtNumber(value)} ${curr}`;
 };
@@ -102,79 +107,99 @@ const fmtDate = (d: Date) =>
     year: "numeric",
   }).format(d);
 
+/* ====== Estilos (alineados a InvoiceDocument) ====== */
 const styles = StyleSheet.create({
   page: {
     fontFamily: "Poppins",
-    fontSize: 11,
-    paddingTop: 40,
-    paddingHorizontal: 60,
-    paddingBottom: 60,
-    lineHeight: 1.4,
-    color: "#0A0A0A",
-    position: "relative",
+    fontSize: 10,
+    padding: 60,
+    color: "#333",
+    lineHeight: 1.35,
   },
   headerBand: {
-    height: 50,
-    display: "flex",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 60,
+    padding: 10,
+    borderRadius: 6,
+    marginBottom: 12,
   },
-  logoSmall: { height: 40 },
-  header: { color: "#0A0A0A" },
-  headerText: { fontSize: 14, textTransform: "uppercase", marginBottom: 4 },
-  headerDate: { fontSize: 8, fontWeight: "light", color: "#555" },
-  infoSection: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 20,
+  logo: { height: 30 },
+  headerRight: {
+    alignItems: "flex-end",
+    gap: 2,
   },
-  infoColumn: { width: "46%" },
-  infoLabel: { fontWeight: "bold", marginBottom: 4, color: "#555" },
+  docTitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    textTransform: "uppercase",
+    color: "#555",
+  },
+  docSub: { fontSize: 9, color: "#555" },
+
   sectionTitle: {
     fontSize: 12,
     fontWeight: "bold",
-    marginBottom: 16,
+    marginTop: 6,
+    marginBottom: 6,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
     color: "#555",
   },
-  tableContainer: {
-    borderWidth: 1,
-    borderRadius: 15,
-    borderColor: "#0A0A0A",
-    marginBottom: 40,
-  },
-  tableHeader: {
+
+  twoCols: {
     flexDirection: "row",
-    backgroundColor: "#0A0A0A",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 10,
+  },
+  col: { width: "48%" },
+
+  infoBox: {
+    backgroundColor: "#fafafa",
+    padding: 8,
+    borderRadius: 4,
+  },
+  infoLabel: { fontWeight: "bold", color: "#555", marginBottom: 2 },
+  infoText: { fontSize: 9.5 },
+
+  table: {
+    width: "100%",
     borderWidth: 1,
-    borderColor: "#0A0A0A",
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
+    borderColor: "#ccc",
+    borderRadius: 4,
+    overflow: "hidden",
+    marginBottom: 12,
+    marginTop: 4,
   },
-  tableHeaderCell: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontWeight: "bold",
-    color: "#FFF",
+  headerCell: {
+    flexDirection: "row",
+    backgroundColor: "#e8e8e8",
+    borderBottomWidth: 1,
+    borderColor: "#ccc",
   },
-  tableRow: { flexDirection: "row" },
-  tableRowAlt: { backgroundColor: "#0A0A0A", color: "#FFF" },
-  tableCell: { paddingHorizontal: 12, paddingVertical: 8 },
-  colDescription: { width: "100%" },
-  footerContainer: {
-    position: "absolute",
-    bottom: 10,
-    left: 60,
-    right: 60,
+  row: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderColor: "#eee",
+  },
+  rowAlt: { backgroundColor: "#fcfcfc" },
+  cellDesc: { width: "100%", padding: 6, fontSize: 9 },
+
+  divider: {
+    height: 1,
+    backgroundColor: "#e5e5e5",
+    marginVertical: 10,
+  },
+
+  footer: {
+    fontSize: 8,
     textAlign: "center",
-    lineHeight: 1.2,
+    marginTop: 24,
+    color: "#777",
   },
-  footerText: { fontSize: 9, color: "#888" },
 });
 
+/* ====== Componente ====== */
 const ReceiptDocument: React.FC<ReceiptPdfData> = ({
   receiptNumber,
   issueDate,
@@ -187,122 +212,133 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
   booking: { details, departureDate, returnDate, agency },
   recipients,
 }) => {
+  const logoSrc =
+    agency.logoBase64 && (agency.logoMime || "image/png")
+      ? `data:${agency.logoMime || "image/png"};base64,${agency.logoBase64}`
+      : undefined;
+
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        {/* Banda y logo */}
+        {/* Cabecera (mismo patrón que Invoice) */}
         <View style={styles.headerBand}>
-          {agency.logoBase64 && (
+          {logoSrc ? (
             // eslint-disable-next-line jsx-a11y/alt-text
-            <Image
-              style={styles.logoSmall}
-              src={`data:image/png;base64,${agency.logoBase64}`}
-            />
+            <Image style={styles.logo} src={logoSrc} />
+          ) : (
+            <View style={{ height: 30, width: 90 }} />
           )}
-          <View style={styles.header}>
-            <Text style={styles.headerText}>Recibo N° {receiptNumber}</Text>
-            <Text style={styles.headerDate}>
-              {fmtDate(new Date(issueDate))}
-            </Text>
+          <View style={styles.headerRight}>
+            <Text style={styles.docTitle}>Recibo</Text>
+            <Text style={styles.docSub}>N° {receiptNumber}</Text>
+            <Text style={styles.docSub}>{fmtDate(new Date(issueDate))}</Text>
           </View>
         </View>
-        {/* Cliente(s) / Agencia */}
-        <View style={styles.infoSection}>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>Cliente(s)</Text>
-            {recipients.map((r, i) => (
-              <View key={i} style={{ marginBottom: 4 }}>
-                <Text>
-                  {r.firstName} {r.lastName} – DNI {r.dni}
-                </Text>
-                <Text>
-                  {r.address}, {r.locality}
-                </Text>
-              </View>
-            ))}
+
+        {/* Cliente(s) y Agencia (look & feel de “partyBox”) */}
+        <Text style={styles.sectionTitle}>Datos</Text>
+        <View style={styles.twoCols}>
+          <View style={styles.col}>
+            <View style={styles.infoBox}>
+              <Text style={styles.infoLabel}>Cliente(s)</Text>
+              {recipients.map((r, i) => (
+                <View key={i} style={{ marginBottom: 4 }}>
+                  <Text style={styles.infoText}>
+                    {r.firstName} {r.lastName} – DNI {r.dni}
+                  </Text>
+                  <Text style={styles.infoText}>
+                    {r.address}, {r.locality}
+                  </Text>
+                </View>
+              ))}
+            </View>
           </View>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>Agencia</Text>
-            <Text>
-              {agency.name} ({agency.legalName})
-            </Text>
-            <Text>CUIT: {agency.taxId}</Text>
-            <Text>{agency.address}</Text>
+          <View style={styles.col}>
+            <View style={styles.infoBox}>
+              <Text style={styles.infoLabel}>Agencia</Text>
+              <Text style={styles.infoText}>
+                {agency.name} ({agency.legalName})
+              </Text>
+              <Text style={styles.infoText}>CUIT: {agency.taxId}</Text>
+              <Text style={styles.infoText}>{agency.address}</Text>
+            </View>
           </View>
         </View>
-        {/* Servicios */}
+
+        {/* Detalle de servicios (tabla con estética Invoice) */}
         <Text style={styles.sectionTitle}>Detalle de servicios</Text>
-        <View style={styles.tableContainer}>
-          <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderCell, styles.colDescription]}>
-              Descripción
-            </Text>
+        <View style={styles.table}>
+          <View style={styles.headerCell}>
+            <Text style={styles.cellDesc}>Descripción</Text>
           </View>
           {services.map((svc, i) => (
             <View
               key={svc.id}
-              style={[
-                styles.tableRow,
-                ...(i % 2 === 1 ? [styles.tableRowAlt] : []),
-              ]}
+              style={i % 2 ? [styles.row, styles.rowAlt] : styles.row}
             >
-              <Text style={[styles.tableCell, styles.colDescription]}>
-                {svc.description}
-              </Text>
+              <Text style={styles.cellDesc}>{svc.description}</Text>
             </View>
           ))}
         </View>
-        {/* Monto y método */}
-        <View style={styles.infoSection}>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>En concepto de</Text>
-            <Text>{concept}</Text>
-          </View>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>EL CLIENTE PAGO</Text>
-            <Text>{safeFmtCurrency(amount, amount_currency)}</Text>
-          </View>
-        </View>
-        <View style={styles.infoSection}>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>Monto</Text>
-            <Text>{amountString}</Text>
-          </View>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>Método de pago</Text>
-            <Text>{currency}</Text>
-          </View>
-        </View>
-        {/* Pie */}
-        <View style={styles.footerContainer} fixed>
-          <Text style={styles.footerText}>
-            Este comprobante no es válido como factura.
-          </Text>
-        </View>
 
-        {/* Pago y firma */}
-        <View style={styles.infoSection}>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>Servicio contratado</Text>
-            <Text>{details}</Text>
+        {/* Concepto / Importe mostrado / Monto en letras / Método */}
+        <View style={styles.twoCols}>
+          <View style={styles.col}>
+            <View style={styles.infoBox}>
+              <Text style={styles.infoLabel}>En concepto de</Text>
+              <Text style={styles.infoText}>{concept}</Text>
+            </View>
           </View>
-          <View style={styles.infoColumn}>
-            <Text style={styles.infoLabel}>
-              Servicio contratado Desde - Hasta
-            </Text>
-            <Text>
-              {fmtDate(new Date(departureDate))} -{" "}
-              {fmtDate(new Date(returnDate))}
-            </Text>
+          <View style={styles.col}>
+            <View style={styles.infoBox}>
+              <Text style={styles.infoLabel}>El cliente pagó</Text>
+              <Text style={styles.infoText}>
+                {safeFmtCurrency(amount, amount_currency)}
+              </Text>
+            </View>
           </View>
         </View>
 
-        {/* Pie de página estático */}
-        <View style={styles.footerContainer} fixed>
-          <Text style={styles.footerText}>
-            Este comprobante no es válido como factura.
-          </Text>
+        <View style={styles.twoCols}>
+          <View style={styles.col}>
+            <View style={styles.infoBox}>
+              <Text style={styles.infoLabel}>Monto en letras</Text>
+              <Text style={styles.infoText}>{amountString}</Text>
+            </View>
+          </View>
+          <View style={styles.col}>
+            <View style={styles.infoBox}>
+              <Text style={styles.infoLabel}>Método de pago</Text>
+              <Text style={styles.infoText}>{currency}</Text>
+            </View>
+          </View>
         </View>
+
+        {/* Rango del servicio (visual consistente) */}
+        <Text style={styles.sectionTitle}>Servicio contratado</Text>
+        <View style={styles.twoCols}>
+          <View style={styles.col}>
+            <View style={styles.infoBox}>
+              <Text style={styles.infoLabel}>Detalle</Text>
+              <Text style={styles.infoText}>{details}</Text>
+            </View>
+          </View>
+          <View style={styles.col}>
+            <View style={styles.infoBox}>
+              <Text style={styles.infoLabel}>Desde / Hasta</Text>
+              <Text style={styles.infoText}>
+                {fmtDate(new Date(departureDate))} -{" "}
+                {fmtDate(new Date(returnDate))}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Pie (igual estética que Invoice) */}
+        <View style={styles.divider} />
+        <Text style={styles.footer} fixed>
+          Este comprobante no es válido como factura.
+        </Text>
       </Page>
     </Document>
   );

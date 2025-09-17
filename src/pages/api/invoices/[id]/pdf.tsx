@@ -1,7 +1,6 @@
 // src/pages/api/invoices/[id]/pdf.ts
-
 import type { NextApiRequest, NextApiResponse } from "next";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import fs from "fs";
 import path from "path";
 import { renderToStream } from "@react-pdf/renderer";
@@ -9,17 +8,56 @@ import InvoiceDocument, {
   VoucherData,
 } from "@/services/invoices/InvoiceDocument";
 
+/** ===== Tipos del payload guardado en la factura ===== */
 interface PayloadAfip {
   voucherData: VoucherData;
-  afipResponse: {
+  afipResponse?: {
     CAE: string;
     CAEFchVto: string;
   };
-  qrBase64: string;
+  qrBase64?: string;
   description21?: string[];
   description10_5?: string[];
   descriptionNonComputable?: string[];
   serviceDates?: { from: string; to: string }[];
+}
+
+/** ====== Tipo fuerte con relaciones incluidas ====== */
+type InvoiceWithRelations = Prisma.InvoiceGetPayload<{
+  include: {
+    booking: {
+      include: {
+        titular: true;
+        agency: true;
+      };
+    };
+  };
+}>;
+
+/** ===== Helper: traer logo por URL pública (Spaces/S3) a base64 ===== */
+async function fetchLogoFromUrl(
+  url?: string | null,
+): Promise<{ base64: string; mime: string } | null> {
+  if (!url) return null;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+
+    let mime = r.headers.get("content-type") || "";
+    const buf = Buffer.from(await r.arrayBuffer());
+
+    // Inferencia simple si no viene content-type
+    if (!mime) {
+      const u = url.toLowerCase();
+      if (u.endsWith(".jpg") || u.endsWith(".jpeg")) mime = "image/jpeg";
+      else if (u.endsWith(".png")) mime = "image/png";
+      else if (u.endsWith(".webp")) mime = "image/webp";
+      else mime = "image/png";
+    }
+    return { base64: buf.toString("base64"), mime };
+  } catch {
+    return null;
+  }
 }
 
 const prisma = new PrismaClient();
@@ -28,24 +66,19 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  // console.log("📥 Petición a /api/invoices/[id]/pdf", {
-  //   method: req.method,
-  //   query: req.query,
-  // });
-
   if (req.method !== "GET") {
-    // console.log("⚠️ Método no permitido:", req.method);
     res.setHeader("Allow", ["GET"]);
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
   const id = parseInt(req.query.id as string, 10);
-  if (isNaN(id)) {
-    // console.log("❌ ID inválido recibido:", req.query.id);
+  if (Number.isNaN(id)) {
     return res.status(400).end("ID inválido");
   }
 
-  let invoice;
+  // 1) Buscar factura con booking+agency (multi-agencia)
+  let invoice: InvoiceWithRelations | null = null;
+
   try {
     invoice = await prisma.invoice.findUnique({
       where: { id_invoice: id },
@@ -58,39 +91,75 @@ export default async function handler(
         },
       },
     });
-    // console.log(
-    //   "🔍 Resultado consulta invoice:",
-    //   invoice ? "Encontrada" : "No encontrada",
-    // );
   } catch (dbErr) {
-    console.error("💥 Error al consultar factura en DB:", dbErr);
+    console.error("💥 DB error al consultar invoice:", dbErr);
     return res.status(500).end("Error interno de base de datos");
   }
 
-  if (!invoice) {
-    return res.status(404).end("Factura no encontrada");
-  }
-  if (!invoice.payloadAfip) {
-    // console.log("🚫 No hay payload AFIP para factura:", id);
+  if (!invoice) return res.status(404).end("Factura no encontrada");
+  if (!invoice.payloadAfip)
     return res.status(500).end("No hay datos para generar la factura");
+
+  if (!invoice.booking || !invoice.booking.agency) {
+    return res
+      .status(400)
+      .end("Faltan datos de booking/agencia para generar el PDF");
   }
 
-  // 2) Load logo
+  // 2) Logo multi-agencia: priorizar agency.logo_url (Spaces/S3)
   let logoBase64: string | undefined;
+  let logoMime: string | undefined;
+
   try {
-    const logoPath = path.join(process.cwd(), "public", "logo.png");
-    // console.log("🔎 Buscando logo en:", logoPath);
-    if (fs.existsSync(logoPath)) {
-      logoBase64 = fs.readFileSync(logoPath).toString("base64");
-      // console.log("✅ Logo cargado");
-    } else {
-      // console.log("ℹ️ Logo no encontrado");
+    const agency = invoice.booking.agency;
+
+    // a) intentar descargar del URL público guardado en DB
+    const fetched = await fetchLogoFromUrl(
+      (agency as unknown as { logo_url?: string | null })?.logo_url,
+    );
+    if (fetched) {
+      logoBase64 = fetched.base64;
+      logoMime = fetched.mime;
+    }
+
+    // b) fallbacks locales opcionales (por si no hay logo_url o falla la descarga)
+    if (!logoBase64) {
+      const preferred: string[] = [];
+      const slug = (agency as unknown as { slug?: string | null })?.slug || "";
+      const logoFile = (agency as unknown as { logo_filename?: string | null })
+        ?.logo_filename;
+
+      if (logoFile) preferred.push(logoFile);
+      if (slug) preferred.push(`logo_${slug}.png`);
+      if (agency.id_agency) preferred.push(`logo_ag_${agency.id_agency}.png`);
+
+      for (const fname of preferred) {
+        const candidate = path.join(process.cwd(), "public", "agencies", fname);
+        if (fs.existsSync(candidate)) {
+          logoBase64 = fs.readFileSync(candidate).toString("base64");
+          logoMime =
+            candidate.toLowerCase().endsWith(".jpg") ||
+            candidate.toLowerCase().endsWith(".jpeg")
+              ? "image/jpeg"
+              : "image/png";
+          break;
+        }
+      }
+
+      // c) último fallback a /public/logo.png
+      if (!logoBase64) {
+        const fallback = path.join(process.cwd(), "public", "logo.png");
+        if (fs.existsSync(fallback)) {
+          logoBase64 = fs.readFileSync(fallback).toString("base64");
+          logoMime = "image/png";
+        }
+      }
     }
   } catch (logoErr) {
-    console.error("⚠️ Error leyendo logo:", logoErr);
+    console.error("⚠️ Error obteniendo logo:", logoErr);
   }
 
-  // 3) Cast payload
+  // 3) Parsear payload
   const payload = invoice.payloadAfip as unknown as PayloadAfip;
   const {
     voucherData,
@@ -102,34 +171,36 @@ export default async function handler(
   } = payload;
 
   if (!voucherData) {
-    // console.log("❌ voucherData ausente o inválido en payload:", payload);
     return res.status(500).end("Datos de voucher incompletos");
   }
 
-  // 4) Calcular fechas
+  // 4) Calcular período (desde/hasta) si viene
   const parseYmd = (s: string) => {
     const clean = s.includes("-") ? s.replace(/-/g, "") : s;
     return new Date(
-      `${clean.substr(0, 4)}-${clean.substr(4, 2)}-${clean.substr(6, 2)}`,
+      `${clean.substring(0, 4)}-${clean.substring(4, 6)}-${clean.substring(6, 8)}`,
     );
   };
-  let depDate: string | undefined, retDate: string | undefined;
+
+  let depDate: string | undefined;
+  let retDate: string | undefined;
+
   if (serviceDates.length) {
     try {
-      // console.log("📅 serviceDates:", serviceDates);
       const froms = serviceDates.map((sd) => parseYmd(sd.from));
       const tos = serviceDates.map((sd) => parseYmd(sd.to));
       const min = new Date(Math.min(...froms.map((d) => d.getTime())));
       const max = new Date(Math.max(...tos.map((d) => d.getTime())));
       depDate = min.toISOString().split("T")[0];
       retDate = max.toISOString().split("T")[0];
-      // console.log("↔️ Fechas calculadas:", { depDate, retDate });
     } catch (dateErr) {
-      console.error("⚠️ Error calculando fechas:", dateErr);
+      console.error("⚠️ Error calculando período servicio:", dateErr);
     }
   }
 
-  // 5) Enriquecer voucherData
+  // 5) Enriquecer voucher con datos de agencia (multi-agencia)
+  const ag = invoice.booking.agency;
+
   const enrichedVoucher: VoucherData & {
     emitterName: string;
     emitterLegalName: string;
@@ -143,10 +214,10 @@ export default async function handler(
     descriptionNonComputable?: string[];
   } = {
     ...voucherData,
-    emitterName: invoice.booking.agency.name,
-    emitterLegalName: invoice.booking.agency.legal_name,
-    emitterTaxId: invoice.booking.agency.tax_id,
-    emitterAddress: invoice.booking.agency.address ?? "",
+    emitterName: ag.name ?? "Agencia",
+    emitterLegalName: ag.legal_name ?? ag.name ?? "Razón social",
+    emitterTaxId: ag.tax_id ?? undefined,
+    emitterAddress: ag.address ?? undefined,
     recipient: invoice.recipient,
     departureDate: depDate,
     returnDate: retDate,
@@ -154,39 +225,31 @@ export default async function handler(
     description10_5,
     descriptionNonComputable,
   };
-  // console.log("🏷️ Datos enriquecidos de voucher:", {
-  //   emitter: enrichedVoucher.emitterName,
-  //   recipient: enrichedVoucher.recipient,
-  // });
 
-  // 6) Render y enviar PDF
+  // 6) Render y envío del PDF
   try {
-    // console.log("📄 Generando PDF factura:", invoice.invoice_number);
     const stream = await renderToStream(
       <InvoiceDocument
-        {...{
-          invoiceNumber: invoice.invoice_number,
-          issueDate: invoice.issue_date,
-          currency: invoice.currency,
-          qrBase64,
-          logoBase64,
-          voucherData: enrichedVoucher,
-        }}
+        voucherData={enrichedVoucher}
+        currency={invoice.currency}
+        qrBase64={qrBase64}
+        logoBase64={logoBase64}
+        logoMime={logoMime}
       />,
     );
+
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
       `attachment; filename=factura_${id}.pdf`,
     );
     stream.pipe(res);
-    // console.log("✅ PDF factura enviado");
   } catch (err) {
     console.error("💥 Error generando PDF factura:", err);
     res
       .status(500)
       .end(
-        `Error al generar el PDF: ${(err as Error).message || "desconocido"}`,
+        `Error al generar el PDF: ${(err as Error)?.message || "desconocido"}`,
       );
   }
 }
