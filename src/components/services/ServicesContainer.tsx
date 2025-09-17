@@ -603,13 +603,13 @@ export default function ServicesContainer({
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full border border-white/20 bg-white/30 px-3 py-1 text-xs font-medium shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                  <span className="rounded-full border border-white/5 bg-white/30 px-3 py-1 text-xs font-medium shadow-sm shadow-sky-950/10 dark:bg-white/5">
                     Cliente:{" "}
                     <b className="ml-1 font-medium">
                       {booking.clientStatus || "-"}
                     </b>
                   </span>
-                  <span className="rounded-full border border-white/20 bg-white/30 px-3 py-1 text-xs font-medium shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                  <span className="rounded-full border border-white/5 bg-white/30 px-3 py-1 text-xs font-medium shadow-sm shadow-sky-950/10 dark:bg-white/5">
                     Operador:{" "}
                     <b className="ml-1 font-medium">
                       {booking.operatorStatus.charAt(0).toUpperCase() +
@@ -620,21 +620,21 @@ export default function ServicesContainer({
               </div>
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                <div className="col-span-3 rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
                   <p className="text-sm font-semibold">Detalle</p>
                   <p className="mt-1 text-sm font-light">
                     {booking.details || "N/A"}
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                <div className="rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
                   <p className="text-sm font-semibold">Vendedor</p>
                   <p className="mt-1 text-sm font-light">
                     {booking.user.first_name} {booking.user.last_name}
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                <div className="rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
                   <p className="text-sm font-semibold">Titular</p>
                   <p className="mt-1 text-sm font-light">
                     {booking.titular.first_name.charAt(0).toUpperCase() +
@@ -645,36 +645,32 @@ export default function ServicesContainer({
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
-                  <p className="text-sm font-semibold">Salida</p>
-                  <p className="mt-1 text-sm font-light">
-                    {formatDate(booking.departure_date)}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
-                  <p className="text-sm font-semibold">Regreso</p>
-                  <p className="mt-1 text-sm font-light">
-                    {formatDate(booking.return_date)}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
-                  <p className="text-sm font-semibold">Pasajeros</p>
-                  <p className="mt-1 text-sm font-light">{booking.pax_count}</p>
+                <div className="flex items-end gap-4 rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
+                  <div className="">
+                    <p className="text-sm font-semibold">Salida</p>
+                    <p className="mt-1 text-sm font-light">
+                      {formatDate(booking.departure_date)}
+                    </p>
+                  </div>
+                  <p className="relative top-0.5 font-light">{`>`}</p>
+                  <div>
+                    <p className="text-sm font-semibold">Regreso</p>
+                    <p className="mt-1 text-sm font-light">
+                      {formatDate(booking.return_date)}
+                    </p>
+                  </div>
                 </div>
               </div>
 
               {/* Pasajeros lista */}
-              <div className="mt-4 rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
-                <p className="text-sm font-semibold">Lista de pasajeros</p>
+              <div className="mt-4 rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
+                <p className="text-sm font-semibold">{`Lista de pasajeros (${booking.pax_count})`}</p>
                 <ul className="ml-5 mt-2 list-disc text-sm">
                   <li>
                     {booking.titular.first_name.charAt(0).toUpperCase() +
                       booking.titular.first_name.slice(1).toLowerCase()}{" "}
                     {booking.titular.last_name.charAt(0).toUpperCase() +
                       booking.titular.last_name.slice(1).toLowerCase()}{" "}
-                    — {booking.titular.id_client}
                   </li>
                   {booking.clients.map((client) => (
                     <li key={client.id_client}>
@@ -682,7 +678,6 @@ export default function ServicesContainer({
                         client.first_name.slice(1).toLowerCase()}{" "}
                       {client.last_name.charAt(0).toUpperCase() +
                         client.last_name.slice(1).toLowerCase()}{" "}
-                      — {client.id_client}
                     </li>
                   ))}
                 </ul>
@@ -690,7 +685,7 @@ export default function ServicesContainer({
 
               {/* Facturación + Observaciones */}
               <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                <div className="rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
                   <p className="text-sm font-semibold">Facturación</p>
                   <ul className="ml-4 mt-2 list-disc text-sm">
                     <li className="font-light">
@@ -702,7 +697,7 @@ export default function ServicesContainer({
                   </ul>
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                <div className="rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
                   <p className="mb-2 text-sm font-semibold">
                     Observaciones de administración
                   </p>

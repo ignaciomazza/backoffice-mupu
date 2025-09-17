@@ -1,7 +1,10 @@
+// src/components/services/SummaryCard.tsx
 "use client";
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { Service, Receipt } from "@/types";
+import { useAuth } from "@/context/AuthContext";
 
+/* ===== Tipos ===== */
 interface Totals {
   sale_price: number;
   cost_price: number;
@@ -26,7 +29,7 @@ interface SummaryCardProps {
   totalsByCurrency: Record<string, Totals>;
   fmtCurrency: (value: number, currency: string) => string;
 
-  /** Datos crudos para calcular deuda */
+  /** Datos crudos para calcular deuda y comisión */
   services: Service[];
   receipts: Receipt[];
 }
@@ -37,6 +40,14 @@ type ServiceWithCalcs = Service &
     taxableCardInterest: number;
     vatOnCardInterest: number;
     card_interest: number;
+    totalCommissionWithoutVAT: number;
+    currency: "ARS" | "USD" | string;
+    sale_price: number;
+    booking: {
+      id_booking: number;
+      creation_date: string | Date;
+      user?: { id_user: number; first_name: string; last_name: string };
+    };
   }>;
 
 /** Extensión segura de Receipt con campos de conversión opcionales */
@@ -55,7 +66,7 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
   title,
   children,
 }) => (
-  <section className="rounded-2xl border border-white/10 bg-white/10 p-3 shadow-sm shadow-sky-950/10">
+  <section className="rounded-2xl border border-white/5 bg-white/5 p-3 shadow-sm shadow-sky-950/10">
     <h4 className="mb-2 text-sm font-semibold tracking-tight">{title}</h4>
     <dl className="divide-y divide-white/10">{children}</dl>
   </section>
@@ -69,10 +80,32 @@ const Row: React.FC<{ label: string; value: string }> = ({ label, value }) => (
 );
 
 const Chip: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-xs font-medium text-sky-900 dark:border-sky-800/40 dark:bg-sky-900/30 dark:text-sky-100">
+  <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-sm font-medium text-sky-900 dark:border-sky-800/40 dark:bg-sky-900/30 dark:text-sky-100">
     {children}
   </span>
 );
+
+/* ---------- helpers de datos ---------- */
+const toNum = (v: number | string | null | undefined) => {
+  const n =
+    typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : NaN;
+  return Number.isFinite(n) ? n : 0;
+};
+
+// Busca un bookingId válido recorriendo los services.
+function pickBookingId(svcs: ServiceWithCalcs[]): number | undefined {
+  for (const s of svcs) {
+    const bid = s.booking?.id_booking;
+    if (Number.isFinite(bid as number) && (bid as number) > 0)
+      return bid as number;
+  }
+  return undefined;
+}
+
+const upperKeys = (obj: Record<string, number>) =>
+  Object.fromEntries(
+    Object.entries(obj || {}).map(([k, v]) => [String(k).toUpperCase(), v]),
+  );
 
 /* ------------------------------------------------------- */
 
@@ -83,17 +116,9 @@ export default function SummaryCard({
   receipts,
 }: SummaryCardProps) {
   const labels: Record<string, string> = { ARS: "Pesos", USD: "Dólares" };
+  const { token } = useAuth();
 
-  const toNum = (v: number | string | null | undefined) => {
-    const n =
-      typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : NaN;
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  /** Venta con interés por moneda (sale_price + interés).
-   * Si hay desglose (taxableCardInterest + vatOnCardInterest) lo prioriza;
-   * si no, cae a card_interest (bruto).
-   */
+  /** Venta con interés por moneda (sale_price + interés). */
   const salesWithInterestByCurrency = useMemo(() => {
     return services.reduce<Record<string, number>>((acc, raw) => {
       const s = raw as ServiceWithCalcs;
@@ -108,9 +133,7 @@ export default function SummaryCard({
     }, {});
   }, [services]);
 
-  /** Pagos por moneda priorizando contravalor cuando exista;
-   * de lo contrario usa amount/amount_currency.
-   */
+  /** Pagos por moneda (prioriza contravalor). */
   const paidByCurrency = useMemo(() => {
     return receipts.reduce<Record<string, number>>((acc, raw) => {
       const r = raw as ReceiptWithConversion;
@@ -133,7 +156,7 @@ export default function SummaryCard({
     }, {});
   }, [receipts]);
 
-  /** Unión de monedas presentes en el resumen y en los cálculos de deuda */
+  /** Unión de monedas presentes. */
   const currencies = useMemo(() => {
     const a = new Set(Object.keys(totalsByCurrency));
     Object.keys(salesWithInterestByCurrency).forEach((c) => a.add(c));
@@ -141,12 +164,103 @@ export default function SummaryCard({
     return Array.from(a);
   }, [totalsByCurrency, salesWithInterestByCurrency, paidByCurrency]);
 
+  /** ====== cálculo local de comisión base por moneda (fallback) ======
+   * commissionBase = max(totalCommissionWithoutVAT - sale_price*0.024, 0)
+   * (idéntico a /api/earnings)
+   */
+  const localCommissionBaseByCurrency = useMemo(() => {
+    return services.reduce<Record<string, number>>((acc, raw) => {
+      const s = raw as ServiceWithCalcs;
+      const cur = (s.currency || "ARS").toUpperCase();
+      const sale = toNum(s.sale_price);
+      const dbCommission = toNum(s.totalCommissionWithoutVAT);
+      const fee = sale * 0.024;
+      const base = Math.max(dbCommission - fee, 0);
+      acc[cur] = (acc[cur] || 0) + base;
+      return acc;
+    }, {});
+  }, [services]);
+
+  /** ====== Traer % y earnings desde /api/earnings/by-booking ====== */
+  const bookingId = useMemo(
+    () => pickBookingId(services as ServiceWithCalcs[]),
+    [services],
+  );
+
+  const [ownerPct, setOwnerPct] = useState<number>(100);
+  const [apiCommissionBaseByCurrency, setApiCommissionBaseByCurrency] =
+    useState<Record<string, number>>({});
+  const [apiSellerEarningsByCurrency, setApiSellerEarningsByCurrency] =
+    useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!token || !bookingId) {
+        if (!cancelled) {
+          setOwnerPct(100);
+          setApiCommissionBaseByCurrency({});
+          setApiSellerEarningsByCurrency({});
+        }
+        return;
+      }
+      try {
+        const r = await fetch(
+          `/api/earnings/by-booking?bookingId=${bookingId}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          },
+        );
+        if (!r.ok) throw new Error("fetch failed");
+        const json: {
+          ownerPct: number;
+          commissionBaseByCurrency: Record<"ARS" | "USD", number>;
+          sellerEarningsByCurrency: Record<"ARS" | "USD", number>;
+        } = await r.json();
+
+        if (!cancelled) {
+          setOwnerPct(json.ownerPct ?? 100);
+          setApiCommissionBaseByCurrency(
+            upperKeys(json.commissionBaseByCurrency as Record<string, number>),
+          );
+          setApiSellerEarningsByCurrency(
+            upperKeys(json.sellerEarningsByCurrency as Record<string, number>),
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setOwnerPct(100);
+          setApiCommissionBaseByCurrency({});
+          setApiSellerEarningsByCurrency({});
+        }
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, bookingId]);
+
+  /** ====== Derivados para UI ====== */
+  const commissionBaseFor = (cur: string) =>
+    apiCommissionBaseByCurrency[cur] ?? localCommissionBaseByCurrency[cur] ?? 0;
+
+  const sellerEarningFor = (cur: string) => {
+    if (apiSellerEarningsByCurrency[cur] != null)
+      return apiSellerEarningsByCurrency[cur];
+    const base = commissionBaseFor(cur);
+    return base * ((ownerPct || 0) / 100);
+  };
+
   const colsClass =
     currencies.length === 1 ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2";
 
   return (
     <div
-      className={`mb-6 space-y-3 rounded-3xl ${currencies.length > 1 ? "border border-white/10 bg-white/10 p-6" : ""} text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white`}
+      className={`mb-6 space-y-3 rounded-3xl ${
+        currencies.length > 1 ? "border border-white/10 bg-white/10 p-6" : ""
+      } text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white`}
     >
       <div className={`grid ${colsClass} gap-6`}>
         {currencies.map((currency) => {
@@ -168,7 +282,7 @@ export default function SummaryCard({
             transferFeesAmount: 0,
           };
 
-          // Intereses de tarjeta: prioriza desglose (sin IVA + IVA); si no existe, usa bruto
+          // Intereses de tarjeta (presentación)
           const cardSplit =
             (t.taxableCardInterest ?? 0) + (t.vatOnCardInterest ?? 0);
           const cardTotal =
@@ -182,11 +296,18 @@ export default function SummaryCard({
             t.totalCommissionWithoutVAT - t.transferFeesAmount,
             currency,
           );
+          const iva = fmtCurrency(
+            t.sale_price - t.cost_price - t.totalCommissionWithoutVAT,
+            currency,
+          );
 
           // Deuda por moneda
           const salesWI = salesWithInterestByCurrency[currency] || 0;
           const paid = paidByCurrency[currency] || 0;
           const debt = salesWI - paid;
+
+          // Comisión base + ganancia del vendedor (preferimos API, sino fallback)
+          const myEarning = sellerEarningFor(currency);
 
           return (
             <section
@@ -198,13 +319,12 @@ export default function SummaryCard({
                 <h3 className="text-xl font-semibold">
                   {labels[currency] || currency}
                 </h3>
-                <div className="flex w-full justify-end gap-2">
-                  <div className="flex w-3/4 flex-wrap items-center justify-end gap-2">
-                    <Chip>Venta: {venta}</Chip>
-                    <Chip>Costo: {costo}</Chip>
-                    <Chip>Margen: {margen}</Chip>
-                    <Chip>Fees transf.: {feeTransfer}</Chip>
-                  </div>
+                <div className="flex w-full flex-wrap items-center justify-end gap-2 pl-20">
+                  <Chip>Venta: {venta}</Chip>
+                  <Chip>Costo: {costo}</Chip>
+                  <Chip>Ganancia: {margen}</Chip>
+                  <Chip>Impuestos: {iva}</Chip>
+                  <Chip>Costo transf.: {feeTransfer}</Chip>
                 </div>
               </header>
 
@@ -274,7 +394,7 @@ export default function SummaryCard({
                 </Section>
 
                 {/* Deuda */}
-                <Section title="Deuda">
+                <Section title="Deuda del cliente">
                   <Row
                     label="Venta c/ interés"
                     value={fmtCurrency(salesWI, currency)}
@@ -288,13 +408,23 @@ export default function SummaryCard({
               </div>
 
               {/* Footer */}
-              <footer className="mt-4 rounded-2xl border border-white/10 bg-white/20 p-3">
-                <p className="text-sm opacity-70">
-                  Total Comisión (sin IVA) – neta de costos por transferencia
-                </p>
-                <p className="text-lg font-semibold tabular-nums">
-                  {totalComisionNeta}
-                </p>
+              <footer className="mt-4 flex justify-between rounded-2xl border border-white/5 bg-white/10 p-3">
+                <div>
+                  <p className="text-sm opacity-70">
+                    Total Comisión (Sin Impuestos/ Costos Transferencia)
+                  </p>
+                  <p className="text-lg font-semibold tabular-nums">
+                    {totalComisionNeta}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm opacity-70">
+                    Ganancia del vendedor {`(${(ownerPct ?? 100).toFixed(0)}%)`}
+                  </p>
+                  <p className="text-end text-lg font-semibold tabular-nums">
+                    {fmtCurrency(myEarning, currency)}
+                  </p>
+                </div>
               </footer>
             </section>
           );

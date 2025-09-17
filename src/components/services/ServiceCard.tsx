@@ -122,9 +122,9 @@ export default function ServiceCard({
       className="h-fit space-y-4 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur-sm dark:text-white"
     >
       {/* Header */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div className="min-w-0">
-          <div className="mb-2 flex items-center gap-4">
+      <div className="min-w-0">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="flex items-center gap-4">
             <button
               onClick={toggleExpand}
               aria-expanded={isExpanded}
@@ -170,16 +170,15 @@ export default function ServiceCard({
                 : "–"}
             </p>
           </div>
-          <div className="flex flex-col font-semibold">
-            <p>{service.type}</p>
-            <p className="text-sm font-normal opacity-70">
-              {service.description ? `${service.description}` : ""}
-            </p>
+          <div className="flex">
+            <Chip>{service.operator?.name ?? "Operador –"}</Chip>
           </div>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Chip>{service.operator?.name ?? "Operador –"}</Chip>
+        <div className="flex flex-col font-semibold">
+          <p>{service.type}</p>
+          <p className="text-sm font-normal opacity-70">
+            {service.description ? `${service.description}` : ""}
+          </p>
         </div>
       </div>
 
