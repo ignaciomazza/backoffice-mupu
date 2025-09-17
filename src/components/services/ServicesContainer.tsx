@@ -485,19 +485,24 @@ export default function ServicesContainer({
         </div>
       ) : (
         <>
-          <div className="mb-4 flex flex-col justify-between gap-2 md:mb-6">
-            <Link
-              className="group relative h-10 w-40 rounded-3xl bg-white/10 text-center text-xl font-semibold text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
-              href="/bookings"
-            >
-              <div className="absolute left-1 top-1 z-10 grid h-8 w-1/4 place-items-center rounded-3xl bg-sky-100 duration-500 group-hover:w-[152px] dark:bg-gray-500">
+          {/* TOP BAR */}
+          <div className="sticky top-2 z-10 mb-4 md:mb-6">
+            <div className="flex items-center justify-between gap-2 rounded-3xl border border-white/10 bg-white/20 p-2 shadow-md shadow-sky-950/10 backdrop-blur dark:bg-white/[0.08]">
+              {/* Volver */}
+              <Link
+                href="/bookings"
+                className="group relative inline-flex h-10 items-center justify-center rounded-2xl px-3 text-sm font-medium text-sky-950 transition-colors hover:bg-white/60 dark:text-white dark:hover:bg-white/10"
+                title="Volver a reservas"
+                aria-label="Volver"
+              >
+                <span className="absolute inset-0 rounded-2xl ring-0 ring-sky-900/5 transition group-hover:ring-2 dark:ring-white/5" />
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
+                  className="mr-1 size-5"
                   fill="none"
                   viewBox="0 0 24 24"
-                  strokeWidth={1.4}
+                  strokeWidth={1.6}
                   stroke="currentColor"
-                  className="size-5"
                 >
                   <path
                     strokeLinecap="round"
@@ -505,289 +510,340 @@ export default function ServicesContainer({
                     d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
                   />
                 </svg>
+                <span className="hidden sm:inline">Volver</span>
+              </Link>
+
+              {/* Título */}
+              <div className="flex flex-1 items-center justify-center">
+                <h1 className="truncate text-center text-xl font-semibold text-sky-950 dark:text-white md:text-2xl">
+                  {booking ? `Reserva N° ${booking.id_booking}` : "Reserva"}
+                </h1>
               </div>
-              <p className="flex h-full translate-x-2 items-center justify-center text-sm font-light">
-                volver
-              </p>
-            </Link>
-            {role !== "gerente" &&
-              role !== "administrativo" &&
-              role !== "desarrollador" && (
-                <div className="flex justify-center">
-                  <h1 className="text-3xl font-semibold">Reserva</h1>
-                </div>
-              )}
-            {(role === "gerente" ||
+
+              {/* Prev / Next (solo roles admin) */}
+              {role === "gerente" ||
               role === "administrativo" ||
-              role === "desarrollador") && (
-              <div className="hidden w-full justify-center gap-3 md:flex">
-                <button
-                  onClick={() =>
-                    nextId && router.push(`/bookings/services/${nextId}`)
-                  }
-                  disabled={!nextId}
-                  className={`flex w-fit items-end rounded-full px-3 text-center text-sm font-extralight ${nextId ? "text-sky-950/60 transition-all hover:text-sky-950 dark:text-white/60 hover:dark:text-white" : "cursor-not-allowed text-sky-950/30 dark:text-white/30"}`}
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={1.3}
-                    stroke="currentColor"
-                    className="size-5"
+              role === "desarrollador" ? (
+                <div className="hidden items-center gap-1 md:flex">
+                  <button
+                    onClick={() =>
+                      prevId && router.push(`/bookings/services/${prevId}`)
+                    }
+                    disabled={!prevId}
+                    title={prevId ? `Ir a #${prevId}` : "No hay anterior"}
+                    aria-label="Anterior"
+                    className={`inline-flex h-10 items-center rounded-2xl px-3 text-sm font-light transition ${
+                      prevId
+                        ? "text-sky-950/70 hover:bg-white/60 hover:text-sky-950 dark:text-white/70 hover:dark:bg-white/10 hover:dark:text-white"
+                        : "cursor-not-allowed text-sky-950/30 dark:text-white/30"
+                    }`}
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M15.75 19.5 8.25 12l7.5-7.5"
-                    />
-                  </svg>
-                  siguiente
-                </button>
-                <h1 className="w-fit text-3xl font-semibold">Reserva</h1>
-                <button
-                  onClick={() =>
-                    prevId && router.push(`/bookings/services/${prevId}`)
-                  }
-                  disabled={!prevId}
-                  className={`flex w-fit items-end rounded-full px-3 text-center text-sm font-extralight ${prevId ? "text-sky-950/60 transition-all hover:text-sky-950 dark:text-white/60 hover:dark:text-white" : "cursor-not-allowed text-sky-950/30 dark:text-white/30"}`}
-                >
-                  anterior
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={1.3}
-                    stroke="currentColor"
-                    className="size-5"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="m8.25 4.5 7.5 7.5-7.5 7.5"
-                    />
-                  </svg>
-                </button>
-              </div>
-            )}
-          </div>
-          {booking && (
-            <div className="mb-6 space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-              <div className="mb-4 flex items-center justify-between">
-                <p className="text-xl font-medium">{booking.id_booking}</p>
-                <p className="font-light">
-                  {formatDate(booking.creation_date)}
-                </p>
-              </div>
-              <p className="font-semibold dark:font-medium">
-                Detalle
-                <span className="ml-2 font-light">
-                  {booking.details || "N/A"}
-                </span>
-              </p>
-              <p className="font-semibold dark:font-medium">
-                Estado Cliente
-                <span className="ml-2 font-light">
-                  {booking.clientStatus || "-"}
-                </span>
-              </p>
-              <p className="font-semibold dark:font-medium">
-                Estado Operador
-                <span className="ml-2 font-light">
-                  {booking.operatorStatus.charAt(0).toUpperCase() +
-                    booking.operatorStatus.slice(1).toLowerCase() || "-"}
-                </span>
-              </p>
-              <p className="font-semibold dark:font-medium">
-                Vendedor
-                <span className="ml-2 font-light">
-                  {booking.user.first_name} {booking.user.last_name}
-                </span>
-              </p>
-              <p className="font-semibold dark:font-medium">
-                Titular
-                <span className="ml-2 font-light">
-                  {booking.titular.first_name.charAt(0).toUpperCase() +
-                    booking.titular.first_name.slice(1).toLowerCase()}{" "}
-                  {booking.titular.last_name.charAt(0).toUpperCase() +
-                    booking.titular.last_name.slice(1).toLowerCase()}{" "}
-                  - {booking.titular.id_client}
-                </span>
-              </p>
-              <div>
-                <p className="font-semibold dark:font-medium">
-                  Fecha de Salida
-                  <span className="ml-2 font-light">
-                    {formatDate(booking.departure_date)}
-                  </span>
-                </p>
-                <p className="font-semibold dark:font-medium">
-                  Fecha de Regreso
-                  <span className="ml-2 font-light">
-                    {formatDate(booking.return_date)}
-                  </span>
-                </p>
-              </div>
-              <p className="mt-4 font-semibold dark:font-medium">
-                Pasajeros{" "}
-                <span className="font-light">{`( ${booking.pax_count} )`}</span>
-              </p>
-              <ul className="ml-4 list-disc">
-                <li>
-                  {booking.titular.first_name.charAt(0).toUpperCase() +
-                    booking.titular.first_name.slice(1).toLowerCase()}{" "}
-                  {booking.titular.last_name.charAt(0).toUpperCase() +
-                    booking.titular.last_name.slice(1).toLowerCase()}{" "}
-                  - {booking.titular.id_client}
-                </li>
-                {booking.clients.map((client) => (
-                  <li key={client.id_client}>
-                    {client.first_name.charAt(0).toUpperCase() +
-                      client.first_name.slice(1).toLowerCase()}{" "}
-                    {client.last_name.charAt(0).toUpperCase() +
-                      client.last_name.slice(1).toLowerCase()}{" "}
-                    - {client.id_client}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-4 font-semibold dark:font-medium">Facturación</p>
-              <ul className="ml-4 list-disc">
-                <li>
-                  <p className="font-light">
-                    {booking.invoice_type || "Sin observaciones"}
-                  </p>
-                </li>
-                <li>
-                  <p className="font-light">
-                    {booking.invoice_observation || "Sin observaciones"}
-                  </p>
-                </li>
-              </ul>
-              <p className="mt-4 font-semibold dark:font-medium">
-                Observaciones de administración
-              </p>
-              <li className="list-none">
-                <AnimatePresence initial={false}>
-                  {isEditingInvObs ? (
-                    <motion.div
-                      key="edit"
-                      layout
-                      variants={obsVariants}
-                      initial="hidden"
-                      animate="visible"
-                      exit="exit"
-                      transition={{ duration: 0.2 }}
-                      className="flex w-full flex-col gap-3"
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="mr-1 size-5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.4}
+                      stroke="currentColor"
                     >
-                      <textarea
-                        className="w-full flex-1 rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white md:w-1/2"
-                        rows={3}
-                        value={invObsDraft}
-                        onChange={(e) => setInvObsDraft(e.target.value)}
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15.75 19.5 8.25 12l7.5-7.5"
                       />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={handleInvObsSave}
-                          disabled={isSavingInvObs}
-                          className={`rounded-full px-6 py-2 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:backdrop-blur ${isSavingInvObs ? "bg-sky-100/50 text-sky-950/50 dark:bg-white/5 dark:text-white/50" : "bg-sky-100 text-sky-950 dark:bg-white/10 dark:text-white"}`}
-                        >
-                          {isSavingInvObs ? (
-                            <Spinner />
-                          ) : (
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              strokeWidth={1.7}
-                              stroke="currentColor"
-                              className="size-6"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z"
-                              />
-                            </svg>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setIsEditingInvObs(false);
-                            setInvObsDraft(booking.observation || "");
-                          }}
-                          className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            strokeWidth={1.7}
-                            stroke="currentColor"
-                            className="size-6"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M6 18 18 6M6 6l12 12"
-                            />
-                          </svg>
-                        </button>
-                      </div>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="view"
-                      layout
-                      variants={obsVariants}
-                      initial="hidden"
-                      animate="visible"
-                      exit="exit"
-                      transition={{ duration: 0.2 }}
-                      className="flex items-center gap-1"
+                    </svg>
+                    anterior
+                  </button>
+                  <button
+                    onClick={() =>
+                      nextId && router.push(`/bookings/services/${nextId}`)
+                    }
+                    disabled={!nextId}
+                    title={nextId ? `Ir a #${nextId}` : "No hay siguiente"}
+                    aria-label="Siguiente"
+                    className={`inline-flex h-10 items-center rounded-2xl px-3 text-sm font-light transition ${
+                      nextId
+                        ? "text-sky-950/70 hover:bg-white/60 hover:text-sky-950 dark:text-white/70 hover:dark:bg-white/10 hover:dark:text-white"
+                        : "cursor-not-allowed text-sky-950/30 dark:text-white/30"
+                    }`}
+                  >
+                    siguiente
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="ml-1 size-5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.4}
+                      stroke="currentColor"
                     >
-                      <p className="font-light">
-                        {booking.observation || "Sin observaciones"}
-                      </p>
-                      {(role === "administrativo" ||
-                        role === "gerente" ||
-                        role === "desarrollador") && (
-                        <button
-                          onClick={() => {
-                            setInvObsDraft(
-                              booking.observation || "Sin observaciones",
-                            );
-                            setIsEditingInvObs(true);
-                          }}
-                          className="rounded-full p-2 text-sky-950 transition-transform hover:scale-95 active:scale-90 dark:text-white"
-                          title="Editar observación"
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m8.25 4.5 7.5 7.5-7.5 7.5"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              ) : (
+                <div className="w-24" />
+              )}
+            </div>
+          </div>
+
+          {/* INFO RESERVA */}
+          {booking && (
+            <div className="mb-6 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="rounded-full bg-white/40 px-3 py-1 text-sm font-medium tracking-wide dark:bg-white/10">
+                    N° {booking.id_booking}
+                  </span>
+                  <span className="text-sm font-light opacity-80">
+                    {formatDate(booking.creation_date)}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full border border-white/20 bg-white/30 px-3 py-1 text-xs font-medium shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                    Cliente:{" "}
+                    <b className="ml-1 font-medium">
+                      {booking.clientStatus || "-"}
+                    </b>
+                  </span>
+                  <span className="rounded-full border border-white/20 bg-white/30 px-3 py-1 text-xs font-medium shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                    Operador:{" "}
+                    <b className="ml-1 font-medium">
+                      {booking.operatorStatus.charAt(0).toUpperCase() +
+                        booking.operatorStatus.slice(1).toLowerCase() || "-"}
+                    </b>
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                  <p className="text-sm font-semibold">Detalle</p>
+                  <p className="mt-1 text-sm font-light">
+                    {booking.details || "N/A"}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                  <p className="text-sm font-semibold">Vendedor</p>
+                  <p className="mt-1 text-sm font-light">
+                    {booking.user.first_name} {booking.user.last_name}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                  <p className="text-sm font-semibold">Titular</p>
+                  <p className="mt-1 text-sm font-light">
+                    {booking.titular.first_name.charAt(0).toUpperCase() +
+                      booking.titular.first_name.slice(1).toLowerCase()}{" "}
+                    {booking.titular.last_name.charAt(0).toUpperCase() +
+                      booking.titular.last_name.slice(1).toLowerCase()}{" "}
+                    — {booking.titular.id_client}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                  <p className="text-sm font-semibold">Salida</p>
+                  <p className="mt-1 text-sm font-light">
+                    {formatDate(booking.departure_date)}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                  <p className="text-sm font-semibold">Regreso</p>
+                  <p className="mt-1 text-sm font-light">
+                    {formatDate(booking.return_date)}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                  <p className="text-sm font-semibold">Pasajeros</p>
+                  <p className="mt-1 text-sm font-light">{booking.pax_count}</p>
+                </div>
+              </div>
+
+              {/* Pasajeros lista */}
+              <div className="mt-4 rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                <p className="text-sm font-semibold">Lista de pasajeros</p>
+                <ul className="ml-5 mt-2 list-disc text-sm">
+                  <li>
+                    {booking.titular.first_name.charAt(0).toUpperCase() +
+                      booking.titular.first_name.slice(1).toLowerCase()}{" "}
+                    {booking.titular.last_name.charAt(0).toUpperCase() +
+                      booking.titular.last_name.slice(1).toLowerCase()}{" "}
+                    — {booking.titular.id_client}
+                  </li>
+                  {booking.clients.map((client) => (
+                    <li key={client.id_client}>
+                      {client.first_name.charAt(0).toUpperCase() +
+                        client.first_name.slice(1).toLowerCase()}{" "}
+                      {client.last_name.charAt(0).toUpperCase() +
+                        client.last_name.slice(1).toLowerCase()}{" "}
+                      — {client.id_client}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Facturación + Observaciones */}
+              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                  <p className="text-sm font-semibold">Facturación</p>
+                  <ul className="ml-4 mt-2 list-disc text-sm">
+                    <li className="font-light">
+                      {booking.invoice_type || "Sin observaciones"}
+                    </li>
+                    <li className="font-light">
+                      {booking.invoice_observation || "Sin observaciones"}
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-transparent">
+                  <p className="mb-2 text-sm font-semibold">
+                    Observaciones de administración
+                  </p>
+                  <li className="list-none">
+                    <AnimatePresence initial={false}>
+                      {isEditingInvObs ? (
+                        <motion.div
+                          key="edit"
+                          layout
+                          variants={obsVariants}
+                          initial="hidden"
+                          animate="visible"
+                          exit="exit"
+                          transition={{ duration: 0.2 }}
+                          className="flex w-full flex-col gap-3"
                         >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            strokeWidth={1.5}
-                            stroke="currentColor"
-                            className="size-6"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
-                            />
-                          </svg>
-                        </button>
+                          <textarea
+                            className="w-full flex-1 rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                            rows={3}
+                            value={invObsDraft}
+                            onChange={(e) => setInvObsDraft(e.target.value)}
+                            aria-label="Editar observación de administración"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleInvObsSave}
+                              disabled={isSavingInvObs}
+                              className={`rounded-full px-6 py-2 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:backdrop-blur ${
+                                isSavingInvObs
+                                  ? "bg-sky-100/50 text-sky-950/50 dark:bg-white/5 dark:text-white/50"
+                                  : "bg-sky-100 text-sky-950 dark:bg-white/10 dark:text-white"
+                              }`}
+                            >
+                              {isSavingInvObs ? (
+                                <Spinner />
+                              ) : (
+                                <span className="inline-flex items-center gap-2">
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    strokeWidth={1.7}
+                                    stroke="currentColor"
+                                    className="size-5"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z"
+                                    />
+                                  </svg>
+                                  Guardar
+                                </span>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setIsEditingInvObs(false);
+                                setInvObsDraft(booking.observation || "");
+                              }}
+                              className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+                              aria-label="Cancelar edición"
+                              title="Cancelar"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth={1.7}
+                                stroke="currentColor"
+                                className="size-5"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M6 18 18 6M6 6l12 12"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        </motion.div>
+                      ) : (
+                        <motion.div
+                          key="view"
+                          layout
+                          variants={obsVariants}
+                          initial="hidden"
+                          animate="visible"
+                          exit="exit"
+                          transition={{ duration: 0.2 }}
+                          className="flex items-start justify-between gap-2"
+                        >
+                          <p className="min-h-[28px] flex-1 rounded-xl bg-white/30 p-2 text-sm font-light dark:bg-white/5">
+                            {booking.observation || "Sin observaciones"}
+                          </p>
+                          {(role === "administrativo" ||
+                            role === "gerente" ||
+                            role === "desarrollador") && (
+                            <button
+                              onClick={() => {
+                                setInvObsDraft(
+                                  booking.observation || "Sin observaciones",
+                                );
+                                setIsEditingInvObs(true);
+                              }}
+                              className="rounded-full p-2 text-sky-950 transition-transform hover:scale-95 active:scale-90 dark:text-white"
+                              title="Editar observación"
+                              aria-label="Editar observación"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth={1.5}
+                                stroke="currentColor"
+                                className="size-6"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                                />
+                              </svg>
+                            </button>
+                          )}
+                        </motion.div>
                       )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </li>
+                    </AnimatePresence>
+                  </li>
+                </div>
+              </div>
             </div>
           )}
+
+          {/* SERVICIOS */}
           {booking ? (
             <>
-              <div className="mb-4 mt-8 flex justify-center">
+              <div className="mb-4 mt-8 flex items-center justify-center gap-2">
                 <p className="text-2xl font-medium">Servicios</p>
               </div>
+
               <ServiceForm
                 formData={formData}
                 operators={operators}
@@ -799,10 +855,12 @@ export default function ServicesContainer({
                 onBillingUpdate={onBillingUpdate}
                 agencyTransferFeePct={agencyTransferFeePct}
               />
+
               {services.length > 0 && (
                 <div>
                   <ServiceList
                     services={services}
+                    receipts={receipts}
                     expandedServiceId={expandedServiceId}
                     setExpandedServiceId={setExpandedServiceId}
                     startEditingService={(service) => {
@@ -832,9 +890,11 @@ export default function ServicesContainer({
                   />
                 </div>
               )}
+
+              {/* PAGOS CLIENTE */}
               {booking && (
                 <div className="mb-16">
-                  <div className="mb-4 mt-8 flex justify-center">
+                  <div className="mb-4 mt-8 flex items-center justify-center gap-2">
                     <p className="text-2xl font-medium">Pagos de Cliente</p>
                   </div>
 
@@ -849,6 +909,7 @@ export default function ServicesContainer({
                         onCreated={handleClientPaymentCreated}
                       />
                     )}
+
                   <ClientPaymentList
                     payments={clientPayments}
                     booking={booking}
@@ -858,10 +919,13 @@ export default function ServicesContainer({
                   />
                 </div>
               )}
+
+              {/* RECIBOS */}
               <div className="mb-16">
-                <div className="mb-4 mt-8 flex justify-center">
+                <div className="mb-4 mt-8 flex items-center justify-center gap-2">
                   <p className="text-2xl font-medium">Recibos</p>
                 </div>
+
                 {(role === "administrativo" ||
                   role === "desarrollador" ||
                   role === "gerente") &&
@@ -872,6 +936,7 @@ export default function ServicesContainer({
                       token={token}
                     />
                   )}
+
                 {receipts.length > 0 && (
                   <ReceiptList
                     receipts={receipts}
@@ -881,14 +946,17 @@ export default function ServicesContainer({
                   />
                 )}
               </div>
+
+              {/* FACTURAS */}
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") &&
                 (services.length > 0 || invoices.length > 0) && (
                   <div className="mb-16">
-                    <div className="mb-4 mt-8 flex justify-center">
+                    <div className="mb-4 mt-8 flex items-center justify-center gap-2">
                       <p className="text-2xl font-medium">Facturas</p>
                     </div>
+
                     <InvoiceForm
                       formData={invoiceFormData}
                       availableServices={availableServices}
@@ -903,14 +971,17 @@ export default function ServicesContainer({
                     {invoices.length > 0 && <InvoiceList invoices={invoices} />}
                   </div>
                 )}
+
+              {/* NOTAS DE CRÉDITO */}
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") &&
                 (services.length > 0 || creditNotes.length > 0) && (
                   <div className="mb-16">
-                    <div className="mb-4 mt-8 flex justify-center">
+                    <div className="mb-4 mt-8 flex items-center justify-center gap-2">
                       <p className="text-2xl font-medium">Notas de Crédito</p>
                     </div>
+
                     <CreditNoteForm
                       formData={creditNoteFormData}
                       availableServices={availableServices}
@@ -926,6 +997,8 @@ export default function ServicesContainer({
                     )}
                   </div>
                 )}
+
+              {/* ESTADOS RESERVA */}
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") &&
@@ -934,76 +1007,81 @@ export default function ServicesContainer({
                   receipts.length > 0 ||
                   creditNotes.length > 0) && (
                   <div className="my-8">
-                    <div className="mb-4 mt-8 flex justify-center">
+                    <div className="mb-4 mt-8 flex items-center justify-center gap-2">
                       <p className="text-2xl font-medium">
                         Estado de la reserva
                       </p>
                     </div>
+
                     <div className="space-y-6">
-                      {/* selector de estados */}
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                        {/* Estado Cliente */}
+                        {/* Cliente */}
                         <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-                          <p className="mb-2 font-medium dark:font-medium">
-                            Cliente
-                          </p>
+                          <p className="mb-2 font-medium">Cliente</p>
                           <div className="flex gap-2">
                             {["Pendiente", "Pago", "Facturado"].map((st) => (
-                              <div
+                              <button
+                                type="button"
                                 key={st}
                                 onClick={() => setSelectedClientStatus(st)}
-                                className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light ${
+                                className={`flex-1 rounded-full py-2 text-center text-sm transition ${
                                   selectedClientStatus === st
-                                    ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 transition-all dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                                    ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 dark:bg-white/10 dark:text-white"
                                     : "text-sky-950/70 hover:bg-sky-950/5 dark:text-white/70 dark:hover:bg-white/5"
                                 }`}
+                                aria-pressed={selectedClientStatus === st}
                               >
                                 {st}
-                              </div>
+                              </button>
                             ))}
                           </div>
                         </div>
+
+                        {/* Operador */}
                         <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-                          <p className="mb-2 font-medium dark:font-medium">
-                            Operador
-                          </p>
+                          <p className="mb-2 font-medium">Operador</p>
                           <div className="flex gap-2">
                             {["Pendiente", "Pago"].map((st) => (
-                              <div
+                              <button
+                                type="button"
                                 key={st}
                                 onClick={() => setSelectedOperatorStatus(st)}
-                                className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light ${
+                                className={`flex-1 rounded-full py-2 text-center text-sm transition ${
                                   selectedOperatorStatus === st
-                                    ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 transition-all dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                                    ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 dark:bg-white/10 dark:text-white"
                                     : "text-sky-950/70 hover:bg-sky-950/5 dark:text-white/70 dark:hover:bg-white/5"
                                 }`}
+                                aria-pressed={selectedOperatorStatus === st}
                               >
                                 {st}
-                              </div>
+                              </button>
                             ))}
                           </div>
                         </div>
+
+                        {/* Reserva */}
                         <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-                          <p className="mb-2 font-medium dark:font-medium">
-                            Reserva
-                          </p>
+                          <p className="mb-2 font-medium">Reserva</p>
                           <div className="flex gap-2">
                             {["Abierta", "Bloqueada", "Cancelada"].map((st) => (
-                              <div
+                              <button
+                                type="button"
                                 key={st}
                                 onClick={() => setSelectedBookingStatus(st)}
-                                className={`flex-1 cursor-pointer rounded-full py-2 text-center font-light transition-all ${
+                                className={`flex-1 rounded-full py-2 text-center text-sm transition ${
                                   selectedBookingStatus === st
-                                    ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                                    ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 dark:bg-white/10 dark:text-white"
                                     : "text-sky-950/70 hover:bg-sky-950/5 dark:text-white/70 dark:hover:bg-white/5"
                                 }`}
+                                aria-pressed={selectedBookingStatus === st}
                               >
                                 {st}
-                              </div>
+                              </button>
                             ))}
                           </div>
                         </div>
                       </div>
+
                       <button
                         onClick={handleSaveStatuses}
                         disabled={!hasChanges}
@@ -1012,29 +1090,29 @@ export default function ServicesContainer({
                           hasChanges
                             ? "bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
                             : "cursor-not-allowed bg-sky-950/20 text-white/60 shadow-sm shadow-sky-950/10 dark:bg-white/5 dark:text-white/30 dark:backdrop-blur"
-                        } `}
+                        }`}
                       >
                         Guardar
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
+                          className="size-6"
                           fill="none"
                           viewBox="0 0 24 24"
                           strokeWidth={1.4}
                           stroke="currentColor"
-                          className="size-6"
                         >
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
-                            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 
-                 2.25 0 0 0 21 18.75V16.5M16.5 12 12 
-                 16.5m0 0L7.5 12m4.5 4.5V3"
+                            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
                           />
                         </svg>
                       </button>
                     </div>
                   </div>
                 )}
+
+              {/* OPERADOR */}
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente" ||
@@ -1042,7 +1120,7 @@ export default function ServicesContainer({
                 booking &&
                 (services.length > 0 || operatorDues.length > 0) && (
                   <div className="mb-16">
-                    <div className="mb-4 mt-8 flex justify-center">
+                    <div className="mb-4 mt-8 flex items-center justify-center gap-2">
                       <p className="text-2xl font-medium">Operador</p>
                     </div>
 
@@ -1065,6 +1143,7 @@ export default function ServicesContainer({
                   </div>
                 )}
 
+              {/* PAGOS A OPERADOR */}
               {(role === "administrativo" ||
                 role === "desarrollador" ||
                 role === "gerente") &&
@@ -1076,8 +1155,8 @@ export default function ServicesContainer({
                       availableServices={services}
                       operators={operators}
                       onCreated={() => {
-                        setPaymentsReloadKey((k) => k + 1); // <--- dispara el refetch del listado
-                        onPaymentCreated?.(); // si el padre quiere enterarse también
+                        setPaymentsReloadKey((k) => k + 1);
+                        onPaymentCreated?.();
                       }}
                     />
                     <OperatorPaymentList

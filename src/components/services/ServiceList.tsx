@@ -2,7 +2,7 @@
 import React, { useMemo } from "react";
 import ServiceCard from "./ServiceCard";
 import SummaryCard from "./SummaryCard";
-import { Service } from "@/types";
+import { Service, Receipt } from "@/types";
 
 interface Totals {
   sale_price: number;
@@ -27,7 +27,6 @@ interface Totals {
   transferFeesAmount: number;
 }
 
-/** Extendemos Service con los campos calculados que pueden venir del backend */
 type ServiceWithCalcs = Service &
   Partial<{
     taxableCardInterest: number;
@@ -46,7 +45,6 @@ type ServiceWithCalcs = Service &
     transfer_fee_amount: number | null;
   }>;
 
-/** Claves numéricas que sumamos y que existen en ServiceWithCalcs */
 type NumericKeys = Extract<keyof Totals, keyof ServiceWithCalcs>;
 
 const KEYS_TO_SUM: readonly NumericKeys[] = [
@@ -71,6 +69,9 @@ const KEYS_TO_SUM: readonly NumericKeys[] = [
 
 interface ServiceListProps {
   services: Service[];
+  /** NUEVO: recibos para pasar a SummaryCard y calcular deuda */
+  receipts: Receipt[];
+
   expandedServiceId: number | null;
   setExpandedServiceId: React.Dispatch<React.SetStateAction<number | null>>;
   startEditingService: (service: Service) => void;
@@ -82,6 +83,7 @@ interface ServiceListProps {
 
 export default function ServiceList({
   services,
+  receipts, // <-- nuevo
   expandedServiceId,
   setExpandedServiceId,
   startEditingService,
@@ -126,12 +128,11 @@ export default function ServiceList({
     };
 
     return services.reduce<Record<string, Totals>>((acc, s) => {
-      const svc = s as ServiceWithCalcs; // tipado enriquecido
-      const c = svc.currency || "ARS";
+      const svc = s as ServiceWithCalcs;
+      const c = (svc.currency || "ARS").toUpperCase();
       if (!acc[c]) acc[c] = { ...zero };
       const t = acc[c];
 
-      // Sumar campos conocidos
       for (const k of KEYS_TO_SUM) {
         const v = svc[k];
         if (typeof v === "number" && Number.isFinite(v)) {
@@ -139,7 +140,7 @@ export default function ServiceList({
         }
       }
 
-      // Fallback de tarjeta: si no hay desglose, usamos el bruto card_interest
+      // Fallback tarjeta: si no hay desglose, usamos el bruto card_interest
       const splitNoVAT = svc.taxableCardInterest ?? 0;
       const splitVAT = svc.vatOnCardInterest ?? 0;
       const raw = svc.card_interest ?? 0;
@@ -190,6 +191,8 @@ export default function ServiceList({
         <SummaryCard
           totalsByCurrency={totalsByCurrency}
           fmtCurrency={fmtCurrency}
+          services={services}
+          receipts={receipts} // <-- NUEVO
         />
       </div>
     </div>

@@ -175,7 +175,7 @@ export default function ServiceForm({
     >
       {/* HEADER sticky (misma paleta, sin blur) */}
       <div
-        className={`sticky top-0 z-10 ${isFormVisible ? "rounded-t-3xl border-b" : ""} border-white/10 bg-white/10 px-4 py-3 backdrop-blur-sm`}
+        className={`sticky top-0 z-10 ${isFormVisible ? "rounded-t-3xl border-b" : ""} border-white/10  px-4 py-3 backdrop-blur-sm`}
       >
         <button
           type="button"
@@ -221,9 +221,6 @@ export default function ServiceForm({
             <div>
               <p className="text-lg font-semibold">
                 {editingServiceId ? "Editar Servicio" : "Agregar Servicio"}
-              </p>
-              <p className="text-xs font-light text-sky-950/70 dark:text-white/70">
-                Campos obligatorios con *
               </p>
             </div>
           </div>
