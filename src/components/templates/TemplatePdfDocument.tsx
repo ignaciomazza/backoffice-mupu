@@ -54,6 +54,25 @@ const isBlank = (s?: string | null) => !s || s.trim().length === 0;
 /** Rompe la autolinkificación del visor PDF sin cambiar lo que se ve */
 const deLinkify = (s: string) => (s || "").replace(/([:@./])/g, "\u200B$1");
 
+/** Tabs y espacios: preservar saltos de línea, espacios consecutivos y tabulaciones */
+const NBSP = "\u00A0";
+const TAB4 = `${NBSP}${NBSP}${NBSP}${NBSP}`;
+const preserveWhitespace = (input?: string | null): string => {
+  if (!input) return "";
+  // Normalizar saltos y tabs
+  let t = String(input).replace(/\r\n?/g, "\n").replace(/\t/g, TAB4);
+  // Conservar secuencias de espacios > 1 alternando con NBSP
+  t = t.replace(/ {2,}/g, (m) =>
+    m
+      .split("")
+      .map((ch, i) => (i % 2 === 0 ? " " : NBSP))
+      .join(""),
+  );
+  return t;
+};
+/** Aplica preservación + deLinkify (para evitar autolinks en viewers) */
+const keepWS = (s?: string | null) => deLinkify(preserveWhitespace(s));
+
 function luminance(hex: string): number {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(
     (hex || "").trim(),
@@ -205,21 +224,21 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
   const tk = rAgency.socials?.tiktok || agLegacy.social?.tiktok || "";
 
   if (contactItems.includes("website") && website)
-    corporateLine.push({ label: "Web", value: deLinkify(website) });
+    corporateLine.push({ label: "Web", value: keepWS(website) });
   if (contactItems.includes("address") && address)
-    corporateLine.push({ label: "Dirección", value: address });
+    corporateLine.push({ label: "Dirección", value: keepWS(address) });
   if (contactItems.includes("phones") && phone)
-    corporateLine.push({ label: "Tel", value: phone });
+    corporateLine.push({ label: "Tel", value: keepWS(phone) });
   if (contactItems.includes("email") && email)
-    corporateLine.push({ label: "Mail", value: deLinkify(email) });
+    corporateLine.push({ label: "Mail", value: keepWS(email) });
   if (contactItems.includes("instagram") && ig)
-    corporateLine.push({ label: "Instagram", value: deLinkify(ig) });
+    corporateLine.push({ label: "Instagram", value: keepWS(ig) });
   if (contactItems.includes("facebook") && fb)
-    corporateLine.push({ label: "Facebook", value: deLinkify(fb) });
+    corporateLine.push({ label: "Facebook", value: keepWS(fb) });
   if (contactItems.includes("twitter") && tw)
-    corporateLine.push({ label: "Twitter", value: deLinkify(tw) });
+    corporateLine.push({ label: "Twitter", value: keepWS(tw) });
   if (contactItems.includes("tiktok") && tk)
-    corporateLine.push({ label: "TikTok", value: deLinkify(tk) });
+    corporateLine.push({ label: "TikTok", value: keepWS(tk) });
 
   const agencyName = rAgency.name || "Nombre de la agencia";
   const legalName = rAgency.legal_name || rAgency.name || "Razón social";
@@ -370,7 +389,7 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
           <Text
             style={{ fontSize: size, fontFamily: headingFont, fontWeight: 700 }}
           >
-            {textValue}
+            {keepWS(textValue)}
           </Text>
         </View>
       );
@@ -383,7 +402,7 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
         <View style={styles.section} wrap={false}>
           {topDivider && <View style={styles.divider} />}
           <Text style={{ fontSize: 14, fontWeight: 600, opacity: 0.95 }}>
-            {t}
+            {keepWS(t)}
           </Text>
         </View>
       );
@@ -395,8 +414,8 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
       return (
         <View style={styles.section}>
           {topDivider && <View style={styles.divider} />}
-          {/* Sin widows/orphans: no existen en react-pdf */}
-          <Text style={{ lineHeight: 1.4 }}>{t}</Text>
+          {/* Saltos de línea/espacios/tabs preservados */}
+          <Text style={{ lineHeight: 1.4 }}>{keepWS(t)}</Text>
         </View>
       );
     }
@@ -410,7 +429,7 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
           <View>
             {items.map((it, i) => (
               <Text key={i} style={base.listItem}>
-                • {it}
+                • {keepWS(it)}
               </Text>
             ))}
           </View>
@@ -437,8 +456,8 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
                   },
                 ]}
               >
-                <Text>{p.key}</Text>
-                <Text>{p.value}</Text>
+                <Text>{keepWS(p.key)}</Text>
+                <Text>{keepWS(p.value)}</Text>
               </View>
             ))}
           </View>
@@ -458,12 +477,12 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
           <View style={{ flexDirection: "row" }}>
             <View style={{ flex: 1, marginRight: 6 }}>
               <View style={styles.card}>
-                <Text>{l}</Text>
+                <Text>{keepWS(l)}</Text>
               </View>
             </View>
             <View style={{ flex: 1, marginLeft: 6 }}>
               <View style={styles.card}>
-                <Text>{r}</Text>
+                <Text>{keepWS(r)}</Text>
               </View>
             </View>
           </View>
@@ -484,17 +503,17 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
           <View style={{ flexDirection: "row" }}>
             <View style={{ flex: 1, marginRight: 6 }}>
               <View style={styles.card}>
-                <Text>{l}</Text>
+                <Text>{keepWS(l)}</Text>
               </View>
             </View>
             <View style={{ flex: 1, marginHorizontal: 6 }}>
               <View style={styles.card}>
-                <Text>{c}</Text>
+                <Text>{keepWS(c)}</Text>
               </View>
             </View>
             <View style={{ flex: 1, marginLeft: 6 }}>
               <View style={styles.card}>
-                <Text>{r}</Text>
+                <Text>{keepWS(r)}</Text>
               </View>
             </View>
           </View>
@@ -509,7 +528,7 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
     !paymentSelected ? null : (
       <View style={[base.section, styles.paymentCard]} wrap={false}>
         <Text style={styles.accentText}>Forma de pago</Text>
-        <Text>{deLinkify(paymentSelected)}</Text>
+        <Text>{keepWS(paymentSelected)}</Text>
       </View>
     );
 
@@ -517,11 +536,11 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
     <View style={{ marginBottom: 12 }}>
       <View style={{ ...base.row }}>
         <View>
-          <Text style={styles.title}>{agencyName}</Text>
+          <Text style={styles.title}>{keepWS(agencyName)}</Text>
           <View style={styles.brandLine} />
         </View>
         <View>
-          <Text style={styles.chip}>{docLabel}</Text>
+          <Text style={styles.chip}>{keepWS(docLabel)}</Text>
         </View>
       </View>
 
@@ -530,9 +549,9 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
           {corporateLine.map((it, i) => (
             <Text key={i} style={styles.corpItem}>
               <Text style={{ color: accent, fontWeight: 600 }}>
-                {it.label}:{" "}
+                {keepWS(it.label)}:{" "}
               </Text>
-              <Text>{it.value}</Text>
+              <Text>{keepWS(it.value)}</Text>
             </Text>
           ))}
         </View>
@@ -554,10 +573,12 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
           }}
         >
           <Text style={{ color: accent, fontWeight: 600 }}>
-            {[rUser.first_name, rUser.last_name].filter(Boolean).join(" ") ||
-              "Vendedor/a"}
+            {keepWS(
+              [rUser.first_name, rUser.last_name].filter(Boolean).join(" ") ||
+                "Vendedor/a",
+            )}
           </Text>
-          <Text>{deLinkify(rUser.email || "vendedor@agencia.com")}</Text>
+          <Text>{keepWS(rUser.email || "vendedor@agencia.com")}</Text>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           {hasLogo ? (
@@ -578,7 +599,7 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
             />
           )}
           <Text style={{ fontSize: 9, opacity: 0.8, marginLeft: 8 }}>
-            {legalName}
+            {keepWS(legalName)}
           </Text>
         </View>
       </View>
@@ -619,7 +640,7 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
           fontWeight: 700,
         }}
       >
-        {agencyName}
+        {keepWS(agencyName)}
       </Text>
       <View
         style={{
@@ -639,9 +660,9 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
               style={{ fontSize: 10, opacity: 0.85, marginBottom: 3 }}
             >
               <Text style={{ color: accent, fontWeight: 600 }}>
-                {it.label}:{" "}
+                {keepWS(it.label)}:{" "}
               </Text>
-              <Text>{it.value}</Text>
+              <Text>{keepWS(it.value)}</Text>
             </Text>
           ))
         ) : (
@@ -670,7 +691,7 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
             color: accent,
           }}
         >
-          {docLabel}
+          {keepWS(docLabel)}
         </Text>
       </View>
     </View>

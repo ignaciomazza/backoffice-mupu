@@ -45,17 +45,92 @@ const TextInput: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (
   />
 );
 
+/** TextArea con soporte de tabulaciones y preservación de espacios (para escribir condiciones, etc.) */
 const TextArea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement>> = (
   props,
-) => (
-  <textarea
-    {...props}
-    className={cx(
-      "w-full rounded-xl border border-sky-950/10 bg-sky-100/20 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10",
-      props.className,
-    )}
-  />
-);
+) => {
+  const { onKeyDown, onChange, className, ...rest } = props;
+
+  const handleKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement> = (
+    e,
+  ) => {
+    if (e.key === "Tab") {
+      // Inserta o quita un \t en la posición actual
+      e.preventDefault();
+      const el = e.currentTarget;
+      const start = el.selectionStart ?? 0;
+      const end = el.selectionEnd ?? 0;
+      const value = el.value ?? "";
+
+      // Shift+Tab => desindentación simple al inicio de la selección / línea
+      if (e.shiftKey) {
+        // Busca un tab o hasta 4 espacios antes del inicio
+        const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+        const removeFrom = lineStart;
+        let removeTo = lineStart;
+
+        if (value[lineStart] === "\t") {
+          removeTo = lineStart + 1;
+        } else if (value.slice(lineStart, lineStart + 4) === "    ") {
+          removeTo = lineStart + 4;
+        }
+
+        const newVal = value.slice(0, removeFrom) + value.slice(removeTo);
+        // Dispara onChange controlado
+        if (onChange) {
+          onChange({
+            ...e,
+            target: { ...e.target, value: newVal },
+            currentTarget: { ...e.currentTarget, value: newVal },
+          } as unknown as React.ChangeEvent<HTMLTextAreaElement>);
+        }
+        // Restaura selección (ajustada)
+        requestAnimationFrame(() => {
+          const delta = removeTo - removeFrom;
+          const newStart = Math.max(lineStart, start - delta);
+          const newEnd = Math.max(lineStart, end - delta);
+          el.selectionStart = newStart;
+          el.selectionEnd = newEnd;
+        });
+        return;
+      }
+
+      // Tab normal => inserta \t
+      const insert = "\t";
+      const newValue = value.slice(0, start) + insert + value.slice(end);
+
+      if (onChange) {
+        onChange({
+          ...e,
+          target: { ...e.target, value: newValue },
+          currentTarget: { ...e.currentTarget, value: newValue },
+        } as unknown as React.ChangeEvent<HTMLTextAreaElement>);
+      }
+      requestAnimationFrame(() => {
+        const caret = start + insert.length;
+        el.selectionStart = caret;
+        el.selectionEnd = caret;
+      });
+      return;
+    }
+
+    onKeyDown?.(e);
+  };
+
+  return (
+    <textarea
+      {...rest}
+      onKeyDown={handleKeyDown}
+      onChange={onChange}
+      className={cx(
+        // `whitespace-pre-wrap` respeta \n y múltiples espacios al render de vista previa si se reutiliza el valor,
+        // además mantiene el look & feel del input.
+        "w-full whitespace-pre-wrap rounded-xl border border-sky-950/10 bg-sky-100/20 p-2 px-3 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10",
+        className,
+      )}
+    />
+  );
+};
 
 function LevelSelect({
   value,
@@ -286,16 +361,16 @@ function summarize(block: OrderedBlock, origin?: ContentBlock): string {
       case "twoColumns": {
         const o = origin as TwoColumnsBlock;
         return [
-          clean(o.left) ? "Izq ok" : "Izq vacía",
-          clean(o.right) ? "Der ok" : "Der vacía",
+          (o.left ?? "").trim() ? "Izq ok" : "Izq vacía",
+          (o.right ?? "").trim() ? "Der ok" : "Der vacía",
         ].join(" · ");
       }
       case "threeColumns": {
         const o = origin as ThreeColumnsBlock;
         return [
-          clean(o.left) ? "Izq ok" : "Izq vacía",
-          clean(o.center) ? "Centro ok" : "Centro vacío",
-          clean(o.right) ? "Der ok" : "Der vacía",
+          (o.left ?? "").trim() ? "Izq ok" : "Izq vacía",
+          (o.center ?? "").trim() ? "Centro ok" : "Centro vacío",
+          (o.right ?? "").trim() ? "Der ok" : "Der vacía",
         ].join(" · ");
       }
     }
@@ -942,7 +1017,7 @@ function BlockEditor({
           <FieldLabel>Párrafo</FieldLabel>
           <TextArea
             rows={4}
-            placeholder="Escribir…"
+            placeholder="Escribir… (usa Enter para saltos de línea y Tab/Shift+Tab para tabular)"
             value={
               (v as Extract<BlockFormValue, { type: "paragraph" }>).text ?? ""
             }

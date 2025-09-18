@@ -66,6 +66,12 @@ function withAlpha(color: string, alpha: number) {
 
 const isBlank = (s?: string | null) => !s || s.trim().length === 0;
 
+/** Estilo para preservar saltos de línea, espacios y tabs en el preview */
+const WS_PRESERVE: React.CSSProperties = {
+  whiteSpace: "break-spaces",
+  tabSize: 4,
+};
+
 /* =============================================================================
  * Tipografías / acentos / estilos por bloque
  * ========================================================================== */
@@ -470,7 +476,10 @@ const TemplatePreview: React.FC<Props> = ({
           <div className="mb-1 font-medium" style={{ color: accent }}>
             Forma de pago
           </div>
-          <div className="opacity-90" style={paymentStyle}>
+          <div
+            className="opacity-90"
+            style={{ ...paymentStyle, ...WS_PRESERVE }}
+          >
             {paymentSelected}
           </div>
         </div>
@@ -487,6 +496,7 @@ const TemplatePreview: React.FC<Props> = ({
             style={{
               fontFamily: headingFont,
               fontWeight: headingWeight,
+              ...WS_PRESERVE,
             }}
           >
             {agencyName}
@@ -548,7 +558,11 @@ const TemplatePreview: React.FC<Props> = ({
           {notesEnabled && (
             <div
               className={cx("text-sm", innerRadiusClass, "p-3")}
-              style={{ border: panelBorder, backgroundColor: panelBgSoft }}
+              style={{
+                border: panelBorder,
+                backgroundColor: panelBgSoft,
+                ...WS_PRESERVE,
+              }}
             >
               {note}
             </div>
@@ -608,6 +622,7 @@ const TemplatePreview: React.FC<Props> = ({
                         fontFamily: styleHeading?.fontFamily ?? headingFont,
                         fontWeight: styleHeading?.fontWeight ?? headingWeight,
                         color: (applyMs && ms?.color) || undefined,
+                        ...WS_PRESERVE,
                       }}
                     >
                       {b.mode === "form"
@@ -631,7 +646,7 @@ const TemplatePreview: React.FC<Props> = ({
                     {topDivider}
                     <h4
                       className="text-lg font-medium opacity-95"
-                      style={styleSubtitle}
+                      style={{ ...styleSubtitle, ...WS_PRESERVE }}
                     >
                       {b.mode === "form" ? (isBlank(t) ? placeholder : t) : t}
                     </h4>
@@ -648,7 +663,10 @@ const TemplatePreview: React.FC<Props> = ({
                 return (
                   <div key={b.id}>
                     {topDivider}
-                    <p className="leading-relaxed" style={styleParagraph}>
+                    <p
+                      className="leading-relaxed"
+                      style={{ ...styleParagraph, ...WS_PRESERVE }}
+                    >
                       {b.mode === "form" ? (isBlank(t) ? placeholder : t) : t}
                     </p>
                   </div>
@@ -670,10 +688,12 @@ const TemplatePreview: React.FC<Props> = ({
                     {topDivider}
                     <ul className={cx("list-inside list-disc", listSpace)}>
                       {b.mode === "form" && items.length === 0 ? (
-                        <li style={styleList}>{placeholder}</li>
+                        <li style={{ ...styleList, ...WS_PRESERVE }}>
+                          {placeholder}
+                        </li>
                       ) : (
                         items.map((it, i) => (
-                          <li key={i} style={styleList}>
+                          <li key={i} style={{ ...styleList, ...WS_PRESERVE }}>
                             {it}
                           </li>
                         ))
@@ -709,12 +729,18 @@ const TemplatePreview: React.FC<Props> = ({
                       {b.mode === "form" && pairs.length === 0 ? (
                         <KeyValueRow
                           k={
-                            <span className="opacity-70" style={styleKey}>
+                            <span
+                              className="opacity-70"
+                              style={{ ...styleKey, ...WS_PRESERVE }}
+                            >
                               {placeholder}
                             </span>
                           }
                           v={
-                            <span className="opacity-70" style={styleVal}>
+                            <span
+                              className="opacity-70"
+                              style={{ ...styleVal, ...WS_PRESERVE }}
+                            >
                               {placeholder}
                             </span>
                           }
@@ -725,8 +751,16 @@ const TemplatePreview: React.FC<Props> = ({
                         pairs.map((p, i) => (
                           <KeyValueRow
                             key={i}
-                            k={<span style={styleKey}>{p.key}</span>}
-                            v={<span style={styleVal}>{p.value}</span>}
+                            k={
+                              <span style={{ ...styleKey, ...WS_PRESERVE }}>
+                                {p.key}
+                              </span>
+                            }
+                            v={
+                              <span style={{ ...styleVal, ...WS_PRESERVE }}>
+                                {p.value}
+                              </span>
+                            }
                             bg={panelBgStrong}
                             innerRadiusClass={innerRadiusClass}
                           />
@@ -751,7 +785,7 @@ const TemplatePreview: React.FC<Props> = ({
                     className={cx("p-3", innerRadiusClass)}
                     style={{ backgroundColor: panelBgStrong }}
                   >
-                    <div style={styleTwo}>
+                    <div style={{ ...styleTwo, ...WS_PRESERVE }}>
                       {b.mode === "form"
                         ? isBlank(content)
                           ? placeholder
@@ -788,7 +822,7 @@ const TemplatePreview: React.FC<Props> = ({
                     className={cx("p-3", innerRadiusClass)}
                     style={{ backgroundColor: panelBgStrong }}
                   >
-                    <div style={styleThree}>
+                    <div style={{ ...styleThree, ...WS_PRESERVE }}>
                       {b.mode === "form"
                         ? isBlank(content)
                           ? placeholder
@@ -949,6 +983,7 @@ const TemplatePreview: React.FC<Props> = ({
               style={{
                 fontFamily: headingFont,
                 fontWeight: headingWeight,
+                ...WS_PRESERVE,
               }}
             >
               {agencyName}
