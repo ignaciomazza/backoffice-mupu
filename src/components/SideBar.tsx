@@ -266,7 +266,7 @@ export default function SideBar({
                       : "0px",
                   }}
                 >
-                  <ul className="space-y-2 pl-1">
+                  <ul className="mb-3 space-y-2 pl-1">
                     {sec.items.map((it) => (
                       <li
                         key={it.href}
