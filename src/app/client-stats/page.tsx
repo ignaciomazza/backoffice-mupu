@@ -307,6 +307,9 @@ export default function ClientStatsPage() {
   const [stats, setStats] = useState<StatsState>(EMPTY_STATS);
   const [statsLoading, setStatsLoading] = useState(false);
 
+  // CSV
+  const [csvLoading, setCsvLoading] = useState(false);
+
   // Normalize context
   const normCtx = useMemo<NormalizeContext>(
     () => ({ countryDefault: "AR", callingCodeDefault: "54" }),
@@ -364,7 +367,123 @@ export default function ClientStatsPage() {
     [data, normCtx],
   );
 
-  // Owners para selector
+  // ===== Sorting =====
+  type SortKey =
+    | "id_client"
+    | "registration_date"
+    | "full_name"
+    | "owner"
+    | "age";
+  type SortDir = "asc" | "desc";
+  const [sortKey, setSortKey] = useState<SortKey>("id_client");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const toggleSort = useCallback((k: SortKey) => {
+    setSortKey((prevKey) => {
+      if (prevKey === k) {
+        setSortDir((prevDir) => (prevDir === "asc" ? "desc" : "asc"));
+        return prevKey;
+      } else {
+        setSortDir("asc");
+        return k;
+      }
+    });
+  }, []);
+
+  const sortVal = useCallback(
+    (
+      c: ClientItem & ReturnType<typeof normalizeClientRecord>,
+    ): string | number => {
+      switch (sortKey) {
+        case "id_client":
+          return c.id_client;
+        case "registration_date":
+          return new Date(c.registration_date).getTime() || 0;
+        case "age":
+          return typeof c._age === "number" ? c._age : -1;
+        case "owner":
+          return (
+            c._owner ||
+            `${c.user?.first_name ?? ""} ${c.user?.last_name ?? ""}` ||
+            ""
+          )
+            .toString()
+            .toLowerCase();
+        case "full_name":
+          return (c._fullName || `${c.last_name} ${c.first_name}`.trim() || "")
+            .toString()
+            .toLowerCase();
+      }
+    },
+    [sortKey],
+  );
+
+  // Filtros (recordMatches) memorizados para cumplir lint y evitar recreación innecesaria
+  const recordMatches = useCallback(
+    (c: ClientItem & ReturnType<typeof normalizeClientRecord>) => {
+      if (ownerId && c.id_user !== ownerId) return false;
+      if (gender && c._gender !== gender) return false;
+
+      const hasPh = !c._phone.empty;
+      const hasEm = !c._email.empty;
+      if (hasPhone === "yes" && !hasPh) return false;
+      if (hasPhone === "no" && hasPh) return false;
+      if (hasEmail === "yes" && !hasEm) return false;
+      if (hasEmail === "no" && hasEm) return false;
+
+      if (nat) {
+        const key = (c._nat.iso2 || c._nat.label || "").toLowerCase();
+        if (!key.includes(nat.toLowerCase())) return false;
+      }
+
+      const min = ageMin ? Number(ageMin) : null;
+      const max = ageMax ? Number(ageMax) : null;
+      if (min !== null && typeof c._age === "number" && c._age < min)
+        return false;
+      if (max !== null && typeof c._age === "number" && c._age > max)
+        return false;
+
+      if (dateFrom || dateTo) {
+        const rd = c.registration_date ? new Date(c.registration_date) : null;
+        if (!rd) return false;
+        if (dateFrom) {
+          const df = new Date(dateFrom);
+          if (rd < new Date(df.getFullYear(), df.getMonth(), df.getDate()))
+            return false;
+        }
+        if (dateTo) {
+          const dt = new Date(dateTo);
+          if (
+            rd >
+            new Date(
+              dt.getFullYear(),
+              dt.getMonth(),
+              dt.getDate(),
+              23,
+              59,
+              59,
+              999,
+            )
+          )
+            return false;
+        }
+      }
+      return true;
+    },
+    [
+      ownerId,
+      gender,
+      hasPhone,
+      hasEmail,
+      nat,
+      ageMin,
+      ageMax,
+      dateFrom,
+      dateTo,
+    ],
+  );
+
+  // Owners para selector (a partir de lo cargado)
   const owners = useMemo(() => {
     const map = new Map<number, string>();
     for (const c of normalized) {
@@ -385,69 +504,21 @@ export default function ClientStatsPage() {
     if (isVendor && user?.id_user) setOwnerId(user.id_user);
   }, [isVendor, user?.id_user]);
 
-  // Filtrado client-side tabla
+  // Filtrado + orden client-side tabla (sobre lo cargado)
   const filteredTableRows = useMemo(() => {
-    const min = ageMin ? Number(ageMin) : null;
-    const max = ageMax ? Number(ageMax) : null;
-    const df = dateFrom ? new Date(dateFrom) : null;
-    const dt = dateTo ? new Date(dateTo) : null;
-
-    return normalized.filter((d) => {
-      if (ownerId && d.id_user !== ownerId) return false;
-      if (gender && d._gender !== gender) return false;
-
-      const hasPh = !d._phone.empty;
-      const hasEm = !d._email.empty;
-      if (hasPhone === "yes" && !hasPh) return false;
-      if (hasPhone === "no" && hasPh) return false;
-      if (hasEmail === "yes" && !hasEm) return false;
-      if (hasEmail === "no" && hasEm) return false;
-
-      if (nat) {
-        const key = (d._nat.iso2 || d._nat.label || "").toLowerCase();
-        if (!key.includes(nat.toLowerCase())) return false;
+    const rows = normalized.filter(recordMatches);
+    const factor = sortDir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const va = sortVal(a);
+      const vb = sortVal(b);
+      if (typeof va === "number" && typeof vb === "number") {
+        return (va - vb) * factor;
       }
-
-      if (min !== null && typeof d._age === "number" && d._age < min)
-        return false;
-      if (max !== null && typeof d._age === "number" && d._age > max)
-        return false;
-
-      if (df || dt) {
-        const rd = d.registration_date ? new Date(d.registration_date) : null;
-        if (!rd) return false;
-        if (df && rd < new Date(df.getFullYear(), df.getMonth(), df.getDate()))
-          return false;
-        if (
-          dt &&
-          rd >
-            new Date(
-              dt.getFullYear(),
-              dt.getMonth(),
-              dt.getDate(),
-              23,
-              59,
-              59,
-              999,
-            )
-        )
-          return false;
-      }
-
-      return true;
+      const sa = String(va);
+      const sb = String(vb);
+      return sa.localeCompare(sb, "es") * factor;
     });
-  }, [
-    normalized,
-    ownerId,
-    gender,
-    hasPhone,
-    hasEmail,
-    nat,
-    ageMin,
-    ageMax,
-    dateFrom,
-    dateTo,
-  ]);
+  }, [normalized, recordMatches, sortVal, sortDir]);
 
   // Opciones nat para datalist (desde stats)
   const natOptions = useMemo(
@@ -456,32 +527,62 @@ export default function ClientStatsPage() {
   );
 
   /* ========= Fetch (tabla) ========= */
-  const TAKE = 120;
+  const TAKE = 120; // cuántas filas queremos sumar por click
+  const API_PAGE = 120; // cuánto pide cada golpe a la API
 
   const [pageInit, setPageInit] = useState(false);
   const fetchPage = useCallback(
     async (resetList: boolean) => {
       setLoading(true);
       try {
-        const qs = new URLSearchParams();
-        if (q.trim()) qs.append("q", q.trim());
-        qs.append("take", String(TAKE));
+        if (resetList) {
+          setCursor(null);
+          setData([]);
+        }
+
+        // base de query (q + userId)
+        const qsBase = new URLSearchParams();
+        if (q.trim()) qsBase.append("q", q.trim());
+        qsBase.append("take", String(API_PAGE));
 
         const wantedUserId =
           isVendor && user?.id_user ? user.id_user : canPickOwner ? ownerId : 0;
-        if (wantedUserId) qs.append("userId", String(wantedUserId));
-        if (!resetList && cursor !== null) qs.append("cursor", String(cursor));
+        if (wantedUserId) qsBase.append("userId", String(wantedUserId));
 
-        const res = await authFetch(
-          `/api/clients?${qs.toString()}`,
-          { cache: "no-store" },
-          token || undefined,
-        );
-        const json: ClientsAPI = await res.json();
-        if (!res.ok) throw new Error(json?.error || "Error al cargar clientes");
+        let next = resetList ? null : cursor;
+        const collected: ClientItem[] = [];
+        let loops = 0;
+        const MAX_LOOPS = 25; // 25 * 120 = 3k candidatos por click
 
-        setData((prev) => (resetList ? json.items : [...prev, ...json.items]));
-        setCursor(json.nextCursor ?? null);
+        // Vamos paginando la API hasta reunir TAKE que cumplan los filtros
+        while (collected.length < TAKE && loops < MAX_LOOPS) {
+          const qs = new URLSearchParams(qsBase);
+          if (next !== null) qs.append("cursor", String(next));
+
+          const res = await authFetch(
+            `/api/clients?${qs.toString()}`,
+            { cache: "no-store" },
+            token || undefined,
+          );
+          const json: ClientsAPI = await res.json();
+          if (!res.ok)
+            throw new Error(json?.error || "Error al cargar clientes");
+
+          // Filtramos los items de esta página según los filtros actuales
+          const matched = json.items.filter((c) => {
+            const n = normalizeClientRecord(c, normCtx, DEFAULT_CONFIG);
+            return recordMatches({ ...c, ...n });
+          });
+
+          collected.push(...matched);
+          next = json.nextCursor ?? null;
+          loops++;
+
+          if (next === null) break; // no quedan más páginas
+        }
+
+        setData((prev) => (resetList ? collected : [...prev, ...collected]));
+        setCursor(next);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Error al cargar clientes";
         toast.error(msg);
@@ -490,7 +591,17 @@ export default function ClientStatsPage() {
         setPageInit(true);
       }
     },
-    [q, token, cursor, canPickOwner, ownerId, isVendor, user?.id_user],
+    [
+      q,
+      token,
+      cursor,
+      canPickOwner,
+      ownerId,
+      isVendor,
+      user?.id_user,
+      normCtx,
+      recordMatches, // ✅ dependencia añadida
+    ],
   );
 
   /* ========= Fetch (stats full-scan paginado) ========= */
@@ -514,7 +625,7 @@ export default function ClientStatsPage() {
 
       const qsBase = new URLSearchParams();
       if (q.trim()) qsBase.append("q", q.trim());
-      qsBase.append("take", "100");
+      qsBase.append("take", "200");
       const wantedUserId =
         isVendor && user?.id_user ? user.id_user : canPickOwner ? ownerId : 0;
       if (wantedUserId) qsBase.append("userId", String(wantedUserId));
@@ -674,19 +785,79 @@ export default function ClientStatsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Export CSV
-  const downloadCSV = () => {
-    const headers = visibleCols.map((c) => c.label).join(";");
-    const rows = filteredTableRows.map((c) =>
-      visibleCols.map((col) => toCSVCell(col.key, c)).join(";"),
-    );
-    const csv = [headers, ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `clientes_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
+  // Export CSV (escaneo completo filtrado + ordenado, no solo lo cargado)
+  const downloadCSV = async () => {
+    try {
+      setCsvLoading(true);
+
+      const qsBase = new URLSearchParams();
+      if (q.trim()) qsBase.append("q", q.trim());
+      qsBase.append("take", "200");
+
+      const wantedUserId =
+        isVendor && user?.id_user ? user.id_user : canPickOwner ? ownerId : 0;
+      if (wantedUserId) qsBase.append("userId", String(wantedUserId));
+
+      let next: number | null = null;
+      let pages = 0;
+      const MAX_PAGES = 1000;
+
+      const all: (ClientItem & ReturnType<typeof normalizeClientRecord>)[] = [];
+
+      do {
+        const qs = new URLSearchParams(qsBase);
+        if (next !== null) qs.append("cursor", String(next));
+
+        const res = await authFetch(
+          `/api/clients?${qs.toString()}`,
+          { cache: "no-store" },
+          token || undefined,
+        );
+        const json: ClientsAPI = await res.json();
+        if (!res.ok) throw new Error(json?.error || "Error al exportar CSV");
+
+        for (const c of json.items) {
+          const n = {
+            ...c,
+            ...normalizeClientRecord(c, normCtx, DEFAULT_CONFIG),
+          };
+          if (recordMatches(n)) all.push(n);
+        }
+
+        next = json.nextCursor ?? null;
+        pages++;
+      } while (next !== null && pages < MAX_PAGES);
+
+      // ordenar igual que la tabla
+      const factor = sortDir === "asc" ? 1 : -1;
+      all.sort((a, b) => {
+        const va = sortVal(a);
+        const vb = sortVal(b);
+        if (typeof va === "number" && typeof vb === "number") {
+          return (va - vb) * factor;
+        }
+        const sa = String(va);
+        const sb = String(vb);
+        return sa.localeCompare(sb, "es") * factor;
+      });
+
+      const headers = visibleCols.map((c) => c.label).join(";");
+      const rows = all.map((c) =>
+        visibleCols.map((col) => toCSVCell(col.key, c)).join(";"),
+      );
+      const csv = [headers, ...rows].join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `clientes_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error al exportar CSV";
+      toast.error(msg);
+    } finally {
+      setCsvLoading(false);
+    }
   };
 
   const clearFilters = () => {
@@ -741,8 +912,12 @@ export default function ClientStatsPage() {
           <button onClick={() => setPickerOpen(true)} className={ICON_BTN}>
             Columnas
           </button>
-          <button onClick={downloadCSV} className={PRIMARY_BTN}>
-            Descargar CSV
+          <button
+            onClick={downloadCSV}
+            className={`${PRIMARY_BTN} disabled:opacity-50`}
+            disabled={csvLoading}
+          >
+            {csvLoading ? <Spinner /> : "Descargar CSV"}
           </button>
         </div>
 
@@ -974,11 +1149,33 @@ export default function ClientStatsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-zinc-700 backdrop-blur dark:text-zinc-200">
-                {visibleCols.map((c) => (
-                  <th key={c.key} className="p-4 text-center font-medium">
-                    {c.label}
-                  </th>
-                ))}
+                {visibleCols.map((c) => {
+                  const sortable: Partial<Record<VisibleKey, SortKey>> = {
+                    id_client: "id_client",
+                    registration_date: "registration_date",
+                    full_name: "full_name",
+                    owner: "owner",
+                    age: "age",
+                  };
+                  const sk = sortable[c.key];
+                  const isActive = sk && sortKey === sk;
+                  const arrow = !sk ? "" : sortDir === "asc" ? "▲" : "▼";
+
+                  return (
+                    <th key={c.key} className="p-4 text-center font-medium">
+                      {sk ? (
+                        <button
+                          onClick={() => toggleSort(sk)}
+                          className="inline-flex items-center gap-1 underline decoration-transparent hover:decoration-sky-600"
+                        >
+                          {c.label} {isActive && <span>{arrow}</span>}
+                        </button>
+                      ) : (
+                        c.label
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
