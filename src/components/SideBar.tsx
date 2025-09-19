@@ -53,6 +53,8 @@ export default function SideBar({
       case "/earnings":
       case "/investments":
         return ["desarrollador", "gerente", "administrativo"].includes(role);
+      case "/receipts":
+        return ["desarrollador", "gerente", "administrativo"].includes(role);
       default:
         return true;
     }
@@ -99,6 +101,10 @@ export default function SideBar({
             hasAccess("/investments") && {
               href: "/investments",
               label: "Inversión",
+            },
+            hasAccess("/receipts") && {
+              href: "/receipts",
+              label: "Recibos",
             },
             hasAccess("/balances") && { href: "/balances", label: "Saldos" },
             hasAccess("/earnings") && { href: "/earnings", label: "Ganancias" },

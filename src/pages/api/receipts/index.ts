@@ -159,24 +159,168 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       return res.status(401).json({ error: "No autenticado" });
     }
 
-    const bookingId = Number(
-      Array.isArray(req.query.bookingId)
-        ? req.query.bookingId[0]
-        : req.query.bookingId,
-    );
-    if (!Number.isFinite(bookingId)) {
-      return res.status(400).json({ error: "bookingId inválido" });
+    // Si viene bookingId => comportamiento actual (compatibilidad)
+    const bookingIdParam = Array.isArray(req.query.bookingId)
+      ? req.query.bookingId[0]
+      : req.query.bookingId;
+    const bookingId = Number(bookingIdParam);
+
+    if (Number.isFinite(bookingId)) {
+      await ensureBookingInAgency(bookingId, authAgencyId);
+
+      const receipts = await prisma.receipt.findMany({
+        where: { bookingId_booking: bookingId },
+        orderBy: { issue_date: "desc" },
+      });
+
+      return res.status(200).json({ receipts });
     }
 
-    // seguridad: booking debe ser de mi agencia
-    await ensureBookingInAgency(bookingId, authAgencyId);
+    // ====== NUEVO: Listado por agencia (sin bookingId) ======
+    const q =
+      (Array.isArray(req.query.q) ? req.query.q[0] : req.query.q)?.trim() || "";
+    const currency = (
+      Array.isArray(req.query.currency)
+        ? req.query.currency[0]
+        : req.query.currency
+    )?.toUpperCase();
+    const payment_method =
+      (Array.isArray(req.query.payment_method)
+        ? req.query.payment_method[0]
+        : req.query.payment_method) || undefined;
+    const account =
+      (Array.isArray(req.query.account)
+        ? req.query.account[0]
+        : req.query.account) || undefined;
 
-    const receipts = await prisma.receipt.findMany({
-      where: { bookingId_booking: bookingId },
-      orderBy: { issue_date: "desc" },
+    const ownerId = Number(
+      Array.isArray(req.query.userId) ? req.query.userId[0] : req.query.userId,
+    );
+    const from =
+      (Array.isArray(req.query.from) ? req.query.from[0] : req.query.from) ||
+      "";
+    const to =
+      (Array.isArray(req.query.to) ? req.query.to[0] : req.query.to) || "";
+    const minAmount = Number(
+      Array.isArray(req.query.minAmount)
+        ? req.query.minAmount[0]
+        : req.query.minAmount,
+    );
+    const maxAmount = Number(
+      Array.isArray(req.query.maxAmount)
+        ? req.query.maxAmount[0]
+        : req.query.maxAmount,
+    );
+
+    const take = Math.max(
+      1,
+      Math.min(
+        200,
+        Number(
+          Array.isArray(req.query.take) ? req.query.take[0] : req.query.take,
+        ) || 120,
+      ),
+    );
+    const cursorId = Number(
+      Array.isArray(req.query.cursor) ? req.query.cursor[0] : req.query.cursor,
+    );
+
+    const whereAND: Prisma.ReceiptWhereInput[] = [
+      // Seguridad: por agencia
+      { booking: { id_agency: authAgencyId } },
+    ];
+
+    // Búsqueda de texto (simple y eficiente)
+    if (q) {
+      const maybeNum = Number(q);
+      whereAND.push({
+        OR: [
+          { concept: { contains: q, mode: "insensitive" } },
+          { amount_string: { contains: q, mode: "insensitive" } },
+          { receipt_number: { contains: q, mode: "insensitive" } },
+          ...(Number.isFinite(maybeNum)
+            ? [
+                {
+                  booking: { id_booking: maybeNum },
+                } as Prisma.ReceiptWhereInput,
+              ]
+            : []),
+        ],
+      });
+    }
+
+    // Filtro por vendedor (owner/usuario de la reserva)
+    if (Number.isFinite(ownerId) && ownerId > 0) {
+      whereAND.push({ booking: { user: { id_user: ownerId } } });
+    }
+
+    // Moneda del monto principal
+    if (currency === "ARS" || currency === "USD") {
+      whereAND.push({ amount_currency: currency });
+    }
+
+    // Método de pago / Cuenta
+    if (payment_method) whereAND.push({ payment_method });
+    if (account) whereAND.push({ account });
+
+    // Rango de fecha (issue_date)
+    const range: Prisma.DateTimeFilter = {};
+    if (from) range.gte = new Date(`${from}T00:00:00.000Z`);
+    if (to) range.lte = new Date(`${to}T23:59:59.999Z`);
+    if (range.gte || range.lte) whereAND.push({ issue_date: range });
+
+    // Rango de importes
+    const amountRange: Prisma.FloatFilter = {};
+    if (Number.isFinite(minAmount)) amountRange.gte = Number(minAmount);
+    if (Number.isFinite(maxAmount)) amountRange.lte = Number(maxAmount);
+    if (amountRange.gte !== undefined || amountRange.lte !== undefined) {
+      whereAND.push({ amount: amountRange });
+    }
+
+    // Paginación por cursor (id descendente)
+    const baseWhere: Prisma.ReceiptWhereInput = { AND: whereAND };
+    const items = await prisma.receipt.findMany({
+      where: cursorId
+        ? { AND: [baseWhere, { id_receipt: { lt: cursorId } }] }
+        : baseWhere,
+      orderBy: { id_receipt: "desc" },
+      take,
+      select: {
+        id_receipt: true,
+        receipt_number: true,
+        issue_date: true,
+        amount: true,
+        amount_currency: true,
+        concept: true,
+        currency: true, // descripción legado PDF
+        payment_method: true,
+        account: true,
+        base_amount: true,
+        base_currency: true,
+        counter_amount: true,
+        counter_currency: true,
+        serviceIds: true,
+        clientIds: true,
+        booking: {
+          select: {
+            id_booking: true,
+            user: {
+              select: { id_user: true, first_name: true, last_name: true },
+            },
+            titular: {
+              select: { id_client: true, first_name: true, last_name: true },
+            },
+          },
+        },
+      },
     });
 
-    return res.status(200).json({ receipts });
+    const nextCursor =
+      items.length === take
+        ? (items[items.length - 1]?.id_receipt ?? null)
+        : null;
+
+    return res.status(200).json({ items, nextCursor });
   } catch (error: unknown) {
     const msg =
       error instanceof Error ? error.message : "Error obteniendo recibos";
