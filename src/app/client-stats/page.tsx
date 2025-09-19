@@ -1101,7 +1101,7 @@ export default function ClientStatsPage() {
             </div>
 
             {/* Top vendedores */}
-            <div>
+            {/* <div>
               <p className="mb-2 text-sm opacity-70">Top vendedores (pax)</p>
               <ul className="space-y-1 text-sm">
                 {stats.topOwners.length === 0 && !statsLoading && (
@@ -1119,7 +1119,7 @@ export default function ClientStatsPage() {
                   </li>
                 ))}
               </ul>
-            </div>
+            </div> */}
 
             {/* Top nacionalidades */}
             <div>
