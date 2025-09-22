@@ -51,26 +51,65 @@ Font.register({
 
 const isBlank = (s?: string | null) => !s || s.trim().length === 0;
 
-/** Rompe la autolinkificación del visor PDF sin cambiar lo que se ve */
+/** ======== Whitespace utils robustas para PDF ======== */
+
+/** NBSP y helpers */
+const NBSP = "\u00A0";
+const MAX_WS_RUN = 64; // tope de espacios seguidos (post-tabs)
+const MAX_CONSECUTIVE_NL = 3; // tope de saltos seguidos
+const MAX_TEXT_LEN = 120_000; // tope duro de longitud por bloque
+
+/** Rompe la autolinkificación de los visores PDF sin cambiar lo visible */
 const deLinkify = (s: string) => (s || "").replace(/([:@./])/g, "\u200B$1");
 
-/** Tabs y espacios: preservar saltos de línea, espacios consecutivos y tabulaciones */
-const NBSP = "\u00A0";
-const TAB4 = `${NBSP}${NBSP}${NBSP}${NBSP}`;
-const preserveWhitespace = (input?: string | null): string => {
-  if (!input) return "";
-  // Normalizar saltos y tabs
-  let t = String(input).replace(/\r\n?/g, "\n").replace(/\t/g, TAB4);
-  // Conservar secuencias de espacios > 1 alternando con NBSP
-  t = t.replace(/ {2,}/g, (m) =>
+/** Alterna espacios con NBSP para que 2+ espacios se “vean” sin colapsar */
+function alternateSpaces(str: string): string {
+  return str.replace(/ {2,}/g, (m) =>
     m
       .split("")
       .map((ch, i) => (i % 2 === 0 ? " " : NBSP))
       .join(""),
   );
+}
+
+/** Limita rachas absurdas de espacios (ya con tabs expandidos a spaces) */
+function clampSpaceRuns(str: string, max = MAX_WS_RUN): string {
+  return str.replace(/ {2,}/g, (m) => " ".repeat(Math.min(m.length, max)));
+}
+
+/** PDF-safe: normaliza saltos, expande \t, limita rachas, alterna espacios, y recorta excesos */
+function preserveWhitespace(input?: string | null): string {
+  if (!input) return "";
+  let t = String(input);
+
+  // normalizar saltos
+  t = t.replace(/\r\n?/g, "\n");
+
+  // expandir tabs a 4 espacios (luego se limitan)
+  t = t.replace(/\t/g, "    ");
+
+  // limitar rachas de espacios muy largas
+  t = clampSpaceRuns(t, MAX_WS_RUN);
+
+  // alternar para que 2+ espacios no colapsen en PDF
+  t = alternateSpaces(t);
+
+  // limitar rachas de saltos de línea
+  t = t.replace(
+    new RegExp(`\\n{${MAX_CONSECUTIVE_NL + 1},}`, "g"),
+    "\n".repeat(MAX_CONSECUTIVE_NL),
+  );
+
+  // quitar caracteres de control invisibles problemáticos (excepto \n)
+  t = t.replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, "");
+
+  // tope duro por bloque: si meten miles de tabs/espacios seguimos a salvo
+  if (t.length > MAX_TEXT_LEN) t = t.slice(0, MAX_TEXT_LEN);
+
   return t;
-};
-/** Aplica preservación + deLinkify (para evitar autolinks en viewers) */
+}
+
+/** Preserva WS + rompe autolinks (evita crashes de render por urls larguísimas) */
 const keepWS = (s?: string | null) => deLinkify(preserveWhitespace(s));
 
 function luminance(hex: string): number {

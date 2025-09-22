@@ -51,27 +51,64 @@ Font.register({
 
 const isBlank = (s?: string | null) => !s || s.trim().length === 0;
 
-/** Rompe la autolinkificación del visor PDF sin cambiar lo que se ve */
-const deLinkify = (s: string) => (s || "").replace(/([:@./])/g, "\u200B$1");
+/** ======== Whitespace utils robustas para PDF ======== */
 
-/** Preservar saltos de línea, espacios consecutivos y tabulaciones en react-pdf */
-const NBSP = "\u00A0";
-const TAB4 = `${NBSP}${NBSP}${NBSP}${NBSP}`;
-const preserveWhitespace = (input?: string | null): string => {
+// Límites razonables
+const MAX_WS_RUN = 64; // rachas largas de espacios
+const MAX_CONSECUTIVE_NL = 3;
+const MAX_TEXT_LEN = 120_000;
+
+// elimina caracteres invisibles problemáticos (cero ancho, BOM, etc.)
+const stripZeroWidth = (s: string) =>
+  s.replace(/[\u200B-\u200F\uFEFF\u202A-\u202E]/g, "");
+
+/** Limita rachas absurdas de espacios (post-tab) */
+function clampSpaceRuns(str: string, max = MAX_WS_RUN): string {
+  return str.replace(/ {2,}/g, (m) => " ".repeat(Math.min(m.length, max)));
+}
+
+/** Normaliza para react-pdf (PDF-safe) */
+function preserveWhitespace(input?: string | null): string {
   if (!input) return "";
-  // Normaliza saltos de línea y reemplaza \t por 4 espacios duros
-  let t = String(input).replace(/\r\n?/g, "\n").replace(/\t/g, TAB4);
-  // Alterna espacios con NBSP para conservar secuencias de 2+ espacios
-  t = t.replace(/ {2,}/g, (m) =>
-    m
-      .split("")
-      .map((ch, i) => (i % 2 === 0 ? " " : NBSP))
-      .join(""),
+  let t = String(input);
+
+  // 1) normalizar saltos (Windows → \n)
+  t = t.replace(/\r\n?/g, "\n");
+
+  // 2) expandir tabs a 4 espacios
+  t = t.replace(/\t+/g, "    ");
+
+  // 3) colapsar espacios alrededor de signos que suelen romper layout
+  //    (guion, dos puntos, barra, etc.) → un espacio a cada lado
+  t = t.replace(/[ \t]*([-–—/:])[ \t]+/g, " $1 ");
+
+  // 4) quitar espacios al final de línea (antes del \n)
+  t = t.replace(/[ \t]+\n/g, "\n");
+
+  // 5) limitar rachas de espacios largas
+  t = clampSpaceRuns(t, MAX_WS_RUN);
+
+  // 6) limitar rachas de saltos de línea
+  t = t.replace(
+    new RegExp(`\\n{${MAX_CONSECUTIVE_NL + 1},}`, "g"),
+    "\n".repeat(MAX_CONSECUTIVE_NL),
   );
+
+  // 7) evitar salto inmediatamente después de un dígito
+  //    (…7⏎noches → …7␠noches) — este es el trigger de tu caso
+  t = t.replace(/(\d)\n(?=\S)/g, "$1 ");
+
+  // 8) quitar invisibles
+  t = stripZeroWidth(t);
+
+  // 9) tope duro por bloque
+  if (t.length > MAX_TEXT_LEN) t = t.slice(0, MAX_TEXT_LEN);
+
   return t;
-};
-/** Aplica preservación + deLinkify para evitar autolink en viewers */
-const keepWS = (s?: string | null) => deLinkify(preserveWhitespace(s));
+}
+
+/** Helper único a usar en <Text> */
+const keepWS = (s?: string | null) => preserveWhitespace(s);
 
 function luminance(hex: string): number {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(
