@@ -3,7 +3,6 @@ import React from "react";
 import { View, Text } from "@react-pdf/renderer";
 import type { TextProps } from "@react-pdf/renderer";
 import { NBSP, stripZeroWidth, expandTabs } from "@/lib/whitespace";
-import { getPdfFontFamily } from "./registerFonts";
 
 type PdfTextStyle = TextProps["style"];
 
@@ -52,8 +51,6 @@ export default function ParagraphSafe({
   text?: string | null;
   style?: PdfTextStyle;
 }) {
-  const FAMILY = getPdfFontFamily();
-
   const raw = String(text ?? "")
     .replace(/\r\n?/g, "\n")
     .slice(0, MAX_TEXT_LEN);
@@ -72,10 +69,7 @@ export default function ParagraphSafe({
         const line = ln.length ? ln : NBSP;
         const toks = tokenizeBold(line);
 
-        const lineStyle = [
-          ...(FAMILY ? [{ fontFamily: FAMILY }] : []),
-          ...styleArray,
-        ] as TextProps["style"];
+        const lineStyle = [...styleArray] as TextProps["style"];
 
         return (
           <Text key={`line-${li}`} style={lineStyle}>
@@ -83,24 +77,12 @@ export default function ParagraphSafe({
               tk.bold ? (
                 <Text
                   key={`seg-${li}-${ti}`}
-                  style={
-                    [
-                      FAMILY ? { fontFamily: FAMILY } : {},
-                      { fontWeight: 700 },
-                    ] as TextProps["style"]
-                  }
+                  style={[{ fontWeight: 700 }] as TextProps["style"]}
                 >
                   {tk.text}
                 </Text>
               ) : (
-                <Text
-                  key={`seg-${li}-${ti}`}
-                  style={
-                    [FAMILY ? { fontFamily: FAMILY } : {}] as TextProps["style"]
-                  }
-                >
-                  {tk.text}
-                </Text>
+                <Text key={`seg-${li}-${ti}`}>{tk.text}</Text>
               ),
             )}
           </Text>

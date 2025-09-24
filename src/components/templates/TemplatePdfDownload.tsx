@@ -1,7 +1,7 @@
 // src/components/templates/TemplatePdfDownload.tsx
 "use client";
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { pdf } from "@react-pdf/renderer";
 import {
   Variant,
@@ -12,7 +12,7 @@ import {
   normalizeMultilineSoft,
   countWeirdChars,
 } from "@/lib/whitespace";
-import TemplatePdfDocumentMupu from "./TemplatePdfDocumentMupu";
+import TemplatePdfDocument from "./TemplatePdfDocument";
 import type { TemplateConfig, ContentBlock, Agency } from "@/types/templates";
 
 /* ========================================================================
@@ -361,63 +361,6 @@ const isDataViewRangeError = (err: unknown) => {
     /Offset is outside/i.test(String(m))
   );
 };
-
-/* ========================================================================
- * 🔧 IMÁGENES “PDF-SAFE”
- * ====================================================================== */
-
-const IMG_CACHE = new Map<string, string | null>();
-
-const looksProblematicImg = (src: string) =>
-  /\.(png|webp|avif)(\?.*)?$/i.test(src) ||
-  src.startsWith("data:image/png") ||
-  src.startsWith("data:image/webp") ||
-  src.startsWith("data:image/avif");
-
-/** Convierte una imagen remota a dataURL JPEG (si CORS lo permite). */
-async function coerceToJpegDataURL(
-  src: string,
-  quality = 0.92,
-): Promise<string | null> {
-  return new Promise((resolve) => {
-    try {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        try {
-          const canvas = document.createElement("canvas");
-          canvas.width = img.naturalWidth || img.width;
-          canvas.height = img.naturalHeight || img.height;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) return resolve(null);
-          ctx.drawImage(img, 0, 0);
-          const dataUrl = canvas.toDataURL("image/jpeg", quality);
-          resolve(dataUrl || null);
-        } catch {
-          resolve(null);
-        }
-      };
-      img.onerror = () => resolve(null);
-      img.src = src;
-    } catch {
-      resolve(null);
-    }
-  });
-}
-
-/** Devuelve una URL “segura para react-pdf” o la original si no se pudo. */
-async function ensurePdfFriendlyImage(src?: string): Promise<string> {
-  const url = (src || "").trim();
-  if (!url) return "";
-  if (!looksProblematicImg(url) && !url.startsWith("data:")) return url;
-
-  if (IMG_CACHE.has(url)) return IMG_CACHE.get(url) || "";
-
-  const coerced = await coerceToJpegDataURL(url);
-  IMG_CACHE.set(url, coerced);
-  return coerced || url;
-}
-
 /* ========================================================================
  * Búsqueda de bloque ofensivo (texto)
  * ====================================================================== */
@@ -430,7 +373,7 @@ async function findOffenderBlock(
   for (let i = 0; i < src.length; i++) {
     try {
       const doc = (
-        <TemplatePdfDocumentMupu
+        <TemplatePdfDocument
           rCfg={baseProps.cfg}
           rAgency={baseProps.agency ?? {}}
           rUser={baseProps.user ?? {}}
@@ -473,10 +416,18 @@ const TemplatePdfDownload: React.FC<TemplatePdfDownloadProps> = (props) => {
 
   const [busy, setBusy] = useState(false);
 
-  // 1) Content blocks
+  // Fallbacks desde cfg
+  const selectedCoverUrlFromCfg = cfg?.coverImage?.url || "";
+  const paymentSelectedFromCfg = useMemo(() => {
+    const opts = cfg?.paymentOptions ?? [];
+    const idx = cfg?.payment?.selectedIndex ?? -1;
+    return idx >= 0 && idx < opts.length ? opts[idx] : undefined;
+  }, [cfg]);
+
+  // 1) Content blocks (fallback a cfg.content.blocks)
   const baseBlocks = useMemo<ContentBlock[]>(
-    () => toContentBlocks(blocksInput),
-    [blocksInput],
+    () => toContentBlocks(blocksInput ?? cfg?.content?.blocks),
+    [blocksInput, cfg],
   );
   const appended = useMemo<ContentBlock[]>(
     () => baseBlocks.concat(toContentBlocks(appendBlocks)),
@@ -488,37 +439,29 @@ const TemplatePdfDownload: React.FC<TemplatePdfDownloadProps> = (props) => {
   );
 
   const baseDocProps = useMemo(
-    () => ({ cfg, agency, user, docLabel, selectedCoverUrl, paymentSelected }),
-    [cfg, agency, user, docLabel, selectedCoverUrl, paymentSelected],
+    () => ({
+      cfg,
+      agency,
+      user,
+      docLabel,
+      selectedCoverUrl: selectedCoverUrl || selectedCoverUrlFromCfg,
+      paymentSelected: paymentSelected ?? paymentSelectedFromCfg,
+    }),
+    [
+      cfg,
+      agency,
+      user,
+      docLabel,
+      selectedCoverUrl,
+      selectedCoverUrlFromCfg,
+      paymentSelected,
+      paymentSelectedFromCfg,
+    ],
   );
 
-  // Para evitar reconvertir imágenes en intentos sucesivos del mismo click
-  const lastSafeImgsRef = useRef<{ cover: string; logo: string } | null>(null);
-
   const buildOnce = useCallback(
-    async (
-      variant: Variant,
-      why: string,
-      opts?: { forceNoImages?: boolean },
-    ) => {
+    async (variant: Variant, why: string) => {
       const sanitized = sanitizeBlocks(effectiveBlocks, variant);
-
-      // Imágenes “safe”
-      let safeCover = "";
-      let safeLogo = "";
-
-      if (!opts?.forceNoImages) {
-        if (lastSafeImgsRef.current) {
-          safeCover = lastSafeImgsRef.current.cover;
-          safeLogo = lastSafeImgsRef.current.logo;
-        } else {
-          safeCover = await ensurePdfFriendlyImage(selectedCoverUrl);
-          safeLogo = await ensurePdfFriendlyImage(
-            (agency as Agency)?.logo_url || "",
-          );
-          lastSafeImgsRef.current = { cover: safeCover, logo: safeLogo };
-        }
-      }
 
       if (debug) {
         console.groupCollapsed(
@@ -528,11 +471,9 @@ const TemplatePdfDownload: React.FC<TemplatePdfDownloadProps> = (props) => {
         console.log("[PDF] blocks (src):", effectiveBlocks.length);
         console.log("[PDF] blocks (sanitized):", sanitized.length);
         console.log("[PDF] docLabel:", docLabel);
-        console.log("[PDF] cover:", safeCover ? "yes" : "no");
-        console.log("[PDF] logo:", safeLogo ? "yes" : "no");
         console.log(
           "[PDF] paymentSelected:",
-          Boolean(paymentSelected) ? "true" : "false",
+          Boolean(paymentSelected ?? paymentSelectedFromCfg) ? "true" : "false",
         );
         console.log("[PDF] content overview (char counters)");
         logContentOverview(sanitized);
@@ -540,14 +481,14 @@ const TemplatePdfDownload: React.FC<TemplatePdfDownloadProps> = (props) => {
       }
 
       const doc = (
-        <TemplatePdfDocumentMupu
+        <TemplatePdfDocument
           rCfg={cfg}
-          rAgency={{ ...(agency || {}), logo_url: safeLogo }}
+          rAgency={{ ...(agency || {}), logo_url: agency.logo_url }}
           rUser={user}
           blocks={sanitized}
           docLabel={docLabel}
-          selectedCoverUrl={safeCover}
-          paymentSelected={paymentSelected}
+          selectedCoverUrl={selectedCoverUrl || selectedCoverUrlFromCfg}
+          paymentSelected={paymentSelected ?? paymentSelectedFromCfg}
         />
       );
 
@@ -561,7 +502,9 @@ const TemplatePdfDownload: React.FC<TemplatePdfDownloadProps> = (props) => {
       user,
       docLabel,
       selectedCoverUrl,
+      selectedCoverUrlFromCfg,
       paymentSelected,
+      paymentSelectedFromCfg,
       debug,
     ],
   );
@@ -579,7 +522,7 @@ const TemplatePdfDownload: React.FC<TemplatePdfDownloadProps> = (props) => {
         return;
       }
 
-      // 1) Multilínea completa (con imágenes safe)
+      // 1) Multilínea completa
       try {
         const blob = await buildOnce("full", "multilínea completa");
         saveBlob(blob, fileName);
@@ -587,22 +530,6 @@ const TemplatePdfDownload: React.FC<TemplatePdfDownloadProps> = (props) => {
       } catch (e) {
         if (debug)
           console.warn("[PDF] FAIL (full):", hasMessage(e) ? e.message : e);
-        if (!isDataViewRangeError(e)) throw e;
-      }
-
-      // 1b) Multilínea completa **sin imágenes**
-      try {
-        const blob = await buildOnce("full", "multilínea (sin imágenes)", {
-          forceNoImages: true,
-        });
-        saveBlob(blob, fileName);
-        return;
-      } catch (e) {
-        if (debug)
-          console.warn(
-            "[PDF] FAIL (full/no-img):",
-            hasMessage(e) ? e.message : e,
-          );
         if (!isDataViewRangeError(e)) throw e;
       }
 
@@ -617,22 +544,6 @@ const TemplatePdfDownload: React.FC<TemplatePdfDownloadProps> = (props) => {
         if (!isDataViewRangeError(e)) throw e;
       }
 
-      // 2b) Soft **sin imágenes**
-      try {
-        const blob = await buildOnce("soft", "soft (sin imágenes)", {
-          forceNoImages: true,
-        });
-        saveBlob(blob, fileName);
-        return;
-      } catch (e) {
-        if (debug)
-          console.warn(
-            "[PDF] FAIL (soft/no-img):",
-            hasMessage(e) ? e.message : e,
-          );
-        if (!isDataViewRangeError(e)) throw e;
-      }
-
       // 3) Hard (single-line)
       try {
         const blob = await buildOnce("hard", "forzado single-line");
@@ -641,22 +552,6 @@ const TemplatePdfDownload: React.FC<TemplatePdfDownloadProps> = (props) => {
       } catch (e) {
         if (debug)
           console.warn("[PDF] FAIL (hard):", hasMessage(e) ? e.message : e);
-        if (!isDataViewRangeError(e)) throw e;
-      }
-
-      // 4) Hard **sin imágenes**
-      try {
-        const blob = await buildOnce("hard", "sin imágenes", {
-          forceNoImages: true,
-        });
-        saveBlob(blob, fileName);
-        return;
-      } catch (e) {
-        if (debug)
-          console.warn(
-            "[PDF] FAIL (no-images):",
-            hasMessage(e) ? e.message : e,
-          );
         if (!isDataViewRangeError(e)) throw e;
       }
 

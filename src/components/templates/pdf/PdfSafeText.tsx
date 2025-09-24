@@ -3,7 +3,6 @@ import React from "react";
 import { Text, Font } from "@react-pdf/renderer";
 import type { TextProps } from "@react-pdf/renderer";
 import { NBSP, stripZeroWidth, expandTabs } from "@/lib/whitespace";
-import { getPdfFontFamily } from "./registerFonts";
 
 // Desactiva hyphenation (evita cortes raros)
 type FontHyph = {
@@ -54,20 +53,9 @@ export interface PdfSafeTextProps {
  * - Aplica `fontFamily` explícito para evitar fallbacks.
  */
 export default function PdfSafeText({ text, style }: PdfSafeTextProps) {
-  const FAMILY = getPdfFontFamily();
-
   let t = String(text ?? "");
   if (!t) {
-    return (
-      <Text
-        style={
-          [FAMILY ? { fontFamily: FAMILY } : {}, style] as TextProps["style"]
-        }
-        wrap
-      >
-        {NBSP}
-      </Text>
-    );
+    return <Text wrap>{NBSP}</Text>;
   }
 
   t = t.replace(/\r\n?/g, "\n").replace(/\n+/g, " ");
@@ -88,33 +76,17 @@ export default function PdfSafeText({ text, style }: PdfSafeTextProps) {
     : style
       ? [style as object]
       : [];
-  const finalStyle = [
-    ...(FAMILY ? [{ fontFamily: FAMILY }] : []),
-    ...baseStyleArray,
-  ] as TextProps["style"];
+  const finalStyle = [...baseStyleArray] as TextProps["style"];
 
   return (
     <Text style={finalStyle}>
       {toks.map((tk, i) =>
         tk.bold ? (
-          <Text
-            key={i}
-            style={
-              [
-                FAMILY ? { fontFamily: FAMILY } : {},
-                { fontWeight: 700 },
-              ] as TextProps["style"]
-            }
-          >
+          <Text key={i} style={[{ fontWeight: 700 }] as TextProps["style"]}>
             {tk.text}
           </Text>
         ) : (
-          <Text
-            key={i}
-            style={[FAMILY ? { fontFamily: FAMILY } : {}] as TextProps["style"]}
-          >
-            {tk.text}
-          </Text>
+          <Text key={i}>{tk.text}</Text>
         ),
       )}
     </Text>
