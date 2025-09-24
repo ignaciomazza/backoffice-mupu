@@ -1206,14 +1206,17 @@ const TemplateEditor: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Botón PDF */}
       <div className="flex justify-end">
         <TemplatePdfDownload
           cfg={rCfg}
-          form={value}
-          docType={docType}
-          docTypeLabel={docLabel}
-          filename={
+          agency={rAgency}
+          user={rUser}
+          // 👇 le pasamos lo que estás editando en pantalla
+          blocks={blocks} // o value.blocks
+          docLabel={docLabel}
+          selectedCoverUrl={selectedCoverUrl}
+          paymentSelected={paymentSelected}
+          fileName={
             filename ||
             (docType === "quote"
               ? `cotizacion-${new Date().toISOString().slice(0, 10)}.pdf`

@@ -1,143 +1,705 @@
 // src/components/templates/TemplatePdfDownload.tsx
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { pdf } from "@react-pdf/renderer";
-import TemplatePdfDocument from "./TemplatePdfDocument";
-import TemplatePdfDocumentMupu from "./TemplatePdfDocumentMupu";
-import { useAuth } from "@/context/AuthContext";
-import { useAgencyAndUser } from "@/lib/agencyUser";
 import {
-  mergeConfigWithFormValues,
-  normalizeConfig,
-  asStringArray,
-  getAt,
-} from "@/lib/templateConfig";
-import type {
-  DocType,
-  TemplateConfig,
-  TemplateFormValues,
-  ContentBlock,
-} from "@/types/templates";
+  Variant,
+  isBlank,
+  toArray,
+  normalizeSingleLine,
+  normalizeMultilineFull,
+  normalizeMultilineSoft,
+  countWeirdChars,
+} from "@/lib/whitespace";
+import TemplatePdfDocumentMupu from "./TemplatePdfDocumentMupu";
+import type { TemplateConfig, ContentBlock, Agency } from "@/types/templates";
 
-type Props = {
-  cfg: TemplateConfig;
-  form?: TemplateFormValues | null;
-  docType: DocType;
-  docTypeLabel?: string;
-  filename?: string;
+/* ========================================================================
+ * Tipos mínimos
+ * ====================================================================== */
+
+type MinimalUser = {
+  first_name?: string;
+  last_name?: string;
+  email?: string;
 };
 
-const TemplatePdfDownload: React.FC<Props> = ({
-  cfg,
-  form = null,
-  docType,
-  docTypeLabel = "Documento",
-  filename = "documento.pdf",
-}) => {
-  const { token: ctxToken } = useAuth();
-  const { agency, user } = useAgencyAndUser(ctxToken ?? null);
-  const [downloading, setDownloading] = useState(false);
+export type TemplatePdfDownloadProps = {
+  /** Nombre del archivo PDF (sin path) */
+  fileName?: string;
+  /** Configuración visual seleccionada */
+  cfg: TemplateConfig;
+  /** Agencia (logo, colores, contacto) */
+  agency?: Partial<Agency>;
+  /** Vendedor/a */
+  user?: Partial<MinimalUser>;
 
-  // === Runtime config (igual que Preview) ===
-  const normalized = useMemo(
-    () => normalizeConfig(cfg, docType),
-    [cfg, docType],
-  );
-  const runtime = useMemo(
-    () =>
-      mergeConfigWithFormValues(normalized, form ?? undefined, agency, user),
-    [normalized, form, agency, user],
-  );
+  /**
+   * Contenido a renderizar.
+   * Acepta:
+   *  - ContentBlock[]
+   *  - PresetBlock[] (como viene en data.data.blocks)
+   *  - El item completo del preset (con data.data.blocks)
+   *  - El payload de /api/text-preset **(tomará items[0])**
+   */
+  blocks?: unknown;
 
-  const rCfg = runtime.config;
-  const rAgency = runtime.agency;
-  const rUser = runtime.user;
+  /** Bloques adicionales a concatenar al final (opcional) */
+  appendBlocks?: unknown;
 
-  const blocks = useMemo<ContentBlock[]>(
-    () => (rCfg.content?.blocks ?? []) as ContentBlock[],
-    [rCfg.content?.blocks],
-  );
+  /** Parcheo rápido por id (opcional) */
+  patchById?: Record<string, Partial<ContentBlock>>;
 
-  const selectedCoverUrl = form?.cover?.url ?? rCfg.coverImage?.url ?? "";
+  /** Título/chip del documento (p.ej. “Cotización”) */
+  docLabel?: string;
+  /** URL de la portada seleccionada (opcional) */
+  selectedCoverUrl?: string;
+  /** Texto “Forma de pago” (opcional) */
+  paymentSelected?: string;
+  /** Mostrar logs de diagnóstico (default true en dev) */
+  debug?: boolean;
+  /** Estilos del botón */
+  className?: string;
+  /** Contenido del botón (default “Descargar PDF”) */
+  children?: React.ReactNode;
+};
 
-  const rcfg = rCfg as unknown as Record<string, unknown>;
-  const paymentOptions = asStringArray(
-    getAt<string[] | undefined>(rcfg, ["paymentOptions"], undefined),
-  );
-  const paymentIdx =
-    form?.payment?.selectedIndex ??
-    getAt<number | null>(rcfg, ["payment", "selectedIndex"], null) ??
-    null;
-  const paymentSelected =
-    paymentIdx !== null ? paymentOptions[paymentIdx] || "" : "";
+/* ========================================================================
+ * PRESET → ContentBlock
+ * ====================================================================== */
 
-  const labels =
-    (rCfg as unknown as { labels?: { docTypeLabel?: string } }).labels || {};
-  const docLabel = docTypeLabel ?? labels.docTypeLabel ?? "Documento";
+type PresetMode = "form" | "fixed" | "extra" | string;
+type PresetKeyValuePair = { key?: string; value?: string };
+type PresetValue = {
+  type?: string;
+  text?: string;
+  left?: string;
+  right?: string;
+  center?: string;
+  items?: unknown[];
+  pairs?: PresetKeyValuePair[];
+};
+type PresetBlock = {
+  id?: string;
+  type: ContentBlock["type"] | string;
+  origin?: PresetMode;
+  label?: string;
+  value?: PresetValue;
+  left?: string;
+  right?: string;
+  center?: string;
+  items?: unknown[];
+  pairs?: PresetKeyValuePair[];
+};
+type PresetItem = {
+  data?: { data?: { blocks?: PresetBlock[] } };
+};
 
-  const handleDownload = async () => {
-    if (downloading) return;
-    try {
-      setDownloading(true);
+const genId = () => "b_" + Math.random().toString(36).slice(2, 10);
+const ensureId = (id?: string) => String(id ?? genId());
 
-      const agencyId =
-        agency?.id ??
-        agency?.id_agency ??
-        rAgency?.id ??
-        rAgency?.id_agency ??
-        null;
+function unwrapBlocks(anyInput: unknown): unknown[] {
+  if (Array.isArray(anyInput)) return anyInput;
+  const obj = anyInput as Record<string, unknown>;
+  const data = (obj?.["data"] as Record<string, unknown>) || undefined;
+  const dd = (data?.["data"] as Record<string, unknown>) || undefined;
+  const maybeBlocks1 = dd?.["blocks"];
+  if (Array.isArray(maybeBlocks1)) return maybeBlocks1 as unknown[];
+  const items = (obj?.["items"] as PresetItem[]) || [];
+  const maybeBlocks2 = items?.[0]?.data?.data?.blocks;
+  if (Array.isArray(maybeBlocks2)) return maybeBlocks2 as unknown[];
+  return [];
+}
+function looksLikePresetBlock(b: unknown): boolean {
+  if (!b || typeof b !== "object") return false;
+  const o = b as Record<string, unknown>;
+  return "value" in o || "label" in o;
+}
+function mapOriginToMode(origin?: string): ContentBlock["mode"] {
+  return origin === "form" ? "form" : "fixed";
+}
+function presetToContentBlock(rb: unknown): ContentBlock | null {
+  const b = rb as PresetBlock;
+  const type = String(b?.type ?? "") as ContentBlock["type"];
+  const mode = mapOriginToMode(b?.origin);
+  const isForm = mode === "form";
 
-      const isMupu = Number(agencyId) === 1;
-      const Doc = isMupu ? TemplatePdfDocumentMupu : TemplatePdfDocument;
-
-      // Render -> Blob
-      const instance = pdf(
-        <Doc
-          rCfg={rCfg}
-          rAgency={rAgency}
-          rUser={rUser}
-          blocks={blocks}
-          docLabel={docLabel}
-          selectedCoverUrl={selectedCoverUrl}
-          paymentSelected={paymentSelected}
-        />,
-      );
-      const blob = await instance.toBlob();
-
-      // Descarga
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error("[TemplatePdfDownload] download error:", e);
-      alert("No se pudo generar el PDF.");
-    } finally {
-      setDownloading(false);
+  switch (type) {
+    case "heading": {
+      const text = b?.value?.text ?? b?.label ?? "";
+      if (isBlank(text)) return null;
+      return { id: ensureId(b.id), type: "heading", text, level: 1, mode };
     }
+    case "subtitle": {
+      const text = b?.value?.text ?? b?.label ?? "";
+      if (isBlank(text)) return null;
+      return { id: ensureId(b.id), type: "subtitle", text, mode };
+    }
+    case "paragraph": {
+      const text = b?.value?.text ?? "";
+      if (isBlank(text) && isForm) return null;
+      return { id: ensureId(b.id), type: "paragraph", text, mode };
+    }
+    case "twoColumns": {
+      const left = b?.value?.left ?? b?.left ?? "";
+      const right = b?.value?.right ?? b?.right ?? "";
+      if (isBlank(left) && isBlank(right) && isForm) return null;
+      return { id: ensureId(b.id), type: "twoColumns", left, right, mode };
+    }
+    case "threeColumns": {
+      const left = b?.value?.left ?? b?.left ?? "";
+      const center = b?.value?.center ?? b?.center ?? "";
+      const right = b?.value?.right ?? b?.right ?? "";
+      if (isBlank(left) && isBlank(center) && isBlank(right) && isForm)
+        return null;
+      return {
+        id: ensureId(b.id),
+        type: "threeColumns",
+        left,
+        center,
+        right,
+        mode,
+      };
+    }
+    case "keyValue": {
+      const pairsSrc =
+        (Array.isArray(b?.value?.pairs) ? b?.value?.pairs : b?.pairs) ?? [];
+      const pairs = pairsSrc
+        .map((p): { key: string; value: string } => ({
+          key: String(p?.key ?? ""),
+          value: String(p?.value ?? ""),
+        }))
+        .filter((p) => !isBlank(p.key) || !isBlank(p.value));
+      if (pairs.length === 0 && isForm) return null;
+      return { id: ensureId(b.id), type: "keyValue", pairs, mode };
+    }
+    case "list": {
+      const itemsSrc =
+        (Array.isArray(b?.value?.items) ? b?.value?.items : b?.items) ?? [];
+      const items = itemsSrc.map((x) => (x == null ? "" : String(x)));
+      if (items.length === 0 && isForm) return null;
+      return { id: ensureId(b.id), type: "list", items, mode };
+    }
+    default:
+      return null;
+  }
+}
+function toContentBlocks(input: unknown): ContentBlock[] {
+  const raw = unwrapBlocks(input);
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return Array.isArray(input) ? (input as ContentBlock[]) : [];
+  }
+  if (looksLikePresetBlock(raw[0])) {
+    return raw
+      .map((x) => presetToContentBlock(x))
+      .filter(Boolean) as ContentBlock[];
+  }
+  return raw as ContentBlock[];
+}
+function applyPatches(
+  blocks: ContentBlock[],
+  patchById?: Record<string, Partial<ContentBlock>>,
+): ContentBlock[] {
+  if (!patchById) return blocks;
+  return blocks.map((b) => {
+    const p = patchById[b.id];
+    return p ? ({ ...b, ...p, id: b.id, type: b.type } as ContentBlock) : b;
+  });
+}
+
+function sanitizeBlocks(blocks: ContentBlock[] | undefined, variant: Variant) {
+  const src = toArray(blocks);
+
+  return src.map((b) => {
+    switch (b.type) {
+      case "heading":
+        return { ...b, text: normalizeSingleLine(b.text ?? "") };
+
+      case "subtitle":
+        return { ...b, text: normalizeSingleLine(b.text ?? "") };
+
+      case "paragraph": {
+        const t =
+          variant === "hard"
+            ? normalizeSingleLine(b.text ?? "")
+            : variant === "soft"
+              ? normalizeMultilineSoft(b.text ?? "")
+              : normalizeMultilineFull(b.text ?? "");
+        return { ...b, text: t };
+      }
+
+      case "list": {
+        const items = toArray(b.items).map((it) =>
+          variant === "hard"
+            ? normalizeSingleLine(it)
+            : variant === "soft"
+              ? normalizeMultilineSoft(it)
+              : normalizeMultilineFull(it),
+        );
+        return { ...b, items };
+      }
+
+      case "keyValue": {
+        const pairs = toArray(b.pairs).map((p) => ({
+          key: normalizeSingleLine(p.key ?? ""),
+          value: normalizeSingleLine(p.value ?? ""),
+        }));
+        return { ...b, pairs };
+      }
+
+      case "twoColumns": {
+        const left =
+          variant === "hard"
+            ? normalizeSingleLine(b.left ?? "")
+            : variant === "soft"
+              ? normalizeMultilineSoft(b.left ?? "")
+              : normalizeMultilineFull(b.left ?? "");
+        const right =
+          variant === "hard"
+            ? normalizeSingleLine(b.right ?? "")
+            : variant === "soft"
+              ? normalizeMultilineSoft(b.right ?? "")
+              : normalizeMultilineFull(b.right ?? "");
+        return { ...b, left, right };
+      }
+
+      case "threeColumns": {
+        const left =
+          variant === "hard"
+            ? normalizeSingleLine(b.left ?? "")
+            : variant === "soft"
+              ? normalizeMultilineSoft(b.left ?? "")
+              : normalizeMultilineFull(b.left ?? "");
+        const center =
+          variant === "hard"
+            ? normalizeSingleLine(b.center ?? "")
+            : variant === "soft"
+              ? normalizeMultilineSoft(b.center ?? "")
+              : normalizeMultilineFull(b.center ?? "");
+        const right =
+          variant === "hard"
+            ? normalizeSingleLine(b.right ?? "")
+            : variant === "soft"
+              ? normalizeMultilineSoft(b.right ?? "")
+              : normalizeMultilineFull(b.right ?? "");
+        return { ...b, left, center, right };
+      }
+
+      default:
+        return b;
+    }
+  });
+}
+
+/* ========================================================================
+ * Logs y helpers
+ * ====================================================================== */
+
+function logContentOverview(blocks: ContentBlock[]) {
+  const rows: Array<Record<string, unknown>> = [];
+  const push = (idx: number, type: string, field: string, s: string) => {
+    rows.push({
+      idx,
+      type: `'${type}'`,
+      field: `'${field}'`,
+      ...countWeirdChars(s),
+    });
   };
+  blocks.forEach((b, i) => {
+    switch (b.type) {
+      case "heading":
+        push(i, "heading", "text", b.text ?? "");
+        break;
+      case "subtitle":
+        push(i, "subtitle", "text", b.text ?? "");
+        break;
+      case "paragraph":
+        push(i, "paragraph", "text", b.text ?? "");
+        break;
+      case "list":
+        toArray(b.items).forEach((it, k) => push(i, "list", `items[${k}]`, it));
+        break;
+      case "keyValue":
+        toArray(b.pairs).forEach((p, k) => {
+          push(i, "keyValue", `pairs[${k}].key`, p.key ?? "");
+          push(i, "keyValue", `pairs[${k}].value`, p.value ?? "");
+        });
+        break;
+      case "twoColumns":
+        push(i, "twoColumns", "left", b.left ?? "");
+        push(i, "twoColumns", "right", b.right ?? "");
+        break;
+      case "threeColumns":
+        push(i, "threeColumns", "left", b.left ?? "");
+        push(i, "threeColumns", "center", b.center ?? "");
+        push(i, "threeColumns", "right", b.right ?? "");
+        break;
+      default:
+        break;
+    }
+  });
+  console.table(rows);
+}
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+function hasMessage(e: unknown): e is { message: unknown } {
+  return typeof e === "object" && e !== null && "message" in e;
+}
+const isDataViewRangeError = (err: unknown) => {
+  const m = hasMessage(err) ? err.message : typeof err === "string" ? err : "";
+  return (
+    /DataView RangeError/i.test(String(m)) ||
+    /Offset is outside/i.test(String(m))
+  );
+};
+
+/* ========================================================================
+ * 🔧 IMÁGENES “PDF-SAFE”
+ * ====================================================================== */
+
+const IMG_CACHE = new Map<string, string | null>();
+
+const looksProblematicImg = (src: string) =>
+  /\.(png|webp|avif)(\?.*)?$/i.test(src) ||
+  src.startsWith("data:image/png") ||
+  src.startsWith("data:image/webp") ||
+  src.startsWith("data:image/avif");
+
+/** Convierte una imagen remota a dataURL JPEG (si CORS lo permite). */
+async function coerceToJpegDataURL(
+  src: string,
+  quality = 0.92,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.naturalWidth || img.width;
+          canvas.height = img.naturalHeight || img.height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return resolve(null);
+          ctx.drawImage(img, 0, 0);
+          const dataUrl = canvas.toDataURL("image/jpeg", quality);
+          resolve(dataUrl || null);
+        } catch {
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = src;
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/** Devuelve una URL “segura para react-pdf” o la original si no se pudo. */
+async function ensurePdfFriendlyImage(src?: string): Promise<string> {
+  const url = (src || "").trim();
+  if (!url) return "";
+  if (!looksProblematicImg(url) && !url.startsWith("data:")) return url;
+
+  if (IMG_CACHE.has(url)) return IMG_CACHE.get(url) || "";
+
+  const coerced = await coerceToJpegDataURL(url);
+  IMG_CACHE.set(url, coerced);
+  return coerced || url;
+}
+
+/* ========================================================================
+ * Búsqueda de bloque ofensivo (texto)
+ * ====================================================================== */
+
+async function findOffenderBlock(
+  baseProps: Omit<TemplatePdfDownloadProps, "blocks">,
+  blocks: ContentBlock[],
+): Promise<number | null> {
+  const src = toArray(blocks);
+  for (let i = 0; i < src.length; i++) {
+    try {
+      const doc = (
+        <TemplatePdfDocumentMupu
+          rCfg={baseProps.cfg}
+          rAgency={baseProps.agency ?? {}}
+          rUser={baseProps.user ?? {}}
+          blocks={[src[i]]}
+          docLabel={baseProps.docLabel ?? "Documento"}
+          selectedCoverUrl={baseProps.selectedCoverUrl || ""}
+          paymentSelected={baseProps.paymentSelected}
+        />
+      );
+      await pdf(doc).toBlob();
+    } catch (e) {
+      if (isDataViewRangeError(e)) return i;
+    }
+  }
+  return null;
+}
+
+/* ========================================================================
+ * Component
+ * ====================================================================== */
+
+const TemplatePdfDownload: React.FC<TemplatePdfDownloadProps> = (props) => {
+  const {
+    cfg,
+    agency = {},
+    user = {},
+    blocks: blocksInput,
+    appendBlocks,
+    patchById,
+    docLabel = "Documento",
+    selectedCoverUrl = "",
+    paymentSelected,
+    debug = process.env.NODE_ENV !== "production",
+    fileName = `${(docLabel || "documento").toLowerCase().replace(/\s+/g, "-")}-${new Date()
+      .toISOString()
+      .slice(0, 10)}.pdf`,
+    className,
+    children,
+  } = props;
+
+  const [busy, setBusy] = useState(false);
+
+  // 1) Content blocks
+  const baseBlocks = useMemo<ContentBlock[]>(
+    () => toContentBlocks(blocksInput),
+    [blocksInput],
+  );
+  const appended = useMemo<ContentBlock[]>(
+    () => baseBlocks.concat(toContentBlocks(appendBlocks)),
+    [baseBlocks, appendBlocks],
+  );
+  const effectiveBlocks: ContentBlock[] = useMemo(
+    () => applyPatches(appended, patchById),
+    [appended, patchById],
+  );
+
+  const baseDocProps = useMemo(
+    () => ({ cfg, agency, user, docLabel, selectedCoverUrl, paymentSelected }),
+    [cfg, agency, user, docLabel, selectedCoverUrl, paymentSelected],
+  );
+
+  // Para evitar reconvertir imágenes en intentos sucesivos del mismo click
+  const lastSafeImgsRef = useRef<{ cover: string; logo: string } | null>(null);
+
+  const buildOnce = useCallback(
+    async (
+      variant: Variant,
+      why: string,
+      opts?: { forceNoImages?: boolean },
+    ) => {
+      const sanitized = sanitizeBlocks(effectiveBlocks, variant);
+
+      // Imágenes “safe”
+      let safeCover = "";
+      let safeLogo = "";
+
+      if (!opts?.forceNoImages) {
+        if (lastSafeImgsRef.current) {
+          safeCover = lastSafeImgsRef.current.cover;
+          safeLogo = lastSafeImgsRef.current.logo;
+        } else {
+          safeCover = await ensurePdfFriendlyImage(selectedCoverUrl);
+          safeLogo = await ensurePdfFriendlyImage(
+            (agency as Agency)?.logo_url || "",
+          );
+          lastSafeImgsRef.current = { cover: safeCover, logo: safeLogo };
+        }
+      }
+
+      if (debug) {
+        console.groupCollapsed(
+          `%c[PDF] build (${variant}) – ${why}`,
+          "color:#0ea5e9",
+        );
+        console.log("[PDF] blocks (src):", effectiveBlocks.length);
+        console.log("[PDF] blocks (sanitized):", sanitized.length);
+        console.log("[PDF] docLabel:", docLabel);
+        console.log("[PDF] cover:", safeCover ? "yes" : "no");
+        console.log("[PDF] logo:", safeLogo ? "yes" : "no");
+        console.log(
+          "[PDF] paymentSelected:",
+          Boolean(paymentSelected) ? "true" : "false",
+        );
+        console.log("[PDF] content overview (char counters)");
+        logContentOverview(sanitized);
+        console.groupEnd();
+      }
+
+      const doc = (
+        <TemplatePdfDocumentMupu
+          rCfg={cfg}
+          rAgency={{ ...(agency || {}), logo_url: safeLogo }}
+          rUser={user}
+          blocks={sanitized}
+          docLabel={docLabel}
+          selectedCoverUrl={safeCover}
+          paymentSelected={paymentSelected}
+        />
+      );
+
+      const blob = await pdf(doc).toBlob();
+      return blob;
+    },
+    [
+      effectiveBlocks,
+      cfg,
+      agency,
+      user,
+      docLabel,
+      selectedCoverUrl,
+      paymentSelected,
+      debug,
+    ],
+  );
+
+  const handleDownload = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+
+    try {
+      if (!Array.isArray(effectiveBlocks) || effectiveBlocks.length === 0) {
+        alert(
+          "No hay contenido para generar el PDF.\n\n" +
+            "Tip: podés pasar ContentBlock[] (tu state), el item del preset, o `data.data.blocks`. También podés usar `appendBlocks` y `patchById`.",
+        );
+        return;
+      }
+
+      // 1) Multilínea completa (con imágenes safe)
+      try {
+        const blob = await buildOnce("full", "multilínea completa");
+        saveBlob(blob, fileName);
+        return;
+      } catch (e) {
+        if (debug)
+          console.warn("[PDF] FAIL (full):", hasMessage(e) ? e.message : e);
+        if (!isDataViewRangeError(e)) throw e;
+      }
+
+      // 1b) Multilínea completa **sin imágenes**
+      try {
+        const blob = await buildOnce("full", "multilínea (sin imágenes)", {
+          forceNoImages: true,
+        });
+        saveBlob(blob, fileName);
+        return;
+      } catch (e) {
+        if (debug)
+          console.warn(
+            "[PDF] FAIL (full/no-img):",
+            hasMessage(e) ? e.message : e,
+          );
+        if (!isDataViewRangeError(e)) throw e;
+      }
+
+      // 2) Soft (recorta saltos en blanco)
+      try {
+        const blob = await buildOnce("soft", "recorte de saltos en blanco");
+        saveBlob(blob, fileName);
+        return;
+      } catch (e) {
+        if (debug)
+          console.warn("[PDF] FAIL (soft):", hasMessage(e) ? e.message : e);
+        if (!isDataViewRangeError(e)) throw e;
+      }
+
+      // 2b) Soft **sin imágenes**
+      try {
+        const blob = await buildOnce("soft", "soft (sin imágenes)", {
+          forceNoImages: true,
+        });
+        saveBlob(blob, fileName);
+        return;
+      } catch (e) {
+        if (debug)
+          console.warn(
+            "[PDF] FAIL (soft/no-img):",
+            hasMessage(e) ? e.message : e,
+          );
+        if (!isDataViewRangeError(e)) throw e;
+      }
+
+      // 3) Hard (single-line)
+      try {
+        const blob = await buildOnce("hard", "forzado single-line");
+        saveBlob(blob, fileName);
+        return;
+      } catch (e) {
+        if (debug)
+          console.warn("[PDF] FAIL (hard):", hasMessage(e) ? e.message : e);
+        if (!isDataViewRangeError(e)) throw e;
+      }
+
+      // 4) Hard **sin imágenes**
+      try {
+        const blob = await buildOnce("hard", "sin imágenes", {
+          forceNoImages: true,
+        });
+        saveBlob(blob, fileName);
+        return;
+      } catch (e) {
+        if (debug)
+          console.warn(
+            "[PDF] FAIL (no-images):",
+            hasMessage(e) ? e.message : e,
+          );
+        if (!isDataViewRangeError(e)) throw e;
+      }
+
+      // 5) Diagnóstico por bloque (texto)
+      if (debug) console.log("[PDF][DIAG] starting offender search…");
+      const fullSanitized = sanitizeBlocks(effectiveBlocks, "full");
+      const offenderIdx = await findOffenderBlock(baseDocProps, fullSanitized);
+      if (offenderIdx != null && offenderIdx >= 0 && debug) {
+        const b = fullSanitized[offenderIdx]!;
+        console.warn(
+          "[PDF][DIAG] offending block index=%d, type=%s",
+          offenderIdx,
+          b.type,
+        );
+      }
+
+      // 6) Si igualmente falla…
+      throw new Error(
+        "No se pudo generar el PDF (posible imagen o fuente inválida).",
+      );
+    } catch (finalErr) {
+      console.error("[PDF] Fatal error:", finalErr);
+      alert(
+        "No se pudo generar el PDF.\n\n" +
+          (finalErr instanceof Error ? finalErr.message : String(finalErr)),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, effectiveBlocks, buildOnce, baseDocProps, fileName, debug]);
 
   return (
     <button
       type="button"
+      className={
+        className ??
+        "mt-4 rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+      }
       onClick={handleDownload}
-      disabled={downloading}
-      className="flex w-fit items-center gap-2 rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+      disabled={busy}
+      title="Generar y descargar PDF"
     >
-      <svg
-        viewBox="0 0 24 24"
-        className="size-5"
-        fill="currentColor"
-        aria-hidden
-      >
-        <path d="M12 3a1 1 0 011 1v9.586l2.293-2.293 1.414 1.414L12 17.414l-4.707-4.707 1.414-1.414L11 13.586V4a1 1 0 011-1zm-7 14h14v2H5v-2z" />
-      </svg>
-      {downloading ? "Generando PDF…" : "Descargar PDF"}
+      {busy ? "Generando…" : (children ?? "Descargar PDF")}
     </button>
   );
 };

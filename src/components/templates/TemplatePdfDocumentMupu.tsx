@@ -18,15 +18,34 @@ import type {
   Density,
   Agency,
 } from "@/types/templates";
+import PdfSafeText from "./pdf/PdfSafeText";
+import ParagraphSafe from "./pdf/ParagraphSafe";
+// import { ensurePdfFonts, getPdfFontFamily } from "./pdf/registerFonts";
 
-/** Tipo mínimo para el usuario */
+// if (typeof window !== "undefined") {
+//   ensurePdfFonts("arimo", "poppins");
+// }
+
+// const FAMILY = getPdfFontFamily();
+
+// Desactivar hyphenation para resultados más predecibles
+type FontHyph = {
+  registerHyphenationCallback?: (cb: (word: string) => string[]) => void;
+};
+const FontH = Font as unknown as FontHyph;
+FontH.registerHyphenationCallback?.((word) => [word]);
+
+/* ======================================================================
+ * Tipos auxiliares
+ * ==================================================================== */
+
 type MinimalUser = {
   first_name?: string;
   last_name?: string;
   email?: string;
 };
 
-/** Campos legacy opcionales (para evitar any) */
+/** Campos “legacy” que algunas agencias aún traen sueltos. */
 type AgencyLegacy = {
   phone?: string;
   email?: string;
@@ -38,78 +57,13 @@ type AgencyLegacy = {
   }>;
 };
 
-/** Fuente base (Mupu => Arimo) */
-Font.register({
-  family: "Arimo",
-  fonts: [
-    { src: "/Arimo/static/Arimo-Regular.ttf", fontWeight: 400 },
-    { src: "/Arimo/static/Arimo-Bold.ttf", fontWeight: 700 },
-  ],
-});
-
-/* ============================== Utils =============================== */
+/* ======================================================================
+ * Utils
+ * ==================================================================== */
 
 const isBlank = (s?: string | null) => !s || s.trim().length === 0;
 
-/** ======== Whitespace utils robustas para PDF ======== */
-
-// Límites razonables
-const MAX_WS_RUN = 64; // rachas largas de espacios
-const MAX_CONSECUTIVE_NL = 3;
-const MAX_TEXT_LEN = 120_000;
-
-// elimina caracteres invisibles problemáticos (cero ancho, BOM, etc.)
-const stripZeroWidth = (s: string) =>
-  s.replace(/[\u200B-\u200F\uFEFF\u202A-\u202E]/g, "");
-
-/** Limita rachas absurdas de espacios (post-tab) */
-function clampSpaceRuns(str: string, max = MAX_WS_RUN): string {
-  return str.replace(/ {2,}/g, (m) => " ".repeat(Math.min(m.length, max)));
-}
-
-/** Normaliza para react-pdf (PDF-safe) */
-function preserveWhitespace(input?: string | null): string {
-  if (!input) return "";
-  let t = String(input);
-
-  // 1) normalizar saltos (Windows → \n)
-  t = t.replace(/\r\n?/g, "\n");
-
-  // 2) expandir tabs a 4 espacios
-  t = t.replace(/\t+/g, "    ");
-
-  // 3) colapsar espacios alrededor de signos que suelen romper layout
-  //    (guion, dos puntos, barra, etc.) → un espacio a cada lado
-  t = t.replace(/[ \t]*([-–—/:])[ \t]+/g, " $1 ");
-
-  // 4) quitar espacios al final de línea (antes del \n)
-  t = t.replace(/[ \t]+\n/g, "\n");
-
-  // 5) limitar rachas de espacios largas
-  t = clampSpaceRuns(t, MAX_WS_RUN);
-
-  // 6) limitar rachas de saltos de línea
-  t = t.replace(
-    new RegExp(`\\n{${MAX_CONSECUTIVE_NL + 1},}`, "g"),
-    "\n".repeat(MAX_CONSECUTIVE_NL),
-  );
-
-  // 7) evitar salto inmediatamente después de un dígito
-  //    (…7⏎noches → …7␠noches) — este es el trigger de tu caso
-  t = t.replace(/(\d)\n(?=\S)/g, "$1 ");
-
-  // 8) quitar invisibles
-  t = stripZeroWidth(t);
-
-  // 9) tope duro por bloque
-  if (t.length > MAX_TEXT_LEN) t = t.slice(0, MAX_TEXT_LEN);
-
-  return t;
-}
-
-/** Helper único a usar en <Text> */
-const keepWS = (s?: string | null) => preserveWhitespace(s);
-
+/** ========================= Color helpers ========================= */
 function luminance(hex: string): number {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(
     (hex || "").trim(),
@@ -123,8 +77,6 @@ function luminance(hex: string): number {
   );
   return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
 }
-
-/** Parse simple #RRGGBB a {r,g,b} */
 const hexToRgb = (hex: string) => {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(
     (hex || "").trim(),
@@ -136,7 +88,6 @@ const hexToRgb = (hex: string) => {
     b: parseInt(m[3], 16),
   };
 };
-/** rgba(...) a objeto */
 const parseRgba = (rgba: string) => {
   const m = rgba.match(/rgba?\(([^)]+)\)/i);
   if (!m) return { r: 0, g: 0, b: 0, a: 1 };
@@ -148,27 +99,33 @@ const parseRgba = (rgba: string) => {
     a: a !== undefined ? Number(a) : 1,
   };
 };
-/** Mezcla src (con alpha) sobre bg (hex) y devuelve HEX sólido */
+/** Mezcla un rgba con fondo HEX a HEX opaco (para borders en react-pdf). */
 const blendToHex = (srcRgba: string, bgHex: string) => {
   const bg = hexToRgb(bgHex);
   const s = parseRgba(srcRgba);
-  const r = Math.round(s.r * s.a + bg.r * (1 - s.a));
-  const g = Math.round(s.g * s.a + bg.g * (1 - s.a));
-  const b = Math.round(s.b * s.a + bg.b * (1 - s.a));
+
+  const mix = (src: number, bgc: number, a: number) =>
+    Math.round(src * a + bgc * (1 - a));
+
+  const r = mix(s.r, bg.r, s.a);
+  const g = mix(s.g, bg.g, s.a);
+  const b = mix(s.b, bg.b, s.a);
+
   const toHex = (n: number) => n.toString(16).padStart(2, "0");
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 };
-/** Crea un rgba() a partir de hex + alpha */
+
 const withAlpha = (hex: string, alpha: number) => {
   const { r, g, b } = hexToRgb(hex);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-/* ============================== Styles base =============================== */
+/* ======================================================================
+ * Styles base
+ * ==================================================================== */
 
 const base = StyleSheet.create({
   page: {
-    fontFamily: "Arimo",
     fontSize: 12,
     paddingTop: 28,
     paddingBottom: 22,
@@ -181,33 +138,37 @@ const base = StyleSheet.create({
   listItem: { fontSize: 12, marginBottom: 4 },
 });
 
-/* ============================== Props =============================== */
+/* ======================================================================
+ * Props
+ * ==================================================================== */
 
 export type TemplatePdfDocumentProps = {
   rCfg: TemplateConfig;
-  rAgency: Partial<Agency>;
-  rUser: Partial<MinimalUser>;
-  blocks: ContentBlock[];
-  docLabel: string;
-  selectedCoverUrl: string;
+  rAgency?: Partial<Agency>;
+  rUser?: Partial<MinimalUser>;
+  blocks?: ContentBlock[];
+  docLabel?: string;
+  selectedCoverUrl?: string;
   paymentSelected?: string;
 };
 
-/* ============================== Component =============================== */
+/* ======================================================================
+ * Component
+ * ==================================================================== */
 
-const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
+const TemplatePdfDocumentMupu: React.FC<TemplatePdfDocumentProps> = ({
   rCfg,
-  rAgency,
-  rUser,
-  blocks,
-  docLabel,
-  selectedCoverUrl,
+  rAgency = {},
+  rUser = {},
+  blocks = [],
+  docLabel = "Documento",
+  selectedCoverUrl = "",
   paymentSelected,
 }) => {
   // Tokens de estilo
-  const bg = rCfg.styles?.colors?.background ?? "#111111";
-  const text = rCfg.styles?.colors?.text ?? "#ffffff";
-  const accent = rCfg.styles?.colors?.accent ?? "#9CA3AF";
+  const bg = rCfg?.styles?.colors?.background ?? "#111111";
+  const text = rCfg?.styles?.colors?.text ?? "#ffffff";
+  const accent = rCfg?.styles?.colors?.accent ?? "#9CA3AF";
 
   const isLightBg = luminance(bg) >= 0.7;
 
@@ -223,11 +184,11 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
     ? withAlpha(accent, 0.3)
     : "rgba(255,255,255,0.10)";
 
-  // Bordes siempre en HEX sólido (evita "verde")
+  // Bordes siempre en HEX sólido
   const borderSoftHEX = blendToHex(borderSoftRGBA, bg);
 
   // Density
-  const densityRaw = rCfg.styles?.ui?.density ?? "comfortable";
+  const densityRaw = rCfg?.styles?.ui?.density ?? "comfortable";
   const density: Density =
     densityRaw === "compact" || densityRaw === "relaxed"
       ? densityRaw
@@ -235,78 +196,73 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
   const coverH =
     density === "compact" ? 170 : density === "relaxed" ? 250 : 200;
 
-  const layout = rCfg.layout ?? "layoutA";
+  const layout = rCfg?.layout ?? "layoutA";
 
   // Línea corporativa
-  const contactItems = Array.isArray(rCfg.contactItems)
-    ? rCfg.contactItems
+  const contactItems = Array.isArray(rCfg?.contactItems)
+    ? rCfg!.contactItems!
     : [];
-  const phones = Array.isArray(rAgency.phones) ? rAgency.phones : [];
-  const emails = Array.isArray(rAgency.emails) ? rAgency.emails : [];
+  const phones = Array.isArray(rAgency?.phones) ? rAgency!.phones! : [];
+  const emails = Array.isArray(rAgency?.emails) ? rAgency!.emails! : [];
 
-  const agLegacy: AgencyLegacy = {
-    phone: (rAgency as unknown as AgencyLegacy).phone,
-    email: (rAgency as unknown as AgencyLegacy).email,
-    social: (rAgency as unknown as AgencyLegacy).social,
-  };
+  // Soporte para campos legacy sin usar `any`
+  const agLegacy: Partial<AgencyLegacy> = (rAgency ??
+    {}) as Partial<AgencyLegacy>;
 
   const corporateLine: Array<{ label: string; value: string }> = [];
-  const website = rAgency.website || "";
-  const address = rAgency.address || "";
+  const website = rAgency?.website || "";
+  const address = rAgency?.address || "";
   const phone = phones[0] || agLegacy.phone || "";
   const email = emails[0] || agLegacy.email || "";
-  const ig = rAgency.socials?.instagram || agLegacy.social?.instagram || "";
-  const fb = rAgency.socials?.facebook || agLegacy.social?.facebook || "";
-  const tw = rAgency.socials?.twitter || agLegacy.social?.twitter || "";
-  const tk = rAgency.socials?.tiktok || agLegacy.social?.tiktok || "";
+  const ig = rAgency?.socials?.instagram || agLegacy.social?.instagram || "";
+  const fb = rAgency?.socials?.facebook || agLegacy.social?.facebook || "";
+  const tw = rAgency?.socials?.twitter || agLegacy.social?.twitter || "";
+  const tk = rAgency?.socials?.tiktok || agLegacy.social?.tiktok || "";
 
   if (contactItems.includes("website") && website)
-    corporateLine.push({ label: "Web", value: keepWS(website) });
+    corporateLine.push({ label: "Web", value: website });
   if (contactItems.includes("address") && address)
-    corporateLine.push({ label: "Dirección", value: keepWS(address) });
+    corporateLine.push({ label: "Dirección", value: address });
   if (contactItems.includes("phones") && phone)
-    corporateLine.push({ label: "Tel", value: keepWS(phone) });
+    corporateLine.push({ label: "Tel", value: phone });
   if (contactItems.includes("email") && email)
-    corporateLine.push({ label: "Mail", value: keepWS(email) });
+    corporateLine.push({ label: "Mail", value: email });
   if (contactItems.includes("instagram") && ig)
-    corporateLine.push({ label: "Instagram", value: keepWS(ig) });
+    corporateLine.push({ label: "Instagram", value: ig });
   if (contactItems.includes("facebook") && fb)
-    corporateLine.push({ label: "Facebook", value: keepWS(fb) });
+    corporateLine.push({ label: "Facebook", value: fb });
   if (contactItems.includes("twitter") && tw)
-    corporateLine.push({ label: "Twitter", value: keepWS(tw) });
+    corporateLine.push({ label: "Twitter", value: tw });
   if (contactItems.includes("tiktok") && tk)
-    corporateLine.push({ label: "TikTok", value: keepWS(tk) });
+    corporateLine.push({ label: "TikTok", value: tk });
 
-  const agencyName = rAgency.name || "Nombre de la agencia";
-  const legalName = rAgency.legal_name || rAgency.name || "Razón social";
-  const logo = rAgency.logo_url || "";
+  const agencyName = rAgency?.name || "Nombre de la agencia";
+  const legalName = rAgency?.legal_name || rAgency?.name || "Razón social";
+  const logo = rAgency?.logo_url || "";
   const hasLogo = !!logo;
 
-  const headingFont = "Arimo";
-  const showDividers = rCfg.styles?.ui?.dividers ?? true;
+  const showDividers = rCfg?.styles?.ui?.dividers ?? true;
 
   // Medidas Layout C
-  const SIDEBAR_W = 200; // como el preview
+  const SIDEBAR_W = 200;
   const MAIN_PAD = 14;
 
   const styles = StyleSheet.create({
-    // Página con padding normal (layouts A/B)
     pageBase: {
       ...base.page,
+      // ...(FAMILY ? { fontFamily: FAMILY } : {}), 
       backgroundColor: bg,
       color: text,
     },
-    // Página sin padding (layout C full-bleed)
     pageNoPad: {
-      fontFamily: "Arimo",
+      // ...(FAMILY ? { fontFamily: FAMILY } : {}),
       fontSize: 12,
       padding: 0,
       backgroundColor: bg,
       color: text,
     },
-
     title: {
-      fontFamily: headingFont,
+      // ...(FAMILY ? { fontFamily: FAMILY } : {}),
       fontSize: 22,
       fontWeight: 700,
     },
@@ -389,7 +345,6 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
     },
 
     /* ====== Layout C ====== */
-    // Sidebar fijo que se repite en cada página
     sidebarFixed: {
       position: "absolute",
       left: 0,
@@ -399,14 +354,15 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
       padding: 16,
       backgroundColor: panelSoftRGBA,
     },
-    // Main fluido: deja margen para no quedar debajo del sidebar y agrega un padding suave
     mainFlow: {
       marginLeft: SIDEBAR_W,
       padding: MAIN_PAD,
     },
   });
 
-  /* ============================== Blocks =============================== */
+  /* ======================================================================
+   * Blocks
+   * ==================================================================== */
 
   const Block: React.FC<{ b: ContentBlock; index: number }> = ({
     b,
@@ -423,11 +379,10 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
       return (
         <View style={styles.section}>
           {topDivider && <View style={styles.divider} />}
-          <Text
-            style={{ fontSize: size, fontFamily: headingFont, fontWeight: 700 }}
-          >
-            {keepWS(textValue)}
-          </Text>
+          <PdfSafeText
+            style={{ fontSize: size, fontWeight: 700 }}
+            text={textValue}
+          />
         </View>
       );
     }
@@ -438,9 +393,10 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
       return (
         <View style={styles.section} wrap={false}>
           {topDivider && <View style={styles.divider} />}
-          <Text style={{ fontSize: 14, fontWeight: 600, opacity: 0.95 }}>
-            {keepWS(t)}
-          </Text>
+          <PdfSafeText
+            style={{ fontSize: 14, fontWeight: 600, opacity: 0.95 }}
+            text={t}
+          />
         </View>
       );
     }
@@ -451,23 +407,30 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
       return (
         <View style={styles.section}>
           {topDivider && <View style={styles.divider} />}
-          {/* Saltos de línea/espacios/tabs preservados */}
-          <Text style={{ lineHeight: 1.4 }}>{keepWS(t)}</Text>
+          <ParagraphSafe style={{ lineHeight: 1.4 }} text={t} />
         </View>
       );
     }
 
     if (b.type === "list") {
-      const items = b.items ?? [];
+      const items = Array.isArray(b.items) ? b.items : [];
       if (b.mode === "form" && items.length === 0) return null;
       return (
         <View style={styles.section}>
           {topDivider && <View style={styles.divider} />}
           <View>
             {items.map((it, i) => (
-              <Text key={i} style={base.listItem}>
-                • {keepWS(it)}
-              </Text>
+              <View
+                key={i}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "flex-start",
+                  marginBottom: 4,
+                }}
+              >
+                <Text style={[base.listItem, { marginRight: 6 }]}>•</Text>
+                <ParagraphSafe style={base.listItem} text={it} />
+              </View>
             ))}
           </View>
         </View>
@@ -475,7 +438,7 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
     }
 
     if (b.type === "keyValue") {
-      const pairs = b.pairs ?? [];
+      const pairs = Array.isArray(b.pairs) ? b.pairs : [];
       if (b.mode === "form" && pairs.length === 0) return null;
       return (
         <View style={styles.section} wrap={false}>
@@ -493,8 +456,8 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
                   },
                 ]}
               >
-                <Text>{keepWS(p.key)}</Text>
-                <Text>{keepWS(p.value)}</Text>
+                <PdfSafeText text={p.key} />
+                <PdfSafeText text={p.value} />
               </View>
             ))}
           </View>
@@ -514,12 +477,12 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
           <View style={{ flexDirection: "row" }}>
             <View style={{ flex: 1, marginRight: 6 }}>
               <View style={styles.card}>
-                <Text>{keepWS(l)}</Text>
+                <ParagraphSafe text={l} />
               </View>
             </View>
             <View style={{ flex: 1, marginLeft: 6 }}>
               <View style={styles.card}>
-                <Text>{keepWS(r)}</Text>
+                <ParagraphSafe text={r} />
               </View>
             </View>
           </View>
@@ -540,17 +503,17 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
           <View style={{ flexDirection: "row" }}>
             <View style={{ flex: 1, marginRight: 6 }}>
               <View style={styles.card}>
-                <Text>{keepWS(l)}</Text>
+                <ParagraphSafe text={l} />
               </View>
             </View>
             <View style={{ flex: 1, marginHorizontal: 6 }}>
               <View style={styles.card}>
-                <Text>{keepWS(c)}</Text>
+                <ParagraphSafe text={c} />
               </View>
             </View>
             <View style={{ flex: 1, marginLeft: 6 }}>
               <View style={styles.card}>
-                <Text>{keepWS(r)}</Text>
+                <ParagraphSafe text={r} />
               </View>
             </View>
           </View>
@@ -565,7 +528,7 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
     !paymentSelected ? null : (
       <View style={[base.section, styles.paymentCard]} wrap={false}>
         <Text style={styles.accentText}>Forma de pago</Text>
-        <Text>{keepWS(paymentSelected)}</Text>
+        <ParagraphSafe text={paymentSelected} />
       </View>
     );
 
@@ -573,11 +536,11 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
     <View style={{ marginBottom: 12 }}>
       <View style={{ ...base.row }}>
         <View>
-          <Text style={styles.title}>{keepWS(agencyName)}</Text>
+          <PdfSafeText style={styles.title} text={agencyName} />
           <View style={styles.brandLine} />
         </View>
         <View>
-          <Text style={styles.chip}>{keepWS(docLabel)}</Text>
+          <PdfSafeText style={styles.chip} text={docLabel} />
         </View>
       </View>
 
@@ -586,15 +549,19 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
           {corporateLine.map((it, i) => (
             <Text key={i} style={styles.corpItem}>
               <Text style={{ color: accent, fontWeight: 600 }}>
-                {keepWS(it.label)}:{" "}
+                {it.label}:{" "}
               </Text>
-              <Text>{keepWS(it.value)}</Text>
+              <PdfSafeText text={it.value} />
             </Text>
           ))}
         </View>
       )}
     </View>
   );
+
+  const sellerName =
+    [rUser?.first_name, rUser?.last_name].filter(Boolean).join(" ") ||
+    "Vendedor/a";
 
   const Footer: React.FC = () => (
     <View style={styles.footer}>
@@ -609,13 +576,8 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
             borderWidth: 1,
           }}
         >
-          <Text style={{ color: accent, fontWeight: 600 }}>
-            {keepWS(
-              [rUser.first_name, rUser.last_name].filter(Boolean).join(" ") ||
-                "Vendedor/a",
-            )}
-          </Text>
-          <Text>{keepWS(rUser.email || "vendedor@agencia.com")}</Text>
+          <Text style={{ color: accent, fontWeight: 600 }}>{sellerName}</Text>
+          <PdfSafeText text={rUser?.email || "vendedor@agencia.com"} />
         </View>
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           {hasLogo ? (
@@ -636,7 +598,7 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
             />
           )}
           <Text style={{ fontSize: 9, opacity: 0.8, marginLeft: 8 }}>
-            {keepWS(legalName)}
+            {legalName}
           </Text>
         </View>
       </View>
@@ -670,15 +632,14 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
         />
       )}
 
-      <Text
+      <PdfSafeText
         style={{
-          fontFamily: headingFont,
+          // ...(FAMILY ? { fontFamily: FAMILY } : {}),
           fontSize: 16,
           fontWeight: 700,
         }}
-      >
-        {keepWS(agencyName)}
-      </Text>
+        text={agencyName}
+      />
       <View
         style={{
           height: 2,
@@ -697,9 +658,9 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
               style={{ fontSize: 10, opacity: 0.85, marginBottom: 3 }}
             >
               <Text style={{ color: accent, fontWeight: 600 }}>
-                {keepWS(it.label)}:{" "}
+                {it.label}:{" "}
               </Text>
-              <Text>{keepWS(it.value)}</Text>
+              <PdfSafeText text={it.value} />
             </Text>
           ))
         ) : (
@@ -721,15 +682,14 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
           paddingHorizontal: 8,
         }}
       >
-        <Text
+        <PdfSafeText
           style={{
             fontSize: 10,
             textTransform: "uppercase",
             color: accent,
           }}
-        >
-          {keepWS(docLabel)}
-        </Text>
+          text={docLabel}
+        />
       </View>
     </View>
   );
@@ -748,11 +708,12 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
       </View>
     ) : null;
 
-  /* ============================== Render =============================== */
+  /* ======================================================================
+   * Render
+   * ==================================================================== */
 
   return (
     <Document>
-      {/* Layouts A y B usan padding base */}
       {(layout === "layoutA" || layout === "layoutB") && (
         <Page size="A4" style={styles.pageBase}>
           {layout === "layoutA" && (
@@ -783,7 +744,6 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
         </Page>
       )}
 
-      {/* Layout C: full-bleed, sidebar fijo en todas las páginas */}
       {layout === "layoutC" && (
         <Page size="A4" style={styles.pageNoPad}>
           <SidebarC />
@@ -806,4 +766,4 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
   );
 };
 
-export default TemplatePdfDocument;
+export default TemplatePdfDocumentMupu;
