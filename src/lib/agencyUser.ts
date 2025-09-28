@@ -1,82 +1,62 @@
 // src/lib/agencyUser.ts
-import type { NextApiRequest, NextApiResponse } from "next";
-import prisma, { Prisma } from "@/lib/prisma";
-import { z } from "zod";
+"use client";
 
-export const config = { api: { bodyParser: { sizeLimit: "2mb" } } };
+import { useEffect, useState } from "react";
+import { authFetch } from "@/utils/authFetch";
+import type { Agency, CurrentUser } from "@/types/templates";
 
-const CountryItem = z.object({
-  name: z.string().min(1),
-  iso2: z.string().length(2),
-  iso3: z.string().min(2).max(3).optional(),
-  slug: z.string().min(1).optional(),
-  enabled: z.boolean().optional(),
-});
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
 
-const Body = z.object({
-  upsert: z.boolean().default(true),
-  items: z.array(CountryItem).min(1).max(1000),
-});
+/**
+ * Hook compartido para obtener agencia + usuario actual.
+ * - Cachea en estado local del componente.
+ * - Sin SWR para mantener dependencias mínimas.
+ */
+export function useAgencyAndUser(token?: string | null) {
+  const [agency, setAgency] = useState<Agency>({});
+  const [user, setUser] = useState<CurrentUser>({});
+  const [loading, setLoading] = useState(true);
 
-const slugify = (s: string) =>
-  s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)+/g, "");
+  useEffect(() => {
+    let mounted = true;
+    if (!token) {
+      setAgency({});
+      setUser({});
+      setLoading(false);
+      return;
+    }
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse,
-) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", ["POST"]);
-    return res.status(405).end(`Method ${req.method} Not Allowed`);
-  }
+    (async () => {
+      try {
+        setLoading(true);
 
-  try {
-    const { upsert, items } = Body.parse(req.body);
+        const agRes = await authFetch(
+          "/api/agency",
+          { cache: "no-store" },
+          token,
+        );
+        const agJson = (await agRes.json().catch(() => ({}))) as unknown;
+        const nextAgency = isObject(agJson) ? (agJson as Agency) : {};
+        if (mounted) setAgency(nextAgency);
 
-    // ✅ INTERACTIVE transaction (acepta { timeout })
-    const rows = await prisma.$transaction(
-      async (tx) => {
-        const out: number[] = [];
-        for (const it of items) {
-          const iso2 = it.iso2.toUpperCase();
-          const slug = it.slug ?? slugify(it.name);
+        const meRes = await authFetch(
+          "/api/user/profile",
+          { cache: "no-store" },
+          token,
+        );
+        const meJson = (await meRes.json().catch(() => ({}))) as unknown;
+        const nextUser = isObject(meJson) ? (meJson as CurrentUser) : {};
+        if (mounted) setUser(nextUser);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
 
-          const data: Prisma.CountryUncheckedCreateInput = {
-            name: it.name,
-            iso2,
-            iso3: it.iso3,
-            slug,
-            enabled: it.enabled ?? true,
-          };
+    return () => {
+      mounted = false;
+    };
+  }, [token]);
 
-          const r = upsert
-            ? await tx.country.upsert({
-                where: { iso2 },
-                create: data,
-                update: data,
-              })
-            : await tx.country.create({ data });
-
-          out.push(r.id_country);
-        }
-        return out;
-      },
-      { timeout: 30_000 },
-    );
-
-    return res.status(200).json({ count: rows.length });
-  } catch (e: unknown) {
-    const msg =
-      e instanceof z.ZodError
-        ? e.issues.map((i) => i.message).join("; ")
-        : e instanceof Error
-          ? e.message
-          : "Unknown error";
-    return res.status(400).json({ error: msg });
-  }
+  return { agency, user, loading };
 }
