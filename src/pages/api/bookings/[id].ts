@@ -29,9 +29,14 @@ if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
 /* ================== Helpers comunes ================== */
 function getTokenFromRequest(req: NextApiRequest): string | null {
+  // 1) cookie "token"
   if (req.cookies?.token) return req.cookies.token;
+
+  // 2) Authorization: Bearer
   const auth = req.headers.authorization || "";
   if (auth.startsWith("Bearer ")) return auth.slice(7);
+
+  // 3) otros posibles nombres de cookie
   const c = req.cookies || {};
   for (const k of [
     "session",
@@ -50,6 +55,7 @@ async function getUserFromAuth(
   try {
     const token = getTokenFromRequest(req);
     if (!token) return null;
+
     const { payload } = await jwtVerify(
       token,
       new TextEncoder().encode(JWT_SECRET),
@@ -139,10 +145,14 @@ export default async function handler(
     return res.status(400).json({ error: "N° de reserva inválido." });
   }
   const bookingId = Number(id);
+  if (!Number.isFinite(bookingId) || bookingId <= 0) {
+    return res.status(400).json({ error: "N° de reserva inválido." });
+  }
 
   // auth
   const auth = await getUserFromAuth(req);
-  const role = (auth?.role || "").toLowerCase();
+  const roleFromCookie = (req.cookies?.role || "").toLowerCase();
+  const role = (auth?.role || roleFromCookie || "").toLowerCase();
   const authUserId = auth?.id_user;
   const authAgencyId = auth?.id_agency;
 
@@ -184,7 +194,7 @@ export default async function handler(
           user: true,
           agency: true,
           clients: true,
-          services: true,
+          services: { include: { operator: true } },
           invoices: true,
           Receipt: true,
         },
@@ -192,7 +202,7 @@ export default async function handler(
       return res.status(200).json(booking);
     } catch (error) {
       console.error(
-        "Error al obtener la reserva:",
+        "[bookings][GET by id] Error:",
         error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Error al obtener la reserva." });
@@ -266,7 +276,7 @@ export default async function handler(
           .json({ error: "IDs duplicados en los acompañantes." });
       }
 
-      // Verificar existencia de todos los IDs en la misma agencia (sin requisitos extra)
+      // Verificar existencia de todos los IDs en la misma agencia
       const allClientIds = [Number(titular_id), ...companions];
       const existingClients = await prisma.client.findMany({
         where: { id_client: { in: allClientIds }, id_agency: authAgencyId },
@@ -287,62 +297,64 @@ export default async function handler(
         return res.status(400).json({ error: "Fechas inválidas." });
       }
 
-      // Permisos para reasignar creador
+      // ===== Reasignación de creador
       const canAssignOthers = [
         "gerente",
         "administrativo",
         "desarrollador",
         "lider",
       ].includes(role);
+
       let usedUserId: number = existing.id_user; // default: mantener
-      if (
-        canAssignOthers &&
-        typeof id_user === "number" &&
-        Number.isFinite(id_user)
-      ) {
-        if (role === "lider" && id_user !== authUserId) {
-          const scope = await getLeaderScope(authUserId, authAgencyId);
-          if (!scope.userIds.includes(id_user)) {
+
+      if (typeof id_user === "number" && Number.isFinite(id_user)) {
+        if (canAssignOthers) {
+          if (role === "lider" && id_user !== authUserId) {
+            const scope = await getLeaderScope(authUserId, authAgencyId);
+            if (!scope.userIds.includes(id_user)) {
+              return res
+                .status(403)
+                .json({ error: "No podés asignar fuera de tu equipo." });
+            }
+          }
+          // asegurar que el usuario pertenece a la misma agencia
+          const targetUser = await prisma.user.findUnique({
+            where: { id_user: Number(id_user) },
+            select: { id_agency: true },
+          });
+          if (!targetUser || targetUser.id_agency !== authAgencyId) {
+            return res
+              .status(400)
+              .json({ error: "Usuario asignado inválido para tu agencia." });
+          }
+          usedUserId = id_user;
+        } else {
+          // Sin permiso: si es igual al actual lo ignoramos; si es distinto => está intentando reasignar
+          if (id_user !== existing.id_user) {
             return res
               .status(403)
-              .json({ error: "No podés asignar fuera de tu equipo." });
+              .json({ error: "No autorizado para reasignar usuario." });
           }
         }
-        // además, asegurar que el usuario pertenece a la misma agencia
-        const targetUser = await prisma.user.findUnique({
-          where: { id_user: Number(id_user) },
-          select: { id_agency: true },
-        });
-        if (!targetUser || targetUser.id_agency !== authAgencyId) {
-          return res
-            .status(400)
-            .json({ error: "Usuario asignado inválido para tu agencia." });
-        }
-        usedUserId = id_user;
-      } else if (id_user != null && !canAssignOthers) {
-        return res
-          .status(403)
-          .json({ error: "No autorizado para reasignar usuario." });
       }
+      // Si id_user viene vacío/undefined y no hay permiso, simplemente se mantiene el existente
 
-      // Permisos para editar creation_date (NO líderes)
+      // ===== Edición de creation_date
       const canEditCreationDate = [
         "gerente",
         "administrativo",
         "desarrollador",
       ].includes(role);
+
       let parsedCreationDate: Date | undefined = undefined;
       if (creation_date != null && creation_date !== "") {
-        if (!canEditCreationDate) {
-          return res.status(403).json({
-            error:
-              "No autorizado: solo administración/gerencia pueden editar la fecha de creación.",
-          });
+        if (canEditCreationDate) {
+          parsedCreationDate = toLocalDate(creation_date);
+          if (!parsedCreationDate) {
+            return res.status(400).json({ error: "creation_date inválida." });
+          }
         }
-        parsedCreationDate = toLocalDate(creation_date);
-        if (!parsedCreationDate) {
-          return res.status(400).json({ error: "creation_date inválida." });
-        }
+        // Si NO tiene permiso, ignoramos silenciosamente creation_date (no 403)
       }
 
       // pax_count consistente con acompañantes saneados
@@ -378,7 +390,7 @@ export default async function handler(
       return res.status(200).json(booking);
     } catch (error) {
       console.error(
-        "Error actualizando la reserva:",
+        "[bookings][PUT by id] Error:",
         error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Error actualizando la reserva." });
@@ -386,16 +398,33 @@ export default async function handler(
   }
 
   if (req.method === "DELETE") {
-    // Solo administración/gerencia/desarrollo
-    if (!["gerente", "administrativo", "desarrollador"].includes(role)) {
+    // Permisos:
+    // - Admin/Gerencia/Dev: siempre pueden eliminar
+    // - Líder: si la reserva pertenece a alguien dentro de su equipo
+    // - Vendedor: sólo si la reserva es suya
+    if (["gerente", "administrativo", "desarrollador"].includes(role)) {
+      // ok
+    } else if (role === "lider") {
+      const scope = await getLeaderScope(authUserId, authAgencyId);
+      if (!scope.userIds.includes(existing.id_user)) {
+        return res.status(403).json({ error: "Fuera de tu equipo." });
+      }
+    } else if (role === "vendedor") {
+      if (existing.id_user !== authUserId) {
+        return res
+          .status(403)
+          .json({ error: "Sólo podés eliminar tus propias reservas." });
+      }
+    } else {
       return res.status(403).json({ error: "No autorizado para eliminar." });
     }
+
     try {
       await prisma.booking.delete({ where: { id_booking: bookingId } });
       return res.status(200).json({ message: "Reserva eliminada con éxito." });
     } catch (error) {
       console.error(
-        "Error eliminando la reserva:",
+        "[bookings][DELETE by id] Error:",
         error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Error eliminando la reserva." });

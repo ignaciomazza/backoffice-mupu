@@ -417,13 +417,44 @@ export default function Page() {
         : "/api/bookings";
       const method = editingBookingId ? "PUT" : "POST";
 
-      // Incluimos creation_date si viene (el backend la aceptará según rol)
-      // Y enviamos pax_count consistente con acompañantes elegidos
-      const payload = {
-        ...formData,
+      // Permisos calculados con el rol actual
+      const roleLower = (profile?.role || "").toLowerCase();
+      const canPickCreator =
+        roleLower === "gerente" ||
+        roleLower === "administrativo" ||
+        roleLower === "desarrollador";
+      const canEditCreationDate =
+        roleLower === "gerente" ||
+        roleLower === "administrativo" ||
+        roleLower === "desarrollador";
+
+      // ---- TIPADO del payload sin `any` ----
+      type BookingPayload = Omit<
+        BookingFormData,
+        "id_booking" | "id_agency" | "id_user" | "creation_date"
+      > & { pax_count: number; clients_ids: number[] } & Partial<
+          Pick<BookingFormData, "id_user" | "creation_date">
+        >;
+
+      const payload: BookingPayload = {
+        clientStatus: formData.clientStatus,
+        operatorStatus: formData.operatorStatus,
+        status: formData.status,
+        details: formData.details,
+        invoice_type: formData.invoice_type,
+        invoice_observation: formData.invoice_observation,
+        observation: formData.observation,
+        titular_id: formData.titular_id,
+        departure_date: formData.departure_date,
+        return_date: formData.return_date,
         pax_count: 1 + sanitizedCompanions.length,
         clients_ids: sanitizedCompanions,
+        ...(canPickCreator ? { id_user: formData.id_user } : {}),
+        ...(canEditCreationDate && formData.creation_date
+          ? { creation_date: formData.creation_date }
+          : {}),
       };
+      // --------------------------------------
 
       const response = await authFetch(
         url,
@@ -554,7 +585,14 @@ export default function Page() {
         setBookings((prev) => prev.filter((b) => b.id_booking !== id));
         toast.success("Reserva eliminada con éxito!");
       } else {
-        throw new Error("Error al eliminar la reserva.");
+        let msg = "Error al eliminar la reserva.";
+        try {
+          const err = await res.json();
+          if (typeof err?.error === "string") msg = err.error;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg);
       }
     } catch (err: unknown) {
       console.error("Error deleting booking:", err);

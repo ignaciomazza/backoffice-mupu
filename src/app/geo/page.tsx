@@ -330,7 +330,7 @@ function CountriesPanel({ token }: { token?: string | null }) {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <Field label="Buscar país">
             <input
-              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
               placeholder="Ej.: Argentina o AR"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -346,15 +346,16 @@ function CountriesPanel({ token }: { token?: string | null }) {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           <Field label="Nombre del país">
             <input
-              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               onKeyDown={onKeyDownCreate}
+              placeholder="Argentina..."
             />
           </Field>
           <Field label="Código de país (2 letras)">
             <input
-              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 uppercase outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 uppercase shadow-sm shadow-sky-950/10 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
               maxLength={2}
               value={form.code2}
               onChange={(e) =>
@@ -376,7 +377,7 @@ function CountriesPanel({ token }: { token?: string | null }) {
               <option value="false">Inactivo</option>
             </select>
           </Field>
-          <div className="flex items-end">
+          <div className="mb-1 flex items-end">
             <Primary onClick={create} loading={createLoading}>
               Crear país
             </Primary>
@@ -767,7 +768,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <Field label="Buscar destino">
             <input
-              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
               placeholder="Ej.: Miami, Bariloche…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -775,7 +776,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
           </Field>
           <Field label="Filtrar por país">
             <select
-              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur dark:bg-white/10"
+              className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur dark:bg-white/10"
               value={countryIso2}
               onChange={(e) => setCountryIso2(e.target.value)}
             >
@@ -795,15 +796,16 @@ function DestinationsPanel({ token }: { token?: string | null }) {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
           <Field label="Nombre del destino" className="md:col-span-2">
             <input
-              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               onKeyDown={onKeyDownCreate}
+              placeholder="Miami Beach..."
             />
           </Field>
           <Field label="País" className="md:col-span-2">
             <select
-              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur dark:bg-white/10"
+              className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur dark:bg-white/10"
               value={String(form.countryId || "")}
               onChange={(e) =>
                 setForm((f) => ({ ...f, countryId: Number(e.target.value) }))
@@ -819,7 +821,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
           </Field>
           <Field label="Estado">
             <select
-              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur dark:bg-white/10"
+              className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur dark:bg-white/10"
               value={String(form.enabled ?? true)}
               onChange={(e) =>
                 setForm((f) => ({ ...f, enabled: e.target.value === "true" }))
@@ -831,7 +833,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
           </Field>
           <Field label="Otros nombres (opcional)" className="md:col-span-3">
             <input
-              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
               placeholder="miami, miami beach"
               value={(form.alt_names ?? []).join(", ")}
               onChange={(e) =>
@@ -846,7 +848,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
               onKeyDown={onKeyDownCreate}
             />
           </Field>
-          <div className="flex items-end">
+          <div className="mb-1 flex items-end">
             <Primary onClick={create} loading={createLoading}>
               Crear destino
             </Primary>
