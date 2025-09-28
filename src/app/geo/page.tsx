@@ -1,6 +1,7 @@
+// src/app/geo/page.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
@@ -45,7 +46,7 @@ type NewDestination = {
   enabled?: boolean;
 };
 
-/* =========================== Utils =========================== */
+/* =========================== Utils UI =========================== */
 
 function useDebounced<T>(value: T, delay = 350) {
   const [debounced, setDebounced] = useState(value);
@@ -56,25 +57,22 @@ function useDebounced<T>(value: T, delay = 350) {
   return debounced;
 }
 
-/* =========================== Tokens de UI =========================== */
-
-const input =
-  "w-full rounded-xl border border-sky-200 bg-white px-3 py-2 text-sky-950 outline-none shadow-sm dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-white";
-const inputUpper = `${input} uppercase`;
-const cardBase =
-  "rounded-2xl border border-sky-200/60 bg-white p-5 shadow-sm dark:border-sky-800/40 dark:bg-sky-900/10";
-const rowBase =
-  "rounded-xl bg-white shadow-sm hover:shadow-md transition-shadow dark:bg-sky-900/10";
-
 /* =========================== Página =========================== */
 
 export default function GeoAdminPage() {
   const { token, role, loading } = useAuth();
   const [tab, setTab] = useState<"countries" | "destinations">("countries");
+  const [importOpen, setImportOpen] = useState(false);
 
-  const r = (role ?? "").toLowerCase();
-  const allowed = r === "desarrollador" || r === "gerente";
-  const isDev = r === "desarrollador";
+  const allowed = useMemo(() => {
+    const r = (role ?? "").toLowerCase();
+    return r === "desarrollador" || r === "gerente";
+  }, [role]);
+
+  const isDev = useMemo(
+    () => (role ?? "").toLowerCase() === "desarrollador",
+    [role],
+  );
 
   if (loading) {
     return (
@@ -112,23 +110,29 @@ export default function GeoAdminPage() {
             Cargar, editar y activar/desactivar de forma rápida.
           </p>
         </div>
-        <nav className="flex gap-2">
-          <TabButton
-            active={tab === "countries"}
-            onClick={() => setTab("countries")}
-          >
-            Países
-          </TabButton>
-          <TabButton
-            active={tab === "destinations"}
-            onClick={() => setTab("destinations")}
-          >
-            Destinos
-          </TabButton>
-        </nav>
+        <div className="flex items-center gap-2">
+          {isDev && (
+            <Primary onClick={() => setImportOpen(true)}>
+              Importar JSON (dev)
+            </Primary>
+          )}
+          <nav className="flex gap-2">
+            <TabButton
+              active={tab === "countries"}
+              onClick={() => setTab("countries")}
+            >
+              Países
+            </TabButton>
+            <TabButton
+              active={tab === "destinations"}
+              onClick={() => setTab("destinations")}
+            >
+              Destinos
+            </TabButton>
+          </nav>
+        </div>
       </motion.header>
 
-      {/* Panel principal */}
       <AnimatePresence mode="wait">
         {tab === "countries" ? (
           <motion.div
@@ -137,10 +141,8 @@ export default function GeoAdminPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.2 }}
-            className="space-y-8"
           >
             <CountriesPanel token={token} />
-            {isDev && <DevJsonPanel token={token} mode="countries" />}
           </motion.div>
         ) : (
           <motion.div
@@ -149,13 +151,23 @@ export default function GeoAdminPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.2 }}
-            className="space-y-8"
           >
             <DestinationsPanel token={token} />
-            {isDev && <DevJsonPanel token={token} mode="destinations" />}
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Modal Importación JSON (solo dev) */}
+      {isDev && (
+        <JSONImportModal
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          token={token}
+          onImported={() => {
+            window.dispatchEvent(new CustomEvent("geo:refresh"));
+          }}
+        />
+      )}
 
       <ToastContainer />
     </div>
@@ -184,37 +196,47 @@ function CountriesPanel({ token }: { token?: string | null }) {
     enabled: true,
   });
 
-  const fetchList = async (signal?: AbortSignal) => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (debounced.trim()) params.set("q", debounced.trim());
-      params.set("take", "500");
+  const fetchList = useCallback(
+    async (signal?: AbortSignal) => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (debounced.trim()) params.set("q", debounced.trim());
+        params.set("take", "1000");
+        params.set("includeDisabled", "true");
 
-      const res = await authFetch(
-        `/api/countries?${params.toString()}`,
-        { signal, cache: "no-store" },
-        token,
-      );
-      if (!res.ok) throw new Error("No se pudieron obtener los países");
-      const json = (await res.json()) as { items: Country[] };
-      setRows(json.items);
-    } catch (e) {
-      if ((e as Error).name !== "AbortError")
-        toast.error("Error al cargar países");
-    } finally {
-      setLoading(false);
-    }
-  };
+        const res = await authFetch(
+          `/api/countries?${params.toString()}`,
+          { signal, cache: "no-store" },
+          token,
+        );
+        if (!res.ok) throw new Error("No se pudieron obtener los países");
+        const json = (await res.json()) as { items: Country[] };
+        setRows(json.items);
+      } catch (e) {
+        if ((e as Error).name !== "AbortError")
+          toast.error("Error al cargar países");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [debounced, token],
+  );
+
+  useEffect(() => {
+    const onRefresh = () => fetchList();
+    window.addEventListener("geo:refresh", onRefresh);
+    return () => window.removeEventListener("geo:refresh", onRefresh);
+  }, [fetchList]);
 
   useEffect(() => {
     const c = new AbortController();
     fetchList(c.signal);
     return () => c.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced]);
+  }, [fetchList]);
 
   const startEdit = (id: number) => setEditingId(id);
+  const cancelEdit = () => setEditingId(null);
 
   const saveEdit = async (row: Country) => {
     try {
@@ -303,12 +325,12 @@ function CountriesPanel({ token }: { token?: string | null }) {
   };
 
   return (
-    <>
+    <div className="space-y-8">
       <Card>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <Field label="Buscar país">
             <input
-              className={input}
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
               placeholder="Ej.: Argentina o AR"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -324,7 +346,7 @@ function CountriesPanel({ token }: { token?: string | null }) {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           <Field label="Nombre del país">
             <input
-              className={input}
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               onKeyDown={onKeyDownCreate}
@@ -332,7 +354,7 @@ function CountriesPanel({ token }: { token?: string | null }) {
           </Field>
           <Field label="Código de país (2 letras)">
             <input
-              className={inputUpper}
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 uppercase outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
               maxLength={2}
               value={form.code2}
               onChange={(e) =>
@@ -344,7 +366,7 @@ function CountriesPanel({ token }: { token?: string | null }) {
           </Field>
           <Field label="Estado">
             <select
-              className={input}
+              className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur dark:bg-white/10"
               value={String(form.enabled ?? true)}
               onChange={(e) =>
                 setForm((f) => ({ ...f, enabled: e.target.value === "true" }))
@@ -363,8 +385,8 @@ function CountriesPanel({ token }: { token?: string | null }) {
       </Card>
 
       <Card title="Listado">
-        <div className="overflow-hidden rounded-xl border border-sky-200/60">
-          <table className="min-w-full border-separate border-spacing-y-1">
+        <div className="overflow-hidden rounded-2xl border border-white/10">
+          <table className="min-w-full border-separate border-spacing-y-1 p-1">
             <thead>
               <tr className="text-left text-xs uppercase opacity-70">
                 <Th>Nombre</Th>
@@ -380,7 +402,7 @@ function CountriesPanel({ token }: { token?: string | null }) {
                     key={r.id_country}
                     row={r}
                     saving={savingId === r.id_country}
-                    onCancel={() => setEditingId(null)}
+                    onCancel={cancelEdit}
                     onSave={saveEdit}
                   />
                 ) : (
@@ -388,16 +410,16 @@ function CountriesPanel({ token }: { token?: string | null }) {
                     key={r.id_country}
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className={rowBase}
+                    className="rounded-xl shadow-sm shadow-sky-950/5 backdrop-blur"
                   >
                     <Td>{r.name}</Td>
                     <Td>{r.iso2}</Td>
                     <Td>
                       <button
-                        className={`h-full cursor-pointer appearance-none rounded-full border px-5 py-1.5 text-sm shadow-sm transition ${
+                        className={`h-full cursor-pointer appearance-none rounded-full border px-4 py-1 text-xs shadow-sm transition ${
                           r.enabled
-                            ? "border-emerald-200 bg-emerald-100 text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-900/30 dark:text-emerald-100"
-                            : "border-amber-200 bg-amber-100 text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/30 dark:text-amber-100"
+                            ? "border-emerald-200 bg-emerald-100 text-emerald-900 dark:border-emerald-800/40 dark:bg-emerald-900/30 dark:text-emerald-100"
+                            : "border-amber-200 bg-amber-100 text-amber-900 dark:border-amber-800/40 dark:bg-amber-900/30 dark:text-amber-100"
                         } ${togglingId === r.id_country ? "opacity-60" : ""}`}
                         onClick={() => toggleEnabled(r)}
                         title="Cambiar estado"
@@ -447,7 +469,7 @@ function CountriesPanel({ token }: { token?: string | null }) {
           </table>
         </div>
       </Card>
-    </>
+    </div>
   );
 }
 
@@ -468,8 +490,9 @@ async function removeCountry(
     if (!res.status || (res.status !== 204 && !res.ok)) throw new Error();
     toast.success("País eliminado");
     onOk?.();
-  } catch {
-    toast.error("Error al eliminar");
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Error al eliminar";
+    toast.error(msg || "Error al eliminar");
   } finally {
     setDeletingId?.(null);
   }
@@ -490,17 +513,17 @@ function CountryEditRow({
   useEffect(() => setDraft({ ...row }), [row]);
 
   return (
-    <tr className="rounded-xl bg-sky-50 shadow-sm dark:bg-sky-900/10">
+    <tr className="rounded-xl bg-white/70 shadow-sm shadow-sky-950/5 backdrop-blur dark:bg-white/10">
       <Td>
         <input
-          className={input}
+          className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
           value={draft.name}
           onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
         />
       </Td>
       <Td>
         <input
-          className={inputUpper}
+          className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 uppercase outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
           maxLength={2}
           value={draft.iso2}
           onChange={(e) =>
@@ -510,7 +533,7 @@ function CountryEditRow({
       </Td>
       <Td>
         <select
-          className={input}
+          className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur dark:bg-white/10"
           value={String(draft.enabled ?? true)}
           onChange={(e) =>
             setDraft((d) => ({ ...d, enabled: e.target.value === "true" }))
@@ -563,7 +586,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
     (async () => {
       try {
         const res = await authFetch(
-          "/api/countries?take=1000",
+          "/api/countries?take=1000&includeDisabled=true",
           { cache: "no-store" },
           token,
         );
@@ -577,36 +600,45 @@ function DestinationsPanel({ token }: { token?: string | null }) {
     })();
   }, [token]);
 
-  const fetchList = async (signal?: AbortSignal) => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (debounced.trim()) params.set("q", debounced.trim());
-      if (countryIso2) params.set("countryIso2", countryIso2);
-      params.set("take", "30");
+  const fetchList = useCallback(
+    async (signal?: AbortSignal) => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (debounced.trim()) params.set("q", debounced.trim());
+        if (countryIso2) params.set("countryIso2", countryIso2);
+        params.set("take", "200");
+        params.set("includeDisabled", "true");
 
-      const res = await authFetch(
-        `/api/destinations?${params.toString()}`,
-        { signal, cache: "no-store" },
-        token,
-      );
-      if (!res.ok) throw new Error("No se pudieron obtener los destinos");
-      const json = (await res.json()) as { items: DestinationRow[] };
-      setRows(json.items.map((r) => ({ ...r, _editing: false })));
-    } catch (e) {
-      if ((e as Error).name !== "AbortError")
-        toast.error("Error al cargar destinos");
-    } finally {
-      setLoading(false);
-    }
-  };
+        const res = await authFetch(
+          `/api/destinations?${params.toString()}`,
+          { signal, cache: "no-store" },
+          token,
+        );
+        if (!res.ok) throw new Error("No se pudieron obtener los destinos");
+        const json = (await res.json()) as { items: DestinationRow[] };
+        setRows(json.items.map((r) => ({ ...r, _editing: false })));
+      } catch (e) {
+        if ((e as Error).name !== "AbortError")
+          toast.error("Error al cargar destinos");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [debounced, countryIso2, token],
+  );
+
+  useEffect(() => {
+    const onRefresh = () => fetchList();
+    window.addEventListener("geo:refresh", onRefresh);
+    return () => window.removeEventListener("geo:refresh", onRefresh);
+  }, [fetchList]);
 
   useEffect(() => {
     const c = new AbortController();
     fetchList(c.signal);
     return () => c.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced, countryIso2]);
+  }, [fetchList]);
 
   const startEdit = (id: number) =>
     setRows((rs) =>
@@ -678,8 +710,9 @@ function DestinationsPanel({ token }: { token?: string | null }) {
       if (!res.status || (res.status !== 204 && !res.ok)) throw new Error();
       toast.success("Destino eliminado");
       fetchList();
-    } catch {
-      toast.error("Error al eliminar");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error al eliminar";
+      toast.error(msg || "Error al eliminar");
     } finally {
       setDeletingId(null);
     }
@@ -729,12 +762,12 @@ function DestinationsPanel({ token }: { token?: string | null }) {
   };
 
   return (
-    <>
+    <div className="space-y-8">
       <Card>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <Field label="Buscar destino">
             <input
-              className={input}
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
               placeholder="Ej.: Miami, Bariloche…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -742,7 +775,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
           </Field>
           <Field label="Filtrar por país">
             <select
-              className={input}
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur dark:bg-white/10"
               value={countryIso2}
               onChange={(e) => setCountryIso2(e.target.value)}
             >
@@ -762,7 +795,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
           <Field label="Nombre del destino" className="md:col-span-2">
             <input
-              className={input}
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               onKeyDown={onKeyDownCreate}
@@ -770,7 +803,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
           </Field>
           <Field label="País" className="md:col-span-2">
             <select
-              className={input}
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur dark:bg-white/10"
               value={String(form.countryId || "")}
               onChange={(e) =>
                 setForm((f) => ({ ...f, countryId: Number(e.target.value) }))
@@ -786,7 +819,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
           </Field>
           <Field label="Estado">
             <select
-              className={input}
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur dark:bg-white/10"
               value={String(form.enabled ?? true)}
               onChange={(e) =>
                 setForm((f) => ({ ...f, enabled: e.target.value === "true" }))
@@ -798,7 +831,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
           </Field>
           <Field label="Otros nombres (opcional)" className="md:col-span-3">
             <input
-              className={input}
+              className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
               placeholder="miami, miami beach"
               value={(form.alt_names ?? []).join(", ")}
               onChange={(e) =>
@@ -822,8 +855,8 @@ function DestinationsPanel({ token }: { token?: string | null }) {
       </Card>
 
       <Card title="Listado">
-        <div className="overflow-hidden rounded-xl border border-sky-200/60">
-          <table className="min-w-full border-separate border-spacing-y-1">
+        <div className="overflow-hidden rounded-2xl border border-white/10">
+          <table className="min-w-full border-separate border-spacing-y-1 p-1">
             <thead>
               <tr className="text-left text-xs uppercase opacity-70">
                 <Th>Destino</Th>
@@ -835,7 +868,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
             </thead>
           </table>
           <div className="max-h-[48vh] overflow-auto">
-            <table className="min-w-full border-separate border-spacing-y-1">
+            <table className="min-w-full border-separate border-spacing-y-1 p-1">
               <tbody>
                 {rows.map((r) =>
                   r._editing ? (
@@ -852,7 +885,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
                       key={r.id_destination}
                       initial={{ opacity: 0, y: 4 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className={rowBase}
+                      className="rounded-xl shadow-sm shadow-sky-950/5 backdrop-blur"
                     >
                       <Td>{r.name}</Td>
                       <Td>
@@ -863,10 +896,10 @@ function DestinationsPanel({ token }: { token?: string | null }) {
                       </Td>
                       <Td>
                         <button
-                          className={`h-full cursor-pointer appearance-none rounded-full border px-5 py-1.5 text-sm shadow-sm transition ${
+                          className={`h-full cursor-pointer appearance-none rounded-full border px-4 py-1 text-xs shadow-sm transition ${
                             r.enabled
-                              ? "border-emerald-200 bg-emerald-100 text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-900/30 dark:text-emerald-100"
-                              : "border-amber-200 bg-amber-100 text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/30 dark:text-amber-100"
+                              ? "border-emerald-200 bg-emerald-100 text-emerald-900 dark:border-emerald-800/40 dark:bg-emerald-900/30 dark:text-emerald-100"
+                              : "border-amber-200 bg-amber-100 text-amber-900 dark:border-amber-800/40 dark:bg-amber-900/30 dark:text-amber-100"
                           } ${togglingId === r.id_destination ? "opacity-60" : ""}`}
                           onClick={() => toggleEnabled(r)}
                           title="Cambiar estado"
@@ -912,7 +945,7 @@ function DestinationsPanel({ token }: { token?: string | null }) {
           </div>
         </div>
       </Card>
-    </>
+    </div>
   );
 }
 
@@ -932,17 +965,17 @@ function DestinationEditRow({
   const [draft, setDraft] = useState<DestinationRow>({ ...row });
 
   return (
-    <tr className="rounded-xl bg-sky-50 shadow-sm dark:bg-sky-900/10">
+    <tr className="rounded-xl bg-white/70 shadow-sm shadow-sky-950/5 backdrop-blur dark:bg-white/10">
       <Td>
         <input
-          className={input}
+          className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
           value={draft.name}
           onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
         />
       </Td>
       <Td>
         <select
-          className={input}
+          className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur dark:bg-white/10"
           value={draft.country.id_country}
           onChange={(e) =>
             setDraft((d) => ({
@@ -960,7 +993,7 @@ function DestinationEditRow({
       </Td>
       <Td>
         <input
-          className={input}
+          className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur placeholder:font-light dark:bg-white/10"
           value={draft.alt_names.join(", ")}
           onChange={(e) =>
             setDraft((d) => ({
@@ -975,7 +1008,7 @@ function DestinationEditRow({
       </Td>
       <Td>
         <select
-          className={input}
+          className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 outline-none backdrop-blur dark:bg-white/10"
           value={String(draft.enabled)}
           onChange={(e) =>
             setDraft((d) => ({ ...d, enabled: e.target.value === "true" }))
@@ -997,173 +1030,164 @@ function DestinationEditRow({
   );
 }
 
-/* =========================== Dev · Carga JSON =========================== */
+/* =========================== Modal Import JSON (dev) =========================== */
 
-function DevJsonPanel({
+function JSONImportModal({
+  open,
+  onClose,
   token,
-  mode,
+  onImported,
 }: {
+  open: boolean;
+  onClose: () => void;
   token?: string | null;
-  mode: "countries" | "destinations";
+  onImported?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [upsert, setUpsert] = useState(true);
+  const [kind, setKind] = useState<"countries" | "destinations">("countries");
   const [text, setText] = useState("");
-  const [valid, setValid] = useState<null | number>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // placeholder útil
-    if (mode === "countries") {
+    if (!open) return;
+    if (kind === "countries") {
       setText(
-        `[
-  { "name": "Argentina", "iso2": "AR", "enabled": true },
-  { "name": "Uruguay",   "iso2": "UY" }
-]`,
+        JSON.stringify(
+          {
+            upsert: true,
+            items: [
+              { name: "España", iso2: "ES", enabled: true },
+              { name: "Francia", iso2: "FR", enabled: false },
+            ],
+          },
+          null,
+          2,
+        ),
       );
     } else {
       setText(
-        `[
-  { "name": "Miami", "countryIso2": "US", "alt_names": ["miami beach"] },
-  { "name": "Bariloche", "countryIso2": "AR", "enabled": true }
-]`,
+        JSON.stringify(
+          {
+            upsert: true,
+            items: [
+              {
+                name: "Madrid",
+                countryIso2: "ES",
+                alt_names: ["madrid capital"],
+                enabled: true,
+              },
+              {
+                name: "París",
+                countryIso2: "FR",
+                alt_names: ["paris"],
+                enabled: true,
+              },
+            ],
+          },
+          null,
+          2,
+        ),
       );
     }
-  }, [mode]);
+  }, [open, kind]);
 
-  // validación rápida
   useEffect(() => {
-    try {
-      const arr = JSON.parse(text);
-      if (!Array.isArray(arr)) {
-        setValid(null);
-        setError("El JSON debe ser un array");
-        return;
-      }
-      setValid(arr.length);
-      setError(null);
-    } catch (e: unknown) {
-      setValid(null);
-      setError((e as Error)?.message || "JSON inválido");
-    }
-  }, [text]);
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    if (open) window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [open, onClose]);
 
   const submit = async () => {
+    let payload: unknown;
     try {
-      setSending(true);
-      const items = JSON.parse(text);
+      payload = JSON.parse(text);
+    } catch {
+      toast.error("JSON inválido");
+      return;
+    }
 
-      if (mode === "countries") {
-        const res = await authFetch(
-          "/api/countries/bulk",
-          {
-            method: "POST",
-            body: JSON.stringify({ upsert, items }),
-          },
-          token,
-        );
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(body?.error || "Error al cargar países");
-        const created = (body?.created ?? body?.items?.length ?? 0) as number;
-        toast.success(`Países procesados: ${created}`);
-      } else {
-        const res = await authFetch(
-          "/api/destinations/bulk",
-          {
-            method: "POST",
-            body: JSON.stringify({ upsert, items }),
-          },
-          token,
-        );
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(body?.error || "Error al cargar destinos");
-        const count = (body?.count ?? 0) as number;
-        toast.success(`Destinos procesados: ${count}`);
+    const url =
+      kind === "countries" ? "/api/countries/bulk" : "/api/destinations/bulk";
+
+    setLoading(true);
+    try {
+      const res = await authFetch(
+        url,
+        { method: "POST", body: JSON.stringify(payload) },
+        token,
+      );
+      const body = await res
+        .json()
+        .catch(() => ({}) as Record<string, unknown>);
+      if (!res.ok) {
+        const msg =
+          (body && (body as { error?: string }).error) || "Error al importar";
+        throw new Error(msg);
       }
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Error en carga JSON");
+      toast.success("Importación exitosa");
+      onImported?.();
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al importar");
     } finally {
-      setSending(false);
+      setLoading(false);
     }
   };
 
-  return (
-    <Card
-      title={`Dev · Carga JSON (${mode === "countries" ? "países" : "destinos"})`}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm opacity-80">
-          Pegá un <b>array JSON</b>. Campos mínimos:
-          {mode === "countries" ? (
-            <>
-              {" "}
-              <code>name</code> y <code>iso2</code>.{" "}
-            </>
-          ) : (
-            <>
-              {" "}
-              <code>name</code> y <code>countryIso2</code> o{" "}
-              <code>countryId</code>.{" "}
-            </>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={upsert}
-              onChange={(e) => setUpsert(e.target.checked)}
-            />
-            Upsert
-          </label>
-          <Secondary onClick={() => setOpen((v) => !v)}>
-            {open ? "Ocultar" : "Mostrar"}
-          </Secondary>
-        </div>
-      </div>
+  if (!open) return null;
 
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            className="mt-4 space-y-3"
+  return (
+    <div className="fixed inset-0 z-[100] grid place-items-center">
+      <div
+        className="absolute inset-0 bg-sky-950/30 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <motion.div
+        initial={{ y: 12, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        className="relative z-[101] w-[min(900px,92vw)] rounded-3xl border border-white/10 bg-white/95 p-5 shadow-2xl dark:bg-sky-950/80"
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">
+            Importar JSON — {kind === "countries" ? "Países" : "Destinos"}
+          </h3>
+          <Secondary onClick={onClose}>Cerrar</Secondary>
+        </div>
+
+        <div className="mb-3 flex flex-wrap gap-2">
+          <TabButton
+            active={kind === "countries"}
+            onClick={() => setKind("countries")}
           >
-            <textarea
-              className={`${input} min-h-[180px] font-mono`}
-              spellCheck={false}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder='[{"name":"...","iso2":".."}]'
-            />
-            <div className="flex items-center justify-between text-sm">
-              <div
-                className={
-                  error
-                    ? "text-amber-700 dark:text-amber-300"
-                    : "text-emerald-700 dark:text-emerald-300"
-                }
-              >
-                {error
-                  ? `⚠ ${error}`
-                  : valid != null
-                    ? `✓ JSON válido · ${valid} ítems`
-                    : "—"}
-              </div>
-              <Primary
-                onClick={submit}
-                loading={sending}
-                disabled={!!error || !valid}
-              >
-                Enviar JSON
-              </Primary>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </Card>
+            Países
+          </TabButton>
+          <TabButton
+            active={kind === "destinations"}
+            onClick={() => setKind("destinations")}
+          >
+            Destinos
+          </TabButton>
+        </div>
+
+        <div className="space-y-3">
+          <p className="text-sm opacity-80">
+            Pegá el JSON. Se usa <b>upsert</b> por defecto (no duplica).
+          </p>
+          <textarea
+            className="h-[46vh] w-full resize-none rounded-2xl border border-white/10 bg-white/50 p-3 font-mono text-sm outline-none dark:bg-white/10"
+            spellCheck={false}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <div className="flex justify-end">
+            <Primary onClick={submit} loading={loading}>
+              Importar
+            </Primary>
+          </div>
+        </div>
+      </motion.div>
+    </div>
   );
 }
 
@@ -1180,12 +1204,10 @@ function Card({
     <motion.section
       initial={{ opacity: 0.95, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      className={cardBase}
+      transition={{ duration: 0.25 }}
+      className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur"
     >
-      {title ? (
-        <h3 className="mb-3 text-lg font-semibold tracking-tight">{title}</h3>
-      ) : null}
+      {title ? <h3 className="mb-3 text-lg font-semibold">{title}</h3> : null}
       {children}
     </motion.section>
   );
@@ -1240,10 +1262,10 @@ function TabButton({
     <motion.button
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
-      className={`rounded-full border px-6 py-2 font-medium ${
+      className={`rounded-full border px-4 py-1 font-medium ${
         active
-          ? "border-sky-300 bg-sky-100 text-sky-900 dark:border-sky-800/40 dark:bg-sky-900/30 dark:text-sky-100"
-          : "border-sky-200/70 bg-sky-50 text-sky-900/70 transition-colors hover:border-sky-300 hover:bg-sky-100 hover:text-sky-900 dark:border-sky-800/20 dark:bg-sky-900/10 dark:text-sky-100/60 hover:dark:border-sky-800/40 hover:dark:bg-sky-900/30 hover:dark:text-sky-100"
+          ? "border-sky-200 bg-sky-100 text-sky-900 dark:border-sky-800/40 dark:bg-sky-900/30 dark:text-sky-100"
+          : "border-sky-200/50 bg-sky-100/50 text-sky-900/50 transition-colors hover:border-sky-200 hover:bg-sky-100 hover:text-sky-900 dark:border-sky-800/20 dark:bg-sky-900/10 dark:text-sky-100/50 hover:dark:border-sky-800/40 hover:dark:bg-sky-900/30 hover:dark:text-sky-100"
       }`}
     >
       {children}
@@ -1268,7 +1290,7 @@ function Primary({
       onClick={onClick}
       disabled={loading || disabled}
       aria-busy={!!loading}
-      className="rounded-full border border-sky-300 bg-sky-100 px-6 py-2 font-medium text-sky-900 transition-colors hover:opacity-95 disabled:opacity-60 dark:border-sky-800/40 dark:bg-sky-900/30 dark:text-sky-100"
+      className="rounded-full border border-sky-200 bg-sky-100 px-4 py-1 font-medium text-sky-900 disabled:opacity-60 dark:border-sky-800/40 dark:bg-sky-900/30 dark:text-sky-100"
     >
       {loading ? <Spinner /> : children}
     </motion.button>
@@ -1288,7 +1310,7 @@ function Secondary({
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
       disabled={disabled}
-      className="rounded-full border border-sky-200 bg-white px-6 py-2 font-medium text-sky-900 transition-colors hover:opacity-95 disabled:opacity-60 dark:border-sky-800/40 dark:bg-sky-900/10 dark:text-sky-100"
+      className="rounded-full border border-sky-200 bg-sky-100 px-4 py-1 font-medium text-sky-900 disabled:opacity-60 dark:border-sky-800/40 dark:bg-sky-900/30 dark:text-sky-100"
     >
       {children}
     </motion.button>
@@ -1311,7 +1333,7 @@ function Danger({
       onClick={onClick}
       disabled={loading || disabled}
       aria-busy={!!loading}
-      className="rounded-full border border-red-700/30 bg-red-600/80 px-6 py-2 font-medium text-white transition-colors hover:opacity-95 disabled:opacity-60 dark:border-red-800/40 dark:bg-red-900/40"
+      className="rounded-full border border-red-700/50 bg-red-600/70 px-4 py-1 font-medium text-red-50 disabled:opacity-60 dark:border-red-800/40 dark:bg-red-900/30 dark:text-red-100"
     >
       {loading ? <Spinner /> : children}
     </motion.button>
@@ -1324,21 +1346,16 @@ function EditIcon() {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      className="size-5"
-      viewBox="0 0 24 24"
       fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={1.5}
       stroke="currentColor"
-      strokeWidth={1.6}
+      className="size-4"
     >
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
-        d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z"
-      />
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M19.5 7.125 16.862 4.487M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+        d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
       />
     </svg>
   );
@@ -1347,16 +1364,16 @@ function TrashIcon() {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      className="size-5"
-      viewBox="0 0 24 24"
       fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={1.5}
       stroke="currentColor"
-      strokeWidth={1.6}
+      className="size-4"
     >
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
-        d="M9.75 9.75v8.25m4.5-8.25v8.25M4.5 6.75h15m-1.5 0-.43 11.62a2.25 2.25 0 0 1-2.24 2.13H8.67a2.25 2.25 0 0 1-2.24-2.13L6 6.75m3-2.25h6a1.5 1.5 0 0 1 1.5 1.5v.75H4.5V6A1.5 1.5 0 0 1 6 4.5h3Z"
+        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
       />
     </svg>
   );

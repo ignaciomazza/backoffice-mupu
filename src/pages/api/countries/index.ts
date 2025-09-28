@@ -30,7 +30,12 @@ export default async function handler(
     const q = String(req.query.q ?? "").trim();
     const take = Math.min(Number(req.query.take ?? 300), 1000);
 
-    const where: Prisma.CountryWhereInput = { enabled: true };
+    const includeDisabled = ["true", "1", "yes"].includes(
+      String(req.query.includeDisabled ?? "").toLowerCase(),
+    );
+
+    const where: Prisma.CountryWhereInput = {};
+    if (!includeDisabled) where.enabled = true;
 
     if (q) {
       const qUpper = q.toUpperCase();
@@ -52,6 +57,7 @@ export default async function handler(
         iso2: true,
         iso3: true,
         slug: true,
+        enabled: true,
       },
     });
 

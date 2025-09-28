@@ -34,13 +34,17 @@ export default async function handler(
     const q = String(req.query.q ?? "").trim();
     const iso = String(req.query.countryIso2 ?? "").toUpperCase();
     const countryId = Number(req.query.countryId ?? "");
-    const take = Math.min(Number(req.query.take ?? 20), 50);
+    const take = Math.min(Number(req.query.take ?? 20), 200);
+
+    const includeDisabled = ["true", "1", "yes"].includes(
+      String(req.query.includeDisabled ?? "").toLowerCase(),
+    );
 
     const norm = q ? slugify(q) : "";
     const tokens = q ? norm.split("-").filter(Boolean) : [];
 
-    // 👇 Tipamos explícitamente el where
-    const where: Prisma.DestinationWhereInput = { enabled: true };
+    const where: Prisma.DestinationWhereInput = {};
+    if (!includeDisabled) where.enabled = true;
     if (iso) where.country = { iso2: iso };
     if (Number.isFinite(countryId) && countryId > 0)
       where.country_id = countryId;
@@ -57,7 +61,9 @@ export default async function handler(
       where,
       orderBy: [{ popularity: "desc" }, { name: "asc" }],
       take,
-      include: { country: true },
+      include: {
+        country: { select: { id_country: true, name: true, iso2: true } },
+      },
     });
 
     return res.status(200).json({ items });
