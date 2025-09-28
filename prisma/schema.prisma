@@ -38,17 +38,19 @@ model Agency {
   templateConfigs   TemplateConfig[]
 }
 
+// User: renombramos las colecciones para que reflejen la intención
 model User {
-  id_user                  Int                 @id @default(autoincrement())
-  email                    String              @unique
-  password                 String
-  role                     String
-  position                 String?
-  first_name               String
-  last_name                String
-  creation_date            DateTime            @default(now())
-  id_agency                Int
-  agency                   Agency              @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  id_user       Int      @id @default(autoincrement())
+  email         String   @unique
+  password      String
+  role          String
+  position      String?
+  first_name    String
+  last_name     String
+  creation_date DateTime @default(now())
+  id_agency     Int
+  agency        Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
   bookings                 Booking[]
   sales_teams              UserTeam[]
   clients                  Client[]
@@ -58,34 +60,40 @@ model User {
   TextPreset               TextPreset[]
   CommissionRuleSet        CommissionRuleSet[]
   CommissionShare          CommissionShare[]
+
+  // 👇 Relaciones nuevas y con nombre simétrico:
+  createdDestinations      Destination[]        @relation("DestinationCreatedBy")
+  serviceDestinationsAdded ServiceDestination[] @relation("ServiceDestinationAddedBy")
 }
 
 model Client {
-  id_client          Int             @id @default(autoincrement())
-  first_name         String
-  last_name          String
-  phone              String
-  address            String?
-  postal_code        String?
-  locality           String?
-  company_name       String?
-  tax_id             String?
-  commercial_address String?
-  dni_number         String?
-  passport_number    String?
-  birth_date         DateTime
-  nationality        String
-  gender             String
-  email              String?
-  registration_date  DateTime        @default(now())
-  id_agency          Int
-  agency             Agency          @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
-  id_user            Int
-  user               User            @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
-  bookings           Booking[]       @relation("BookingClients")
-  titular_bookings   Booking[]       @relation("Titular")
-  invoices           Invoice[]       @relation("ClientInvoices")
-  ClientPayment      ClientPayment[]
+  id_client              Int             @id @default(autoincrement())
+  first_name             String
+  last_name              String
+  phone                  String
+  address                String?
+  postal_code            String?
+  locality               String?
+  company_name           String?
+  tax_id                 String?
+  commercial_address     String?
+  dni_number             String?
+  passport_number        String?
+  birth_date             DateTime
+  nationality            String
+  gender                 String
+  email                  String?
+  nationality_country_id Int?
+  nationalityCountry     Country?        @relation(fields: [nationality_country_id], references: [id_country])
+  registration_date      DateTime        @default(now())
+  id_agency              Int
+  agency                 Agency          @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  id_user                Int
+  user                   User            @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
+  bookings               Booking[]       @relation("BookingClients")
+  titular_bookings       Booking[]       @relation("Titular")
+  invoices               Invoice[]       @relation("ClientInvoices")
+  ClientPayment          ClientPayment[]
 }
 
 model Booking {
@@ -117,7 +125,7 @@ model Booking {
 }
 
 model Service {
-  id_service                Int           @id @default(autoincrement())
+  id_service                Int                  @id @default(autoincrement())
   type                      String
   description               String
   note                      String?
@@ -144,17 +152,77 @@ model Service {
   card_interest_21          Float?
   taxableCardInterest       Float?
   vatOnCardInterest         Float?
-  transfer_fee_pct          Decimal?      @db.Decimal(9, 6)
-  transfer_fee_amount       Decimal?      @db.Decimal(14, 2)
+  transfer_fee_pct          Decimal?             @db.Decimal(9, 6)
+  transfer_fee_amount       Decimal?             @db.Decimal(14, 2)
   departure_date            DateTime
   return_date               DateTime
-  created_at                DateTime      @default(now())
+  ServiceDestination        ServiceDestination[] // ← NUEVO (para includes)
+  created_at                DateTime             @default(now())
   booking_id                Int
-  booking                   Booking       @relation(fields: [booking_id], references: [id_booking], onDelete: Cascade)
+  booking                   Booking              @relation(fields: [booking_id], references: [id_booking], onDelete: Cascade)
   id_operator               Int
-  operator                  Operator      @relation(fields: [id_operator], references: [id_operator], onDelete: Cascade)
+  operator                  Operator             @relation(fields: [id_operator], references: [id_operator], onDelete: Cascade)
   InvoiceItem               InvoiceItem[]
   OperatorDue               OperatorDue[]
+}
+
+// ===================== NUEVO =====================
+model Country {
+  id_country  Int           @id @default(autoincrement())
+  name        String
+  iso2        String        @unique // AR, US, MX...
+  iso3        String?
+  slug        String        @unique // "argentina", "estados-unidos"
+  enabled     Boolean       @default(true)
+  created_at  DateTime      @default(now())
+  updated_at  DateTime      @updatedAt
+  Destination Destination[]
+  Client      Client[]
+}
+
+// Destination: vincula al creador con nombre de relación
+model Destination {
+  id_destination Int      @id @default(autoincrement())
+  name           String
+  slug           String
+  alt_names      String[] @default([])
+  popularity     Int      @default(0)
+  enabled        Boolean  @default(true)
+
+  country_id Int
+  country    Country @relation(fields: [country_id], references: [id_country], onDelete: Restrict)
+
+  created_by Int?
+  createdBy  User? @relation("DestinationCreatedBy", fields: [created_by], references: [id_user])
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  ServiceDestination ServiceDestination[]
+
+  @@unique([country_id, slug], name: "country_id_slug")
+  @@index([popularity])
+  @@index([enabled])
+  // (opcional, recomendados sin extensiones)
+  @@index([slug])
+  @@index([country_id, slug])
+}
+
+// ServiceDestination: una sola relación a User (addedBy), sin "User/userId_user" extra
+model ServiceDestination {
+  service_id     Int
+  destination_id Int
+
+  service     Service     @relation(fields: [service_id], references: [id_service], onDelete: Cascade)
+  destination Destination @relation(fields: [destination_id], references: [id_destination], onDelete: Restrict)
+
+  added_by Int?
+  addedBy  User?    @relation("ServiceDestinationAddedBy", fields: [added_by], references: [id_user])
+  added_at DateTime @default(now())
+
+  @@id([service_id, destination_id])
+  @@index([service_id])
+  @@index([destination_id])
 }
 
 model Operator {

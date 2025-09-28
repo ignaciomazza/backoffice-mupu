@@ -1,9 +1,7 @@
-// src/lib/agencyUser.ts
+// src/pages/api/countries/bulk/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma, { Prisma } from "@/lib/prisma";
+import prisma from "@/lib/prisma";
 import { z } from "zod";
-
-export const config = { api: { bodyParser: { sizeLimit: "2mb" } } };
 
 const CountryItem = z.object({
   name: z.string().min(1),
@@ -30,53 +28,49 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", ["POST"]);
-    return res.status(405).end(`Method ${req.method} Not Allowed`);
-  }
+  if (req.method !== "POST")
+    return res.status(405).json({ error: "Method not allowed" });
 
   try {
     const { upsert, items } = Body.parse(req.body);
 
-    // ✅ INTERACTIVE transaction (acepta { timeout })
     const rows = await prisma.$transaction(
       async (tx) => {
-        const out: number[] = [];
+        const out: unknown[] = [];
         for (const it of items) {
           const iso2 = it.iso2.toUpperCase();
           const slug = it.slug ?? slugify(it.name);
-
-          const data: Prisma.CountryUncheckedCreateInput = {
+          const data = {
             name: it.name,
             iso2,
             iso3: it.iso3,
             slug,
             enabled: it.enabled ?? true,
           };
-
-          const r = upsert
+          const row = upsert
             ? await tx.country.upsert({
                 where: { iso2 },
                 create: data,
                 update: data,
               })
             : await tx.country.create({ data });
-
-          out.push(r.id_country);
+          out.push(row);
         }
         return out;
       },
-      { timeout: 30_000 },
+      { maxWait: 5_000, timeout: 30_000 },
     );
 
-    return res.status(200).json({ count: rows.length });
+    return res
+      .status(200)
+      .json({ created: rows.length, updated: 0, skipped: 0, items: rows });
   } catch (e: unknown) {
     const msg =
       e instanceof z.ZodError
         ? e.issues.map((i) => i.message).join("; ")
         : e instanceof Error
           ? e.message
-          : "Unknown error";
+          : "Invalid payload";
     return res.status(400).json({ error: msg });
   }
 }
