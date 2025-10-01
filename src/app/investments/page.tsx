@@ -121,6 +121,11 @@ export default function Page() {
   const [currency, setCurrency] = useState<string>("");
   const debouncedQ = useDebounced(q, 400);
 
+  // Filtro local: Operador / Otros / Todos (solo front)
+  const [operadorMode, setOperadorMode] = useState<"all" | "only" | "others">(
+    "all",
+  );
+
   // form
   const [form, setForm] = useState<{
     category: string;
@@ -596,17 +601,54 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.currency, form.amount]);
 
-  const totalsByCurrency = useMemo(() => {
+  // ====== Filtro local y resúmenes “sensibles” ======
+  const filteredItems = useMemo(() => {
+    if (operadorMode === "all") return items;
+    return items.filter((it) => {
+      const isOp = (it.category ?? "").toLowerCase() === "operador";
+      return operadorMode === "only" ? isOp : !isOp;
+    });
+  }, [items, operadorMode]);
+
+  const totalsByCurrencyAll = useMemo(() => {
     return items.reduce<Record<string, number>>((acc, it) => {
       acc[it.currency] = (acc[it.currency] || 0) + Number(it.amount || 0);
       return acc;
     }, {});
   }, [items]);
 
+  const totalsByCurrencyFiltered = useMemo(() => {
+    return filteredItems.reduce<Record<string, number>>((acc, it) => {
+      acc[it.currency] = (acc[it.currency] || 0) + Number(it.amount || 0);
+      return acc;
+    }, {});
+  }, [filteredItems]);
+
+  const counters = useMemo(() => {
+    let op = 0;
+    let others = 0;
+
+    for (const it of items) {
+      if ((it.category ?? "").toLowerCase() === "operador") {
+        op++;
+      } else {
+        others++;
+      }
+    }
+
+    return {
+      op,
+      others,
+      total: items.length,
+      filtered: filteredItems.length,
+    };
+  }, [items, filteredItems]);
+
   const resetFilters = () => {
     setQ("");
     setCategory("");
     setCurrency("");
+    setOperadorMode("all");
   };
 
   return (
@@ -1068,6 +1110,38 @@ export default function Page() {
             <option value="USD">USD</option>
           </select>
 
+          {/* Filtro local: Operador / Otros / Todos (solo GET/render) */}
+          <div className="flex items-center rounded-2xl border border-white/10 bg-white/10 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10">
+            {[
+              { key: "all", label: "Todos", badge: counters.total },
+              { key: "only", label: "Operador", badge: counters.op },
+              { key: "others", label: "Otros", badge: counters.others },
+            ].map((opt) => {
+              const active = operadorMode === (opt.key as typeof operadorMode);
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() =>
+                    setOperadorMode(opt.key as "all" | "only" | "others")
+                  }
+                  className={[
+                    "flex items-center gap-2 rounded-2xl px-4 py-2 text-sm transition-colors",
+                    active
+                      ? "bg-sky-100 text-sky-950 dark:bg-white/10 dark:text-white"
+                      : "text-sky-950/80 hover:bg-white/10 dark:text-white/80",
+                  ].join(" ")}
+                  title={`Mostrar ${opt.label.toLowerCase()}`}
+                >
+                  <span>{opt.label}</span>
+                  <span className="rounded-full border border-white/10 bg-white/20 px-2 text-xs">
+                    {opt.badge}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
           <button
             onClick={resetFilters}
             className="h-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
@@ -1090,21 +1164,49 @@ export default function Page() {
           </button>
         </div>
 
-        {/* RESUMEN */}
-        {Object.keys(totalsByCurrency).length > 0 && (
-          <div className="mb-3 flex flex-wrap gap-3 text-sm opacity-90">
-            {Object.entries(totalsByCurrency).map(([cur, total]) => (
-              <span
-                key={cur}
-                className="rounded-xl border border-white/10 bg-white/10 px-3 py-1"
-              >
-                Total {cur}:{" "}
-                {new Intl.NumberFormat("es-AR", {
-                  style: "currency",
-                  currency: cur,
-                }).format(total)}
+        {/* RESUMEN (sensible al filtro) */}
+        {Object.keys(totalsByCurrencyAll).length > 0 && (
+          <div className="mb-3 space-y-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="opacity-70">
+                Resumen (filtrado • {counters.filtered}/{counters.total}):
               </span>
-            ))}
+              {Object.entries(totalsByCurrencyFiltered).map(([cur, total]) => (
+                <span
+                  key={`f-${cur}`}
+                  className="rounded-xl border border-white/10 bg-white/10 px-3 py-1"
+                >
+                  {cur}:{" "}
+                  {new Intl.NumberFormat("es-AR", {
+                    style: "currency",
+                    currency: cur,
+                  }).format(total)}
+                </span>
+              ))}
+              {Object.keys(totalsByCurrencyFiltered).length === 0 && (
+                <span className="opacity-60">
+                  Sin totales para el filtro actual
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 opacity-80">
+              <span className="opacity-70">
+                Resumen general (lista cargada):
+              </span>
+              {Object.entries(totalsByCurrencyAll).map(([cur, total]) => (
+                <span
+                  key={`a-${cur}`}
+                  className="rounded-xl border border-white/10 bg-white/10 px-3 py-1"
+                >
+                  {cur}:{" "}
+                  {new Intl.NumberFormat("es-AR", {
+                    style: "currency",
+                    currency: cur,
+                  }).format(total)}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
@@ -1113,135 +1215,149 @@ export default function Page() {
           <div className="flex min-h-[40vh] items-center">
             <Spinner />
           </div>
-        ) : items.length === 0 ? (
+        ) : filteredItems.length === 0 ? (
           <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-center text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white">
-            No hay gastos para los filtros seleccionados.
+            No hay gastos para el filtro seleccionado.
           </div>
         ) : (
           <div className="space-y-3">
-            {items.map((it) => (
-              <div
-                key={it.id_investment}
-                className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-semibold">{it.category}</div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-sm opacity-70">
-                      #{it.id_investment}
-                    </div>
-                    <button
-                      onClick={() => beginEdit(it)}
-                      className="text-sky-950/50 transition-colors hover:text-sky-950 dark:text-white/50 dark:hover:text-white"
-                      title="Editar gasto"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth={1.5}
-                        stroke="currentColor"
-                        className="size-6"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-1 text-lg opacity-90">{it.description}</div>
-                <div className="mt-2 flex flex-wrap items-center gap-4 text-sm">
-                  <span>
-                    <b>Monto:</b>{" "}
-                    {new Intl.NumberFormat("es-AR", {
-                      style: "currency",
-                      currency: it.currency,
-                    }).format(it.amount)}
-                  </span>
-                  <span>
-                    <b>Creado:</b> {formatDate(it.created_at)}
-                  </span>
-                  {it.paid_at && (
-                    <span>
-                      <b>Pagado:</b> {formatDate(it.paid_at)}
-                    </span>
-                  )}
-                  {it.payment_method && (
-                    <span>
-                      <b>Método:</b> {it.payment_method}
-                    </span>
-                  )}
-                  {it.account && (
-                    <span>
-                      <b>Cuenta:</b> {it.account}
-                    </span>
-                  )}
-                  {it.base_amount && it.base_currency && (
-                    <span>
-                      <b>Valor:</b>{" "}
-                      {new Intl.NumberFormat("es-AR", {
-                        style: "currency",
-                        currency: it.base_currency,
-                      }).format(it.base_amount)}
-                    </span>
-                  )}
-                  {it.counter_amount && it.counter_currency && (
-                    <span>
-                      <b>Contravalor:</b>{" "}
-                      {new Intl.NumberFormat("es-AR", {
-                        style: "currency",
-                        currency: it.counter_currency,
-                      }).format(it.counter_amount)}
-                    </span>
-                  )}
-                  {it.operator && (
-                    <span>
-                      <b>Operador:</b> {it.operator.name}
-                    </span>
-                  )}
-                  {it.user && (
-                    <span>
-                      <b>Usuario:</b> {it.user.first_name} {it.user.last_name}
-                    </span>
-                  )}
-                  {it.createdBy && (
-                    <span className="opacity-80">
-                      <b>Cargado por:</b> {it.createdBy.first_name}{" "}
-                      {it.createdBy.last_name}
-                    </span>
-                  )}
-                  {it.booking_id && (
-                    <span className="flex w-fit items-center gap-2">
-                      <b>Reserva N° </b> {it.booking_id}
-                      <Link
-                        href={`/bookings/services/${it.booking_id}`}
-                        target="blank"
-                        className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+            {filteredItems.map((it) => {
+              const isOperadorItem =
+                (it.category || "").toLowerCase() === "operador";
+              return (
+                <div
+                  key={it.id_investment}
+                  className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold">{it.category}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm opacity-70">
+                        #{it.id_investment}
+                      </div>
+                      <button
+                        onClick={() => !isOperadorItem && beginEdit(it)}
+                        disabled={isOperadorItem}
+                        className={[
+                          "text-sky-950/50 transition-colors hover:text-sky-950 dark:text-white/50 dark:hover:text-white",
+                          isOperadorItem ? "cursor-not-allowed opacity-40" : "",
+                        ].join(" ")}
+                        title={
+                          isOperadorItem
+                            ? "Los egresos de OPERADOR se gestionan desde Reservas (solo lectura aquí)"
+                            : "Editar gasto"
+                        }
                       >
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
                           fill="none"
                           viewBox="0 0 24 24"
-                          strokeWidth={2}
+                          strokeWidth={1.5}
                           stroke="currentColor"
-                          className="size-4"
+                          className="size-6"
                         >
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
-                            d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+                            d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
                           />
                         </svg>
-                      </Link>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-1 text-lg opacity-90">
+                    {it.description}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-4 text-sm">
+                    <span>
+                      <b>Monto:</b>{" "}
+                      {new Intl.NumberFormat("es-AR", {
+                        style: "currency",
+                        currency: it.currency,
+                      }).format(it.amount)}
                     </span>
-                  )}
+                    <span>
+                      <b>Creado:</b> {formatDate(it.created_at)}
+                    </span>
+                    {it.paid_at && (
+                      <span>
+                        <b>Pagado:</b> {formatDate(it.paid_at)}
+                      </span>
+                    )}
+                    {it.payment_method && (
+                      <span>
+                        <b>Método:</b> {it.payment_method}
+                      </span>
+                    )}
+                    {it.account && (
+                      <span>
+                        <b>Cuenta:</b> {it.account}
+                      </span>
+                    )}
+                    {it.base_amount && it.base_currency && (
+                      <span>
+                        <b>Valor:</b>{" "}
+                        {new Intl.NumberFormat("es-AR", {
+                          style: "currency",
+                          currency: it.base_currency,
+                        }).format(it.base_amount)}
+                      </span>
+                    )}
+                    {it.counter_amount && it.counter_currency && (
+                      <span>
+                        <b>Contravalor:</b>{" "}
+                        {new Intl.NumberFormat("es-AR", {
+                          style: "currency",
+                          currency: it.counter_currency,
+                        }).format(it.counter_amount)}
+                      </span>
+                    )}
+                    {it.operator && (
+                      <span>
+                        <b>Operador:</b> {it.operator.name}
+                      </span>
+                    )}
+                    {it.user && (
+                      <span>
+                        <b>Usuario:</b> {it.user.first_name} {it.user.last_name}
+                      </span>
+                    )}
+                    {it.createdBy && (
+                      <span className="opacity-80">
+                        <b>Cargado por:</b> {it.createdBy.first_name}{" "}
+                        {it.createdBy.last_name}
+                      </span>
+                    )}
+                    {it.booking_id && (
+                      <span className="flex w-fit items-center gap-2">
+                        <b>Reserva N° </b> {it.booking_id}
+                        <Link
+                          href={`/bookings/services/${it.booking_id}`}
+                          target="blank"
+                          className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            strokeWidth={2}
+                            stroke="currentColor"
+                            className="size-4"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+                            />
+                          </svg>
+                        </Link>
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {nextCursor && (
               <div className="flex justify-center">
