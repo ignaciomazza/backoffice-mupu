@@ -55,6 +55,8 @@ export default function SideBar({
         return ["desarrollador", "gerente", "administrativo"].includes(role);
       case "/receipts":
         return ["desarrollador", "gerente", "administrativo"].includes(role);
+      case "/finance/config":
+        return ["desarrollador", "gerente", "administrativo"].includes(role);
       default:
         return true;
     }
@@ -108,6 +110,7 @@ export default function SideBar({
             },
             hasAccess("/balances") && { href: "/balances", label: "Saldos" },
             hasAccess("/earnings") && { href: "/earnings", label: "Ganancias" },
+            hasAccess("/finance/config") && { href: "/finance/config", label: "Configuracion" },
           ].filter(Boolean) as { href: string; label: string }[],
         },
         {

@@ -10,6 +10,25 @@ import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 
+/* ================= Helpers módulo (evita deps en useMemo) ================= */
+const norm = (s: string) =>
+  (s || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+const uniqSorted = (arr: string[]) => {
+  const seen = new Map<string, string>();
+  for (const raw of arr) {
+    if (!raw) continue;
+    const key = norm(raw);
+    if (!seen.has(key)) seen.set(key, String(raw).trim());
+  }
+  return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, "es"));
+};
+
 /* ================= Estilos compartidos ================= */
 const GLASS =
   "rounded-3xl border border-white/30 bg-white/10 backdrop-blur shadow-lg shadow-sky-900/10 dark:bg-white/10 dark:border-white/5";
@@ -66,6 +85,33 @@ type User = {
   role?: string | null;
 };
 
+/* ======= Picks desde /api/finance/config ======= */
+type FinanceCurrencyPick = { code: string; name: string; enabled: boolean };
+type FinancePickBundle = {
+  accounts: { id_account: number; name: string; enabled: boolean }[];
+  paymentMethods: { id_method: number; name: string; enabled: boolean }[];
+  currencies: FinanceCurrencyPick[];
+};
+
+/* DTOs seguros para parsear /api/finance/config sin any */
+type AccountsDTO = Array<{
+  id_account?: number;
+  name?: string;
+  enabled?: boolean;
+}>;
+
+type MethodsDTO = Array<{
+  id_method?: number;
+  name?: string;
+  enabled?: boolean;
+}>;
+
+type CurrenciesDTO = Array<{
+  code?: string;
+  name?: string;
+  enabled?: boolean;
+}>;
+
 /* ============ Normalizado para UI/CSV ============ */
 type NormalizedReceipt = ReceiptRow & {
   _dateLabel: string;
@@ -75,31 +121,7 @@ type NormalizedReceipt = ReceiptRow & {
   _convLabel: string; // "Base → Contra" si aplica
 };
 
-/* ======= Select options (filtros) ======= */
-const PAYMENT_METHOD_OPTIONS = [
-  "Efectivo",
-  "Transferencia",
-  "Deposito",
-  "Crédito",
-  "iata",
-] as const;
-
-const ACCOUNT_OPTIONS = [
-  "Banco Macro",
-  "Banco Nación",
-  "Banco Galicia",
-  "Mercado Pago",
-] as const;
-
-/* ======= Orden ======= */
 type SortKey = "issue_date" | "receipt_number" | "amount" | "owner";
-type SortDir = "asc" | "desc";
-const SORT_OPTIONS: { key: SortKey; label: string }[] = [
-  { key: "issue_date", label: "Fecha" },
-  { key: "receipt_number", label: "N° recibo" },
-  { key: "amount", label: "Importe" },
-  { key: "owner", label: "Vendedor" },
-];
 
 /* ================= Page ================= */
 export default function ReceiptsPage() {
@@ -121,7 +143,7 @@ export default function ReceiptsPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [q, setQ] = useState("");
   const [ownerId, setOwnerId] = useState<number | 0>(0);
-  const [currency, setCurrency] = useState<"" | "ARS" | "USD">("");
+  const [currency, setCurrency] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [account, setAccount] = useState("");
   const [from, setFrom] = useState("");
@@ -129,7 +151,7 @@ export default function ReceiptsPage() {
   const [minAmount, setMinAmount] = useState("");
   const [maxAmount, setMaxAmount] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("issue_date");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   /* ---------- Data / paginado ---------- */
   const TAKE = 24;
@@ -137,6 +159,73 @@ export default function ReceiptsPage() {
   const [cursor, setCursor] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [pageInit, setPageInit] = useState(false);
+
+  /* ---------- Config financiera (para opciones de filtros) ---------- */
+  const [finance, setFinance] = useState<FinancePickBundle | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/finance/config",
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) return;
+
+        const j = (await res.json()) as Partial<{
+          accounts: AccountsDTO;
+          paymentMethods: MethodsDTO;
+          currencies: CurrenciesDTO;
+        }>;
+
+        const accounts: FinancePickBundle["accounts"] =
+          (j.accounts ?? [])
+            .filter(
+              (
+                a,
+              ): a is { id_account: number; name: string; enabled?: boolean } =>
+                typeof a?.id_account === "number" &&
+                typeof a?.name === "string",
+            )
+            .map((a) => ({
+              id_account: a.id_account,
+              name: a.name,
+              enabled: Boolean(a.enabled),
+            })) ?? [];
+
+        const paymentMethods: FinancePickBundle["paymentMethods"] =
+          (j.paymentMethods ?? [])
+            .filter(
+              (
+                m,
+              ): m is { id_method: number; name: string; enabled?: boolean } =>
+                typeof m?.id_method === "number" && typeof m?.name === "string",
+            )
+            .map((m) => ({
+              id_method: m.id_method,
+              name: m.name,
+              enabled: Boolean(m.enabled),
+            })) ?? [];
+
+        const currencies: FinancePickBundle["currencies"] =
+          (j.currencies ?? [])
+            .filter(
+              (c): c is { code: string; name: string; enabled?: boolean } =>
+                typeof c?.code === "string" && typeof c?.name === "string",
+            )
+            .map((c) => ({
+              code: String(c.code).toUpperCase(),
+              name: c.name,
+              enabled: Boolean(c.enabled),
+            })) ?? [];
+
+        setFinance({ accounts, paymentMethods, currencies });
+      } catch {
+        setFinance(null);
+      }
+    })();
+  }, [token]);
 
   /* ---------- Vendedores (desde API + fallback) ---------- */
   const [users, setUsers] = useState<User[]>([]);
@@ -168,7 +257,6 @@ export default function ReceiptsPage() {
   }, [data]);
 
   const vendorOptions = useMemo(() => {
-    // primero: users con rol vendedor si existe, si no, todos los users
     const primary =
       users.filter((u) => (u.role || "").toLowerCase() === "vendedor").length >
       0
@@ -181,7 +269,6 @@ export default function ReceiptsPage() {
         `${u.first_name || ""} ${u.last_name || ""}`.trim() || `#${u.id_user}`,
     }));
 
-    // fallback: owners extra que vinieron por data (por si /api/users no trae todos)
     const seen = new Set(base.map((o) => o.id));
     for (const o of ownerOptionsFromData) {
       if (!seen.has(o.id)) base.push(o);
@@ -190,14 +277,22 @@ export default function ReceiptsPage() {
     return base.sort((a, b) => a.name.localeCompare(b.name, "es"));
   }, [users, ownerOptionsFromData]);
 
-  /* ---------- Formatos ---------- */
-  const fmtMoney = useCallback((v: number, cur: "ARS" | "USD" | string) => {
-    const c = String(cur).toUpperCase() === "USD" ? "USD" : "ARS";
-    const s = new Intl.NumberFormat("es-AR", {
-      style: "currency",
-      currency: c,
-    }).format(v);
-    return c === "USD" ? s.replace("US$", "U$D") : s;
+  /* ---------- Helpers ---------- */
+  const fmtMoney = useCallback((v: number, cur: string) => {
+    const c = String(cur || "ARS").toUpperCase();
+    try {
+      const s = new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: c,
+      }).format(v);
+      return c === "USD" ? s.replace("US$", "U$D") : s;
+    } catch {
+      const sym = c === "USD" ? "U$D" : c === "ARS" ? "$" : `${c} `;
+      return `${sym}${(v ?? 0).toLocaleString("es-AR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+    }
   }, []);
 
   const toNum = (x: unknown) => {
@@ -210,6 +305,64 @@ export default function ReceiptsPage() {
   useEffect(() => {
     if (isVendor && user?.id_user) setOwnerId(user.id_user);
   }, [isVendor, user?.id_user]);
+
+  /* ---------- Opciones de filtros (desde Config con fallback a data) ---------- */
+  const paymentMethodOptions = useMemo(() => {
+    const fromConfig =
+      finance?.paymentMethods?.filter((m) => m.enabled).map((m) => m.name) ??
+      [];
+    if (fromConfig.length) return uniqSorted(fromConfig);
+
+    const fromData = Array.from(
+      new Set(
+        data
+          .map((r) => (r.payment_method || r.currency || "").trim())
+          .filter(Boolean),
+      ),
+    );
+    return uniqSorted(fromData);
+  }, [finance?.paymentMethods, data]);
+
+  const accountOptions = useMemo(() => {
+    const fromConfig =
+      finance?.accounts?.filter((a) => a.enabled).map((a) => a.name) ?? [];
+    if (fromConfig.length) return uniqSorted(fromConfig);
+
+    const fromData = Array.from(
+      new Set(data.map((r) => (r.account || "").trim()).filter(Boolean)),
+    );
+    return uniqSorted(fromData);
+  }, [finance?.accounts, data]);
+
+  const currencyDict = useMemo(() => {
+    const d: Record<string, string> = {};
+    for (const c of finance?.currencies || []) {
+      if (c.enabled) d[c.code.toUpperCase()] = c.name;
+    }
+    return d;
+  }, [finance?.currencies]);
+
+  const currencyOptions = useMemo(() => {
+    const fromConfig =
+      finance?.currencies
+        ?.filter((c) => c.enabled)
+        .map((c) => c.code.toUpperCase()) ?? [];
+    if (fromConfig.length) return uniqSorted(fromConfig);
+
+    const fromData = Array.from(
+      new Set(
+        data
+          .flatMap((r) => [
+            r.amount_currency,
+            r.base_currency,
+            r.counter_currency,
+          ])
+          .filter(Boolean)
+          .map((c) => String(c).toUpperCase()),
+      ),
+    );
+    return uniqSorted(fromData);
+  }, [finance?.currencies, data]);
 
   /* ---------- Normalizado ---------- */
   const normalized = useMemo<NormalizedReceipt[]>(() => {
@@ -543,11 +696,10 @@ export default function ReceiptsPage() {
               onChange={(e) => setSortKey(e.target.value as SortKey)}
               className="cursor-pointer rounded-full border border-white/10 bg-white/10 px-2 py-1 outline-none dark:bg-white/10"
             >
-              {SORT_OPTIONS.map((o) => (
-                <option key={o.key} value={o.key}>
-                  {o.label}
-                </option>
-              ))}
+              <option value="issue_date">Fecha</option>
+              <option value="receipt_number">N° recibo</option>
+              <option value="amount">Importe</option>
+              <option value="owner">Vendedor</option>
             </select>
             <button
               onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
@@ -600,14 +752,17 @@ export default function ReceiptsPage() {
                 <Label>Moneda</Label>
                 <select
                   value={currency}
-                  onChange={(e) =>
-                    setCurrency(e.target.value as "ARS" | "USD" | "")
-                  }
+                  onChange={(e) => setCurrency(e.target.value)}
                   className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-3 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
                 >
                   <option value="">Todas</option>
-                  <option value="ARS">ARS</option>
-                  <option value="USD">USD</option>
+                  {currencyOptions.map((code) => (
+                    <option key={code} value={code}>
+                      {currencyDict[code]
+                        ? `${code} — ${currencyDict[code]}`
+                        : code}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -619,7 +774,7 @@ export default function ReceiptsPage() {
                   className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-3 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
                 >
                   <option value="">Todos</option>
-                  {PAYMENT_METHOD_OPTIONS.map((m) => (
+                  {paymentMethodOptions.map((m) => (
                     <option key={m} value={m}>
                       {m}
                     </option>
@@ -635,7 +790,7 @@ export default function ReceiptsPage() {
                   className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-3 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
                 >
                   <option value="">Todas</option>
-                  {ACCOUNT_OPTIONS.map((acc) => (
+                  {accountOptions.map((acc) => (
                     <option key={acc} value={acc}>
                       {acc}
                     </option>
@@ -852,7 +1007,9 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`block w-full min-w-fit appearance-none rounded-3xl border border-white/30 bg-white/10 px-4 py-2 outline-none backdrop-blur placeholder:opacity-60 dark:border-white/10 dark:bg-white/10 ${props.className || ""}`}
+      className={`block w-full min-w-fit appearance-none rounded-3xl border border-white/30 bg-white/10 px-4 py-2 outline-none backdrop-blur placeholder:opacity-60 dark:border-white/10 dark:bg-white/10 ${
+        props.className || ""
+      }`}
     />
   );
 }

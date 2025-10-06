@@ -11,7 +11,26 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Link from "next/link";
 
-// ==== Tipos ====
+/* ================= Helpers ================= */
+const norm = (s: string) =>
+  (s || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+const uniqSorted = (arr: string[]) => {
+  const seen = new Map<string, string>();
+  for (const raw of arr) {
+    if (!raw) continue;
+    const key = norm(raw);
+    if (!seen.has(key)) seen.set(key, String(raw).trim());
+  }
+  return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, "es"));
+};
+
+/* ================= Tipos ================= */
 type Investment = {
   id_investment: number;
   id_agency: number;
@@ -28,11 +47,9 @@ type Investment = {
   createdBy?: { id_user: number; first_name: string; last_name: string } | null;
   booking_id?: number | null;
 
-  // NUEVO: metadata de pago
   payment_method?: string | null;
   account?: string | null;
 
-  // NUEVO: valor / contravalor (opcional)
   base_amount?: number | null;
   base_currency?: string | null;
   counter_amount?: number | null;
@@ -42,7 +59,48 @@ type Investment = {
 type User = { id_user: number; first_name: string; last_name: string };
 type Operator = { id_operator: number; name: string };
 
-// ==== Debounce simple ====
+/* ===== Finance config ===== */
+type FinanceAccount = { id_account: number; name: string; enabled: boolean };
+type FinanceMethod = {
+  id_method: number;
+  name: string;
+  enabled: boolean;
+  requires_account?: boolean | null;
+};
+type FinanceCurrency = { code: string; name: string; enabled: boolean };
+type FinanceCategory = { id_category: number; name: string; enabled: boolean };
+
+type FinanceConfig = {
+  accounts: FinanceAccount[];
+  paymentMethods: FinanceMethod[];
+  currencies: FinanceCurrency[];
+  categories?: FinanceCategory[];
+};
+
+/* DTO defensivo */
+type AccountsDTO = Array<{
+  id_account?: number;
+  name?: string;
+  enabled?: boolean;
+}>;
+type MethodsDTO = Array<{
+  id_method?: number;
+  name?: string;
+  enabled?: boolean;
+  requires_account?: boolean | null;
+}>;
+type CurrenciesDTO = Array<{
+  code?: string;
+  name?: string;
+  enabled?: boolean;
+}>;
+type CategoriesDTO = Array<{
+  id_category?: number;
+  name?: string;
+  enabled?: boolean;
+}>;
+
+/* ==== Debounce simple ==== */
 function useDebounced<T>(value: T, delay = 350) {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -52,53 +110,9 @@ function useDebounced<T>(value: T, delay = 350) {
   return v;
 }
 
-// ==== Constantes ====
-const DEFAULT_CATEGORIES = [
-  "MONOTRIBUTOS",
-  "ALQUILER",
-  "LUZ",
-  "AFIP",
-  "TEL/INTERNET",
-  "MUNICIPALIDAD",
-  "PUBLICIDAD",
-  "DEPTO MARKETING",
-  "DEPTO PROGRAMACIÓN",
-  "DEPTO SALÓN",
-  "DEPTO ONLINE",
-  "DEPTO ADMINISTRACIÓN",
-  "DEPTO DECO",
-  "MANTENCIÓN OFICINA",
-  "LIBRERIA  E IMPRENTA",
-  "GENERALES",
-  "AMADEUS",
-  "APTOUR",
-  "CAFÉ Y AZUCAR",
-  "COMIDA",
-  "DEBITO BANCARIO MACRO SRL",
-  "DEBITO BANCARIO GALICIA SRL",
-  "SUELDO",
-  "COMISION",
-] as const;
-
-// NUEVO: opciones de selects (como receipts)
-const PAYMENT_METHOD_OPTIONS = [
-  "Efectivo",
-  "Transferencia",
-  "Depósito",
-  "Crédito",
-  "iata",
-] as const;
-
-const ACCOUNT_OPTIONS = [
-  "Banco Macro",
-  "Banco Nación",
-  "Banco Galicia",
-  "Mercado Pago",
-] as const;
-
-// ==== Componente ====
+/* ==== Componente ==== */
 export default function Page() {
-  const { token } = useAuth();
+  const { token } = useAuth() as { token?: string | null };
 
   // ------- UI / form state -------
   const [isFormOpen, setIsFormOpen] = useState(true);
@@ -108,6 +122,9 @@ export default function Page() {
   const [users, setUsers] = useState<User[]>([]);
   const [operators, setOperators] = useState<Operator[]>([]);
   const [agencyId, setAgencyId] = useState<number | null>(null);
+
+  // Finance config
+  const [finance, setFinance] = useState<FinanceConfig | null>(null);
 
   // lista
   const [items, setItems] = useState<Investment[]>([]);
@@ -119,29 +136,30 @@ export default function Page() {
   const [q, setQ] = useState("");
   const [category, setCategory] = useState<string>("");
   const [currency, setCurrency] = useState<string>("");
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>("");
+  const [accountFilter, setAccountFilter] = useState<string>("");
+  const [operatorFilter, setOperatorFilter] = useState<number>(0);
   const debouncedQ = useDebounced(q, 400);
 
-  // Filtro local: Operador / Otros / Todos (solo front)
+  // Filtro local: Operador / Otros / Todos
   const [operadorMode, setOperadorMode] = useState<"all" | "only" | "others">(
     "all",
   );
 
-  // form
+  // form (sin defaults duros)
   const [form, setForm] = useState<{
     category: string;
     description: string;
-    amount: string; // mantener string para el input
+    amount: string;
     currency: string;
     paid_at: string; // YYYY-MM-DD
     user_id: number | null;
     operator_id: number | null;
     paid_today: boolean;
 
-    // NUEVO: método/cuenta
     payment_method: string;
     account: string;
 
-    // NUEVO: conversión
     use_conversion: boolean;
     base_amount: string;
     base_currency: string;
@@ -151,7 +169,7 @@ export default function Page() {
     category: "",
     description: "",
     amount: "",
-    currency: "ARS",
+    currency: "",
     paid_at: "",
     user_id: null,
     operator_id: null,
@@ -162,12 +180,12 @@ export default function Page() {
 
     use_conversion: false,
     base_amount: "",
-    base_currency: "ARS",
+    base_currency: "",
     counter_amount: "",
-    counter_currency: "USD",
+    counter_currency: "",
   });
 
-  // === Estado de edición ===
+  // edición
   const [editingId, setEditingId] = useState<number | null>(null);
 
   function resetForm() {
@@ -175,7 +193,7 @@ export default function Page() {
       category: "",
       description: "",
       amount: "",
-      currency: "ARS",
+      currency: "",
       paid_at: "",
       user_id: null,
       operator_id: null,
@@ -186,9 +204,9 @@ export default function Page() {
 
       use_conversion: false,
       base_amount: "",
-      base_currency: "ARS",
+      base_currency: "",
       counter_amount: "",
-      counter_currency: "USD",
+      counter_currency: "",
     });
     setEditingId(null);
   }
@@ -198,7 +216,7 @@ export default function Page() {
       category: inv.category ?? "",
       description: inv.description ?? "",
       amount: String(inv.amount ?? ""),
-      currency: inv.currency ?? "ARS",
+      currency: (inv.currency ?? "").toUpperCase(),
       paid_at: inv.paid_at ? inv.paid_at.slice(0, 10) : "",
       user_id: inv.user_id ?? null,
       operator_id: inv.operator_id ?? null,
@@ -207,17 +225,16 @@ export default function Page() {
       payment_method: inv.payment_method ?? "",
       account: inv.account ?? "",
 
-      // Si hay valor/contravalor en el registro, prendemos el toggle
       use_conversion:
         !!inv.base_amount ||
         !!inv.base_currency ||
         !!inv.counter_amount ||
         !!inv.counter_currency,
       base_amount: inv.base_amount != null ? String(inv.base_amount) : "",
-      base_currency: inv.base_currency ?? "ARS",
+      base_currency: (inv.base_currency ?? "").toUpperCase(),
       counter_amount:
         inv.counter_amount != null ? String(inv.counter_amount) : "",
-      counter_currency: inv.counter_currency ?? "USD",
+      counter_currency: (inv.counter_currency ?? "").toUpperCase(),
     });
     setEditingId(inv.id_investment);
     setIsFormOpen(true);
@@ -246,7 +263,93 @@ export default function Page() {
     }
   }
 
-  // ========= Cargar perfil (agencyId) + users =========
+  /* ========= Finance config ========= */
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/finance/config",
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) return;
+
+        const j = (await res.json()) as Partial<{
+          accounts: AccountsDTO;
+          paymentMethods: MethodsDTO;
+          currencies: CurrenciesDTO;
+          categories: CategoriesDTO;
+        }>;
+
+        const accounts: FinanceAccount[] =
+          (j.accounts ?? [])
+            .filter(
+              (
+                a,
+              ): a is { id_account: number; name: string; enabled?: boolean } =>
+                typeof a?.id_account === "number" &&
+                typeof a?.name === "string",
+            )
+            .map((a) => ({
+              id_account: a.id_account!,
+              name: a.name!,
+              enabled: Boolean(a.enabled),
+            })) ?? [];
+
+        const paymentMethods: FinanceMethod[] =
+          (j.paymentMethods ?? [])
+            .filter(
+              (
+                m,
+              ): m is {
+                id_method: number;
+                name: string;
+                enabled?: boolean;
+                requires_account?: boolean | null;
+              } =>
+                typeof m?.id_method === "number" && typeof m?.name === "string",
+            )
+            .map((m) => ({
+              id_method: m.id_method!,
+              name: m.name!,
+              enabled: Boolean(m.enabled),
+              requires_account: !!m.requires_account,
+            })) ?? [];
+
+        const currencies: FinanceCurrency[] =
+          (j.currencies ?? [])
+            .filter(
+              (c): c is { code: string; name: string; enabled?: boolean } =>
+                typeof c?.code === "string" && typeof c?.name === "string",
+            )
+            .map((c) => ({
+              code: String(c.code).toUpperCase(),
+              name: c.name!,
+              enabled: Boolean(c.enabled),
+            })) ?? [];
+
+        const categories: FinanceCategory[] | undefined = (j.categories ?? [])
+          .filter(
+            (
+              c,
+            ): c is { id_category: number; name: string; enabled?: boolean } =>
+              typeof c?.id_category === "number" && typeof c?.name === "string",
+          )
+          .map((c) => ({
+            id_category: c.id_category!,
+            name: c.name!,
+            enabled: Boolean(c.enabled),
+          }));
+
+        setFinance({ accounts, paymentMethods, currencies, categories });
+      } catch {
+        setFinance(null);
+      }
+    })();
+  }, [token]);
+
+  /* ========= Perfil + users ========= */
   useEffect(() => {
     if (!token) return;
     (async () => {
@@ -268,7 +371,7 @@ export default function Page() {
     })();
   }, [token]);
 
-  // ========= Cargar operadores usando agencyId =========
+  /* ========= Operadores ========= */
   useEffect(() => {
     if (!token || agencyId == null) return;
     (async () => {
@@ -286,7 +389,7 @@ export default function Page() {
     })();
   }, [token, agencyId]);
 
-  // ========= Lista con abort/race-safe =========
+  /* ========= Lista con abort/race-safe ========= */
   const listAbortRef = useRef<AbortController | null>(null);
   const reqIdRef = useRef(0);
 
@@ -296,11 +399,13 @@ export default function Page() {
       if (debouncedQ.trim()) qs.append("q", debouncedQ.trim());
       if (category) qs.append("category", category);
       if (currency) qs.append("currency", currency);
+      if (paymentMethodFilter) qs.append("payment_method", paymentMethodFilter);
+      if (accountFilter) qs.append("account", accountFilter);
       qs.append("take", "24");
-      if (cursor) qs.append("cursor", String(cursor));
+      if (cursor != null) qs.append("cursor", String(cursor));
       return qs.toString();
     },
-    [debouncedQ, category, currency],
+    [debouncedQ, category, currency, paymentMethodFilter, accountFilter],
   );
 
   const fetchList = useCallback(async () => {
@@ -365,11 +470,60 @@ export default function Page() {
     }
   }, [token, nextCursor, loadingMore, buildQuery]);
 
-  // ========= Validación de conversión =========
-  const validateConversion = (): { ok: boolean; msg?: string } => {
-    // clave: si el toggle está apagado, no validar nada
-    if (!form.use_conversion) return { ok: true };
+  /* ========= Opciones desde Finance (sin fallbacks) ========= */
+  const categoryOptions = useMemo(() => {
+    const raw =
+      finance?.categories?.filter((c) => c.enabled).map((c) => c.name) ?? [];
+    // Excluir "Operador" en el formulario (se cargan en Reservas)
+    return uniqSorted(raw);
+  }, [finance?.categories]);
 
+  const paymentMethodOptions = useMemo(() => {
+    return uniqSorted(
+      finance?.paymentMethods?.filter((m) => m.enabled).map((m) => m.name) ??
+        [],
+    );
+  }, [finance?.paymentMethods]);
+
+  const requiresAccountMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const m of finance?.paymentMethods || []) {
+      if (!m.enabled) continue;
+      map.set(norm(m.name), !!m.requires_account);
+    }
+    return map;
+  }, [finance?.paymentMethods]);
+
+  const accountOptions = useMemo(() => {
+    return uniqSorted(
+      finance?.accounts?.filter((a) => a.enabled).map((a) => a.name) ?? [],
+    );
+  }, [finance?.accounts]);
+
+  const currencyOptions = useMemo(() => {
+    return uniqSorted(
+      finance?.currencies
+        ?.filter((c) => c.enabled)
+        .map((c) => c.code.toUpperCase()) ?? [],
+    );
+  }, [finance?.currencies]);
+
+  const currencyDict = useMemo(() => {
+    const d: Record<string, string> = {};
+    for (const c of finance?.currencies || []) {
+      if (c.enabled) d[c.code.toUpperCase()] = c.name;
+    }
+    return d;
+  }, [finance?.currencies]);
+
+  const showAccount = useMemo(() => {
+    if (!form.payment_method) return false;
+    return !!requiresAccountMap.get(norm(form.payment_method));
+  }, [form.payment_method, requiresAccountMap]);
+
+  /* ========= Validación de conversión ========= */
+  const validateConversion = (): { ok: boolean; msg?: string } => {
+    if (!form.use_conversion) return { ok: true };
     const bAmt = Number(form.base_amount);
     const cAmt = Number(form.counter_amount);
     if (!Number.isFinite(bAmt) || bAmt <= 0)
@@ -380,27 +534,34 @@ export default function Page() {
       return { ok: false, msg: "Ingresá un Contravalor válido (> 0)." };
     if (!form.counter_currency)
       return { ok: false, msg: "Elegí la moneda del Contravalor." };
-
     return { ok: true };
   };
 
-  // ========= Crear / Actualizar =========
+  /* ========= Crear / Actualizar ========= */
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const categoryLower = form.category.trim().toLowerCase();
+    const categoryLower = norm(form.category);
     const amountNum = Number(form.amount);
 
     if (!form.category || !form.description || !form.currency) {
       toast.error("Completá categoría, descripción y moneda");
       return;
     }
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      toast.error("El monto debe ser un número positivo");
+    if (categoryLower === "operador") {
+      toast.error("Los pagos a OPERADORES se cargan desde Reservas.");
       return;
     }
-    if (categoryLower === "operador" && !form.operator_id) {
-      toast.error("Para categoría OPERADOR, seleccioná un operador");
+    if (!form.payment_method) {
+      toast.error("Seleccioná el método de pago");
+      return;
+    }
+    if (showAccount && !form.account) {
+      toast.error("Seleccioná la cuenta para este método");
+      return;
+    }
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      toast.error("El monto debe ser un número positivo");
       return;
     }
     if (["sueldo", "comision"].includes(categoryLower) && !form.user_id) {
@@ -408,7 +569,6 @@ export default function Page() {
       return;
     }
 
-    // Validación de conversión coherente
     const conv = validateConversion();
     if (!conv.ok) {
       toast.error(conv.msg || "Revisá los datos de Valor/Contravalor");
@@ -428,31 +588,23 @@ export default function Page() {
       paid_at,
       user_id: form.user_id ?? undefined,
       operator_id: form.operator_id ?? undefined,
-
-      // NUEVO: método/cuenta
-      payment_method: form.payment_method || undefined,
-      account: form.account || undefined,
+      payment_method: form.payment_method,
+      account: showAccount ? form.account : undefined,
     };
 
-    // NUEVO: incorporar conversión SOLO si el toggle está activo
     if (form.use_conversion) {
       const bAmt = Number(form.base_amount);
       const cAmt = Number(form.counter_amount);
       payload.base_amount =
         Number.isFinite(bAmt) && bAmt > 0 ? bAmt : undefined;
-      payload.base_currency = form.base_currency
-        ? form.base_currency.toUpperCase()
-        : undefined;
+      payload.base_currency = form.base_currency || undefined;
       payload.counter_amount =
         Number.isFinite(cAmt) && cAmt > 0 ? cAmt : undefined;
-      payload.counter_currency = form.counter_currency
-        ? form.counter_currency.toUpperCase()
-        : undefined;
+      payload.counter_currency = form.counter_currency || undefined;
     }
 
     setLoading(true);
     try {
-      // CREATE vs UPDATE
       if (!editingId) {
         const res = await authFetch(
           "/api/investments",
@@ -499,17 +651,10 @@ export default function Page() {
     }
   };
 
-  // Métodos que requieren seleccionar cuenta
-  const methodsRequiringAccount = useMemo(
-    () => new Set<string>(["Transferencia", "Crédito"]),
-    [],
-  );
-  const showAccount = methodsRequiringAccount.has(form.payment_method);
-
-  // ========= Helpers UI =========
-  const isOperador = form.category.toLowerCase() === "operador";
-  const isSueldo = form.category.toLowerCase() === "sueldo";
-  const isComision = form.category.toLowerCase() === "comision";
+  /* ========= Helpers UI ========= */
+  const isOperador = norm(form.category) === "operador";
+  const isSueldo = norm(form.category) === "sueldo";
+  const isComision = norm(form.category) === "comision";
 
   const input =
     "w-full appearance-none rounded-2xl bg-white/50 border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
@@ -520,10 +665,15 @@ export default function Page() {
   const previewAmount = useMemo(() => {
     const n = Number(form.amount);
     if (!Number.isFinite(n)) return "";
+    if (!form.currency)
+      return n.toLocaleString("es-AR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
     try {
       return new Intl.NumberFormat("es-AR", {
         style: "currency",
-        currency: form.currency || "ARS",
+        currency: form.currency,
         minimumFractionDigits: 2,
       }).format(n);
     } catch {
@@ -569,46 +719,58 @@ export default function Page() {
     }
   }, [form.use_conversion, form.counter_amount, form.counter_currency]);
 
-  // Sincronía de sugeridos cuando se activa conversión
+  // Sugerencias SOLO con opciones cargadas
   useEffect(() => {
-    if (form.use_conversion) {
-      if (!form.base_amount) {
-        setForm((f) => ({ ...f, base_amount: f.amount || "" }));
+    if (!form.use_conversion) return;
+    setForm((f) => {
+      const next = { ...f };
+      if (!next.base_amount) next.base_amount = f.amount || "";
+      if (!next.base_currency && f.currency) next.base_currency = f.currency;
+      if (!next.counter_currency) {
+        const other =
+          currencyOptions.find(
+            (c) => c !== (next.base_currency || f.currency),
+          ) || "";
+        next.counter_currency = other;
       }
-      if (!form.base_currency) {
-        setForm((f) => ({ ...f, base_currency: f.currency || "ARS" }));
-      }
-      if (!form.counter_currency) {
-        setForm((f) => ({
-          ...f,
-          counter_currency: f.currency === "USD" ? "ARS" : "USD",
-        }));
-      }
-    }
+      return next;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.use_conversion]);
 
-  // Si cambia moneda/monto principal y conversión está activa, sincronizar base por defecto
   useEffect(() => {
     if (!form.use_conversion) return;
-    setForm((f) => ({
-      ...f,
-      base_currency: f.base_currency || f.currency || "ARS",
-      base_amount: f.base_amount || f.amount || "",
-      counter_currency:
-        f.counter_currency || (f.currency === "USD" ? "ARS" : "USD"),
-    }));
+    setForm((f) => {
+      const next = { ...f };
+      if (!next.base_currency && f.currency) next.base_currency = f.currency;
+      if (!next.base_amount) next.base_amount = f.amount || "";
+      if (!next.counter_currency && currencyOptions.length > 0) {
+        const other =
+          currencyOptions.find(
+            (c) => c !== (next.base_currency || f.currency),
+          ) || "";
+        next.counter_currency = other;
+      }
+      return next;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.currency, form.amount]);
 
-  // ====== Filtro local y resúmenes “sensibles” ======
+  /* ====== Filtro local y resúmenes ====== */
   const filteredItems = useMemo(() => {
-    if (operadorMode === "all") return items;
     return items.filter((it) => {
-      const isOp = (it.category ?? "").toLowerCase() === "operador";
-      return operadorMode === "only" ? isOp : !isOp;
+      const isOp = norm(it.category) === "operador";
+      if (operadorMode === "only" && !isOp) return false;
+      if (operadorMode === "others" && isOp) return false;
+      if (
+        operatorFilter &&
+        (!it.operator || it.operator.id_operator !== operatorFilter)
+      ) {
+        return false;
+      }
+      return true;
     });
-  }, [items, operadorMode]);
+  }, [items, operadorMode, operatorFilter]);
 
   const totalsByCurrencyAll = useMemo(() => {
     return items.reduce<Record<string, number>>((acc, it) => {
@@ -627,39 +789,39 @@ export default function Page() {
   const counters = useMemo(() => {
     let op = 0;
     let others = 0;
-
     for (const it of items) {
-      if ((it.category ?? "").toLowerCase() === "operador") {
-        op++;
-      } else {
-        others++;
-      }
+      if (norm(it.category) === "operador") op++;
+      else others++;
     }
-
-    return {
-      op,
-      others,
-      total: items.length,
-      filtered: filteredItems.length,
-    };
+    return { op, others, total: items.length, filtered: filteredItems.length };
   }, [items, filteredItems]);
 
   const resetFilters = () => {
     setQ("");
     setCategory("");
     setCurrency("");
+    setPaymentMethodFilter("");
+    setAccountFilter("");
+    setOperatorFilter(0);
     setOperadorMode("all");
   };
 
   return (
     <ProtectedRoute>
       <section className="text-sky-950 dark:text-white">
+        {/* Aviso: operadores */}
+        <div className="mb-4 rounded-2xl border border-yellow-300/30 bg-yellow-100/30 p-3 text-sm text-yellow-900 dark:border-yellow-300/20 dark:bg-yellow-300/10 dark:text-yellow-200">
+          <b>Importante:</b> acá <u>no</u> se cargan pagos a <b>OPERADORES</b>.
+          Esos egresos se gestionan desde <b>Reservas</b>. Los verás listados
+          pero en solo lectura.
+        </div>
+
         {/* FORM */}
         <motion.div
           layout
           initial={{ maxHeight: 100, opacity: 1 }}
           animate={{
-            maxHeight: isFormOpen ? 950 : 100,
+            maxHeight: isFormOpen ? 1000 : 100,
             opacity: 1,
             transition: { duration: 0.4, ease: "easeInOut" },
           }}
@@ -712,6 +874,7 @@ export default function Page() {
               onSubmit={onSubmit}
               className="grid grid-cols-1 gap-4 md:grid-cols-2"
             >
+              {/* Categoría */}
               <div>
                 <label className="ml-2 block">Categoría</label>
                 <select
@@ -726,18 +889,38 @@ export default function Page() {
                     }))
                   }
                   required
+                  disabled={categoryOptions.length === 0}
                 >
                   <option value="" disabled>
-                    Seleccionar…
+                    {categoryOptions.length
+                      ? "Seleccionar…"
+                      : "Sin categorías habilitadas"}
                   </option>
-                  {DEFAULT_CATEGORIES.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
+                  {categoryOptions
+                    .filter((c) => norm(c) !== "operador") // no permitir operador
+                    .map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
                 </select>
+                {finance?.categories &&
+                  finance.categories.some(
+                    (c) => norm(c.name) === "operador",
+                  ) && (
+                    <p className="ml-2 mt-1 text-xs opacity-70">
+                      La categoría <b>Operador</b> se gestiona desde Reservas.
+                    </p>
+                  )}
+                {isOperador && (
+                  <p className="ml-2 mt-1 text-xs text-yellow-700 dark:text-yellow-300">
+                    No se pueden cargar pagos a <b>OPERADORES</b> desde esta
+                    página.
+                  </p>
+                )}
               </div>
 
+              {/* Fecha */}
               <div>
                 <label className="ml-2 block">Fecha de pago (opcional)</label>
                 <input
@@ -750,6 +933,7 @@ export default function Page() {
                 />
               </div>
 
+              {/* Descripción */}
               <div className="md:col-span-2">
                 <label className="ml-2 block">Descripción</label>
                 <input
@@ -763,6 +947,7 @@ export default function Page() {
                 />
               </div>
 
+              {/* Monto */}
               <div>
                 <label className="ml-2 block">Monto</label>
                 <input
@@ -785,6 +970,7 @@ export default function Page() {
                 )}
               </div>
 
+              {/* Moneda (solo config) */}
               <div>
                 <label className="ml-2 block">Moneda</label>
                 <select
@@ -794,13 +980,24 @@ export default function Page() {
                     setForm((f) => ({ ...f, currency: e.target.value }))
                   }
                   required
+                  disabled={currencyOptions.length === 0}
                 >
-                  <option value="ARS">ARS</option>
-                  <option value="USD">USD</option>
+                  <option value="" disabled>
+                    {currencyOptions.length
+                      ? "Seleccionar moneda"
+                      : "Sin monedas habilitadas"}
+                  </option>
+                  {currencyOptions.map((code) => (
+                    <option key={code} value={code}>
+                      {currencyDict[code]
+                        ? `${code} — ${currencyDict[code]}`
+                        : code}
+                    </option>
+                  ))}
                 </select>
               </div>
 
-              {/* NUEVO: Método de pago / Cuenta */}
+              {/* Método de pago (solo config) */}
               <div>
                 <label className="ml-2 block">Método de pago</label>
                 <select
@@ -810,11 +1007,14 @@ export default function Page() {
                     setForm((f) => ({ ...f, payment_method: e.target.value }))
                   }
                   required
+                  disabled={paymentMethodOptions.length === 0}
                 >
                   <option value="" disabled>
-                    Seleccionar método
+                    {paymentMethodOptions.length
+                      ? "Seleccionar método"
+                      : "Sin métodos habilitados"}
                   </option>
-                  {PAYMENT_METHOD_OPTIONS.map((opt) => (
+                  {paymentMethodOptions.map((opt) => (
                     <option key={opt} value={opt}>
                       {opt}
                     </option>
@@ -822,6 +1022,7 @@ export default function Page() {
                 </select>
               </div>
 
+              {/* Cuenta (si el método la requiere; solo config) */}
               {showAccount && (
                 <div>
                   <label className="ml-2 block">Cuenta</label>
@@ -832,11 +1033,14 @@ export default function Page() {
                       setForm((f) => ({ ...f, account: e.target.value }))
                     }
                     required={showAccount}
+                    disabled={accountOptions.length === 0}
                   >
                     <option value="" disabled>
-                      Seleccionar cuenta
+                      {accountOptions.length
+                        ? "Seleccionar cuenta"
+                        : "Sin cuentas habilitadas"}
                     </option>
-                    {ACCOUNT_OPTIONS.map((opt) => (
+                    {accountOptions.map((opt) => (
                       <option key={opt} value={opt}>
                         {opt}
                       </option>
@@ -845,7 +1049,7 @@ export default function Page() {
                 </div>
               )}
 
-              {/* NUEVO: Conversión (Valor / Contravalor) */}
+              {/* Conversión (Valor / Contravalor) */}
               <div className="rounded-2xl border border-white/10 p-3 md:col-span-2">
                 <label className="flex cursor-pointer items-center gap-2">
                   <input
@@ -890,9 +1094,16 @@ export default function Page() {
                               base_currency: e.target.value,
                             }))
                           }
+                          disabled={currencyOptions.length === 0}
                         >
-                          <option value="ARS">ARS</option>
-                          <option value="USD">USD</option>
+                          <option value="" disabled>
+                            {currencyOptions.length ? "Moneda" : "Sin monedas"}
+                          </option>
+                          {currencyOptions.map((code) => (
+                            <option key={code} value={code}>
+                              {code}
+                            </option>
+                          ))}
                         </select>
                       </div>
                       {previewBase && (
@@ -929,9 +1140,16 @@ export default function Page() {
                               counter_currency: e.target.value,
                             }))
                           }
+                          disabled={currencyOptions.length === 0}
                         >
-                          <option value="ARS">ARS</option>
-                          <option value="USD">USD</option>
+                          <option value="" disabled>
+                            {currencyOptions.length ? "Moneda" : "Sin monedas"}
+                          </option>
+                          {currencyOptions.map((code) => (
+                            <option key={code} value={code}>
+                              {code}
+                            </option>
+                          ))}
                         </select>
                       </div>
                       {previewCounter && (
@@ -950,34 +1168,6 @@ export default function Page() {
                 )}
               </div>
 
-              {isOperador && (
-                <div className="md:col-span-2">
-                  <label className="ml-2 block">Operador</label>
-                  <select
-                    className={`${input} cursor-pointer`}
-                    value={form.operator_id ?? ""}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        operator_id: e.target.value
-                          ? Number(e.target.value)
-                          : null,
-                      }))
-                    }
-                    required
-                  >
-                    <option value="" disabled>
-                      Seleccionar operador…
-                    </option>
-                    {operators.map((o) => (
-                      <option key={o.id_operator} value={o.id_operator}>
-                        {o.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
               {(isSueldo || isComision) && (
                 <div className="md:col-span-2">
                   <label className="ml-2 block">
@@ -993,9 +1183,10 @@ export default function Page() {
                       }))
                     }
                     required
+                    disabled={users.length === 0}
                   >
                     <option value="" disabled>
-                      Seleccionar usuario…
+                      {users.length ? "Seleccionar usuario…" : "Sin usuarios"}
                     </option>
                     {users.map((u) => (
                       <option key={u.id_user} value={u.id_user}>
@@ -1006,6 +1197,7 @@ export default function Page() {
                 </div>
               )}
 
+              {/* Botones */}
               <div className="flex flex-wrap gap-3 md:col-span-2">
                 <button
                   type="submit"
@@ -1054,7 +1246,7 @@ export default function Page() {
         </motion.div>
 
         {/* FILTROS */}
-        <div className="mb-4 flex items-center gap-2">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           <div className="flex w-full appearance-none items-center gap-2 rounded-2xl border border-white/10 bg-white/10 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white">
             <input
               className="w-full bg-transparent p-2 px-4 outline-none"
@@ -1087,30 +1279,92 @@ export default function Page() {
             </button>
           </div>
 
+          {/* Categoría (config) */}
           <select
             className="cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
+            disabled={categoryOptions.length === 0}
           >
-            <option value="">Categoria</option>
-            {DEFAULT_CATEGORIES.map((c) => (
+            <option value="">
+              {categoryOptions.length ? "Categoría (todas)" : "Sin categorías"}
+            </option>
+            {categoryOptions.map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>
             ))}
           </select>
 
+          {/* Moneda (config) */}
           <select
             className="cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
             value={currency}
             onChange={(e) => setCurrency(e.target.value)}
+            disabled={currencyOptions.length === 0}
           >
-            <option value="">Moneda</option>
-            <option value="ARS">ARS</option>
-            <option value="USD">USD</option>
+            <option value="">
+              {currencyOptions.length ? "Moneda (todas)" : "Sin monedas"}
+            </option>
+            {currencyOptions.map((code) => (
+              <option key={code} value={code}>
+                {code}
+              </option>
+            ))}
           </select>
 
-          {/* Filtro local: Operador / Otros / Todos (solo GET/render) */}
+          {/* Método (config) */}
+          <select
+            className="cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+            value={paymentMethodFilter}
+            onChange={(e) => setPaymentMethodFilter(e.target.value)}
+            disabled={paymentMethodOptions.length === 0}
+          >
+            <option value="">
+              {paymentMethodOptions.length ? "Método (todos)" : "Sin métodos"}
+            </option>
+            {paymentMethodOptions.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+
+          {/* Cuenta (config) */}
+          <select
+            className="cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+            value={accountFilter}
+            onChange={(e) => setAccountFilter(e.target.value)}
+            disabled={accountOptions.length === 0}
+          >
+            <option value="">
+              {accountOptions.length ? "Cuenta (todas)" : "Sin cuentas"}
+            </option>
+            {accountOptions.map((acc) => (
+              <option key={acc} value={acc}>
+                {acc}
+              </option>
+            ))}
+          </select>
+
+          {/* Operador (local, para discriminar) */}
+          <select
+            className="cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+            value={operatorFilter}
+            onChange={(e) => setOperatorFilter(Number(e.target.value))}
+            disabled={operators.length === 0}
+          >
+            <option value={0}>
+              {operators.length ? "Operador (todos)" : "Sin operadores"}
+            </option>
+            {operators.map((o) => (
+              <option key={o.id_operator} value={o.id_operator}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+
+          {/* Filtro local: Operador / Otros / Todos */}
           <div className="flex items-center rounded-2xl border border-white/10 bg-white/10 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10">
             {[
               { key: "all", label: "Todos", badge: counters.total },
@@ -1164,7 +1418,7 @@ export default function Page() {
           </button>
         </div>
 
-        {/* RESUMEN (sensible al filtro) */}
+        {/* RESUMEN */}
         {Object.keys(totalsByCurrencyAll).length > 0 && (
           <div className="mb-3 space-y-2 text-sm">
             <div className="flex flex-wrap items-center gap-2">
@@ -1222,8 +1476,7 @@ export default function Page() {
         ) : (
           <div className="space-y-3">
             {filteredItems.map((it) => {
-              const isOperadorItem =
-                (it.category || "").toLowerCase() === "operador";
+              const isOperadorItem = norm(it.category) === "operador";
               return (
                 <div
                   key={it.id_investment}

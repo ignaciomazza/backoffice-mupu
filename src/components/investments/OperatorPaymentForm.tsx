@@ -7,6 +7,66 @@ import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
 
+/* ========= Helpers ========= */
+const norm = (s: string) =>
+  (s || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+const uniqSorted = (arr: string[]) => {
+  const seen = new Map<string, string>();
+  for (const raw of arr) {
+    if (!raw) continue;
+    const key = norm(raw);
+    if (!seen.has(key)) seen.set(key, String(raw).trim());
+  }
+  return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, "es"));
+};
+
+/* ========= Finance config (tipos) ========= */
+type FinanceAccount = { id_account: number; name: string; enabled: boolean };
+type FinanceMethod = {
+  id_method: number;
+  name: string;
+  enabled: boolean;
+  requires_account?: boolean | null;
+};
+type FinanceCurrency = { code: string; name: string; enabled: boolean };
+
+type FinanceConfig = {
+  accounts: FinanceAccount[];
+  paymentMethods: FinanceMethod[];
+  currencies: FinanceCurrency[];
+};
+
+/* DTOs defensivos para parsear el JSON sin any */
+type AccountsDTO = Array<{
+  id_account?: number;
+  name?: string;
+  enabled?: boolean;
+}>;
+type MethodsDTO = Array<{
+  id_method?: number;
+  name?: string;
+  enabled?: boolean;
+  requires_account?: boolean | null;
+}>;
+type CurrenciesDTO = Array<{
+  code?: string;
+  name?: string;
+  enabled?: boolean;
+}>;
+
+type FinanceConfigDTO = Partial<{
+  accounts: AccountsDTO;
+  paymentMethods: MethodsDTO;
+  currencies: CurrenciesDTO;
+}>;
+
+/* ========= Props ========= */
 type Props = {
   token: string | null;
   booking: Booking;
@@ -14,21 +74,6 @@ type Props = {
   operators: Operator[];
   onCreated?: () => void;
 };
-
-const PAYMENT_METHOD_OPTIONS = [
-  "Efectivo",
-  "Transferencia",
-  "Depósito",
-  "Crédito",
-  "iata",
-] as const;
-
-const ACCOUNT_OPTIONS = [
-  "Banco Macro",
-  "Banco Nación",
-  "Banco Galicia",
-  "Mercado Pago",
-] as const;
 
 export default function OperatorPaymentForm({
   token,
@@ -38,6 +83,120 @@ export default function OperatorPaymentForm({
   onCreated,
 }: Props) {
   const [isFormVisible, setIsFormVisible] = useState(false);
+
+  // ====== Finance config ======
+  const [finance, setFinance] = useState<FinanceConfig | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/finance/config",
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) return;
+
+        const j = (await res.json()) as FinanceConfigDTO;
+
+        const accounts: FinanceAccount[] =
+          (j.accounts ?? [])
+            .filter(
+              (
+                a,
+              ): a is { id_account: number; name: string; enabled?: boolean } =>
+                typeof a?.id_account === "number" &&
+                typeof a?.name === "string",
+            )
+            .map((a) => ({
+              id_account: a.id_account!,
+              name: a.name!,
+              enabled: Boolean(a.enabled),
+            })) ?? [];
+
+        const paymentMethods: FinanceMethod[] =
+          (j.paymentMethods ?? [])
+            .filter(
+              (
+                m,
+              ): m is {
+                id_method: number;
+                name: string;
+                enabled?: boolean;
+                requires_account?: boolean | null;
+              } =>
+                typeof m?.id_method === "number" && typeof m?.name === "string",
+            )
+            .map((m) => ({
+              id_method: m.id_method!,
+              name: m.name!,
+              enabled: Boolean(m.enabled),
+              requires_account: !!m.requires_account,
+            })) ?? [];
+
+        const currencies: FinanceCurrency[] =
+          (j.currencies ?? [])
+            .filter(
+              (c): c is { code: string; name: string; enabled?: boolean } =>
+                typeof c?.code === "string" && typeof c?.name === "string",
+            )
+            .map((c) => ({
+              code: String(c.code).toUpperCase(),
+              name: c.name!,
+              enabled: Boolean(c.enabled),
+            })) ?? [];
+
+        setFinance({ accounts, paymentMethods, currencies });
+      } catch {
+        setFinance(null);
+      }
+    })();
+  }, [token]);
+
+  const paymentMethodOptions = useMemo(
+    () =>
+      uniqSorted(
+        finance?.paymentMethods?.filter((m) => m.enabled).map((m) => m.name) ??
+          [],
+      ),
+    [finance?.paymentMethods],
+  );
+
+  const requiresAccountMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const m of finance?.paymentMethods || []) {
+      if (!m.enabled) continue;
+      map.set(norm(m.name), !!m.requires_account);
+    }
+    return map;
+  }, [finance?.paymentMethods]);
+
+  const accountOptions = useMemo(
+    () =>
+      uniqSorted(
+        finance?.accounts?.filter((a) => a.enabled).map((a) => a.name) ?? [],
+      ),
+    [finance?.accounts],
+  );
+
+  const currencyOptions = useMemo(
+    () =>
+      uniqSorted(
+        finance?.currencies
+          ?.filter((c) => c.enabled)
+          .map((c) => c.code.toUpperCase()) ?? [],
+      ),
+    [finance?.currencies],
+  );
+
+  const currencyDict = useMemo(() => {
+    const d: Record<string, string> = {};
+    for (const c of finance?.currencies || []) {
+      if (c.enabled) d[c.code.toUpperCase()] = c.name;
+    }
+    return d;
+  }, [finance?.currencies]);
 
   // === Servicios sólo de esta reserva ===
   const servicesFromBooking = useMemo<Service[]>(() => {
@@ -61,7 +220,7 @@ export default function OperatorPaymentForm({
 
   // === Campos básicos ===
   const [amount, setAmount] = useState<string>("");
-  const [currency, setCurrency] = useState<string>("ARS");
+  const [currency, setCurrency] = useState<string>(""); // sin default duro
   const [paidAt, setPaidAt] = useState<string>("");
   const [operatorId, setOperatorId] = useState<number | "">("");
   const [description, setDescription] = useState<string>("");
@@ -73,9 +232,9 @@ export default function OperatorPaymentForm({
   // === Conversión (valor / contravalor) ===
   const [useConversion, setUseConversion] = useState<boolean>(false);
   const [baseAmount, setBaseAmount] = useState<string>("");
-  const [baseCurrency, setBaseCurrency] = useState<string>("ARS");
+  const [baseCurrency, setBaseCurrency] = useState<string>(""); // sin default duro
   const [counterAmount, setCounterAmount] = useState<string>("");
-  const [counterCurrency, setCounterCurrency] = useState<string>("USD");
+  const [counterCurrency, setCounterCurrency] = useState<string>(""); // sin default duro
 
   const [loading, setLoading] = useState(false);
 
@@ -89,13 +248,16 @@ export default function OperatorPaymentForm({
 
   const allSameCurrency = useMemo<boolean>(() => {
     if (selectedServices.length === 0) return true;
-    const set = new Set(selectedServices.map((s) => s.currency || "ARS"));
+    const set = new Set(
+      selectedServices.map((s) => (s.currency || "").toUpperCase()),
+    );
     return set.size === 1;
   }, [selectedServices]);
 
   const suggestedCurrency = useMemo<string | null>(() => {
     if (!allSameCurrency || selectedServices.length === 0) return null;
-    return selectedServices[0].currency || "ARS";
+    const code = (selectedServices[0].currency || "").toUpperCase();
+    return code || null;
   }, [selectedServices, allSameCurrency]);
 
   const suggestedAmount = useMemo<number>(() => {
@@ -122,7 +284,7 @@ export default function OperatorPaymentForm({
         minimumFractionDigits: 2,
       }).format(n);
     } catch {
-      return `${n.toFixed(2)} ${currency}`;
+      return `${n.toFixed(2)} ${currency || ""}`;
     }
   }, [amount, currency]);
 
@@ -154,7 +316,7 @@ export default function OperatorPaymentForm({
     }
   }, [useConversion, counterAmount, counterCurrency]);
 
-  // Al cambiar la selección, proponemos sugeridos coherentes
+  // Al cambiar la selección, proponemos sugeridos coherentes (solo con opciones cargadas)
   useEffect(() => {
     // operador
     if (operatorIdFromSelection != null) {
@@ -168,9 +330,11 @@ export default function OperatorPaymentForm({
       );
     }
 
-    // moneda sugerida (si todas iguales)
-    if (suggestedCurrency) {
+    // moneda sugerida (si todas iguales y existe en config)
+    if (suggestedCurrency && currencyOptions.includes(suggestedCurrency)) {
       setCurrency(suggestedCurrency);
+    } else if (selectedServices.length === 0) {
+      setCurrency((c) => c); // no tocar (sin default)
     }
 
     // monto sugerido = suma de costos
@@ -203,30 +367,38 @@ export default function OperatorPaymentForm({
     suggestedCurrency,
     operators,
     booking.id_booking,
+    currencyOptions,
   ]);
 
-  // Al activar la conversión, precompletar valor base con el monto/moneda del pago
+  // Al activar conversión, sugerir usando SOLO monedas cargadas
   useEffect(() => {
-    if (useConversion) {
-      if (!baseAmount) setBaseAmount(amount || "");
-      if (!baseCurrency) setBaseCurrency(currency || "ARS");
-      if (!counterCurrency)
-        setCounterCurrency(currency === "USD" ? "ARS" : "USD");
-    }
+    if (!useConversion) return;
+    setBaseAmount((v) => v || amount || "");
+    setBaseCurrency((v) => v || currency || "");
+    setCounterCurrency((v) => {
+      if (v) return v;
+      const base = (baseCurrency || currency || "").toUpperCase();
+      const other = currencyOptions.find((c) => c !== base) || "";
+      return other;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useConversion]);
 
-  // Si cambia la moneda del pago y tenemos conversión activa sin haber tocado base, sincronizamos sugeridos
+  // Si cambia moneda/monto con conversión activa: completar solo si vacío
   useEffect(() => {
     if (!useConversion) return;
-    if (!baseCurrency) setBaseCurrency(currency || "ARS");
-    if (!baseAmount) setBaseAmount(amount || "");
-    if (!counterCurrency)
-      setCounterCurrency(currency === "USD" ? "ARS" : "USD");
+    setBaseCurrency((v) => v || currency || "");
+    setBaseAmount((v) => v || amount || "");
+    setCounterCurrency((v) => {
+      if (v) return v;
+      const base = (baseCurrency || currency || "").toUpperCase();
+      const other = currencyOptions.find((c) => c !== base) || "";
+      return other;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currency, amount]);
+  }, [currency, amount, currencyOptions]);
 
-  // Toggle de selección con validación de operador homogéneo
+  // Toggle selección con validación de operador homogéneo
   const toggleService = (svc: Service) => {
     const isSelected = selectedIds.includes(svc.id_service);
     if (isSelected) {
@@ -248,19 +420,23 @@ export default function OperatorPaymentForm({
   const useSuggested = () => {
     if (selectedServices.length === 0) return;
     setAmount(String(suggestedAmount || 0));
-    if (suggestedCurrency) setCurrency(suggestedCurrency);
+    if (suggestedCurrency && currencyOptions.includes(suggestedCurrency)) {
+      setCurrency(suggestedCurrency);
+    }
     if (useConversion) {
       setBaseAmount(String(suggestedAmount || 0));
-      setBaseCurrency(suggestedCurrency || currency || "ARS");
-      setCounterCurrency(
-        (suggestedCurrency || currency) === "USD" ? "ARS" : "USD",
-      );
+      setBaseCurrency(suggestedCurrency || currency || "");
+      const other =
+        currencyOptions.find(
+          (c) => c !== (suggestedCurrency || currency || ""),
+        ) || "";
+      setCounterCurrency(other);
     }
   };
 
   // Validación de conversión coherente
   const validateConversion = (): { ok: boolean; msg?: string } => {
-    if (!useConversion) return { ok: true }; // <- clave: si no hay conversión, no validar
+    if (!useConversion) return { ok: true };
 
     const bAmt = Number(baseAmount);
     const cAmt = Number(counterAmount);
@@ -276,6 +452,12 @@ export default function OperatorPaymentForm({
     return { ok: true };
   };
 
+  // Métodos que requieren seleccionar cuenta (desde config)
+  const showAccount = useMemo(() => {
+    if (!paymentMethod) return false;
+    return !!requiresAccountMap.get(norm(paymentMethod));
+  }, [paymentMethod, requiresAccountMap]);
+
   // Submit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -287,6 +469,18 @@ export default function OperatorPaymentForm({
     }
     if (!operatorId) {
       toast.error("Seleccioná un operador.");
+      return;
+    }
+    if (!paymentMethod) {
+      toast.error("Seleccioná el método de pago.");
+      return;
+    }
+    if (showAccount && !account) {
+      toast.error("Seleccioná la cuenta para este método.");
+      return;
+    }
+    if (!currency) {
+      toast.error("Seleccioná una moneda.");
       return;
     }
 
@@ -313,19 +507,17 @@ export default function OperatorPaymentForm({
         category: "OPERADOR",
         description: desc,
         amount: amountNum,
-        currency: (currency || "ARS").toUpperCase(),
+        currency: currency.toUpperCase(),
         operator_id: Number(operatorId),
         paid_at: paidAt || undefined,
         booking_id: booking.id_booking,
-        payment_method: paymentMethod || undefined,
-        account: account || undefined,
+        payment_method: paymentMethod,
+        account: showAccount ? account : undefined,
       };
 
-      // agregar conversión sólo si corresponde
       if (useConversion) {
         const bAmt = Number(baseAmount);
         const cAmt = Number(counterAmount);
-
         payload.base_amount =
           Number.isFinite(bAmt) && bAmt > 0 ? bAmt : undefined;
         payload.base_currency = baseCurrency
@@ -345,12 +537,10 @@ export default function OperatorPaymentForm({
       );
 
       if (!res.ok) {
-        const err = await res
-          .json()
-          .catch(() => ({}) as Record<string, unknown>);
+        const err = await res.json().catch(() => ({}));
         const msg =
-          (err as { error?: string; message?: string }).error ||
-          (err as { error?: string; message?: string }).message ||
+          (err as { error?: string }).error ||
+          (err as { message?: string }).message ||
           "No se pudo crear el pago al operador.";
         throw new Error(msg);
       }
@@ -358,10 +548,10 @@ export default function OperatorPaymentForm({
       toast.success("Pago al operador cargado en Investments.");
       onCreated?.();
 
-      // Reset mínimo (dejamos el form abierto)
+      // Reset mínimo (dejamos el form abierto; sin defaults duros)
       setSelectedIds([]);
       setAmount("");
-      setCurrency("ARS");
+      setCurrency("");
       setOperatorId("");
       setPaidAt("");
       setDescription("");
@@ -369,9 +559,9 @@ export default function OperatorPaymentForm({
       setAccount("");
       setUseConversion(false);
       setBaseAmount("");
-      setBaseCurrency("ARS");
+      setBaseCurrency("");
       setCounterAmount("");
-      setCounterCurrency("USD");
+      setCounterCurrency("");
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Error al cargar el pago.";
@@ -380,13 +570,6 @@ export default function OperatorPaymentForm({
       setLoading(false);
     }
   };
-
-  // Métodos que requieren seleccionar cuenta
-  const methodsRequiringAccount = useMemo(
-    () => new Set<string>(["Transferencia", "Crédito"]),
-    [],
-  );
-  const showAccount = methodsRequiringAccount.has(paymentMethod);
 
   // UI helpers
   const inputBase =
@@ -397,7 +580,7 @@ export default function OperatorPaymentForm({
       layout
       initial={{ maxHeight: 100, opacity: 1 }}
       animate={{
-        maxHeight: isFormVisible ? 1400 : 100,
+        maxHeight: isFormVisible ? 1600 : 100,
         opacity: 1,
         transition: { duration: 0.4, ease: "easeInOut" },
       }}
@@ -501,10 +684,10 @@ export default function OperatorPaymentForm({
                         <b>Costo:</b>{" "}
                         {formatMoney(
                           svc.cost_price || 0,
-                          svc.currency || "ARS",
+                          (svc.currency || "ARS").toUpperCase(),
                         )}{" "}
                         <span className="opacity-70">
-                          ({svc.currency || "ARS"})
+                          ({(svc.currency || "ARS").toUpperCase()})
                         </span>
                       </div>
                     </button>
@@ -585,7 +768,7 @@ export default function OperatorPaymentForm({
                   Sugerido (suma costos):{" "}
                   {formatMoney(
                     suggestedAmount,
-                    suggestedCurrency || currency || "ARS",
+                    (suggestedCurrency || currency || "ARS").toUpperCase(),
                   )}
                 </div>
               )}
@@ -598,9 +781,20 @@ export default function OperatorPaymentForm({
                 onChange={(e) => setCurrency(e.target.value)}
                 className={`${inputBase} cursor-pointer`}
                 required
+                disabled={currencyOptions.length === 0}
               >
-                <option value="ARS">ARS</option>
-                <option value="USD">USD</option>
+                <option value="" disabled>
+                  {currencyOptions.length
+                    ? "Seleccionar moneda"
+                    : "Sin monedas habilitadas"}
+                </option>
+                {currencyOptions.map((code) => (
+                  <option key={code} value={code}>
+                    {currencyDict[code]
+                      ? `${code} — ${currencyDict[code]}`
+                      : code}
+                  </option>
+                ))}
               </select>
               {selectedServices.length > 0 && (
                 <div className="ml-2 mt-1 text-xs opacity-70">
@@ -612,6 +806,7 @@ export default function OperatorPaymentForm({
             </div>
           </div>
 
+          {/* Método / Cuenta (desde config) */}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div>
               <label className="ml-2 block dark:text-white">
@@ -622,11 +817,14 @@ export default function OperatorPaymentForm({
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value)}
                 required
+                disabled={paymentMethodOptions.length === 0}
               >
                 <option value="" disabled>
-                  Seleccionar método
+                  {paymentMethodOptions.length
+                    ? "Seleccionar método"
+                    : "Sin métodos habilitados"}
                 </option>
-                {PAYMENT_METHOD_OPTIONS.map((opt) => (
+                {paymentMethodOptions.map((opt) => (
                   <option key={opt} value={opt}>
                     {opt}
                   </option>
@@ -642,11 +840,14 @@ export default function OperatorPaymentForm({
                   value={account}
                   onChange={(e) => setAccount(e.target.value)}
                   required={showAccount}
+                  disabled={accountOptions.length === 0}
                 >
                   <option value="" disabled>
-                    Seleccionar cuenta
+                    {accountOptions.length
+                      ? "Seleccionar cuenta"
+                      : "Sin cuentas habilitadas"}
                   </option>
-                  {ACCOUNT_OPTIONS.map((opt) => (
+                  {accountOptions.map((opt) => (
                     <option key={opt} value={opt}>
                       {opt}
                     </option>
@@ -686,9 +887,16 @@ export default function OperatorPaymentForm({
                       className={`${inputBase} cursor-pointer`}
                       value={baseCurrency}
                       onChange={(e) => setBaseCurrency(e.target.value)}
+                      disabled={currencyOptions.length === 0}
                     >
-                      <option value="ARS">ARS</option>
-                      <option value="USD">USD</option>
+                      <option value="" disabled>
+                        {currencyOptions.length ? "Moneda" : "Sin monedas"}
+                      </option>
+                      {currencyOptions.map((code) => (
+                        <option key={code} value={code}>
+                          {code}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   {previewBase && (
@@ -715,9 +923,16 @@ export default function OperatorPaymentForm({
                       className={`${inputBase} cursor-pointer`}
                       value={counterCurrency}
                       onChange={(e) => setCounterCurrency(e.target.value)}
+                      disabled={currencyOptions.length === 0}
                     >
-                      <option value="ARS">ARS</option>
-                      <option value="USD">USD</option>
+                      <option value="" disabled>
+                        {currencyOptions.length ? "Moneda" : "Sin monedas"}
+                      </option>
+                      {currencyOptions.map((code) => (
+                        <option key={code} value={code}>
+                          {code}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   {previewCounter && (
@@ -728,10 +943,8 @@ export default function OperatorPaymentForm({
                 </div>
 
                 <div className="text-xs opacity-70 md:col-span-2">
-                  Se guarda el valor y contravalor **sin tipo de cambio**. Esto
-                  permite que, si pagás en una moneda pero el acuerdo está en
-                  otra, el sistema calcule correctamente la deuda usando el
-                  contravalor.
+                  Se guarda el valor y contravalor <b>sin tipo de cambio</b>.
+                  Útil si pagás en una moneda pero el acuerdo está en otra.
                 </div>
               </div>
             )}

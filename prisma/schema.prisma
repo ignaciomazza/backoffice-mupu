@@ -10,32 +10,37 @@ generator client {
 }
 
 model Agency {
-  id_agency         Int                 @id @default(autoincrement())
-  name              String
-  legal_name        String
-  address           String?
-  phone             String?
-  phones            String[]            @default([])
-  email             String?
-  social            Json?
-  tax_id            String
-  website           String?
-  foundation_date   DateTime?
-  logo_url          String?
-  afip_cert_base64  String?
-  afip_key_base64   String?
-  transfer_fee_pct  Decimal?            @db.Decimal(9, 6)
-  creation_date     DateTime            @default(now())
-  users             User[]
-  bookings          Booking[]
-  Client            Client[]
-  SalesTeam         SalesTeam[]
-  Resources         Resources[]
-  Operator          Operator[]
-  investments       Investment[]
-  TextPreset        TextPreset[]
-  CommissionRuleSet CommissionRuleSet[]
-  templateConfigs   TemplateConfig[]
+  id_agency            Int                    @id @default(autoincrement())
+  name                 String
+  legal_name           String
+  address              String?
+  phone                String?
+  phones               String[]               @default([])
+  email                String?
+  social               Json?
+  tax_id               String
+  website              String?
+  foundation_date      DateTime?
+  logo_url             String?
+  afip_cert_base64     String?
+  afip_key_base64      String?
+  transfer_fee_pct     Decimal?               @db.Decimal(9, 6)
+  creation_date        DateTime               @default(now())
+  users                User[]
+  bookings             Booking[]
+  Client               Client[]
+  SalesTeam            SalesTeam[]
+  Resources            Resources[]
+  Operator             Operator[]
+  investments          Investment[]
+  TextPreset           TextPreset[]
+  CommissionRuleSet    CommissionRuleSet[]
+  templateConfigs      TemplateConfig[]
+  FinanceCurrency      FinanceCurrency[]
+  FinanceAccount       FinanceAccount[]
+  FinancePaymentMethod FinancePaymentMethod[]
+  ExpenseCategory      ExpenseCategory[]
+  FinanceConfig        FinanceConfig?
 }
 
 // User: renombramos las colecciones para que reflejen la intención
@@ -502,4 +507,104 @@ model CommissionShare {
   percent Decimal @db.Decimal(5, 2)
 
   @@unique([rule_set_id, beneficiary_user_id])
+}
+
+model FinanceConfig {
+  id_config Int    @id @default(autoincrement())
+  id_agency Int    @unique
+  agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  default_currency_code                 String
+  hide_operator_expenses_in_investments Boolean @default(false)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([id_agency])
+}
+
+model FinanceCurrency {
+  id_currency Int    @id @default(autoincrement())
+  id_agency   Int
+  agency      Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  code       String // ARS, USD
+  name       String // Pesos, Dólares
+  symbol     String?
+  decimals   Int     @default(2)
+  is_primary Boolean @default(false)
+
+  enabled     Boolean @default(true)
+  sort_order  Int     @default(0)
+  lock_system Boolean @default(false)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([id_agency, code])
+  @@index([id_agency, enabled])
+}
+
+model FinanceAccount {
+  id_account Int    @id @default(autoincrement())
+  id_agency  Int
+  agency     Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  name     String
+  type     String? // bank | wallet | cash (texto libre v1)
+  alias    String?
+  cbu      String?
+  currency String? // opcional
+
+  enabled     Boolean @default(true)
+  sort_order  Int     @default(0)
+  lock_system Boolean @default(false)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([id_agency, name])
+  @@index([id_agency, enabled])
+}
+
+model FinancePaymentMethod {
+  id_method Int    @id @default(autoincrement())
+  id_agency Int
+  agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  name             String // Efectivo, Transferencia...
+  code             String // cash, transfer, credit...
+  requires_account Boolean @default(false)
+
+  enabled     Boolean @default(true)
+  sort_order  Int     @default(0)
+  lock_system Boolean @default(false)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([id_agency, code])
+  @@unique([id_agency, name])
+  @@index([id_agency, enabled])
+}
+
+model ExpenseCategory {
+  id_category Int    @id @default(autoincrement())
+  id_agency   Int
+  agency      Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  name              String // "SUELDO", "COMISION", "OPERADOR", etc.
+  code              String? // opcional: sueldo | comision | operador | ...
+  requires_operator Boolean @default(false)
+  requires_user     Boolean @default(false)
+
+  enabled     Boolean @default(true)
+  sort_order  Int     @default(0)
+  lock_system Boolean @default(false)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([id_agency, name])
+  @@index([id_agency, enabled])
 }

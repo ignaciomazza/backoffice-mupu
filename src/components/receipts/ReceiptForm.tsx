@@ -1,6 +1,6 @@
 // src/components/receipts/ReceiptForm.tsx
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { Booking, Client, Receipt, Service } from "@/types";
 import Spinner from "@/components/Spinner";
@@ -8,30 +8,168 @@ import { motion } from "framer-motion";
 import { authFetch } from "@/utils/authFetch";
 import ClientPicker from "@/components/clients/ClientPicker";
 
+/* ========= helpers ========= */
+const norm = (s: string) =>
+  (s || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+const uniqSorted = (arr: string[]) => {
+  const seen = new Map<string, string>();
+  for (const raw of arr) {
+    if (!raw) continue;
+    const key = norm(raw);
+    if (!seen.has(key)) seen.set(key, String(raw).trim());
+  }
+  return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, "es"));
+};
+
+/* ========= tipos ========= */
 interface Props {
   booking: Booking;
   onCreated?: (receipt: Receipt) => void;
   token: string | null;
 }
 
+type FinanceAccount = { id_account: number; name: string; enabled: boolean };
+type FinanceMethod = {
+  id_method: number;
+  name: string;
+  enabled: boolean;
+  requires_account?: boolean | null;
+};
+type FinanceCurrency = { code: string; name: string; enabled: boolean };
+
+type FinanceConfig = {
+  accounts: FinanceAccount[];
+  paymentMethods: FinanceMethod[];
+  currencies: FinanceCurrency[];
+};
+
+/* DTOs para parsear /api/finance/config sin any */
+type AccountsDTO = Array<{
+  id_account?: number;
+  name?: string;
+  enabled?: boolean;
+}>;
+type MethodsDTO = Array<{
+  id_method?: number;
+  name?: string;
+  enabled?: boolean;
+  requires_account?: boolean | null;
+}>;
+type CurrenciesDTO = Array<{
+  code?: string;
+  name?: string;
+  enabled?: boolean;
+}>;
+
 export default function ReceiptForm({ booking, onCreated, token }: Props) {
   const [concept, setConcept] = useState("");
 
-  // NUEVO: selector de método de pago + cuenta
+  // método de pago + cuenta (dinámicos por config)
   const [paymentMethod, setPaymentMethod] = useState("");
   const [account, setAccount] = useState("");
 
-  // Este es el texto que ya existía: descripción del método de pago (se usa en el PDF)
+  // texto libre para PDF (compat)
   const [paymentDescription, setPaymentDescription] = useState("");
 
   const [amountString, setAmountString] = useState("");
-  const [amountCurrency, setAmountCurrency] = useState("");
+  const [amountCurrency, setAmountCurrency] = useState(""); // ISO (USD/ARS/…)
   const [manualAmount, setManualAmount] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [isFormVisible, setIsFormVisible] = useState(false);
 
-  // === Servicios de esta reserva ===
+  /* ========= traer config financiera ========= */
+  const [finance, setFinance] = useState<FinanceConfig | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/finance/config",
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) return;
+
+        const j = (await res.json()) as Partial<{
+          accounts: AccountsDTO;
+          paymentMethods: MethodsDTO;
+          currencies: CurrenciesDTO;
+        }>;
+
+        const accounts: FinanceAccount[] =
+          (j.accounts ?? [])
+            .filter(
+              (
+                a,
+              ): a is { id_account: number; name: string; enabled?: boolean } =>
+                typeof a?.id_account === "number" &&
+                typeof a?.name === "string",
+            )
+            .map((a) => ({
+              id_account: a.id_account!,
+              name: a.name!,
+              enabled: Boolean(a.enabled),
+            })) ?? [];
+
+        const paymentMethods: FinanceMethod[] =
+          (j.paymentMethods ?? [])
+            .filter(
+              (
+                m,
+              ): m is {
+                id_method: number;
+                name: string;
+                enabled?: boolean;
+                requires_account?: boolean | null;
+              } =>
+                typeof m?.id_method === "number" && typeof m?.name === "string",
+            )
+            .map((m) => ({
+              id_method: m.id_method!,
+              name: m.name!,
+              enabled: Boolean(m.enabled),
+              requires_account: !!m.requires_account,
+            })) ?? [];
+
+        const currencies: FinanceCurrency[] =
+          (j.currencies ?? [])
+            .filter(
+              (c): c is { code: string; name: string; enabled?: boolean } =>
+                typeof c?.code === "string" && typeof c?.name === "string",
+            )
+            .map((c) => ({
+              code: String(c.code).toUpperCase(),
+              name: c.name!,
+              enabled: Boolean(c.enabled),
+            })) ?? [];
+
+        setFinance({ accounts, paymentMethods, currencies });
+      } catch {
+        setFinance(null);
+      }
+    })();
+  }, [token]);
+
+  /* ========= helpers de UI ========= */
+  const inputBase =
+    "w-full rounded-2xl bg-white/50 border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
+
+  const formatMoney = (n: number, cur = "ARS") =>
+    new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency: cur,
+      minimumFractionDigits: 2,
+    }).format(n);
+
+  /* ========= servicios de la reserva ========= */
   const servicesFromBooking = useMemo<Service[]>(
     () => booking.services ?? [],
     [booking.services],
@@ -45,23 +183,17 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
     [servicesFromBooking, selectedServiceIds],
   );
 
-  const toggleService = (svc: Service) => {
-    setSelectedServiceIds((prev) =>
-      prev.includes(svc.id_service)
-        ? prev.filter((id) => id !== svc.id_service)
-        : [...prev, svc.id_service],
-    );
-  };
-
   const allSelectedSameCurrency = useMemo(() => {
     if (selectedServices.length === 0) return true;
-    const set = new Set(selectedServices.map((s) => s.currency || "ARS"));
+    const set = new Set(
+      selectedServices.map((s) => (s.currency || "ARS").toUpperCase()),
+    );
     return set.size === 1;
   }, [selectedServices]);
 
   const suggestedCurrency = useMemo(() => {
     if (!allSelectedSameCurrency || selectedServices.length === 0) return null;
-    return selectedServices[0].currency || "ARS";
+    return (selectedServices[0].currency || "ARS").toUpperCase();
   }, [allSelectedSameCurrency, selectedServices]);
 
   const suggestedAmount = useMemo(
@@ -73,14 +205,15 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
     [selectedServices],
   );
 
-  const formatMoney = (n: number, cur = "ARS") =>
-    new Intl.NumberFormat("es-AR", {
-      style: "currency",
-      currency: cur,
-      minimumFractionDigits: 2,
-    }).format(n);
+  const toggleService = (svc: Service) => {
+    setSelectedServiceIds((prev) =>
+      prev.includes(svc.id_service)
+        ? prev.filter((id) => id !== svc.id_service)
+        : [...prev, svc.id_service],
+    );
+  };
 
-  // === Clientes (picker múltiple) ===
+  /* ========= clientes (picker múltiple) ========= */
   const [clientsCount, setClientsCount] = useState(1);
   const [clientIds, setClientIds] = useState<(number | null)[]>([null]);
 
@@ -102,48 +235,80 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
     });
   };
 
-  // Excluir duplicados entre los pickers
   const excludeForIndex = (idx: number) =>
     clientIds.filter((_, i) => i !== idx).filter(Boolean) as number[];
 
-  const inputBase =
-    "w-full rounded-2xl bg-white/50 border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
+  /* ========= Conversión (opcional) ========= */
+  const [baseAmount, setBaseAmount] = useState<string>("");
+  const [baseCurrency, setBaseCurrency] = useState<string>("");
+  const [counterAmount, setCounterAmount] = useState<string>("");
+  const [counterCurrency, setCounterCurrency] = useState<string>("");
 
-  // === Conversión (SIN T.C. ni nota) ===
-  const [baseAmount, setBaseAmount] = useState<string>(""); // ej: 500
-  const [baseCurrency, setBaseCurrency] = useState<string>(""); // ej: USD
-  const [counterAmount, setCounterAmount] = useState<string>(""); // ej: 700000
-  const [counterCurrency, setCounterCurrency] = useState<string>(""); // ej: ARS
-
-  // Métodos que requieren seleccionar cuenta
-  const methodsRequiringAccount = useMemo(
-    () => new Set<string>(["Transferencia", "Deposito"]),
-    [],
+  /* ========= Opciones por Config (sin fallbacks locales) ========= */
+  const paymentMethodOptions = useMemo(
+    () =>
+      uniqSorted(
+        finance?.paymentMethods?.filter((m) => m.enabled).map((m) => m.name) ??
+          [],
+      ),
+    [finance?.paymentMethods],
   );
-  const showAccount = methodsRequiringAccount.has(paymentMethod);
 
+  const requiresAccountMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const m of finance?.paymentMethods || []) {
+      if (!m.enabled) continue;
+      map.set(norm(m.name), !!m.requires_account);
+    }
+    return map;
+  }, [finance?.paymentMethods]);
+
+  const showAccount = useMemo(() => {
+    if (!paymentMethod) return false;
+    return !!requiresAccountMap.get(norm(paymentMethod));
+  }, [paymentMethod, requiresAccountMap]);
+
+  const accountOptions = useMemo(
+    () =>
+      uniqSorted(
+        finance?.accounts?.filter((a) => a.enabled).map((a) => a.name) ?? [],
+      ),
+    [finance?.accounts],
+  );
+
+  const currencyOptions = useMemo(
+    () =>
+      uniqSorted(
+        finance?.currencies
+          ?.filter((c) => c.enabled)
+          .map((c) => c.code.toUpperCase()) ?? [],
+      ),
+    [finance?.currencies],
+  );
+
+  const currencyLabelDict = useMemo(() => {
+    const dict: Record<string, string> = {};
+    for (const c of finance?.currencies || []) {
+      if (c.enabled) dict[String(c.code).toUpperCase()] = c.name;
+    }
+    return dict;
+  }, [finance?.currencies]);
+
+  /* ========= submit ========= */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!concept.trim()) return toast.error("Ingresá el concepto");
 
+    if (!concept.trim()) return toast.error("Ingresá el concepto");
     if (selectedServiceIds.length === 0) {
       return toast.error("Seleccioná al menos un servicio de la reserva");
     }
+    if (!paymentMethod) return toast.error("Seleccioná el método de pago");
+    if (showAccount && !account) return toast.error("Seleccioná la cuenta");
 
-    if (!paymentMethod) {
-      return toast.error("Seleccioná el método de pago");
-    }
-
-    if (showAccount && !account) {
-      return toast.error("Seleccioná la cuenta");
-    }
-
-    // clientes seleccionados (pueden quedar vacíos para auto-asignar)
     const pickedClientIds = clientIds.filter(
       (v): v is number => typeof v === "number" && Number.isFinite(v),
     );
 
-    // Importe final
     let finalAmount: number;
     if (manualAmount.trim() !== "") {
       const parsed = parseFloat(manualAmount);
@@ -152,7 +317,9 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
       }
       finalAmount = parsed;
     } else {
-      const setCur = new Set(selectedServices.map((s) => s.currency || "ARS"));
+      const setCur = new Set(
+        selectedServices.map((s) => (s.currency || "ARS").toUpperCase()),
+      );
       if (setCur.size > 1) {
         return toast.error(
           "Seleccionaste servicios con monedas distintas. Ingresá el Importe numérico.",
@@ -161,7 +328,6 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
       finalAmount = suggestedAmount;
     }
 
-    // Conversión (opcional)
     const payloadBaseAmount =
       baseAmount.trim() !== "" ? parseFloat(baseAmount) : undefined;
     const payloadCounterAmount =
@@ -176,11 +342,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
           body: JSON.stringify({
             booking,
             concept,
-
-            // Importante:
-            // - 'currency' = descripción texto del método (compat con PDF)
-            // - 'payment_method' = método seleccionado (select)
-            // - 'account' = cuenta (solo si aplica)
+            // 'currency' => texto libre para PDF (compat)
             currency: paymentDescription,
             payment_method: paymentMethod,
             account: showAccount ? account : undefined,
@@ -189,9 +351,8 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
             amountCurrency,
             serviceIds: selectedServiceIds,
             amount: finalAmount,
-            clientIds: pickedClientIds, // opcional: puede ir vacío
+            clientIds: pickedClientIds,
 
-            // Conversión (opcional, sin T.C. ni nota)
             base_amount: payloadBaseAmount,
             base_currency: baseCurrency || undefined,
             counter_amount: payloadCounterAmount,
@@ -237,6 +398,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
     }
   };
 
+  /* ========= UI ========= */
   return (
     <motion.div
       layout
@@ -335,11 +497,11 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                         <b>Venta:</b>{" "}
                         {formatMoney(
                           (svc.sale_price ?? 0) + (svc.card_interest ?? 0),
-                          svc.currency || "ARS",
+                          (svc.currency || "ARS").toUpperCase(),
                         )}
                         <span className="opacity-70">
                           {" "}
-                          ({svc.currency || "ARS"})
+                          ({(svc.currency || "ARS").toUpperCase()})
                         </span>
                       </div>
                     </button>
@@ -436,7 +598,6 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
               Detalle del recibo
             </p>
 
-            {/* Concepto */}
             <div>
               <label className="ml-2 block dark:text-white">Concepto</label>
               <input
@@ -449,7 +610,6 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
               />
             </div>
 
-            {/* Importe numérico + Moneda */}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="md:col-span-2">
                 <label className="ml-2 block dark:text-white">
@@ -468,7 +628,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                     <p>
                       {formatMoney(
                         Number(manualAmount),
-                        amountCurrency || "ARS",
+                        (amountCurrency || "ARS").toUpperCase(),
                       )}
                     </p>
                   )}
@@ -480,7 +640,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                         (Sugerido:{" "}
                         {formatMoney(
                           suggestedAmount,
-                          suggestedCurrency || "ARS",
+                          (suggestedCurrency || "ARS").toUpperCase(),
                         )}
                         )
                       </>
@@ -502,12 +662,20 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                   value={amountCurrency}
                   onChange={(e) => setAmountCurrency(e.target.value)}
                   className={`${inputBase} cursor-pointer appearance-none`}
+                  disabled={currencyOptions.length === 0}
                 >
                   <option value="" disabled>
-                    Seleccionar moneda
+                    {currencyOptions.length
+                      ? "Seleccionar moneda"
+                      : "Sin monedas habilitadas"}
                   </option>
-                  <option value="USD">USD</option>
-                  <option value="ARS">ARS</option>
+                  {currencyOptions.map((code) => (
+                    <option key={code} value={code}>
+                      {currencyLabelDict[code]
+                        ? `${code} — ${currencyLabelDict[code]}`
+                        : code}
+                    </option>
+                  ))}
                 </select>
                 {selectedServices.length > 0 && allSelectedSameCurrency && (
                   <p className="ml-2 mt-1 text-xs opacity-70">
@@ -517,7 +685,6 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
               </div>
             </div>
 
-            {/* Importe en palabras */}
             <div>
               <label className="ml-2 block dark:text-white">
                 Recibimos el equivalente a
@@ -539,7 +706,6 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
               Pago
             </p>
 
-            {/* Método de pago */}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
                 <label className="ml-2 block dark:text-white">
@@ -550,15 +716,18 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                   onChange={(e) => setPaymentMethod(e.target.value)}
                   className={`${inputBase} cursor-pointer appearance-none`}
                   required
+                  disabled={paymentMethodOptions.length === 0}
                 >
                   <option value="" disabled>
-                    Seleccionar método
+                    {paymentMethodOptions.length
+                      ? "Seleccionar método"
+                      : "Sin métodos habilitados"}
                   </option>
-                  <option value="Efectivo">Efectivo</option>
-                  <option value="Transferencia">Transferencia</option>
-                  <option value="Deposito">Deposito</option>
-                  <option value="Crédito">Crédito</option>
-                  <option value="iata">iata</option>
+                  {paymentMethodOptions.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -570,20 +739,23 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                     onChange={(e) => setAccount(e.target.value)}
                     className={`${inputBase} cursor-pointer appearance-none`}
                     required={showAccount}
+                    disabled={accountOptions.length === 0}
                   >
                     <option value="" disabled>
-                      Seleccionar cuenta
+                      {accountOptions.length
+                        ? "Seleccionar cuenta"
+                        : "Sin cuentas habilitadas"}
                     </option>
-                    <option value="Banco Macro">Banco Macro</option>
-                    <option value="Banco Nación">Banco Nación</option>
-                    <option value="Banco Galicia">Banco Galicia</option>
-                    <option value="Mercado Pago">Mercado Pago</option>
+                    {accountOptions.map((acc) => (
+                      <option key={acc} value={acc}>
+                        {acc}
+                      </option>
+                    ))}
                   </select>
                 </div>
               )}
             </div>
 
-            {/* Descripción para PDF */}
             <div>
               <label className="ml-2 block dark:text-white">
                 Método de pago (detalle para el PDF)
@@ -618,12 +790,16 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                   value={baseCurrency}
                   onChange={(e) => setBaseCurrency(e.target.value)}
                   className={`${inputBase} cursor-pointer appearance-none`}
+                  disabled={currencyOptions.length === 0}
                 >
                   <option value="" disabled>
-                    Moneda base
+                    {currencyOptions.length ? "Moneda base" : "Sin monedas"}
                   </option>
-                  <option value="USD">USD</option>
-                  <option value="ARS">ARS</option>
+                  {currencyOptions.map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -640,24 +816,33 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                   value={counterCurrency}
                   onChange={(e) => setCounterCurrency(e.target.value)}
                   className={`${inputBase} cursor-pointer appearance-none`}
+                  disabled={currencyOptions.length === 0}
                 >
                   <option value="" disabled>
-                    Moneda contra
+                    {currencyOptions.length ? "Moneda contra" : "Sin monedas"}
                   </option>
-                  <option value="USD">USD</option>
-                  <option value="ARS">ARS</option>
+                  {currencyOptions.map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
                 </select>
               </div>
               <p className="ml-2 text-sm text-gray-500 dark:text-gray-400">
-                {formatMoney(Number(baseAmount), baseCurrency || "ARS")}
+                {formatMoney(
+                  Number(baseAmount || 0),
+                  (baseCurrency || "ARS").toUpperCase(),
+                )}
               </p>
               <p className="ml-2 text-sm text-gray-500 dark:text-gray-400">
-                {formatMoney(Number(counterAmount), counterCurrency || "ARS")}
+                {formatMoney(
+                  Number(counterAmount || 0),
+                  (counterCurrency || "ARS").toUpperCase(),
+                )}
               </p>
             </div>
           </section>
 
-          {/* Acción */}
           <div className="pt-2">
             <button
               type="submit"
