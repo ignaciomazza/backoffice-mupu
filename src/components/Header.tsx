@@ -4,7 +4,7 @@
 import ThemeToggle from "@/components/ThemeToggle";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   motion,
   AnimatePresence,
@@ -23,7 +23,7 @@ const WA_NUMBER = process.env.NEXT_PUBLIC_WA_NUMBER ?? "54911XXXXXXXX";
 const WA_MSG = encodeURIComponent("Hola, quiero más info sobre Ofistur.");
 const WA_URL = `https://wa.me/${WA_NUMBER}?text=${WA_MSG}`;
 
-/* ---------- Botones renovados ---------- */
+/* ---------- Botones renovados (solo light) ---------- */
 function WhatsAppBtn() {
   return (
     <motion.a
@@ -36,7 +36,6 @@ function WhatsAppBtn() {
         "text-sm font-medium text-emerald-900 shadow-sm",
         "transition-colors hover:bg-emerald-50/90",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40",
-        "dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20",
       ].join(" ")}
       whileHover={{ y: -1 }}
       whileTap={{ scale: 0.98 }}
@@ -92,7 +91,6 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
 
   /* ---------- Animación fluida de la isla (landing) ---------- */
   const { scrollY } = useScroll();
-  // Respuesta suave al scroll
   const scale = useSpring(useTransform(scrollY, [0, 120], [1, 0.985]), {
     stiffness: 220,
     damping: 28,
@@ -103,14 +101,12 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
     damping: 28,
     mass: 0.35,
   });
-  // Blur dinámico del backdrop
   const blurPx = useSpring(useTransform(scrollY, [0, 120], [14, 20]), {
     stiffness: 220,
     damping: 28,
     mass: 0.35,
   });
-  const backdrop = useMotionTemplate`blur(${blurPx}px) saturate(1.4)`;
-  // Sombra ligeramente más marcada al scrollear
+  const backdrop = useMotionTemplate`blur(${blurPx}px) saturate(1.35)`;
   const shadowSpread = useSpring(useTransform(scrollY, [0, 120], [0.1, 0.18]), {
     stiffness: 220,
     damping: 28,
@@ -119,108 +115,147 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
   const boxShadow = useMotionTemplate`0 10px 30px rgba(15 23 42 / ${shadowSpread})`;
 
   const [open, setOpen] = useState(false);
+  const islandRef = useRef<HTMLDivElement | null>(null);
+  const [panelTop, setPanelTop] = useState<number>(96); // fallback seguro
+
+  // Medimos la altura real de la isla para anclar el panel móvil justo debajo (evita cortes)
+  const measure = () => {
+    const el = islandRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect(); // top relativo al viewport
+    const gap = 10; // separación visual
+    setPanelTop(Math.max(72, rect.top + rect.height + gap));
+  };
+
+  useLayoutEffect(() => {
+    measure();
+    const onResize = () => measure();
+    const onScroll = () => measure();
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, []);
+
+  // Bloqueo del scroll del body cuando el menú está abierto (mejor UX móvil)
+  useEffect(() => {
+    const b = document.body;
+    if (open) {
+      const prev = b.style.overflow;
+      b.style.overflow = "hidden";
+      return () => {
+        b.style.overflow = prev;
+      };
+    }
+  }, [open]);
 
   /* ---------- Header LANDING ---------- */
   if (isLanding) {
     return (
       <>
-        <div className="pointer-events-none fixed inset-x-0 top-3 z-[70] flex justify-center px-3 sm:top-4 sm:px-4">
+        <div className="pointer-events-none fixed inset-x-0 top-3 z-[70] flex justify-center sm:top-4 sm:px-4">
           <motion.div
             style={{ scale, y: translateY }}
             initial={{ y: -10, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.28, ease: "easeOut" }}
-            className="pointer-events-auto w-full max-w-6xl"
+            className="pointer-events-auto w-full"
           >
-            <motion.div
-              style={{ backdropFilter: backdrop, boxShadow }}
-              className={[
-                "mx-auto flex items-center justify-between gap-2",
-                "rounded-[22px] sm:rounded-[28px]",
-                "border border-white/20 bg-white/55 dark:border-white/10 dark:bg-slate-900/40",
-              ].join(" ")}
-            >
-              {/* Contenido con paddings fijos para evitar saltos bruscos */}
-              <div className="flex w-full items-center justify-between px-3.5 py-2.5 sm:px-5 sm:py-3">
-                {/* Brand */}
-                <Link
-                  href="/"
-                  className="select-none text-base font-semibold tracking-tight text-sky-950 dark:text-white"
-                >
-                  Ofis<span className="font-light">tur</span>
-                </Link>
-
-                {/* Nav desktop */}
-                <nav className="hidden items-center gap-5 text-sm text-sky-950 dark:text-white md:flex">
-                  {[
-                    { href: "#producto", label: "Producto" },
-                    { href: "#roles", label: "Para roles" },
-                    { href: "#seguridad", label: "Seguridad" },
-                    { href: "#faq", label: "FAQ" },
-                    { href: "#contacto", label: "Contacto" },
-                  ].map((item) => (
-                    <a
-                      key={item.href}
-                      href={item.href}
-                      className="rounded-full px-3 py-1 transition-colors hover:bg-white/40 hover:dark:bg-white/10"
-                    >
-                      {item.label}
-                    </a>
-                  ))}
-                </nav>
-
-                {/* Acciones */}
-                <div className="flex items-center gap-1 sm:gap-2">
-                  <WhatsAppBtn />
-                  <PlatformBtn />
-
-                  {/* Toggle menú móvil */}
-                  <button
-                    type="button"
-                    onClick={() => setOpen((v) => !v)}
-                    className="ml-1 inline-flex size-9 items-center justify-center rounded-full border border-white/30 bg-white/50 text-sky-950 shadow-sm transition hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40 dark:border-white/10 dark:bg-white/10 dark:text-white dark:hover:bg-white/20 md:hidden"
-                    aria-label="Abrir menú"
-                    aria-expanded={open}
+            <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+              <motion.div
+                ref={islandRef}
+                style={{ backdropFilter: backdrop, boxShadow }}
+                className={[
+                  "mx-auto flex items-center justify-between gap-2",
+                  "rounded-[22px] sm:rounded-[28px]",
+                  "border border-white/30 bg-white/55",
+                ].join(" ")}
+              >
+                {/* Paddings fijos para evitar saltos */}
+                <div className="flex w-full items-center justify-between px-3.5 py-2.5 sm:px-5 sm:py-3">
+                  {/* Brand */}
+                  <Link
+                    href="/"
+                    className="select-none text-base font-semibold tracking-tight text-sky-950"
                   >
-                    {open ? (
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="size-5"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2}
+                    Ofis<span className="font-light">tur</span>
+                  </Link>
+
+                  {/* Nav desktop */}
+                  <nav className="hidden items-center gap-5 text-sm text-sky-950 md:flex">
+                    {[
+                      { href: "#producto", label: "Producto" },
+                      { href: "#roles", label: "Para roles" },
+                      { href: "#seguridad", label: "Seguridad" },
+                      { href: "#faq", label: "FAQ" },
+                      { href: "#contacto", label: "Contacto" },
+                    ].map((item) => (
+                      <a
+                        key={item.href}
+                        href={item.href}
+                        className="rounded-full px-3 py-1 transition-colors hover:bg-white/50"
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg>
-                    ) : (
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="size-5"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M4 6h16M4 12h16M4 18h16"
-                        />
-                      </svg>
-                    )}
-                  </button>
+                        {item.label}
+                      </a>
+                    ))}
+                  </nav>
+
+                  {/* Acciones */}
+                  <div className="flex items-center gap-1 sm:gap-2">
+                    <div className="hidden items-center gap-1 sm:gap-2 md:flex">
+                      <WhatsAppBtn />
+                      <PlatformBtn />
+                    </div>
+                    {/* Toggle menú móvil */}
+                    <button
+                      type="button"
+                      onClick={() => setOpen((v) => !v)}
+                      className="ml-1 inline-flex size-9 items-center justify-center rounded-full border border-white/40 bg-white/60 text-sky-950 shadow-sm transition hover:bg-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40 md:hidden"
+                      aria-label="Abrir menú"
+                      aria-expanded={open}
+                    >
+                      {open ? (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="size-5"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      ) : (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="size-5"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M4 6h16M4 12h16M4 18h16"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </motion.div>
+              </motion.div>
+            </div>
           </motion.div>
         </div>
 
-        {/* Menú móvil */}
+        {/* Menú móvil (anclado bajo la isla, nunca se corta) */}
         <AnimatePresence>
           {open && (
             <>
@@ -231,6 +266,7 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
+                aria-label="Cerrar menú"
               />
               <motion.div
                 key="panel"
@@ -238,31 +274,39 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: -8, opacity: 0 }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
-                className="fixed left-1/2 top-20 z-[75] w-[92%] -translate-x-1/2 md:hidden"
+                className="fixed z-[75] md:hidden"
+                style={{
+                  top: panelTop + 10,
+                  left: 0,
+                  right: 0,
+                  // márgenes seguros a los lados (safe areas + padding)
+                  paddingLeft: "clamp(0.75rem, 3vw, 2rem)",
+                  paddingRight: "clamp(0.75rem, 3vw, 2rem)",
+                }}
               >
-                <div className="rounded-2xl border border-white/20 bg-white/70 p-3 text-sky-950 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/60 dark:text-white">
-                  <ul className="divide-y divide-white/20 dark:divide-white/10">
-                    {[
-                      { href: "#producto", label: "Producto" },
-                      { href: "#roles", label: "Para roles" },
-                      { href: "#seguridad", label: "Seguridad" },
-                      { href: "#faq", label: "FAQ" },
-                      { href: "#contacto", label: "Contacto" },
-                    ].map((item) => (
-                      <li key={item.href}>
-                        <a
-                          href={item.href}
-                          onClick={() => setOpen(false)}
-                          className="block px-2 py-3"
-                        >
-                          {item.label}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="mt-2 flex gap-2">
-                    <WhatsAppBtn />
-                    <div className="flex-1">
+                <div className="mx-auto w-full max-w-7xl">
+                  <div className="rounded-2xl border border-white/30 bg-white/75 p-3 text-sky-950 shadow-xl backdrop-blur-xl">
+                    <ul className="divide-y divide-white/30">
+                      {[
+                        { href: "#producto", label: "Producto" },
+                        { href: "#roles", label: "Para roles" },
+                        { href: "#seguridad", label: "Seguridad" },
+                        { href: "#faq", label: "FAQ" },
+                        { href: "#contacto", label: "Contacto" },
+                      ].map((item) => (
+                        <li key={item.href}>
+                          <a
+                            href={item.href}
+                            onClick={() => setOpen(false)}
+                            className="block px-2 py-3"
+                          >
+                            {item.label}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                      <WhatsAppBtn />
                       <PlatformBtn />
                     </div>
                   </div>
@@ -275,9 +319,9 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
     );
   }
 
-  /* ---------- Header PLATAFORMA (igual que tenías) ---------- */
+  /* ---------- Header PLATAFORMA (ligero y responsive, solo light) ---------- */
   return (
-    <header className="z-50 flex w-full items-center justify-between px-4 py-6 text-sky-950 dark:text-white md:top-0">
+    <header className="z-50 flex w-full items-center justify-between px-4 py-6 text-sky-950 md:top-0">
       <div className="flex w-full flex-auto justify-start md:justify-center">
         {!isLoginPage ? (
           <p className="text-lg font-medium">
@@ -290,11 +334,11 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
         )}
       </div>
 
-      <div className="absolute right-4 flex md:right-8">
+      <div className="absolute right-4 flex items-center gap-2 md:right-8">
         {!isLoginPage && <ThemeToggle />}
         {!isLoginPage && (
           <button
-            className="ml-4 block md:hidden"
+            className="ml-2 block rounded-full border border-sky-200 bg-white/70 p-2 shadow-sm md:hidden"
             onClick={toggleMenu}
             aria-label="Toggle Menu"
           >
@@ -339,9 +383,17 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
 /* ---------- Iconos ---------- */
 function IconWhatsApp(props: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 32 32" fill="currentColor" aria-hidden {...props}>
-      <path d="M19.11 17.18c-.28-.14-1.64-.81-1.89-.9-.26-.1-.45-.14-.64.14-.19.28-.73.9-.9 1.09-.17.19-.33.21-.61.07-.28-.14-1.18-.43-2.25-1.37-.83-.74-1.39-1.65-1.56-1.93-.17-.28-.02-.43.13-.57.13-.13.28-.33.42-.5.14-.17.19-.28.28-.47.09-.19.05-.36-.02-.5-.07-.14-.64-1.54-.87-2.11-.23-.55-.47-.47-.64-.47-.17 0-.36-.02-.55-.02s-.5.07-.76.36c-.26.28-.99.97-.99 2.37 0 1.4 1.02 2.75 1.17 2.94.14.19 2 3.05 4.84 4.27.68.29 1.2.46 1.61.59.68.21 1.31.18 1.8.11.55-.08 1.64-.67 1.87-1.34.23-.67.23-1.24.16-1.36-.07-.11-.25-.18-.53-.32z" />
-      <path d="M26.49 5.51C23.7 2.73 20.02 1.2 16.08 1.2 8.2 1.2 1.86 7.54 1.86 15.42c0 2.51.66 4.95 1.92 7.1L1.2 30.8l8.5-2.27c2.06 1.12 4.39 1.7 6.77 1.7h.01c7.88 0 14.22-6.34 14.22-14.22 0-3.94-1.53-7.62-4.21-10.5zm-10.21 22.6h-.01c-2.16 0-4.27-.58-6.13-1.67l-.44-.26-5.05 1.35 1.35-4.92-.29-.5a12.7 12.7 0 01-1.86-6.64c0-7.02 5.71-12.73 12.73-12.73 3.4 0 6.6 1.32 9 3.72a12.65 12.65 0 013.72 9c0 7.03-5.71 12.73-12.72 12.73z" />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="1em"
+      height="1em"
+      viewBox="0 0 464 488"
+      {...props}
+    >
+      <path
+        fill="#064e3b"
+        d="M462 228q0 93-66 159t-160 66q-56 0-109-28L2 464l40-120q-32-54-32-116q0-93 66-158.5T236 4t160 65.5T462 228zM236 39q-79 0-134.5 55.5T46 228q0 62 36 111l-24 70l74-23q49 31 104 31q79 0 134.5-55.5T426 228T370.5 94.5T236 39zm114 241q-1-1-10-7q-3-1-19-8.5t-19-8.5q-9-3-13 2q-1 3-4.5 7.5t-7.5 9t-5 5.5q-4 6-12 1q-34-17-45-27q-7-7-13.5-15t-12-15t-5.5-8q-3-7 3-11q4-6 8-10l6-9q2-5-1-10q-4-13-17-41q-3-9-12-9h-11q-9 0-15 7q-19 19-19 45q0 24 22 57l2 3q2 3 4.5 6.5t7 9t9 10.5t10.5 11.5t13 12.5t14.5 11.5t16.5 10t18 8.5q16 6 27.5 10t18 5t9.5 1t7-1t5-1q9-1 21.5-9t15.5-17q8-21 3-26z"
+      ></path>
     </svg>
   );
 }

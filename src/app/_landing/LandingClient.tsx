@@ -43,7 +43,7 @@ const hoverPreset = {
 } as const;
 
 /* ===========================
- * Primitives (alineadas al resto del proyecto)
+ * Primitives
  * =========================== */
 type BtnSize = "sm" | "md";
 function ButtonPrimary({
@@ -66,14 +66,18 @@ function ButtonPrimary({
   const sizing =
     size === "sm" ? "px-4 py-2 text-sm" : "px-5 py-2.5 text-[15px]";
   const base =
-    "rounded-full bg-sky-100 text-sky-950 " +
-    "transition-all hover:scale-[0.98] active:scale-95 disabled:opacity-60 " +
-    "focus:outline-none focus:ring-1 focus:ring-sky-950/40 " +
-    "dark:bg-white/10 dark:text-white dark:backdrop-blur";
+    "rounded-full transition-all hover:scale-[0.98] active:scale-95 disabled:opacity-60 focus:outline-none";
   const content = (
     <motion.span
       {...hoverPreset}
-      className={`${base} ${sizing} ${className} ${variant === "emerald" ? "border border-emerald-300/50 bg-emerald-50/70 text-emerald-900 shadow-sm shadow-emerald-950/5" : "shadow-sm shadow-sky-950/20"}`}
+      className={[
+        base,
+        sizing,
+        className,
+        variant === "emerald"
+          ? "border border-emerald-300/50 bg-emerald-50/70 text-emerald-900 shadow-sm shadow-emerald-950/5"
+          : "bg-sky-100 text-sky-950 shadow-sm shadow-sky-950/20 focus:ring-1 focus:ring-sky-950/40",
+      ].join(" ")}
     >
       {children}
     </motion.span>
@@ -106,10 +110,7 @@ function ButtonGhost({
   const sizing =
     size === "sm" ? "px-4 py-2 text-sm" : "px-5 py-2.5 text-[15px]";
   const base =
-    "rounded-full border border-white/10 bg-white/10 text-sky-950 " +
-    "shadow-sm shadow-sky-950/10 transition-all hover:scale-[0.98] active:scale-95 " +
-    "focus:outline-none focus:ring-1 focus:ring-sky-950/30 " +
-    "dark:text-white dark:bg-white/10 dark:backdrop-blur";
+    "rounded-full border border-white/10 bg-white/10 text-sky-950 shadow-sm shadow-sky-950/10 transition-all hover:scale-[0.98] active:scale-95 focus:outline-none focus:ring-1 focus:ring-sky-950/30";
   const content = (
     <motion.span {...hoverPreset} className={`${base} ${sizing} ${className}`}>
       {children}
@@ -129,8 +130,7 @@ function Card({
   animated?: boolean;
 }) {
   const classes =
-    "rounded-3xl border border-white/10 bg-white/10 p-7 sm:p-8 text-sky-950 " +
-    "shadow-md shadow-sky-950/10 backdrop-blur dark:text-white " +
+    "min-w-0 rounded-3xl border border-white/10 bg-white/10 p-6 sm:p-8 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur " +
     className;
   if (!animated) return <div className={classes}>{children}</div>;
   return (
@@ -183,9 +183,9 @@ function FloatingInput({
         type={type}
         required={required}
         placeholder={placeholder}
-        className="peer w-full rounded-2xl border border-sky-950/10 bg-white/10 p-3 text-sky-950 outline-none backdrop-blur placeholder:text-transparent focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30 dark:border-white/10 dark:bg-white/10 dark:text-white"
+        className="peer w-full rounded-2xl border border-sky-950/10 bg-white/10 p-3 text-sky-950 outline-none backdrop-blur placeholder:text-transparent focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30"
       />
-      <label className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-lg bg-white/60 px-2 py-1 text-xs text-sky-950/80 transition-all duration-200 peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:text-sky-950 dark:bg-white/10 dark:text-white/80">
+      <label className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-lg bg-white/60 px-2 py-1 text-xs text-sky-950/80 transition-all duration-200 peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:text-sky-950">
         {label}
       </label>
     </div>
@@ -209,9 +209,9 @@ function FloatingTextarea({
         name={name}
         rows={rows}
         placeholder={placeholder}
-        className="peer w-full rounded-2xl border border-sky-950/10 bg-white/10 p-3 text-sky-950 outline-none backdrop-blur placeholder:text-transparent focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30 dark:border-white/10 dark:bg-white/10 dark:text-white"
+        className="peer w-full rounded-2xl border border-sky-950/10 bg-white/10 p-3 text-sky-950 outline-none backdrop-blur placeholder:text-transparent focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30"
       />
-      <label className="pointer-events-none absolute left-3 top-3 z-10 bg-white/60 px-1 text-xs text-sky-950/80 transition-all duration-200 peer-placeholder-shown:top-3 peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:text-sky-950 dark:bg-white/10 dark:text-white/80">
+      <label className="pointer-events-none absolute left-3 top-3 z-10 bg-white/60 px-1 text-xs text-sky-950/80 transition-all duration-200 peer-placeholder-shown:top-3 peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:text-sky-950">
         {label}
       </label>
     </div>
@@ -231,19 +231,17 @@ function SelectField({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="ml-1 text-xs font-medium text-sky-950/80 dark:text-white/80">
-        {label}
-      </span>
+      <span className="ml-1 text-xs font-medium text-sky-950/80">{label}</span>
       <div className="relative">
         <select
           name={name}
           required={required}
-          className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/10 p-3 text-sky-950 outline-none backdrop-blur focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30 dark:border-white/10 dark:bg-white/10 dark:text-white"
+          className="relative z-[1] w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/10 p-3 text-sky-950 outline-none backdrop-blur focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30"
           defaultValue=""
         >
           {children}
         </select>
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sky-950/60 dark:text-white/60">
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sky-950/60">
           ▾
         </span>
       </div>
@@ -267,14 +265,14 @@ function Section({
 }) {
   return (
     <section id={id} className="scroll-mt-24 py-16 sm:py-20">
-      <div className="mx-auto max-w-6xl px-5">
+      <div className="mx-auto max-w-7xl px-1 md:px-8">
         <motion.header {...viewPreset}>
           {eyebrow && (
-            <div className="mb-3 inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium text-sky-950/80 backdrop-blur dark:text-white/80">
+            <div className="mb-3 inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium text-sky-950/80 backdrop-blur">
               {eyebrow}
             </div>
           )}
-          <h2 className="text-2xl font-semibold text-sky-950 dark:text-white sm:text-3xl">
+          <h2 className="text-2xl font-semibold text-sky-950 sm:text-3xl">
             {title}
           </h2>
         </motion.header>
@@ -300,16 +298,12 @@ function FeatureCard({
       {...hoverPreset}
     >
       <div className="mb-4 inline-flex items-center gap-3">
-        <span className="grid size-9 place-items-center rounded-full bg-sky-100 text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white">
+        <span className="grid size-9 place-items-center rounded-full bg-sky-100 text-sky-950 shadow-sm shadow-sky-950/20">
           {icon}
         </span>
-        <h3 className="text-base font-semibold text-sky-950 dark:text-white">
-          {title}
-        </h3>
+        <h3 className="text-base font-semibold text-sky-950">{title}</h3>
       </div>
-      <p className="text-[15px] leading-relaxed text-sky-950/80 dark:text-white/80">
-        {desc}
-      </p>
+      <p className="text-[15px] leading-relaxed text-sky-950/80">{desc}</p>
     </motion.div>
   );
 }
@@ -323,12 +317,8 @@ function GalleryCard({ title }: { title: string }) {
     >
       <div className="relative aspect-video w-full bg-gradient-to-b from-white/30 to-white/10" />
       <div className="px-5 py-4">
-        <p className="text-sm font-medium text-sky-950 dark:text-white">
-          {title}
-        </p>
-        <p className="text-xs text-sky-950/70 dark:text-white/70">
-          Reemplazar por captura real
-        </p>
+        <p className="text-sm font-medium text-sky-950">{title}</p>
+        <p className="text-xs text-sky-950/70">Reemplazar por captura real</p>
       </div>
     </motion.div>
   );
@@ -341,13 +331,11 @@ function RoleCard({ title, bullets }: { title: string; bullets: string[] }) {
       {...viewPreset}
       {...hoverPreset}
     >
-      <h3 className="text-base font-semibold text-sky-950 dark:text-white">
-        {title}
-      </h3>
-      <ul className="mt-4 space-y-2 text-sm text-sky-950/80 dark:text-white/80">
+      <h3 className="text-base font-semibold text-sky-950">{title}</h3>
+      <ul className="mt-4 space-y-2 text-sm text-sky-950/80">
         {bullets.map((b, i) => (
           <li key={i} className="flex gap-2">
-            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-sky-500" />
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-sky-800" />
             <span>{b}</span>
           </li>
         ))}
@@ -381,13 +369,9 @@ function ChartCard({
       {...hoverPreset}
     >
       <div className="flex items-baseline justify-between">
-        <p className="text-sm font-semibold text-sky-950 dark:text-white">
-          {title}
-        </p>
+        <p className="text-sm font-semibold text-sky-950">{title}</p>
         {subtitle && (
-          <span className="text-[11px] text-sky-950/70 dark:text-white/70">
-            {subtitle}
-          </span>
+          <span className="text-[11px] text-sky-950/70">{subtitle}</span>
         )}
       </div>
       <div className="mt-3 h-40 w-full">{children}</div>
@@ -399,7 +383,7 @@ function GlassTooltip(props: TooltipProps<number, string>) {
   const { active, label, payload } = props;
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sky-950 shadow-md backdrop-blur dark:bg-sky-950/10 dark:text-white">
+    <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sky-950 shadow-md backdrop-blur">
       {label && <p className="mb-1 text-xs opacity-70">{label}</p>}
       <div className="space-y-1">
         {payload.map((p, i) => (
@@ -425,10 +409,10 @@ export default function LandingClient() {
           aria-hidden
           className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(60%_50%_at_50%_0%,#e0f2fe_0%,transparent_60%)]"
         />
-        <div className="mx-auto max-w-6xl px-5">
+        <div className="mx-auto max-w-7xl px-1 md:px-8">
           <Card className="max-w-4xl bg-white/20" animated={false}>
             <motion.h1
-              className="text-4xl font-semibold leading-tight tracking-tight text-sky-950 dark:text-white sm:text-6xl"
+              className="text-4xl font-semibold leading-tight tracking-tight text-sky-950 sm:text-6xl"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35, ease: "easeOut" }}
@@ -445,7 +429,7 @@ export default function LandingClient() {
             </motion.h1>
 
             <motion.p
-              className="mt-6 max-w-2xl text-lg text-sky-950/80 dark:text-white/80"
+              className="mt-6 max-w-2xl text-lg text-sky-950/80"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35, ease: "easeOut", delay: 0.06 }}
@@ -455,7 +439,7 @@ export default function LandingClient() {
             </motion.p>
 
             <motion.div
-              className="mt-8 flex flex-wrap items-center gap-2 sm:gap-3"
+              className="mt-8 flex flex-wrap items-center gap-6 sm:gap-3"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35, ease: "easeOut", delay: 0.12 }}
@@ -480,7 +464,7 @@ export default function LandingClient() {
 
       {/* Pilares + Charts */}
       <Section id="producto" title="Qué resuelve" eyebrow="Producto">
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-5 sm:gap-6 md:[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))] lg:gap-7">
           <FeatureCard
             title="Operativa"
             desc="Reservas y servicios, cotizaciones, confirmaciones, calendario y recursos."
@@ -503,7 +487,7 @@ export default function LandingClient() {
           />
         </div>
 
-        <div className="mt-10 grid gap-6 md:grid-cols-3">
+        <div className="mt-10 grid grid-cols-1 gap-5 sm:gap-6 md:[grid-template-columns:repeat(auto-fit,minmax(260px,1fr))] lg:gap-7">
           <ChartAhorroTiempo />
           <ChartErrores />
           <ChartAdopcionSimple />
@@ -512,10 +496,10 @@ export default function LandingClient() {
 
       {/* Galería */}
       <Section title="Conocé la plataforma" eyebrow="Capturas">
-        <p className="text-sm text-sky-950/80 dark:text-white/80">
+        <p className="text-sm text-sky-950/80">
           Reemplazaremos estas vistas por capturas reales (sin datos sensibles).
         </p>
-        <div className="mt-7 grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-7 grid grid-cols-1 gap-6 sm:gap-7 md:[grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
           {[
             "Generador de cotizaciones y confirmaciones (PDF)",
             "Reservas y Servicios",
@@ -531,7 +515,7 @@ export default function LandingClient() {
 
       {/* Roles */}
       <Section id="roles" title="Valor por rol" eyebrow="Perfiles">
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
           <RoleCard
             title="Dueño / Gerente"
             bullets={[
@@ -573,7 +557,7 @@ export default function LandingClient() {
         title="Seguridad e integraciones"
         eyebrow="Confianza"
       >
-        <ul className="mt-3 grid list-disc gap-2 pl-6 text-sm text-sky-950/80 dark:text-white/80 sm:grid-cols-2">
+        <ul className="mt-3 list-disc gap-2 pl-6 text-sm text-sky-950/80">
           <li>Integración AFIP</li>
           <li>Copias de seguridad automáticas</li>
           <li>Cifrado en tránsito y en reposo</li>
@@ -592,19 +576,19 @@ export default function LandingClient() {
 
       {/* Contacto */}
       <Section id="contacto" title="Dejá tus datos" eyebrow="Contacto">
-        <div className="grid gap-7 md:grid-cols-[1fr,1.2fr]">
+        <div className="grid gap-6 sm:gap-7 md:grid-cols-[1fr,1.2fr] lg:grid-cols-[1fr,1.3fr]">
           {/* CTA card */}
           <Card>
             <h3 className="text-lg font-semibold">¿Preferís hablar directo?</h3>
-            <p className="mt-2 text-sm text-sky-950/80 dark:text-white/80">
+            <p className="mt-2 text-sm text-sky-950/80">
               Te respondemos por WhatsApp. Contanos brevemente tu caso.
             </p>
             <div className="mt-4">
-              <ButtonPrimary href={WA_URL} size="sm">
+              <ButtonPrimary variant="emerald" href={WA_URL} size="sm">
                 Abrir WhatsApp
               </ButtonPrimary>
             </div>
-            <div className="mt-6 text-xs text-sky-950/70 dark:text-white/70">
+            <div className="mt-6 text-xs text-sky-950/70">
               También podés completar el formulario y te contactamos por
               WhatsApp y email.
             </div>
@@ -616,7 +600,7 @@ export default function LandingClient() {
       </Section>
 
       {/* Footer mini */}
-      <footer className="border-t border-white/10 py-10 text-center text-sm text-sky-950/70 dark:text-white/70">
+      <footer className="border-t border-white/10 py-10 text-center text-sm text-sky-950/70">
         © {new Date().getFullYear()} Ofistur ·{" "}
         <a href="/legal/terminos" className="underline">
           Términos
@@ -633,7 +617,7 @@ export default function LandingClient() {
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Escribir por WhatsApp"
-        className="fixed bottom-5 right-5 z-[60] inline-flex size-12 items-center justify-center rounded-full bg-sky-100 text-sky-950 shadow-lg shadow-sky-950/20 transition hover:scale-105 active:scale-95 dark:bg-white/10 dark:text-white"
+        className="fixed bottom-5 right-5 z-[60] inline-flex size-12 items-center justify-center rounded-full border border-emerald-300/50 bg-emerald-50 text-emerald-950 shadow-lg shadow-emerald-950/20 transition hover:scale-105 active:scale-95"
       >
         <IconWhatsApp className="size-6" />
       </a>
@@ -663,17 +647,19 @@ const FAQ_ITEMS: [string, string][] = [
 
 function FAQItem({ question, answer }: { question: string; answer: string }) {
   const [open, setOpen] = useState(false);
+  const id = question.toLowerCase().replace(/\s+/g, "-");
   return (
     <div className="border-b border-white/10 first:rounded-t-3xl last:rounded-b-3xl">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left text-sky-950 dark:text-white"
+        aria-controls={`${id}-panel`}
+        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left text-sky-950"
       >
         <span className="font-medium">{question}</span>
         <span
-          className={`rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-900 transition dark:bg-white/10 dark:text-white/80 ${open ? "rotate-45" : ""}`}
+          className={`rounded-full bg-sky-100 px-2 py-0.5 text-xs text-sky-900 transition ${open ? "rotate-45" : ""}`}
         >
           +
         </span>
@@ -682,6 +668,7 @@ function FAQItem({ question, answer }: { question: string; answer: string }) {
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
+            id={`${id}-panel`}
             key="content"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -689,9 +676,7 @@ function FAQItem({ question, answer }: { question: string; answer: string }) {
             transition={{ duration: 0.25, ease: "easeOut" }}
             className="overflow-hidden px-5"
           >
-            <p className="pb-4 text-sm text-sky-950/80 dark:text-white/80">
-              {answer}
-            </p>
+            <p className="pb-4 text-sm text-sky-950/80">{answer}</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -725,7 +710,7 @@ function LeadForm() {
   return (
     <motion.form
       onSubmit={onSubmit}
-      className="rounded-3xl border border-white/10 bg-white/10 p-7 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
+      className="rounded-3xl border border-white/10 bg-white/10 px-3 py-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur md:p-7"
       {...viewPreset}
     >
       <div className="grid gap-5 md:grid-cols-2">
@@ -766,10 +751,10 @@ function LeadForm() {
         <ButtonPrimary type="submit" size="sm" className="min-w-[120px]">
           {loading ? "Enviando…" : "Enviar"}
         </ButtonPrimary>
-        <ButtonGhost href={WA_URL} size="sm">
+        <ButtonPrimary variant="emerald" href={WA_URL} size="sm">
           WhatsApp
-        </ButtonGhost>
-        <p className="text-xs text-sky-950/70 dark:text-white/70">
+        </ButtonPrimary>
+        <p className="text-xs text-sky-950/70">
           Al enviar aceptás nuestras{" "}
           <a className="underline" href="/legal/terminos">
             Condiciones
@@ -784,7 +769,7 @@ function LeadForm() {
 
       {sent === "ok" && (
         <motion.p
-          className="mt-3 text-sm text-emerald-700 dark:text-emerald-300"
+          className="mt-3 text-sm text-emerald-700"
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
         >
@@ -793,7 +778,7 @@ function LeadForm() {
       )}
       {sent === "err" && (
         <motion.p
-          className="mt-3 text-sm text-red-600 dark:text-red-300"
+          className="mt-3 text-sm text-red-600"
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
         >
@@ -923,12 +908,8 @@ function ChartAdopcionSimple() {
           </ResponsiveContainer>
           <div className="pointer-events-none absolute inset-0 grid place-items-center">
             <div className="text-center">
-              <div className="text-2xl font-semibold text-sky-950 dark:text-white">
-                {pct}%
-              </div>
-              <div className="text-[11px] text-sky-950/70 dark:text-white/70">
-                equipos usando
-              </div>
+              <div className="text-2xl font-semibold text-sky-950">{pct}%</div>
+              <div className="text-[11px] text-sky-950/70">equipos usando</div>
             </div>
           </div>
         </div>
@@ -998,9 +979,17 @@ function IconZap(props: React.SVGProps<SVGSVGElement>) {
 }
 function IconWhatsApp(props: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 32 32" fill="currentColor" {...props}>
-      <path d="M19.11 17.18c-.28-.14-1.64-.81-1.89-.9-.26-.1-.45-.14-.64.14-.19.28-.73.9-.9 1.09-.17.19-.33.21-.61.07-.28-.14-1.18-.43-2.25-1.37-.83-.74-1.39-1.65-1.56-1.93-.17-.28-.02-.43.13-.57.13-.13.28-.33.42-.5.14-.17.19-.28.28-.47.09-.19.05-.36-.02-.5-.07-.14-.64-1.54-.87-2.11-.23-.55-.47-.47-.64-.47-.17 0-.36-.02-.55-.02s-.5.07-.76.36c-.26.28-.99.97-.99 2.37 0 1.4 1.02 2.75 1.17 2.94.14.19 2 3.05 4.84 4.27.68.29 1.2.46 1.61.59.68.21 1.31.18 1.8.11.55-.08 1.64-.67 1.87-1.34.23-.67.23-1.24.16-1.36-.07-.11-.25-.18-.53-.32z" />
-      <path d="M26.49 5.51C23.7 2.73 20.02 1.2 16.08 1.2 8.2 1.2 1.86 7.54 1.86 15.42c0 2.51.66 4.95 1.92 7.1L1.2 30.8l8.5-2.27c2.06 1.12 4.39 1.7 6.77 1.7h.01c7.88 0 14.22-6.34 14.22-14.22 0-3.94-1.53-7.62-4.21-10.5zm-10.21 22.6h-.01c-2.16 0-4.27-.58-6.13-1.67l-.44-.26-5.05 1.35 1.35-4.92-.29-.5a12.7 12.7 0 01-1.86-6.64c0-7.02 5.71-12.73 12.73-12.73 3.4 0 6.6 1.32 9 3.72a12.65 12.65 0 013.72 9c0 7.03-5.71 12.73-12.72 12.73z" />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="1em"
+      height="1em"
+      viewBox="0 0 464 488"
+      {...props}
+    >
+      <path
+        fill="#064e3b"
+        d="M462 228q0 93-66 159t-160 66q-56 0-109-28L2 464l40-120q-32-54-32-116q0-93 66-158.5T236 4t160 65.5T462 228zM236 39q-79 0-134.5 55.5T46 228q0 62 36 111l-24 70l74-23q49 31 104 31q79 0 134.5-55.5T426 228T370.5 94.5T236 39zm114 241q-1-1-10-7q-3-1-19-8.5t-19-8.5q-9-3-13 2q-1 3-4.5 7.5t-7.5 9t-5 5.5q-4 6-12 1q-34-17-45-27q-7-7-13.5-15t-12-15t-5.5-8q-3-7 3-11q4-6 8-10l6-9q2-5-1-10q-4-13-17-41q-3-9-12-9h-11q-9 0-15 7q-19 19-19 45q0 24 22 57l2 3q2 3 4.5 6.5t7 9t9 10.5t10.5 11.5t13 12.5t14.5 11.5t16.5 10t18 8.5q16 6 27.5 10t18 5t9.5 1t7-1t5-1q9-1 21.5-9t15.5-17q8-21 3-26z"
+      ></path>
     </svg>
   );
 }
