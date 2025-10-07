@@ -323,7 +323,7 @@ export default function DashboardShortcuts({ agencyId }: Props) {
 
   const shortcuts = [
     {
-      href: "/",
+      href: "/profile",
       label: "Ajustes",
       icon: (
         <svg

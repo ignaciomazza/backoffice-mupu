@@ -94,7 +94,7 @@ export default function ProtectedRoute({
         // console.log(
         //   `[ProtectedRoute] El rol "${role}" no está permitido para la ruta "${pathname}". Redirigiendo a /login`,
         // );
-        router.push("/");
+        router.push("/profile");
       }
     }
   }, [loading, token, role, pathname, router]);

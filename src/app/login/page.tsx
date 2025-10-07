@@ -144,7 +144,7 @@ export default function LoginPage() {
 
       const data = await response.json();
       setToken(data.token);
-      router.push("/");
+      router.push("/profile");
     } catch {
       if (spinnerTimerRef.current) {
         clearTimeout(spinnerTimerRef.current);

@@ -205,9 +205,9 @@ export default function SideBar({
         <ul className="flex flex-1 flex-col items-center justify-center space-y-3 text-sm font-extralight">
           <li className="w-full transition-transform hover:scale-95 active:scale-90">
             <Link
-              href="/"
+              href="/profile"
               className={`flex w-full items-center justify-between rounded-full px-4 py-2 text-sm font-medium text-sky-950 transition-colors duration-200 dark:text-white ${
-                isActive("/")
+                isActive("/profile")
                   ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
                   : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur"
               }`}

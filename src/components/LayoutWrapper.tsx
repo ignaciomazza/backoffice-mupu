@@ -1,6 +1,6 @@
 // src/components/LayoutWrapper.tsx
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Header from "./Header";
 import SideBar from "./SideBar";
@@ -18,17 +18,27 @@ export default function LayoutWrapper({
   const closeMenu = () => setMenuOpen(false);
 
   const isLoginPage = pathname === "/login";
+  const isLanding = pathname === "/"; // ✅ NUEVO
+
+  // ✅ En landing forzamos modo claro (sin dark)
+  useEffect(() => {
+    if (isLanding) {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [isLanding]);
+
+  const showSidebar = !isLoginPage && !isLanding; // ✅ sin sidebar en landing
+  const showVanta = !isLoginPage; // mantenemos Vanta (en light queda bien)
 
   return (
     <div className="flex min-h-screen flex-col text-sky-950 dark:text-white">
-      {!isLoginPage && <VantaBackground />}
+      {showVanta && <VantaBackground />}
       <Header toggleMenu={toggleMenu} menuOpen={menuOpen} />
       <div
-        className={`flex flex-1 ${
-          isLoginPage ? "items-center justify-center" : ""
-        }`}
+        className={`flex flex-1 ${isLoginPage ? "items-center justify-center" : ""}`}
       >
-        {!isLoginPage && (
+        {showSidebar && (
           <SideBar
             menuOpen={menuOpen}
             closeMenu={closeMenu}
@@ -36,27 +46,20 @@ export default function LayoutWrapper({
           />
         )}
         <main
-          className={`flex-1 px-2 pb-6 md:px-6 ${
-            !isLoginPage
-              ? "md:pl-48 md:pr-8"
-              : "flex size-full items-center justify-center"
-          }`}
+          className={`flex-1 px-2 pb-6 md:px-6 ${showSidebar ? "md:pl-48 md:pr-8" : ""}`}
         >
           {children}
         </main>
       </div>
       <style jsx global>{`
-        /* Estilo del <select> en claro y oscuro */
         select {
           background-color: white;
-          color: #0f172a; /* tu clase text-sky-950 */
+          color: #0f172a;
         }
         .dark select {
           background-color: #000;
           color: #fff;
         }
-
-        /* Para las <option> */
         select option {
           background-color: white;
           color: #0f172a;
