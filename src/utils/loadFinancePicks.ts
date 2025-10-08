@@ -1,4 +1,14 @@
 // utils/loadFinancePicks.ts
+// Carga las “listas de apoyo” (monedas, cuentas, métodos y categorías)
+// usando **endpoints ya existentes** por separado:
+//   - /api/finance/currencies
+//   - /api/finance/accounts
+//   - /api/finance/methods
+//   - /api/finance/categories
+//
+// Es tolerante a variaciones de forma (array directo o envuelto en {items|data|...})
+// y a cambios menores de nombres de campos.
+
 import { authFetch } from "@/utils/authFetch";
 
 /* ================= Tipos públicos (completos) ================= */
@@ -88,27 +98,54 @@ function asArrayOfRecords(v: unknown): Record<string, unknown>[] {
   return v.filter(isRecord);
 }
 
+function pick<T = unknown>(
+  rec: Record<string, unknown>,
+  ...keys: string[]
+): T | undefined {
+  for (const k of keys) {
+    if (k in rec) return rec[k] as T;
+  }
+  return undefined;
+}
+
+function pickArrayFromObject(
+  obj: Record<string, unknown>,
+  candidateKeys: string[],
+): Record<string, unknown>[] {
+  for (const k of candidateKeys) {
+    const maybe = obj[k];
+    if (Array.isArray(maybe)) return asArrayOfRecords(maybe);
+  }
+  return [];
+}
+
 /* ================= Normalizadores por entidad ================= */
 
 function normalizeCurrency(
   rec: Record<string, unknown>,
   index: number,
 ): FinanceCurrency {
-  // Soporta claves alternativas (por si la API cambia / es "slim")
   const id =
-    toNumber(rec["id_currency"]) ||
-    toNumber(rec["id"]) ||
-    // fallback estable pero no ideal si la API no envía id:
+    toNumber(pick(rec, "id_currency", "id")) || // si no viene id, usa índice estable
     index + 1;
 
   return {
     id_currency: id,
-    code: toString(rec["code"]),
-    name: toString(rec["name"]),
-    symbol: rec["symbol"] === null ? null : toStringOrNull(rec["symbol"]),
-    enabled: toBoolean(rec["enabled"], true),
-    is_primary: toBoolean(rec["is_primary"], false),
-    sort_order: toNumber(rec["sort_order"], index + 1),
+    code: toString(pick(rec, "code", "currency_code", "currency"), ""),
+    name: toString(pick(rec, "name", "label"), ""),
+    symbol:
+      pick(rec, "symbol", "sign") === null
+        ? null
+        : toStringOrNull(pick(rec, "symbol", "sign")),
+    enabled: toBoolean(pick(rec, "enabled", "is_enabled"), true),
+    is_primary: toBoolean(
+      pick(rec, "is_primary", "primary", "isPrimary"),
+      false,
+    ),
+    sort_order: toNumber(
+      pick(rec, "sort_order", "order", "position", "sortOrder"),
+      index + 1,
+    ),
   };
 }
 
@@ -116,18 +153,25 @@ function normalizePaymentMethod(
   rec: Record<string, unknown>,
   index: number,
 ): FinancePaymentMethod {
-  const id = toNumber(rec["id_method"]) || toNumber(rec["id"]) || index + 1;
+  const id = toNumber(pick(rec, "id_method", "id"), index + 1);
 
   return {
     id_method: id,
-    name: toString(rec["name"]),
-    code: toString(rec["code"]),
-    requires_account: toBoolean(rec["requires_account"], false),
-    enabled: toBoolean(rec["enabled"], true),
-    sort_order: toNumber(rec["sort_order"], index + 1),
+    name: toString(pick(rec, "name", "label"), ""),
+    code: toString(pick(rec, "code", "key"), ""),
+    requires_account: toBoolean(
+      pick(rec, "requires_account", "needs_account", "requiresAccount"),
+      false,
+    ),
+    enabled: toBoolean(pick(rec, "enabled", "is_enabled"), true),
+    sort_order: toNumber(
+      pick(rec, "sort_order", "order", "position", "sortOrder"),
+      index + 1,
+    ),
     lock_system:
-      typeof rec["lock_system"] === "boolean"
-        ? (rec["lock_system"] as boolean)
+      typeof pick(rec, "lock_system", "system_locked", "lockSystem") ===
+      "boolean"
+        ? (pick(rec, "lock_system", "system_locked", "lockSystem") as boolean)
         : undefined,
   };
 }
@@ -136,17 +180,31 @@ function normalizeAccount(
   rec: Record<string, unknown>,
   index: number,
 ): FinanceAccount {
-  const id = toNumber(rec["id_account"]) || toNumber(rec["id"]) || index + 1;
+  const id = toNumber(pick(rec, "id_account", "id"), index + 1);
 
   return {
     id_account: id,
-    name: toString(rec["name"]),
-    type: rec["type"] === null ? null : toStringOrNull(rec["type"]),
-    alias: rec["alias"] === null ? null : toStringOrNull(rec["alias"]),
-    cbu: rec["cbu"] === null ? null : toStringOrNull(rec["cbu"]),
-    currency: rec["currency"] === null ? null : toStringOrNull(rec["currency"]),
-    enabled: toBoolean(rec["enabled"], true),
-    sort_order: toNumber(rec["sort_order"], index + 1),
+    name: toString(pick(rec, "name", "label"), ""),
+    type: pick(rec, "type") === null ? null : toStringOrNull(pick(rec, "type")),
+    alias:
+      pick(rec, "alias", "aka") === null
+        ? null
+        : toStringOrNull(pick(rec, "alias", "aka")),
+    cbu:
+      pick(rec, "cbu", "iban") === null
+        ? null
+        : toStringOrNull(pick(rec, "cbu", "iban")),
+    currency:
+      pick(rec, "currency", "currency_code", "currencyCode") === null
+        ? null
+        : toStringOrNull(
+            pick(rec, "currency", "currency_code", "currencyCode"),
+          ),
+    enabled: toBoolean(pick(rec, "enabled", "is_enabled"), true),
+    sort_order: toNumber(
+      pick(rec, "sort_order", "order", "position", "sortOrder"),
+      index + 1,
+    ),
   };
 }
 
@@ -154,48 +212,100 @@ function normalizeCategory(
   rec: Record<string, unknown>,
   index: number,
 ): FinanceExpenseCategory {
-  const id = toNumber(rec["id_category"]) || toNumber(rec["id"]) || index + 1;
+  const id = toNumber(pick(rec, "id_category", "id"), index + 1);
 
   return {
     id_category: id,
-    name: toString(rec["name"]),
-    enabled: toBoolean(rec["enabled"], true),
-    sort_order: toNumber(rec["sort_order"], index + 1),
-    requires_operator: toBoolean(rec["requires_operator"], false),
-    requires_user: toBoolean(rec["requires_user"], false),
+    name: toString(pick(rec, "name", "label"), ""),
+    enabled: toBoolean(pick(rec, "enabled", "is_enabled"), true),
+    sort_order: toNumber(
+      pick(rec, "sort_order", "order", "position", "sortOrder"),
+      index + 1,
+    ),
+    requires_operator: toBoolean(
+      pick(rec, "requires_operator", "needs_operator", "requiresOperator"),
+      false,
+    ),
+    requires_user: toBoolean(
+      pick(rec, "requires_user", "needs_user", "requiresUser"),
+      false,
+    ),
   };
+}
+
+/* ================= Helpers de red ================= */
+
+async function safeGetJson(
+  url: string,
+  token: string,
+): Promise<unknown | null> {
+  try {
+    const res = await authFetch(url, { cache: "no-store" }, token);
+    if (!res.ok) return null; // tolerante: si un recurso falta, devolvemos null
+    return await res.json().catch(() => null);
+  } catch {
+    return null;
+  }
+}
+
+function extractArray(
+  payload: unknown,
+  keys: string[],
+): Record<string, unknown>[] {
+  if (Array.isArray(payload)) return asArrayOfRecords(payload);
+  if (isRecord(payload)) return pickArrayFromObject(payload, keys);
+  return [];
 }
 
 /* ===================== Carga principal ===================== */
 
 /**
  * Carga listas de apoyo (monedas, cuentas, métodos y categorías)
- * y las normaliza a los tipos completos esperados por la UI.
+ * desde endpoints existentes, en paralelo, y normaliza la forma.
+ * Nunca lanza por 404 u otros fallos parciales: si un recurso no está,
+ * retorna [] para ese recurso.
  */
 export async function loadFinancePicks(token: string): Promise<FinancePicks> {
-  const res = await authFetch(
-    "/api/finance/picks",
-    { cache: "no-store" },
-    token,
-  );
+  const [rawCurrencies, rawAccounts, rawMethods, rawCategories] =
+    await Promise.all([
+      safeGetJson("/api/finance/currencies", token),
+      safeGetJson("/api/finance/accounts", token),
+      safeGetJson("/api/finance/methods", token),
+      safeGetJson("/api/finance/categories", token),
+    ]);
 
-  if (!res.ok) {
-    throw new Error("No se pudo cargar picks de finanzas");
-  }
+  // Acepta array directo o envueltos en { currencies | items | data | list }
+  const currArr = extractArray(rawCurrencies, [
+    "currencies",
+    "items",
+    "data",
+    "list",
+  ]);
+  const accArr = extractArray(rawAccounts, [
+    "accounts",
+    "items",
+    "data",
+    "list",
+  ]);
+  const methArr = extractArray(rawMethods, [
+    "paymentMethods",
+    "methods",
+    "payment_methods",
+    "items",
+    "data",
+    "list",
+  ]);
+  const catArr = extractArray(rawCategories, [
+    "categories",
+    "items",
+    "data",
+    "list",
+  ]);
 
-  const raw: unknown = await res.json();
-
-  const rec = isRecord(raw) ? raw : {};
-
-  const rawCurrencies = asArrayOfRecords(rec["currencies"]);
-  const rawAccounts = asArrayOfRecords(rec["accounts"]);
-  const rawMethods = asArrayOfRecords(rec["paymentMethods"]);
-  const rawCategories = asArrayOfRecords(rec["categories"]);
-
-  const currencies = rawCurrencies.map(normalizeCurrency);
-  const accounts = rawAccounts.map(normalizeAccount);
-  const paymentMethods = rawMethods.map(normalizePaymentMethod);
-  const categories = rawCategories.map(normalizeCategory);
+  const currencies = currArr.map(normalizeCurrency);
+  const accounts = accArr.map(normalizeAccount);
+  const paymentMethods = methArr.map(normalizePaymentMethod);
+  const categories = catArr.map(normalizeCategory);
 
   return { currencies, accounts, paymentMethods, categories };
 }
