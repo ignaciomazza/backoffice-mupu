@@ -62,7 +62,7 @@ export default async function handler(
   // -------- GET --------
   if (req.method === "GET") {
     if (!id_agency) {
-      return res.status(200).json(emptyBundle);
+      return res.status(200).json({ ...emptyBundle, error: "unavailable" });
     }
 
     try {
@@ -99,7 +99,7 @@ export default async function handler(
       // eslint-disable-next-line no-console
       console.error("finance/config GET error:", e);
       // devolvemos estructura vacía para no romper el UI
-      return res.status(200).json(emptyBundle);
+      return res.status(200).json({ ...emptyBundle, error: "unavailable" });
     }
   }
 

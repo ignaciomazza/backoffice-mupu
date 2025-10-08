@@ -44,9 +44,8 @@ export async function getAuth(req: NextApiRequest): Promise<AuthCtx> {
     const token = getTokenFromRequest(req);
     if (!token) return {};
 
-    const secret = new TextEncoder().encode(
-      process.env.JWT_SECRET || "dev_secret",
-    );
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET as string);
+
     const { payload } = await jwtVerify(token, secret);
     const p = payload as TokenPayload;
 

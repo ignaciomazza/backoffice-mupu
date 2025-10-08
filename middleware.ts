@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify, JWTPayload } from "jose";
 
-const JWT_SECRET = process.env.JWT_SECRET || "tu_secreto_seguro";
+const JWT_SECRET = process.env.JWT_SECRET as string;
 
 type MyJWTPayload = JWTPayload & {
   userId?: number;
@@ -44,6 +44,11 @@ function getToken(req: NextRequest): string | null {
 }
 
 export async function middleware(req: NextRequest) {
+  if (!JWT_SECRET) {
+    // Evitá validar con un secreto incorrecto; si falta, tratamos todo como no autenticado.
+    // (No redirigimos acá para no entrar en loops; las APIs devolverán 401).
+  }
+
   const { pathname } = req.nextUrl;
 
   // Rutas públicas

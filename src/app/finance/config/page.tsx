@@ -60,8 +60,8 @@ type FinanceExpenseCategory = {
   name: string;
   enabled: boolean;
   sort_order: number;
-  requires_operator?: boolean; // ← agregado
-  requires_user?: boolean; // ← agregado
+  requires_operator?: boolean;
+  requires_user?: boolean;
 };
 
 type FinanceBundle = {
@@ -71,6 +71,19 @@ type FinanceBundle = {
   paymentMethods: FinancePaymentMethod[];
   categories: FinanceExpenseCategory[];
 };
+
+/* ===== Respuestas de error y type guards ===== */
+type ApiError = { error: string };
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+function isApiError(v: unknown): v is ApiError {
+  return isRecord(v) && typeof v.error === "string";
+}
+function apiErrorMessage(v: unknown): string | null {
+  return isApiError(v) ? v.error : null;
+}
 
 /* ================== Helpers UI ================== */
 function Label({ children }: { children: React.ReactNode }) {
@@ -103,6 +116,7 @@ function Switch({
         checked ? "ring-1 ring-sky-400/60" : ""
       }`}
       title={title}
+      aria-label={label}
     >
       <span
         className={`inline-block h-4 w-7 rounded-full ${
@@ -150,7 +164,12 @@ function Modal({
       >
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-base font-semibold">{title}</h3>
-          <button onClick={onClose} className={ICON_BTN}>
+          <button
+            type="button"
+            onClick={onClose}
+            className={ICON_BTN}
+            aria-label="Cerrar modal"
+          >
             ✕
           </button>
         </div>
@@ -205,8 +224,10 @@ export default function FinanceConfigPage() {
           token,
         );
         if (pr.ok) {
-          const p = await pr.json();
-          setAgencyId(p?.id_agency ?? null);
+          const p: unknown = await pr.json();
+          const id_agency =
+            isRecord(p) && typeof p.id_agency === "number" ? p.id_agency : null;
+          setAgencyId(id_agency);
         }
       } catch {
         setAgencyId(null);
@@ -219,8 +240,23 @@ export default function FinanceConfigPage() {
           token,
         );
         if (!res.ok) throw new Error("No se pudo cargar la configuración");
-        const json = (await res.json()) as FinanceBundle;
-        setBundle(json);
+        const json: unknown = await res.json();
+        if (isApiError(json)) {
+          const msg =
+            json.error === "unavailable"
+              ? "Config financiera no disponible para tu agencia"
+              : json.error;
+          toast.error(msg);
+          setBundle({
+            config: null,
+            currencies: [],
+            accounts: [],
+            paymentMethods: [],
+            categories: [],
+          });
+        } else {
+          setBundle(json as FinanceBundle);
+        }
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Error cargando datos");
         setBundle({
@@ -245,8 +281,23 @@ export default function FinanceConfigPage() {
         token,
       );
       if (!res.ok) throw new Error("No se pudo recargar");
-      const json = (await res.json()) as FinanceBundle;
-      setBundle(json);
+      const json: unknown = await res.json();
+      if (isApiError(json)) {
+        const msg =
+          json.error === "unavailable"
+            ? "Config de finanzas no disponible"
+            : json.error || "Error de finanzas";
+        toast.error(msg);
+        setBundle({
+          config: null,
+          currencies: [],
+          accounts: [],
+          paymentMethods: [],
+          categories: [],
+        });
+      } else {
+        setBundle(json as FinanceBundle);
+      }
     } catch {
       /* no-op */
     }
@@ -273,7 +324,12 @@ export default function FinanceConfigPage() {
         },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo guardar la configuración");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(
+          apiErrorMessage(j) ?? "No se pudo guardar la configuración",
+        );
+      }
       toast.success("Configuración guardada");
       await reload();
     } catch (e) {
@@ -312,7 +368,12 @@ export default function FinanceConfigPage() {
 
   const saveCurrency = async () => {
     if (!token) return;
+    if (!agencyId) {
+      toast.error("La agencia no está cargada todavía");
+      return;
+    }
     const payload = {
+      id_agency: agencyId,
       code: currencyForm.code.trim().toUpperCase(),
       name: currencyForm.name.trim(),
       symbol: currencyForm.symbol.trim(),
@@ -332,7 +393,10 @@ export default function FinanceConfigPage() {
         { method, body: JSON.stringify(payload) },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo guardar la moneda");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(apiErrorMessage(j) ?? "No se pudo guardar la moneda");
+      }
       toast.success(currencyEditing ? "Moneda actualizada" : "Moneda creada");
       setCurrencyModalOpen(false);
       await reload();
@@ -349,22 +413,41 @@ export default function FinanceConfigPage() {
         { method: "PATCH", body: JSON.stringify({ enabled: !c.enabled }) },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo actualizar la moneda");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(
+          apiErrorMessage(j) ?? "No se pudo actualizar la moneda",
+        );
+      }
       await reload();
-    } catch {
-      toast.error("Error al actualizar estado");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Error al actualizar estado",
+      );
     }
   };
 
   const setCurrencyPrimary = async (c: FinanceCurrency) => {
     if (!token) return;
+    if (!agencyId) {
+      toast.error("La agencia no está cargada todavía");
+      return;
+    }
     try {
       const res = await authFetch(
         `/api/finance/currencies/${c.id_currency}`,
-        { method: "PATCH", body: JSON.stringify({ is_primary: true }) },
+        {
+          method: "PATCH",
+          body: JSON.stringify({ is_primary: true, id_agency: agencyId }),
+        },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo marcar como principal");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(
+          apiErrorMessage(j) ?? "No se pudo marcar como principal",
+        );
+      }
       toast.success(`${c.code} es ahora la moneda principal`);
       await reload();
     } catch (e) {
@@ -381,7 +464,10 @@ export default function FinanceConfigPage() {
         { method: "DELETE" },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo eliminar");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(apiErrorMessage(j) ?? "No se pudo eliminar");
+      }
       toast.success("Moneda eliminada");
       await reload();
     } catch (e) {
@@ -390,6 +476,11 @@ export default function FinanceConfigPage() {
   };
 
   const moveCurrency = async (idx: number, direction: -1 | 1) => {
+    if (!agencyId) {
+      toast.error("No se puede reordenar: agencia aún no cargada");
+      return;
+    }
+
     const list = currencies || [];
     const newIdx = idx + direction;
     if (newIdx < 0 || newIdx >= list.length) return;
@@ -411,7 +502,7 @@ export default function FinanceConfigPage() {
     // Commit
     try {
       const body = {
-        id_agency: agencyId ?? 0,
+        id_agency: agencyId,
         items: reordered.map((c, i) => ({
           id: c.id_currency,
           sort_order: i + 1,
@@ -422,7 +513,10 @@ export default function FinanceConfigPage() {
         { method: "POST", body: JSON.stringify(body) },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo reordenar");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(apiErrorMessage(j) ?? "No se pudo reordenar");
+      }
       toast.success("Orden actualizado");
       await reload();
     } catch (e) {
@@ -471,8 +565,12 @@ export default function FinanceConfigPage() {
 
   const saveAccount = async () => {
     if (!token) return;
+    if (!agencyId) {
+      toast.error("La agencia no está cargada todavía");
+      return;
+    }
     const payload = {
-      id_agency: agencyId ?? undefined,
+      id_agency: agencyId,
       name: accountForm.name.trim(),
       alias: accountForm.alias.trim() || null,
       currency: accountForm.currency || null, // ← puede ser null
@@ -495,9 +593,11 @@ export default function FinanceConfigPage() {
       if (!res.ok) {
         let msg = "No se pudo guardar la cuenta";
         try {
-          const j = await res.json();
-          if (j?.error) msg = j.error;
-        } catch {}
+          const j: unknown = await res.json();
+          msg = apiErrorMessage(j) ?? msg;
+        } catch {
+          /* ignore */
+        }
         throw new Error(msg);
       }
       toast.success(accountEditing ? "Cuenta actualizada" : "Cuenta creada");
@@ -516,10 +616,15 @@ export default function FinanceConfigPage() {
         { method: "PATCH", body: JSON.stringify({ enabled: !a.enabled }) },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo actualizar");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(apiErrorMessage(j) ?? "No se pudo actualizar");
+      }
       await reload();
-    } catch {
-      toast.error("Error al actualizar estado");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Error al actualizar estado",
+      );
     }
   };
 
@@ -532,7 +637,10 @@ export default function FinanceConfigPage() {
         { method: "DELETE" },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo eliminar");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(apiErrorMessage(j) ?? "No se pudo eliminar");
+      }
       toast.success("Cuenta eliminada");
       await reload();
     } catch (e) {
@@ -574,8 +682,12 @@ export default function FinanceConfigPage() {
 
   const saveMethod = async () => {
     if (!token) return;
+    if (!agencyId) {
+      toast.error("La agencia no está cargada todavía");
+      return;
+    }
     const payload = {
-      id_agency: agencyId ?? undefined,
+      id_agency: agencyId,
       name: methodForm.name.trim(),
       code: methodForm.code.trim(),
       requires_account: !!methodForm.requires_account,
@@ -595,7 +707,10 @@ export default function FinanceConfigPage() {
         { method, body: JSON.stringify(payload) },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo guardar el método");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(apiErrorMessage(j) ?? "No se pudo guardar el método");
+      }
       toast.success(methodEditing ? "Método actualizado" : "Método creado");
       setMethodModalOpen(false);
       await reload();
@@ -612,7 +727,10 @@ export default function FinanceConfigPage() {
         { method: "PATCH", body: JSON.stringify({ enabled: !m.enabled }) },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo actualizar");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(apiErrorMessage(j) ?? "No se pudo actualizar");
+      }
       await reload();
     } catch {
       toast.error("Error al actualizar estado");
@@ -630,7 +748,10 @@ export default function FinanceConfigPage() {
         },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo actualizar");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(apiErrorMessage(j) ?? "No se pudo actualizar");
+      }
       await reload();
     } catch {
       toast.error("Error al actualizar método");
@@ -646,7 +767,10 @@ export default function FinanceConfigPage() {
         { method: "DELETE" },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo eliminar");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(apiErrorMessage(j) ?? "No se pudo eliminar");
+      }
       toast.success("Método eliminado");
       await reload();
     } catch (e) {
@@ -662,8 +786,8 @@ export default function FinanceConfigPage() {
   const [catForm, setCatForm] = useState<{
     name: string;
     enabled: boolean;
-    requires_operator: boolean; // ← agregado
-    requires_user: boolean; // ← agregado
+    requires_operator: boolean;
+    requires_user: boolean;
   }>({
     name: "",
     enabled: true,
@@ -694,8 +818,12 @@ export default function FinanceConfigPage() {
 
   const saveCategory = async () => {
     if (!token) return;
+    if (!agencyId) {
+      toast.error("La agencia no está cargada todavía");
+      return;
+    }
     const payload = {
-      id_agency: agencyId ?? undefined,
+      id_agency: agencyId,
       name: catForm.name.trim(),
       enabled: !!catForm.enabled,
       requires_operator: !!catForm.requires_operator,
@@ -715,7 +843,12 @@ export default function FinanceConfigPage() {
         { method, body: JSON.stringify(payload) },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo guardar la categoría");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(
+          apiErrorMessage(j) ?? "No se pudo guardar la categoría",
+        );
+      }
       toast.success(catEditing ? "Categoría actualizada" : "Categoría creada");
       setCatModalOpen(false);
       await reload();
@@ -732,7 +865,10 @@ export default function FinanceConfigPage() {
         { method: "PATCH", body: JSON.stringify({ enabled: !c.enabled }) },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo actualizar");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(apiErrorMessage(j) ?? "No se pudo actualizar");
+      }
       await reload();
     } catch {
       toast.error("Error al actualizar estado");
@@ -748,7 +884,10 @@ export default function FinanceConfigPage() {
         { method: "DELETE" },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo eliminar");
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(apiErrorMessage(j) ?? "No se pudo eliminar");
+      }
       toast.success("Categoría eliminada");
       await reload();
     } catch (e) {
@@ -774,6 +913,14 @@ export default function FinanceConfigPage() {
     [currencies],
   );
 
+  const isDefaultCurrencyValid = useMemo(
+    () =>
+      enabledCurrencies.some(
+        (c) => c.code === generalForm.default_currency_code,
+      ),
+    [enabledCurrencies, generalForm.default_currency_code],
+  );
+
   /* =================== Render =================== */
   return (
     <ProtectedRoute>
@@ -797,10 +944,12 @@ export default function FinanceConfigPage() {
             ].map((t) => (
               <button
                 key={t.key}
+                type="button"
                 onClick={() => setActive(t.key as TabKey)}
                 className={`${ICON_BTN} ${
                   active === t.key ? "ring-1 ring-sky-400/60" : ""
                 }`}
+                aria-label={`Ir a ${t.label}`}
               >
                 {t.label}
               </button>
@@ -829,7 +978,12 @@ export default function FinanceConfigPage() {
                           default_currency_code: e.target.value,
                         }))
                       }
-                      className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-3 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
+                      className={`w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-3 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 ${
+                        generalForm.default_currency_code &&
+                        !isDefaultCurrencyValid
+                          ? "ring-1 ring-red-400/60"
+                          : ""
+                      }`}
                     >
                       <option value="" disabled>
                         Elegir…
@@ -840,6 +994,13 @@ export default function FinanceConfigPage() {
                         </option>
                       ))}
                     </select>
+                    {generalForm.default_currency_code &&
+                      !isDefaultCurrencyValid && (
+                        <p className="mt-1 text-xs text-red-600">
+                          La moneda seleccionada ya no está habilitada. Elegí
+                          otra.
+                        </p>
+                      )}
                   </div>
 
                   <div className="flex items-end">
@@ -861,6 +1022,7 @@ export default function FinanceConfigPage() {
 
                 <div className="mt-4 flex justify-end">
                   <button
+                    type="button"
                     onClick={saveGeneral}
                     disabled={savingGeneral}
                     className={ICON_BTN}
@@ -876,7 +1038,11 @@ export default function FinanceConfigPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h2 className="text-base font-semibold">Monedas</h2>
-                  <button onClick={openNewCurrency} className={ICON_BTN}>
+                  <button
+                    type="button"
+                    onClick={openNewCurrency}
+                    className={ICON_BTN}
+                  >
                     Nueva moneda
                   </button>
                 </div>
@@ -916,50 +1082,66 @@ export default function FinanceConfigPage() {
 
                         <div className="flex flex-wrap items-center gap-2">
                           <button
+                            type="button"
                             onClick={() => moveCurrency(idx, -1)}
                             disabled={idx === 0}
                             className={ICON_BTN}
                             title="Subir"
+                            aria-label="Subir moneda"
                           >
                             ↑
                           </button>
                           <button
+                            type="button"
                             onClick={() => moveCurrency(idx, +1)}
                             disabled={idx === currencies.length - 1}
                             className={ICON_BTN}
                             title="Bajar"
+                            aria-label="Bajar moneda"
                           >
                             ↓
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => setCurrencyPrimary(c)}
                             disabled={c.is_primary}
                             className={ICON_BTN}
                             title="Marcar como principal"
+                            aria-label="Marcar como principal"
                           >
                             Principal
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => toggleCurrencyEnabled(c)}
                             className={ICON_BTN}
+                            aria-label={
+                              c.enabled
+                                ? "Deshabilitar moneda"
+                                : "Habilitar moneda"
+                            }
                           >
                             {c.enabled ? "Deshabilitar" : "Habilitar"}
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => openEditCurrency(c)}
                             className={ICON_BTN}
                             title="Editar"
+                            aria-label="Editar moneda"
                           >
                             Editar
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => deleteCurrency(c)}
                             className={`${ICON_BTN} bg-red-600 text-red-100 dark:bg-red-800`}
                             title="Eliminar"
+                            aria-label="Eliminar moneda"
                           >
                             Eliminar
                           </button>
@@ -976,7 +1158,11 @@ export default function FinanceConfigPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h2 className="text-base font-semibold">Cuentas</h2>
-                  <button onClick={openNewAccount} className={ICON_BTN}>
+                  <button
+                    type="button"
+                    onClick={openNewAccount}
+                    className={ICON_BTN}
+                  >
                     Nueva cuenta
                   </button>
                 </div>
@@ -1019,22 +1205,32 @@ export default function FinanceConfigPage() {
 
                           <div className="flex flex-wrap items-center gap-2">
                             <button
+                              type="button"
                               onClick={() => toggleAccountEnabled(a)}
                               className={ICON_BTN}
+                              aria-label={
+                                a.enabled
+                                  ? "Deshabilitar cuenta"
+                                  : "Habilitar cuenta"
+                              }
                             >
                               {a.enabled ? "Deshabilitar" : "Habilitar"}
                             </button>
 
                             <button
+                              type="button"
                               onClick={() => openEditAccount(a)}
                               className={ICON_BTN}
+                              aria-label="Editar cuenta"
                             >
                               Editar
                             </button>
 
                             <button
+                              type="button"
                               onClick={() => deleteAccount(a)}
                               className={`${ICON_BTN} bg-red-600 text-red-100 dark:bg-red-800`}
+                              aria-label="Eliminar cuenta"
                             >
                               Eliminar
                             </button>
@@ -1052,7 +1248,11 @@ export default function FinanceConfigPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h2 className="text-base font-semibold">Métodos de pago</h2>
-                  <button onClick={openNewMethod} className={ICON_BTN}>
+                  <button
+                    type="button"
+                    onClick={openNewMethod}
+                    className={ICON_BTN}
+                  >
                     Nuevo método
                   </button>
                 </div>
@@ -1092,9 +1292,15 @@ export default function FinanceConfigPage() {
 
                         <div className="flex flex-wrap items-center gap-2">
                           <button
+                            type="button"
                             onClick={() => toggleMethodRequiresAccount(m)}
                             className={ICON_BTN}
                             title="Alternar 'requiere cuenta'"
+                            aria-label={
+                              m.requires_account
+                                ? "Marcar como no requiere cuenta"
+                                : "Marcar como requiere cuenta"
+                            }
                           >
                             {m.requires_account
                               ? "No requiere cuenta"
@@ -1102,22 +1308,32 @@ export default function FinanceConfigPage() {
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => toggleMethodEnabled(m)}
                             className={ICON_BTN}
+                            aria-label={
+                              m.enabled
+                                ? "Deshabilitar método"
+                                : "Habilitar método"
+                            }
                           >
                             {m.enabled ? "Deshabilitar" : "Habilitar"}
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => openEditMethod(m)}
                             className={ICON_BTN}
+                            aria-label="Editar método"
                           >
                             Editar
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => deleteMethod(m)}
                             className={`${ICON_BTN} bg-red-600 text-red-100 dark:bg-red-800`}
+                            aria-label="Eliminar método"
                           >
                             Eliminar
                           </button>
@@ -1136,7 +1352,11 @@ export default function FinanceConfigPage() {
                   <h2 className="text-base font-semibold">
                     Categorías de gastos
                   </h2>
-                  <button onClick={openNewCategory} className={ICON_BTN}>
+                  <button
+                    type="button"
+                    onClick={openNewCategory}
+                    className={ICON_BTN}
+                  >
                     Nueva categoría
                   </button>
                 </div>
@@ -1176,22 +1396,32 @@ export default function FinanceConfigPage() {
 
                         <div className="flex flex-wrap items-center gap-2">
                           <button
+                            type="button"
                             onClick={() => toggleCategoryEnabled(c)}
                             className={ICON_BTN}
+                            aria-label={
+                              c.enabled
+                                ? "Deshabilitar categoría"
+                                : "Habilitar categoría"
+                            }
                           >
                             {c.enabled ? "Deshabilitar" : "Habilitar"}
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => openEditCategory(c)}
                             className={ICON_BTN}
+                            aria-label="Editar categoría"
                           >
                             Editar
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => deleteCategory(c)}
                             className={`${ICON_BTN} bg-red-600 text-red-100 dark:bg-red-800`}
+                            aria-label="Eliminar categoría"
                           >
                             Eliminar
                           </button>
@@ -1213,12 +1443,13 @@ export default function FinanceConfigPage() {
           footer={
             <>
               <button
+                type="button"
                 onClick={() => setCurrencyModalOpen(false)}
                 className={ICON_BTN}
               >
                 Cancelar
               </button>
-              <button onClick={saveCurrency} className={ICON_BTN}>
+              <button type="button" onClick={saveCurrency} className={ICON_BTN}>
                 Guardar
               </button>
             </>
@@ -1275,12 +1506,13 @@ export default function FinanceConfigPage() {
           footer={
             <>
               <button
+                type="button"
                 onClick={() => setAccountModalOpen(false)}
                 className={ICON_BTN}
               >
                 Cancelar
               </button>
-              <button onClick={saveAccount} className={ICON_BTN}>
+              <button type="button" onClick={saveAccount} className={ICON_BTN}>
                 Guardar
               </button>
             </>
@@ -1341,12 +1573,13 @@ export default function FinanceConfigPage() {
           footer={
             <>
               <button
+                type="button"
                 onClick={() => setMethodModalOpen(false)}
                 className={ICON_BTN}
               >
                 Cancelar
               </button>
-              <button onClick={saveMethod} className={ICON_BTN}>
+              <button type="button" onClick={saveMethod} className={ICON_BTN}>
                 Guardar
               </button>
             </>
@@ -1403,12 +1636,13 @@ export default function FinanceConfigPage() {
           footer={
             <>
               <button
+                type="button"
                 onClick={() => setCatModalOpen(false)}
                 className={ICON_BTN}
               >
                 Cancelar
               </button>
-              <button onClick={saveCategory} className={ICON_BTN}>
+              <button type="button" onClick={saveCategory} className={ICON_BTN}>
                 Guardar
               </button>
             </>
@@ -1430,6 +1664,13 @@ export default function FinanceConfigPage() {
                 checked={catForm.enabled}
                 onChange={(v) => setCatForm((f) => ({ ...f, enabled: v }))}
                 label="Habilitada"
+              />
+              <Switch
+                checked={catForm.requires_operator}
+                onChange={(v) =>
+                  setCatForm((f) => ({ ...f, requires_operator: v }))
+                }
+                label="Vincula a un operador"
               />
               <Switch
                 checked={catForm.requires_user}

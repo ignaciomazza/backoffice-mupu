@@ -342,8 +342,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
           body: JSON.stringify({
             booking,
             concept,
-            // 'currency' => texto libre para PDF (compat)
-            currency: paymentDescription,
+            currency: paymentDescription, // texto libre PDF (legacy)
             payment_method: paymentMethod,
             account: showAccount ? account : undefined,
 
