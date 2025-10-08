@@ -9,6 +9,7 @@ import "react-toastify/dist/ReactToastify.css";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
+import { loadFinancePicks } from "@/utils/loadFinancePicks";
 
 /* ================= Helpers módulo (evita deps en useMemo) ================= */
 const norm = (s: string) =>
@@ -93,25 +94,6 @@ type FinancePickBundle = {
   currencies: FinanceCurrencyPick[];
 };
 
-/* DTOs seguros para parsear /api/finance/config sin any */
-type AccountsDTO = Array<{
-  id_account?: number;
-  name?: string;
-  enabled?: boolean;
-}>;
-
-type MethodsDTO = Array<{
-  id_method?: number;
-  name?: string;
-  enabled?: boolean;
-}>;
-
-type CurrenciesDTO = Array<{
-  code?: string;
-  name?: string;
-  enabled?: boolean;
-}>;
-
 /* ============ Normalizado para UI/CSV ============ */
 type NormalizedReceipt = ReceiptRow & {
   _dateLabel: string;
@@ -166,61 +148,24 @@ export default function ReceiptsPage() {
     if (!token) return;
     (async () => {
       try {
-        const res = await authFetch(
-          "/api/finance/config",
-          { cache: "no-store" },
-          token,
-        );
-        if (!res.ok) return;
-
-        const j = (await res.json()) as Partial<{
-          accounts: AccountsDTO;
-          paymentMethods: MethodsDTO;
-          currencies: CurrenciesDTO;
-        }>;
-
-        const accounts: FinancePickBundle["accounts"] =
-          (j.accounts ?? [])
-            .filter(
-              (
-                a,
-              ): a is { id_account: number; name: string; enabled?: boolean } =>
-                typeof a?.id_account === "number" &&
-                typeof a?.name === "string",
-            )
-            .map((a) => ({
-              id_account: a.id_account,
-              name: a.name,
-              enabled: Boolean(a.enabled),
-            })) ?? [];
-
-        const paymentMethods: FinancePickBundle["paymentMethods"] =
-          (j.paymentMethods ?? [])
-            .filter(
-              (
-                m,
-              ): m is { id_method: number; name: string; enabled?: boolean } =>
-                typeof m?.id_method === "number" && typeof m?.name === "string",
-            )
-            .map((m) => ({
-              id_method: m.id_method,
-              name: m.name,
-              enabled: Boolean(m.enabled),
-            })) ?? [];
-
-        const currencies: FinancePickBundle["currencies"] =
-          (j.currencies ?? [])
-            .filter(
-              (c): c is { code: string; name: string; enabled?: boolean } =>
-                typeof c?.code === "string" && typeof c?.name === "string",
-            )
-            .map((c) => ({
-              code: String(c.code).toUpperCase(),
-              name: c.name,
-              enabled: Boolean(c.enabled),
-            })) ?? [];
-
-        setFinance({ accounts, paymentMethods, currencies });
+        const picks = await loadFinancePicks(token);
+        setFinance({
+          accounts: picks.accounts.map((a) => ({
+            id_account: a.id_account,
+            name: a.name,
+            enabled: a.enabled,
+          })),
+          paymentMethods: picks.paymentMethods.map((m) => ({
+            id_method: m.id_method,
+            name: m.name,
+            enabled: m.enabled,
+          })),
+          currencies: picks.currencies.map((c) => ({
+            code: c.code,
+            name: c.name,
+            enabled: c.enabled,
+          })),
+        });
       } catch {
         setFinance(null);
       }

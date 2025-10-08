@@ -10,6 +10,7 @@ import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Link from "next/link";
+import { loadFinancePicks } from "@/utils/loadFinancePicks";
 
 /* ================= Helpers ================= */
 const norm = (s: string) =>
@@ -36,6 +37,53 @@ async function safeJson<T>(res: Response): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+/* ==== Type guards para evitar any en parseos ==== */
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null;
+
+function parseCategories(raw: unknown): FinanceCategory[] {
+  const arr: unknown[] = Array.isArray(raw)
+    ? raw
+    : isRecord(raw) && Array.isArray(raw.categories)
+      ? raw.categories
+      : isRecord(raw) && Array.isArray(raw.items)
+        ? raw.items
+        : [];
+
+  const out: FinanceCategory[] = [];
+  for (const el of arr) {
+    if (!isRecord(el)) continue;
+
+    const idRaw =
+      ("id_category" in el ? el.id_category : undefined) ??
+      ("id" in el ? el.id : undefined);
+
+    const id =
+      typeof idRaw === "number"
+        ? idRaw
+        : typeof idRaw === "string"
+          ? Number(idRaw)
+          : 0;
+
+    const name =
+      typeof el.name === "string"
+        ? el.name
+        : typeof el.label === "string"
+          ? el.label
+          : "";
+
+    const enabled =
+      typeof el.enabled === "boolean"
+        ? el.enabled
+        : typeof (el as Record<string, unknown>).is_enabled === "boolean"
+          ? ((el as Record<string, unknown>).is_enabled as boolean)
+          : true;
+
+    if (id && name) out.push({ id_category: id, name, enabled });
+  }
+  return out;
 }
 
 /* ================= Tipos ================= */
@@ -87,36 +135,6 @@ type FinanceConfig = {
   currencies: FinanceCurrency[];
   categories?: FinanceCategory[];
 };
-
-/* DTO defensivo */
-type AccountsDTO = Array<{
-  id_account?: number;
-  name?: string;
-  enabled?: boolean;
-}>;
-type MethodsDTO = Array<{
-  id_method?: number;
-  name?: string;
-  enabled?: boolean;
-  requires_account?: boolean | null;
-}>;
-type CurrenciesDTO = Array<{
-  code?: string;
-  name?: string;
-  enabled?: boolean;
-}>;
-type CategoriesDTO = Array<{
-  id_category?: number;
-  name?: string;
-  enabled?: boolean;
-}>;
-
-type FinanceConfigDTO = Partial<{
-  accounts: AccountsDTO;
-  paymentMethods: MethodsDTO;
-  currencies: CurrenciesDTO;
-  categories: CategoriesDTO;
-}>;
 
 /* ==== Debounce simple ==== */
 function useDebounced<T>(value: T, delay = 350) {
@@ -288,70 +306,31 @@ export default function Page() {
 
     (async () => {
       try {
-        const res = await authFetch(
-          "/api/finance/config",
-          { cache: "no-store", signal: ac.signal },
-          token,
-        );
-        if (!res.ok) return;
+        // Traemos cuentas/métodos/monedas con el util y categorías por endpoint aparte
+        const [picks, catsRes] = await Promise.all([
+          loadFinancePicks(token),
+          authFetch(
+            "/api/finance/categories",
+            { cache: "no-store", signal: ac.signal },
+            token,
+          ),
+        ]);
 
-        const j = (await safeJson<FinanceConfigDTO>(res)) ?? {};
+        // Parse defensivo de categorías (puede venir como {categories}|{items}|array plano)
+        // Parse defensivo de categorías (puede venir como {categories}|{items}|array plano)
+        let categories: FinanceCategory[] | undefined = undefined;
+        if (catsRes.ok) {
+          const raw = (await safeJson<unknown>(catsRes)) ?? null; // antes: <any>
+          const cats = parseCategories(raw);
+          if (cats.length) categories = cats;
+        }
 
-        const accounts: FinanceAccount[] = (j.accounts ?? [])
-          .filter(
-            (a): a is { id_account: number; name: string; enabled?: boolean } =>
-              typeof a?.id_account === "number" && typeof a?.name === "string",
-          )
-          .map((a) => ({
-            id_account: a.id_account!,
-            name: a.name!,
-            enabled: Boolean(a.enabled),
-          }));
-
-        const paymentMethods: FinanceMethod[] = (j.paymentMethods ?? [])
-          .filter(
-            (
-              m,
-            ): m is {
-              id_method: number;
-              name: string;
-              enabled?: boolean;
-              requires_account?: boolean | null;
-            } =>
-              typeof m?.id_method === "number" && typeof m?.name === "string",
-          )
-          .map((m) => ({
-            id_method: m.id_method!,
-            name: m.name!,
-            enabled: Boolean(m.enabled),
-            requires_account: !!m.requires_account,
-          }));
-
-        const currencies: FinanceCurrency[] = (j.currencies ?? [])
-          .filter(
-            (c): c is { code: string; name: string; enabled?: boolean } =>
-              typeof c?.code === "string" && typeof c?.name === "string",
-          )
-          .map((c) => ({
-            code: String(c.code).toUpperCase(),
-            name: c.name!,
-            enabled: Boolean(c.enabled),
-          }));
-
-        const categories: FinanceCategory[] | undefined = (j.categories ?? [])
-          .filter(
-            (
-              c,
-            ): c is { id_category: number; name: string; enabled?: boolean } =>
-              typeof c?.id_category === "number" && typeof c?.name === "string",
-          )
-          .map((c) => ({
-            id_category: c.id_category!,
-            name: c.name!,
-            enabled: Boolean(c.enabled),
-          }));
-
-        setFinance({ accounts, paymentMethods, currencies, categories });
+        setFinance({
+          accounts: picks.accounts, // ya vienen normalizados
+          paymentMethods: picks.paymentMethods,
+          currencies: picks.currencies,
+          categories, // puede ser undefined si no hay
+        });
       } catch (e) {
         if ((e as { name?: string })?.name !== "AbortError") setFinance(null);
       }
