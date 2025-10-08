@@ -1,7 +1,12 @@
-// src/context/AuthContext.tsx
-
-"use client"; 
+"use client";
 import React, { createContext, useContext, useState, useEffect } from "react";
+
+const DBG =
+  typeof window !== "undefined" && process.env.NEXT_PUBLIC_DEBUG_AUTH === "1";
+
+function dlog(...args: unknown[]): void {
+  if (DBG) console.log("[AUTH-DEBUG][AuthContext]", ...args);
+}
 
 interface AuthContextType {
   token: string | null;
@@ -19,42 +24,72 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   const setToken = (newToken: string | null) => {
+    dlog("setToken()", { hasToken: !!newToken });
     setTokenState(newToken);
   };
 
   const setRole = (newRole: string | null) => {
+    dlog("setRole()", { role: newRole });
     setRoleState(newRole);
   };
 
   useEffect(() => {
     const checkSession = async () => {
+      dlog("checkSession() start");
       try {
         const res = await fetch("/api/auth/session", {
           credentials: "include",
         });
+        dlog("session response", {
+          status: res.status,
+          xAuthReason: res.headers.get("x-auth-reason"),
+          xAuthSource: res.headers.get("x-auth-source"),
+        });
+
         if (res.ok) {
-          const data = await res.json();
-          setTokenState(data.token);
+          const data = (await res.json().catch(() => ({}))) as {
+            token?: string | null;
+          };
+          setTokenState(data.token ?? null);
+
           const roleRes = await fetch("/api/user/role", {
             credentials: "include",
           });
-          if (roleRes.ok) {
-            const roleData = await roleRes.json();
-            setRoleState(roleData.role);
-            document.cookie = `role=${roleData.role}; path=/;`;
+          dlog("/api/user/role", {
+            status: roleRes.status,
+            xAuthReason: roleRes.headers.get("x-auth-reason"),
+            xAuthSource: roleRes.headers.get("x-auth-source"),
+          });
+
+          if (roleRes.status === 401) {
+            dlog("role 401 -> invalid session");
+            setRoleState(null);
+            setTokenState(null);
+            document.cookie = `role=; Max-Age=0; path=/;`;
+          } else if (roleRes.ok) {
+            const roleData = (await roleRes.json().catch(() => ({}))) as {
+              role?: string | null;
+            };
+            setRoleState(roleData.role ?? null);
+            if (roleData.role)
+              document.cookie = `role=${roleData.role}; path=/;`;
           } else {
+            dlog("role non-ok (no 401), keeping token", roleRes.status);
             setRoleState(null);
           }
         } else {
+          dlog("session not ok -> clear auth");
           setTokenState(null);
           setRoleState(null);
+          document.cookie = `role=; Max-Age=0; path=/;`;
         }
       } catch (error) {
-        console.error("Error al verificar la sesión:", error);
+        console.error("[AUTH-DEBUG][AuthContext] session error:", error);
         setTokenState(null);
         setRoleState(null);
       } finally {
         setLoading(false);
+        dlog("checkSession() end");
       }
     };
 

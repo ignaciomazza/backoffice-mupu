@@ -1,9 +1,10 @@
-// middleware.ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify, JWTPayload } from "jose";
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
+const DBG =
+  process.env.DEBUG_AUTH === "1" || process.env.NEXT_PUBLIC_DEBUG_AUTH === "1";
 
 type MyJWTPayload = JWTPayload & {
   userId?: number;
@@ -27,26 +28,39 @@ async function verifyToken(token: string): Promise<MyJWTPayload | null> {
     );
     return payload as MyJWTPayload;
   } catch {
+    if (DBG) console.warn("[AUTH-DEBUG][MW] jwtVerify failed");
     return null;
   }
 }
 
-function getToken(req: NextRequest): string | null {
-  // 1) Cookie
-  const cookieToken = req.cookies.get("token")?.value ?? null;
-  if (cookieToken) return cookieToken;
-
-  // 2) Authorization: Bearer
+function pickToken(req: NextRequest): {
+  token: string | null;
+  source: "authorization" | "cookie" | null;
+  hasAuthHeader: boolean;
+  hasCookie: boolean;
+} {
   const auth = req.headers.get("authorization");
-  if (auth?.startsWith("Bearer ")) return auth.slice(7);
+  const cookieToken = req.cookies.get("token")?.value ?? null;
+  const hasAuthHeader = !!(auth && auth.startsWith("Bearer "));
+  const hasCookie = !!cookieToken;
 
-  return null;
+  if (hasAuthHeader)
+    return {
+      token: auth!.slice(7),
+      source: "authorization",
+      hasAuthHeader,
+      hasCookie,
+    };
+  if (hasCookie)
+    return { token: cookieToken, source: "cookie", hasAuthHeader, hasCookie };
+  return { token: null, source: null, hasAuthHeader, hasCookie };
 }
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const reqId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // Rutas públicas
+  // Públicas
   if (
     pathname.startsWith("/login") ||
     pathname.startsWith("/_next") ||
@@ -54,31 +68,65 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/api/login") ||
     pathname.startsWith("/api/auth/session")
   ) {
-    return NextResponse.next();
+    if (DBG) console.info("[AUTH-DEBUG][MW]", reqId, "pass public", pathname);
+    const res = NextResponse.next();
+    if (DBG) res.headers.set("x-auth-public", "1");
+    return res;
   }
 
-  const token = getToken(req);
+  const { token, source, hasAuthHeader, hasCookie } = pickToken(req);
+
+  if (DBG) {
+    console.info("[AUTH-DEBUG][MW]", reqId, "incoming", {
+      path: pathname,
+      hasAuthHeader,
+      hasCookie,
+      chosenSource: source,
+      ua: req.headers.get("user-agent") || "",
+    });
+  }
+
   if (!token) {
-    // Para páginas: redirigí
-    if (!pathname.startsWith("/api")) {
-      return NextResponse.redirect(new URL("/login", req.url));
+    const reason = "no-token";
+    if (pathname.startsWith("/api")) {
+      const res = NextResponse.json(
+        { error: "Unauthorized", reason },
+        { status: 401 },
+      );
+      res.headers.set("x-auth-reason", reason);
+      res.headers.set("x-auth-source", "none");
+      return res;
     }
-    // Para APIs: devolvé 401 JSON
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const r = NextResponse.redirect(new URL("/login", req.url));
+    r.headers.set("x-auth-reason", reason);
+    r.headers.set("x-auth-source", "none");
+    if (DBG) console.warn("[AUTH-DEBUG][MW]", reqId, "deny", reason);
+    return r;
   }
 
   const payload = await verifyToken(token);
   if (!payload?.role) {
-    if (!pathname.startsWith("/api")) {
-      return NextResponse.redirect(new URL("/login", req.url));
+    const reason = "invalid-token-or-no-role";
+    if (pathname.startsWith("/api")) {
+      const res = NextResponse.json(
+        { error: "Unauthorized", reason },
+        { status: 401 },
+      );
+      res.headers.set("x-auth-reason", reason);
+      res.headers.set("x-auth-source", source || "unknown");
+      return res;
     }
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const r = NextResponse.redirect(new URL("/login", req.url));
+    r.headers.set("x-auth-reason", reason);
+    r.headers.set("x-auth-source", source || "unknown");
+    if (DBG) console.warn("[AUTH-DEBUG][MW]", reqId, "deny", reason);
+    return r;
   }
 
   const role = normalizeRole(payload.role);
   const userId = Number(payload.userId ?? payload.id_user ?? 0) || 0;
 
-  // Guardas por página (opcional; mantené las tuyas)
+  // Guards por página
   if (!pathname.startsWith("/api")) {
     let allowed: string[] = [];
     if (/^\/(teams|agency)(\/|$)/.test(pathname)) {
@@ -89,19 +137,39 @@ export async function middleware(req: NextRequest) {
       allowed = ["desarrollador", "gerente"];
     }
     if (allowed.length && !allowed.includes(role)) {
-      return NextResponse.redirect(new URL("/", req.url));
+      const r = NextResponse.redirect(new URL("/", req.url));
+      r.headers.set("x-auth-reason", "role-not-allowed");
+      r.headers.set("x-auth-role", role);
+      if (DBG)
+        console.warn("[AUTH-DEBUG][MW]", reqId, "deny role-not-allowed", {
+          path: pathname,
+          role,
+          allowed,
+        });
+      return r;
     }
   }
 
-  // Propagá info útil
-  const headers = new Headers(req.headers);
-  headers.set("x-user-id", String(userId));
-  headers.set("x-user-role", role);
-
-  return NextResponse.next({ request: { headers } });
+  // Propagar tanto en request como en response (útil para ver desde el navegador)
+  const res = NextResponse.next({
+    request: {
+      headers: new Headers({
+        ...Object.fromEntries(req.headers),
+        "x-user-id": String(userId),
+        "x-user-role": role,
+        "x-auth-source": source || "unknown",
+      }),
+    },
+  });
+  if (DBG) {
+    res.headers.set("x-user-id", String(userId));
+    res.headers.set("x-user-role", role);
+    res.headers.set("x-auth-source", source || "unknown");
+  }
+  if (DBG) console.info("[AUTH-DEBUG][MW]", reqId, "allow", { role, userId });
+  return res;
 }
 
 export const config = {
-  // no interceptes assets estáticos ni imágenes
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

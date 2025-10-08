@@ -1,10 +1,16 @@
-// src/components/ProtectedRoute.tsx
 "use client";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter, usePathname } from "next/navigation";
 import Spinner from "./Spinner";
 import { motion, AnimatePresence } from "framer-motion";
+
+const DBG =
+  typeof window !== "undefined" && process.env.NEXT_PUBLIC_DEBUG_AUTH === "1";
+
+function dlog(...args: unknown[]): void {
+  if (DBG) console.log("[AUTH-DEBUG][ProtectedRoute]", ...args);
+}
 
 export default function ProtectedRoute({
   children,
@@ -16,13 +22,15 @@ export default function ProtectedRoute({
   const pathname = usePathname() || "";
 
   const [sessionExpired, setSessionExpired] = useState(false);
-  const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const INACTIVITY_TIMEOUT = 1000 * 60 * 60 * 5;
+
+  // ✅ hook dentro del componente y tipo compatible Node/DOM
+  const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const INACTIVITY_TIMEOUT = 1000 * 60 * 60 * 5; // 5h
 
   const resetInactivityTimer = useCallback(() => {
     if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
     inactivityTimerRef.current = setTimeout(() => {
-      // console.log("[ProtectedRoute] Sesión expirada por inactividad");
+      dlog("inactivity timeout -> sessionExpired=true");
       setSessionExpired(true);
     }, INACTIVITY_TIMEOUT);
   }, [INACTIVITY_TIMEOUT]);
@@ -45,66 +53,89 @@ export default function ProtectedRoute({
   }, [resetInactivityTimer]);
 
   useEffect(() => {
+    dlog("auth state changed", { loading, hasToken: !!token, path: pathname });
     if (!loading && !token) {
-      // console.log("[ProtectedRoute] No hay token, redirigiendo a /login");
+      dlog("no token -> push /login");
       router.push("/login");
     }
-  }, [loading, token, router]);
+  }, [loading, token, router, pathname]);
 
   const [role, setRole] = useState<string | null>(null);
-  useEffect(() => {
-    if (!loading && token) {
-      const fetchRole = async () => {
-        try {
-          const res = await fetch("/api/user/role");
-          const data = await res.json();
-          // console.log(
-          //   "[ProtectedRoute] Rol obtenido desde /api/user/role:",
-          //   data,
-          // );
-          if (data.error) {
-            // console.log("[ProtectedRoute] Error al obtener rol:", data.error);
-            router.push("/login");
-          } else if (data.role) {
-            setRole(data.role.toLowerCase());
-          }
-        } catch (error) {
-          console.error("[ProtectedRoute] Error fetching role:", error);
-          router.push("/login");
-        }
-      };
-      fetchRole();
-    }
-  }, [loading, token, router]);
 
   useEffect(() => {
-    if (!loading && token && role) {
+    if (loading || !token) return;
+
+    const fetchRole = async () => {
+      try {
+        dlog("fetchRole() start");
+        const res = await fetch("/api/user/role", { credentials: "include" });
+        dlog("fetchRole() response", {
+          status: res.status,
+          xAuthReason: res.headers.get("x-auth-reason"),
+          xAuthSource: res.headers.get("x-auth-source"),
+        });
+
+        if (res.status === 401) {
+          // Sesión inválida en el server -> logout controlado
+          dlog("role 401 -> clear token and go login");
+          setToken(null);
+          router.push("/login");
+          return;
+        }
+
+        if (!res.ok) {
+          // No cortar sesión por 5xx/transitorios
+          dlog("role non-ok (not 401), keep token", res.status);
+          setRole(null);
+          return;
+        }
+
+        const data = (await res.json().catch(() => ({}))) as {
+          role?: string | null;
+        };
+        const lower = (data.role ?? "").toLowerCase();
+        setRole(lower || null);
+        dlog("role set", lower || null);
+      } catch (error) {
+        console.error("[AUTH-DEBUG][ProtectedRoute] fetchRole error:", error);
+        setRole(null);
+      }
+    };
+
+    fetchRole();
+  }, [loading, token, router, setToken]);
+
+  useEffect(() => {
+    if (loading || !token) return;
+
+    if (role) {
       let allowedRoles: string[] = [];
       if (/^\/(teams|agency)(\/|$)/.test(pathname)) {
         allowedRoles = ["desarrollador", "gerente"];
       } else if (/^\/operators(\/|$)/.test(pathname)) {
         allowedRoles = ["desarrollador", "administrativo", "gerente"];
       }
-      // console.log(
-      //   `[ProtectedRoute] Para la ruta "${pathname}", roles permitidos:`,
-      //   allowedRoles,
-      // );
-      // console.log("[ProtectedRoute] Rol del usuario:", role);
+      dlog("route guard", { path: pathname, role, allowed: allowedRoles });
       if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
-        // console.log(
-        //   `[ProtectedRoute] El rol "${role}" no está permitido para la ruta "${pathname}". Redirigiendo a /login`,
-        // );
+        dlog("role not allowed -> push /profile");
         router.push("/profile");
       }
+    } else {
+      dlog("no role yet, waiting…");
     }
   }, [loading, token, role, pathname, router]);
 
   const handleModalAccept = () => {
+    dlog("inactivity modal: user confirmed -> clear token and /login");
     setToken(null);
     router.push("/login");
   };
 
-  if (loading) return <Spinner />;
+  if (loading) {
+    dlog("loading=true -> show spinner");
+    return <Spinner />;
+  }
+
   return (
     <>
       {token ? children : null}

@@ -8,7 +8,6 @@ export async function authFetch(
   const method = (init.method ?? "GET").toUpperCase();
   const hasBody = init.body != null;
 
-  // Inferir URL sin usar "any" y siendo SSR-safe
   const urlStr = (() => {
     if (typeof input === "string") return input;
     if (typeof URL !== "undefined" && input instanceof URL)
@@ -26,7 +25,6 @@ export async function authFetch(
   const isInternal =
     urlStr.startsWith("/") || (!!origin && urlStr.startsWith(origin));
 
-  // Content-Type solo cuando corresponde (no para FormData/Blob)
   if (
     hasBody &&
     !(init.body instanceof FormData) &&
@@ -37,12 +35,25 @@ export async function authFetch(
     headers.set("Content-Type", "application/json");
   }
 
-  // Authorization solo para llamadas internas a tu /api
   if (token && isInternal) headers.set("Authorization", `Bearer ${token}`);
 
-  return fetch(input, {
-    ...init,
-    headers,
-    credentials: "include",
-  });
+  const res = await fetch(input, { ...init, headers, credentials: "include" });
+
+  if (process.env.NEXT_PUBLIC_DEBUG_AUTH === "1") {
+    if (res.status === 401) {
+      // 👇 vas a ver motivo y fuente que agregó el middleware
+      // (si el endpoint pasa por middleware)
+      // eslint-disable-next-line no-console
+      console.warn("[AUTH-DEBUG][authFetch] 401", {
+        url: urlStr,
+        xAuthReason: res.headers.get("x-auth-reason"),
+        xAuthSource: res.headers.get("x-auth-source"),
+      });
+    } else if (!res.ok) {
+      // eslint-disable-next-line no-console
+      console.info("[AUTH-DEBUG][authFetch] non-ok", res.status, urlStr);
+    }
+  }
+
+  return res;
 }
