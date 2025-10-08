@@ -1,3 +1,4 @@
+// src/pages/api/finance/categories/reorder.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { reorderSchema } from "../_schemas";

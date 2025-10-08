@@ -210,7 +210,12 @@ export default function ServicesContainer({
           const qs = new URLSearchParams({ take: String(take) });
           if (cursor) qs.set("cursor", String(cursor));
 
-          const res = await fetch(`/api/bookings?${qs.toString()}`);
+          const res = await authFetch(
+            `/api/bookings?${qs.toString()}`,
+            { cache: "no-store" },
+            token || undefined,
+          );
+
           if (!res.ok) throw new Error("No se pudieron cargar los IDs");
 
           const data = await res.json();
@@ -231,7 +236,7 @@ export default function ServicesContainer({
     };
 
     loadBookingIds();
-  }, []);
+  }, [token]);
 
   const currentIndex = booking
     ? bookingIds.findIndex((id) => id === booking.id_booking)

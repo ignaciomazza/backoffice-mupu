@@ -1,3 +1,4 @@
+// src/pages/api/finance/categories/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import type { ExpenseCategory } from "@prisma/client";

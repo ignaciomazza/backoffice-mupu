@@ -22,52 +22,69 @@ type Bundle = {
 type ErrorResponse = { error: string };
 type OkResponse = Bundle | { ok: true };
 
+const emptyBundle: Bundle = {
+  config: null,
+  currencies: [],
+  accounts: [],
+  paymentMethods: [],
+  categories: [],
+};
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<OkResponse | ErrorResponse>,
 ) {
-  const auth = await getAuth(req);
+  res.setHeader("Cache-Control", "no-store");
 
+  // 👇 userId opcional para que sea asignable al AuthCtx real
+  type AuthShape = { userId?: number | null; agencyId?: number | null };
+
+  let auth: AuthShape | null = null;
+  try {
+    auth = await getAuth(req);
+  } catch {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  // Si la sesión existe pero no trae userId válido, también 401
+  if (!auth?.userId) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  // id_agency: query > auth
   const raw = Array.isArray(req.query.id_agency)
     ? req.query.id_agency[0]
     : req.query.id_agency;
   const parsedFromQuery = raw != null ? Number(raw) : NaN;
   const id_agency = Number.isFinite(parsedFromQuery)
     ? parsedFromQuery
-    : auth.agencyId;
+    : (auth?.agencyId ?? null);
 
+  // -------- GET --------
   if (req.method === "GET") {
-    // Si no hay agencia detectable, devolver bundle vacío (no es error)
     if (!id_agency) {
-      const empty: Bundle = {
-        config: null,
-        currencies: [],
-        accounts: [],
-        paymentMethods: [],
-        categories: [],
-      };
-      return res.status(200).json(empty);
+      return res.status(200).json(emptyBundle);
     }
 
     try {
+      // sin sort_order para evitar 500 si la columna no existe
       const [config, currencies, accounts, paymentMethods, categories] =
         await Promise.all([
           prisma.financeConfig.findFirst({ where: { id_agency } }),
           prisma.financeCurrency.findMany({
             where: { id_agency },
-            orderBy: [{ sort_order: "asc" }, { code: "asc" }],
+            orderBy: { code: "asc" },
           }),
           prisma.financeAccount.findMany({
             where: { id_agency },
-            orderBy: [{ sort_order: "asc" }, { name: "asc" }],
+            orderBy: { name: "asc" },
           }),
           prisma.financePaymentMethod.findMany({
             where: { id_agency },
-            orderBy: [{ sort_order: "asc" }, { name: "asc" }],
+            orderBy: { name: "asc" },
           }),
           prisma.expenseCategory.findMany({
             where: { id_agency },
-            orderBy: [{ sort_order: "asc" }, { name: "asc" }],
+            orderBy: { name: "asc" },
           }),
         ]);
 
@@ -81,10 +98,12 @@ export default async function handler(
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error("finance/config GET error:", e);
-      return res.status(500).json({ error: "Error interno" });
+      // devolvemos estructura vacía para no romper el UI
+      return res.status(200).json(emptyBundle);
     }
   }
 
+  // -------- PUT --------
   if (req.method === "PUT") {
     if (!id_agency) {
       return res
@@ -98,6 +117,7 @@ export default async function handler(
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.message });
     }
+
     const { default_currency_code, hide_operator_expenses_in_investments } =
       parsed.data;
 
