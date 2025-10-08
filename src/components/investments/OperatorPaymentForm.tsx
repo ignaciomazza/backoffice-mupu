@@ -7,6 +7,7 @@ import { Booking, Operator, Service } from "@/types";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
+import { loadFinancePicks } from "@/utils/loadFinancePicks";
 
 /* ========= Helpers ========= */
 const norm = (s: string) =>
@@ -51,30 +52,6 @@ type FinanceConfig = {
   currencies: FinanceCurrency[];
 };
 
-/* DTOs defensivos para parsear el JSON sin any */
-type AccountsDTO = Array<{
-  id_account?: number;
-  name?: string;
-  enabled?: boolean;
-}>;
-type MethodsDTO = Array<{
-  id_method?: number;
-  name?: string;
-  enabled?: boolean;
-  requires_account?: boolean | null;
-}>;
-type CurrenciesDTO = Array<{
-  code?: string;
-  name?: string;
-  enabled?: boolean;
-}>;
-
-type FinanceConfigDTO = Partial<{
-  accounts: AccountsDTO;
-  paymentMethods: MethodsDTO;
-  currencies: CurrenciesDTO;
-}>;
-
 type ApiError = { error?: string; message?: string };
 
 /* ========= Props ========= */
@@ -100,72 +77,18 @@ export default function OperatorPaymentForm({
 
   useEffect(() => {
     if (!token) return;
-    const ac = new AbortController();
-
     (async () => {
       try {
-        const res = await authFetch(
-          "/api/finance/config",
-          { cache: "no-store", signal: ac.signal },
-          token,
-        );
-        if (!res.ok) {
-          setFinance(null);
-          return;
-        }
-
-        const j = (await safeJson<FinanceConfigDTO>(res)) ?? {};
-
-        const accounts: FinanceAccount[] = (j.accounts ?? [])
-          .filter(
-            (a): a is { id_account: number; name: string; enabled?: boolean } =>
-              typeof a?.id_account === "number" && typeof a?.name === "string",
-          )
-          .map((a) => ({
-            id_account: a.id_account!,
-            name: a.name!,
-            enabled: Boolean(a.enabled),
-          }));
-
-        const paymentMethods: FinanceMethod[] = (j.paymentMethods ?? [])
-          .filter(
-            (
-              m,
-            ): m is {
-              id_method: number;
-              name: string;
-              enabled?: boolean;
-              requires_account?: boolean | null;
-            } =>
-              typeof m?.id_method === "number" && typeof m?.name === "string",
-          )
-          .map((m) => ({
-            id_method: m.id_method!,
-            name: m.name!,
-            enabled: Boolean(m.enabled),
-            requires_account: !!m.requires_account,
-          }));
-
-        const currencies: FinanceCurrency[] = (j.currencies ?? [])
-          .filter(
-            (c): c is { code: string; name: string; enabled?: boolean } =>
-              typeof c?.code === "string" && typeof c?.name === "string",
-          )
-          .map((c) => ({
-            code: String(c.code).toUpperCase(),
-            name: c.name!,
-            enabled: Boolean(c.enabled),
-          }));
-
-        setFinance({ accounts, paymentMethods, currencies });
-      } catch (e) {
-        if ((e as { name?: string })?.name !== "AbortError") {
-          setFinance(null);
-        }
+        const picks = await loadFinancePicks(token);
+        setFinance({
+          accounts: picks.accounts,
+          paymentMethods: picks.paymentMethods,
+          currencies: picks.currencies,
+        });
+      } catch {
+        setFinance(null);
       }
     })();
-
-    return () => ac.abort();
   }, [token]);
 
   const paymentMethodOptions = useMemo(
