@@ -44,11 +44,6 @@ function getToken(req: NextRequest): string | null {
 }
 
 export async function middleware(req: NextRequest) {
-  if (!JWT_SECRET) {
-    // Evitá validar con un secreto incorrecto; si falta, tratamos todo como no autenticado.
-    // (No redirigimos acá para no entrar en loops; las APIs devolverán 401).
-  }
-
   const { pathname } = req.nextUrl;
 
   // Rutas públicas
