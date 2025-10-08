@@ -1,5 +1,6 @@
 // src/components/receipts/ReceiptForm.tsx
 "use client";
+
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { Booking, Client, Receipt, Service } from "@/types";
@@ -26,6 +27,14 @@ const uniqSorted = (arr: string[]) => {
   }
   return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, "es"));
 };
+
+async function safeJson<T>(res: Response): Promise<T | null> {
+  try {
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
 
 /* ========= tipos ========= */
 interface Props {
@@ -67,6 +76,17 @@ type CurrenciesDTO = Array<{
   enabled?: boolean;
 }>;
 
+type FinanceBundleDTO = Partial<{
+  accounts: AccountsDTO;
+  paymentMethods: MethodsDTO;
+  currencies: CurrenciesDTO;
+}>;
+
+type ApiError = { error?: string; message?: string };
+
+type ReceiptCreateResponse = { receipt: Receipt };
+
+/* ========= componente ========= */
 export default function ReceiptForm({ booking, onCreated, token }: Props) {
   const [concept, setConcept] = useState("");
 
@@ -74,7 +94,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
   const [paymentMethod, setPaymentMethod] = useState("");
   const [account, setAccount] = useState("");
 
-  // texto libre para PDF (compat)
+  // texto libre para PDF (compat/legacy)
   const [paymentDescription, setPaymentDescription] = useState("");
 
   const [amountString, setAmountString] = useState("");
@@ -89,73 +109,74 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
 
   useEffect(() => {
     if (!token) return;
+    const ac = new AbortController();
+
     (async () => {
       try {
         const res = await authFetch(
           "/api/finance/config",
-          { cache: "no-store" },
+          { cache: "no-store", signal: ac.signal },
           token,
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          // no tiramos error, simplemente no hay opciones
+          setFinance(null);
+          return;
+        }
 
-        const j = (await res.json()) as Partial<{
-          accounts: AccountsDTO;
-          paymentMethods: MethodsDTO;
-          currencies: CurrenciesDTO;
-        }>;
+        const j = (await safeJson<FinanceBundleDTO>(res)) ?? {};
 
-        const accounts: FinanceAccount[] =
-          (j.accounts ?? [])
-            .filter(
-              (
-                a,
-              ): a is { id_account: number; name: string; enabled?: boolean } =>
-                typeof a?.id_account === "number" &&
-                typeof a?.name === "string",
-            )
-            .map((a) => ({
-              id_account: a.id_account!,
-              name: a.name!,
-              enabled: Boolean(a.enabled),
-            })) ?? [];
+        const accounts: FinanceAccount[] = (j.accounts ?? [])
+          .filter(
+            (a): a is { id_account: number; name: string; enabled?: boolean } =>
+              typeof a?.id_account === "number" && typeof a?.name === "string",
+          )
+          .map((a) => ({
+            id_account: a.id_account!,
+            name: a.name!,
+            enabled: Boolean(a.enabled),
+          }));
 
-        const paymentMethods: FinanceMethod[] =
-          (j.paymentMethods ?? [])
-            .filter(
-              (
-                m,
-              ): m is {
-                id_method: number;
-                name: string;
-                enabled?: boolean;
-                requires_account?: boolean | null;
-              } =>
-                typeof m?.id_method === "number" && typeof m?.name === "string",
-            )
-            .map((m) => ({
-              id_method: m.id_method!,
-              name: m.name!,
-              enabled: Boolean(m.enabled),
-              requires_account: !!m.requires_account,
-            })) ?? [];
+        const paymentMethods: FinanceMethod[] = (j.paymentMethods ?? [])
+          .filter(
+            (
+              m,
+            ): m is {
+              id_method: number;
+              name: string;
+              enabled?: boolean;
+              requires_account?: boolean | null;
+            } =>
+              typeof m?.id_method === "number" && typeof m?.name === "string",
+          )
+          .map((m) => ({
+            id_method: m.id_method!,
+            name: m.name!,
+            enabled: Boolean(m.enabled),
+            // cuidado: null -> false
+            requires_account: !!m.requires_account,
+          }));
 
-        const currencies: FinanceCurrency[] =
-          (j.currencies ?? [])
-            .filter(
-              (c): c is { code: string; name: string; enabled?: boolean } =>
-                typeof c?.code === "string" && typeof c?.name === "string",
-            )
-            .map((c) => ({
-              code: String(c.code).toUpperCase(),
-              name: c.name!,
-              enabled: Boolean(c.enabled),
-            })) ?? [];
+        const currencies: FinanceCurrency[] = (j.currencies ?? [])
+          .filter(
+            (c): c is { code: string; name: string; enabled?: boolean } =>
+              typeof c?.code === "string" && typeof c?.name === "string",
+          )
+          .map((c) => ({
+            code: String(c.code).toUpperCase(),
+            name: c.name!,
+            enabled: Boolean(c.enabled),
+          }));
 
         setFinance({ accounts, paymentMethods, currencies });
-      } catch {
-        setFinance(null);
+      } catch (e) {
+        if ((e as { name?: string })?.name !== "AbortError") {
+          setFinance(null);
+        }
       }
     })();
+
+    return () => ac.abort();
   }, [token]);
 
   /* ========= helpers de UI ========= */
@@ -170,11 +191,13 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
     }).format(n);
 
   /* ========= servicios de la reserva ========= */
-  const servicesFromBooking = useMemo<Service[]>(
+  const servicesFromBooking: Service[] = useMemo(
     () => booking.services ?? [],
-    [booking.services],
+    [booking],
   );
+
   const [selectedServiceIds, setSelectedServiceIds] = useState<number[]>([]);
+
   const selectedServices = useMemo(
     () =>
       servicesFromBooking.filter((s) =>
@@ -294,6 +317,20 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
     return dict;
   }, [finance?.currencies]);
 
+  // Sugerir moneda cuando:
+  // - hay una sugerida por servicios
+  // - aún no se eligió una
+  // - y la sugerida está habilitada en config
+  useEffect(() => {
+    if (
+      !amountCurrency &&
+      suggestedCurrency &&
+      currencyOptions.includes(suggestedCurrency)
+    ) {
+      setAmountCurrency(suggestedCurrency);
+    }
+  }, [amountCurrency, suggestedCurrency, currencyOptions]);
+
   /* ========= submit ========= */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -362,17 +399,17 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
       );
 
       if (!res.ok) {
-        let msg = "Error guardando recibo";
-        try {
-          const err = await res.json();
-          msg = err?.error || err?.message || msg;
-        } catch {}
-        throw new Error(msg);
+        const err = await safeJson<ApiError>(res);
+        throw new Error(err?.error || err?.message || "Error guardando recibo");
       }
 
-      const { receipt } = await res.json();
+      const data = await safeJson<ReceiptCreateResponse>(res);
+      if (!data?.receipt) {
+        throw new Error("Respuesta inválida del servidor");
+      }
+
       toast.success("Recibo creado exitosamente.");
-      onCreated?.(receipt);
+      onCreated?.(data.receipt);
 
       // reset
       setConcept("");
@@ -413,11 +450,17 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
       <div
         className="flex cursor-pointer items-center justify-between"
         onClick={() => setIsFormVisible(!isFormVisible)}
+        aria-label="Alternar formulario de recibo"
+        role="button"
       >
         <p className="text-lg font-medium dark:text-white">
           {isFormVisible ? "Cerrar Formulario" : "Crear Recibo"}
         </p>
-        <button className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white">
+        <button
+          type="button"
+          className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+          aria-label={isFormVisible ? "Cerrar formulario" : "Abrir formulario"}
+        >
           {isFormVisible ? (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -426,6 +469,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
               strokeWidth={1.5}
               stroke="currentColor"
               className="size-6"
+              aria-hidden="true"
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
             </svg>
@@ -437,6 +481,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
               strokeWidth={1.5}
               stroke="currentColor"
               className="size-6"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
@@ -480,6 +525,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                           : "border-white/10 bg-white/10 hover:bg-white/20 dark:border-white/10 dark:bg-white/10"
                       }`}
                       title={`Servicio N° ${svc.id_service}`}
+                      aria-pressed={isActive}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="text-sm font-medium">
@@ -529,6 +575,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                 className="rounded-full border border-sky-950 p-1 dark:border-white dark:text-white"
                 disabled={clientsCount <= 1}
                 title="Quitar cliente"
+                aria-label="Quitar cliente"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -537,6 +584,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                   strokeWidth={1.5}
                   stroke="currentColor"
                   className="size-6"
+                  aria-hidden="true"
                 >
                   <path
                     strokeLinecap="round"
@@ -553,6 +601,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                 onClick={handleIncrementClient}
                 className="rounded-full border border-sky-950 p-1 dark:border-white dark:text-white"
                 title="Agregar cliente"
+                aria-label="Agregar cliente"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -561,6 +610,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                   strokeWidth={1.5}
                   stroke="currentColor"
                   className="size-6"
+                  aria-hidden="true"
                 >
                   <path
                     strokeLinecap="round"
@@ -584,7 +634,8 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                     onClear={() => setClientAt(idx, null)}
                   />
                   <p className="ml-2 mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    Podés dejarlo vacío para calcularlo automáticamente.
+                    Si el recibo no es para un cliente específico, podés dejarlo
+                    vacío.
                   </p>
                 </div>
               ))}
@@ -662,6 +713,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                   onChange={(e) => setAmountCurrency(e.target.value)}
                   className={`${inputBase} cursor-pointer appearance-none`}
                   disabled={currencyOptions.length === 0}
+                  required
                 >
                   <option value="" disabled>
                     {currencyOptions.length
@@ -723,7 +775,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                       : "Sin métodos habilitados"}
                   </option>
                   {paymentMethodOptions.map((m) => (
-                    <option key={m} value={m}>
+                    <option key={norm(m)} value={m}>
                       {m}
                     </option>
                   ))}
@@ -746,7 +798,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                         : "Sin cuentas habilitadas"}
                     </option>
                     {accountOptions.map((acc) => (
-                      <option key={acc} value={acc}>
+                      <option key={norm(acc)} value={acc}>
                         {acc}
                       </option>
                     ))}
@@ -795,7 +847,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                     {currencyOptions.length ? "Moneda base" : "Sin monedas"}
                   </option>
                   {currencyOptions.map((code) => (
-                    <option key={code} value={code}>
+                    <option key={`base-${code}`} value={code}>
                       {code}
                     </option>
                   ))}
@@ -821,7 +873,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
                     {currencyOptions.length ? "Moneda contra" : "Sin monedas"}
                   </option>
                   {currencyOptions.map((code) => (
-                    <option key={code} value={code}>
+                    <option key={`counter-${code}`} value={code}>
                       {code}
                     </option>
                   ))}
@@ -847,6 +899,7 @@ export default function ReceiptForm({ booking, onCreated, token }: Props) {
               type="submit"
               disabled={loading}
               className="mt-2 rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+              aria-busy={loading}
             >
               {loading ? <Spinner /> : "Crear Recibo"}
             </button>

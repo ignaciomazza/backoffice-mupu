@@ -30,6 +30,14 @@ const uniqSorted = (arr: string[]) => {
   return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, "es"));
 };
 
+async function safeJson<T>(res: Response): Promise<T | null> {
+  try {
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
 /* ================= Tipos ================= */
 type Investment = {
   id_investment: number;
@@ -58,6 +66,9 @@ type Investment = {
 
 type User = { id_user: number; first_name: string; last_name: string };
 type Operator = { id_operator: number; name: string };
+
+type ListResponse = { items: Investment[]; nextCursor: number | null };
+type ApiError = { error?: string; message?: string };
 
 /* ===== Finance config ===== */
 type FinanceAccount = { id_account: number; name: string; enabled: boolean };
@@ -98,6 +109,13 @@ type CategoriesDTO = Array<{
   id_category?: number;
   name?: string;
   enabled?: boolean;
+}>;
+
+type FinanceConfigDTO = Partial<{
+  accounts: AccountsDTO;
+  paymentMethods: MethodsDTO;
+  currencies: CurrenciesDTO;
+  categories: CategoriesDTO;
 }>;
 
 /* ==== Debounce simple ==== */
@@ -252,13 +270,13 @@ export default function Page() {
         token,
       );
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error || "No se pudo eliminar el gasto");
+        const body = (await safeJson<ApiError>(res)) ?? {};
+        throw new Error(body.error || "No se pudo eliminar el gasto");
       }
       setItems((prev) => prev.filter((i) => i.id_investment !== editingId));
       toast.success("Gasto eliminado");
       resetForm();
-    } catch (e: unknown) {
+    } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al eliminar");
     }
   }
@@ -266,68 +284,59 @@ export default function Page() {
   /* ========= Finance config ========= */
   useEffect(() => {
     if (!token) return;
+    const ac = new AbortController();
+
     (async () => {
       try {
         const res = await authFetch(
           "/api/finance/config",
-          { cache: "no-store" },
+          { cache: "no-store", signal: ac.signal },
           token,
         );
         if (!res.ok) return;
 
-        const j = (await res.json()) as Partial<{
-          accounts: AccountsDTO;
-          paymentMethods: MethodsDTO;
-          currencies: CurrenciesDTO;
-          categories: CategoriesDTO;
-        }>;
+        const j = (await safeJson<FinanceConfigDTO>(res)) ?? {};
 
-        const accounts: FinanceAccount[] =
-          (j.accounts ?? [])
-            .filter(
-              (
-                a,
-              ): a is { id_account: number; name: string; enabled?: boolean } =>
-                typeof a?.id_account === "number" &&
-                typeof a?.name === "string",
-            )
-            .map((a) => ({
-              id_account: a.id_account!,
-              name: a.name!,
-              enabled: Boolean(a.enabled),
-            })) ?? [];
+        const accounts: FinanceAccount[] = (j.accounts ?? [])
+          .filter(
+            (a): a is { id_account: number; name: string; enabled?: boolean } =>
+              typeof a?.id_account === "number" && typeof a?.name === "string",
+          )
+          .map((a) => ({
+            id_account: a.id_account!,
+            name: a.name!,
+            enabled: Boolean(a.enabled),
+          }));
 
-        const paymentMethods: FinanceMethod[] =
-          (j.paymentMethods ?? [])
-            .filter(
-              (
-                m,
-              ): m is {
-                id_method: number;
-                name: string;
-                enabled?: boolean;
-                requires_account?: boolean | null;
-              } =>
-                typeof m?.id_method === "number" && typeof m?.name === "string",
-            )
-            .map((m) => ({
-              id_method: m.id_method!,
-              name: m.name!,
-              enabled: Boolean(m.enabled),
-              requires_account: !!m.requires_account,
-            })) ?? [];
+        const paymentMethods: FinanceMethod[] = (j.paymentMethods ?? [])
+          .filter(
+            (
+              m,
+            ): m is {
+              id_method: number;
+              name: string;
+              enabled?: boolean;
+              requires_account?: boolean | null;
+            } =>
+              typeof m?.id_method === "number" && typeof m?.name === "string",
+          )
+          .map((m) => ({
+            id_method: m.id_method!,
+            name: m.name!,
+            enabled: Boolean(m.enabled),
+            requires_account: !!m.requires_account,
+          }));
 
-        const currencies: FinanceCurrency[] =
-          (j.currencies ?? [])
-            .filter(
-              (c): c is { code: string; name: string; enabled?: boolean } =>
-                typeof c?.code === "string" && typeof c?.name === "string",
-            )
-            .map((c) => ({
-              code: String(c.code).toUpperCase(),
-              name: c.name!,
-              enabled: Boolean(c.enabled),
-            })) ?? [];
+        const currencies: FinanceCurrency[] = (j.currencies ?? [])
+          .filter(
+            (c): c is { code: string; name: string; enabled?: boolean } =>
+              typeof c?.code === "string" && typeof c?.name === "string",
+          )
+          .map((c) => ({
+            code: String(c.code).toUpperCase(),
+            name: c.name!,
+            enabled: Boolean(c.enabled),
+          }));
 
         const categories: FinanceCategory[] | undefined = (j.categories ?? [])
           .filter(
@@ -343,50 +352,71 @@ export default function Page() {
           }));
 
         setFinance({ accounts, paymentMethods, currencies, categories });
-      } catch {
-        setFinance(null);
+      } catch (e) {
+        if ((e as { name?: string })?.name !== "AbortError") setFinance(null);
       }
     })();
+
+    return () => ac.abort();
   }, [token]);
 
   /* ========= Perfil + users ========= */
   useEffect(() => {
     if (!token) return;
+    const ac = new AbortController();
+
     (async () => {
       try {
         const pr = await authFetch(
           "/api/user/profile",
-          { cache: "no-store" },
+          { cache: "no-store", signal: ac.signal },
           token,
         );
         if (pr.ok) {
-          const p = await pr.json();
-          setAgencyId(p.id_agency ?? null);
+          const p = await safeJson<{ id_agency?: number }>(pr);
+          setAgencyId(p?.id_agency ?? null);
         }
       } catch {}
       try {
-        const u = await authFetch("/api/users", { cache: "no-store" }, token);
-        if (u.ok) setUsers(await u.json());
+        const u = await authFetch(
+          "/api/users",
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+        if (u.ok) {
+          const list = (await safeJson<User[]>(u)) ?? [];
+          setUsers(Array.isArray(list) ? list : []);
+        }
       } catch {}
     })();
+
+    return () => ac.abort();
   }, [token]);
 
   /* ========= Operadores ========= */
   useEffect(() => {
     if (!token || agencyId == null) return;
+    const ac = new AbortController();
+
     (async () => {
       try {
         const o = await authFetch(
           `/api/operators?agencyId=${agencyId}`,
-          { cache: "no-store" },
+          { cache: "no-store", signal: ac.signal },
           token,
         );
-        if (o.ok) setOperators(await o.json());
-        else setOperators([]);
+        if (o.ok) {
+          const list = (await safeJson<Operator[]>(o)) ?? [];
+          setOperators(Array.isArray(list) ? list : []);
+        } else {
+          setOperators([]);
+        }
       } catch {
         setOperators([]);
       }
     })();
+
+    return () => ac.abort();
   }, [token, agencyId]);
 
   /* ========= Lista con abort/race-safe ========= */
@@ -424,14 +454,14 @@ export default function Page() {
         token,
       );
       if (!res.ok) throw new Error("No se pudo obtener la lista");
-      const { items, nextCursor } = (await res.json()) as {
-        items: Investment[];
-        nextCursor: number | null;
+      const data = (await safeJson<ListResponse>(res)) ?? {
+        items: [],
+        nextCursor: null,
       };
       if (myId !== reqIdRef.current) return;
-      setItems(items);
-      setNextCursor(nextCursor ?? null);
-    } catch (e: unknown) {
+      setItems(data.items);
+      setNextCursor(data.nextCursor ?? null);
+    } catch (e) {
       if ((e as { name?: string }).name === "AbortError") return;
       console.error(e);
       toast.error("Error cargando gastos");
@@ -456,13 +486,13 @@ export default function Page() {
         token,
       );
       if (!res.ok) throw new Error("No se pudieron cargar más");
-      const { items: more, nextCursor: c } = (await res.json()) as {
-        items: Investment[];
-        nextCursor: number | null;
+      const data = (await safeJson<ListResponse>(res)) ?? {
+        items: [],
+        nextCursor: null,
       };
-      setItems((prev) => [...prev, ...more]);
-      setNextCursor(c ?? null);
-    } catch (e: unknown) {
+      setItems((prev) => [...prev, ...data.items]);
+      setNextCursor(data.nextCursor ?? null);
+    } catch (e) {
       console.error(e);
       toast.error("No se pudieron cargar más registros");
     } finally {
@@ -474,16 +504,17 @@ export default function Page() {
   const categoryOptions = useMemo(() => {
     const raw =
       finance?.categories?.filter((c) => c.enabled).map((c) => c.name) ?? [];
-    // Excluir "Operador" en el formulario (se cargan en Reservas)
     return uniqSorted(raw);
   }, [finance?.categories]);
 
-  const paymentMethodOptions = useMemo(() => {
-    return uniqSorted(
-      finance?.paymentMethods?.filter((m) => m.enabled).map((m) => m.name) ??
-        [],
-    );
-  }, [finance?.paymentMethods]);
+  const paymentMethodOptions = useMemo(
+    () =>
+      uniqSorted(
+        finance?.paymentMethods?.filter((m) => m.enabled).map((m) => m.name) ??
+          [],
+      ),
+    [finance?.paymentMethods],
+  );
 
   const requiresAccountMap = useMemo(() => {
     const map = new Map<string, boolean>();
@@ -494,19 +525,23 @@ export default function Page() {
     return map;
   }, [finance?.paymentMethods]);
 
-  const accountOptions = useMemo(() => {
-    return uniqSorted(
-      finance?.accounts?.filter((a) => a.enabled).map((a) => a.name) ?? [],
-    );
-  }, [finance?.accounts]);
+  const accountOptions = useMemo(
+    () =>
+      uniqSorted(
+        finance?.accounts?.filter((a) => a.enabled).map((a) => a.name) ?? [],
+      ),
+    [finance?.accounts],
+  );
 
-  const currencyOptions = useMemo(() => {
-    return uniqSorted(
-      finance?.currencies
-        ?.filter((c) => c.enabled)
-        .map((c) => c.code.toUpperCase()) ?? [],
-    );
-  }, [finance?.currencies]);
+  const currencyOptions = useMemo(
+    () =>
+      uniqSorted(
+        finance?.currencies
+          ?.filter((c) => c.enabled)
+          .map((c) => c.code.toUpperCase()) ?? [],
+      ),
+    [finance?.currencies],
+  );
 
   const currencyDict = useMemo(() => {
     const d: Record<string, string> = {};
@@ -612,12 +647,10 @@ export default function Page() {
           token || undefined,
         );
         if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body?.error || "No se pudo crear el gasto");
+          const body = (await safeJson<ApiError>(res)) ?? {};
+          throw new Error(body.error || "No se pudo crear el gasto");
         }
-        const created = (await res
-          .json()
-          .catch(() => null)) as Investment | null;
+        const created = await safeJson<Investment>(res);
         if (created) {
           setItems((prev) => [created, ...prev]);
         } else {
@@ -632,10 +665,10 @@ export default function Page() {
           token || undefined,
         );
         if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body?.error || "No se pudo actualizar el gasto");
+          const body = (await safeJson<ApiError>(res)) ?? {};
+          throw new Error(body.error || "No se pudo actualizar el gasto");
         }
-        const updated = (await res.json()) as Investment;
+        const updated = (await safeJson<Investment>(res))!;
         setItems((prev) =>
           prev.map((it) =>
             it.id_investment === updated.id_investment ? updated : it,
@@ -644,7 +677,7 @@ export default function Page() {
         toast.success("Gasto actualizado");
         resetForm();
       }
-    } catch (e: unknown) {
+    } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al guardar");
     } finally {
       setLoading(false);
@@ -830,11 +863,17 @@ export default function Page() {
           <div
             className="flex cursor-pointer items-center justify-between"
             onClick={() => setIsFormOpen((v) => !v)}
+            role="button"
+            aria-label="Alternar formulario de gastos"
           >
             <p className="text-lg font-medium">
               {editingId ? "Editar gasto" : "Cargar gasto"}
             </p>
-            <button className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white">
+            <button
+              type="button"
+              className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+              aria-label={isFormOpen ? "Cerrar formulario" : "Abrir formulario"}
+            >
               {isFormOpen ? (
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -897,7 +936,7 @@ export default function Page() {
                       : "Sin categorías habilitadas"}
                   </option>
                   {categoryOptions
-                    .filter((c) => norm(c) !== "operador") // no permitir operador
+                    .filter((c) => norm(c) !== "operador")
                     .map((c) => (
                       <option key={c} value={c}>
                         {c}
@@ -1256,11 +1295,14 @@ export default function Page() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") fetchList();
               }}
+              aria-label="Buscar gastos"
             />
             <button
+              type="button"
               onClick={fetchList}
               className="w-fit cursor-pointer appearance-none px-3 outline-none"
               title="Buscar"
+              aria-label="Ejecutar búsqueda"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -1285,6 +1327,7 @@ export default function Page() {
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             disabled={categoryOptions.length === 0}
+            aria-label="Filtrar por categoría"
           >
             <option value="">
               {categoryOptions.length ? "Categoría (todas)" : "Sin categorías"}
@@ -1302,6 +1345,7 @@ export default function Page() {
             value={currency}
             onChange={(e) => setCurrency(e.target.value)}
             disabled={currencyOptions.length === 0}
+            aria-label="Filtrar por moneda"
           >
             <option value="">
               {currencyOptions.length ? "Moneda (todas)" : "Sin monedas"}
@@ -1319,6 +1363,7 @@ export default function Page() {
             value={paymentMethodFilter}
             onChange={(e) => setPaymentMethodFilter(e.target.value)}
             disabled={paymentMethodOptions.length === 0}
+            aria-label="Filtrar por método de pago"
           >
             <option value="">
               {paymentMethodOptions.length ? "Método (todos)" : "Sin métodos"}
@@ -1336,6 +1381,7 @@ export default function Page() {
             value={accountFilter}
             onChange={(e) => setAccountFilter(e.target.value)}
             disabled={accountOptions.length === 0}
+            aria-label="Filtrar por cuenta"
           >
             <option value="">
               {accountOptions.length ? "Cuenta (todas)" : "Sin cuentas"}
@@ -1353,6 +1399,7 @@ export default function Page() {
             value={operatorFilter}
             onChange={(e) => setOperatorFilter(Number(e.target.value))}
             disabled={operators.length === 0}
+            aria-label="Filtrar por operador"
           >
             <option value={0}>
               {operators.length ? "Operador (todos)" : "Sin operadores"}
@@ -1397,6 +1444,7 @@ export default function Page() {
           </div>
 
           <button
+            type="button"
             onClick={resetFilters}
             className="h-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
             title="Limpiar filtros"
@@ -1489,6 +1537,7 @@ export default function Page() {
                         #{it.id_investment}
                       </div>
                       <button
+                        type="button"
                         onClick={() => !isOperadorItem && beginEdit(it)}
                         disabled={isOperadorItem}
                         className={[
@@ -1499,6 +1548,11 @@ export default function Page() {
                           isOperadorItem
                             ? "Los egresos de OPERADOR se gestionan desde Reservas (solo lectura aquí)"
                             : "Editar gasto"
+                        }
+                        aria-label={
+                          isOperadorItem
+                            ? "Solo lectura"
+                            : "Editar gasto seleccionado"
                         }
                       >
                         <svg
@@ -1587,8 +1641,9 @@ export default function Page() {
                         <b>Reserva N° </b> {it.booking_id}
                         <Link
                           href={`/bookings/services/${it.booking_id}`}
-                          target="blank"
+                          target="_blank"
                           className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+                          aria-label={`Abrir reserva ${it.booking_id} en nueva pestaña`}
                         >
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -1615,6 +1670,7 @@ export default function Page() {
             {nextCursor && (
               <div className="flex justify-center">
                 <button
+                  type="button"
                   onClick={loadMore}
                   disabled={loadingMore}
                   className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-white/10 dark:text-white"

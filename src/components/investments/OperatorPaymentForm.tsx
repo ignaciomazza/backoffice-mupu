@@ -1,5 +1,6 @@
 // src/components/investments/OperatorPaymentForm.tsx
 "use client";
+
 import { motion } from "framer-motion";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { Booking, Operator, Service } from "@/types";
@@ -25,6 +26,14 @@ const uniqSorted = (arr: string[]) => {
   }
   return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, "es"));
 };
+
+async function safeJson<T>(res: Response): Promise<T | null> {
+  try {
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
 
 /* ========= Finance config (tipos) ========= */
 type FinanceAccount = { id_account: number; name: string; enabled: boolean };
@@ -66,6 +75,8 @@ type FinanceConfigDTO = Partial<{
   currencies: CurrenciesDTO;
 }>;
 
+type ApiError = { error?: string; message?: string };
+
 /* ========= Props ========= */
 type Props = {
   token: string | null;
@@ -89,69 +100,72 @@ export default function OperatorPaymentForm({
 
   useEffect(() => {
     if (!token) return;
+    const ac = new AbortController();
+
     (async () => {
       try {
         const res = await authFetch(
           "/api/finance/config",
-          { cache: "no-store" },
+          { cache: "no-store", signal: ac.signal },
           token,
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          setFinance(null);
+          return;
+        }
 
-        const j = (await res.json()) as FinanceConfigDTO;
+        const j = (await safeJson<FinanceConfigDTO>(res)) ?? {};
 
-        const accounts: FinanceAccount[] =
-          (j.accounts ?? [])
-            .filter(
-              (
-                a,
-              ): a is { id_account: number; name: string; enabled?: boolean } =>
-                typeof a?.id_account === "number" &&
-                typeof a?.name === "string",
-            )
-            .map((a) => ({
-              id_account: a.id_account!,
-              name: a.name!,
-              enabled: Boolean(a.enabled),
-            })) ?? [];
+        const accounts: FinanceAccount[] = (j.accounts ?? [])
+          .filter(
+            (a): a is { id_account: number; name: string; enabled?: boolean } =>
+              typeof a?.id_account === "number" && typeof a?.name === "string",
+          )
+          .map((a) => ({
+            id_account: a.id_account!,
+            name: a.name!,
+            enabled: Boolean(a.enabled),
+          }));
 
-        const paymentMethods: FinanceMethod[] =
-          (j.paymentMethods ?? [])
-            .filter(
-              (
-                m,
-              ): m is {
-                id_method: number;
-                name: string;
-                enabled?: boolean;
-                requires_account?: boolean | null;
-              } =>
-                typeof m?.id_method === "number" && typeof m?.name === "string",
-            )
-            .map((m) => ({
-              id_method: m.id_method!,
-              name: m.name!,
-              enabled: Boolean(m.enabled),
-              requires_account: !!m.requires_account,
-            })) ?? [];
+        const paymentMethods: FinanceMethod[] = (j.paymentMethods ?? [])
+          .filter(
+            (
+              m,
+            ): m is {
+              id_method: number;
+              name: string;
+              enabled?: boolean;
+              requires_account?: boolean | null;
+            } =>
+              typeof m?.id_method === "number" && typeof m?.name === "string",
+          )
+          .map((m) => ({
+            id_method: m.id_method!,
+            name: m.name!,
+            enabled: Boolean(m.enabled),
+            requires_account: !!m.requires_account,
+          }));
 
-        const currencies: FinanceCurrency[] =
-          (j.currencies ?? [])
-            .filter(
-              (c): c is { code: string; name: string; enabled?: boolean } =>
-                typeof c?.code === "string" && typeof c?.name === "string",
-            )
-            .map((c) => ({
-              code: String(c.code).toUpperCase(),
-              name: c.name!,
-              enabled: Boolean(c.enabled),
-            })) ?? [];
+        const currencies: FinanceCurrency[] = (j.currencies ?? [])
+          .filter(
+            (c): c is { code: string; name: string; enabled?: boolean } =>
+              typeof c?.code === "string" && typeof c?.name === "string",
+          )
+          .map((c) => ({
+            code: String(c.code).toUpperCase(),
+            name: c.name!,
+            enabled: Boolean(c.enabled),
+          }));
 
         setFinance({ accounts, paymentMethods, currencies });
-      } catch {
-        setFinance(null);
+      } catch (e) {
+        if ((e as { name?: string })?.name !== "AbortError") {
+          setFinance(null);
+        }
       }
     })();
+
+    return () => ac.abort();
   }, [token]);
 
   const paymentMethodOptions = useMemo(
@@ -199,7 +213,7 @@ export default function OperatorPaymentForm({
   }, [finance?.currencies]);
 
   // === Servicios sólo de esta reserva ===
-  const servicesFromBooking = useMemo<Service[]>(() => {
+  const servicesFromBooking: Service[] = useMemo(() => {
     const embedded = (booking as unknown as { services?: Service[] })?.services;
     if (embedded && Array.isArray(embedded) && embedded.length > 0) {
       return embedded;
@@ -220,7 +234,7 @@ export default function OperatorPaymentForm({
 
   // === Campos básicos ===
   const [amount, setAmount] = useState<string>("");
-  const [currency, setCurrency] = useState<string>(""); // sin default duro
+  const [currency, setCurrency] = useState<string>("");
   const [paidAt, setPaidAt] = useState<string>("");
   const [operatorId, setOperatorId] = useState<number | "">("");
   const [description, setDescription] = useState<string>("");
@@ -232,9 +246,9 @@ export default function OperatorPaymentForm({
   // === Conversión (valor / contravalor) ===
   const [useConversion, setUseConversion] = useState<boolean>(false);
   const [baseAmount, setBaseAmount] = useState<string>("");
-  const [baseCurrency, setBaseCurrency] = useState<string>(""); // sin default duro
+  const [baseCurrency, setBaseCurrency] = useState<string>("");
   const [counterAmount, setCounterAmount] = useState<string>("");
-  const [counterCurrency, setCounterCurrency] = useState<string>(""); // sin default duro
+  const [counterCurrency, setCounterCurrency] = useState<string>("");
 
   const [loading, setLoading] = useState(false);
 
@@ -334,7 +348,7 @@ export default function OperatorPaymentForm({
     if (suggestedCurrency && currencyOptions.includes(suggestedCurrency)) {
       setCurrency(suggestedCurrency);
     } else if (selectedServices.length === 0) {
-      setCurrency((c) => c); // no tocar (sin default)
+      setCurrency((c) => c); // no tocar
     }
 
     // monto sugerido = suma de costos
@@ -537,18 +551,16 @@ export default function OperatorPaymentForm({
       );
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
+        const err = await safeJson<ApiError>(res);
         const msg =
-          (err as { error?: string }).error ||
-          (err as { message?: string }).message ||
-          "No se pudo crear el pago al operador.";
+          err?.error || err?.message || "No se pudo crear el pago al operador.";
         throw new Error(msg);
       }
 
       toast.success("Pago al operador cargado en Investments.");
       onCreated?.();
 
-      // Reset mínimo (dejamos el form abierto; sin defaults duros)
+      // Reset mínimo
       setSelectedIds([]);
       setAmount("");
       setCurrency("");
@@ -589,11 +601,17 @@ export default function OperatorPaymentForm({
       <div
         className="flex cursor-pointer items-center justify-between"
         onClick={() => setIsFormVisible((v) => !v)}
+        role="button"
+        aria-label="Alternar formulario de pago a operador"
       >
         <p className="text-lg font-medium dark:text-white">
           {isFormVisible ? "Cerrar Formulario" : "Cargar Pago"}
         </p>
-        <button className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white">
+        <button
+          type="button"
+          className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+          aria-label={isFormVisible ? "Cerrar formulario" : "Abrir formulario"}
+        >
           {isFormVisible ? (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -602,6 +620,7 @@ export default function OperatorPaymentForm({
               strokeWidth={1.5}
               stroke="currentColor"
               className="size-6"
+              aria-hidden="true"
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
             </svg>
@@ -613,6 +632,7 @@ export default function OperatorPaymentForm({
               strokeWidth={1.5}
               stroke="currentColor"
               className="size-6"
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"
@@ -665,6 +685,7 @@ export default function OperatorPaymentForm({
                           : "border-white/10 bg-white/10 hover:bg-white/20 dark:border-white/10 dark:bg-white/10"
                       }`}
                       title={`Servicio N° ${svc.id_service}`}
+                      aria-pressed={isActive}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="text-sm font-medium">
@@ -971,6 +992,7 @@ export default function OperatorPaymentForm({
               className={`rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white ${
                 loading ? "opacity-60" : ""
               }`}
+              aria-busy={loading}
             >
               {loading ? <Spinner /> : "Cargar pago"}
             </button>
