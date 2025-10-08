@@ -8,6 +8,13 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
+import {
+  loadFinancePicks,
+  type FinanceCurrency,
+  type FinanceAccount,
+  type FinancePaymentMethod,
+  type FinanceExpenseCategory,
+} from "@/utils/loadFinancePicks";
 
 /* ================= Estilos compartidos ================= */
 const GLASS =
@@ -22,46 +29,6 @@ type FinanceConfig = {
   id_agency: number;
   default_currency_code: string | null;
   hide_operator_expenses_in_investments?: boolean | null;
-};
-
-type FinanceCurrency = {
-  id_currency: number;
-  code: string;
-  name: string;
-  symbol: string | null;
-  enabled: boolean;
-  is_primary: boolean;
-  sort_order: number;
-};
-
-type FinanceAccount = {
-  id_account: number;
-  name: string;
-  type?: string | null;
-  alias?: string | null;
-  cbu?: string | null;
-  currency: string | null; // código de moneda (ej: "ARS") o null
-  enabled: boolean;
-  sort_order: number;
-};
-
-type FinancePaymentMethod = {
-  id_method: number;
-  name: string;
-  code: string;
-  requires_account: boolean;
-  enabled: boolean;
-  sort_order: number;
-  lock_system?: boolean;
-};
-
-type FinanceExpenseCategory = {
-  id_category: number;
-  name: string;
-  enabled: boolean;
-  sort_order: number;
-  requires_operator?: boolean;
-  requires_user?: boolean;
 };
 
 type FinanceBundle = {
@@ -83,6 +50,26 @@ function isApiError(v: unknown): v is ApiError {
 }
 function apiErrorMessage(v: unknown): string | null {
   return isApiError(v) ? v.error : null;
+}
+
+/** Normaliza lo que venga de /api/finance/config a FinanceConfig | null (sin any) */
+function normalizeFinanceConfig(v: unknown): FinanceConfig | null {
+  if (!isRecord(v)) return null;
+  const id_agency = typeof v.id_agency === "number" ? v.id_agency : 0; // fallback inocuo
+  const default_currency_code =
+    typeof v.default_currency_code === "string"
+      ? v.default_currency_code
+      : null;
+  const hide_operator_expenses_in_investments =
+    typeof v.hide_operator_expenses_in_investments === "boolean"
+      ? v.hide_operator_expenses_in_investments
+      : null;
+
+  return {
+    id_agency,
+    default_currency_code,
+    hide_operator_expenses_in_investments,
+  };
 }
 
 /* ================== Helpers UI ================== */
@@ -215,50 +202,60 @@ export default function FinanceConfigPage() {
   // ====== Cargar agencyId y datos ======
   useEffect(() => {
     if (!token) return;
+
     (async () => {
       try {
-        // perfil => id_agency
-        const pr = await authFetch(
-          "/api/user/profile",
-          { cache: "no-store" },
-          token,
-        );
-        if (pr.ok) {
-          const p: unknown = await pr.json();
-          const id_agency =
-            isRecord(p) && typeof p.id_agency === "number" ? p.id_agency : null;
-          setAgencyId(id_agency);
+        // perfil => id_agency (sin cambios)
+        // perfil => id_agency (sin any)
+        try {
+          const pr = await authFetch(
+            "/api/user/profile",
+            { cache: "no-store" },
+            token,
+          );
+          if (pr.ok) {
+            const profRaw: unknown = await pr.json();
+            if (isRecord(profRaw) && typeof profRaw.id_agency === "number") {
+              setAgencyId(profRaw.id_agency);
+            } else {
+              setAgencyId(null);
+            }
+          }
+        } catch {
+          setAgencyId(null);
         }
-      } catch {
-        setAgencyId(null);
-      }
-      setLoading(true);
-      try {
-        const res = await authFetch(
-          "/api/finance/config",
-          { cache: "no-store" },
-          token,
-        );
-        if (!res.ok) throw new Error("No se pudo cargar la configuración");
-        const json: unknown = await res.json();
-        if (isApiError(json)) {
-          const msg =
-            json.error === "unavailable"
-              ? "Config financiera no disponible para tu agencia"
-              : json.error;
-          toast.error(msg);
+
+        setLoading(true);
+
+        // ⚠️ AHORA: pedimos config + picks en paralelo
+        // ⚠️ AHORA: pedimos config + picks en paralelo
+        const [cfgRes, picks] = await Promise.all([
+          authFetch("/api/finance/config", { cache: "no-store" }, token),
+          loadFinancePicks(token),
+        ]);
+
+        if (!cfgRes.ok) {
           setBundle({
             config: null,
-            currencies: [],
-            accounts: [],
-            paymentMethods: [],
-            categories: [],
+            currencies: picks.currencies,
+            accounts: picks.accounts,
+            paymentMethods: picks.paymentMethods,
+            categories: picks.categories,
           });
+          toast.error("Config financiera no disponible para tu agencia");
         } else {
-          setBundle(json as FinanceBundle);
+          const configRaw: unknown = await cfgRes.json();
+          const config = normalizeFinanceConfig(configRaw);
+          setBundle({
+            config,
+            currencies: picks.currencies,
+            accounts: picks.accounts,
+            paymentMethods: picks.paymentMethods,
+            categories: picks.categories,
+          });
         }
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Error cargando datos");
+      } catch {
+        toast.error("Error cargando datos de finanzas");
         setBundle({
           config: null,
           currencies: [],
@@ -275,31 +272,24 @@ export default function FinanceConfigPage() {
   const reload = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await authFetch(
-        "/api/finance/config",
-        { cache: "no-store" },
-        token,
-      );
-      if (!res.ok) throw new Error("No se pudo recargar");
-      const json: unknown = await res.json();
-      if (isApiError(json)) {
-        const msg =
-          json.error === "unavailable"
-            ? "Config de finanzas no disponible"
-            : json.error || "Error de finanzas";
-        toast.error(msg);
-        setBundle({
-          config: null,
-          currencies: [],
-          accounts: [],
-          paymentMethods: [],
-          categories: [],
-        });
-      } else {
-        setBundle(json as FinanceBundle);
-      }
+      const [cfgRes, picks] = await Promise.all([
+        authFetch("/api/finance/config", { cache: "no-store" }, token),
+        loadFinancePicks(token),
+      ]);
+
+      const config: FinanceConfig | null = cfgRes.ok
+        ? normalizeFinanceConfig((await cfgRes.json()) as unknown)
+        : null;
+
+      setBundle({
+        config,
+        currencies: picks.currencies,
+        accounts: picks.accounts,
+        paymentMethods: picks.paymentMethods,
+        categories: picks.categories,
+      });
     } catch {
-      /* no-op */
+      // mantené lo que hay si falla
     }
   }, [token]);
 
@@ -429,17 +419,10 @@ export default function FinanceConfigPage() {
 
   const setCurrencyPrimary = async (c: FinanceCurrency) => {
     if (!token) return;
-    if (!agencyId) {
-      toast.error("La agencia no está cargada todavía");
-      return;
-    }
     try {
       const res = await authFetch(
         `/api/finance/currencies/${c.id_currency}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({ is_primary: true, id_agency: agencyId }),
-        },
+        { method: "PATCH", body: JSON.stringify({ is_primary: true }) },
         token,
       );
       if (!res.ok) {

@@ -1,60 +1,54 @@
 // src/pages/api/finance/accounts/[id].ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
-import type { FinanceAccount } from "@prisma/client";
-import { parseIdParam, requireMethod } from "../_utils";
-import { accountUpdateSchema } from "../_schemas";
-import { Prisma } from "@prisma/client";
+import { z } from "zod";
 
-type ItemResponse = FinanceAccount;
-type ErrorResponse = { error: string };
+const updateSchema = z.object({
+  name: z.string().trim().min(2).optional(),
+  alias: z.string().trim().min(1).nullable().optional(),
+  type: z.string().trim().min(1).nullable().optional(),
+  cbu: z.string().trim().min(1).nullable().optional(),
+  currency: z.string().trim().min(2).nullable().optional(),
+  enabled: z.boolean().optional(),
+});
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<ItemResponse | ErrorResponse>,
+  res: NextApiResponse,
 ) {
-  const id = parseIdParam(req.query.id);
-  if (!id) return res.status(400).json({ error: "id inválido" });
+  res.setHeader("Cache-Control", "no-store");
+  const id = Number(
+    Array.isArray(req.query.id) ? req.query.id[0] : req.query.id,
+  );
+  if (!Number.isFinite(id) || id <= 0)
+    return res.status(400).json({ error: "id inválido" });
 
-  try {
-    if (req.method === "PATCH") {
-      const parsed = accountUpdateSchema.safeParse(
-        typeof req.body === "string" ? JSON.parse(req.body) : req.body,
-      );
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
-
-      const current = await prisma.financeAccount.findUnique({ where: { id_account: id } });
-      if (!current) return res.status(404).json({ error: "No encontrado" });
-      if (current.lock_system) {
-        // bloqueo fuerte
-        return res.status(409).json({ error: "Elemento protegido (lock_system)" });
-      }
-
-      const updated = await prisma.financeAccount.update({
-        where: { id_account: id },
-        data: parsed.data,
-      });
-      return res.status(200).json(updated);
-    }
-
-    if (req.method === "DELETE") {
-      const current = await prisma.financeAccount.findUnique({ where: { id_account: id } });
-      if (!current) return res.status(404).json({ error: "No encontrado" });
-      if (current.lock_system) {
-        return res.status(409).json({ error: "Elemento protegido (lock_system)" });
-      }
-      await prisma.financeAccount.delete({ where: { id_account: id } });
-      return res.status(200).json(current);
-    }
-
-    requireMethod(req, ["PATCH", "DELETE"]);
-  } catch (e) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      return res.status(409).json({ error: "Duplicado" });
-    }
-    const status = (e as { status?: number }).status ?? 500;
-    // eslint-disable-next-line no-console
-    console.error("Accounts [id] error:", e);
-    return res.status(status).json({ error: "Error interno" });
+  if (req.method === "GET") {
+    const item = await prisma.financeAccount.findUnique({
+      where: { id_account: id },
+    });
+    if (!item) return res.status(404).json({ error: "No encontrado" });
+    return res.status(200).json(item);
   }
+
+  if (req.method === "PUT" || req.method === "PATCH") {
+    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    const parsed = updateSchema.safeParse(body);
+    if (!parsed.success)
+      return res.status(400).json({ error: parsed.error.message });
+
+    const updated = await prisma.financeAccount.update({
+      where: { id_account: id },
+      data: parsed.data,
+    });
+    return res.status(200).json(updated);
+  }
+
+  if (req.method === "DELETE") {
+    await prisma.financeAccount.delete({ where: { id_account: id } });
+    return res.status(204).end();
+  }
+
+  res.setHeader("Allow", "GET, PUT, PATCH, DELETE");
+  return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
 }
