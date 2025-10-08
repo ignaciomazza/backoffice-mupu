@@ -162,7 +162,9 @@ export default function ServicesContainer({
 }: ServicesContainerProps) {
   const router = useRouter();
 
-  const [bookingIds, setBookingIds] = useState<number[]>([]);
+  // Prev/Next: dejamos explícitamente en null para evitar el barrido de todos los IDs (menos carga a DB)
+  const prevId: number | null = null;
+  const nextId: number | null = null;
 
   const [isEditingInvObs, setIsEditingInvObs] = useState(false);
   const [invObsDraft, setInvObsDraft] = useState(
@@ -186,7 +188,7 @@ export default function ServicesContainer({
     (async () => {
       try {
         const res = await authFetch(
-          "/api/agency/transfer-fee", // 👈 tu nueva ruta
+          "/api/agency/transfer-fee",
           { cache: "no-store" },
           token || undefined,
         );
@@ -199,54 +201,12 @@ export default function ServicesContainer({
     })();
   }, [token]);
 
-  useEffect(() => {
-    const loadBookingIds = async () => {
-      try {
-        const allIds: number[] = [];
-        let cursor: number | null = null;
-        const take = 200;
-
-        while (true) {
-          const qs = new URLSearchParams({ take: String(take) });
-          if (cursor) qs.set("cursor", String(cursor));
-
-          const res = await authFetch(
-            `/api/bookings?${qs.toString()}`,
-            { cache: "no-store" },
-            token || undefined,
-          );
-
-          if (!res.ok) throw new Error("No se pudieron cargar los IDs");
-
-          const data = await res.json();
-          const pageItems = Array.isArray(data?.items) ? data.items : [];
-          allIds.push(
-            ...pageItems.map((b: { id_booking: number }) => b.id_booking),
-          );
-
-          if (!data?.nextCursor) break;
-          cursor = data.nextCursor;
-        }
-
-        allIds.sort((a, b) => a - b);
-        setBookingIds(allIds);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    loadBookingIds();
-  }, [token]);
-
-  const currentIndex = booking
-    ? bookingIds.findIndex((id) => id === booking.id_booking)
-    : -1;
-
-  const prevId = currentIndex > 0 ? bookingIds[currentIndex - 1] : null;
-  const nextId =
-    currentIndex >= 0 && currentIndex < bookingIds.length - 1
-      ? bookingIds[currentIndex + 1]
-      : null;
+  // ─────────────────────────────────────────────────────────────
+  // ⚠️ Eliminamos el fetch paginado de TODOS los IDs de reservas.
+  // Esto fue la principal causa de ráfagas contra DB.
+  // Si más adelante tenés un endpoint /api/bookings/neighbor,
+  // podés setear prevId/nextId acá con 1 sola llamada.
+  // ─────────────────────────────────────────────────────────────
 
   const [selectedClientStatus, setSelectedClientStatus] = useState("Pendiente");
   const [selectedOperatorStatus, setSelectedOperatorStatus] =
@@ -299,7 +259,7 @@ export default function ServicesContainer({
         ? data.payments
         : [];
 
-      // NEW: ordenar por fecha de vencimiento ascendente y luego por id
+      // ordenar por vencimiento asc y luego por id
       items.sort((a, b) => {
         const da = new Date(a.due_date).getTime();
         const db = new Date(b.due_date).getTime();
