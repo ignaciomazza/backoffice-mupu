@@ -178,9 +178,12 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
                   {/* Brand */}
                   <Link
                     href="/"
-                    className="select-none text-base font-semibold tracking-tight text-sky-950"
+                    className="flex select-none items-center gap-1"
                   >
-                    Ofis<span className="font-light">tur</span>
+                    <img src="/logo-dark.png" alt="" className="size-6" />
+                    <p className="text-base font-medium tracking-tight text-sky-950">
+                      Ofis<span className="font-light">tur</span>
+                    </p>
                   </Link>
 
                   {/* Nav desktop */}
@@ -321,12 +324,29 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
 
   /* ---------- Header PLATAFORMA (ligero y responsive, solo light) ---------- */
   return (
-    <header className="z-50 flex w-full items-center justify-between px-4 py-6 text-sky-950 md:top-0">
+    <header className="z-50 flex w-full items-center justify-between px-4 py-6 text-sky-950 dark:text-sky-100 md:top-0">
+      {isLoginPage && (
+        <Link href={`/`}>
+          <img
+            src="/logo.png"
+            alt=""
+            className="absolute bottom-4 right-4 z-50 size-14 transition-transform hover:scale-105 active:scale-95"
+          />
+        </Link>
+      )}
       <div className="flex w-full flex-auto justify-start md:justify-center">
         {!isLoginPage ? (
-          <p className="text-lg font-medium">
-            Ofis<span className="font-light">tur</span>
-          </p>
+          <div className="flex select-none items-center gap-1">
+            <div className="hidden dark:block">
+              <img src="/logo.png" alt="" className="size-5" />
+            </div>
+            <div className="block dark:hidden">
+              <img src="/logo-dark.png" alt="" className="size-5" />
+            </div>
+            <p className="text-base font-medium tracking-tight">
+              Ofis<span className="font-light">tur</span>
+            </p>
+          </div>
         ) : (
           <p className="text-lg font-medium text-sky-950">
             Ofis<span className="font-light">tur</span>
