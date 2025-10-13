@@ -242,6 +242,29 @@ export default function InvoicesPage() {
   }, [from, to, token]);
 
   const downloadCSV = () => {
+    // Helper: número con coma decimal (sin miles) para que Excel lo tome como número
+    const num = (v?: number) =>
+      Number(v ?? 0).toLocaleString("es-AR", {
+        useGrouping: false,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+
+    // Helper: cotización (puede tener más decimales)
+    const rate = (v?: number) =>
+      v == null
+        ? ""
+        : Number(v).toLocaleString("es-AR", {
+            useGrouping: false,
+            maximumFractionDigits: 6,
+          });
+
+    // Celdas de texto entre comillas, números sin comillas
+    const escapeCell = (text: string) => `"${text.replace(/"/g, '""')}"`;
+    const csvRow = (cells: Array<{ value: string; numeric?: boolean }>) =>
+      cells.map((c) => (c.numeric ? c.value : escapeCell(c.value))).join(";");
+
+    // Agrego columna "Moneda"
     const header = [
       "Factura",
       "Tipo de factura",
@@ -250,6 +273,7 @@ export default function InvoicesPage() {
       "Dirección",
       "Localidad",
       "Código Postal",
+      "Moneda",
       "Base21",
       "Base10.5",
       "Exento",
@@ -258,10 +282,10 @@ export default function InvoicesPage() {
       "Cotización",
       "Total",
     ];
-    const escapeCell = (text: string) => `"${text.replace(/"/g, '""')}"`;
 
     const rows = data.map((inv) => {
       const { base21, base105, baseEx, neto, iva } = getTaxBreakdown(inv);
+
       const direccion = inv.address ?? "";
       const localidad = inv.locality ?? "";
       const codigoPostal = inv.postal_code ?? "";
@@ -269,41 +293,35 @@ export default function InvoicesPage() {
         ? `Nota de crédito ${inv.type.slice(-1)}`
         : inv.type;
 
-      // Si la factura está en USD/DOL, mostramos la cotización formateada en ARS.
-      const isUsd = inv.currency === "DOL" || inv.currency === "USD";
-      const cotizacion = isUsd
-        ? fmt(inv.payloadAfip.voucherData.MonCotiz ?? undefined, "ARS")
-        : "";
+      // Normalizo moneda
+      const moneda = inv.currency === "DOL" ? "USD" : inv.currency || "ARS";
 
-      const base21Fmt = fmt(base21, inv.currency);
-      const base105Fmt = fmt(base105, inv.currency);
-      const baseExFmt = fmt(baseEx, inv.currency);
-      const netoFmt = fmt(neto, inv.currency);
-      const ivaFmt = fmt(iva, inv.currency);
-      const totalFmt = fmt(inv.total_amount, inv.currency);
+      // Si es USD, muestro cotización numérica; si no, vacío
+      const cotizacion =
+        moneda === "USD"
+          ? rate(inv.payloadAfip.voucherData.MonCotiz ?? undefined)
+          : "";
 
-      return [
-        inv.invoice_number,
-        tipo,
-        getCbteDate(inv),
-        getClientName(inv),
-        direccion,
-        localidad,
-        codigoPostal,
-        base21Fmt,
-        base105Fmt,
-        baseExFmt,
-        netoFmt,
-        ivaFmt,
-        cotizacion,
-        totalFmt,
-      ].map(escapeCell);
+      return csvRow([
+        { value: String(inv.invoice_number) }, // Factura (texto)
+        { value: tipo }, // Tipo (texto)
+        { value: getCbteDate(inv) }, // Fecha (texto dd/mm/aaaa)
+        { value: getClientName(inv) }, // Cliente (texto)
+        { value: direccion }, // Dirección (texto)
+        { value: localidad }, // Localidad (texto)
+        { value: codigoPostal }, // CP (texto)
+        { value: moneda }, // Moneda (texto)
+        { value: num(base21), numeric: true }, // Base21 (número)
+        { value: num(base105), numeric: true }, // Base10.5 (número)
+        { value: num(baseEx), numeric: true }, // Exento (número)
+        { value: num(neto), numeric: true }, // Neto (número)
+        { value: num(iva), numeric: true }, // IVA (número)
+        { value: cotizacion, numeric: cotizacion !== "" }, // Cotización (número o vacío)
+        { value: num(inv.total_amount), numeric: true }, // Total (número)
+      ]);
     });
 
-    const csvContent = [
-      header.map(escapeCell).join(";"),
-      ...rows.map((r) => r.join(";")),
-    ].join("\r\n");
+    const csvContent = [header.map(escapeCell).join(";"), ...rows].join("\r\n");
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
