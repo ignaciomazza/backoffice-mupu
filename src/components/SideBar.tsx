@@ -72,7 +72,7 @@ export default function SideBar({
   // 🔧 Memoizamos y reutilizamos en deps
   const isActive = useCallback(
     (route: string) =>
-      currentPath === route || currentPath.startsWith(`${route}/`),
+      currentPath === route,
     [currentPath],
   );
 
@@ -110,6 +110,7 @@ export default function SideBar({
             },
             hasAccess("/balances") && { href: "/balances", label: "Saldos" },
             hasAccess("/earnings") && { href: "/earnings", label: "Ganancias" },
+            hasAccess("/earnings/my") && { href: "/earnings/my", label: "Mis Ganancias" },
             hasAccess("/finance/config") && { href: "/finance/config", label: "Configuracion" },
           ].filter(Boolean) as { href: string; label: string }[],
         },

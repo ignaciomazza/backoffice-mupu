@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 
-/* ============ Auth helpers ============ */
+/* ======================== Auth helpers ======================== */
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -44,17 +44,91 @@ async function getAuth(
   }
 }
 
-/* ============ Utils ============ */
+/* ======================== Utils de fechas ======================== */
 
-// "YYYY-MM-DD" -> Date local 00:00
-function ymdToLocalDate(ymd: string): Date {
+/**
+ * Suma días a un YMD (sin depender de la zona horaria del servidor)
+ */
+function addDaysYMD(ymd: string, days: number): string {
   const [y, m, d] = ymd.split("-").map(Number);
-  return new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
+  const dt = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
 }
+
+/**
+ * Convierte "YYYY-MM-DD" (día local en `timeZone`) al instante UTC de las 00:00:00 locales.
+ * No depende de la tz del servidor y maneja DST.
+ */
+function startOfDayUTCFromYmdInTz(ymd: string, timeZone: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+
+  // Medianoche "local" aproximada expresada en UTC
+  const approx = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0));
+
+  // Qué hora local muestra esa fecha en la tz objetivo
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
+  const partsObj = Object.fromEntries(
+    fmt.formatToParts(approx).map((p) => [p.type, p.value]),
+  );
+
+  const hh = Number(partsObj.hour ?? 0);
+  const mm = Number(partsObj.minute ?? 0);
+  const ss = Number(partsObj.second ?? 0);
+  const deltaMs = ((hh * 60 + mm) * 60 + ss) * 1000;
+
+  // Restar la hora local mostrada nos lleva a 00:00:00 local (en UTC)
+  return new Date(approx.getTime() - deltaMs);
+}
+
+/* ======================== Tipos mínimos ======================== */
 
 type Totals = Record<"ARS" | "USD", number>;
 
-/* ============ Handler ============ */
+type ServiceLite = {
+  sale_price: number;
+  currency: "ARS" | "USD" | string;
+  totalCommissionWithoutVAT?: number | null;
+  booking: {
+    id_booking: number;
+    id_agency: number;
+    creation_date: Date;
+    user: { id_user: number; first_name: string; last_name: string };
+  };
+};
+
+type ReceiptLite = {
+  bookingId_booking: number;
+  amount: number;
+  amount_currency: "ARS" | "USD" | string;
+};
+
+type RuleShare = {
+  beneficiary_user_id: number;
+  percent: number;
+};
+
+type RuleSet = {
+  owner_user_id: number;
+  valid_from: Date;
+  own_pct: number;
+  shares: RuleShare[];
+};
+
+/* ======================== Handler ======================== */
 
 export default async function handler(
   req: NextApiRequest,
@@ -77,31 +151,48 @@ export default async function handler(
   const auth = await getAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
 
-  // ✅ variables locales no nulas
   const currentUserId = auth.id_user;
   const agencyId = auth.id_agency;
 
-  const { from, to } = req.query;
+  const { from, to, tz } = req.query;
   if (typeof from !== "string" || typeof to !== "string") {
     return res.status(400).json({ error: "Parámetros from y to requeridos" });
   }
+  const timeZone = typeof tz === "string" && tz.trim() ? tz.trim() : "UTC";
 
-  // límites locales [from, to+1)
-  const fromDate = ymdToLocalDate(from);
-  const toDateExclusive = ymdToLocalDate(to);
-  toDateExclusive.setDate(toDateExclusive.getDate() + 1);
+  // Rango UTC: [inicio de 'from' en tz, inicio de 'to + 1 día' en tz)
+  const fromUTC = startOfDayUTCFromYmdInTz(from, timeZone);
+  const toExclusiveUTC = startOfDayUTCFromYmdInTz(addDaysYMD(to, 1), timeZone);
 
   try {
-    // 1) Traer servicios del rango (por creación de reserva) de MI agencia
-    const services = await prisma.service.findMany({
+    // 1) Servicios del rango en MI agencia
+    const servicesRaw = await prisma.service.findMany({
       where: {
         booking: {
           id_agency: agencyId,
-          creation_date: { gte: fromDate, lt: toDateExclusive },
+          creation_date: { gte: fromUTC, lt: toExclusiveUTC },
         },
       },
       include: { booking: { include: { user: true } } },
     });
+
+    const services: ServiceLite[] = servicesRaw.map((s) => ({
+      sale_price: s.sale_price as number,
+      currency: (s.currency as string) || "ARS",
+      totalCommissionWithoutVAT:
+        (s as { totalCommissionWithoutVAT?: number | null })
+          .totalCommissionWithoutVAT ?? null,
+      booking: {
+        id_booking: s.booking.id_booking as number,
+        id_agency: s.booking.id_agency as number,
+        creation_date: s.booking.creation_date as Date,
+        user: {
+          id_user: s.booking.user.id_user as number,
+          first_name: String(s.booking.user.first_name ?? ""),
+          last_name: String(s.booking.user.last_name ?? ""),
+        },
+      },
+    }));
 
     // 2) Venta total por reserva / moneda
     const saleTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
@@ -112,7 +203,9 @@ export default async function handler(
       const bid = svc.booking.id_booking;
       const cur = (svc.currency as "ARS" | "USD") || "ARS";
       const prev = saleTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
-      prev[cur] += svc.sale_price;
+      if (cur === "ARS" || cur === "USD") {
+        prev[cur] += svc.sale_price;
+      }
       saleTotalsByBooking.set(bid, prev);
 
       if (!bookingCreatedAt.has(bid))
@@ -127,17 +220,31 @@ export default async function handler(
     }
 
     // 3) Recibos → validación 40%
-    const allReceipts = await prisma.receipt.findMany({
-      where: {
-        bookingId_booking: { in: Array.from(saleTotalsByBooking.keys()) },
-      },
-      select: { bookingId_booking: true, amount: true, amount_currency: true },
-    });
+    const ids = Array.from(saleTotalsByBooking.keys());
+    let allReceiptsRaw: ReceiptLite[] = [];
+    if (ids.length > 0) {
+      const r = await prisma.receipt.findMany({
+        where: { bookingId_booking: { in: ids } },
+        select: {
+          bookingId_booking: true,
+          amount: true,
+          amount_currency: true,
+        },
+      });
+      allReceiptsRaw = r.map((x) => ({
+        bookingId_booking: x.bookingId_booking as number,
+        amount: x.amount as number,
+        amount_currency: (x.amount_currency as string) || "ARS",
+      }));
+    }
+
     const receiptsMap = new Map<number, { ARS: number; USD: number }>();
-    for (const r of allReceipts) {
+    for (const r of allReceiptsRaw) {
       const cur = (r.amount_currency as "ARS" | "USD") || "ARS";
       const prev = receiptsMap.get(r.bookingId_booking) || { ARS: 0, USD: 0 };
-      prev[cur] += r.amount;
+      if (cur === "ARS" || cur === "USD") {
+        prev[cur] += r.amount;
+      }
       receiptsMap.set(r.bookingId_booking, prev);
     }
 
@@ -145,41 +252,52 @@ export default async function handler(
     saleTotalsByBooking.forEach((totals, bid) => {
       const paid = receiptsMap.get(bid) || { ARS: 0, USD: 0 };
       (["ARS", "USD"] as const).forEach((cur) => {
-        if (totals[cur] > 0 && paid[cur] / totals[cur] >= 0.4) {
+        const total = totals[cur];
+        const p = paid[cur];
+        if (total > 0 && p / total >= 0.4) {
           validBookingCurrency.add(`${bid}-${cur}`);
         }
       });
     });
 
-    // 4) Prefetch de REGLAS para todos los dueños involucrados
+    // 4) Prefetch de reglas por dueño
     const ownerIds = Array.from(
       new Set(services.map((s) => s.booking.user.id_user)),
     );
-    const ruleSets = await prisma.commissionRuleSet.findMany({
+
+    const rawRuleSets = await prisma.commissionRuleSet.findMany({
       where: { id_agency: agencyId, owner_user_id: { in: ownerIds } },
       include: { shares: true },
       orderBy: [{ owner_user_id: "asc" }, { valid_from: "asc" }],
     });
-    const rulesByOwner = new Map<number, typeof ruleSets>();
+
+    const ruleSets: RuleSet[] = rawRuleSets.map((r) => ({
+      owner_user_id: r.owner_user_id as number,
+      valid_from: r.valid_from as Date,
+      own_pct: Number(r.own_pct),
+      shares: (r.shares ?? []).map((s) => ({
+        beneficiary_user_id: s.beneficiary_user_id as number,
+        percent: Number(s.percent),
+      })),
+    }));
+
+    const rulesByOwner = new Map<number, RuleSet[]>();
     for (const rs of ruleSets) {
       const arr = rulesByOwner.get(rs.owner_user_id) || [];
       arr.push(rs);
       rulesByOwner.set(rs.owner_user_id, arr);
     }
 
-    // ✅ opción B: pasar currentUserId como parámetro
     function resolveRule(
       ownerId: number,
       createdAt: Date,
       meId: number,
-    ): {
-      ownPct: number;
-      beneficiaryPctForMe: number;
-    } {
+    ): { ownPct: number; beneficiaryPctForMe: number } {
       const list = rulesByOwner.get(ownerId);
       if (!list || list.length === 0)
         return { ownPct: 100, beneficiaryPctForMe: 0 };
 
+      // última regla con valid_from <= createdAt
       let chosen = list[0];
       for (const r of list) {
         if (r.valid_from <= createdAt) chosen = r;
@@ -195,7 +313,7 @@ export default async function handler(
       return { ownPct: Number(chosen.own_pct), beneficiaryPctForMe: myShare };
     }
 
-    // 5) Recorremos servicios válidos y acumulamos para el usuario
+    // 5) Acumulado
     const totals = {
       seller: { ARS: 0, USD: 0 } as Totals,
       beneficiary: { ARS: 0, USD: 0 } as Totals,
@@ -205,11 +323,16 @@ export default async function handler(
     for (const svc of services) {
       const bid = svc.booking.id_booking;
       const cur = (svc.currency as "ARS" | "USD") || "ARS";
+      if (cur !== "ARS" && cur !== "USD") continue;
       if (!validBookingCurrency.has(`${bid}-${cur}`)) continue;
 
       // base de comisión (mismo criterio que /api/earnings)
       const fee = svc.sale_price * 0.024;
-      const dbCommission = svc.totalCommissionWithoutVAT ?? 0;
+      const dbCommission =
+        Number(
+          (svc as { totalCommissionWithoutVAT?: number | null })
+            .totalCommissionWithoutVAT ?? 0,
+        ) || 0;
       const commissionBase = Math.max(dbCommission - fee, 0);
 
       const ownerId = bookingOwner.get(bid)!.id;

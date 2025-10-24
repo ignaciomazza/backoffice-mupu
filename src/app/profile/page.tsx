@@ -1,4 +1,3 @@
-// src/app/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -103,7 +102,7 @@ export default function ProfilePage() {
             </motion.div>
           )}
 
-          {!loading && showGrid && userProfile && (
+          {!loading && showGrid && (
             <motion.div
               key="dashboard"
               initial={{ opacity: 0, scale: 0.95 }}
@@ -112,7 +111,8 @@ export default function ProfilePage() {
               transition={{ duration: 0.4 }}
               className="flex w-full items-center justify-center md:p-4"
             >
-              <DashboardShortcuts agencyId={userProfile.id_agency} />
+              {/* Ya no necesita props */}
+              <DashboardShortcuts />
             </motion.div>
           )}
         </AnimatePresence>

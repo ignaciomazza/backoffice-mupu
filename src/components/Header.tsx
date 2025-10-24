@@ -1,4 +1,5 @@
 // src/components/Header.tsx
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import ThemeToggle from "@/components/ThemeToggle";
