@@ -1,10 +1,15 @@
 // src/components/services/ServiceForm.tsx
 "use client";
 
-import { ChangeEvent, FormEvent, useMemo } from "react";
+import { ChangeEvent, FormEvent, useMemo, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Operator, BillingData } from "@/types";
 import BillingBreakdown from "@/components/BillingBreakdown";
+import DestinationPicker, {
+  DestinationOption,
+} from "@/components/DestinationPicker";
+import Spinner from "@/components/Spinner";
+import { loadFinancePicks } from "@/utils/loadFinancePicks";
 
 export type ServiceFormData = {
   type: string;
@@ -31,13 +36,14 @@ type ServiceFormProps = {
   handleChange: (
     e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) => void;
-  handleSubmit: (e: FormEvent) => void;
+  handleSubmit: (e: FormEvent) => void | Promise<void>;
   editingServiceId: number | null;
   operators: Operator[];
   isFormVisible: boolean;
   setIsFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
   onBillingUpdate?: (data: BillingData) => void;
   agencyTransferFeePct: number;
+  token: string | null; // para cargar monedas desde finance
 };
 
 /* ---------- helpers UI (misma paleta) ---------- */
@@ -87,6 +93,14 @@ const Field: React.FC<{
   </div>
 );
 
+/* util mínima para opciones únicas ordenadas */
+const uniqSorted = (arr: string[]) =>
+  Array.from(new Set(arr.filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b, "es"),
+  );
+
+type FinanceCurrency = { code: string; name: string; enabled: boolean };
+
 export default function ServiceForm({
   formData,
   handleChange,
@@ -97,6 +111,7 @@ export default function ServiceForm({
   setIsFormVisible,
   onBillingUpdate,
   agencyTransferFeePct,
+  token,
 }: ServiceFormProps) {
   const effectiveTransferFeePct =
     formData.transfer_fee_pct != null
@@ -161,6 +176,107 @@ export default function ServiceForm({
     [formData.sale_price, formData.cost_price, hasPrices],
   );
 
+  /* ========== DESTINATION PICKER (con checkboxes siempre visibles) ========== */
+  const [countryMode, setCountryMode] = useState(false);
+  const [multiMode, setMultiMode] = useState(false);
+
+  // Defaults por tipo (usuario siempre puede cambiarlos)
+  useEffect(() => {
+    setCountryMode(formData.type === "Visa");
+    setMultiMode(["Circuito", "Tour"].includes(formData.type));
+  }, [formData.type]);
+
+  const [destSelection, setDestSelection] = useState<
+    DestinationOption | DestinationOption[] | null
+  >(null);
+  const [destValid, setDestValid] = useState(false);
+
+  // Si estamos editando y ya hay texto guardado, permitimos enviar sin re-pick
+  useEffect(() => {
+    if (
+      editingServiceId &&
+      (formData.destination || "").trim() &&
+      !destSelection
+    ) {
+      setDestValid(true);
+    }
+  }, [editingServiceId, formData.destination, destSelection]);
+
+  // Al cambiar modo país/múltiple, reseteamos selección/validez
+  useEffect(() => {
+    setDestSelection(null);
+    setDestValid(false);
+  }, [countryMode, multiMode]);
+
+  const handleDestinationChange = (
+    val: DestinationOption | DestinationOption[] | null,
+  ) => {
+    setDestSelection(val);
+    let text = "";
+    if (Array.isArray(val)) {
+      text = val.map((v) => v.displayLabel).join(" · ");
+    } else if (val) {
+      text = val.displayLabel;
+    }
+    handleChange({
+      target: { name: "destination", value: text },
+    } as ChangeEvent<HTMLInputElement>);
+  };
+
+  /* ========== MONEDAS desde finance currency ========== */
+  const [financeCurrencies, setFinanceCurrencies] = useState<
+    FinanceCurrency[] | null
+  >(null);
+  const [loadingCurrencies, setLoadingCurrencies] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        setLoadingCurrencies(true);
+        const picks = await loadFinancePicks(token);
+        setFinanceCurrencies(picks?.currencies ?? null);
+      } catch {
+        setFinanceCurrencies(null);
+      } finally {
+        setLoadingCurrencies(false);
+      }
+    })();
+  }, [token]);
+
+  const currencyOptions = useMemo(
+    () =>
+      uniqSorted(
+        (financeCurrencies || [])
+          .filter((c) => c.enabled)
+          .map((c) => (c.code || "").toUpperCase()),
+      ),
+    [financeCurrencies],
+  );
+
+  const currencyLabelDict = useMemo(() => {
+    const dict: Record<string, string> = {};
+    for (const c of financeCurrencies || []) {
+      if (c.enabled) dict[String(c.code).toUpperCase()] = c.name;
+    }
+    return dict;
+  }, [financeCurrencies]);
+
+  /* ========== Spinner de submit (sin any) ========== */
+  const [submitting, setSubmitting] = useState(false);
+
+  const onLocalSubmit = async (e: FormEvent) => {
+    setSubmitting(true);
+    try {
+      // Soporta sync o async sin usar `any`
+      await Promise.resolve(handleSubmit(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitDisabled = !destValid || submitting;
+
   return (
     <motion.div
       layout
@@ -173,9 +289,9 @@ export default function ServiceForm({
       id="service-form"
       className="mb-6 overflow-auto rounded-3xl border border-white/10 bg-white/10 text-sky-950 shadow-md shadow-sky-950/10 dark:text-white"
     >
-      {/* HEADER sticky (misma paleta, sin blur) */}
+      {/* HEADER */}
       <div
-        className={`sticky top-0 z-10 ${isFormVisible ? "rounded-t-3xl border-b" : ""} border-white/10  px-4 py-3 backdrop-blur-sm`}
+        className={`sticky top-0 z-10 ${isFormVisible ? "rounded-t-3xl border-b" : ""} border-white/10 px-4 py-3 backdrop-blur-sm`}
       >
         <button
           type="button"
@@ -238,7 +354,7 @@ export default function ServiceForm({
         </button>
       </div>
 
-      {/* BODY con fades (sin blur) */}
+      {/* BODY */}
       <AnimatePresence initial={false}>
         {isFormVisible && (
           <motion.div
@@ -250,7 +366,7 @@ export default function ServiceForm({
           >
             <motion.form
               id="service-form-body"
-              onSubmit={handleSubmit}
+              onSubmit={onLocalSubmit}
               className="space-y-5 px-4 pb-6 pt-4 md:px-6"
             >
               {/* DATOS BÁSICOS */}
@@ -270,7 +386,7 @@ export default function ServiceForm({
                     value={formData.type}
                     onChange={handleChange}
                     required
-                    className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                     aria-describedby="type-hint"
                   >
                     <option value="" disabled>
@@ -311,21 +427,59 @@ export default function ServiceForm({
                     value={formData.description || ""}
                     onChange={handleChange}
                     placeholder="Detalle del servicio..."
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                   />
                 </Field>
 
-                <Field id="destination" label="Destino">
-                  <input
-                    id="destination"
-                    type="text"
-                    name="destination"
-                    value={formData.destination || ""}
-                    onChange={handleChange}
-                    placeholder="Ej: Río de Janeiro"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                {/* Destination controls (checkboxes) */}
+                <div className="col-span-full -mb-1 flex flex-wrap items-center gap-4 px-1">
+                  <label className="inline-flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={countryMode}
+                      onChange={(e) => setCountryMode(e.target.checked)}
+                      className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
+                    />
+                    Solo país
+                  </label>
+                  <label className="inline-flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={multiMode}
+                      onChange={(e) => setMultiMode(e.target.checked)}
+                      className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
+                    />
+                    Múltiples destinos
+                  </label>
+                </div>
+
+                {/* DestinationPicker */}
+                <div className="space-y-1">
+                  <DestinationPicker
+                    type={countryMode ? "country" : "destination"}
+                    multiple={multiMode}
+                    value={destSelection}
+                    onChange={handleDestinationChange}
+                    onValidChange={setDestValid}
+                    placeholder={
+                      countryMode
+                        ? "Ej.: Argentina, Brasil…"
+                        : "Ej.: París, Salta…"
+                    }
+                    hint={
+                      multiMode
+                        ? "Podés sumar varios destinos/países. Se guardan como texto."
+                        : countryMode
+                          ? "Elegí el país correspondiente."
+                          : "Elegí un destino habilitado."
+                    }
                   />
-                </Field>
+                  {formData.destination ? (
+                    <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
+                      Guardará como: <b>{formData.destination}</b>
+                    </p>
+                  ) : null}
+                </div>
 
                 <Field
                   id="reference"
@@ -339,7 +493,7 @@ export default function ServiceForm({
                     value={formData.reference || ""}
                     onChange={handleChange}
                     placeholder="Ej: ABC12345"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                   />
                 </Field>
               </Section>
@@ -365,7 +519,7 @@ export default function ServiceForm({
                     onBlur={handleDateBlur}
                     inputMode="numeric"
                     placeholder="dd/mm/aaaa"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                   />
                 </Field>
 
@@ -388,7 +542,7 @@ export default function ServiceForm({
                     onBlur={handleDateBlur}
                     inputMode="numeric"
                     placeholder="dd/mm/aaaa"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                   />
                 </Field>
 
@@ -398,7 +552,7 @@ export default function ServiceForm({
                     name="id_operator"
                     value={formData.id_operator || 0}
                     onChange={handleChange}
-                    className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                   >
                     <option value={0} disabled>
                       Seleccionar operador
@@ -418,13 +572,23 @@ export default function ServiceForm({
                     value={formData.currency}
                     onChange={handleChange}
                     required
-                    className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                    disabled={currencyOptions.length === 0}
+                    className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                   >
                     <option value="" disabled>
-                      Seleccionar moneda
+                      {loadingCurrencies
+                        ? "Cargando monedas…"
+                        : currencyOptions.length
+                          ? "Seleccionar moneda"
+                          : "Sin monedas habilitadas"}
                     </option>
-                    <option value="USD">USD</option>
-                    <option value="ARS">ARS</option>
+                    {currencyOptions.map((code) => (
+                      <option key={code} value={code}>
+                        {currencyLabelDict[code]
+                          ? `${code} — ${currencyLabelDict[code]}`
+                          : code}
+                      </option>
+                    ))}
                   </select>
                 </Field>
               </Section>
@@ -451,7 +615,7 @@ export default function ServiceForm({
                       step="0.01"
                       min="0"
                       required
-                      className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                      className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                     />
                   </div>
                   <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
@@ -471,7 +635,7 @@ export default function ServiceForm({
                       step="0.01"
                       min="0"
                       required
-                      className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                      className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                     />
                   </div>
                   <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
@@ -489,7 +653,7 @@ export default function ServiceForm({
                     placeholder="0,00"
                     step="0.01"
                     min="0"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                   />
                   <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
                     {formatCurrency(formData.tax_21 || 0)}
@@ -506,7 +670,7 @@ export default function ServiceForm({
                     placeholder="0,00"
                     step="0.01"
                     min="0"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                   />
                   <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
                     {formatCurrency(formData.tax_105 || 0)}
@@ -523,7 +687,7 @@ export default function ServiceForm({
                     placeholder="0,00"
                     step="0.01"
                     min="0"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                   />
                   <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
                     {formatCurrency(formData.exempt || 0)}
@@ -540,7 +704,7 @@ export default function ServiceForm({
                     placeholder="0,00"
                     step="0.01"
                     min="0"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                   />
                   <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
                     {formatCurrency(formData.other_taxes || 0)}
@@ -563,7 +727,7 @@ export default function ServiceForm({
                     placeholder="0,00"
                     step="0.01"
                     min="0"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                   />
                   <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
                     {formatCurrency(formData.card_interest || 0)}
@@ -580,7 +744,7 @@ export default function ServiceForm({
                     placeholder="0,00"
                     step="0.01"
                     min="0"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                   />
                   <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
                     {formatCurrency(formData.card_interest_21 || 0)}
@@ -615,18 +779,30 @@ export default function ServiceForm({
                 />
               )}
 
-              {/* ACTION BAR sticky (misma paleta) */}
+              {/* ACTION BAR */}
               <div className="sticky bottom-2 z-10 flex justify-end">
                 <button
                   type="submit"
-                  className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition active:scale-[0.98] dark:bg-white/10 dark:text-white"
+                  disabled={submitDisabled}
+                  aria-busy={submitting}
+                  className={`rounded-full px-6 py-2 shadow-sm shadow-sky-950/20 transition active:scale-[0.98] ${
+                    submitDisabled
+                      ? "cursor-not-allowed bg-sky-950/20 text-white/60 dark:bg-white/5 dark:text-white/40"
+                      : "bg-sky-100 text-sky-950 dark:bg-white/10 dark:text-white"
+                  }`}
                   aria-label={
                     editingServiceId
                       ? "Guardar cambios del servicio"
                       : "Agregar servicio"
                   }
                 >
-                  {editingServiceId ? "Guardar Cambios" : "Agregar Servicio"}
+                  {submitting ? (
+                    <Spinner />
+                  ) : editingServiceId ? (
+                    "Guardar Cambios"
+                  ) : (
+                    "Agregar Servicio"
+                  )}
                 </button>
               </div>
             </motion.form>

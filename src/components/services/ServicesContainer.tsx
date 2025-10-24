@@ -805,6 +805,7 @@ export default function ServicesContainer({
               </div>
 
               <ServiceForm
+                token={token}
                 formData={formData}
                 operators={operators}
                 handleChange={handleChange}
