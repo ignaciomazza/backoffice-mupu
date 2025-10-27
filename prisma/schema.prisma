@@ -41,6 +41,7 @@ model Agency {
   FinancePaymentMethod FinancePaymentMethod[]
   ExpenseCategory      ExpenseCategory[]
   FinanceConfig        FinanceConfig?
+  Lead                 Lead[]
 }
 
 // User: renombramos las colecciones para que reflejen la intención
@@ -607,4 +608,36 @@ model ExpenseCategory {
 
   @@unique([id_agency, name])
   @@index([id_agency, enabled])
+}
+
+// ===========================
+// Leads (landing > contacto)
+// ===========================
+
+model Lead {
+  id_lead Int @id @default(autoincrement())
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Datos del formulario público
+  full_name   String
+  agency_name String
+  role        String
+  team_size   String?
+  location    String?
+  email       String
+  whatsapp    String?
+  message     String? @db.Text
+  status      String  @default("PENDING")
+
+  contacted_at DateTime?
+  source       String    @default("landing")
+
+  id_agency Int?
+  agency    Agency? @relation(fields: [id_agency], references: [id_agency], onDelete: SetNull)
+
+  @@index([status])
+  @@index([created_at])
+  @@index([email])
 }

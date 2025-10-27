@@ -230,7 +230,6 @@ export default function UserForm({
                 aria-required="true"
                 className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
               >
-                <option value="desarrollador">Desarrollador</option>
                 <option value="gerente">Gerente</option>
                 <option value="lider">Lider de Equipo</option>
                 <option value="vendedor">Vendedor</option>

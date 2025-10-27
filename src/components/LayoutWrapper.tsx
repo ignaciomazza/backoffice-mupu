@@ -19,6 +19,7 @@ export default function LayoutWrapper({
 
   const isLoginPage = pathname === "/login";
   const isLanding = pathname === "/"; // ✅ NUEVO
+  const isQr = pathname === "/qr";
 
   // ✅ En landing forzamos modo claro (sin dark)
   useEffect(() => {
@@ -28,13 +29,13 @@ export default function LayoutWrapper({
     }
   }, [isLanding]);
 
-  const showSidebar = !isLoginPage && !isLanding; // ✅ sin sidebar en landing
+  const showSidebar = !isLoginPage && !isLanding && !isQr; // ✅ sin sidebar en landing
   const showVanta = !isLoginPage; // mantenemos Vanta (en light queda bien)
 
   return (
     <div className="flex min-h-screen flex-col text-sky-950 dark:text-white">
       {showVanta && <VantaBackground />}
-      <Header toggleMenu={toggleMenu} menuOpen={menuOpen} />
+      {!isQr && <Header toggleMenu={toggleMenu} menuOpen={menuOpen} />}
       <div
         className={`flex flex-1 ${isLoginPage ? "items-center justify-center" : ""}`}
       >

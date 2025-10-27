@@ -6,8 +6,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -18,6 +16,8 @@ import {
   Cell,
   type TooltipProps,
 } from "recharts";
+import Spinner from "@/components/Spinner";
+import { authFetch } from "@/utils/authFetch";
 
 /* ===========================
  * Config
@@ -27,7 +27,7 @@ const WA_MSG = encodeURIComponent("Hola, quiero más info sobre Ofistur.");
 const WA_URL = `https://wa.me/${WA_NUMBER}?text=${WA_MSG}`;
 
 /* ===========================
- * Motion presets (más veloces y suaves)
+ * Motion presets
  * =========================== */
 const viewPreset = {
   initial: { opacity: 0, y: 8, scale: 0.995 },
@@ -54,6 +54,7 @@ function ButtonPrimary({
   className = "",
   size = "sm",
   variant,
+  disabled,
 }: {
   href?: string;
   children: React.ReactNode;
@@ -62,11 +63,12 @@ function ButtonPrimary({
   className?: string;
   size?: BtnSize;
   variant?: "emerald";
+  disabled?: boolean;
 }) {
   const sizing =
     size === "sm" ? "px-4 py-2 text-sm" : "px-5 py-2.5 text-[15px]";
   const base =
-    "rounded-full transition-all hover:scale-[0.98] active:scale-95 disabled:opacity-60 focus:outline-none";
+    "rounded-full transition-all hover:scale-[0.98] active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none";
   const content = (
     <motion.span
       {...hoverPreset}
@@ -84,13 +86,18 @@ function ButtonPrimary({
   );
   if (href) {
     return (
-      <a href={href} target="_blank" rel="noopener noreferrer">
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-disabled={disabled}
+      >
         {content}
       </a>
     );
   }
   return (
-    <button type={type} onClick={onClick}>
+    <button type={type} onClick={onClick} disabled={disabled}>
       {content}
     </button>
   );
@@ -140,7 +147,7 @@ function Card({
   );
 }
 
-/* ===== Chips con variantes (bordes de misma gama) ===== */
+/* ===== Chips con variantes ===== */
 function Chip({
   children,
   variant = "sky",
@@ -162,19 +169,25 @@ function Chip({
   );
 }
 
-/* ===== Inputs con label flotante (glass) ===== */
+/* ===== Inputs con label flotante =====
+   Ajuste: el label queda "arriba" por defecto.
+   Sólo baja cuando el campo está vacío (placeholder-shown).
+   Si hay valor (o foco), vuelve y se queda arriba.
+*/
 function FloatingInput({
   label,
   name,
   type = "text",
   required,
   placeholder = " ",
+  disabled = false,
 }: {
   label: string;
   name: string;
   type?: string;
   required?: boolean;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="relative">
@@ -182,10 +195,21 @@ function FloatingInput({
         name={name}
         type={type}
         required={required}
+        disabled={disabled}
         placeholder={placeholder}
-        className="peer w-full rounded-2xl border border-sky-950/10 bg-white/10 p-3 text-sky-950 outline-none backdrop-blur placeholder:text-transparent focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30"
+        className="peer w-full rounded-2xl border border-sky-950/10 bg-white/10 p-3 text-sky-950 outline-none backdrop-blur placeholder:text-transparent focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30 disabled:cursor-not-allowed disabled:opacity-60"
       />
-      <label className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-lg bg-white/60 px-2 py-1 text-xs text-sky-950/80 transition-all duration-200 peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:text-sky-950">
+      <label
+        className={[
+          "pointer-events-none absolute left-3 z-10 rounded-lg px-2 py-1 text-[11px] font-medium text-sky-950/80 transition-all duration-200",
+          // Estado "flotante" (default): va arriba del input
+          "top-0 -translate-y-1/2 bg-white/60",
+          // Si el input está vacío (placeholder-shown): baja al centro
+          "peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:bg-white/0 peer-placeholder-shown:text-sky-950/50",
+          // Con foco siempre vuelve flotante
+          "peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:bg-white/60 peer-focus:text-sky-950",
+        ].join(" ")}
+      >
         {label}
       </label>
     </div>
@@ -197,11 +221,13 @@ function FloatingTextarea({
   name,
   rows = 4,
   placeholder = " ",
+  disabled = false,
 }: {
   label: string;
   name: string;
   rows?: number;
   placeholder?: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="relative">
@@ -209,9 +235,20 @@ function FloatingTextarea({
         name={name}
         rows={rows}
         placeholder={placeholder}
-        className="peer w-full rounded-2xl border border-sky-950/10 bg-white/10 p-3 text-sky-950 outline-none backdrop-blur placeholder:text-transparent focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30"
+        disabled={disabled}
+        className="peer w-full rounded-2xl border border-sky-950/10 bg-white/10 p-3 text-sky-950 outline-none backdrop-blur placeholder:text-transparent focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30 disabled:cursor-not-allowed disabled:opacity-60"
       />
-      <label className="pointer-events-none absolute left-3 top-3 z-10 bg-white/60 px-1 text-xs text-sky-950/80 transition-all duration-200 peer-placeholder-shown:top-3 peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:text-sky-950">
+      <label
+        className={[
+          "pointer-events-none absolute left-3 z-10 rounded-lg px-2 py-1 text-[11px] font-medium text-sky-950/80 transition-all duration-200",
+          // flotante por defecto, bien arriba del textarea
+          "top-0 -translate-y-1/2 bg-white/60",
+          // cuando está vacío: que baje un poco dentro del textarea
+          "peer-placeholder-shown:top-3 peer-placeholder-shown:translate-y-0 peer-placeholder-shown:bg-white/0 peer-placeholder-shown:text-sky-950/50",
+          // en foco vuelve flotante arriba
+          "peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:bg-white/60 peer-focus:text-sky-950",
+        ].join(" ")}
+      >
         {label}
       </label>
     </div>
@@ -223,11 +260,13 @@ function SelectField({
   name,
   children,
   required,
+  disabled = false,
 }: {
   label: string;
   name: string;
   children: React.ReactNode;
   required?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <label className="flex flex-col gap-1">
@@ -236,7 +275,8 @@ function SelectField({
         <select
           name={name}
           required={required}
-          className="relative z-[1] w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/10 p-3 text-sky-950 outline-none backdrop-blur focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30"
+          disabled={disabled}
+          className="relative z-[1] w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/10 p-3 text-sky-950 outline-none backdrop-blur focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30 disabled:cursor-not-allowed disabled:opacity-60"
           defaultValue=""
         >
           {children}
@@ -308,22 +348,83 @@ function FeatureCard({
   );
 }
 
-function GalleryCard({ title }: { title: string }) {
+/* =========================================
+ * Videos Tutorial
+ * ========================================= */
+
+/**
+ * Convierte cualquier link común de YouTube en un embed listo.
+ */
+function getYouTubeEmbed(rawUrl: string): string {
+  if (!rawUrl) return "";
+  try {
+    const u = new URL(rawUrl);
+
+    // Caso share corto: https://youtu.be/VIDEOID?si=...
+    if (u.hostname.includes("youtu.be")) {
+      const idFromPath = u.pathname.replace("/", ""); // "VIDEOID"
+      if (idFromPath) {
+        return `https://www.youtube.com/embed/${idFromPath}?rel=0`;
+      }
+    }
+
+    // Caso normal: https://www.youtube.com/watch?v=VIDEOID&...
+    if (u.hostname.includes("youtube.com")) {
+      // Si ya viene /embed/ lo dejamos
+      if (u.pathname.startsWith("/embed/")) {
+        return rawUrl;
+      }
+      const v = u.searchParams.get("v");
+      if (v) {
+        return `https://www.youtube.com/embed/${v}?rel=0`;
+      }
+    }
+  } catch {
+    return rawUrl;
+  }
+  return rawUrl;
+}
+
+type TutorialVideo = {
+  title: string;
+  desc: string;
+  videoUrl: string;
+};
+
+function TutorialVideoCard({ title, desc, videoUrl }: TutorialVideo) {
+  const finalUrl = getYouTubeEmbed(videoUrl);
+
   return (
     <motion.div
-      className="overflow-hidden rounded-3xl border border-white/10 bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
+      className="flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
       {...viewPreset}
       {...hoverPreset}
     >
-      <div className="relative aspect-video w-full bg-gradient-to-b from-white/30 to-white/10" />
-      <div className="px-5 py-4">
-        <p className="text-sm font-medium text-sky-950">{title}</p>
-        <p className="text-xs text-sky-950/70">Reemplazar por captura real</p>
+      <div className="relative aspect-video w-full">
+        {finalUrl ? (
+          <iframe
+            className="absolute inset-0 size-full rounded-t-3xl"
+            src={finalUrl}
+            title={title}
+            loading="lazy"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
+        ) : (
+          <div className="absolute inset-0 grid place-items-center text-[11px] tracking-wide text-white/60">
+            VIDEO
+          </div>
+        )}
+      </div>
+      <div className="flex flex-col px-5 py-4">
+        <p className="text-sm font-semibold text-sky-950">{title}</p>
+        <p className="mt-2 text-xs leading-relaxed text-sky-950/70">{desc}</p>
       </div>
     </motion.div>
   );
 }
 
+/* Roles / valor por perfil */
 function RoleCard({ title, bullets }: { title: string; bullets: string[] }) {
   return (
     <motion.div
@@ -385,7 +486,7 @@ function GlassTooltip(props: TooltipProps<number, string>) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sky-950 shadow-md backdrop-blur">
       {label && <p className="mb-1 text-xs opacity-70">{label}</p>}
-      <div className="space-y-1">
+      <div className="space-y-1 text-sky-950">
         {payload.map((p, i) => (
           <p key={i} className="text-sm">
             <span className="font-medium">{p.name || p.dataKey}:</span>{" "}
@@ -398,12 +499,436 @@ function GlassTooltip(props: TooltipProps<number, string>) {
 }
 
 /* ===========================
+ * Charts marketing
+ * =========================== */
+
+function ChartVentasUp() {
+  const mounted = useMounted();
+  const data = [
+    { m: "Ene", v: 40 },
+    { m: "Feb", v: 48 },
+    { m: "Mar", v: 55 },
+    { m: "Abr", v: 63 },
+    { m: "May", v: 70 },
+    { m: "Jun", v: 82 },
+  ];
+  return (
+    <ChartCard title="Más tiempo vendiendo" subtitle="+42% foco comercial">
+      {mounted ? (
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data}>
+            <defs>
+              <linearGradient id="gVentas" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.4} />
+                <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0.05} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid vertical={false} stroke="#e5eef7" />
+            <XAxis
+              dataKey="m"
+              tickLine={false}
+              axisLine={false}
+              stroke="#475569"
+              fontSize={12}
+            />
+            <YAxis hide />
+            <Tooltip content={<GlassTooltip />} />
+            <Area
+              type="monotone"
+              dataKey="v"
+              name="Horas útiles en ventas"
+              stroke="#0ea5e9"
+              strokeWidth={2}
+              fill="url(#gVentas)"
+              activeDot={{ r: 4 }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      ) : (
+        <Skeleton />
+      )}
+    </ChartCard>
+  );
+}
+
+function ChartAdminDown() {
+  const mounted = useMounted();
+  const data = [
+    { m: "Ene", v: 40 },
+    { m: "Feb", v: 36 },
+    { m: "Mar", v: 30 },
+    { m: "Abr", v: 26 },
+    { m: "May", v: 22 },
+    { m: "Jun", v: 18 },
+  ];
+  return (
+    <ChartCard
+      title="Menos trabajo repetitivo"
+      subtitle="-55% tareas operativas"
+    >
+      {mounted ? (
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data}>
+            <defs>
+              <linearGradient id="gAdmin" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.35} />
+                <stop offset="95%" stopColor="#94a3b8" stopOpacity={0.05} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid vertical={false} stroke="#e5eef7" />
+            <XAxis
+              dataKey="m"
+              tickLine={false}
+              axisLine={false}
+              stroke="#475569"
+              fontSize={12}
+            />
+            <YAxis hide />
+            <Tooltip content={<GlassTooltip />} />
+            <Area
+              type="monotone"
+              dataKey="v"
+              name="Horas en planillas / correcciones"
+              stroke="#64748b"
+              strokeWidth={2}
+              fill="url(#gAdmin)"
+              activeDot={{ r: 4 }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      ) : (
+        <Skeleton />
+      )}
+    </ChartCard>
+  );
+}
+
+function ChartControlEquipo() {
+  const mounted = useMounted();
+  const pct = 92;
+  const pie = [
+    { name: "Equipo alineado", value: pct },
+    { name: "Caos / retrabajo", value: 100 - pct },
+  ];
+  const colors = ["#0ea5e9", "#e2e8f0"];
+
+  return (
+    <ChartCard title="Equipo alineado" subtitle="Visibilidad en tiempo real">
+      {mounted ? (
+        <div className="relative size-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Tooltip content={<GlassTooltip />} />
+              <Pie
+                data={pie}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={50}
+                outerRadius={64}
+                startAngle={90}
+                endAngle={-270}
+                stroke="none"
+              >
+                {pie.map((_, i) => (
+                  <Cell key={i} fill={colors[i]} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="pointer-events-none absolute inset-0 grid place-items-center">
+            <div className="text-center">
+              <div className="text-2xl font-semibold text-sky-950">{pct}%</div>
+              <div className="text-[11px] text-sky-950/70">
+                claridad operativa
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <Skeleton />
+      )}
+    </ChartCard>
+  );
+}
+
+/* ===========================
+ * Tutorial videos data
+ * =========================== */
+const VIDEOS: TutorialVideo[] = [
+  {
+    title: "Ofistur #1: Presentación, Login y Dashboard",
+    desc: "Conocé Ofistur desde cero: landing, inicio de sesión y el panel que centraliza todo en 2 clics. Ideal si venís de un “sistema prehistórico” y querés ver métricas, alertas y accesos rápidos hechos por y para agencias de viaje. Más información.",
+    videoUrl: "https://youtu.be/p3Lzg1y2D7Y",
+  },
+  {
+    title: "Ofistur #2: Clientes — Alta, Edición, Baja y KPIs rápidos",
+    desc: "Cargá, editá y eliminá clientes sin vueltas. Vemos fichas, búsquedas, segmentación y estadísticas clave (deuda, historial, valor). Todo listo para cotizar y confirmar más rápido. Más información.",
+    videoUrl: "https://youtu.be/-Ps3wLSCVDg",
+  },
+  {
+    title: "Ofistur #3: Reservas — Flujo básico y primer vistazo a Servicios",
+    desc: "Creá tu primera reserva, editála, eliminála y conectála con el titular. Además, te muestro la primera pantalla de Servicios para entender cómo se arma cada viaje paso a paso. Más información.",
+    videoUrl: "https://youtu.be/uhR4D87JbWo",
+  },
+  {
+    title: "Ofistur #4: Servicios — CRUD completo y resumen con estadísticas",
+    desc: "Alta/edición/baja de servicios dentro de la reserva y un tablero de resumen con importes, comisiones e impuestos automáticos. Visualizá en 2 clics el estado global de cada viaje. Más información.",
+    videoUrl: "https://youtu.be/UNYCNBVi528",
+  },
+  {
+    title:
+      "Ofistur #5: Servicios a fondo — Planes de pago, Recibos y Operadores",
+    desc: "Definí planes de pago, emití recibos, gestioná vencimientos y registrá pagos al operador. Controlá el estado de la reserva y evitá olvidos con avisos claros para el equipo. Más información.",
+    videoUrl: "https://youtu.be/uK4dy_c-n2c",
+  },
+  {
+    title: "Ofistur #6: Facturas y Notas de Crédito — Flujo y Estadísticas",
+    desc: "Emití facturas y notas de crédito, vinculalas a servicios y seguí su impacto en la rentabilidad. Cerramos con un tablero de métricas de facturación para decisiones en tiempo real. Más información.",
+    videoUrl: "https://youtu.be/QWPOFHY7za4",
+  },
+  {
+    title: "Ofistur #7: Finanzas — Gastos, Saldos, Ganancias y Configuración",
+    desc: "Inversiones (gastos), pagos al operador, recibos, saldos de reservas y cálculo automático de comisiones (vendedor/líder/agencia). Además, configuración de monedas, cuentas, métodos y categorías. Más información.",
+    videoUrl: "https://youtu.be/XQWpJ1J4JcE",
+  },
+  {
+    title:
+      "Ofistur #8: Recursos del Equipo — Notas, Calendario y Templates PDF",
+    desc: "Organizá al equipo con anotaciones colaborativas, calendario de clientes y plantillas listas para cotización y confirmación en PDF. Centralizá comunicación y documentación en un solo lugar. Más información.",
+    videoUrl: "https://youtu.be/xJFyNUfTDjc",
+  },
+  {
+    title:
+      "Ofistur #9: Agencia — Identidad, AFIP, Operadores, Usuarios y Roles",
+    desc: "Ajustá datos de la agencia (logo, certificados AFIP, costos por transferencia), gestioná Operadores, Usuarios y Equipos de ventas, y administrá roles y contraseñas con control fino de permisos. Más información.",
+    videoUrl: "https://youtu.be/3hXinQcW1ck",
+  },
+  {
+    title: "Ofistur #10: Cierre del Tutorial",
+    desc: "Pedí una demo, migrá a Ofistur y trabajá desde Mac/Windows/iOS/Android. Todo centralizado y en 2 clics. Más información.",
+    videoUrl: "https://youtu.be/7RmdJWiiEIQ",
+  },
+];
+
+/* ===========================
+ * Formulario de leads
+ * =========================== */
+
+function LeadForm() {
+  const [sent, setSent] = useState<null | "ok" | "err">(null);
+  const [loading, setLoading] = useState(false);
+
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setLoading(true);
+    setSent(null);
+
+    const formEl = e.currentTarget;
+    const formData = new FormData(formEl);
+
+    // payload para /api/leads
+    const payload = {
+      name: String(formData.get("name") ?? ""),
+      agency: String(formData.get("agency") ?? ""),
+      role: String(formData.get("role") ?? ""),
+      size: String(formData.get("size") ?? ""),
+      location: String(formData.get("location") ?? ""),
+      email: String(formData.get("email") ?? ""),
+      whatsapp: String(formData.get("whatsapp") ?? ""),
+      message: String(formData.get("message") ?? ""),
+    };
+
+    try {
+      const res = await authFetch(
+        "/api/leads",
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+        },
+        null, // público
+      );
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        console.error("[lead][submit] error:", errJson);
+        throw new Error(
+          (errJson as { error?: string }).error || "Error al enviar",
+        );
+      }
+
+      // éxito
+      setSent("ok");
+      formEl.reset();
+    } catch (err) {
+      console.error(err);
+      setSent("err");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Mensaje de confirmación total
+  if (sent === "ok") {
+    return (
+      <motion.div
+        className="rounded-3xl border border-emerald-300/50 bg-emerald-50/70 p-6 text-emerald-900 shadow-md shadow-emerald-950/10 backdrop-blur md:p-7"
+        {...viewPreset}
+      >
+        <div className="flex items-start gap-3">
+          <div className="mt-1 rounded-full bg-emerald-600/10 p-2 text-emerald-700 shadow-sm shadow-emerald-900/10">
+            <IconCheckCircle className="size-5" />
+          </div>
+          <div className="flex-1">
+            <h4 className="text-lg font-semibold leading-tight">
+              ¡Listo! Ya recibimos tus datos
+            </h4>
+            <p className="mt-2 text-sm text-emerald-900/80">
+              Te vamos a escribir por WhatsApp y email para coordinar la demo /
+              onboarding. También podés hablarnos directo ahora 👇
+            </p>
+
+            <div className="mt-5 flex flex-wrap items-center gap-4">
+              <ButtonPrimary variant="emerald" href={WA_URL} size="sm">
+                Abrir WhatsApp
+              </ButtonPrimary>
+              <p className="text-[11px] leading-snug text-emerald-900/70">
+                Respuesta humana real, no bot.
+              </p>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.form
+      onSubmit={onSubmit}
+      className="relative rounded-3xl border border-white/10 bg-white/10 px-3 py-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur md:p-7"
+      {...viewPreset}
+      noValidate
+    >
+      {/* overlay cargando */}
+      {loading && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center rounded-3xl bg-white/50 backdrop-blur-sm">
+          <Spinner />
+        </div>
+      )}
+
+      <div
+        className={`grid gap-5 md:grid-cols-2 ${loading ? "pointer-events-none opacity-60" : ""}`}
+      >
+        <FloatingInput
+          label="Nombre y apellido *"
+          name="name"
+          required
+          disabled={loading}
+        />
+        <FloatingInput
+          label="Agencia / Operador *"
+          name="agency"
+          required
+          disabled={loading}
+        />
+
+        <SelectField label="Rol *" name="role" required disabled={loading}>
+          <option value="" disabled>
+            Seleccionar…
+          </option>
+          <option>Dueño/Gerente</option>
+          <option>Administración</option>
+          <option>Líder</option>
+          <option>Vendedor</option>
+        </SelectField>
+
+        <SelectField label="Tamaño" name="size" disabled={loading}>
+          <option value="" disabled>
+            Seleccionar…
+          </option>
+          <option>Freelancer</option>
+          <option>2–5</option>
+          <option>6–15</option>
+          <option>16–30</option>
+          <option>30+</option>
+        </SelectField>
+
+        <FloatingInput
+          label="País / Ciudad"
+          name="location"
+          disabled={loading}
+        />
+        <FloatingInput
+          label="Email *"
+          name="email"
+          type="email"
+          required
+          disabled={loading}
+        />
+        <FloatingInput
+          label="WhatsApp (opcional)"
+          name="whatsapp"
+          disabled={loading}
+        />
+
+        <div className="md:col-span-2">
+          <FloatingTextarea
+            label="Mensaje (opcional)"
+            name="message"
+            rows={4}
+            disabled={loading}
+          />
+        </div>
+      </div>
+
+      <div
+        className={`mt-6 flex flex-wrap items-center gap-3 ${loading ? "pointer-events-none opacity-60" : ""}`}
+      >
+        <ButtonPrimary
+          type="submit"
+          size="sm"
+          className="min-w-[120px]"
+          disabled={loading}
+        >
+          {loading ? "Enviando…" : "Enviar"}
+        </ButtonPrimary>
+
+        <ButtonPrimary variant="emerald" href={WA_URL} size="sm">
+          WhatsApp
+        </ButtonPrimary>
+
+        <p className="text-xs text-sky-950/70">
+          Al enviar aceptás nuestras{" "}
+          <a className="underline" href="/legal/terminos">
+            Condiciones
+          </a>{" "}
+          y{" "}
+          <a className="underline" href="/legal/privacidad">
+            Privacidad
+          </a>
+          .
+        </p>
+      </div>
+
+      {sent === "err" && (
+        <motion.p
+          className="mt-3 text-sm text-red-600"
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          Hubo un error. Probá de nuevo o escribinos por WhatsApp.
+        </motion.p>
+      )}
+    </motion.form>
+  );
+}
+
+/* ===========================
  * Landing
  * =========================== */
 export default function LandingClient() {
   return (
     <>
-      {/* Hero minimal con resaltado "marcatexto" ámbar */}
+      {/* Hero */}
       <section className="relative overflow-hidden py-24 sm:py-40">
         <div
           aria-hidden
@@ -456,7 +981,7 @@ export default function LandingClient() {
               <Chip>AFIP</Chip>
               <Chip>Copias de seguridad</Chip>
               <Chip>Accesos por rol</Chip>
-              <Chip>Soporte Tecnico</Chip>
+              <Chip>Soporte técnico</Chip>
             </div>
           </Card>
         </div>
@@ -467,48 +992,54 @@ export default function LandingClient() {
         <div className="grid grid-cols-1 gap-5 sm:gap-6 md:[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))] lg:gap-7">
           <FeatureCard
             title="Operativa"
-            desc="Reservas y servicios, cotizaciones, confirmaciones, calendario y recursos."
+            desc="Reservas y servicios, cotizaciones, confirmaciones, calendario y recursos (pasajeros, salidas, hoteles, cuentas bancarias)."
             icon={<IconCalendar className="size-5" aria-hidden />}
           />
           <FeatureCard
             title="Finanzas"
-            desc="AFIP, recibos, notas de crédito y caja simple."
+            desc="AFIP, facturación clara, recibos, notas de crédito, caja simple y comisiones al día."
             icon={<IconInvoice className="size-5" aria-hidden />}
           />
           <FeatureCard
             title="Control"
-            desc="Comisiones por equipo/vendedor, reportes, permisos."
+            desc="Visibilidad de todo el equipo (incluida coordinación). Cada rol con lo que tiene que ver, nada más."
             icon={<IconShield className="size-5" aria-hidden />}
           />
           <FeatureCard
             title="Productividad"
-            desc="Bloques reutilizables para reducir errores y retrabajo."
+            desc="Templates listos, PDFs prolijos, menos retrabajo. Funciona también desde el celu."
             icon={<IconZap className="size-5" aria-hidden />}
           />
         </div>
 
+        {/* Charts marketing */}
         <div className="mt-10 grid grid-cols-1 gap-5 sm:gap-6 md:[grid-template-columns:repeat(auto-fit,minmax(260px,1fr))] lg:gap-7">
-          <ChartAhorroTiempo />
-          <ChartErrores />
-          <ChartAdopcionSimple />
+          <ChartVentasUp />
+          <ChartAdminDown />
+          <ChartControlEquipo />
         </div>
       </Section>
 
-      {/* Galería */}
-      <Section title="Conocé la plataforma" eyebrow="Capturas">
+      {/* Tutorial en video */}
+      <Section
+        id="videos"
+        title="Tutorial completo (10 videos cortos)"
+        eyebrow="Videos"
+      >
         <p className="text-sm text-sky-950/80">
-          Reemplazaremos estas vistas por capturas reales (sin datos sensibles).
+          Mirá el flujo real de trabajo: alta de clientes, reservas, servicios,
+          finanzas, facturación y permisos. Son pantallas reales, tal cual las
+          usa tu agencia hoy.
         </p>
-        <div className="mt-7 grid grid-cols-1 gap-6 sm:gap-7 md:[grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
-          {[
-            "Generador de cotizaciones y confirmaciones (PDF)",
-            "Reservas y Servicios",
-            "Facturación / Recibos / Notas de Credito",
-            "Calendario / Recursos",
-            "Comisiones / Reportes",
-            "Configuraciones",
-          ].map((t) => (
-            <GalleryCard key={t} title={t} />
+
+        <div className="mt-7 grid grid-cols-1 gap-6 sm:gap-7 md:[grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
+          {VIDEOS.map((v, i) => (
+            <TutorialVideoCard
+              key={i}
+              title={v.title}
+              desc={v.desc}
+              videoUrl={v.videoUrl}
+            />
           ))}
         </div>
       </Section>
@@ -528,7 +1059,7 @@ export default function LandingClient() {
             title="Administración"
             bullets={[
               "Facturación sin fricción",
-              "Recibos/Notas de Credito ordenados",
+              "Recibos / Notas de crédito ordenados",
               "Menos errores y retrabajo",
             ]}
           />
@@ -628,21 +1159,36 @@ export default function LandingClient() {
 /* ===========================
  * FAQ item (animado)
  * =========================== */
+
+/**
+ * Nueva FAQ, orientada a dolores reales:
+ * - “Tengo todo en Excel y WhatsApp”
+ * - tiempo operativo
+ * - AFIP/facturación
+ * - adopción del equipo
+ * - permanencia / riesgo
+ */
 const FAQ_ITEMS: [string, string][] = [
   [
-    "¿Hacen la migración de datos?",
-    "Para este lanzamiento no ofrecemos migración ni guías ni planillas. Cada equipo gestiona su propia migración.",
+    "Hoy tengo todo en Excel y WhatsApp. ¿Me sirve igual?",
+    "Sí. Ese es justamente el caso más común: reservas en un Excel, audios con precios, PDFs sueltos. Ofistur junta clientes, reservas, vencimientos, facturas y cobranzas en un solo lugar para que no dependas de mil chats y planillas.",
   ],
   [
-    "¿Cuánto dura el onboarding?",
-    "Depende del tamaño. En general, días (no semanas).",
+    "¿Cuánto tiempo le ahorra a mi equipo?",
+    "La mayoría del tiempo perdido es repetir datos, corregir facturas, perseguir saldos o pedir info al vendedor. En Ofistur ya está cargado una sola vez y lo ve todo el equipo. Eso baja mucho las horas de administración y retrabajo interno.",
   ],
-  ["¿Qué soporte incluyen?", "Soporte en español por canales directos."],
   [
-    "¿Cómo protegen mis datos?",
-    "Cifrado, copias de seguridad y control de acceso por roles.",
+    "¿Necesito alguien técnico para usarlo?",
+    "No. Está pensado para equipos de viaje, no para contadores ni programadores. Los permisos por rol hacen que cada persona solo vea/edite lo que necesita (ventas, caja, AFIP, etc.) sin miedo a “romper” algo.",
   ],
-  ["¿Puedo cancelar cuando quiera?", "Sí. Sin períodos mínimos."],
+  [
+    "¿Me ayuda con AFIP y la facturación?",
+    "Sí. Podés emitir comprobantes, notas de crédito y tenerlos ligados a cada reserva/servicio. Además se ve la rentabilidad y las comisiones sin tener que armar reportes a mano.",
+  ],
+  [
+    "¿Estoy atado a un contrato largo?",
+    "No. Podés dejar de usar la plataforma cuando quieras. Si después decidís volver a tus planillas, lo hacés. No hay permanencia mínima.",
+  ],
 ];
 
 function FAQItem({ question, answer }: { question: string; answer: string }) {
@@ -685,239 +1231,10 @@ function FAQItem({ question, answer }: { question: string; answer: string }) {
 }
 
 /* ===========================
- * Form
- * =========================== */
-function LeadForm() {
-  const [sent, setSent] = useState<null | "ok" | "err">(null);
-  const [loading, setLoading] = useState(false);
-
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setLoading(true);
-    setSent(null);
-    try {
-      // TODO: POST real a /api/leads
-      await new Promise((r) => setTimeout(r, 700));
-      setSent("ok");
-      (e.currentTarget as HTMLFormElement).reset();
-    } catch {
-      setSent("err");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <motion.form
-      onSubmit={onSubmit}
-      className="rounded-3xl border border-white/10 bg-white/10 px-3 py-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur md:p-7"
-      {...viewPreset}
-    >
-      <div className="grid gap-5 md:grid-cols-2">
-        <FloatingInput label="Nombre y apellido *" name="name" required />
-        <FloatingInput label="Agencia / Operador *" name="agency" required />
-        <SelectField label="Rol *" name="role" required>
-          <option value="" disabled>
-            Seleccionar…
-          </option>
-          <option>Dueño/Gerente</option>
-          <option>Administración</option>
-          <option>Líder</option>
-          <option>Vendedor</option>
-        </SelectField>
-        <SelectField label="Tamaño" name="size">
-          <option value="" disabled>
-            Seleccionar…
-          </option>
-          <option>Freelancer</option>
-          <option>2–5</option>
-          <option>6–15</option>
-          <option>16–30</option>
-          <option>30+</option>
-        </SelectField>
-        <FloatingInput label="País / Ciudad" name="location" />
-        <FloatingInput label="Email *" name="email" type="email" required />
-        <FloatingInput label="WhatsApp (opcional)" name="whatsapp" />
-        <div className="md:col-span-2">
-          <FloatingTextarea
-            label="Mensaje (opcional)"
-            name="message"
-            rows={4}
-          />
-        </div>
-      </div>
-
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <ButtonPrimary type="submit" size="sm" className="min-w-[120px]">
-          {loading ? "Enviando…" : "Enviar"}
-        </ButtonPrimary>
-        <ButtonPrimary variant="emerald" href={WA_URL} size="sm">
-          WhatsApp
-        </ButtonPrimary>
-        <p className="text-xs text-sky-950/70">
-          Al enviar aceptás nuestras{" "}
-          <a className="underline" href="/legal/terminos">
-            Condiciones
-          </a>{" "}
-          y{" "}
-          <a className="underline" href="/legal/privacidad">
-            Privacidad
-          </a>
-          .
-        </p>
-      </div>
-
-      {sent === "ok" && (
-        <motion.p
-          className="mt-3 text-sm text-emerald-700"
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          ¡Gracias! Te vamos a escribir por WhatsApp y email.
-        </motion.p>
-      )}
-      {sent === "err" && (
-        <motion.p
-          className="mt-3 text-sm text-red-600"
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          Hubo un error. Probá de nuevo o escribinos por WhatsApp.
-        </motion.p>
-      )}
-    </motion.form>
-  );
-}
-
-/* ===========================
- * Charts (con tooltips glass)
+ * Skeleton chart
  * =========================== */
 function Skeleton() {
   return <div className="size-full animate-pulse rounded-xl bg-white/20" />;
-}
-
-function ChartAhorroTiempo() {
-  const mounted = useMounted();
-  const data = [
-    { m: "Ene", v: 100 },
-    { m: "Feb", v: 96 },
-    { m: "Mar", v: 88 },
-    { m: "Abr", v: 80 },
-    { m: "May", v: 72 },
-    { m: "Jun", v: 62 },
-  ];
-  return (
-    <ChartCard
-      title="Ahorro de tiempo"
-      subtitle="–38% en 6 meses (ilustrativo)"
-    >
-      {mounted ? (
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data}>
-            <defs>
-              <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.45} />
-                <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.08} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid vertical={false} stroke="#e5eef7" />
-            <XAxis dataKey="m" tickLine={false} axisLine={false} />
-            <YAxis hide />
-            <Tooltip content={<GlassTooltip />} />
-            <Area
-              type="monotone"
-              dataKey="v"
-              name="Tiempo"
-              stroke="#0ea5e9"
-              fill="url(#g1)"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      ) : (
-        <Skeleton />
-      )}
-    </ChartCard>
-  );
-}
-
-function ChartErrores() {
-  const mounted = useMounted();
-  const data = [
-    { m: "Ene", err: 22 },
-    { m: "Feb", err: 18 },
-    { m: "Mar", err: 15 },
-    { m: "Abr", err: 12 },
-    { m: "May", err: 10 },
-    { m: "Jun", err: 8 },
-  ];
-  return (
-    <ChartCard title="Errores de facturación" subtitle="–62% (ilustrativo)">
-      {mounted ? (
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data}>
-            <CartesianGrid vertical={false} stroke="#e5eef7" />
-            <XAxis dataKey="m" tickLine={false} axisLine={false} />
-            <YAxis hide />
-            <Tooltip content={<GlassTooltip />} />
-            <Bar
-              dataKey="err"
-              name="Errores"
-              radius={[8, 8, 0, 0]}
-              fill="#38bdf8"
-            />
-          </BarChart>
-        </ResponsiveContainer>
-      ) : (
-        <Skeleton />
-      )}
-    </ChartCard>
-  );
-}
-
-function ChartAdopcionSimple() {
-  const mounted = useMounted();
-  const pct = 90;
-  const pie = [
-    { name: "Usando", value: pct },
-    { name: "Pendiente", value: 100 - pct },
-  ];
-  const colors = ["#0ea5e9", "#e2e8f0"];
-
-  return (
-    <ChartCard title="Adopción del equipo" subtitle="90 días (ilustrativo)">
-      {mounted ? (
-        <div className="relative size-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Tooltip content={<GlassTooltip />} />
-              <Pie
-                data={pie}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={50}
-                outerRadius={64}
-                startAngle={90}
-                endAngle={-270}
-                stroke="none"
-              >
-                {pie.map((_, i) => (
-                  <Cell key={i} fill={colors[i]} />
-                ))}
-              </Pie>
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="pointer-events-none absolute inset-0 grid place-items-center">
-            <div className="text-center">
-              <div className="text-2xl font-semibold text-sky-950">{pct}%</div>
-              <div className="text-[11px] text-sky-950/70">equipos usando</div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <Skeleton />
-      )}
-    </ChartCard>
-  );
 }
 
 /* ===========================
@@ -990,6 +1307,24 @@ function IconWhatsApp(props: React.SVGProps<SVGSVGElement>) {
         fill="#064e3b"
         d="M462 228q0 93-66 159t-160 66q-56 0-109-28L2 464l40-120q-32-54-32-116q0-93 66-158.5T236 4t160 65.5T462 228zM236 39q-79 0-134.5 55.5T46 228q0 62 36 111l-24 70l74-23q49 31 104 31q79 0 134.5-55.5T426 228T370.5 94.5T236 39zm114 241q-1-1-10-7q-3-1-19-8.5t-19-8.5q-9-3-13 2q-1 3-4.5 7.5t-7.5 9t-5 5.5q-4 6-12 1q-34-17-45-27q-7-7-13.5-15t-12-15t-5.5-8q-3-7 3-11q4-6 8-10l6-9q2-5-1-10q-4-13-17-41q-3-9-12-9h-11q-9 0-15 7q-19 19-19 45q0 24 22 57l2 3q2 3 4.5 6.5t7 9t9 10.5t10.5 11.5t13 12.5t14.5 11.5t16.5 10t18 8.5q16 6 27.5 10t18 5t9.5 1t7-1t5-1q9-1 21.5-9t15.5-17q8-21 3-26z"
       ></path>
+    </svg>
+  );
+}
+function IconCheckCircle(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      strokeWidth={1.8}
+      stroke="currentColor"
+      fill="none"
+      {...props}
+    >
+      <circle cx="12" cy="12" r="9" stroke="currentColor" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M8 12.5l2.5 2.5L16 9"
+      />
     </svg>
   );
 }
