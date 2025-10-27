@@ -194,6 +194,7 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
                       { href: "#roles", label: "Para roles" },
                       { href: "#seguridad", label: "Seguridad" },
                       { href: "#faq", label: "FAQ" },
+                      { href: "#pricing", label: "Precios" },
                       { href: "#contacto", label: "Contacto" },
                     ].map((item) => (
                       <a

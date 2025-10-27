@@ -14,6 +14,60 @@ const WA_MSG = encodeURIComponent("Hola, quiero más info sobre Ofistur.");
 const WA_URL = `https://wa.me/${WA_NUMBER}?text=${WA_MSG}`;
 
 /* ===========================
+ * Pricing helpers (versión simple)
+ * =========================== */
+
+type PlanKey = "basico" | "medio" | "pro";
+
+const PLAN_DATA: Record<
+  PlanKey,
+  { label: string; base: number; short: string }
+> = {
+  basico: {
+    label: "Básico",
+    base: 20,
+    short: "Facturación, vencimientos, recibos",
+  },
+  medio: {
+    label: "Medio",
+    base: 40,
+    short: "Calendario, gastos, comisiones",
+  },
+  pro: {
+    label: "Pro",
+    base: 50,
+    short: "Admin agencia, asesoría",
+  },
+};
+
+// Usuarios extra (igual que landing):
+// - hasta 3 usuarios: incluido
+// - 4 a 10: +USD 5 c/u
+// - 11+:    +USD 10 c/u
+function calcExtraUsersCost(users: number): number {
+  if (users <= 3) return 0;
+  if (users <= 10) {
+    return (users - 3) * 5;
+  }
+  // >10
+  // hasta 10 => 7 * 5 = 35
+  // resto => 10 c/u
+  return 35 + (users - 10) * 10;
+}
+
+// Infraestructura / Nube (igual que landing):
+// 1–3 = 0
+// 4–7 = 20
+// 8–12 = 30
+// 13+ = 30 + 10 c/u extra
+function calcCloudCost(users: number): number {
+  if (users <= 3) return 0;
+  if (users <= 7) return 20;
+  if (users <= 12) return 30;
+  return 30 + (users - 12) * 10;
+}
+
+/* ===========================
  * UI Primitives
  * =========================== */
 
@@ -81,10 +135,7 @@ function ButtonWhatsApp({
   );
 }
 
-/* ===== Inputs con label flotante =====
-   - Siempre se eleva cuando hay valor
-   - Móvil-friendly (padding grande)
-*/
+/* ===== Inputs con label flotante ===== */
 function FloatingInput({
   label,
   name,
@@ -113,11 +164,8 @@ function FloatingInput({
       <label
         className={[
           "pointer-events-none absolute left-3 z-10 rounded-lg px-2 py-1 text-[12px] font-medium text-sky-950/80 transition-all duration-200",
-          // flotante por defecto
           "top-0 -translate-y-1/2 bg-white/60",
-          // baja cuando está vacío y sin focus
           "peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:bg-white/0 peer-placeholder-shown:text-sky-950/50",
-          // sube en focus
           "peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:bg-white/60 peer-focus:text-sky-950",
         ].join(" ")}
       >
@@ -152,11 +200,8 @@ function FloatingTextarea({
       <label
         className={[
           "pointer-events-none absolute left-3 z-10 rounded-lg px-2 py-1 text-[12px] font-medium text-sky-950/80 transition-all duration-200",
-          // flotante por defecto
           "top-0 -translate-y-1/2 bg-white/60",
-          // baja cuando vacío y sin focus
           "peer-placeholder-shown:top-3 peer-placeholder-shown:translate-y-0 peer-placeholder-shown:bg-white/0 peer-placeholder-shown:text-sky-950/50",
-          // sube en focus
           "peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:bg-white/60 peer-focus:text-sky-950",
         ].join(" ")}
       >
@@ -238,12 +283,136 @@ function BenefitChip({
 }
 
 /* ===========================
+ * Sección cotización rápida (UI compacta)
+ * =========================== */
+function QuickQuoteBlock({
+  plan,
+  setPlan,
+  users,
+  setUsers,
+}: {
+  plan: PlanKey;
+  setPlan: (p: PlanKey) => void;
+  users: number;
+  setUsers: (n: number) => void;
+}) {
+  const { label, base } = PLAN_DATA[plan];
+  const extraUsers = calcExtraUsersCost(users);
+  const cloud = calcCloudCost(users);
+  const total = base + extraUsers + cloud;
+
+  return (
+    <fieldset>
+      <legend className="py-4 text-xs font-medium text-sky-950">
+        Cotización rápida (opcional)
+      </legend>
+
+      {/* Plan selector */}
+      <div className="mb-4">
+        <div className="mb-1 flex items-baseline justify-between">
+          <span className="mb-1 px-1 text-[12px] font-medium text-sky-950/80">
+            Plan
+          </span>
+          <span className="text-[11px] text-sky-950/50">
+            {label}: USD {base} + IVA /mes
+          </span>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {(Object.keys(PLAN_DATA) as PlanKey[]).map((pKey) => {
+            const active = plan === pKey;
+            const data = PLAN_DATA[pKey];
+            return (
+              <button
+                key={pKey}
+                type="button"
+                onClick={() => setPlan(pKey)}
+                className={[
+                  "flex min-w-[90px] flex-col items-start rounded-xl border px-3 py-2 text-left text-[12px] leading-tight shadow-sm transition-all",
+                  active
+                    ? "border-sky-400/50 bg-sky-100 text-sky-950 shadow-sky-950/20 ring-1 ring-sky-400/40"
+                    : "border-white/20 bg-white/40 text-sky-950/70 shadow-sky-950/10 hover:scale-[0.99]",
+                ].join(" ")}
+              >
+                <span className="font-semibold">{data.label}</span>
+                <span className="text-[11px] opacity-70">
+                  USD {data.base} + IVA
+                </span>
+                <span className="mt-1 line-clamp-2 text-[10px] opacity-60">
+                  {data.short}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Users selector */}
+      <div className="my-4">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-[12px] font-medium text-sky-950/80">
+            Usuarios totales
+          </span>
+          <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold text-sky-950 shadow-sm shadow-sky-950/10 ring-1 ring-sky-900/10">
+            {users} {users === 1 ? "usuario" : "usuarios"}
+          </span>
+        </div>
+
+        <input
+          id="usersRange"
+          type="range"
+          min={1}
+          max={20}
+          value={users}
+          onChange={(e) => setUsers(parseInt(e.target.value, 10))}
+          className="my-1 w-full cursor-pointer accent-sky-600/40"
+        />
+
+        <div className="my-2 flex items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={users}
+            onChange={(e) => {
+              const val = parseInt(e.target.value, 10);
+              if (!Number.isNaN(val)) {
+                const clamped = Math.min(20, Math.max(1, val));
+                setUsers(clamped);
+              }
+            }}
+            className="w-16 rounded-xl border border-sky-950/10 bg-white/70 p-2 text-center text-sm font-semibold text-sky-950 shadow-inner shadow-sky-950/10 outline-none backdrop-blur-sm focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30"
+          />
+          <span className="text-[11px] text-sky-950/60">
+            Incluye escritorio y acceso móvil.
+          </span>
+        </div>
+      </div>
+
+      {/* Total block */}
+      <div className="rounded-xl border border-white/20 bg-white/60 p-3 text-right text-sky-950 shadow-inner shadow-sky-950/5">
+        <div className="text-sm font-semibold">
+          Estimado aprox: USD {total.toFixed(2)} / mes
+        </div>
+        <div className="text-[11px] text-sky-950/60">
+          + IVA. Sólo referencia. Puede variar.
+        </div>
+      </div>
+    </fieldset>
+  );
+}
+
+/* ===========================
  * Formulario rápido
  * =========================== */
 
 function QuickLeadForm() {
   const [sent, setSent] = useState<null | "ok" | "err">(null);
   const [loading, setLoading] = useState(false);
+
+  // cotizador local
+  const [plan, setPlan] = useState<PlanKey>("basico");
+  const [users, setUsers] = useState<number>(3);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -261,13 +430,29 @@ function QuickLeadForm() {
     const plainMsg = String(fd.get("message") ?? "").trim();
     const refCode = String(fd.get("ref") ?? "").trim();
 
-    // Pegamos el código de referido al final del mensaje
-    const message =
-      refCode.length > 0
-        ? `${plainMsg ? plainMsg + " " : ""}[REF:${refCode}]`
-        : plainMsg;
+    // calculamos la estimación actual
+    const base = PLAN_DATA[plan].base;
+    const extra = calcExtraUsersCost(users);
+    const cloud = calcCloudCost(users);
+    const totalEst = base + extra + cloud;
 
-    // API pública /api/leads
+    // armamos metadata para el mensaje final que vamos a guardar en la DB
+    // (similar a cómo hacíamos [REF:...])
+    // Ej:
+    // [PLAN:Básico USUARIOS:5 EST_USD:55.00]
+    // [REF:Juan]
+    const metaPlan = `[PLAN:${PLAN_DATA[plan].label} USUARIOS:${users} EST_USD:${totalEst.toFixed(
+      2,
+    )}]`;
+
+    const metaRef = refCode ? `[REF:${refCode}]` : "";
+
+    const message = [plainMsg, metaPlan, metaRef]
+      .filter((x) => x && x.length > 0)
+      .join(" ")
+      .trim();
+
+    // payload para /api/leads (endpoint público que ya usás)
     const payload = {
       name,
       agency,
@@ -276,7 +461,7 @@ function QuickLeadForm() {
       location: "",
       email,
       whatsapp,
-      message,
+      message, // <-- incluye plan, usuarios, estimación y código de referido
     };
 
     try {
@@ -286,7 +471,7 @@ function QuickLeadForm() {
           method: "POST",
           body: JSON.stringify(payload),
         },
-        null, // sin token (público)
+        null, // público
       );
 
       if (!res.ok) {
@@ -307,7 +492,7 @@ function QuickLeadForm() {
     }
   }
 
-  // Pantalla de “enviado”
+  // Pantalla "enviado"
   if (sent === "ok") {
     return (
       <div className="rounded-3xl border border-emerald-300/50 bg-emerald-50/70 p-6 text-emerald-900 shadow-md shadow-emerald-950/10 backdrop-blur">
@@ -337,6 +522,7 @@ function QuickLeadForm() {
     );
   }
 
+  // Form normal
   return (
     <form
       onSubmit={onSubmit}
@@ -351,10 +537,10 @@ function QuickLeadForm() {
       )}
 
       <div
-        className={`grid gap-4 md:grid-cols-2 ${loading ? "pointer-events-none opacity-60" : ""}`}
+        className={`grid gap-4 ${loading ? "pointer-events-none opacity-60" : ""}`}
       >
         {/* Nombre */}
-        <div className="md:col-span-2">
+        <div>
           <FloatingInput
             label="Nombre y apellido *"
             name="name"
@@ -364,7 +550,7 @@ function QuickLeadForm() {
         </div>
 
         {/* Agencia */}
-        <div className="md:col-span-2">
+        <div>
           <FloatingInput
             label="Agencia / Operador *"
             name="agency"
@@ -376,8 +562,8 @@ function QuickLeadForm() {
           </p>
         </div>
 
-        {/* Rol + WhatsApp */}
-        <div className="md:col-span-2">
+        {/* Rol */}
+        <div>
           <SelectField label="Tu rol *" name="role" required disabled={loading}>
             <option value="" disabled>
               Seleccionar…
@@ -389,7 +575,8 @@ function QuickLeadForm() {
           </SelectField>
         </div>
 
-        <div className="md:col-span-2">
+        {/* WhatsApp */}
+        <div>
           <FloatingInput
             label="WhatsApp *"
             name="whatsapp"
@@ -402,7 +589,7 @@ function QuickLeadForm() {
         </div>
 
         {/* Email */}
-        <div className="md:col-span-2">
+        <div>
           <FloatingInput
             label="Email *"
             name="email"
@@ -412,8 +599,16 @@ function QuickLeadForm() {
           />
         </div>
 
+        {/* Cotizador simple */}
+        <QuickQuoteBlock
+          plan={plan}
+          setPlan={setPlan}
+          users={users}
+          setUsers={setUsers}
+        />
+
         {/* Código referidos */}
-        <div className="md:col-span-2">
+        <div>
           <FloatingInput
             label="Código de referido (si te lo dieron)"
             name="ref"
@@ -424,8 +619,8 @@ function QuickLeadForm() {
           </p>
         </div>
 
-        {/* Mensaje */}
-        <div className="md:col-span-2">
+        {/* Mensaje libre */}
+        <div>
           <FloatingTextarea
             label="Notas / interés (opcional)"
             name="message"
@@ -494,7 +689,8 @@ export default function QRContactPage() {
               ¿Querés que te contactemos?
             </h1>
             <p className="mx-auto mt-2 max-w-md text-sm text-sky-950/70">
-              Dejá tus datos y un asesor te escribe por WhatsApp o email.
+              Dejá tus datos, elegí plan y cuántas personas lo usarían, y un
+              asesor te escribe por WhatsApp o email.
               <br />
               Sin compromiso.
             </p>

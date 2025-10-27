@@ -43,9 +43,81 @@ const hoverPreset = {
 } as const;
 
 /* ===========================
+ * Pricing logic
+ * =========================== */
+type PlanKey = "basico" | "medio" | "pro";
+
+const PLAN_BASE_PRICES: Record<PlanKey, number> = {
+  basico: 20,
+  medio: 40,
+  pro: 50,
+};
+
+const PLAN_FEATURES: Record<
+  PlanKey,
+  { label: string; bullets: string[]; highlight?: boolean }
+> = {
+  basico: {
+    label: "Básico",
+    bullets: [
+      "Facturación",
+      "Vencimientos de pago",
+      "Planes de pago",
+      "Recibos",
+      "Pagos a operadores",
+      "Estadísticas de clientes",
+    ],
+  },
+  medio: {
+    label: "Medio",
+    highlight: true,
+    bullets: [
+      "Calendario",
+      "Templates",
+      "Inversión (gastos)",
+      "Planillas",
+      "Ganancias y comisiones",
+    ],
+  },
+  pro: {
+    label: "Pro",
+    bullets: [
+      "Administración agencia",
+      "Asesoría personalizada",
+      "Más planillas en templates",
+    ],
+  },
+};
+
+// Costo usuarios extra (4–10 = $5 c/u, 11+ = $10 c/u)
+function calcExtraUsersCost(users: number): number {
+  if (users <= 3) return 0;
+  if (users <= 10) {
+    return (users - 3) * 5;
+  }
+  // usuarios >10
+  // hasta 10 => 7 * 5 = 35
+  // resto => 10 c/u
+  return 35 + (users - 10) * 10;
+}
+
+// Infraestructura / Nube:
+// 1–3 = 0
+// 4–7 = 20
+// 8–12 = 30
+// 13+ = 30 + 10 c/u extra
+function calcCloudCost(users: number): number {
+  if (users <= 3) return 0;
+  if (users <= 7) return 20;
+  if (users <= 12) return 30;
+  return 30 + (users - 12) * 10;
+}
+
+/* ===========================
  * Primitives
  * =========================== */
 type BtnSize = "sm" | "md";
+
 function ButtonPrimary({
   href,
   children,
@@ -170,9 +242,9 @@ function Chip({
 }
 
 /* ===== Inputs con label flotante =====
-   Ajuste: el label queda "arriba" por defecto.
-   Sólo baja cuando el campo está vacío (placeholder-shown).
-   Si hay valor (o foco), vuelve y se queda arriba.
+   - El label queda arriba por defecto.
+   - Si el campo está vacío (placeholder-shown), baja visualmente.
+   - Si hay valor o foco, vuelve arriba.
 */
 function FloatingInput({
   label,
@@ -202,11 +274,8 @@ function FloatingInput({
       <label
         className={[
           "pointer-events-none absolute left-3 z-10 rounded-lg px-2 py-1 text-[11px] font-medium text-sky-950/80 transition-all duration-200",
-          // Estado "flotante" (default): va arriba del input
           "top-0 -translate-y-1/2 bg-white/60",
-          // Si el input está vacío (placeholder-shown): baja al centro
           "peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:bg-white/0 peer-placeholder-shown:text-sky-950/50",
-          // Con foco siempre vuelve flotante
           "peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:bg-white/60 peer-focus:text-sky-950",
         ].join(" ")}
       >
@@ -241,11 +310,8 @@ function FloatingTextarea({
       <label
         className={[
           "pointer-events-none absolute left-3 z-10 rounded-lg px-2 py-1 text-[11px] font-medium text-sky-950/80 transition-all duration-200",
-          // flotante por defecto, bien arriba del textarea
           "top-0 -translate-y-1/2 bg-white/60",
-          // cuando está vacío: que baje un poco dentro del textarea
           "peer-placeholder-shown:top-3 peer-placeholder-shown:translate-y-0 peer-placeholder-shown:bg-white/0 peer-placeholder-shown:text-sky-950/50",
-          // en foco vuelve flotante arriba
           "peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:bg-white/60 peer-focus:text-sky-950",
         ].join(" ")}
       >
@@ -349,28 +415,19 @@ function FeatureCard({
 }
 
 /* =========================================
- * Videos Tutorial
+ * YouTube helpers
  * ========================================= */
-
-/**
- * Convierte cualquier link común de YouTube en un embed listo.
- */
 function getYouTubeEmbed(rawUrl: string): string {
   if (!rawUrl) return "";
   try {
     const u = new URL(rawUrl);
-
-    // Caso share corto: https://youtu.be/VIDEOID?si=...
     if (u.hostname.includes("youtu.be")) {
-      const idFromPath = u.pathname.replace("/", ""); // "VIDEOID"
+      const idFromPath = u.pathname.replace("/", "");
       if (idFromPath) {
         return `https://www.youtube.com/embed/${idFromPath}?rel=0`;
       }
     }
-
-    // Caso normal: https://www.youtube.com/watch?v=VIDEOID&...
     if (u.hostname.includes("youtube.com")) {
-      // Si ya viene /embed/ lo dejamos
       if (u.pathname.startsWith("/embed/")) {
         return rawUrl;
       }
@@ -400,7 +457,7 @@ function TutorialVideoCard({ title, desc, videoUrl }: TutorialVideo) {
       {...viewPreset}
       {...hoverPreset}
     >
-      <div className="relative aspect-video w-full">
+      <div className="relative aspect-video w-full bg-black/80">
         {finalUrl ? (
           <iframe
             className="absolute inset-0 size-full rounded-t-3xl"
@@ -424,7 +481,9 @@ function TutorialVideoCard({ title, desc, videoUrl }: TutorialVideo) {
   );
 }
 
-/* Roles / valor por perfil */
+/* ===========================
+ * Roles / valor por perfil
+ * =========================== */
 function RoleCard({ title, bullets }: { title: string; bullets: string[] }) {
   return (
     <motion.div
@@ -501,7 +560,6 @@ function GlassTooltip(props: TooltipProps<number, string>) {
 /* ===========================
  * Charts marketing
  * =========================== */
-
 function ChartVentasUp() {
   const mounted = useMounted();
   const data = [
@@ -711,9 +769,8 @@ const VIDEOS: TutorialVideo[] = [
 ];
 
 /* ===========================
- * Formulario de leads
+ * Formulario de leads (landing)
  * =========================== */
-
 function LeadForm() {
   const [sent, setSent] = useState<null | "ok" | "err">(null);
   const [loading, setLoading] = useState(false);
@@ -726,7 +783,7 @@ function LeadForm() {
     const formEl = e.currentTarget;
     const formData = new FormData(formEl);
 
-    // payload para /api/leads
+    // payload para /api/leads (POST público)
     const payload = {
       name: String(formData.get("name") ?? ""),
       agency: String(formData.get("agency") ?? ""),
@@ -745,7 +802,7 @@ function LeadForm() {
           method: "POST",
           body: JSON.stringify(payload),
         },
-        null, // público
+        null, // público, sin token
       );
 
       if (!res.ok) {
@@ -767,7 +824,7 @@ function LeadForm() {
     }
   }
 
-  // Mensaje de confirmación total
+  // estado "enviado"
   if (sent === "ok") {
     return (
       <motion.div
@@ -801,6 +858,7 @@ function LeadForm() {
     );
   }
 
+  // estado normal
   return (
     <motion.form
       onSubmit={onSubmit}
@@ -865,9 +923,8 @@ function LeadForm() {
           disabled={loading}
         />
         <FloatingInput
-          label="WhatsApp"
+          label="WhatsApp (opcional)"
           name="whatsapp"
-          required
           disabled={loading}
         />
 
@@ -924,7 +981,343 @@ function LeadForm() {
 }
 
 /* ===========================
- * Landing
+ * Pricing section (refinado)
+ * =========================== */
+
+function PricingSection() {
+  return (
+    <section id="pricing" className="scroll-mt-24 py-16 sm:py-20">
+      <div className="mx-auto max-w-7xl px-1 md:px-8">
+        {/* Header */}
+        <motion.header {...viewPreset}>
+          <div className="mb-3 inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium text-sky-950/80 backdrop-blur">
+            Precios
+          </div>
+          <h2 className="text-2xl font-semibold text-sky-950 sm:text-3xl">
+            Planes y estimador
+          </h2>
+          <p className="mt-2 max-w-xl text-sm text-sky-950/70">
+            Todos los planes incluyen acceso web y mobile. Podés cancelar cuando
+            quieras.
+          </p>
+        </motion.header>
+
+        {/* Wrapper */}
+        <div className="mt-8">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 -z-10 rounded-3xl bg-[radial-gradient(circle_at_20%_0%,rgba(186,230,253,0.5)_0%,transparent_60%)]"
+          />
+
+          <div className="flex flex-col gap-6">
+            {/* Columna izquierda: 3 planes */}
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {(["basico", "medio", "pro"] as PlanKey[]).map((p) => (
+                <PriceTierCard key={p} planKey={p} />
+              ))}
+            </div>
+
+            {/* Columna derecha */}
+            <div className="flex flex-col">
+              <PricingCalculator />
+            </div>
+          </div>
+
+          <p className="mt-8 text-[11px] leading-relaxed text-sky-950/60">
+            Valores estimados en USD + IVA (según corresponda). La
+            infraestructura en la nube escala con tu equipo. Sin período mínimo.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PriceTierCard({ planKey }: { planKey: PlanKey }) {
+  const info = PLAN_FEATURES[planKey];
+  const base = PLAN_BASE_PRICES[planKey];
+
+  const highlight = !!info.highlight;
+
+  return (
+    <motion.div
+      className={[
+        "flex flex-col rounded-2xl border shadow-md backdrop-blur-sm",
+        highlight
+          ? "border-emerald-300/50 bg-emerald-50/30 text-emerald-900 shadow-emerald-950/10"
+          : "border-white/10 bg-white/40 text-sky-950 shadow-sky-950/10",
+      ].join(" ")}
+      {...viewPreset}
+      {...hoverPreset}
+    >
+      {/* Header precio */}
+      <div
+        className={[
+          "rounded-t-2xl border-b px-5 py-5",
+          highlight
+            ? "border-emerald-300/40 bg-white/60 text-emerald-900 shadow-sm shadow-emerald-900/5"
+            : "border-white/20 bg-white/60 text-sky-950 shadow-sm shadow-sky-950/5",
+        ].join(" ")}
+      >
+        <div className="flex flex-wrap items-baseline gap-2">
+          <h3
+            className={[
+              "text-base font-semibold leading-none",
+              highlight ? "text-emerald-900" : "text-sky-950",
+            ].join(" ")}
+          >
+            {info.label}
+          </h3>
+
+          {highlight && (
+            <span className="rounded-full border border-emerald-300/50 bg-emerald-50/70 px-2 py-[2px] text-[10px] font-semibold leading-none text-emerald-900 shadow-sm shadow-emerald-900/10">
+              Más elegido
+            </span>
+          )}
+        </div>
+
+        <div className="mt-3 text-3xl font-semibold leading-none">
+          USD {base}{" "}
+          <span className="text-sm font-medium opacity-70">+ IVA /mes</span>
+        </div>
+
+        <p className="mt-2 text-[11px] font-medium leading-snug opacity-70">
+          Incluye 3 usuarios.
+        </p>
+      </div>
+
+      {/* Body bullets */}
+      <div className="flex flex-1 flex-col p-5 text-[13px] leading-relaxed">
+        <ul
+          className={[
+            "flex flex-col gap-2",
+            highlight ? "text-emerald-900/90" : "text-sky-950/80",
+          ].join(" ")}
+        >
+          {info.bullets.map((b, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <span
+                className={[
+                  "mt-[3px] flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold leading-none shadow-sm",
+                  highlight
+                    ? "bg-emerald-600/15 text-emerald-800 shadow-emerald-900/10"
+                    : "bg-sky-100 text-sky-900 shadow-sky-950/10",
+                ].join(" ")}
+              >
+                <IconCheckMini className="size-3" />
+              </span>
+              <span>{b}</span>
+            </li>
+          ))}
+        </ul>
+
+        {/* Footnote caja */}
+        <div
+          className={[
+            "mt-5 rounded-xl border p-3 text-[11px] leading-snug shadow-sm",
+            highlight
+              ? "border-emerald-300/40 bg-white/60 text-emerald-900/80 shadow-emerald-950/5"
+              : "border-white/20 bg-white/50 text-sky-950/70 shadow-sky-950/5",
+          ].join(" ")}
+        >
+          <p className="font-semibold">Usuarios</p>
+          <p>3 usuarios incluidos. +USD 5 c/u (4–10). +USD 10 c/u (11+).</p>
+
+          <p className="mt-3 font-semibold">Nube / Infraestructura</p>
+          <p>
+            Hasta 3 usuarios sin costo. Desde 4 usuarios sumamos
+            infraestructura: USD 20 /mes (4–7), USD 30 /mes (8–12), luego +USD
+            10 por usuario.
+          </p>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+/* ===========================
+ * Cotizador
+ * =========================== */
+function PricingCalculator() {
+  const [plan, setPlan] = useState<PlanKey>("medio");
+  const [users, setUsers] = useState<number>(6);
+
+  const basePrice = PLAN_BASE_PRICES[plan];
+  const extraUsers = calcExtraUsersCost(users);
+  const cloud = calcCloudCost(users);
+  const total = basePrice + extraUsers + cloud;
+
+  return (
+    <motion.div
+      className="rounded-2xl border border-sky-200/60 bg-white/50 p-5 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur-sm sm:p-6"
+      {...viewPreset}
+    >
+      {/* Header */}
+      <div className="mb-6">
+        <h3 className="text-lg font-semibold text-sky-950">
+          Calculá tu estimación
+        </h3>
+        <p className="mt-1 text-[13px] leading-snug text-sky-950/70">
+          Elegí un plan y cuántas personas lo van a usar.
+        </p>
+      </div>
+
+      {/* Plan selector */}
+      <div className="mb-5">
+        <span className="mb-2 block text-xs font-medium text-sky-950/80">
+          Plan
+        </span>
+
+        <div className="inline-flex rounded-full border border-sky-900/10 bg-white/60 p-1 text-sm shadow-inner shadow-sky-950/10">
+          {(["basico", "medio", "pro"] as PlanKey[]).map((pKey) => {
+            const active = plan === pKey;
+            const info = PLAN_FEATURES[pKey];
+            const highlight = !!info.highlight;
+            return (
+              <button
+                key={pKey}
+                type="button"
+                onClick={() => setPlan(pKey)}
+                className={[
+                  "whitespace-nowrap rounded-full px-3 py-1.5 font-medium transition-all",
+                  active
+                    ? highlight
+                      ? "bg-emerald-600/10 text-emerald-900 shadow-sm shadow-emerald-900/20 ring-1 ring-emerald-400/40"
+                      : "bg-sky-100 text-sky-950 shadow-sm shadow-sky-950/20 ring-1 ring-sky-400/40"
+                    : "text-sky-950/60",
+                ].join(" ")}
+              >
+                {info.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <p className="mt-2 text-[11px] text-sky-950/60">
+          {PLAN_FEATURES[plan].label}: USD {PLAN_BASE_PRICES[plan]} + IVA / mes.
+        </p>
+      </div>
+
+      {/* Users selector */}
+      <div className="mb-6">
+        <div className="mb-2 flex items-center justify-between text-xs font-medium text-sky-950/80">
+          <span>Usuarios totales</span>
+          <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold text-sky-950 shadow-sm shadow-sky-950/10 ring-1 ring-sky-900/10">
+            {users} usuarios
+          </span>
+        </div>
+
+        <input
+          id="usersRange"
+          type="range"
+          min={1}
+          max={20}
+          value={users}
+          onChange={(e) => setUsers(parseInt(e.target.value, 10))}
+          className="w-full cursor-pointer accent-sky-600/40 backdrop-blur"
+        />
+
+        <div className="mt-3 flex items-center justify-center gap-2">
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={users}
+            onChange={(e) => {
+              const val = parseInt(e.target.value, 10);
+              if (!Number.isNaN(val)) {
+                // clamp 1..20
+                const clamped = Math.min(20, Math.max(1, val));
+                setUsers(clamped);
+              }
+            }}
+            className="w-16 rounded-xl border border-sky-950/10 bg-white/70 p-2 text-center text-sm font-semibold text-sky-950 shadow-inner shadow-sky-950/10 outline-none backdrop-blur-sm focus:border-sky-950/30 focus:ring-1 focus:ring-sky-950/30"
+          />
+          <span className="text-[11px] text-sky-950/60">
+            Incluye escritorio y acceso móvil.
+          </span>
+        </div>
+      </div>
+
+      {/* Breakdown */}
+      <div className="mb-6 grid gap-4 rounded-xl border border-white/20 bg-white/60 p-4 text-sky-950 shadow-inner shadow-sky-950/5">
+        <BreakdownRow
+          icon={<IconPlan className="size-4" />}
+          label={`Plan ${PLAN_FEATURES[plan].label}`}
+          note="incluye hasta 3 usuarios"
+          amount={basePrice}
+        />
+        <BreakdownRow
+          icon={<IconUsers className="size-4" />}
+          label="Usuarios extra"
+          note="4–10 = USD 5 c/u · 11+ = USD 10 c/u"
+          amount={extraUsers}
+        />
+        <BreakdownRow
+          icon={<IconCloud className="size-4" />}
+          label="Infraestructura / Nube"
+          note="escala según usuarios"
+          amount={cloud}
+        />
+
+        <div className="border-t border-white/40 pt-4 text-right">
+          <div className="text-[13px] font-medium text-sky-950">
+            Estimación mensual:
+          </div>
+          <div className="text-xl font-semibold tabular-nums text-sky-950">
+            USD {total.toFixed(2)}
+          </div>
+          <div className="text-[11px] text-sky-950/60">
+            + IVA según corresponda. Valores estimados en USD.
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <ButtonPrimary variant="emerald" href={WA_URL} size="sm">
+          Quiero cotizar con alguien
+        </ButtonPrimary>
+        <p className="text-[11px] text-sky-950/60">
+          Te ayudamos a elegir el plan.
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
+function BreakdownRow({
+  icon,
+  label,
+  note,
+  amount,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  note?: string;
+  amount: number;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 text-sm leading-snug text-sky-950">
+      <div className="flex min-w-0 items-start gap-2">
+        <span className="mt-[2px] flex size-8 shrink-0 items-center justify-center rounded-full bg-white/70 text-sky-950 shadow-sm shadow-sky-950/10 ring-1 ring-sky-900/10">
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <p className="font-medium text-sky-950">{label}</p>
+          {note && (
+            <p className="text-[11px] leading-snug text-sky-950/60">{note}</p>
+          )}
+        </div>
+      </div>
+      <div className="text-right font-semibold tabular-nums text-sky-950">
+        USD {amount.toFixed(2)}
+      </div>
+    </div>
+  );
+}
+
+/* ===========================
+ * Landing page
  * =========================== */
 export default function LandingClient() {
   return (
@@ -988,7 +1381,7 @@ export default function LandingClient() {
         </div>
       </section>
 
-      {/* Pilares + Charts */}
+      {/* Producto / pilares + charts */}
       <Section id="producto" title="Qué resuelve" eyebrow="Producto">
         <div className="grid grid-cols-1 gap-5 sm:gap-6 md:[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))] lg:gap-7">
           <FeatureCard
@@ -1097,7 +1490,7 @@ export default function LandingClient() {
         </ul>
       </Section>
 
-      {/* FAQ con animación de desplegado */}
+      {/* FAQ */}
       <Section id="faq" title="Preguntas frecuentes" eyebrow="FAQ">
         <motion.div className="rounded-3xl border border-white/10 bg-white/10 p-1 shadow-md shadow-sky-950/10 backdrop-blur">
           {FAQ_ITEMS.map(([q, a], i) => (
@@ -1105,6 +1498,9 @@ export default function LandingClient() {
           ))}
         </motion.div>
       </Section>
+
+      {/* Pricing + cotizador */}
+      <PricingSection />
 
       {/* Contacto */}
       <Section id="contacto" title="Dejá tus datos" eyebrow="Contacto">
@@ -1158,17 +1554,8 @@ export default function LandingClient() {
 }
 
 /* ===========================
- * FAQ item (animado)
+ * FAQ orientada a dolores reales
  * =========================== */
-
-/**
- * Nueva FAQ, orientada a dolores reales:
- * - “Tengo todo en Excel y WhatsApp”
- * - tiempo operativo
- * - AFIP/facturación
- * - adopción del equipo
- * - permanencia / riesgo
- */
 const FAQ_ITEMS: [string, string][] = [
   [
     "Hoy tengo todo en Excel y WhatsApp. ¿Me sirve igual?",
@@ -1326,6 +1713,68 @@ function IconCheckCircle(props: React.SVGProps<SVGSVGElement>) {
         strokeLinejoin="round"
         d="M8 12.5l2.5 2.5L16 9"
       />
+    </svg>
+  );
+}
+
+function IconCheckMini(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      strokeWidth={2}
+      stroke="currentColor"
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M4 8l3 3 5-5" />
+    </svg>
+  );
+}
+
+function IconPlan(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      strokeWidth={1.8}
+      stroke="currentColor"
+      fill="none"
+      {...props}
+    >
+      <rect x="4" y="4" width="16" height="16" rx="3" />
+      <path d="M8 9h8M8 13h5M8 17h3" />
+    </svg>
+  );
+}
+
+function IconUsers(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      strokeWidth={1.8}
+      stroke="currentColor"
+      fill="none"
+      {...props}
+    >
+      <circle cx="9" cy="8" r="4" />
+      <path d="M2 20c0-4 3-6 7-6" />
+      <circle cx="17" cy="10" r="3" />
+      <path d="M22 20c0-3-2-5-5-5" />
+    </svg>
+  );
+}
+
+function IconCloud(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      strokeWidth={1.8}
+      stroke="currentColor"
+      fill="none"
+      {...props}
+    >
+      <path d="M7 18h10a4 4 0 0 0 0-8h-.5A6.5 6.5 0 0 0 4 11.5 4.5 4.5 0 0 0 7 18z" />
     </svg>
   );
 }
