@@ -377,7 +377,7 @@ function QuickLeadForm() {
         </div>
 
         {/* Rol + WhatsApp */}
-        <div className="md:col-span-1">
+        <div className="md:col-span-2">
           <SelectField label="Tu rol *" name="role" required disabled={loading}>
             <option value="" disabled>
               Seleccionar…
@@ -389,11 +389,12 @@ function QuickLeadForm() {
           </SelectField>
         </div>
 
-        <div className="md:col-span-1">
+        <div className="md:col-span-2">
           <FloatingInput
-            label="WhatsApp (opcional)"
+            label="WhatsApp"
             name="whatsapp"
             disabled={loading}
+            required
           />
           <p className="mt-1 text-[11px] text-sky-950/50">
             Para coordinar rápido.

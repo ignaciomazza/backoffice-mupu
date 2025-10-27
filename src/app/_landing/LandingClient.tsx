@@ -865,8 +865,9 @@ function LeadForm() {
           disabled={loading}
         />
         <FloatingInput
-          label="WhatsApp (opcional)"
+          label="WhatsApp"
           name="whatsapp"
+          required
           disabled={loading}
         />
 
