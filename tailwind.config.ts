@@ -13,7 +13,7 @@ export default {
     extend: {
       fontFamily: {
         // Agregamos Arimo a la pila sans
-        sans: ["var(--font-poppins)", "var(--font-arimo)", "sans-serif"],
+        sans: ["var(--font-poppins)", "sans-serif"],
       },
       colors: {
         background: "var(--background)",
