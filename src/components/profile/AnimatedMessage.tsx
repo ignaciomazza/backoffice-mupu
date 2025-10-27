@@ -15,10 +15,10 @@ type AnimatedMessageProps = {
 
 export default function AnimatedMessage({
   text,
-  speed = 70,
+  speed = 85,
   variance = 0.3, 
-  startDelay = 500,
-  holdTime = 1500,
+  startDelay = 300,
+  holdTime = 400,
   className = "text-xl font-light",
   onComplete,
 }: AnimatedMessageProps) {
