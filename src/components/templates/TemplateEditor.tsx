@@ -526,15 +526,9 @@ const TemplateEditor: React.FC<Props> = ({
   const text = rCfg.styles?.colors?.text ?? "#ffffff";
   const accent = rCfg.styles?.colors?.accent ?? "#22C55E";
 
-  const headingFont =
-    (rAgency as Agency)?.id === 1 || (rAgency as Agency)?.id_agency === 1
-      ? "Arimo, sans-serif"
-      : (rCfg.styles?.fonts?.heading ?? "Poppins");
+  const headingFont = "Poppins";
   const headingWeight = 600;
-  const bodyFont =
-    (rAgency as Agency)?.id === 1 || (rAgency as Agency)?.id_agency === 1
-      ? "Arimo, sans-serif"
-      : (rCfg.styles?.fonts?.body ?? "Poppins");
+  const bodyFont = "Poppins";
 
   const {
     radiusClass,

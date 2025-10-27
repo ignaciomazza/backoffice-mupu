@@ -14,8 +14,6 @@ export default {
       fontFamily: {
         // Agregamos Arimo a la pila sans
         sans: ["var(--font-poppins)", "var(--font-arimo)", "sans-serif"],
-        // Nueva familia para la manuscrita Reenie Beanie
-        hand: ["var(--font-reenie)", "cursive"],
       },
       colors: {
         background: "var(--background)",

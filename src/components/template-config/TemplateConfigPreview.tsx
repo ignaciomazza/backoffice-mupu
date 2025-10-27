@@ -440,9 +440,9 @@ const TemplateConfigPreview: React.FC<Props> = ({
     (typeof agency.id === "number" && agency.id === 1) ||
     (typeof agency.id_agency === "number" && agency.id_agency === 1);
 
-  const headingFont = isMupuAgency ? "Arimo" : "Poppins";
+  const headingFont = "Poppins";
   const headingWeight = 600;
-  const bodyFont = isMupuAgency ? "Arimo" : "Poppins";
+  const bodyFont = "Poppins";
 
   // UI tokens
   const {
