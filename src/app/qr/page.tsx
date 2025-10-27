@@ -391,7 +391,7 @@ function QuickLeadForm() {
 
         <div className="md:col-span-2">
           <FloatingInput
-            label="WhatsApp"
+            label="WhatsApp *"
             name="whatsapp"
             disabled={loading}
             required
