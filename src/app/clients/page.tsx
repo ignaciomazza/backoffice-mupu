@@ -1,5 +1,6 @@
 // src/app/clients/page.tsx
 "use client";
+
 import { useState, useEffect, useCallback, useRef } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Client, User, SalesTeam } from "@/types";
@@ -12,6 +13,103 @@ import { useAuth } from "@/context/AuthContext";
 import "react-toastify/dist/ReactToastify.css";
 import FilterPanel from "@/components/clients/FilterPanel";
 import { authFetch } from "@/utils/authFetch";
+
+/* =========================================================
+ * NUEVO: helpers de búsqueda flexible
+ * ========================================================= */
+
+/** Saca tildes, baja a minúsculas, colapsa espacios */
+function norm(s: string | undefined | null): string {
+  return (s || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "") // saca acentos
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Distancia de Levenshtein básica (cuántos cambios necesito para convertir a -> b) */
+function levenshtein(aRaw: string, bRaw: string): number {
+  const a = aRaw;
+  const b = bRaw;
+  const m = a.length;
+  const n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+
+  // ⬇⬇⬇ cambio acá: ya no usamos (_, i)
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1, // borrado
+        dp[i][j - 1] + 1, // inserción
+        dp[i - 1][j - 1] + cost, // reemplazo
+      );
+    }
+  }
+  return dp[m][n];
+}
+
+/** score entre una query normalizada y un string candidato */
+function matchScore(queryNorm: string, candidateRaw: string): number {
+  if (!candidateRaw) return 9999;
+  const cand = norm(candidateRaw);
+  if (!cand) return 9999;
+
+  // prioridad 0: arranca igual
+  if (cand.startsWith(queryNorm)) return 0;
+
+  // prioridad 1: lo contiene en algún lado
+  if (cand.includes(queryNorm)) return 1;
+
+  // prioridad 2+: parecido (typo). Mientras más cerca, mejor.
+  // sumamos 2 para que sea siempre peor que startsWith/includes
+  const dist = levenshtein(queryNorm, cand);
+  return 2 + dist;
+}
+
+/** Saca el mejor score de un cliente comparando varios campos */
+function scoreClient(c: Client, queryNorm: string): number {
+  const combos = [
+    `${c.first_name || ""} ${c.last_name || ""}`,
+    `${c.last_name || ""} ${c.first_name || ""}`,
+    c.dni_number || "",
+    c.passport_number || "",
+    c.tax_id || "",
+    c.phone || "",
+    c.email || "",
+    c.company_name || "",
+    c.locality || "",
+  ];
+
+  let best = Infinity;
+  for (const field of combos) {
+    const s = matchScore(queryNorm, field);
+    if (s < best) best = s;
+  }
+  return best;
+}
+
+/** Ordena la lista de clientes de "mejor match" → "peor match" */
+function rankClients(list: Client[], query: string): Client[] {
+  const qn = norm(query);
+  if (!qn) return list; // sin búsqueda → dejamos el orden del server
+  return [...list].sort((a, b) => scoreClient(a, qn) - scoreClient(b, qn));
+}
+
+function primaryToken(q: string): string {
+  return q.trim().split(/\s+/)[0] || "";
+}
+
+/* =========================================================
+ * resto del archivo
+ * ========================================================= */
 
 const FILTROS = [
   "lider",
@@ -204,11 +302,21 @@ export default function Page() {
   const buildClientsQuery = useCallback(
     (opts?: { cursor?: number | null }) => {
       const qs = new URLSearchParams();
+
       if (selectedUserId > 0) qs.append("userId", String(selectedUserId));
       if (selectedTeamId !== 0) qs.append("teamId", String(selectedTeamId));
-      if (debouncedSearch.trim()) qs.append("q", debouncedSearch.trim());
+
+      // 👇 cambio clave:
+      // en vez de mandar TODA la búsqueda al backend,
+      // le mandamos SOLO la primera palabra (apellido o nombre).
+      const tokenQ = primaryToken(debouncedSearch);
+      if (tokenQ) {
+        qs.append("q", tokenQ);
+      }
+
       qs.append("take", String(TAKE));
       if (opts?.cursor) qs.append("cursor", String(opts.cursor));
+
       return qs.toString();
     },
     [selectedUserId, selectedTeamId, debouncedSearch],
@@ -235,8 +343,13 @@ export default function Page() {
         );
         if (!res.ok) throw new Error("Error al obtener clientes");
         const { items, nextCursor } = await res.json();
+
         if (myRequestId !== requestIdRef.current) return; // evita race
-        setClients(items as Client[]);
+
+        // ⬇️ NUEVO: ordenamos los resultados por similitud con la búsqueda
+        const ranked = rankClients(items as Client[], debouncedSearch);
+
+        setClients(ranked);
         setNextCursor(nextCursor ?? null);
         setExpandedClientId(null);
       } catch (err) {
@@ -278,7 +391,12 @@ export default function Page() {
       );
       if (!res.ok) throw new Error("No se pudieron cargar más clientes");
       const { items, nextCursor: newCursor } = await res.json();
-      setClients((prev) => [...prev, ...(items as Client[])]);
+
+      // Merge y volver a rankear con la búsqueda actual
+      const merged = [...clients, ...(items as Client[])];
+      const ranked = rankClients(merged, debouncedSearch);
+
+      setClients(ranked);
       setNextCursor(newCursor ?? null);
     } catch (e) {
       console.error("loadMore clients:", e);
@@ -299,9 +417,16 @@ export default function Page() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.dni_number?.trim() && !formData.passport_number?.trim()) {
+    // 🔁 ACTUALIZADO: misma regla que definimos en el form nuevo
+    // Necesita al menos uno: Documento/CI-DNI, Pasaporte o CUIT/RUT
+    const hasDocOrTax =
+      formData.dni_number?.trim() ||
+      formData.passport_number?.trim() ||
+      formData.tax_id?.trim();
+
+    if (!hasDocOrTax) {
       toast.error(
-        "El DNI y el Pasaporte son obligatorios. Debes cargar al menos uno",
+        "Cargá al menos Documento/CI-DNI, Pasaporte o CUIT / RUT para guardar.",
       );
       return;
     }
@@ -338,7 +463,11 @@ export default function Page() {
       );
       if (!listRes.ok) throw new Error("No se pudo refrescar la lista.");
       const { items, nextCursor } = await listRes.json();
-      setClients(items as Client[]);
+
+      // Re-rankear también acá
+      const ranked = rankClients(items as Client[], debouncedSearch);
+
+      setClients(ranked);
       setNextCursor(nextCursor ?? null);
       setExpandedClientId(null);
 
@@ -390,7 +519,12 @@ export default function Page() {
               : "Error al eliminar el cliente"),
         );
       }
-      setClients((prev) => prev.filter((c) => c.id_client !== id));
+
+      // sacamos el cliente de la lista y re-rankeamos por si había búsqueda activa
+      const remaining = clients.filter((c) => c.id_client !== id);
+      const ranked = rankClients(remaining, debouncedSearch);
+      setClients(ranked);
+
       toast.success("Cliente eliminado con éxito!");
     } catch (err: unknown) {
       console.error("Error al eliminar el cliente:", err);

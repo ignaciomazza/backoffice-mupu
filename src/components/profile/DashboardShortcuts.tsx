@@ -113,10 +113,46 @@ function humanDate(dateStr?: string | null, locale = "es-AR"): string {
 }
 
 /* ===================== helpers de dinero ===================== */
-const fmt = (v: number, code: CurrencyCode) =>
-  new Intl.NumberFormat("es-AR", { style: "currency", currency: code }).format(
-    Number.isFinite(v) ? v : 0,
-  );
+/* ===================== helpers de dinero ===================== */
+
+/**
+ * Formatea un número como moneda.
+ * - Si `code` es ISO válido (3 letras) y soportado por Intl, usamos Intl.
+ * - Si no, devolvemos "12.345,67 CODE" sin romper el dashboard.
+ */
+const fmt = (v: number, code: CurrencyCode) => {
+  const amount = Number.isFinite(v) ? v : 0;
+  const upper = String(code || "").toUpperCase();
+
+  // Si la "moneda" no tiene exactamente 3 letras ya sabemos que Intl va a fallar
+  if (upper.length !== 3) {
+    return (
+      amount.toLocaleString("es-AR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }) +
+      " " +
+      upper
+    );
+  }
+
+  try {
+    return new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency: upper,
+    }).format(amount);
+  } catch {
+    // fallback seguro, sin símbolo, pero no rompe
+    return (
+      amount.toLocaleString("es-AR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }) +
+      " " +
+      upper
+    );
+  }
+};
 
 const toNum = (v: number | string | null | undefined) => {
   const n =
