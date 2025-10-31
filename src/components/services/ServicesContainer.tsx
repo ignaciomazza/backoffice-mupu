@@ -1,6 +1,7 @@
 // src/components/services/ServicesContainer.tsx
 
 "use client";
+
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { toast, ToastContainer } from "react-toastify";
@@ -37,6 +38,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 import { useRouter } from "next/navigation";
 import { authFetch } from "@/utils/authFetch";
+import type { ServiceLite } from "@/components/receipts/ReceiptForm";
 
 export type ServiceFormData = {
   type: string;
@@ -55,6 +57,20 @@ export type ServiceFormData = {
   id_operator: number;
   departure_date: string;
   return_date: string;
+};
+
+// ↓ NEW: tipo safe para parsear servicios que vienen de la API en varias formas
+type BookingServiceItem = {
+  id_service?: number | string | null;
+  id?: number | string | null;
+  description?: string | null;
+  type?: string | null;
+  destination?: string | null;
+  destino?: string | null;
+  currency?: string | null;
+  sale_currency?: string | null;
+  sale_price?: number | string | null;
+  card_interest?: number | string | null;
 };
 
 interface ServicesContainerProps {
@@ -326,6 +342,44 @@ export default function ServicesContainer({
   const handleOperatorDueDeleted = (id_due: number) => {
     setOperatorDues((prev) => prev.filter((d) => d.id_due !== id_due));
   };
+
+  const handleAttachExistingReceipt = useCallback(
+    async ({
+      id_receipt,
+      bookingId,
+      serviceIds,
+    }: {
+      id_receipt: number;
+      bookingId: number;
+      serviceIds: number[];
+    }) => {
+      if (!token) throw new Error("Sesión inválida. Volvé a iniciar sesión.");
+
+      const res = await authFetch(
+        `/api/receipts/${id_receipt}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            booking: { id_booking: bookingId },
+            serviceIds,
+          }),
+        },
+        token,
+      );
+
+      if (!res.ok) {
+        let msg = "No se pudo asociar el recibo.";
+        try {
+          const err = await res.json();
+          if (typeof err?.error === "string") msg = err.error;
+        } catch {}
+        throw new Error(msg);
+      }
+
+      router.refresh();
+    },
+    [token, router],
+  );
 
   const handleOperatorDueStatusChanged = (
     id_due: number,
@@ -892,9 +946,136 @@ export default function ServicesContainer({
                   role === "gerente") &&
                   (services.length > 0 || receipts.length > 0) && (
                     <ReceiptForm
-                      booking={booking}
-                      onCreated={onReceiptCreated}
-                      token={token}
+                      token={token || null}
+                      bookingId={booking.id_booking}
+                      allowAgency={false}
+                      enableAttachAction={true}
+                      loadServicesForBooking={async (
+                        bId,
+                      ): Promise<ServiceLite[]> => {
+                        // map con tipos explícitos
+                        const mapToLite = (
+                          arr: ReadonlyArray<BookingServiceItem>,
+                        ): ServiceLite[] =>
+                          (arr || []).map((s) => {
+                            const rawId = s?.id_service ?? s?.id ?? 0;
+                            const id =
+                              typeof rawId === "number"
+                                ? rawId
+                                : Number(rawId ?? 0);
+
+                            const currency = String(
+                              s?.currency ?? s?.sale_currency ?? "ARS",
+                            ).toUpperCase();
+
+                            const sale =
+                              typeof s?.sale_price === "number"
+                                ? s.sale_price
+                                : Number(s?.sale_price ?? 0);
+
+                            const cardInt =
+                              typeof s?.card_interest === "number"
+                                ? s.card_interest
+                                : Number(s?.card_interest ?? 0);
+
+                            return {
+                              id_service: Number.isFinite(id) ? id : 0,
+                              description:
+                                s?.description ??
+                                s?.type ??
+                                (Number.isFinite(id) && id > 0
+                                  ? `Servicio ${id}`
+                                  : "Servicio"),
+                              currency,
+                              sale_price: sale > 0 ? sale : undefined,
+                              card_interest:
+                                Number.isFinite(cardInt) && cardInt > 0
+                                  ? cardInt
+                                  : undefined,
+                              type: s?.type ?? undefined,
+                              destination:
+                                s?.destination ?? s?.destino ?? undefined,
+                            };
+                          });
+
+                        // Si ya tengo los services en memoria de esta reserva, uso eso.
+                        if (
+                          booking?.id_booking === bId &&
+                          Array.isArray(services) &&
+                          services.length
+                        ) {
+                          return mapToLite(
+                            services as unknown as ReadonlyArray<BookingServiceItem>,
+                          );
+                        }
+
+                        // helpers sin `any`
+                        const parseJsonToArray = (
+                          json: unknown,
+                        ): BookingServiceItem[] | null => {
+                          const root = json as Record<string, unknown> | null;
+                          const candidates: unknown[] = [
+                            json,
+                            root?.items,
+                            root?.results,
+                            root?.data,
+                            root?.services,
+                            (
+                              root?.booking as
+                                | Record<string, unknown>
+                                | undefined
+                            )?.services,
+                          ].filter(Boolean);
+                          for (const c of candidates) {
+                            if (Array.isArray(c)) {
+                              return c as BookingServiceItem[];
+                            }
+                          }
+                          return null;
+                        };
+
+                        const tryFetch = async (
+                          url: string,
+                        ): Promise<BookingServiceItem[] | null> => {
+                          const res = await authFetch(
+                            url,
+                            { cache: "no-store" },
+                            token || undefined,
+                          );
+                          if (!res.ok) return null;
+                          const json = (await res.json()) as unknown;
+                          return parseJsonToArray(json);
+                        };
+
+                        // rutas alternativas comunes de tu API
+                        const arr =
+                          (await tryFetch(`/api/bookings/${bId}/services`)) ||
+                          (await tryFetch(
+                            `/api/bookings/${bId}?include=services`,
+                          )) ||
+                          (await tryFetch(`/api/bookings/${bId}`)) ||
+                          (await tryFetch(`/api/services?bookingId=${bId}`)) ||
+                          (await tryFetch(`/api/services/by-booking/${bId}`)) ||
+                          [];
+
+                        return mapToLite(arr);
+                      }}
+                      onAttachExisting={handleAttachExistingReceipt}
+                      onSubmit={async (payload) => {
+                        const res = await authFetch(
+                          "/api/receipts",
+                          { method: "POST", body: JSON.stringify(payload) },
+                          token || undefined,
+                        );
+                        if (!res.ok) {
+                          toast.error("No se pudo crear el recibo.");
+                          return;
+                        }
+                        const { receipt } = await res.json();
+                        toast.success("Recibo creado y asociado.");
+                        onReceiptCreated?.(receipt);
+                        router.refresh();
+                      }}
                     />
                   )}
 

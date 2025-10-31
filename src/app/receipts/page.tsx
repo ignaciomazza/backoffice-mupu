@@ -10,6 +10,12 @@ import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
+import ReceiptForm from "@/components/receipts/ReceiptForm";
+import { useRouter } from "next/navigation";
+import type {
+  BookingOption,
+  ServiceLite,
+} from "@/components/receipts/ReceiptForm";
 
 /* ================= Helpers módulo (evita deps en useMemo) ================= */
 const norm = (s: string) =>
@@ -48,16 +54,16 @@ type ReceiptRow = {
   amount: number;
   amount_currency: "ARS" | "USD" | string;
   concept: string;
-  currency?: string | null; // descripción (legado)
-  payment_method?: string | null;
-  account?: string | null;
+  currency?: string | null; // descripción (legado: “detalle método”)
+  payment_method?: string | null; // nombre método
+  account?: string | null; // nombre cuenta
   base_amount?: string | number | null;
   base_currency?: "ARS" | "USD" | string | null;
   counter_amount?: string | number | null;
   counter_currency?: "ARS" | "USD" | string | null;
   serviceIds?: number[] | null;
   clientIds?: number[] | null;
-  booking: {
+  booking?: {
     id_booking: number;
     user?: {
       id_user: number;
@@ -70,7 +76,7 @@ type ReceiptRow = {
       first_name: string | null;
       last_name: string | null;
     } | null;
-  };
+  } | null;
 };
 
 type ReceiptsAPI = {
@@ -105,8 +111,33 @@ type NormalizedReceipt = ReceiptRow & {
 
 type SortKey = "issue_date" | "receipt_number" | "amount" | "owner";
 
+/* ===== Tipos auxiliares p/ búsquedas ===== */
+type BookingSearchItem = {
+  id_booking?: number | string | null;
+  id?: number | string | null;
+  titular?: { first_name?: string | null; last_name?: string | null } | null;
+  titular_name?: string | null;
+  details?: string | null;
+  title?: string | null;
+  subtitle?: string | null;
+};
+
+type BookingServiceItem = {
+  id_service?: number | string | null;
+  id?: number | string | null;
+  description?: string | null;
+  type?: string | null;
+  destination?: string | null;
+  destino?: string | null;
+  currency?: string | null;
+  sale_currency?: string | null;
+  sale_price?: number | string | null;
+  card_interest?: number | string | null;
+};
+
 /* ================= Page ================= */
 export default function ReceiptsPage() {
+  const router = useRouter();
   const { token, user } = useAuth() as {
     token?: string | null;
     user?: { id_user?: number; role?: string } | null;
@@ -432,7 +463,7 @@ export default function ReceiptsPage() {
     ],
   );
 
-  /* ---------- Fetch ---------- */
+  /* ---------- Fetch y Refresh list ---------- */
   const fetchPage = useCallback(
     async (resetList: boolean) => {
       setLoading(true);
@@ -458,10 +489,14 @@ export default function ReceiptsPage() {
     [buildQS, cursor, token],
   );
 
-  const handleSearch = () => {
+  const refreshList = useCallback(() => {
     setCursor(null);
     setData([]);
     fetchPage(true);
+  }, [fetchPage]);
+
+  const handleSearch = () => {
+    refreshList();
   };
 
   useEffect(() => {
@@ -591,11 +626,319 @@ export default function ReceiptsPage() {
     }
   };
 
+  /* ---------- Buscar reservas/servicios (compartido con Form y Diálogo) ---------- */
+  const searchBookings = async (qText: string): Promise<BookingOption[]> => {
+    const term = String(qText).trim().replace(/^#/, "");
+    const out: BookingOption[] = [];
+    const byId = /^\d+$/.test(term);
+
+    const mapOne = (b: BookingSearchItem): BookingOption | null => {
+      const rawId = b?.id_booking ?? b?.id;
+      const id = typeof rawId === "number" ? rawId : Number(rawId);
+      if (!Number.isFinite(id) || id <= 0) return null;
+
+      const titular =
+        b?.titular?.first_name || b?.titular?.last_name
+          ? `${b.titular?.first_name ?? ""} ${b.titular?.last_name ?? ""}`.trim()
+          : (b?.titular_name ?? "");
+
+      const label = `#${id}${titular ? ` • ${titular}` : ""}`;
+      const subtitle = (b?.details ?? b?.title ?? b?.subtitle ?? "") as string;
+
+      return { id_booking: id, label, subtitle };
+    };
+
+    try {
+      // 1) exact match por ID
+      if (byId) {
+        const resById = await authFetch(
+          `/api/bookings/${term}`,
+          { cache: "no-store" },
+          token || undefined,
+        );
+        if (resById.ok) {
+          const one = (await resById.json()) as unknown;
+          const obj = Array.isArray(one)
+            ? (one[0] as BookingSearchItem)
+            : (one as BookingSearchItem);
+          const mapped = obj ? mapOne(obj) : null;
+          if (mapped) out.push(mapped);
+        }
+      }
+
+      // 2) búsqueda general
+      const qs = new URLSearchParams();
+      qs.set("q", term);
+      qs.set("take", "10");
+      if (isVendor && user?.id_user) qs.set("userId", String(user.id_user));
+
+      const resSearch = await authFetch(
+        `/api/bookings?${qs.toString()}`,
+        { cache: "no-store" },
+        token || undefined,
+      );
+      if (resSearch.ok) {
+        const json = (await resSearch.json()) as unknown;
+        const items = Array.isArray(json)
+          ? (json as BookingSearchItem[])
+          : Array.isArray((json as { items?: unknown[] }).items)
+            ? ((json as { items: unknown[] }).items as BookingSearchItem[])
+            : Array.isArray((json as { results?: unknown[] }).results)
+              ? ((json as { results: unknown[] })
+                  .results as BookingSearchItem[])
+              : [];
+        for (const b of items) {
+          const mapped = mapOne(b);
+          if (mapped) out.push(mapped);
+        }
+      }
+    } catch {
+      // noop
+    }
+
+    // unique por id
+    const uniq = new Map<number, BookingOption>();
+    for (const it of out) uniq.set(it.id_booking, it);
+    return Array.from(uniq.values());
+  };
+
+  const loadServicesForBooking = async (
+    bId: number,
+  ): Promise<ServiceLite[]> => {
+    const mapArr = (arr: ReadonlyArray<BookingServiceItem>): ServiceLite[] =>
+      (arr || []).map((s) => {
+        const rawId = s?.id_service ?? s?.id ?? 0;
+        const id = typeof rawId === "number" ? rawId : Number(rawId);
+        const currency = String(
+          s?.currency ?? s?.sale_currency ?? "ARS",
+        ).toUpperCase();
+        const sale =
+          typeof s?.sale_price === "number"
+            ? s.sale_price
+            : Number(s?.sale_price ?? 0);
+        const cardInt =
+          typeof s?.card_interest === "number"
+            ? s.card_interest
+            : Number(s?.card_interest ?? 0);
+        return {
+          id_service: Number.isFinite(id) ? id : 0,
+          description:
+            s?.description ??
+            s?.type ??
+            (Number.isFinite(id) && id > 0 ? `Servicio ${id}` : "Servicio"),
+          currency,
+          sale_price: sale > 0 ? sale : undefined,
+          card_interest:
+            Number.isFinite(cardInt) && cardInt > 0 ? cardInt : undefined,
+          type: s?.type ?? undefined,
+          destination: s?.destination ?? s?.destino ?? undefined,
+        };
+      });
+
+    const parseJsonToArray = (json: unknown): BookingServiceItem[] | null => {
+      const root = json as Record<string, unknown> | null;
+      const candidates: unknown[] = [
+        json,
+        root?.items,
+        root?.results,
+        root?.data,
+        root?.services,
+        (root?.booking as Record<string, unknown> | undefined)?.services,
+      ].filter(Boolean) as unknown[];
+      for (const c of candidates) {
+        if (Array.isArray(c)) return c as BookingServiceItem[];
+      }
+      return null;
+    };
+
+    const tryFetch = async (
+      url: string,
+    ): Promise<BookingServiceItem[] | null> => {
+      const res = await authFetch(
+        url,
+        { cache: "no-store" },
+        token || undefined,
+      );
+      if (!res.ok) return null;
+      const json = (await res.json()) as unknown;
+      const arr = parseJsonToArray(json);
+      return Array.isArray(arr) ? arr : null;
+    };
+
+    let arr =
+      (await tryFetch(`/api/bookings/${bId}/services`)) ||
+      (await tryFetch(`/api/bookings/${bId}?include=services`)) ||
+      (await tryFetch(`/api/bookings/${bId}`)) ||
+      (await tryFetch(`/api/services?bookingId=${bId}`)) ||
+      (await tryFetch(`/api/services/by-booking/${bId}`));
+
+    if (!arr) arr = [];
+    return mapArr(arr);
+  };
+
+  /* ---------- Diálogo de Integración (attach) ---------- */
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [attachTarget, setAttachTarget] = useState<ReceiptRow | null>(null);
+  const [attachBookingQuery, setAttachBookingQuery] = useState("");
+  const [attachBookingOpts, setAttachBookingOpts] = useState<BookingOption[]>(
+    [],
+  );
+  const [attachBookingId, setAttachBookingId] = useState<number | null>(null);
+  const [attachLoadingBookings, setAttachLoadingBookings] = useState(false);
+
+  const [attachServices, setAttachServices] = useState<ServiceLite[]>([]);
+  const [attachLoadingServices, setAttachLoadingServices] = useState(false);
+  const [attachSelectedServiceIds, setAttachSelectedServiceIds] = useState<
+    number[]
+  >([]);
+  const [attaching, setAttaching] = useState(false); // NEW: evita doble click
+
+  const openAttachDialog = (row: ReceiptRow) => {
+    setAttachTarget(row);
+    const hasBooking = !!row.booking?.id_booking;
+    setAttachBookingId(hasBooking ? row.booking!.id_booking : null);
+    setAttachSelectedServiceIds(
+      Array.isArray(row.serviceIds) ? row.serviceIds! : [],
+    );
+    setAttachBookingQuery("");
+    setAttachOpen(true);
+  };
+
+  // buscar reservas (debounced)
+  useEffect(() => {
+    if (!attachOpen) return;
+    if (attachTarget?.booking?.id_booking) return; // booking bloqueada si ya tiene
+    const term = attachBookingQuery.trim().replace(/^#/, "");
+    if (!term) {
+      setAttachBookingOpts([]);
+      return;
+    }
+    let alive = true;
+    setAttachLoadingBookings(true);
+    const t = setTimeout(() => {
+      searchBookings(term)
+        .then((opts) => alive && setAttachBookingOpts(opts))
+        .finally(() => alive && setAttachLoadingBookings(false));
+    }, 250);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [attachOpen, attachBookingQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // cargar servicios cuando hay booking seleccionada
+  useEffect(() => {
+    if (!attachOpen) return;
+    const bId = attachBookingId;
+    if (!bId) {
+      setAttachServices([]);
+      return;
+    }
+    let alive = true;
+    setAttachLoadingServices(true);
+    loadServicesForBooking(bId)
+      .then((svcs) => alive && setAttachServices(svcs || []))
+      .finally(() => alive && setAttachLoadingServices(false));
+    return () => {
+      alive = false;
+    };
+  }, [attachOpen, attachBookingId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleAttachSvc = (svcId: number) => {
+    setAttachSelectedServiceIds((prev) =>
+      prev.includes(svcId)
+        ? prev.filter((id) => id !== svcId)
+        : [...prev, svcId],
+    );
+  };
+
+  const doAttach = async () => {
+    if (!token || !attachTarget || attaching) return;
+    const targetId = attachTarget.id_receipt;
+    const bId = attachTarget.booking?.id_booking || attachBookingId;
+    if (!bId) return toast.error("Elegí una reserva para asociar el recibo.");
+    if (!attachSelectedServiceIds.length)
+      return toast.error("Seleccioná al menos un servicio.");
+
+    try {
+      setAttaching(true);
+      const res = await authFetch(
+        `/api/receipts/${targetId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            booking: { id_booking: bId },
+            serviceIds: attachSelectedServiceIds,
+          }),
+        },
+        token,
+      );
+      if (!res.ok) {
+        let msg = "No se pudo asociar el recibo.";
+        try {
+          const err = await res.json();
+          if (typeof err?.error === "string") msg = err.error;
+        } catch {}
+        throw new Error(msg);
+      }
+
+      toast.success("Recibo asociado correctamente.");
+      setAttachOpen(false);
+      setAttachTarget(null);
+      refreshList();
+      router.refresh(); // NEW: por si hay SSG/SSR arriba
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al asociar recibo");
+    } finally {
+      setAttaching(false);
+    }
+  };
+
   /* ================= UI ================= */
   return (
     <ProtectedRoute>
       <section className="text-sky-950 dark:text-white">
-        {/* Encabezado + KPIs */}
+        {/* Form + KPIs */}
+        <ReceiptForm
+          token={token || null}
+          allowAgency={true}
+          // NO habilitamos attach dentro del form en esta page
+          // enableAttachAction={false}
+          searchBookings={searchBookings}
+          loadServicesForBooking={loadServicesForBooking}
+          onSubmit={async (payload) => {
+            try {
+              const res = await authFetch(
+                "/api/receipts",
+                {
+                  method: "POST",
+                  body: JSON.stringify(payload),
+                },
+                token || undefined,
+              );
+
+              if (!res.ok) {
+                let msg = "No se pudo crear el recibo.";
+                try {
+                  const err = await res.json();
+                  if (typeof err?.error === "string") msg = err.error;
+                } catch {}
+                throw new Error(msg);
+              }
+
+              // si tu API devuelve el recibo creado
+              // const { receipt } = await res.json();
+              toast.success("Recibo guardado.");
+              refreshList();
+              router.refresh();
+            } catch (e) {
+              toast.error(
+                e instanceof Error ? e.message : "Error al guardar recibo",
+              );
+            }
+          }}
+        />
+
         <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-xl font-semibold">
@@ -812,7 +1155,7 @@ export default function ReceiptsPage() {
           </div>
         )}
 
-        {/* LISTA (estilo investments) */}
+        {/* LISTA */}
         {loading && displayRows.length === 0 ? (
           <div className="flex min-h-[40vh] items-center justify-center">
             <Spinner />
@@ -825,6 +1168,11 @@ export default function ReceiptsPage() {
               const servicesCount = r.serviceIds?.length ?? 0;
               const clientsCount = r.clientIds?.length ?? 0;
               const cur = String(r.amount_currency).toUpperCase();
+
+              const canAttach =
+                !r.booking?.id_booking ||
+                (Array.isArray(r.serviceIds) && r.serviceIds.length === 0);
+
               return (
                 <article
                   key={r.id_receipt}
@@ -858,8 +1206,20 @@ export default function ReceiptsPage() {
                       <span className={`${BADGE}`}>{r._dateLabel}</span>
                       <span className={`${BADGE}`}>{cur}</span>
                     </div>
-                    <div className="text-base font-semibold">
-                      {r._amountLabel}
+                    <div className="flex items-center gap-2">
+                      <div className="text-base font-semibold">
+                        {r._amountLabel}
+                      </div>
+                      {canAttach && (
+                        <button
+                          className={`${ICON_BTN} ml-2 disabled:opacity-50`}
+                          onClick={() => openAttachDialog(r)}
+                          title="Asociar a reserva / Sumar servicios"
+                          disabled={attaching}
+                        >
+                          Asociar
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -872,13 +1232,17 @@ export default function ReceiptsPage() {
                   <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
                     <span className={CHIP}>
                       <b>Reserva:</b>
-                      <Link
-                        href={`/bookings/services/${r.booking?.id_booking}`}
-                        target="_blank"
-                        className="underline decoration-transparent hover:decoration-sky-600"
-                      >
-                        {r.booking?.id_booking}
-                      </Link>
+                      {r.booking?.id_booking ? (
+                        <Link
+                          href={`/bookings/services/${r.booking?.id_booking}`}
+                          target="_blank"
+                          className="underline decoration-transparent hover:decoration-sky-600"
+                        >
+                          {r.booking?.id_booking}
+                        </Link>
+                      ) : (
+                        " —"
+                      )}
                     </span>
 
                     <span className={CHIP}>
@@ -934,6 +1298,159 @@ export default function ReceiptsPage() {
                   "Ver más"
                 )}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Diálogo de Integración (attach) */}
+        {attachOpen && (
+          <div className="fixed inset-0 z-50 grid place-items-center p-4">
+            <div
+              className="absolute inset-0 bg-black/40"
+              onClick={() => setAttachOpen(false)}
+            />
+            <div className="relative w-full max-w-2xl rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur dark:bg-white/10">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold">
+                    Asociar recibo #{attachTarget?.receipt_number}
+                  </h3>
+                  <p className="text-xs opacity-70">
+                    Elegí una reserva y marcá los servicios a vincular.
+                  </p>
+                </div>
+                <button
+                  className={ICON_BTN}
+                  onClick={() => setAttachOpen(false)}
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              {/* Booking selector */}
+              {attachTarget?.booking?.id_booking ? (
+                <div className="mb-3 text-sm">
+                  Reserva:{" "}
+                  <span className="rounded-full bg-white/10 px-2 py-1">
+                    #{attachTarget.booking.id_booking} (bloqueada)
+                  </span>
+                </div>
+              ) : (
+                <div className="mb-3">
+                  <Label>Buscar reserva</Label>
+                  <Input
+                    value={attachBookingQuery}
+                    onChange={(e) => setAttachBookingQuery(e.target.value)}
+                    placeholder="Por número o titular…"
+                  />
+                  <div className="mt-2 max-h-56 overflow-auto rounded-2xl border border-white/10">
+                    {attachLoadingBookings ? (
+                      <div className="p-3">
+                        <Spinner />
+                      </div>
+                    ) : attachBookingOpts.length ? (
+                      attachBookingOpts.map((opt) => (
+                        <button
+                          key={opt.id_booking}
+                          type="button"
+                          className={`block w-full px-3 py-2 text-left transition hover:bg-white/5 ${
+                            attachBookingId === opt.id_booking
+                              ? "bg-white/10"
+                              : ""
+                          }`}
+                          onClick={() => setAttachBookingId(opt.id_booking)}
+                        >
+                          <div className="text-sm font-medium">{opt.label}</div>
+                          {opt.subtitle && (
+                            <div className="text-xs opacity-70">
+                              {opt.subtitle}
+                            </div>
+                          )}
+                        </button>
+                      ))
+                    ) : attachBookingQuery ? (
+                      <div className="p-3 text-sm opacity-70">
+                        Sin resultados.
+                      </div>
+                    ) : (
+                      <div className="p-3 text-sm opacity-70">
+                        Escribí para buscar…
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Services de la reserva */}
+              {(attachTarget?.booking?.id_booking || attachBookingId) && (
+                <div className="mb-3">
+                  <Label>Servicios</Label>
+                  {attachLoadingServices ? (
+                    <div className="py-2">
+                      <Spinner />
+                    </div>
+                  ) : attachServices.length === 0 ? (
+                    <div className="rounded-2xl border border-white/10 p-3 text-sm opacity-70">
+                      No hay servicios para esta reserva.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {attachServices.map((svc) => {
+                        const checked = attachSelectedServiceIds.includes(
+                          svc.id_service,
+                        );
+                        return (
+                          <label
+                            key={svc.id_service}
+                            className={`flex items-start gap-3 rounded-2xl border px-3 py-2 ${
+                              checked
+                                ? "border-white/20 bg-white/10"
+                                : "border-white/10"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-1 size-4"
+                              checked={checked}
+                              onChange={() => toggleAttachSvc(svc.id_service)}
+                            />
+                            <div className="flex-1">
+                              <div className="text-sm font-medium">
+                                #{svc.id_service} ·{" "}
+                                {svc.type || svc.description || "Servicio"}
+                                {svc.destination ? ` · ${svc.destination}` : ""}
+                              </div>
+                              <div className="text-xs opacity-70">
+                                Moneda: <b>{svc.currency}</b>{" "}
+                                {typeof svc.sale_price === "number" && (
+                                  <>• Venta aprox.</>
+                                )}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Action bar */}
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  className={ICON_BTN}
+                  onClick={() => setAttachOpen(false)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className={`${ICON_BTN} disabled:opacity-50`}
+                  onClick={doAttach}
+                  disabled={attaching}
+                >
+                  {attaching ? <Spinner /> : "Guardar asociación"}
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -42,6 +42,7 @@ model Agency {
   ExpenseCategory      ExpenseCategory[]
   FinanceConfig        FinanceConfig?
   Lead                 Lead[]
+  Receipt              Receipt[]
 }
 
 // User: renombramos las colecciones para que reflejen la intención
@@ -358,10 +359,15 @@ model Receipt {
   base_currency     String?
   counter_amount    Decimal? @db.Decimal(18, 2)
   counter_currency  String?
-  bookingId_booking Int
-  booking           Booking  @relation("BookingReceipt", fields: [bookingId_booking], references: [id_booking])
+  bookingId_booking Int?
+  booking           Booking? @relation("BookingReceipt", fields: [bookingId_booking], references: [id_booking], onDelete: SetNull)
+  id_agency         Int?
+  agency            Agency?  @relation(fields: [id_agency], references: [id_agency], onDelete: SetNull)
   serviceIds        Int[]
   clientIds         Int[]    @default([])
+
+  @@index([bookingId_booking])
+  @@index([id_agency])
 }
 
 model Resources {

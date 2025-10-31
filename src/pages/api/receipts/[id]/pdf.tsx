@@ -1,4 +1,3 @@
-// src/pages/api/receipts/[id]/pdf.tsx
 import type { NextApiRequest, NextApiResponse } from "next";
 import { PrismaClient } from "@prisma/client";
 import fs from "fs";
@@ -8,7 +7,6 @@ import ReceiptDocument, {
   ReceiptPdfData,
 } from "@/services/receipts/ReceiptDocument";
 
-/** Subtipo con extras opcionales que guardás en Agency */
 type AgencyExtras = {
   id_agency?: number | null;
   logo_url?: string | null;
@@ -16,7 +14,6 @@ type AgencyExtras = {
   logo_filename?: string | null;
 };
 
-/** ===== Helper: traer logo por URL pública (Spaces/S3) a base64 + MIME ===== */
 async function fetchLogoFromUrl(
   url?: string | null,
 ): Promise<{ base64: string; mime: string } | null> {
@@ -24,11 +21,8 @@ async function fetchLogoFromUrl(
   try {
     const r = await fetch(url);
     if (!r.ok) return null;
-
     let mime = r.headers.get("content-type") || "";
     const buf = Buffer.from(await r.arrayBuffer());
-
-    // inferencia simple de MIME si no viene en header
     if (!mime) {
       const u = url.toLowerCase();
       if (u.endsWith(".jpg") || u.endsWith(".jpeg")) mime = "image/jpeg";
@@ -56,18 +50,14 @@ export default async function handler(
   const id = parseInt(req.query.id as string, 10);
   if (Number.isNaN(id)) return res.status(400).end("ID inválido");
 
-  // 1) Traer recibo + booking + agency + titular + services + clients
+  // 1) Recibo + (booking | agencia) + clientes
   const receipt = await prisma.receipt.findUnique({
     where: { id_receipt: id },
     include: {
       booking: {
-        include: {
-          titular: true,
-          agency: true,
-          services: true,
-          clients: true,
-        },
+        include: { titular: true, agency: true, services: true, clients: true },
       },
+      agency: true, // para recibos sin booking
     },
   });
   if (!receipt) return res.status(404).end("Recibo no encontrado");
@@ -77,26 +67,20 @@ export default async function handler(
   let logoMime: string | undefined;
 
   try {
-    const agency = receipt.booking?.agency as typeof receipt.booking.agency &
-      AgencyExtras;
-
-    // a) probar descargar desde logo_url (Spaces/S3)
+    const agency = (receipt.booking?.agency ??
+      receipt.agency) as typeof receipt.agency & AgencyExtras;
     const fetched = await fetchLogoFromUrl(agency?.logo_url);
     if (fetched) {
       logoBase64 = fetched.base64;
       logoMime = fetched.mime;
     }
-
-    // b) fallbacks locales opcionales
     if (!logoBase64) {
       const preferred: string[] = [];
-      const slug = agency?.slug ?? undefined;
-      const logoFile = agency?.logo_filename ?? undefined;
-
+      const slug = (agency as AgencyExtras)?.slug ?? undefined;
+      const logoFile = (agency as AgencyExtras)?.logo_filename ?? undefined;
       if (logoFile) preferred.push(logoFile);
       if (slug) preferred.push(`logo_${slug}.png`);
       if (agency?.id_agency) preferred.push(`logo_ag_${agency.id_agency}.png`);
-
       for (const fname of preferred) {
         const candidate = path.join(process.cwd(), "public", "agencies", fname);
         if (fs.existsSync(candidate)) {
@@ -109,8 +93,6 @@ export default async function handler(
           break;
         }
       }
-
-      // c) último fallback global
       if (!logoBase64) {
         const fallback = path.join(process.cwd(), "public", "logo.png");
         if (fs.existsSync(fallback)) {
@@ -120,33 +102,40 @@ export default async function handler(
       }
     }
   } catch (e) {
-    // no cortamos si falla el logo
     // eslint-disable-next-line no-console
     console.error("⚠️ Error obteniendo logo de agencia:", e);
   }
 
-  // 3) Filtrar servicios seleccionados en el recibo
-  const selectedServices = receipt.booking.services.filter((s) =>
-    receipt.serviceIds.includes(s.id_service),
+  // 3) Servicios seleccionados (si hay booking)
+  const bookingServices = receipt.booking?.services ?? [];
+  const selectedServices = bookingServices.filter((s) =>
+    (receipt.serviceIds ?? []).includes(s.id_service),
   );
 
-  // 4) Determinar destinatarios: si hay clientIds, usar esos; si no, el titular
-  const rawClients = await prisma.client.findMany({
-    where: { id_client: { in: receipt.clientIds } },
-  });
+  // 4) Destinatarios: clientIds => buscar; si no, titular (si hay booking); si no, vacío
+  const rawClients = receipt.clientIds.length
+    ? await prisma.client.findMany({
+        where: { id_client: { in: receipt.clientIds } },
+      })
+    : [];
   const recipientsArr = rawClients.length
     ? rawClients
-    : [receipt.booking.titular];
+    : receipt.booking
+      ? [receipt.booking.titular]
+      : [];
 
-  // 5) Armar datos para el PDF (incluye recipients y logoMime)
+  // 5) Armar datos para el PDF
+  const ag = (receipt.booking?.agency ?? receipt.agency)!;
   const data: ReceiptPdfData = {
     receiptNumber: receipt.receipt_number,
     issueDate: receipt.issue_date ?? new Date(),
     concept: receipt.concept,
     amount: receipt.amount,
     amountString: receipt.amount_string,
-    currency: receipt.currency, // descripción/metodo
-    amount_currency: receipt.amount_currency, // ISO para formatear amount
+    // etiqueta visible: texto libre si existe, si no ISO
+    currency: receipt.currency || receipt.amount_currency,
+    // ISO para formatear montos
+    amount_currency: receipt.amount_currency,
     services: selectedServices.map((s) => ({
       id: s.id_service,
       description: s.description ?? `Servicio ${s.id_service}`,
@@ -155,21 +144,35 @@ export default async function handler(
       currency: s.currency,
     })),
     booking: {
-      details: receipt.booking.details ?? "-",
-      departureDate: receipt.booking.departure_date,
-      returnDate: receipt.booking.return_date,
-      titular: {
-        firstName: receipt.booking.titular.first_name,
-        lastName: receipt.booking.titular.last_name,
-        dni: receipt.booking.titular.dni_number ?? "-",
-        address: receipt.booking.titular.address ?? "-",
-        locality: receipt.booking.titular.locality ?? "-",
-      },
+      details: receipt.booking?.details ?? "-",
+      // Nunca null: si no hay booking, uso la fecha del recibo; si falta return, uso departure
+      departureDate:
+        receipt.booking?.departure_date ?? receipt.issue_date ?? new Date(),
+      returnDate:
+        receipt.booking?.return_date ??
+        receipt.booking?.departure_date ??
+        receipt.issue_date ??
+        new Date(),
+      titular: receipt.booking
+        ? {
+            firstName: receipt.booking.titular.first_name,
+            lastName: receipt.booking.titular.last_name,
+            dni: receipt.booking.titular.dni_number ?? "-",
+            address: receipt.booking.titular.address ?? "-",
+            locality: receipt.booking.titular.locality ?? "-",
+          }
+        : {
+            firstName: "-",
+            lastName: "-",
+            dni: "-",
+            address: "-",
+            locality: "-",
+          },
       agency: {
-        name: receipt.booking.agency.name,
-        legalName: receipt.booking.agency.legal_name,
-        taxId: receipt.booking.agency.tax_id,
-        address: receipt.booking.agency.address ?? "-",
+        name: ag.name,
+        legalName: ag.legal_name,
+        taxId: ag.tax_id,
+        address: ag.address ?? "-",
         logoBase64,
         logoMime,
       },
@@ -183,7 +186,7 @@ export default async function handler(
     })),
   };
 
-  // 6) Render y envío
+  // 6) Render
   const stream = await renderToStream(<ReceiptDocument {...data} />);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename=recibo_${id}.pdf`);

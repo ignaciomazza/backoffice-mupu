@@ -3,19 +3,25 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import Spinner from "@/components/Spinner";
 import Link from "next/link";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { authFetch } from "@/utils/authFetch";
 import { useAuth } from "@/context/AuthContext";
+import ClientStatsView, {
+  type VisibleKey,
+  type ColumnDef,
+  type StatsState,
+} from "@/components/clients-stats/ClientStatsView";
 import {
   normalizeClientRecord,
   DEFAULT_CONFIG,
   type NormalizeContext,
 } from "@/utils/normalize";
 
-/* ================= Types from API ================= */
+/* =========================================================
+ * TIPOS QUE VIENEN DE LA API
+ * ========================================================= */
 type UserLite = {
   id_user: number;
   first_name: string;
@@ -53,24 +59,9 @@ type ClientsAPI = {
   error?: string;
 };
 
-/* ================= Visible columns ================= */
-type VisibleKey =
-  | "id_client"
-  | "full_name"
-  | "phone"
-  | "email"
-  | "owner"
-  | "dni_number"
-  | "passport_number"
-  | "tax_id"
-  | "nationality"
-  | "gender"
-  | "age"
-  | "locality"
-  | "registration_date";
-
-type ColumnDef = { key: VisibleKey; label: string; always?: boolean };
-
+/* =========================================================
+ * COLUMNAS VISIBLES
+ * ========================================================= */
 const ALL_COLUMNS: ColumnDef[] = [
   { key: "id_client", label: "ID", always: true },
   { key: "full_name", label: "Nombre y Apellido" },
@@ -87,17 +78,9 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: "registration_date", label: "Registrado" },
 ];
 
-/* ================= Reusable style tokens (glass / sky) ================= */
-const GLASS =
-  "rounded-3xl border border-white/30 bg-white/10 backdrop-blur shadow-lg shadow-sky-900/10 dark:bg-white/10 dark:border-white/5";
-const CHIP =
-  "inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 backdrop-blur px-3 py-1.5 text-sm shadow-sm shadow-sky-900/5 dark:bg-white/10 dark:border-white/10";
-const ICON_BTN =
-  "rounded-3xl bg-sky-600/30 px-3 py-1.5 text-sm text-sky-950/80 hover:text-sky-950 dark:text-white shadow-sm shadow-sky-900/10 hover:bg-sky-600/30 border border-sky-600/30 active:scale-[.99] transition";
-const PRIMARY_BTN =
-  "rounded-3xl bg-sky-600/30 px-3 py-1.5 text-sm text-sky-950/80 hover:text-sky-950 dark:text-white shadow-sm shadow-sky-900/10 hover:bg-sky-600/30 border border-sky-600/30 active:scale-[.99] transition";
-
-/* ================= Helpers ================= */
+/* =========================================================
+ * HELPERS DE FORMATEO / RENDER
+ * ========================================================= */
 function formatDateAR(iso?: string) {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -107,7 +90,7 @@ function formatDateAR(iso?: string) {
 function valueFor(
   col: VisibleKey,
   c: ClientItem & ReturnType<typeof normalizeClientRecord>,
-): string | number | JSX.Element {
+): React.ReactNode {
   switch (col) {
     case "id_client":
       return (
@@ -137,7 +120,7 @@ function valueFor(
       if (!c._docCUIT || c._docCUIT.empty) return "—";
       return c._docCUIT.formatted || c._docCUIT.digits;
     case "nationality":
-      return c._nat.iso2 ? c._nat.iso2 : c._nat.label || "—";
+      return c._natDisplay || "—"; // solo el nombre del país
     case "gender":
       return c._gender || "—";
     case "age":
@@ -161,110 +144,78 @@ function toCSVCell(
   return `"${raw.replace(/"/g, '""')}"`;
 }
 
-/* ================= Column Picker (glass) ================= */
-function ColumnPickerModal({
-  open,
-  onClose,
-  items,
-  visibleKeys,
-  onToggle,
-  onAll,
-  onNone,
-  onReset,
-}: {
-  open: boolean;
-  onClose: () => void;
-  items: { key: VisibleKey; label: string; locked?: boolean }[];
-  visibleKeys: VisibleKey[];
-  onToggle: (k: VisibleKey) => void;
-  onAll: () => void;
-  onNone: () => void;
-  onReset: () => void;
-}) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-[100]">
-      <div
-        className="absolute inset-0 bg-black/10 backdrop-blur-sm"
-        onClick={onClose}
-      />
-      <div
-        className={`${GLASS} absolute left-1/2 top-1/2 w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 p-5`}
-      >
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-semibold">Columnas</h3>
-          <button onClick={onClose} className={ICON_BTN}>
-            ✕
-          </button>
-        </div>
-        <div className="max-h-72 space-y-1 overflow-auto pr-1">
-          {items.map((it) => (
-            <label
-              key={it.key}
-              className={`flex cursor-pointer items-center justify-between rounded-3xl px-2 py-1 text-sm ${it.locked ? "opacity-60" : "hover:bg-white/10 dark:hover:bg-zinc-800/50"}`}
-            >
-              <span>{it.label}</span>
-              <input
-                type="checkbox"
-                checked={visibleKeys.includes(it.key)}
-                onChange={() => !it.locked && onToggle(it.key)}
-                disabled={it.locked}
-              />
-            </label>
-          ))}
-        </div>
-        <div className="mt-3 flex items-center gap-2">
-          <button onClick={onAll} className={ICON_BTN}>
-            Todas
-          </button>
-          <button onClick={onNone} className={ICON_BTN}>
-            Ninguna
-          </button>
-          <button onClick={onReset} className={ICON_BTN}>
-            Reset
-          </button>
-        </div>
-        <div className="mt-4 flex justify-end">
-          <button onClick={onClose} className={PRIMARY_BTN}>
-            Cerrar
-          </button>
-        </div>
-      </div>
-    </div>
+/* =========================================================
+ * 🔄 BÚSQUEDA FLEXIBLE (mismo motor que /clients)
+ * ========================================================= */
+function normText(s: string | undefined | null): string {
+  return (s || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function levenshteinDist(aRaw: string, bRaw: string): number {
+  const a = aRaw;
+  const b = bRaw;
+  const m = a.length;
+  const n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost,
+      );
+    }
+  }
+  return dp[m][n];
+}
+function matchScoreFlexible(queryNorm: string, candidateRaw: string): number {
+  if (!candidateRaw) return 9999;
+  const cand = normText(candidateRaw);
+  if (!cand) return 9999;
+  if (cand.startsWith(queryNorm)) return 0;
+  if (cand.includes(queryNorm)) return 1;
+  const dist = levenshteinDist(queryNorm, cand);
+  return 2 + dist;
+}
+function scoreClientFlexible(c: ClientItem, queryNorm: string): number {
+  const combos = [
+    `${c.first_name || ""} ${c.last_name || ""}`,
+    `${c.last_name || ""} ${c.first_name || ""}`,
+    c.dni_number || "",
+    c.passport_number || "",
+    c.tax_id || "",
+    c.phone || "",
+    c.email || "",
+    c.company_name || "",
+    c.locality || "",
+  ];
+  let best = Infinity;
+  for (const field of combos) {
+    const s = matchScoreFlexible(queryNorm, field);
+    if (s < best) best = s;
+  }
+  return best;
+}
+function rankClientsByQuery(list: ClientItem[], query: string): ClientItem[] {
+  const qNorm = normText(query);
+  if (!qNorm) return list;
+  return [...list].sort(
+    (a, b) => scoreClientFlexible(a, qNorm) - scoreClientFlexible(b, qNorm),
   );
 }
 
-/* ================= Stats (slim) ================= */
-type StatsBuckets = {
-  u18: number;
-  a18_25: number;
-  a26_40: number;
-  a41_60: number;
-  g60: number;
-};
-type TopPair = [string, number];
-
-type StatsState = {
-  count: number;
-  withPhoneN: number;
-  withEmailN: number;
-  avgAge: number | null;
-  buckets: StatsBuckets;
-  topOwners: TopPair[];
-  topNat: TopPair[];
-};
-
-const EMPTY_STATS: StatsState = {
-  count: 0,
-  withPhoneN: 0,
-  withEmailN: 0,
-  avgAge: null,
-  buckets: { u18: 0, a18_25: 0, a26_40: 0, a41_60: 0, g60: 0 },
-  topOwners: [],
-  topNat: [],
-};
-
-/* ================= Page ================= */
+/* =========================================================
+ * PAGE (lógica, estado y fetch)
+ * ========================================================= */
 export default function ClientStatsPage() {
   const { token, user } = useAuth() as {
     token?: string | null;
@@ -285,7 +236,7 @@ export default function ClientStatsPage() {
     "lider",
   ].includes(role);
 
-  // Filtros
+  /* ------------ filtros ------------- */
   const [q, setQ] = useState("");
   const [ownerId, setOwnerId] = useState<number | 0>(0);
   const [gender, setGender] = useState<"" | "M" | "F" | "X">("");
@@ -298,25 +249,41 @@ export default function ClientStatsPage() {
   const [dateTo, setDateTo] = useState<string>("");
   const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
 
-  // Data tabla
+  /* ------------ data tabla paginada ------------- */
   const [data, setData] = useState<ClientItem[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pageInit, setPageInit] = useState(false);
 
-  // Stats
+  /* ------------ stats ------------- */
+  const EMPTY_STATS: StatsState = useMemo(
+    () => ({
+      count: 0,
+      recent30d: 0,
+      withPhoneN: 0,
+      withEmailN: 0,
+      avgAge: null,
+      buckets: { u18: 0, a18_25: 0, a26_40: 0, a41_60: 0, g60: 0 },
+      topOwners: [],
+      topNat: [],
+      topLocality: [],
+      gender: { M: 0, F: 0, X: 0, U: 0 },
+    }),
+    [],
+  );
   const [stats, setStats] = useState<StatsState>(EMPTY_STATS);
   const [statsLoading, setStatsLoading] = useState(false);
 
-  // CSV
+  /* ------------ CSV ------------- */
   const [csvLoading, setCsvLoading] = useState(false);
 
-  // Normalize context
+  /* ------------ normalize ctx ------------- */
   const normCtx = useMemo<NormalizeContext>(
     () => ({ countryDefault: "AR", callingCodeDefault: "54" }),
     [],
   );
 
-  // Columnas
+  /* ------------ columnas visibles / picker ------------- */
   const STORAGE_KEY = "client-stats-columns-minimal";
   const defaultVisible: VisibleKey[] = [
     "id_client",
@@ -338,7 +305,9 @@ export default function ClientStatsPage() {
       if (!raw) return;
       const parsed = JSON.parse(raw) as { visible?: VisibleKey[] };
       if (Array.isArray(parsed.visible)) setVisible(parsed.visible);
-    } catch {}
+    } catch {
+      // ignore
+    }
   }, []);
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ visible }));
@@ -357,7 +326,7 @@ export default function ClientStatsPage() {
     [visible],
   );
 
-  // Normalizados (para lo cargado)
+  /* ------------ normalizamos data cargada ------------- */
   const normalized = useMemo(
     () =>
       data.map((c) => ({
@@ -367,7 +336,7 @@ export default function ClientStatsPage() {
     [data, normCtx],
   );
 
-  // ===== Sorting =====
+  /* ------------ sort tabla ------------- */
   type SortKey =
     | "id_client"
     | "registration_date"
@@ -418,21 +387,26 @@ export default function ClientStatsPage() {
     [sortKey],
   );
 
-  // Filtros (recordMatches) memorizados para cumplir lint y evitar recreación innecesaria
+  /* ------------ filtros locales (recordMatches) ------------- */
   const recordMatches = useCallback(
     (c: ClientItem & ReturnType<typeof normalizeClientRecord>) => {
       if (ownerId && c.id_user !== ownerId) return false;
       if (gender && c._gender !== gender) return false;
 
-      const hasPh = !c._phone.empty;
-      const hasEm = !c._email.empty;
+      const hasPh = !!c._hasPhone;
+      const hasEm = !!c._hasEmail;
       if (hasPhone === "yes" && !hasPh) return false;
       if (hasPhone === "no" && hasPh) return false;
       if (hasEmail === "yes" && !hasEm) return false;
       if (hasEmail === "no" && hasEm) return false;
 
       if (nat) {
-        const key = (c._nat.iso2 || c._nat.label || "").toLowerCase();
+        const key = (
+          c._natDisplay ||
+          c._nat?.iso2 ||
+          c._nat?.label ||
+          ""
+        ).toLowerCase();
         if (!key.includes(nat.toLowerCase())) return false;
       }
 
@@ -483,7 +457,7 @@ export default function ClientStatsPage() {
     ],
   );
 
-  // Owners para selector (a partir de lo cargado)
+  /* ------------ owners únicos para selector ------------- */
   const owners = useMemo(() => {
     const map = new Map<number, string>();
     for (const c of normalized) {
@@ -499,65 +473,54 @@ export default function ClientStatsPage() {
     );
   }, [normalized]);
 
-  // Vendedor: forzar su owner
   useEffect(() => {
     if (isVendor && user?.id_user) setOwnerId(user.id_user);
   }, [isVendor, user?.id_user]);
 
-  // Filtrado + orden client-side tabla (sobre lo cargado)
+  /* ------------ tabla filtrada + sort ------------- */
   const filteredTableRows = useMemo(() => {
     const rows = normalized.filter(recordMatches);
     const factor = sortDir === "asc" ? 1 : -1;
     return [...rows].sort((a, b) => {
       const va = sortVal(a);
       const vb = sortVal(b);
-      if (typeof va === "number" && typeof vb === "number") {
+      if (typeof va === "number" && typeof vb === "number")
         return (va - vb) * factor;
-      }
       const sa = String(va);
       const sb = String(vb);
       return sa.localeCompare(sb, "es") * factor;
     });
   }, [normalized, recordMatches, sortVal, sortDir]);
 
-  // Opciones nat para datalist (desde stats)
+  /* ------------ natOptions desde stats ------------- */
   const natOptions = useMemo(
     () => stats.topNat.slice(0, 12).map(([label]) => label),
     [stats.topNat],
   );
 
-  /* ========= Fetch (tabla) ========= */
-  const TAKE = 120; // cuántas filas queremos sumar por click
-  const API_PAGE = 120; // cuánto pide cada golpe a la API
+  /* ------------ FETCH paginado ------------- */
+  const TAKE = 120;
+  const API_PAGE = 120;
 
-  const [pageInit, setPageInit] = useState(false);
   const fetchPage = useCallback(
     async (resetList: boolean) => {
       setLoading(true);
       try {
-        if (resetList) {
-          setCursor(null);
-          setData([]);
-        }
-
-        // base de query (q + userId)
         const qsBase = new URLSearchParams();
         if (q.trim()) qsBase.append("q", q.trim());
         qsBase.append("take", String(API_PAGE));
-
         const wantedUserId =
           isVendor && user?.id_user ? user.id_user : canPickOwner ? ownerId : 0;
         if (wantedUserId) qsBase.append("userId", String(wantedUserId));
 
-        let next = resetList ? null : cursor;
+        let nextLocal = resetList ? null : cursor;
         const collected: ClientItem[] = [];
         let loops = 0;
-        const MAX_LOOPS = 25; // 25 * 120 = 3k candidatos por click
+        const MAX_LOOPS = 25;
 
-        // Vamos paginando la API hasta reunir TAKE que cumplan los filtros
         while (collected.length < TAKE && loops < MAX_LOOPS) {
           const qs = new URLSearchParams(qsBase);
-          if (next !== null) qs.append("cursor", String(next));
+          if (nextLocal !== null) qs.append("cursor", String(nextLocal));
 
           const res = await authFetch(
             `/api/clients?${qs.toString()}`,
@@ -568,21 +531,22 @@ export default function ClientStatsPage() {
           if (!res.ok)
             throw new Error(json?.error || "Error al cargar clientes");
 
-          // Filtramos los items de esta página según los filtros actuales
-          const matched = json.items.filter((c) => {
-            const n = normalizeClientRecord(c, normCtx, DEFAULT_CONFIG);
-            return recordMatches({ ...c, ...n });
+          const matched = json.items.filter((rawC) => {
+            const n = normalizeClientRecord(rawC, normCtx, DEFAULT_CONFIG);
+            return recordMatches({ ...rawC, ...n });
           });
 
           collected.push(...matched);
-          next = json.nextCursor ?? null;
+          nextLocal = json.nextCursor ?? null;
           loops++;
-
-          if (next === null) break; // no quedan más páginas
+          if (nextLocal === null) break;
         }
 
-        setData((prev) => (resetList ? collected : [...prev, ...collected]));
-        setCursor(next);
+        setData((prev) => {
+          const baseList = resetList ? collected : [...prev, ...collected];
+          return rankClientsByQuery(baseList, q);
+        });
+        setCursor(nextLocal);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Error al cargar clientes";
         toast.error(msg);
@@ -600,28 +564,34 @@ export default function ClientStatsPage() {
       isVendor,
       user?.id_user,
       normCtx,
-      recordMatches, // ✅ dependencia añadida
+      recordMatches,
     ],
   );
 
-  /* ========= Fetch (stats full-scan paginado) ========= */
+  /* ------------ FETCH stats (scan masivo) ------------- */
   const fetchStats = useCallback(async () => {
     setStatsLoading(true);
     try {
       let total = 0;
+      let recent30d = 0;
       let withPhoneN = 0;
       let withEmailN = 0;
       let ageSum = 0;
       let ageCount = 0;
-      const buckets: StatsBuckets = {
+      const ages: number[] = [];
+
+      const buckets: StatsState["buckets"] = {
         u18: 0,
         a18_25: 0,
         a26_40: 0,
         a41_60: 0,
         g60: 0,
       };
+      const genderCounts: StatsState["gender"] = { M: 0, F: 0, X: 0, U: 0 };
+
       const byOwner = new Map<string, number>();
       const byNat = new Map<string, number>();
+      const byLoc = new Map<string, number>();
 
       const qsBase = new URLSearchParams();
       if (q.trim()) qsBase.append("q", q.trim());
@@ -633,6 +603,9 @@ export default function ClientStatsPage() {
       let next: number | null = null;
       let pages = 0;
       const MAX_PAGES = 200;
+
+      const NOW = Date.now();
+      const cutoff30 = NOW - 30 * 24 * 60 * 60 * 1000;
 
       do {
         const qs = new URLSearchParams(qsBase);
@@ -650,17 +623,23 @@ export default function ClientStatsPage() {
         for (const c of json.items) {
           const n = normalizeClientRecord(c, normCtx, DEFAULT_CONFIG);
 
+          // mismos filtros que recordMatches
           if (gender && n._gender !== gender) continue;
 
-          const hasPh = !n._phone.empty;
-          const hasEm = !n._email.empty;
+          const hasPh = n._hasPhone;
+          const hasEm = n._hasEmail;
           if (hasPhone === "yes" && !hasPh) continue;
           if (hasPhone === "no" && hasPh) continue;
           if (hasEmail === "yes" && !hasEm) continue;
           if (hasEmail === "no" && hasEm) continue;
 
           if (nat) {
-            const key = (n._nat.iso2 || n._nat.label || "").toLowerCase();
+            const key = (
+              n._natDisplay ||
+              n._nat?.iso2 ||
+              n._nat?.label ||
+              ""
+            ).toLowerCase();
             if (!key.includes(nat.toLowerCase())) continue;
           }
 
@@ -698,14 +677,17 @@ export default function ClientStatsPage() {
             }
           }
 
-          // Agregar
+          // acumular stats
           total++;
           if (hasPh) withPhoneN++;
           if (hasEm) withEmailN++;
 
+          if (n._registrationTs && n._registrationTs >= cutoff30) recent30d++;
+
           if (typeof a === "number" && a >= 0 && a <= 120) {
             ageSum += a;
             ageCount++;
+            ages.push(a);
             if (a <= 17) buckets.u18++;
             else if (a <= 25) buckets.a18_25++;
             else if (a <= 40) buckets.a26_40++;
@@ -713,13 +695,22 @@ export default function ClientStatsPage() {
             else buckets.g60++;
           }
 
+          const g = n._gender || "";
+          if (g === "M") genderCounts.M++;
+          else if (g === "F") genderCounts.F++;
+          else if (g === "X") genderCounts.X++;
+          else genderCounts.U++;
+
           const ownerName =
             n._owner ||
             (c.user ? `${c.user.first_name} ${c.user.last_name}` : "—");
           byOwner.set(ownerName, (byOwner.get(ownerName) || 0) + 1);
 
-          const natKey = (n._nat.iso2 || n._nat.label || "—").toUpperCase();
+          const natKey = (n._natDisplay || "—").trim() || "—";
           byNat.set(natKey, (byNat.get(natKey) || 0) + 1);
+
+          const locKey = (n._localityCanonical || "—").trim() || "—";
+          byLoc.set(locKey, (byLoc.get(locKey) || 0) + 1);
         }
 
         next = json.nextCursor ?? null;
@@ -728,21 +719,28 @@ export default function ClientStatsPage() {
 
       const avgAge =
         ageCount > 0 ? Math.round((ageSum / ageCount) * 10) / 10 : null;
+
       const topOwners = Array.from(byOwner.entries())
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5);
       const topNat = Array.from(byNat.entries())
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5);
+      const topLocality = Array.from(byLoc.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
 
       setStats({
         count: total,
+        recent30d,
         withPhoneN,
         withEmailN,
         avgAge,
         buckets,
         topOwners,
         topNat,
+        topLocality,
+        gender: genderCounts,
       });
     } catch (e) {
       const msg =
@@ -768,8 +766,10 @@ export default function ClientStatsPage() {
     ageMax,
     dateFrom,
     dateTo,
+    EMPTY_STATS,
   ]);
 
+  /* ------------ init / aplicar ------------- */
   const handleSearch = () => {
     setCursor(null);
     setData([]);
@@ -785,7 +785,7 @@ export default function ClientStatsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Export CSV (escaneo completo filtrado + ordenado, no solo lo cargado)
+  /* ------------ CSV ------------- */
   const downloadCSV = async () => {
     try {
       setCsvLoading(true);
@@ -828,7 +828,6 @@ export default function ClientStatsPage() {
         pages++;
       } while (next !== null && pages < MAX_PAGES);
 
-      // ordenar igual que la tabla
       const factor = sortDir === "asc" ? 1 : -1;
       all.sort((a, b) => {
         const va = sortVal(a);
@@ -846,6 +845,7 @@ export default function ClientStatsPage() {
         visibleCols.map((col) => toCSVCell(col.key, c)).join(";"),
       );
       const csv = [headers, ...rows].join("\n");
+
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -860,6 +860,7 @@ export default function ClientStatsPage() {
     }
   };
 
+  /* ------------ limpiar filtros ------------- */
   const clearFilters = () => {
     setGender("");
     setHasPhone("");
@@ -872,426 +873,90 @@ export default function ClientStatsPage() {
     if (!isVendor) setOwnerId(0);
   };
 
-  /* ================= UI ================= */
+  /* ------------ RENDER ------------- */
   return (
     <ProtectedRoute>
-      <div>
-        {/* Title + KPIs (glass chips) */}
-        <div className="mb-8 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <h1 className="text-xl font-semibold text-zinc-900 dark:text-white">
-            Client Stats
-          </h1>
-          <div className="flex flex-wrap gap-2">
-            <ChipKPI label="Total" value={stats.count} loading={statsLoading} />
-            <ChipKPI
-              label="Con teléfono"
-              value={stats.withPhoneN}
-              loading={statsLoading}
-            />
-            <ChipKPI
-              label="Con email"
-              value={stats.withEmailN}
-              loading={statsLoading}
-            />
-            <ChipKPI
-              label="Edad prom."
-              value={stats.avgAge ?? "—"}
-              loading={statsLoading}
-            />
-          </div>
-        </div>
-
-        {/* Barra superior de acciones */}
-        <div className="mb-8 flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => setFiltersOpen((v) => !v)}
-            className={ICON_BTN}
-          >
-            {filtersOpen ? "Ocultar filtros" : "Mostrar filtros"}
-          </button>
-          <button onClick={() => setPickerOpen(true)} className={ICON_BTN}>
-            Columnas
-          </button>
-          <button
-            onClick={downloadCSV}
-            className={`${PRIMARY_BTN} disabled:opacity-50`}
-            disabled={csvLoading}
-          >
-            {csvLoading ? <Spinner /> : "Descargar CSV"}
-          </button>
-        </div>
-
-        {/* Panel de filtros (glass) */}
-        {filtersOpen && (
-          <div className={`${GLASS} mb-8 p-4`}>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-              {/* q */}
-              <div className="md:col-span-4">
-                <Label>Buscar</Label>
-                <Input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Nombre, DNI, email, empresa..."
-                />
-              </div>
-
-              {/* dueño */}
-              <div className="md:col-span-3">
-                <Label>Vendedor</Label>
-                <select
-                  value={ownerId}
-                  onChange={(e) => setOwnerId(Number(e.target.value))}
-                  disabled={!canPickOwner && isVendor}
-                  className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-3 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
-                >
-                  {!isVendor && <option value={0}>Todos</option>}
-                  {isVendor && user?.id_user && (
-                    <option value={user.id_user}>Mis pasajeros</option>
-                  )}
-                  {(!isVendor || canPickOwner) &&
-                    owners.map(([id, name]) => (
-                      <option key={id} value={id}>
-                        {name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              {/* género */}
-              <div className="md:col-span-2">
-                <Label>Género</Label>
-                <select
-                  value={gender}
-                  onChange={(e) =>
-                    setGender(e.target.value as "M" | "F" | "X" | "")
-                  }
-                  className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-3 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
-                >
-                  <option value="">Todos</option>
-                  <option value="M">Masculino</option>
-                  <option value="F">Femenino</option>
-                  <option value="X">Otro/No binario</option>
-                </select>
-              </div>
-
-              {/* tel/email */}
-              <div className="grid grid-cols-2 gap-3 md:col-span-3">
-                <div>
-                  <Label>Teléfono</Label>
-                  <select
-                    value={hasPhone}
-                    onChange={(e) =>
-                      setHasPhone(e.target.value as "" | "yes" | "no")
-                    }
-                    className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-3 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
-                  >
-                    <option value="">Todos</option>
-                    <option value="yes">Con teléfono</option>
-                    <option value="no">Sin teléfono</option>
-                  </select>
-                </div>
-                <div>
-                  <Label>Email</Label>
-                  <select
-                    value={hasEmail}
-                    onChange={(e) =>
-                      setHasEmail(e.target.value as "" | "yes" | "no")
-                    }
-                    className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-3 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
-                  >
-                    <option value="">Todos</option>
-                    <option value="yes">Con email</option>
-                    <option value="no">Sin email</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* nacionalidad */}
-              <div className="md:col-span-3">
-                <Label>Nacionalidad</Label>
-                <Input
-                  list="nat-list"
-                  value={nat}
-                  onChange={(e) => setNat(e.target.value)}
-                  placeholder="AR, ES, Brasil..."
-                />
-                <datalist id="nat-list">
-                  {natOptions.map((n) => (
-                    <option key={n} value={n} />
-                  ))}
-                </datalist>
-              </div>
-
-              {/* edad */}
-              <div className="grid grid-cols-2 gap-3 md:col-span-3">
-                <div>
-                  <Label>Edad mín.</Label>
-                  <Input
-                    type="number"
-                    inputMode="numeric"
-                    value={ageMin}
-                    onChange={(e) => setAgeMin(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label>Edad máx.</Label>
-                  <Input
-                    type="number"
-                    inputMode="numeric"
-                    value={ageMax}
-                    onChange={(e) => setAgeMax(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* fechas */}
-              <div className="flex gap-3">
-                <div>
-                  <Label>Desde</Label>
-                  <Input
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label>Hasta</Label>
-                  <Input
-                    type="date"
-                    value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* acciones filtros */}
-              <div className="flex flex-wrap items-end justify-end gap-2 md:col-span-12">
-                <button onClick={clearFilters} className={ICON_BTN}>
-                  Limpiar
-                </button>
-                <button
-                  onClick={handleSearch}
-                  disabled={loading || statsLoading}
-                  className={`${PRIMARY_BTN} disabled:opacity-50`}
-                >
-                  {loading || statsLoading ? <Spinner /> : "Aplicar"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Resumen único (glass) */}
-        <div className={`${GLASS} mb-8 p-4`}>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-base font-semibold">Resumen</h2>
-            {statsLoading && <Spinner />}
-          </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            {/* Edad (chips) */}
-            <div>
-              <p className="mb-2 text-sm opacity-70">Distribución por edad</p>
-              <div className="flex flex-wrap gap-2">
-                <AgeChip label="≤17" n={stats.buckets.u18} />
-                <AgeChip label="18–25" n={stats.buckets.a18_25} />
-                <AgeChip label="26–40" n={stats.buckets.a26_40} />
-                <AgeChip label="41–60" n={stats.buckets.a41_60} />
-                <AgeChip label="60+" n={stats.buckets.g60} />
-              </div>
-            </div>
-
-            {/* Top vendedores */}
-            {/* <div>
-              <p className="mb-2 text-sm opacity-70">Top vendedores (pax)</p>
-              <ul className="space-y-1 text-sm">
-                {stats.topOwners.length === 0 && !statsLoading && (
-                  <li className="rounded-3xl border border-white/30 bg-white/10 px-3 py-2 opacity-70 backdrop-blur dark:border-white/10 dark:bg-white/10">
-                    Sin datos
-                  </li>
-                )}
-                {stats.topOwners.map(([name, n]) => (
-                  <li
-                    key={name}
-                    className="flex items-center justify-between rounded-3xl border border-white/30 bg-white/10 px-3 py-2 shadow-sm shadow-sky-900/5 backdrop-blur dark:border-white/10 dark:bg-white/10"
-                  >
-                    <span className="truncate pr-2">{name}</span>
-                    <span className="font-medium">{n}</span>
-                  </li>
-                ))}
-              </ul>
-            </div> */}
-
-            {/* Top nacionalidades */}
-            <div>
-              <p className="mb-2 text-sm opacity-70">Top nacionalidades</p>
-              <ul className="space-y-1 text-sm">
-                {stats.topNat.length === 0 && !statsLoading && (
-                  <li className="rounded-3xl border border-white/30 bg-white/10 px-3 py-2 opacity-70 backdrop-blur dark:border-white/10 dark:bg-white/10">
-                    Sin datos
-                  </li>
-                )}
-                {stats.topNat.map(([label, n]) => (
-                  <li
-                    key={label}
-                    className="flex items-center justify-between rounded-3xl border border-white/30 bg-white/10 px-3 py-2 shadow-sm shadow-sky-900/5 backdrop-blur dark:border-white/10 dark:bg-white/10"
-                  >
-                    <span className="truncate pr-2">{label}</span>
-                    <span className="font-medium">{n}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        {/* Tabla (glass) */}
-        <div className={`${GLASS} mb-8 overflow-x-auto`}>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-zinc-700 backdrop-blur dark:text-zinc-200">
-                {visibleCols.map((c) => {
-                  const sortable: Partial<Record<VisibleKey, SortKey>> = {
-                    id_client: "id_client",
-                    registration_date: "registration_date",
-                    full_name: "full_name",
-                    owner: "owner",
-                    age: "age",
-                  };
-                  const sk = sortable[c.key];
-                  const isActive = sk && sortKey === sk;
-                  const arrow = !sk ? "" : sortDir === "asc" ? "▲" : "▼";
-
-                  return (
-                    <th key={c.key} className="p-4 text-center font-medium">
-                      {sk ? (
-                        <button
-                          onClick={() => toggleSort(sk)}
-                          className="inline-flex items-center gap-1 underline decoration-transparent hover:decoration-sky-600"
-                        >
-                          {c.label} {isActive && <span>{arrow}</span>}
-                        </button>
-                      ) : (
-                        c.label
-                      )}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredTableRows.map((c) => (
-                <tr
-                  key={c.id_client}
-                  className="border-t border-white/30 backdrop-blur-sm transition hover:bg-white/10 dark:border-white/10 dark:hover:bg-white/10"
-                >
-                  {visibleCols.map((col) => (
-                    <td key={col.key} className="px-4 py-2 text-center">
-                      {valueFor(col.key, c)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-
-              {loading && filteredTableRows.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={visibleCols.length}
-                    className="px-4 py-10 text-center"
-                  >
-                    <Spinner />
-                  </td>
-                </tr>
-              )}
-
-              {!loading && filteredTableRows.length === 0 && pageInit && (
-                <tr>
-                  <td
-                    colSpan={visibleCols.length}
-                    className="px-4 py-10 text-center opacity-70"
-                  >
-                    No hay resultados. Ajustá los filtros y probá de nuevo.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-
-          <div className="flex w-full items-center justify-between border-t border-white/30 bg-white/10 px-3 py-2 text-xs backdrop-blur dark:border-white/10 dark:bg-white/10">
-            <div className="opacity-70">
-              {filteredTableRows.length} filas (de {normalized.length} cargadas)
-            </div>
-            <button
-              onClick={() => fetchPage(false)}
-              disabled={loading || cursor === null}
-              className={`${ICON_BTN} disabled:opacity-50`}
-            >
-              {cursor === null
-                ? "No hay más"
-                : loading
-                  ? "Cargando..."
-                  : "Cargar más"}
-            </button>
-          </div>
-        </div>
-
-        {/* Modal columnas */}
-        <ColumnPickerModal
-          open={pickerOpen}
-          onClose={() => setPickerOpen(false)}
-          items={ALL_COLUMNS.map((c) => ({
+      <ClientStatsView
+        title="Client Stats"
+        /* KPIs */
+        stats={stats}
+        statsLoading={statsLoading}
+        /* Filtros */
+        filters={{
+          q,
+          ownerId,
+          isVendor,
+          canPickOwner,
+          vendorSelfId: user?.id_user ?? null,
+          owners,
+          gender,
+          hasPhone,
+          hasEmail,
+          nat,
+          natOptions,
+          ageMin,
+          ageMax,
+          dateFrom,
+          dateTo,
+          filtersOpen,
+        }}
+        onFilters={{
+          toggleFiltersOpen: () => setFiltersOpen((v) => !v),
+          setQ,
+          setOwnerId,
+          setGender,
+          setHasPhone,
+          setHasEmail,
+          setNat,
+          setAgeMin,
+          setAgeMax,
+          setDateFrom,
+          setDateTo,
+          clearFilters,
+          applyFilters: handleSearch,
+        }}
+        /* Columnas */
+        visibleColumns={visibleCols}
+        columnPicker={{
+          open: pickerOpen,
+          onOpen: () => setPickerOpen(true),
+          onClose: () => setPickerOpen(false),
+          items: ALL_COLUMNS.map((c) => ({
             key: c.key,
             label: c.label,
             locked: c.always,
-          }))}
-          visibleKeys={visible}
-          onToggle={toggleCol}
-          onAll={setAll}
-          onNone={setNone}
-          onReset={resetCols}
-        />
+          })),
+          visibleKeys: visible,
+          onToggle: toggleCol,
+          onAll: setAll,
+          onNone: setNone,
+          onReset: resetCols,
+        }}
+        /* Tabla */
+        rows={filteredTableRows}
+        renderCell={(colKey, row) =>
+          valueFor(
+            colKey,
+            row as ClientItem & ReturnType<typeof normalizeClientRecord>,
+          )
+        }
+        /* Sorting */
+        sort={{ key: sortKey, dir: sortDir }}
+        onToggleSort={toggleSort}
+        /* Paginación */
+        tableLoading={loading}
+        pageInit={pageInit}
+        footer={{
+          normalizedCount: normalized.length,
+          canLoadMore: cursor !== null,
+          onLoadMore: () => fetchPage(false),
+        }}
+        /* Acciones */
+        onDownloadCSV={downloadCSV}
+        csvLoading={csvLoading}
+      />
 
-        <ToastContainer position="bottom-right" />
-      </div>
+      <ToastContainer position="bottom-right" />
     </ProtectedRoute>
-  );
-}
-
-/* ================= UI atoms (glass-friendly) ================= */
-function ChipKPI({
-  label,
-  value,
-  loading,
-}: {
-  label: string;
-  value: React.ReactNode;
-  loading?: boolean;
-}) {
-  return (
-    <div className={CHIP}>
-      <span className="opacity-70">{label}</span>
-      <span className="font-medium">{loading ? <Spinner /> : value}</span>
-    </div>
-  );
-}
-
-function AgeChip({ label, n }: { label: string; n: number }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-white/30 bg-white/10 px-2 py-1 text-xs shadow-sm shadow-sky-900/5 backdrop-blur dark:border-white/10 dark:bg-white/10">
-      <span className="opacity-70">{label}</span>
-      <span className="font-medium">{n}</span>
-    </span>
-  );
-}
-
-function Label({ children }: { children: React.ReactNode }) {
-  return <label className="mb-1 block text-xs opacity-70">{children}</label>;
-}
-
-function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className={`block w-full min-w-fit appearance-none rounded-3xl border border-white/30 bg-white/10 px-4 py-2 outline-none backdrop-blur placeholder:opacity-60 dark:border-white/10 dark:bg-white/10 ${props.className || ""}`}
-    />
   );
 }

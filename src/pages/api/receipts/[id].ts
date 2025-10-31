@@ -1,9 +1,7 @@
-// src/pages/api/receipts/[id].ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { jwtVerify, JWTPayload } from "jose";
 
-// ============ Tipos ============
 type TokenPayload = JWTPayload & {
   id_user?: number;
   userId?: number;
@@ -22,7 +20,6 @@ type DecodedUser = {
   email?: string;
 };
 
-// ============ JWT ============
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
@@ -48,7 +45,6 @@ async function getUserFromAuth(
   try {
     const token = getTokenFromRequest(req);
     if (!token) return null;
-
     const { payload } = await jwtVerify(
       token,
       new TextEncoder().encode(JWT_SECRET),
@@ -73,7 +69,6 @@ async function getUserFromAuth(
           email: u.email,
         };
     }
-
     if (id_user && !id_agency) {
       const u = await prisma.user.findUnique({
         where: { id_user },
@@ -87,25 +82,46 @@ async function getUserFromAuth(
           email: email ?? u.email ?? undefined,
         };
     }
-
     return { id_user, id_agency, role, email };
   } catch {
     return null;
   }
 }
 
-// ============ Helper de seguridad ============
+// Seguridad: aceptar recibos con booking o con agencia
 async function ensureReceiptInAgency(receiptId: number, agencyId: number) {
   const r = await prisma.receipt.findUnique({
     where: { id_receipt: receiptId },
-    select: { id_receipt: true, booking: { select: { id_agency: true } } },
+    select: {
+      id_receipt: true,
+      id_agency: true,
+      booking: { select: { id_agency: true } },
+    },
   });
   if (!r) throw new Error("Recibo no encontrado");
-  if (r.booking.id_agency !== agencyId)
-    throw new Error("No autorizado para este recibo");
+  const belongs = r.booking
+    ? r.booking.id_agency === agencyId
+    : r.id_agency === agencyId;
+  if (!belongs) throw new Error("No autorizado para este recibo");
 }
 
-// ============ Handler ============
+// NUEVO: validar que la reserva exista y pertenezca a la agencia
+async function ensureBookingInAgency(bookingId: number, agencyId: number) {
+  const b = await prisma.booking.findUnique({
+    where: { id_booking: bookingId },
+    select: { id_booking: true, id_agency: true },
+  });
+  if (!b) throw new Error("La reserva no existe");
+  if (b.id_agency !== agencyId)
+    throw new Error("Reserva no pertenece a tu agencia");
+}
+
+type PatchBody = {
+  booking?: { id_booking?: number }; // requerido para "attach"
+  serviceIds?: number[]; // requerido para "attach"
+  clientIds?: number[]; // opcional; si vienen, se validan
+};
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -116,7 +132,6 @@ export default async function handler(
   }
   const id = Number(rawId);
 
-  // auth básica (mismo criterio que en receipts/index.ts)
   const authUser = await getUserFromAuth(req);
   const authUserId = authUser?.id_user;
   const authAgencyId = authUser?.id_agency;
@@ -126,16 +141,12 @@ export default async function handler(
 
   if (req.method === "GET") {
     try {
-      // seguridad: debe pertenecer a mi agencia (via booking)
       await ensureReceiptInAgency(id, authAgencyId);
-
       const receipt = await prisma.receipt.findUnique({
         where: { id_receipt: id },
       });
-
-      if (!receipt) {
+      if (!receipt)
         return res.status(404).json({ error: "Recibo no encontrado" });
-      }
       return res.status(200).json({ receipt });
     } catch (error: unknown) {
       const msg =
@@ -151,9 +162,7 @@ export default async function handler(
 
   if (req.method === "DELETE") {
     try {
-      // seguridad: debe pertenecer a mi agencia
       await ensureReceiptInAgency(id, authAgencyId);
-
       await prisma.receipt.delete({ where: { id_receipt: id } });
       return res.status(204).end();
     } catch (error: unknown) {
@@ -170,6 +179,88 @@ export default async function handler(
     }
   }
 
-  res.setHeader("Allow", ["GET", "DELETE"]);
+  // NUEVO: Attach vía PATCH
+  if (req.method === "PATCH") {
+    try {
+      // 1) control de pertenencia del recibo
+      await ensureReceiptInAgency(id, authAgencyId);
+
+      const body = (req.body || {}) as PatchBody;
+      const bookingId = Number(body.booking?.id_booking);
+      const serviceIds = Array.isArray(body.serviceIds) ? body.serviceIds : [];
+
+      if (!Number.isFinite(bookingId) || bookingId <= 0)
+        return res.status(400).json({ error: "id_booking inválido" });
+      if (serviceIds.length === 0)
+        return res
+          .status(400)
+          .json({ error: "serviceIds debe contener al menos un ID" });
+
+      // 2) control de pertenencia de la reserva
+      await ensureBookingInAgency(bookingId, authAgencyId);
+
+      // 3) validar que todos los servicios pertenezcan a la reserva
+      const svcs = await prisma.service.findMany({
+        where: { id_service: { in: serviceIds }, booking_id: bookingId },
+        select: { id_service: true },
+      });
+      const ok = new Set(svcs.map((s) => s.id_service));
+      const bad = serviceIds.filter((sid) => !ok.has(sid));
+      if (bad.length)
+        return res
+          .status(400)
+          .json({ error: "Algún servicio no pertenece a la reserva" });
+
+      // 4) validar clientIds (si vienen)
+      let nextClientIds: number[] | undefined = undefined;
+      if (Array.isArray(body.clientIds)) {
+        if (body.clientIds.length) {
+          const bk = await prisma.booking.findUnique({
+            where: { id_booking: bookingId },
+            select: {
+              titular_id: true,
+              clients: { select: { id_client: true } },
+            },
+          });
+          const allowed = new Set<number>([
+            bk!.titular_id,
+            ...bk!.clients.map((c) => c.id_client),
+          ]);
+          const invalid = body.clientIds.filter((cid) => !allowed.has(cid));
+          if (invalid.length)
+            return res
+              .status(400)
+              .json({ error: "Algún cliente no pertenece a la reserva" });
+          nextClientIds = body.clientIds;
+        } else {
+          nextClientIds = [];
+        }
+      }
+
+      // 5) update: conectar booking, desconectar agency si venía como de agencia, setear arrays
+      const updated = await prisma.receipt.update({
+        where: { id_receipt: id },
+        data: {
+          booking: { connect: { id_booking: bookingId } },
+          agency: { disconnect: true },
+          serviceIds,
+          ...(nextClientIds !== undefined ? { clientIds: nextClientIds } : {}),
+        },
+      });
+
+      return res.status(200).json({ receipt: updated });
+    } catch (error: unknown) {
+      const msg =
+        error instanceof Error ? error.message : "Error actualizando recibo";
+      const status = msg.includes("No autorizado")
+        ? 403
+        : msg.includes("no existe") || msg.includes("no encontrado")
+          ? 404
+          : 500;
+      return res.status(status).json({ error: msg });
+    }
+  }
+
+  res.setHeader("Allow", ["GET", "DELETE", "PATCH"]);
   return res.status(405).end(`Method ${req.method} Not Allowed`);
 }

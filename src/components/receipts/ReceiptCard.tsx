@@ -1,5 +1,7 @@
 // src/components/receipts/ReceiptCard.tsx
+
 "use client";
+
 import { useCallback, useMemo, useState } from "react";
 import { Receipt, Booking } from "@/types";
 import { toast } from "react-toastify";

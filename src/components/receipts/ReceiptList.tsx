@@ -1,4 +1,5 @@
 // src/components/receipts/ReceiptList.tsx
+
 import { Receipt, Booking } from "@/types";
 import ReceiptCard from "./ReceiptCard";
 import Spinner from "@/components/Spinner";

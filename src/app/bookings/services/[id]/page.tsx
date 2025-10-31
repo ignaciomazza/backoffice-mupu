@@ -1,6 +1,7 @@
 // src/app/bookings/services/[id]/page.tsx
 
 "use client";
+
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { toast } from "react-toastify";

@@ -1,57 +1,65 @@
-/* utils/normalize.ts
-   Escalable, sin deps externas. Optimizado con caches LRU y nuevos campos derivados
-   para filtros/estadísticas (_gender, _hasPhone/_hasEmail, _ageBucket, _docDNI/_docCUIT/_passport/_postalCode).
-*/
+// utils/normalize.ts
+// Normalizaciones y campos derivados para ClientStats (tabla + filtros + stats).
+// Sin dependencias externas. Incluye caching LRU para performance.
+
+/* =========================================================
+ * Tipos de contexto / config
+ * ========================================================= */
 
 export type NormalizeContext = {
-  countryDefault?: string; // ISO-3166 alpha-2, ej "AR", "US"
-  callingCodeDefault?: string; // ej "54", "1"
+  // hoy la única que realmente usamos es callingCodeDefault
+  countryDefault?: string; // ej "AR"
+  callingCodeDefault?: string; // ej "54"
 };
 
 export type NormalizerConfig = {
   // Teléfono
   minPhoneDigits: number; // debajo de esto => vacío
-  maxPhoneDigits: number; // por arriba => probablemente no válido
-  // “Vacíos” y ruido
-  minEntropyBits: number; // p/descartar cadenas de baja información (repetitivas)
-  maxRepeatRun: number; // repeticiones consecutivas permitidas (ej "111111")
-  // Fuzzy matching nacionalidad
-  countryMaxLev: number; // distancia máx en BK-Tree
-  jwMinScore: number; // umbral mínimo Jaro-Winkler
-  // Caching
+  maxPhoneDigits: number; // por arriba => se descarta como no confiable
+
+  // Ruido / placeholders
+  minEntropyBits: number; // entropía Shannon mínima
+  maxRepeatRun: number; // repeticiones consecutivas permitidas ("1111111")
+
+  // Cache
   lruSize: number;
 };
 
 export const DEFAULT_CONFIG: NormalizerConfig = {
   minPhoneDigits: 6,
-  maxPhoneDigits: 17, // ITU E.164 máx 15 (+2 margen para basura benigna)
-  minEntropyBits: 1.2, // ~ruido muy bajo => sospechoso
+  maxPhoneDigits: 17, // ITU E.164 máx 15 (+2 margen)
+  minEntropyBits: 1.2,
   maxRepeatRun: 3,
-  countryMaxLev: 2,
-  jwMinScore: 0.88, // >= 0.88 suele ser “muy similar”
   lruSize: 5000,
 };
 
-/* ---------------------- regex precompiladas ---------------------- */
+/* =========================================================
+ * Regex precompiladas
+ * ========================================================= */
 const RE_DASHES = /[‐-‒–—―]/g;
 const RE_QUOTES = /[“”«»„]|['´`]/g;
 const RE_DIACRITICS = /\p{Diacritic}/gu;
 const RE_SPACES = /\s+/g;
+
 const RE_ONLY_SIGNS = /^[\W_]+$/;
 const RE_ALL_ZERO = /^0+$/;
 const RE_RUN_NUM = /^(\d)\1{3,}$/;
 const RE_RUN_ALPHA = /^([a-z])\1{3,}$/i;
+
 const RE_EMAIL = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i;
 
-/* ---------------------- utilidades base ---------------------- */
+/* =========================================================
+ * Utils base
+ * ========================================================= */
 
-// Normaliza texto (quita diacríticos, colapsa espacios, homoglifos comunes)
+// Limpia string: unifica guiones/comillas, quita diacríticos, colapsa espacios.
 export function cleanStr(s?: string | null): string {
   if (!s) return "";
   const nf = s
     .replace(RE_DASHES, "-")
     .replace(RE_QUOTES, '"')
     .replace(/[‐]/g, "-");
+
   return nf
     .normalize("NFKD")
     .replace(RE_DIACRITICS, "")
@@ -59,7 +67,7 @@ export function cleanStr(s?: string | null): string {
     .trim();
 }
 
-// Entropía de Shannon (bits/caracter). Baja entropía => string repetitivo (placeholders).
+// Entropía de Shannon (bits/caracter). Baja entropía => repetitivo / placeholder.
 export function shannonEntropy(str: string): number {
   if (!str) return 0;
   const freq = new Map<string, number>();
@@ -73,7 +81,7 @@ export function shannonEntropy(str: string): number {
   return H;
 }
 
-// ¿candidato vacío? mezcla reglas + entropía
+// ¿Valor vacío / ruido obvio?
 export function isTrivialEmpty(
   s?: string | null,
   cfg: NormalizerConfig = DEFAULT_CONFIG,
@@ -108,15 +116,16 @@ export function isTrivialEmpty(
   if (RE_RUN_NUM.test(t)) return true; // 1111, 999999…
   if (RE_RUN_ALPHA.test(t)) return true; // aaaa
 
-  // Runs largos del mismo char
+  // runs largos del mismo char
   if (new RegExp(`(.)\\1{${cfg.maxRepeatRun},}`).test(t)) return true;
 
-  // Entropía baja => repetitivo/previsible
+  // entropía baja => “basura”
   if (shannonEntropy(t) < cfg.minEntropyBits) return true;
 
   return false;
 }
 
+// Capitaliza cada palabra mínimamente
 export function titleCase(s?: string | null): string {
   const t = cleanStr(s).toLowerCase();
   if (!t) return "";
@@ -134,6 +143,7 @@ export function normalizeOwner(
   const l = titleCase(last);
   return [f, l].filter(Boolean).join(" ").trim();
 }
+
 export function normalizeFullName(
   first?: string | null,
   last?: string | null,
@@ -143,7 +153,10 @@ export function normalizeFullName(
   return [l, f].filter(Boolean).join(" ").trim();
 }
 
-/* ---------------------- Caches LRU ---------------------- */
+/* =========================================================
+ * Cache LRU simple
+ * ========================================================= */
+
 class LRU<K, V> {
   private max: number;
   private map = new Map<K, V>();
@@ -153,6 +166,7 @@ class LRU<K, V> {
   get(k: K): V | undefined {
     const v = this.map.get(k);
     if (v !== undefined) {
+      // renovar LRU
       this.map.delete(k);
       this.map.set(k, v);
     }
@@ -168,10 +182,15 @@ class LRU<K, V> {
   }
 }
 
+/* =========================================================
+ * Caches
+ * ========================================================= */
+
 const emailCache = new LRU<
   string,
   { value: string; empty: boolean; method: string; score: number }
 >(DEFAULT_CONFIG.lruSize);
+
 const phoneCache = new LRU<
   string,
   {
@@ -185,17 +204,21 @@ const phoneCache = new LRU<
     isLikelyIntl: boolean;
   }
 >(DEFAULT_CONFIG.lruSize);
+
 const localityCache = new LRU<string, { value: string; empty: boolean }>(
   DEFAULT_CONFIG.lruSize,
 );
+
 const genderCache = new LRU<
   string,
   { value: "M" | "F" | "X" | ""; method: string }
 >(DEFAULT_CONFIG.lruSize);
+
 const dniCache = new LRU<
   string,
   { digits: string; formatted: string; empty: boolean; validAR: boolean }
 >(DEFAULT_CONFIG.lruSize);
+
 const cuitCache = new LRU<
   string,
   {
@@ -206,15 +229,19 @@ const cuitCache = new LRU<
     type: "CUIT" | "CUIL" | "CUIT/CUIL" | "";
   }
 >(DEFAULT_CONFIG.lruSize);
+
 const passportCache = new LRU<
   string,
   { value: string; empty: boolean; plausible: boolean }
 >(DEFAULT_CONFIG.lruSize);
-const postalCache = new LRU<string, { value: string; empty: boolean }>(
+
+const natCache = new LRU<string, { iso2?: string; label: string }>(
   DEFAULT_CONFIG.lruSize,
 );
 
-/* ---------------------- Email ---------------------- */
+/* =========================================================
+ * Email
+ * ========================================================= */
 
 export function normalizeEmail(email?: string | null): {
   value: string;
@@ -232,6 +259,7 @@ export function normalizeEmail(email?: string | null): {
     emailCache.set(key, r);
     return r;
   }
+
   const ok = RE_EMAIL.test(raw);
   const r = {
     value: ok ? raw : "",
@@ -243,7 +271,10 @@ export function normalizeEmail(email?: string | null): {
   return r;
 }
 
-/* ---------------------- Género ---------------------- */
+/* =========================================================
+ * Género
+ * ========================================================= */
+
 const GENDER_MAP: Record<string, "M" | "F" | "X"> = {
   m: "M",
   masc: "M",
@@ -252,12 +283,14 @@ const GENDER_MAP: Record<string, "M" | "F" | "X"> = {
   varon: "M",
   "m.": "M",
   masculino: "M",
+
   f: "F",
   fem: "F",
   female: "F",
   mujer: "F",
   "f.": "F",
   femenino: "F",
+
   x: "X",
   other: "X",
   otro: "X",
@@ -281,18 +314,23 @@ export function normalizeGender(raw?: string | null): {
     genderCache.set(key, r);
     return r;
   }
+
   const v = GENDER_MAP[t];
   const r = v
     ? { value: v, method: "rule" }
     : { value: "X" as const, method: "fallback" };
+
   genderCache.set(key, r);
   return r;
 }
 
-/* ---------------------- Localidad ---------------------- */
+/* =========================================================
+ * Localidad
+ * ========================================================= */
 
 const LOCALITY_PREFIX =
   /^(ciudad autonoma de|ciudad de|provincia de|mun\.?|municipio de)\b\s+/i;
+
 export function normalizeLocality(raw?: string | null): {
   value: string;
   empty: boolean;
@@ -307,243 +345,121 @@ export function normalizeLocality(raw?: string | null): {
     localityCache.set(key, r);
     return r;
   }
+
   t = t
     .replace(LOCALITY_PREFIX, "")
     .replace(/\s+-\s+.*$/i, "")
     .replace(/\s+$/g, "")
     .trim();
+
   const r = { value: titleCase(t), empty: t.length === 0 };
   localityCache.set(key, r);
   return r;
 }
 
-/* ---------------------- Postal code ---------------------- */
-export function normalizePostalCode(raw?: string | null): {
-  value: string;
-  empty: boolean;
+/**
+ * canonicalizeLocalityForStats()
+ *
+ * Objetivo:
+ * - Agrupar variantes como "San Miguel", "san miguel", "San Miguel Buenos Aires",
+ *   "Muñiz San Miguel", "San Miguel Bs As", etc. -> "San Miguel".
+ * - Pero NO mezclar "San Miguel de Tucuman" con "San Miguel" (Buenos Aires).
+ *
+ * Heurística:
+ *  1. Detectar explícitamente "san miguel de tucuman" y conservarlo.
+ *  2. Sacar sufijos tipo "buenos aires", "bs as", "argentina", etc.
+ *  3. Si termina en "san miguel" (o "muniz san miguel", etc.), colapsar a "san miguel".
+ *  4. TitleCase final.
+ */
+export function canonicalizeLocalityForStats(localityNorm: string): string {
+  // localityNorm debería venir ya bastante normalizado (titleCase, sin prefijos tipo "Municipio de").
+  // Pero igual limpiamos y bajamos a minúsculas para heurística.
+  const base = cleanStr(localityNorm).toLowerCase().trim();
+  if (!base) return "";
+
+  // Caso especial: San Miguel de Tucuman → mantenemos esa frase completa.
+  if (base.includes("san miguel de tucuman")) {
+    return "San Miguel de Tucuman";
+  }
+
+  // Quitamos sufijos provinciales comunes tipo "buenos aires", "bs as", ", argentina", etc.
+  // Ej: "san miguel bs as", "san miguel buenos aires", "san miguel buenos aires argentina"
+  let s = base.replace(
+    /(,\s*)?(provincia de )?(pcia\.?\s*)?(bs\.?\s*as\.?|bs as|bsas|buenos aires|buenosaires|argentina)\s*$/i,
+    "",
+  );
+
+  s = s.trim().replace(/\s+/g, " ");
+
+  // Si queda algo que termina en "san miguel" (ej "muniz san miguel"), lo reducimos a "san miguel".
+  if (/\bsan miguel$/.test(s)) {
+    s = "san miguel";
+  }
+
+  return titleCase(s);
+}
+
+/* =========================================================
+ * Nacionalidad
+ * =========================================================
+   El form guarda p.ej. "Argentina (AR)".
+   Queremos exponerlo como { iso2: "AR", label: "Argentina" }.
+
+   Casos legacy:
+   - "argentina"        -> { iso2: undefined, label: "Argentina" }
+   - "AR" / "ar"        -> { iso2: "AR", label: "AR" }
+*/
+
+export function normalizeNationality(raw?: string | null): {
+  iso2?: string;
+  label: string;
 } {
-  const key = (raw || "").toUpperCase().trim();
-  const cached = postalCache.get(key);
-  if (cached) return cached;
-
-  let t = cleanStr(raw).toUpperCase();
-  if (!t) {
-    const r = { value: "", empty: true };
-    postalCache.set(key, r);
-    return r;
-  }
-  t = t.replace(/[^A-Z0-9-]/g, "").trim();
-  const r = { value: t, empty: t.length === 0 };
-  postalCache.set(key, r);
-  return r;
-}
-
-/* ---------------------- Similaridad de strings ---------------------- */
-
-export function levenshtein(a: string, b: string): number {
-  if (a === b) return 0;
-  if (!a.length) return b.length;
-  if (!b.length) return a.length;
-  const dp = Array(b.length + 1)
-    .fill(0)
-    .map((_, i) => i);
-  for (let i = 0; i < a.length; i++) {
-    let prev = i + 1;
-    for (let j = 0; j < b.length; j++) {
-      const temp = dp[j + 1];
-      dp[j + 1] = Math.min(
-        dp[j + 1] + 1,
-        prev + 1,
-        dp[j] + (a[i] === b[j] ? 0 : 1),
-      );
-      prev = temp;
-    }
-    dp[0] = i + 1;
-  }
-  return dp[b.length];
-}
-
-export function jaroWinkler(a: string, b: string): number {
-  if (a === b) return 1;
-  const m = Math.floor(Math.max(a.length, b.length) / 2) - 1;
-  const aFlags = Array(a.length).fill(false);
-  const bFlags = Array(b.length).fill(false);
-  let matches = 0;
-
-  for (let i = 0; i < a.length; i++) {
-    const start = Math.max(0, i - m);
-    const end = Math.min(i + m + 1, b.length);
-    for (let j = start; j < end; j++) {
-      if (!bFlags[j] && a[i] === b[j]) {
-        aFlags[i] = bFlags[j] = true;
-        matches++;
-        break;
-      }
-    }
-  }
-  if (!matches) return 0;
-
-  let t = 0;
-  let k = 0;
-  for (let i = 0; i < a.length; i++) {
-    if (aFlags[i]) {
-      while (!bFlags[k]) k++;
-      if (a[i] !== b[k]) t++;
-      k++;
-    }
-  }
-  t /= 2;
-
-  const jaro =
-    (matches / a.length + matches / b.length + (matches - t) / matches) / 3;
-  let l = 0;
-  while (l < 4 && a[l] === b[l]) l++;
-  return jaro + l * 0.1 * (1 - jaro);
-}
-
-/* ---------------------- BK-Tree para países/nacionalidades ---------------------- */
-
-// Pequeño diccionario base (extensible en runtime)
-type Iso2 = string;
-const COUNTRY_SYNONYMS: Record<Iso2, string[]> = {
-  AR: ["argentina", "argentino", "rep argentina", "argentine"],
-  UY: ["uruguay", "uruguayo"],
-  BR: ["brasil", "brazil", "brasileño", "brasileira"],
-  US: [
-    "estados unidos",
-    "usa",
-    "united states",
-    "estadounidense",
-    "eeuu",
-    "ee.uu",
-  ],
-  ES: ["espana", "españa", "spanish", "espanol", "español"],
-  MX: ["mexico", "méxico", "mexicano"],
-};
-
-type BKNode = { term: string; iso: Iso2; children: Map<number, BKNode> };
-let BK_ROOT: BKNode | null = null;
-
-function bkInsert(root: BKNode, term: string, iso: Iso2) {
-  let node = root;
-  let dist = levenshtein(term, node.term);
-  while (node.children.has(dist)) {
-    node = node.children.get(dist)!;
-    dist = levenshtein(term, node.term);
-  }
-  node.children.set(dist, { term, iso, children: new Map() });
-}
-
-function buildBKIfNeeded() {
-  if (BK_ROOT) return;
-  const entries: [string, Iso2][] = [];
-  for (const [iso, arr] of Object.entries(COUNTRY_SYNONYMS)) {
-    for (const s of arr) entries.push([cleanStr(s).toLowerCase(), iso]);
-  }
-  if (!entries.length) return;
-  const [first, iso] = entries[0];
-  BK_ROOT = { term: first, iso, children: new Map() };
-  for (let i = 1; i < entries.length; i++)
-    bkInsert(BK_ROOT, entries[i][0], entries[i][1]);
-}
-
-function bkSearch(
-  term: string,
-  maxDist: number,
-): { iso: Iso2; term: string; dist: number }[] {
-  if (!BK_ROOT) return [];
-  const out: { iso: Iso2; term: string; dist: number }[] = [];
-  const stack: BKNode[] = [BK_ROOT];
-  while (stack.length) {
-    const node = stack.pop()!;
-    const d = levenshtein(term, node.term);
-    if (d <= maxDist) out.push({ iso: node.iso, term: node.term, dist: d });
-    // explorar anillos [d - maxDist, d + maxDist]
-    for (let i = d - maxDist; i <= d + maxDist; i++) {
-      const child = node.children.get(i);
-      if (child) stack.push(child);
-    }
-  }
-  return out;
-}
-
-const natCache = new LRU<
-  string,
-  { iso2?: Iso2; label: string; score: number; method: string }
->(DEFAULT_CONFIG.lruSize);
-
-/* ---------------------- Nacionalidad ---------------------- */
-
-export function normalizeNationality(
-  raw?: string | null,
-  cfg: NormalizerConfig = DEFAULT_CONFIG,
-): { iso2?: Iso2; label: string; score: number; method: string } {
-  const key = (raw || "").toLowerCase();
+  const key = (raw || "").trim().toLowerCase();
   const cached = natCache.get(key);
   if (cached) return cached;
 
-  const t = cleanStr(raw).toLowerCase();
-  if (!t) {
-    const r = { iso2: undefined, label: "", score: 0, method: "empty" };
+  const cleaned = cleanStr(raw);
+  if (!cleaned) {
+    const r = { iso2: undefined, label: "" };
     natCache.set(key, r);
     return r;
   }
 
-  buildBKIfNeeded();
-
-  // 1) match exacto por sinónimo
-  for (const [iso, list] of Object.entries(COUNTRY_SYNONYMS)) {
-    if (list.some((x) => cleanStr(x).toLowerCase() === t)) {
-      const r = {
-        iso2: iso as Iso2,
-        label: list[0],
-        score: 1,
-        method: "exact",
-      };
-      natCache.set(key, r);
-      return r;
-    }
-  }
-
-  // 2) BK-Tree por Levenshtein + 3) Re-ordenar por Jaro-Winkler
-  const ranked = bkSearch(t, cfg.countryMaxLev)
-    .map((c) => ({ ...c, jw: jaroWinkler(t, c.term) }))
-    .sort((a, b) => b.jw - a.jw);
-
-  if (ranked.length && ranked[0].jw >= cfg.jwMinScore) {
-    const top = ranked[0];
-    const r = {
-      iso2: top.iso,
-      label: top.term,
-      score: top.jw,
-      method: "bk+jw",
-    };
+  // Caso principal: "Argentina (AR)"
+  const m = cleaned.match(/^(.+?)\s*\(([A-Za-z]{2})\)$/);
+  if (m) {
+    const countryName = titleCase(m[1]); // "Argentina"
+    const iso2 = m[2].toUpperCase(); // "AR"
+    const r = { iso2, label: countryName };
     natCache.set(key, r);
     return r;
   }
 
-  // 4) fallback
-  const r = { iso2: undefined, label: t, score: 0.5, method: "fallback" };
+  // Caso "AR", "ar"
+  const compact = cleaned.replace(/\s+/g, "");
+  if (/^[A-Za-z]{2}$/.test(compact)) {
+    const iso2 = compact.toUpperCase();
+    const r = { iso2, label: iso2 };
+    natCache.set(key, r);
+    return r;
+  }
+
+  // Caso legacy "argentina"
+  const fallbackLabel = titleCase(cleaned);
+  const r = { iso2: undefined, label: fallbackLabel };
   natCache.set(key, r);
   return r;
 }
 
-// Permite inyectar/entrenar sinónimos en runtime (migraciones o seeds)
-export function registerCountrySynonyms(iso2: Iso2, names: string[]) {
-  const base = COUNTRY_SYNONYMS[iso2] || [];
-  COUNTRY_SYNONYMS[iso2] = Array.from(
-    new Set([...base, ...names.map((n) => cleanStr(n).toLowerCase())]),
-  );
-  BK_ROOT = null; // fuerza rebuild
-}
-
-/* ---------------------- DNI ---------------------- */
+/* =========================================================
+ * DNI
+ * ========================================================= */
 
 export function normalizeDNI(raw?: string | null): {
   digits: string; // solo dígitos
   formatted: string; // 12.345.678
   empty: boolean;
-  validAR: boolean; // heurístico: 6-9 dígitos (7-8 típico)
+  validAR: boolean; // heurística: 6-9 dígitos (7-8 típico AR)
 } {
   const key = (raw || "").trim();
   const cached = dniCache.get(key);
@@ -555,16 +471,18 @@ export function normalizeDNI(raw?: string | null): {
     dniCache.set(key, r);
     return r;
   }
-  const validAR = digits.length >= 6 && digits.length <= 9; // la mayoría 7-8
+
+  const validAR = digits.length >= 6 && digits.length <= 9;
   const formatted = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   const r = { digits, formatted, empty: false, validAR };
   dniCache.set(key, r);
   return r;
 }
 
-/* ---------------------- CUIT/CUIL ---------------------- */
+/* =========================================================
+ * CUIT/CUIL
+ * ========================================================= */
 
-// Algoritmo verificador CUIT/CUIL
 function cuitCheck(digits: string): boolean {
   if (!/^\d{11}$/.test(digits)) return false;
   const w = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
@@ -606,7 +524,6 @@ export function normalizeCUIT(raw?: string | null): {
   const dv = digits.slice(10);
   const formatted = digits.length === 11 ? `${head}-${body}-${dv}` : digits;
 
-  // 👇 usar un nombre distinto de "type" y tiparlo al union
   let kind: "" | "CUIT" | "CUIL" | "CUIT/CUIL" = "";
   if (/^(20|23|24|27)$/.test(head)) kind = "CUIL";
   else if (/^(30|33|34)$/.test(head)) kind = "CUIT";
@@ -617,13 +534,16 @@ export function normalizeCUIT(raw?: string | null): {
     formatted,
     empty: false,
     valid,
-    type: kind, // ✅ ahora coincide con el union
+    type: kind,
   };
   cuitCache.set(key, r);
   return r;
 }
 
-/* ---------------------- Pasaporte (simple) ---------------------- */
+/* =========================================================
+ * Pasaporte
+ * ========================================================= */
+
 export function normalizePassport(raw?: string | null): {
   value: string; // alfanumérico limpio
   empty: boolean;
@@ -641,18 +561,22 @@ export function normalizePassport(raw?: string | null): {
     passportCache.set(key, r);
     return r;
   }
+
   const plausible = t.length >= 5 && t.length <= 10;
   const r = { value: t, empty: false, plausible };
   passportCache.set(key, r);
   return r;
 }
 
-/* ---------------------- Edad ---------------------- */
+/* =========================================================
+ * Edad
+ * ========================================================= */
 
 export function ageFromISO(iso?: string | null): number | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
+
   const now = new Date();
   let a = now.getFullYear() - d.getFullYear();
   const m = now.getMonth() - d.getMonth();
@@ -660,9 +584,11 @@ export function ageFromISO(iso?: string | null): number | null {
   return a;
 }
 
+// Buckets de edad para stats
 export type AgeBucket = "u18" | "a18_25" | "a26_40" | "a41_60" | "g60";
-export function ageBucketFromAge(a?: number | null): AgeBucket | null {
-  if (typeof a !== "number" || !isFinite(a)) return null;
+
+export function ageBucketFromAge(a: number | null): AgeBucket | null {
+  if (a == null || !Number.isFinite(a)) return null;
   if (a <= 17) return "u18";
   if (a <= 25) return "a18_25";
   if (a <= 40) return "a26_40";
@@ -670,7 +596,9 @@ export function ageBucketFromAge(a?: number | null): AgeBucket | null {
   return "g60";
 }
 
-/* ---------------------- Teléfono ---------------------- */
+/* =========================================================
+ * Teléfono
+ * ========================================================= */
 
 export function normalizePhone(
   raw?: string | null,
@@ -678,10 +606,10 @@ export function normalizePhone(
   cfg: NormalizerConfig = DEFAULT_CONFIG,
 ): {
   e164Like: string; // "+" si venía; si no, cc + nacional o dígitos crudos
-  national: string; // dígitos locales (si inferible), si no, dígitos puros
+  national: string; // dígitos locales (si inferible)
   empty: boolean;
   score: number; // 0..1 (calidad)
-  method: string; // "intl", "intl-likely", "default-cc", "raw", "empty", "rule"
+  method: string; // "intl" | "intl-likely" | "default-cc" | "raw" | "empty" | "rule"
   hasPlus: boolean;
   len: number;
   isLikelyIntl: boolean;
@@ -704,22 +632,24 @@ export function normalizePhone(
     phoneCache.set(key, r);
     return r;
   }
+
   let s = (raw || "").trim();
 
-  // quitar extensiones simples
+  // quitar extensiones tipo "int.1234"
   s = s.replace(/\b(ext|int|leg)\.?\s*\d+$/i, "");
 
-  // 00 => +
+  // "00" => "+"
   if (s.startsWith("00")) s = "+" + s.slice(2);
 
   const hasPlus = s.startsWith("+");
-  // Normalizamos: solo dígitos (preserva +)
+
+  // dejar sólo dígitos (preservando "+")
   s = (hasPlus ? "+" : "") + s.replace(/[^\d]/g, "");
 
   const digits = s.replace(/\D/g, "");
   const len = digits.length;
 
-  // descartar secuencias triviales/ruidosas
+  // descartar basura
   if (
     !digits ||
     len < cfg.minPhoneDigits ||
@@ -741,7 +671,7 @@ export function normalizePhone(
     return r;
   }
 
-  // Si ya vino con +, tomamos como internacional
+  // Si ya trae +
   if (hasPlus) {
     const r = {
       e164Like: s,
@@ -757,11 +687,11 @@ export function normalizePhone(
     return r;
   }
 
-  // Sin + : evitar prefijar cc si ya viene con cc (ej: "54 9 ...")
+  // Sin + : heurística para CC por defecto
   const cc = cleanStr(ctx.callingCodeDefault);
   const startsWithCC = cc && digits.startsWith(cc);
 
-  // Heurística AR: si empieza con "54" sin "+", lo tratamos como internacional probable
+  // ejemplo AR: "54911..." -> lo tomamos como internacional probable aunque no tenga "+"
   if (!hasPlus && startsWithCC) {
     const r = {
       e164Like: digits, // sin "+"
@@ -777,7 +707,7 @@ export function normalizePhone(
     return r;
   }
 
-  // Sin + y sin cc explícito → podemos “sugerir” código por defecto si existe
+  // No tiene "+" ni CC explícito -> preprender CC por defecto si tenemos una
   if (cc && /^\d{1,4}$/.test(cc)) {
     const r = {
       e164Like: startsWithCC ? digits : cc + digits,
@@ -808,7 +738,12 @@ export function normalizePhone(
   return r;
 }
 
-/* ---------------------- Facades de alto nivel ---------------------- */
+/* =========================================================
+ * Facade principal
+ * =========================================================
+ * Devuelve campos "_" listos para usar en ClientStats
+ * (tabla, filtros, stats, ordenamiento).
+ */
 
 export function normalizeClientRecord(
   c: {
@@ -825,6 +760,7 @@ export function normalizeClientRecord(
     dni_number?: string | null;
     passport_number?: string | null;
     tax_id?: string | null;
+    registration_date?: string | null;
     user?: { first_name?: string | null; last_name?: string | null } | null;
   },
   ctx: NormalizeContext = {},
@@ -833,56 +769,69 @@ export function normalizeClientRecord(
   const owner = normalizeOwner(c.user?.first_name, c.user?.last_name);
   const full = normalizeFullName(c.first_name, c.last_name);
 
-  // Email principal: usa email válido; si no hay, detecta en address
+  // Email principal: usamos c.email si es válido; si no, tratamos de extraer de address.
   const emailRaw = normalizeEmail(c.email);
   let emailBest = emailRaw;
-  let emailFromAddress: string | null = null;
   if (emailBest.empty && c.address) {
     const candidate = (c.address || "").trim();
     if (RE_EMAIL.test(candidate)) {
       const det = normalizeEmail(candidate);
       if (!det.empty) {
         emailBest = det;
-        emailFromAddress = det.value;
       }
     }
   }
 
   const phone = normalizePhone(c.phone, ctx, cfg);
+
   const age = ageFromISO(c.birth_date);
-  const nat = normalizeNationality(c.nationality, cfg);
-  const loc = normalizeLocality(c.locality);
+  const ageBucket = ageBucketFromAge(age);
+
+  const nat = normalizeNationality(c.nationality);
+  const natDisplay = nat.label || "";
+
+  const locInfo = normalizeLocality(c.locality);
+  const locCanonical = canonicalizeLocalityForStats(locInfo.value);
+
   const gen = normalizeGender(c.gender);
   const dni = normalizeDNI(c.dni_number);
   const cuit = normalizeCUIT(c.tax_id);
   const pass = normalizePassport(c.passport_number);
-  const postal = normalizePostalCode(c.postal_code);
+
+  // timestamp numérico de registro, para ordenar y para "últimos 30 días"
+  const regMs = (() => {
+    if (!c.registration_date) return 0;
+    const ts = new Date(c.registration_date).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  })();
 
   return {
     _fullName: full,
     _owner: owner || "",
 
     // Contacto
-    _email: emailBest, // <- “mejor” email disponible
-    _email_raw: emailRaw,
-    _email_from_address: emailFromAddress,
-    _phone: phone,
+    _email: emailBest, // {value, empty,...}
+    _phone: phone, // {national, e164Like, empty,...}
     _hasEmail: !emailBest.empty,
     _hasPhone: !phone.empty,
 
     // Personales
     _age: age,
-    _ageBucket: ageBucketFromAge(age),
+    _ageBucket: ageBucket, // "u18" | "a18_25" | ...
     _gender: gen.value as "M" | "F" | "X" | "",
 
     // Ubicación / país
-    _nat: nat,
-    _locality: loc.value,
-    _postalCode: postal.value,
+    _nat: nat, // {iso2?, label}
+    _natDisplay: natDisplay, // string amigable: "Argentina"
+    _locality: locInfo.value, // ej "San Miguel Buenos Aires"
+    _localityCanonical: locCanonical, // ej "San Miguel" (para agrupar stats)
 
     // Docs
     _docDNI: dni, // {digits, formatted, validAR}
     _docCUIT: cuit, // {digits, formatted, valid, type}
     _passport: pass, // {value, plausible}
+
+    // Registro
+    _registrationTs: regMs, // ms epoch, 0 si inválido
   };
 }

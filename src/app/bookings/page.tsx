@@ -38,9 +38,14 @@ type BookingFormData = {
   return_date: string;
   pax_count: number;
   clients_ids: number[];
-  /** NUEVO: fecha de creación editable por admin/gerente/dev (YYYY-MM-DD) */
+  /** fecha de creación editable por admin/gerente/dev (YYYY-MM-DD) */
   creation_date?: string;
 };
+
+// === Pills sutiles para UI (conteo resultados) ===
+const pillBase = "rounded-full px-2.5 py-0.5 text-xs font-medium";
+const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
+const pillWarn = "bg-rose-500/15 text-rose-700 dark:text-rose-300";
 
 // === Hook simple para debouncing ===
 function useDebounced<T>(value: T, delay = 350): T {
@@ -54,7 +59,6 @@ function useDebounced<T>(value: T, delay = 350): T {
 
 // Helper para ignorar aborts de fetch
 type AbortErrorLike = { name?: unknown; code?: unknown };
-
 const isAbortError = (e: unknown): e is AbortErrorLike => {
   if (typeof e !== "object" || e === null) return false;
   const { name, code } = e as AbortErrorLike;
@@ -170,7 +174,6 @@ export default function Page() {
     return_date: "",
     pax_count: 1,
     clients_ids: [],
-    // NUEVO: por defecto hoy (se podrá editar según rol)
     creation_date: todayYMD(),
   });
 
@@ -358,11 +361,10 @@ export default function Page() {
       ),
     );
 
-    // Validaciones front mínimas
+    // ✅ Validaciones front mínimas (invoice_observation AHORA OPCIONAL)
     if (
       !formData.details.trim() ||
       !formData.invoice_type.trim() ||
-      !formData.invoice_observation.trim() ||
       formData.titular_id === 0 ||
       !formData.departure_date ||
       !formData.return_date ||
@@ -371,7 +373,7 @@ export default function Page() {
       !formData.status ||
       !formData.id_user
     ) {
-      toast.error("Completa todos los campos obligatorios de la reserva.");
+      toast.error("Completá los campos obligatorios de la reserva.");
       return;
     }
 
@@ -400,7 +402,7 @@ export default function Page() {
           !titular.tax_id?.trim()
         ) {
           toast.error(
-            "Para Factura A, el titular debe tener cargado Razón Social, Domicilio Comercial, Email y CUIT.",
+            "Para Factura A, el titular debe tener Razón Social, Domicilio Comercial, Email y CUIT.",
           );
           return;
         }
@@ -442,7 +444,7 @@ export default function Page() {
         status: formData.status,
         details: formData.details,
         invoice_type: formData.invoice_type,
-        invoice_observation: formData.invoice_observation,
+        invoice_observation: formData.invoice_observation, // opcional
         observation: formData.observation,
         titular_id: formData.titular_id,
         departure_date: formData.departure_date,
@@ -486,7 +488,7 @@ export default function Page() {
       setNextCursor(nextCursor);
       setExpandedBookingId(null);
 
-      toast.success("Reserva guardada con éxito!");
+      toast.success("¡Reserva guardada con éxito!");
       resetForm();
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : "Error inesperado.";
@@ -536,7 +538,7 @@ export default function Page() {
       return_date: "",
       pax_count: 1,
       clients_ids: [],
-      creation_date: todayYMD(), // NUEVO: se resetea a hoy
+      creation_date: todayYMD(),
     }));
     setIsFormVisible(false);
     setEditingBookingId(null);
@@ -565,7 +567,6 @@ export default function Page() {
       return_date: booking.return_date.split("T")[0],
       pax_count: Math.max(1, 1 + companions.length),
       clients_ids: companions,
-      // NUEVO: traemos la fecha de creación actual, segura
       creation_date:
         (booking.creation_date as unknown as string)?.split("T")[0] ||
         todayYMD(),
@@ -583,7 +584,7 @@ export default function Page() {
       );
       if (res.ok) {
         setBookings((prev) => prev.filter((b) => b.id_booking !== id));
-        toast.success("Reserva eliminada con éxito!");
+        toast.success("¡Reserva eliminada con éxito!");
       } else {
         let msg = "Error al eliminar la reserva.";
         try {
@@ -664,15 +665,24 @@ export default function Page() {
             isFormVisible={isFormVisible}
             setFormData={setFormData}
             setIsFormVisible={setIsFormVisible}
-            /** NUEVO: props para poder elegir creador y fecha de creación */
+            /** props para elegir creador y fecha de creación */
             canPickCreator={canPickCreator}
             canEditCreationDate={canEditCreationDate}
             creatorsList={teamMembers}
           />
         </motion.div>
 
-        <h2 className="my-4 text-2xl font-semibold dark:font-medium">
+        <h2 className="my-4 flex items-center gap-2 text-2xl font-semibold dark:font-medium">
           Reservas
+          <span
+            className={`${pillBase} ${
+              displayedBookings.length > 0 ? pillOk : pillWarn
+            }`}
+            title="Resultados actuales"
+          >
+            {displayedBookings.length}{" "}
+            {displayedBookings.length === 1 ? "resultado" : "resultados"}
+          </span>
         </h2>
 
         <div className="mb-4 space-y-4 text-sm md:text-base">
@@ -726,12 +736,12 @@ export default function Page() {
         {/* Estilos globales para asegurar legibilidad de los <option> */}
         <style jsx global>{`
           select option {
-            background-color: white;
-            color: sky-950;
+            background-color: #ffffff;
+            color: #0c4a6e; /* sky-950 */
           }
           .dark select option {
-            background-color: black;
-            color: white;
+            background-color: #0b0f19; /* fondo oscuro neutro */
+            color: #ffffff;
           }
         `}</style>
       </section>
