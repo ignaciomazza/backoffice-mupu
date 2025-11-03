@@ -187,7 +187,7 @@ export default function BookingsConfigPage() {
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // rol y permisos
+  // rol y permisos (derivado desde /api/user/profile, no /api/user/role)
   const [role, setRole] = useState<string | null>(null);
   const canEdit = useMemo(
     () =>
@@ -233,6 +233,7 @@ export default function BookingsConfigPage() {
    * ========================================================= */
   useEffect(() => setMounted(true), []);
 
+  // Cargar rol desde /api/user/profile (evita /api/user/role que provoca 401 -> logout)
   useEffect(() => {
     if (!token || !mounted) return;
     let abort = false;
@@ -240,20 +241,19 @@ export default function BookingsConfigPage() {
     (async () => {
       try {
         setLoading(true);
-        // rol
         const rr = await authFetch(
-          "/api/user/role",
+          "/api/user/profile",
           { cache: "no-store" },
           token,
         );
         if (rr.ok) {
           const { role: r } = (await rr.json()) as RoleResponse;
-          setRole((r || "").toLowerCase());
+          if (!abort) setRole((r || "").toLowerCase());
         } else {
-          setRole(null);
+          if (!abort) setRole(null);
         }
       } catch {
-        setRole(null);
+        if (!abort) setRole(null);
       } finally {
         if (!abort) setLoading(false);
       }
@@ -316,10 +316,18 @@ export default function BookingsConfigPage() {
       }
     };
 
+    const firstLoad = async () => {
+      setLoading(true);
+      try {
+        await Promise.all([loadCalcConfig(), loadServiceTypes()]);
+      } finally {
+        if (!cancel) setLoading(false);
+      }
+    };
+
     if (firstLoadRef.current) {
       firstLoadRef.current = false;
-      void loadCalcConfig();
-      void loadServiceTypes();
+      void firstLoad();
     } else {
       // recarga por cambios de filtro
       void loadServiceTypes();
@@ -619,7 +627,7 @@ export default function BookingsConfigPage() {
 
         {/* Contenido por tab */}
         {loading ? (
-          <div className="min-height-[40vh] flex items-center justify-center">
+          <div className="flex min-h-[40vh] items-center justify-center">
             <Spinner />
           </div>
         ) : (
