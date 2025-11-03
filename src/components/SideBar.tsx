@@ -49,6 +49,8 @@ export default function SideBar({
       case "/teams":
         return ["desarrollador", "gerente"].includes(role);
       case "/invoices":
+      case "/bookings/config":
+        return ["desarrollador", "gerente", "administrativo"].includes(role);
       case "/balances":
       case "/earnings":
       case "/investments":
@@ -71,8 +73,7 @@ export default function SideBar({
 
   // 🔧 Memoizamos y reutilizamos en deps
   const isActive = useCallback(
-    (route: string) =>
-      currentPath === route,
+    (route: string) => currentPath === route,
     [currentPath],
   );
 
@@ -94,6 +95,10 @@ export default function SideBar({
           items: [
             { href: "/bookings", label: "Reservas" },
             hasAccess("/invoices") && { href: "/invoices", label: "Facturas" },
+            hasAccess("/bookings/config") && {
+              href: "/bookings/config",
+              label: "Configuracion",
+            },
           ].filter(Boolean) as { href: string; label: string }[],
         },
         {
@@ -110,8 +115,14 @@ export default function SideBar({
             },
             hasAccess("/balances") && { href: "/balances", label: "Saldos" },
             hasAccess("/earnings") && { href: "/earnings", label: "Ganancias" },
-            hasAccess("/earnings/my") && { href: "/earnings/my", label: "Mis Ganancias" },
-            hasAccess("/finance/config") && { href: "/finance/config", label: "Configuracion" },
+            hasAccess("/earnings/my") && {
+              href: "/earnings/my",
+              label: "Mis Ganancias",
+            },
+            hasAccess("/finance/config") && {
+              href: "/finance/config",
+              label: "Configuracion",
+            },
           ].filter(Boolean) as { href: string; label: string }[],
         },
         {

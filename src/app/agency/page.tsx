@@ -17,7 +17,6 @@ import AgencyForm, {
 import AgencyReadOnlyCard from "@/components/agency/AgencyReadOnlyCard";
 import AgencyLogoCard from "@/components/agency/AgencyLogoCard";
 import AgencyAfipCard from "@/components/agency/AgencyAfipCard";
-import AgencyTransferFeeCard from "@/components/agency/AgencyTransferFeeCard";
 
 type AgencyDTO = AgencyDTOForm;
 
@@ -159,8 +158,6 @@ export default function AgencyPage() {
               </div>
               <AgencyAfipCard />
 
-              {/* NUEVO: Costo por transferencia */}
-              <AgencyTransferFeeCard />
             </div>
           </>
         ) : (

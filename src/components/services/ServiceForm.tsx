@@ -1,16 +1,22 @@
 // src/components/services/ServiceForm.tsx
 "use client";
 
+import type React from "react";
 import { ChangeEvent, FormEvent, useMemo, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Operator, BillingData } from "@/types";
 import BillingBreakdown from "@/components/BillingBreakdown";
+import BillingBreakdownManual from "@/components/BillingBreakdownManual";
 import DestinationPicker, {
   DestinationOption,
 } from "@/components/DestinationPicker";
 import Spinner from "@/components/Spinner";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
+import { authFetch } from "@/utils/authFetch";
 
+/* =========================
+ * Tipos del formulario
+ * ========================= */
 export type ServiceFormData = {
   type: string;
   description?: string;
@@ -42,11 +48,12 @@ type ServiceFormProps = {
   isFormVisible: boolean;
   setIsFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
   onBillingUpdate?: (data: BillingData) => void;
+  /** Fallback para fee de transferencia si no viene de config del tipo o de la API */
   agencyTransferFeePct: number;
-  token: string | null; // para cargar monedas desde finance
+  token: string | null;
 };
 
-/* ---------- helpers UI (misma paleta) ---------- */
+/* ---------- helpers UI ---------- */
 const Section: React.FC<{
   title: string;
   desc?: string;
@@ -93,7 +100,7 @@ const Field: React.FC<{
   </div>
 );
 
-/* util mínima para opciones únicas ordenadas */
+/* util mínima */
 const uniqSorted = (arr: string[]) =>
   Array.from(new Set(arr.filter(Boolean))).sort((a, b) =>
     a.localeCompare(b, "es"),
@@ -101,6 +108,215 @@ const uniqSorted = (arr: string[]) =>
 
 type FinanceCurrency = { code: string; name: string; enabled: boolean };
 
+/* =========================
+ * Tipos/normalizadores API
+ * ========================= */
+type RawServiceType = {
+  id?: number | string | null;
+  name?: string | null;
+  label?: string | null;
+  value?: string | null;
+  countryOnly?: boolean | number | string | null;
+  multiDestDefault?: boolean | number | string | null;
+  is_active?: boolean | number | string | null;
+};
+
+type NormalizedServiceType = {
+  value: string;
+  label: string;
+  countryOnly?: boolean;
+  multiDestDefault?: boolean;
+};
+
+type RawServiceCalcCfg = {
+  value?: string | null;
+  countryOnly?: boolean | number | string | null;
+  multiDestDefault?: boolean | number | string | null;
+  defaultTransferFeePct?: number | string | null;
+};
+
+type ServiceCalcCfg = {
+  value: string;
+  countryOnly?: boolean;
+  multiDestDefault?: boolean;
+  defaultTransferFeePct?: number;
+};
+
+type CalcConfigResponse = {
+  billing_breakdown_mode: "auto" | "manual";
+  transfer_fee_pct: number; // proporción (0.024 = 2.4%)
+};
+
+/* ---- helpers sin `any` ---- */
+function isRecord(val: unknown): val is Record<string, unknown> {
+  return !!val && typeof val === "object" && !Array.isArray(val);
+}
+
+function toBool(v: unknown): boolean | undefined {
+  if (v === true || v === false) return v;
+  if (typeof v === "number") return v === 1;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (["1", "true", "t", "yes", "y"].includes(s)) return true;
+    if (["0", "false", "f", "no", "n"].includes(s)) return false;
+  }
+  return undefined;
+}
+
+function normalizePct(v: unknown): number | undefined {
+  if (v == null) return undefined;
+  const s = String(v).trim();
+  if (!s) return undefined;
+  const percLike = s.endsWith("%");
+  const n = parseFloat(s.replace("%", "").replace(",", "."));
+  if (isNaN(n)) return undefined;
+  if (percLike) return Math.max(0, n) / 100;
+  if (n > 1) return Math.max(0, n) / 100;
+  if (n >= 0 && n <= 1) return n;
+  return undefined;
+}
+
+function normalizeServiceType(
+  raw: RawServiceType,
+): NormalizedServiceType | null {
+  const value = (raw.value || raw.name || raw.label || "").toString().trim();
+  if (!value) return null;
+  const label = (raw.label || raw.name || value).toString().trim();
+  const countryOnly = toBool(raw.countryOnly);
+  const multiDestDefault = toBool(raw.multiDestDefault);
+  return { value, label, countryOnly, multiDestDefault };
+}
+
+function normalizeCalcCfg(raw: RawServiceCalcCfg): ServiceCalcCfg | null {
+  const value = (raw.value || "").toString().trim();
+  if (!value) return null;
+  const countryOnly = toBool(raw.countryOnly);
+  const multiDestDefault = toBool(raw.multiDestDefault);
+  const defaultTransferFeePct = normalizePct(raw.defaultTransferFeePct);
+  return { value, countryOnly, multiDestDefault, defaultTransferFeePct };
+}
+
+function pickArrayFromJson<T = unknown>(
+  json: unknown,
+  keys: string[] = ["data", "types", "items", "results"],
+): T[] {
+  if (Array.isArray(json)) return json as T[];
+  if (json && typeof json === "object") {
+    const obj = json as Record<string, unknown>;
+    for (const k of keys) {
+      const v = obj[k];
+      if (Array.isArray(v)) return v as T[];
+    }
+  }
+  return [];
+}
+
+/* Heurísticas para destino por nombre */
+const nameBasedCountryOnly = (name?: string) =>
+  (name || "").toLowerCase().includes("visa") ||
+  (name || "").toLowerCase().includes("visado");
+
+const nameBasedMultiDefault = (name?: string) => {
+  const n = (name || "").toLowerCase();
+  return (
+    n.includes("tour") ||
+    n.includes("circuito") ||
+    n.includes("crucero") ||
+    n.includes("excursion") ||
+    n.includes("excursión") ||
+    n.includes("excursiones")
+  );
+};
+
+/* === helpers robustos para traer service-calc-config por tipo (opcional) === */
+function getStringField(obj: unknown, key: string): string | undefined {
+  if (!isRecord(obj)) return undefined;
+  const v = obj[key];
+  if (typeof v === "string") return v;
+  if (typeof v === "number") return String(v);
+  return undefined;
+}
+
+function toRawServiceCalcCfg(u: unknown): RawServiceCalcCfg | null {
+  if (!isRecord(u)) return null;
+  const value =
+    getStringField(u, "value") ??
+    getStringField(u, "type") ??
+    getStringField(u, "service") ??
+    null;
+
+  const countryOnly = (u["countryOnly"] ?? u["country_only"]) as
+    | boolean
+    | number
+    | string
+    | null
+    | undefined;
+
+  const multiDestDefault = (u["multiDestDefault"] ??
+    u["multi_dest_default"]) as boolean | number | string | null | undefined;
+
+  const defaultTransferFeePct = (u["defaultTransferFeePct"] ??
+    u["transfer_fee_pct"]) as number | string | null | undefined;
+
+  return { value, countryOnly, multiDestDefault, defaultTransferFeePct };
+}
+
+async function fetchServiceCalcCfg(
+  token: string,
+  typeValue: string,
+): Promise<ServiceCalcCfg | null> {
+  const endpoints = [
+    (t: string) => `/api/service-calc-config?type=${encodeURIComponent(t)}`,
+    (t: string) => `/api/service/calc-config?type=${encodeURIComponent(t)}`,
+    (t: string) => `/api/services/calc-config?type=${encodeURIComponent(t)}`,
+  ];
+
+  for (const build of endpoints) {
+    try {
+      const res = await authFetch(
+        build(typeValue),
+        { cache: "no-store" },
+        token,
+      );
+      if (!res.ok) continue;
+
+      const json: unknown = await res.json();
+
+      // 1) Array en distintas claves
+      let candidates = pickArrayFromJson<unknown>(json)
+        .map(toRawServiceCalcCfg)
+        .filter(Boolean) as RawServiceCalcCfg[];
+
+      // 2) Objeto directo o envuelto en "data"
+      if (!candidates.length) {
+        const direct = toRawServiceCalcCfg(json);
+        const nestedData = isRecord(json)
+          ? toRawServiceCalcCfg(json["data"])
+          : null;
+        candidates = [direct, nestedData].filter(
+          Boolean,
+        ) as RawServiceCalcCfg[];
+      }
+
+      if (candidates.length) {
+        const normalized = candidates
+          .map((c) => normalizeCalcCfg(c))
+          .filter(Boolean) as ServiceCalcCfg[];
+        const match =
+          normalized.find((n) => n.value === typeValue) || normalized[0];
+        if (match) return match;
+      }
+    } catch {
+      // probar siguiente endpoint
+    }
+  }
+
+  return null;
+}
+
+/* =========================
+ * Componente
+ * ========================= */
 export default function ServiceForm({
   formData,
   handleChange,
@@ -113,11 +329,169 @@ export default function ServiceForm({
   agencyTransferFeePct,
   token,
 }: ServiceFormProps) {
-  const effectiveTransferFeePct =
-    formData.transfer_fee_pct != null
-      ? formData.transfer_fee_pct
-      : agencyTransferFeePct;
+  /* ========== TIPOS DINÁMICOS ========== */
+  const [serviceTypes, setServiceTypes] = useState<NormalizedServiceType[]>([]);
+  const [loadingTypes, setLoadingTypes] = useState(false);
+  const [typesError, setTypesError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingTypes(true);
+        setTypesError(null);
+        const res = await authFetch(
+          "/api/service-types",
+          { cache: "no-store" },
+          token || undefined,
+        );
+        if (!res.ok) throw new Error("No se pudo obtener tipos de servicio.");
+        const json = await res.json();
+        const raw = pickArrayFromJson<RawServiceType>(json);
+        const norm = raw
+          .filter(
+            (r: RawServiceType) =>
+              r?.is_active == null || toBool(r.is_active) !== false,
+          )
+          .map(normalizeServiceType)
+          .filter(Boolean) as NormalizedServiceType[];
+        if (!cancelled) setServiceTypes(norm);
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setTypesError(
+            e instanceof Error
+              ? e.message
+              : "Error cargando tipos de servicio.",
+          );
+          setServiceTypes([]);
+        }
+      } finally {
+        if (!cancelled) setLoadingTypes(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const selectedTypeFromList = useMemo(
+    () => serviceTypes.find((t) => t.value === formData.type),
+    [serviceTypes, formData.type],
+  );
+
+  /* ========== CONFIG POR TIPO (opcional) ========== */
+  const [calcCfg, setCalcCfg] = useState<ServiceCalcCfg | null>(null);
+  const [loadingCfg, setLoadingCfg] = useState(false);
+
+  useEffect(() => {
+    if (!token || !formData.type) {
+      setCalcCfg(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingCfg(true);
+        const cfg = await fetchServiceCalcCfg(token, formData.type);
+        if (!cancelled) setCalcCfg(cfg);
+      } finally {
+        if (!cancelled) setLoadingCfg(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, formData.type]);
+
+  /* ========== AGENCY CONFIG (modo y fee global) ========== */
+  const [loadingAgencyCfg, setLoadingAgencyCfg] = useState(false);
+  const [agencyBillingMode, setAgencyBillingMode] = useState<"auto" | "manual">(
+    "auto",
+  );
+  const [agencyFeePctFromApi, setAgencyFeePctFromApi] = useState<
+    number | undefined
+  >(undefined);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingAgencyCfg(true);
+        // Usamos la MISMA API que /bookings/config
+        const res = await authFetch(
+          "/api/service-calc-config",
+          { cache: "no-store" },
+          token || undefined,
+        );
+        if (!res.ok) throw new Error("No se pudo obtener service-calc-config.");
+
+        const data = (await res.json()) as CalcConfigResponse;
+        if (cancelled) return;
+
+        setAgencyBillingMode(
+          data.billing_breakdown_mode === "manual" ? "manual" : "auto",
+        );
+        setAgencyFeePctFromApi(
+          typeof data.transfer_fee_pct === "number"
+            ? data.transfer_fee_pct
+            : undefined,
+        );
+      } catch {
+        if (!cancelled) {
+          setAgencyBillingMode("auto"); // fallback
+          setAgencyFeePctFromApi(undefined);
+        }
+      } finally {
+        if (!cancelled) setLoadingAgencyCfg(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  /* ========== MONEDAS ========== */
+  const [financeCurrencies, setFinanceCurrencies] = useState<
+    FinanceCurrency[] | null
+  >(null);
+  const [loadingCurrencies, setLoadingCurrencies] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        setLoadingCurrencies(true);
+        const picks = await loadFinancePicks(token);
+        setFinanceCurrencies(picks?.currencies ?? null);
+      } catch {
+        setFinanceCurrencies(null);
+      } finally {
+        setLoadingCurrencies(false);
+      }
+    })();
+  }, [token]);
+
+  const currencyOptions = useMemo(
+    () =>
+      uniqSorted(
+        (financeCurrencies || [])
+          .filter((c) => c.enabled)
+          .map((c) => (c.code || "").toUpperCase()),
+      ),
+    [financeCurrencies],
+  );
+
+  const currencyLabelDict = useMemo(() => {
+    const dict: Record<string, string> = {};
+    for (const c of financeCurrencies || []) {
+      if (c.enabled) dict[String(c.code).toUpperCase()] = c.name;
+    }
+    return dict;
+  }, [financeCurrencies]);
+
+  /* ========== FORMATO & KPI CABECERA ========== */
   const currencySymbol = useMemo(
     () => (formData.currency === "USD" ? "US$" : "$"),
     [formData.currency],
@@ -176,22 +550,33 @@ export default function ServiceForm({
     [formData.sale_price, formData.cost_price, hasPrices],
   );
 
-  /* ========== DESTINATION PICKER (con checkboxes siempre visibles) ========== */
+  /* ========== DESTINATION PICKER ========== */
   const [countryMode, setCountryMode] = useState(false);
   const [multiMode, setMultiMode] = useState(false);
 
-  // Defaults por tipo (usuario siempre puede cambiarlos)
   useEffect(() => {
-    setCountryMode(formData.type === "Visa");
-    setMultiMode(["Circuito", "Tour"].includes(formData.type));
-  }, [formData.type]);
+    const t = formData.type;
+    const country =
+      (calcCfg?.countryOnly ??
+        selectedTypeFromList?.countryOnly ??
+        (t ? nameBasedCountryOnly(t) : false)) ||
+      false;
+
+    const multi =
+      (calcCfg?.multiDestDefault ??
+        selectedTypeFromList?.multiDestDefault ??
+        (t ? nameBasedMultiDefault(t) : false)) ||
+      false;
+
+    setCountryMode(!!country);
+    setMultiMode(!!multi);
+  }, [calcCfg, selectedTypeFromList, formData.type]);
 
   const [destSelection, setDestSelection] = useState<
     DestinationOption | DestinationOption[] | null
   >(null);
   const [destValid, setDestValid] = useState(false);
 
-  // Si estamos editando y ya hay texto guardado, permitimos enviar sin re-pick
   useEffect(() => {
     if (
       editingServiceId &&
@@ -202,7 +587,6 @@ export default function ServiceForm({
     }
   }, [editingServiceId, formData.destination, destSelection]);
 
-  // Al cambiar modo país/múltiple, reseteamos selección/validez
   useEffect(() => {
     setDestSelection(null);
     setDestValid(false);
@@ -223,57 +607,33 @@ export default function ServiceForm({
     } as ChangeEvent<HTMLInputElement>);
   };
 
-  /* ========== MONEDAS desde finance currency ========== */
-  const [financeCurrencies, setFinanceCurrencies] = useState<
-    FinanceCurrency[] | null
-  >(null);
-  const [loadingCurrencies, setLoadingCurrencies] = useState(false);
-
-  useEffect(() => {
-    if (!token) return;
-    (async () => {
-      try {
-        setLoadingCurrencies(true);
-        const picks = await loadFinancePicks(token);
-        setFinanceCurrencies(picks?.currencies ?? null);
-      } catch {
-        setFinanceCurrencies(null);
-      } finally {
-        setLoadingCurrencies(false);
-      }
-    })();
-  }, [token]);
-
-  const currencyOptions = useMemo(
-    () =>
-      uniqSorted(
-        (financeCurrencies || [])
-          .filter((c) => c.enabled)
-          .map((c) => (c.code || "").toUpperCase()),
-      ),
-    [financeCurrencies],
-  );
-
-  const currencyLabelDict = useMemo(() => {
-    const dict: Record<string, string> = {};
-    for (const c of financeCurrencies || []) {
-      if (c.enabled) dict[String(c.code).toUpperCase()] = c.name;
-    }
-    return dict;
-  }, [financeCurrencies]);
-
-  /* ========== Spinner de submit (sin any) ========== */
+  /* ========== SUBMIT ========== */
   const [submitting, setSubmitting] = useState(false);
-
   const onLocalSubmit = async (e: FormEvent) => {
     setSubmitting(true);
     try {
-      // Soporta sync o async sin usar `any`
       await Promise.resolve(handleSubmit(e));
     } finally {
       setSubmitting(false);
     }
   };
+
+  // Transfer fee efectivo: (1) formData, (2) calcCfg API (por tipo), (3) agency-config API, (4) prop fallback
+  const effectiveTransferFeePct = useMemo(() => {
+    if (formData.transfer_fee_pct != null) return formData.transfer_fee_pct;
+    if (calcCfg?.defaultTransferFeePct != null)
+      return calcCfg.defaultTransferFeePct;
+    if (typeof agencyFeePctFromApi === "number") return agencyFeePctFromApi;
+    return agencyTransferFeePct;
+  }, [
+    formData.transfer_fee_pct,
+    calcCfg?.defaultTransferFeePct,
+    agencyFeePctFromApi,
+    agencyTransferFeePct,
+  ]);
+
+  // ⚙️ Modo de facturación: viene de la API de agencia (DB)
+  const manualMode = agencyBillingMode === "manual";
 
   const submitDisabled = !destValid || submitting;
 
@@ -338,6 +698,15 @@ export default function ServiceForm({
               <p className="text-lg font-semibold">
                 {editingServiceId ? "Editar Servicio" : "Agregar Servicio"}
               </p>
+              {(loadingCfg || loadingTypes || loadingAgencyCfg) && (
+                <p className="text-xs text-sky-950/70 dark:text-white/70">
+                  {loadingTypes
+                    ? "Cargando tipos..."
+                    : loadingCfg
+                      ? "Aplicando configuración del tipo..."
+                      : "Leyendo configuración de la agencia..."}
+                </p>
+              )}
             </div>
           </div>
 
@@ -378,7 +747,11 @@ export default function ServiceForm({
                   id="type"
                   label="Tipo de Servicio"
                   required
-                  hint="Seleccioná una categoría."
+                  hint={
+                    typesError
+                      ? "No se pudieron cargar los tipos. Intentá recargar."
+                      : "Seleccioná una categoría."
+                  }
                 >
                   <select
                     id="type"
@@ -386,32 +759,42 @@ export default function ServiceForm({
                     value={formData.type}
                     onChange={handleChange}
                     required
+                    disabled={loadingTypes}
                     className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                     aria-describedby="type-hint"
                   >
-                    <option value="" disabled>
-                      Seleccionar tipo
-                    </option>
-                    <option value="Paquete Argentina">Paquete Argentina</option>
-                    <option value="Cupo Exterior">Cupo Exterior</option>
-                    <option value="Aéreo - Cabotaje">Aéreo - Cabotaje</option>
-                    <option value="Aéreo - Regional">Aéreo - Regional</option>
-                    <option value="Aéreo - Internacional">
-                      Aéreo - Internacional
-                    </option>
-                    <option value="Hotelería">Hotelería</option>
-                    <option value="Hotelería y Traslado">
-                      Hotelería y Traslado
-                    </option>
-                    <option value="Traslado">Traslado</option>
-                    <option value="Asistencia">Asistencia</option>
-                    <option value="Excursiones">Excursiones</option>
-                    <option value="Alquiler de Auto">Alquiler de Auto</option>
-                    <option value="Tour">Tour</option>
-                    <option value="Circuito">Circuito</option>
-                    <option value="Crucero">Crucero</option>
-                    <option value="Visa">Gestión de Visado</option>
-                    <option value="Asientos">Gestión de Asientos</option>
+                    {loadingTypes && (
+                      <option value="" disabled>
+                        Cargando tipos…
+                      </option>
+                    )}
+                    {!loadingTypes && serviceTypes.length === 0 && (
+                      <option value="" disabled>
+                        {typesError
+                          ? "Error al cargar tipos"
+                          : "Sin tipos disponibles"}
+                      </option>
+                    )}
+                    {!loadingTypes && serviceTypes.length > 0 && (
+                      <>
+                        <option value="" disabled>
+                          Seleccionar tipo
+                        </option>
+                        {serviceTypes.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                        {formData.type &&
+                          !serviceTypes.some(
+                            (t) => t.value === formData.type,
+                          ) && (
+                            <option value={formData.type}>
+                              {formData.type} (no listado)
+                            </option>
+                          )}
+                      </>
+                    )}
                   </select>
                 </Field>
 
@@ -431,7 +814,7 @@ export default function ServiceForm({
                   />
                 </Field>
 
-                {/* Destination controls (checkboxes) */}
+                {/* Destination controls */}
                 <div className="col-span-full -mb-1 flex flex-wrap items-center gap-4 px-1">
                   <label className="inline-flex items-center gap-2 text-sm">
                     <input
@@ -643,58 +1026,67 @@ export default function ServiceForm({
                   </p>
                 </Field>
 
-                <Field id="tax_21" label="IVA 21%">
-                  <input
-                    id="tax_21"
-                    type="number"
-                    name="tax_21"
-                    value={formData.tax_21 || ""}
-                    onChange={handleChange}
-                    placeholder="0,00"
-                    step="0.01"
-                    min="0"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
-                  />
-                  <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
-                    {formatCurrency(formData.tax_21 || 0)}
-                  </p>
-                </Field>
+                {/* ⛔ Ocultos en modo manual */}
+                {!manualMode && (
+                  <>
+                    <Field id="tax_21" label="IVA 21%">
+                      <input
+                        id="tax_21"
+                        type="number"
+                        name="tax_21"
+                        value={formData.tax_21 || ""}
+                        onChange={handleChange}
+                        placeholder="0,00"
+                        step="0.01"
+                        min="0"
+                        className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                      />
+                      <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
+                        {formatCurrency(formData.tax_21 || 0)}
+                      </p>
+                    </Field>
 
-                <Field id="tax_105" label="IVA 10,5%">
-                  <input
-                    id="tax_105"
-                    type="number"
-                    name="tax_105"
-                    value={formData.tax_105 || ""}
-                    onChange={handleChange}
-                    placeholder="0,00"
-                    step="0.01"
-                    min="0"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
-                  />
-                  <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
-                    {formatCurrency(formData.tax_105 || 0)}
-                  </p>
-                </Field>
+                    <Field id="tax_105" label="IVA 10,5%">
+                      <input
+                        id="tax_105"
+                        type="number"
+                        name="tax_105"
+                        value={formData.tax_105 || ""}
+                        onChange={handleChange}
+                        placeholder="0,00"
+                        step="0.01"
+                        min="0"
+                        className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                      />
+                      <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
+                        {formatCurrency(formData.tax_105 || 0)}
+                      </p>
+                    </Field>
 
-                <Field id="exempt" label="Exento">
-                  <input
-                    id="exempt"
-                    type="number"
-                    name="exempt"
-                    value={formData.exempt || ""}
-                    onChange={handleChange}
-                    placeholder="0,00"
-                    step="0.01"
-                    min="0"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
-                  />
-                  <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
-                    {formatCurrency(formData.exempt || 0)}
-                  </p>
-                </Field>
+                    <Field id="exempt" label="Exento">
+                      <input
+                        id="exempt"
+                        type="number"
+                        name="exempt"
+                        value={formData.exempt || ""}
+                        onChange={handleChange}
+                        placeholder="0,00"
+                        step="0.01"
+                        min="0"
+                        className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                      />
+                      <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
+                        {formatCurrency(formData.exempt || 0)}
+                      </p>
+                    </Field>
+                  </>
+                )}
 
-                <Field id="other_taxes" label="Otros Impuestos">
+                {/* Siempre visible: renombrado según modo */}
+                <Field
+                  id="other_taxes"
+                  label={manualMode ? "Impuestos" : "Otros Impuestos"}
+                >
                   <input
                     id="other_taxes"
                     type="number"
@@ -715,41 +1107,50 @@ export default function ServiceForm({
               {/* TARJETA */}
               <Section
                 title="Tarjeta"
-                desc="Si la operación tiene interés por financiación, podés discriminarlo."
+                desc={
+                  manualMode
+                    ? "En modo manual el interés/IVA de tarjeta no participa del desglose."
+                    : "Si la operación tiene interés por financiación, podés discriminarlo."
+                }
               >
-                <Field id="card_interest" label="Interés">
-                  <input
-                    id="card_interest"
-                    type="number"
-                    name="card_interest"
-                    value={formData.card_interest || ""}
-                    onChange={handleChange}
-                    placeholder="0,00"
-                    step="0.01"
-                    min="0"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
-                  />
-                  <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
-                    {formatCurrency(formData.card_interest || 0)}
-                  </p>
-                </Field>
+                {/* ⛔ Ocultos en modo manual */}
+                {!manualMode && (
+                  <>
+                    <Field id="card_interest" label="Interés">
+                      <input
+                        id="card_interest"
+                        type="number"
+                        name="card_interest"
+                        value={formData.card_interest || ""}
+                        onChange={handleChange}
+                        placeholder="0,00"
+                        step="0.01"
+                        min="0"
+                        className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                      />
+                      <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
+                        {formatCurrency(formData.card_interest || 0)}
+                      </p>
+                    </Field>
 
-                <Field id="card_interest_21" label="IVA 21% (Interés)">
-                  <input
-                    id="card_interest_21"
-                    type="number"
-                    name="card_interest_21"
-                    value={formData.card_interest_21 || ""}
-                    onChange={handleChange}
-                    placeholder="0,00"
-                    step="0.01"
-                    min="0"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
-                  />
-                  <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
-                    {formatCurrency(formData.card_interest_21 || 0)}
-                  </p>
-                </Field>
+                    <Field id="card_interest_21" label="IVA 21% (Interés)">
+                      <input
+                        id="card_interest_21"
+                        type="number"
+                        name="card_interest_21"
+                        value={formData.card_interest_21 || ""}
+                        onChange={handleChange}
+                        placeholder="0,00"
+                        step="0.01"
+                        min="0"
+                        className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                      />
+                      <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
+                        {formatCurrency(formData.card_interest_21 || 0)}
+                      </p>
+                    </Field>
+                  </>
+                )}
 
                 <div className="col-span-full">
                   <div className="rounded-xl border border-white/10 bg-white/10 p-3 text-xs">
@@ -763,21 +1164,31 @@ export default function ServiceForm({
               </Section>
 
               {/* DESGLOSE */}
-              {hasPrices && (
-                <BillingBreakdown
-                  importeVenta={formData.sale_price}
-                  costo={formData.cost_price}
-                  montoIva21={formData.tax_21 || 0}
-                  montoIva10_5={formData.tax_105 || 0}
-                  montoExento={formData.exempt || 0}
-                  otrosImpuestos={formData.other_taxes || 0}
-                  cardInterest={formData.card_interest || 0}
-                  cardInterestIva={formData.card_interest_21 || 0}
-                  moneda={formData.currency || "ARS"}
-                  onBillingUpdate={onBillingUpdate}
-                  transferFeePct={effectiveTransferFeePct}
-                />
-              )}
+              {hasPrices &&
+                (manualMode ? (
+                  <BillingBreakdownManual
+                    importeVenta={formData.sale_price}
+                    costo={formData.cost_price}
+                    impuestos={formData.other_taxes || 0}
+                    moneda={formData.currency || "ARS"}
+                    onBillingUpdate={onBillingUpdate}
+                    transferFeePct={effectiveTransferFeePct}
+                  />
+                ) : (
+                  <BillingBreakdown
+                    importeVenta={formData.sale_price}
+                    costo={formData.cost_price}
+                    montoIva21={formData.tax_21 || 0}
+                    montoIva10_5={formData.tax_105 || 0}
+                    montoExento={formData.exempt || 0}
+                    otrosImpuestos={formData.other_taxes || 0}
+                    cardInterest={formData.card_interest || 0}
+                    cardInterestIva={formData.card_interest_21 || 0}
+                    moneda={formData.currency || "ARS"}
+                    onBillingUpdate={onBillingUpdate}
+                    transferFeePct={effectiveTransferFeePct}
+                  />
+                ))}
 
               {/* ACTION BAR */}
               <div className="sticky bottom-2 z-10 flex justify-end">

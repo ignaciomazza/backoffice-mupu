@@ -61,6 +61,12 @@ type ReceiptWithConversion = Receipt &
     amount_currency: string | null;
   }>;
 
+/** Config API */
+type CalcConfigResponse = {
+  billing_breakdown_mode: "auto" | "manual";
+  transfer_fee_pct: number;
+};
+
 /* ---------- UI helpers ---------- */
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
   title,
@@ -117,6 +123,39 @@ export default function SummaryCard({
 }: SummaryCardProps) {
   const labels: Record<string, string> = { ARS: "Pesos", USD: "Dólares" };
   const { token } = useAuth();
+
+  /* ====== Modo de cálculo (auto/manual) ====== */
+  const [agencyMode, setAgencyMode] = useState<"auto" | "manual">("auto");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!token) {
+          if (!cancelled) setAgencyMode("auto");
+          return;
+        }
+        const r = await fetch("/api/service-calc-config", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (!r.ok) throw new Error("fetch failed");
+        const data: CalcConfigResponse = await r.json();
+        if (!cancelled) {
+          setAgencyMode(
+            data.billing_breakdown_mode === "manual" ? "manual" : "auto",
+          );
+        }
+      } catch {
+        if (!cancelled) setAgencyMode("auto");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const manualMode = agencyMode === "manual";
 
   /** Venta con interés por moneda (sale_price + interés). */
   const salesWithInterestByCurrency = useMemo(() => {
@@ -292,19 +331,20 @@ export default function SummaryCard({
           const costo = fmtCurrency(t.cost_price, currency);
           const margen = fmtCurrency(t.sale_price - t.cost_price, currency);
           const feeTransfer = fmtCurrency(t.transferFeesAmount, currency);
-          const totalComisionNeta = fmtCurrency(
-            t.totalCommissionWithoutVAT - t.transferFeesAmount,
-            currency,
-          );
-          const iva = fmtCurrency(
-            t.sale_price - t.cost_price - t.totalCommissionWithoutVAT,
-            currency,
-          );
+
+          // Chip de "Impuestos": en AUTO = IVA calculado; en MANUAL = other_taxes
+          const chipImpuestos = manualMode
+            ? fmtCurrency(t.other_taxes || 0, currency)
+            : fmtCurrency(
+                t.sale_price - t.cost_price - t.totalCommissionWithoutVAT,
+                currency,
+              );
 
           // Deuda por moneda
           const salesWI = salesWithInterestByCurrency[currency] || 0;
           const paid = paidByCurrency[currency] || 0;
-          const debt = salesWI - paid;
+          const ventaParaDeuda = manualMode ? t.sale_price : salesWI;
+          const debt = ventaParaDeuda - paid;
 
           // Comisión base + ganancia del vendedor (preferimos API, sino fallback)
           const myEarning = sellerEarningFor(currency);
@@ -323,7 +363,10 @@ export default function SummaryCard({
                   <Chip>Venta: {venta}</Chip>
                   <Chip>Costo: {costo}</Chip>
                   <Chip>Ganancia: {margen}</Chip>
-                  <Chip>Impuestos: {iva}</Chip>
+                  <Chip>
+                    {manualMode ? "Impuestos" : "Impuestos (IVA)"}:{" "}
+                    {chipImpuestos}
+                  </Chip>
                   <Chip>Costo transf.: {feeTransfer}</Chip>
                 </div>
               </header>
@@ -332,39 +375,53 @@ export default function SummaryCard({
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 {/* Impuestos */}
                 <Section title="Impuestos">
-                  <Row
-                    label="IVA 21%"
-                    value={fmtCurrency(t.tax_21, currency)}
-                  />
-                  <Row
-                    label="IVA 10,5%"
-                    value={fmtCurrency(t.tax_105, currency)}
-                  />
-                  <Row label="Exento" value={fmtCurrency(t.exempt, currency)} />
-                  <Row
-                    label="Otros"
-                    value={fmtCurrency(t.other_taxes, currency)}
-                  />
+                  {manualMode ? (
+                    <Row
+                      label="Impuestos"
+                      value={fmtCurrency(t.other_taxes || 0, currency)}
+                    />
+                  ) : (
+                    <>
+                      <Row
+                        label="IVA 21%"
+                        value={fmtCurrency(t.tax_21, currency)}
+                      />
+                      <Row
+                        label="IVA 10,5%"
+                        value={fmtCurrency(t.tax_105, currency)}
+                      />
+                      <Row
+                        label="Exento"
+                        value={fmtCurrency(t.exempt, currency)}
+                      />
+                      <Row
+                        label="Otros"
+                        value={fmtCurrency(t.other_taxes, currency)}
+                      />
+                    </>
+                  )}
                 </Section>
 
-                {/* Base imponible */}
-                <Section title="Base imponible">
-                  <Row
-                    label="No computable"
-                    value={fmtCurrency(t.nonComputable, currency)}
-                  />
-                  <Row
-                    label="Gravado 21%"
-                    value={fmtCurrency(t.taxableBase21, currency)}
-                  />
-                  <Row
-                    label="Gravado 10,5%"
-                    value={fmtCurrency(t.taxableBase10_5, currency)}
-                  />
-                </Section>
+                {/* Base imponible (solo AUTO) */}
+                {!manualMode && (
+                  <Section title="Base imponible">
+                    <Row
+                      label="No computable"
+                      value={fmtCurrency(t.nonComputable, currency)}
+                    />
+                    <Row
+                      label="Gravado 21%"
+                      value={fmtCurrency(t.taxableBase21, currency)}
+                    />
+                    <Row
+                      label="Gravado 10,5%"
+                      value={fmtCurrency(t.taxableBase10_5, currency)}
+                    />
+                  </Section>
+                )}
 
-                {/* Tarjeta (solo si hay algo) */}
-                {cardTotal > 0 && (
+                {/* Tarjeta (solo AUTO y si hay valores) */}
+                {!manualMode && cardTotal > 0 && (
                   <Section title="Tarjeta">
                     <Row
                       label="Intereses (total)"
@@ -381,23 +438,25 @@ export default function SummaryCard({
                   </Section>
                 )}
 
-                {/* IVA comisiones */}
-                <Section title="IVA sobre comisiones">
-                  <Row
-                    label="IVA 21%"
-                    value={fmtCurrency(t.vatOnCommission21, currency)}
-                  />
-                  <Row
-                    label="IVA 10,5%"
-                    value={fmtCurrency(t.vatOnCommission10_5, currency)}
-                  />
-                </Section>
+                {/* IVA comisiones (solo AUTO) */}
+                {!manualMode && (
+                  <Section title="IVA sobre comisiones">
+                    <Row
+                      label="IVA 21%"
+                      value={fmtCurrency(t.vatOnCommission21, currency)}
+                    />
+                    <Row
+                      label="IVA 10,5%"
+                      value={fmtCurrency(t.vatOnCommission10_5, currency)}
+                    />
+                  </Section>
+                )}
 
                 {/* Deuda */}
                 <Section title="Deuda del cliente">
                   <Row
-                    label="Venta c/ interés"
-                    value={fmtCurrency(salesWI, currency)}
+                    label={manualMode ? "Venta" : "Venta c/ interés"}
+                    value={fmtCurrency(ventaParaDeuda, currency)}
                   />
                   <Row
                     label="Pagos aplicados"
@@ -411,10 +470,13 @@ export default function SummaryCard({
               <footer className="mt-4 flex justify-between rounded-2xl border border-white/5 bg-white/10 p-3">
                 <div>
                   <p className="text-sm opacity-70">
-                    Total Comisión (Sin Impuestos/ Costos Transferencia)
+                    Total Comisión (Sin Impuestos / Costos Transferencia)
                   </p>
                   <p className="text-lg font-semibold tabular-nums">
-                    {totalComisionNeta}
+                    {fmtCurrency(
+                      t.totalCommissionWithoutVAT - t.transferFeesAmount,
+                      currency,
+                    )}
                   </p>
                 </div>
                 <div>

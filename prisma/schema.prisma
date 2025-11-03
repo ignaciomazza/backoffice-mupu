@@ -43,6 +43,8 @@ model Agency {
   FinanceConfig        FinanceConfig?
   Lead                 Lead[]
   Receipt              Receipt[]
+  ServiceType          ServiceType[]
+  ServiceCalcConfig    ServiceCalcConfig?
 }
 
 // User: renombramos las colecciones para que reflejen la intención
@@ -614,6 +616,37 @@ model ExpenseCategory {
 
   @@unique([id_agency, name])
   @@index([id_agency, enabled])
+}
+
+model ServiceType {
+  id_service_type Int    @id @default(autoincrement())
+  id_agency       Int
+  agency          Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  code    String // slug único por agencia (ej: "aereos-nacional")
+  name    String // nombre visible (ej: "Aéreos Nacional")
+  enabled Boolean @default(true)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([id_agency, code])
+  @@unique([id_agency, name])
+  @@index([id_agency, enabled])
+}
+
+model ServiceCalcConfig {
+  id_config Int    @id @default(autoincrement())
+  id_agency Int    @unique
+  agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  // "auto" para usar BillingBreakdown; "manual" para cargar importes simples
+  billing_breakdown_mode String @default("auto")
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([id_agency])
 }
 
 // ===========================

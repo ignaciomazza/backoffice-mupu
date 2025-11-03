@@ -1,9 +1,16 @@
 // src/components/services/ServiceCard.tsx
 "use client";
 
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Service } from "@/types";
+import { useAuth } from "@/context/AuthContext";
+
+/** Config API */
+type CalcConfigResponse = {
+  billing_breakdown_mode: "auto" | "manual";
+  transfer_fee_pct: number;
+};
 
 /** Campos calculados que pueden venir del backend */
 type ServiceCalcs = Partial<{
@@ -84,6 +91,40 @@ export default function ServiceCard({
   agencyTransferFeePct,
 }: ServiceCardProps) {
   const isExpanded = expandedServiceId === service.id_service;
+  const { token } = useAuth();
+
+  /* ====== leer modo (auto/manual) desde API ====== */
+  const [agencyMode, setAgencyMode] = useState<"auto" | "manual">("auto");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!token) {
+          if (!cancelled) setAgencyMode("auto");
+          return;
+        }
+        const r = await fetch("/api/service-calc-config", {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (!r.ok) throw new Error("fetch failed");
+        const data: CalcConfigResponse = await r.json();
+        if (!cancelled) {
+          setAgencyMode(
+            data.billing_breakdown_mode === "manual" ? "manual" : "auto",
+          );
+        }
+      } catch {
+        if (!cancelled) setAgencyMode("auto");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const manualMode = agencyMode === "manual";
 
   const fmtMoney = useCallback(
     (v?: number) =>
@@ -113,6 +154,15 @@ export default function ServiceCard({
   const toggleExpand = () =>
     setExpandedServiceId((prev) =>
       prev === service.id_service ? null : service.id_service,
+    );
+
+  // ¿Hay datos de tarjeta para mostrar?
+  const hasCard =
+    !manualMode &&
+    Boolean(
+      (service.card_interest && service.card_interest > 0) ||
+        (service.taxableCardInterest && service.taxableCardInterest > 0) ||
+        (service.vatOnCardInterest && service.vatOnCardInterest > 0),
     );
 
   return (
@@ -213,16 +263,24 @@ export default function ServiceCard({
             <Row label="Referencia" value={service.reference || "–"} />
           </Section>
 
+          {/* ===== Impuestos ===== */}
           <Section title="Impuestos">
-            <Row label="IVA 21%" value={fmtMoney(service.tax_21)} />
-            <Row label="IVA 10,5%" value={fmtMoney(service.tax_105)} />
-            <Row label="Exento" value={fmtMoney(service.exempt)} />
-            <Row label="Otros" value={fmtMoney(service.other_taxes)} />
+            {manualMode ? (
+              // En MANUAL: solo mostramos el total de impuestos cargado (other_taxes)
+              <Row label="Impuestos" value={fmtMoney(service.other_taxes)} />
+            ) : (
+              // En AUTO: mostramos el desglose completo
+              <>
+                <Row label="IVA 21%" value={fmtMoney(service.tax_21)} />
+                <Row label="IVA 10,5%" value={fmtMoney(service.tax_105)} />
+                <Row label="Exento" value={fmtMoney(service.exempt)} />
+                <Row label="Otros" value={fmtMoney(service.other_taxes)} />
+              </>
+            )}
           </Section>
 
-          {(service.card_interest ||
-            service.vatOnCardInterest ||
-            service.taxableCardInterest) && (
+          {/* ===== Tarjeta (solo AUTO y si hay valores) ===== */}
+          {hasCard && (
             <Section title="Tarjeta">
               <Row label="Intereses" value={fmtMoney(service.card_interest)} />
               <Row
@@ -236,28 +294,40 @@ export default function ServiceCard({
             </Section>
           )}
 
-          <Section title="Desglose de facturación">
-            <Row
-              label="No computable"
-              value={fmtMoney(service.nonComputable)}
-            />
-            <Row label="Gravado 21%" value={fmtMoney(service.taxableBase21)} />
-            <Row
-              label="Gravado 10,5%"
-              value={fmtMoney(service.taxableBase10_5)}
-            />
-          </Section>
+          {/* ===== Desglose de facturación (solo AUTO) ===== */}
+          {!manualMode && (
+            <Section title="Desglose de facturación">
+              <Row
+                label="No computable"
+                value={fmtMoney(service.nonComputable)}
+              />
+              <Row
+                label="Gravado 21%"
+                value={fmtMoney(service.taxableBase21)}
+              />
+              <Row
+                label="Gravado 10,5%"
+                value={fmtMoney(service.taxableBase10_5)}
+              />
+            </Section>
+          )}
 
-          <Section title="Comisiones">
-            <Row label="Exenta" value={fmtMoney(service.commissionExempt)} />
-            <Row label="21%" value={fmtMoney(service.commission21)} />
-            <Row label="10,5%" value={fmtMoney(service.commission10_5)} />
-            <Row label="IVA 21%" value={fmtMoney(service.vatOnCommission21)} />
-            <Row
-              label="IVA 10,5%"
-              value={fmtMoney(service.vatOnCommission10_5)}
-            />
-          </Section>
+          {/* ===== Comisiones (solo AUTO) ===== */}
+          {!manualMode && (
+            <Section title="Comisiones">
+              <Row label="Exenta" value={fmtMoney(service.commissionExempt)} />
+              <Row label="21%" value={fmtMoney(service.commission21)} />
+              <Row label="10,5%" value={fmtMoney(service.commission10_5)} />
+              <Row
+                label="IVA 21%"
+                value={fmtMoney(service.vatOnCommission21)}
+              />
+              <Row
+                label="IVA 10,5%"
+                value={fmtMoney(service.vatOnCommission10_5)}
+              />
+            </Section>
+          )}
 
           <Section title="Totales">
             <Row
