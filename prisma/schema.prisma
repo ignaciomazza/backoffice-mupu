@@ -131,6 +131,8 @@ model Booking {
   investments         Investment[]    @relation("BookingInvestments")
   OperatorDue         OperatorDue[]
   ClientPayment       ClientPayment[]
+
+  @@index([id_agency, id_booking], name: "agency_booking_idx")
 }
 
 model Service {

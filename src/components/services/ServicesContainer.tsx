@@ -178,9 +178,45 @@ export default function ServicesContainer({
 }: ServicesContainerProps) {
   const router = useRouter();
 
-  // Prev/Next: dejamos explícitamente en null para evitar el barrido de todos los IDs (menos carga a DB)
-  const prevId: number | null = null;
-  const nextId: number | null = null;
+  // ==== Vecinos (prev/next) ====
+  const [neighbors, setNeighbors] = useState<{
+    prevId: number | null;
+    nextId: number | null;
+  }>({
+    prevId: null,
+    nextId: null,
+  });
+
+  useEffect(() => {
+    if (!token || !booking?.id_booking) {
+      setNeighbors({ prevId: null, nextId: null });
+      return;
+    }
+    (async () => {
+      try {
+        const res = await authFetch(
+          `/api/bookings/neighbor?bookingId=${booking.id_booking}`,
+          { cache: "no-store" },
+          token || undefined,
+        );
+        if (!res.ok) {
+          setNeighbors({ prevId: null, nextId: null });
+          return;
+        }
+        const data = await res.json();
+        setNeighbors({
+          prevId: Number.isFinite(Number(data?.prevId))
+            ? Number(data.prevId)
+            : null,
+          nextId: Number.isFinite(Number(data?.nextId))
+            ? Number(data.nextId)
+            : null,
+        });
+      } catch {
+        setNeighbors({ prevId: null, nextId: null });
+      }
+    })();
+  }, [token, booking?.id_booking]);
 
   const [isEditingInvObs, setIsEditingInvObs] = useState(false);
   const [invObsDraft, setInvObsDraft] = useState(
@@ -539,20 +575,24 @@ export default function ServicesContainer({
                 </h1>
               </div>
 
-              {/* Prev / Next (solo roles admin) */}
               {role === "gerente" ||
               role === "administrativo" ||
               role === "desarrollador" ? (
                 <div className="hidden items-center gap-1 md:flex">
                   <button
                     onClick={() =>
-                      prevId && router.push(`/bookings/services/${prevId}`)
+                      neighbors.prevId &&
+                      router.push(`/bookings/services/${neighbors.prevId}`)
                     }
-                    disabled={!prevId}
-                    title={prevId ? `Ir a #${prevId}` : "No hay anterior"}
+                    disabled={!neighbors.prevId}
+                    title={
+                      neighbors.prevId
+                        ? `Ir a #${neighbors.prevId}`
+                        : "No hay anterior"
+                    }
                     aria-label="Anterior"
                     className={`inline-flex h-10 items-center rounded-2xl px-3 text-sm font-light transition ${
-                      prevId
+                      neighbors.prevId
                         ? "text-sky-950/70 hover:bg-white/60 hover:text-sky-950 dark:text-white/70 hover:dark:bg-white/10 hover:dark:text-white"
                         : "cursor-not-allowed text-sky-950/30 dark:text-white/30"
                     }`}
@@ -575,13 +615,18 @@ export default function ServicesContainer({
                   </button>
                   <button
                     onClick={() =>
-                      nextId && router.push(`/bookings/services/${nextId}`)
+                      neighbors.nextId &&
+                      router.push(`/bookings/services/${neighbors.nextId}`)
                     }
-                    disabled={!nextId}
-                    title={nextId ? `Ir a #${nextId}` : "No hay siguiente"}
+                    disabled={!neighbors.nextId}
+                    title={
+                      neighbors.nextId
+                        ? `Ir a #${neighbors.nextId}`
+                        : "No hay siguiente"
+                    }
                     aria-label="Siguiente"
                     className={`inline-flex h-10 items-center rounded-2xl px-3 text-sm font-light transition ${
-                      nextId
+                      neighbors.nextId
                         ? "text-sky-950/70 hover:bg-white/60 hover:text-sky-950 dark:text-white/70 hover:dark:bg-white/10 hover:dark:text-white"
                         : "cursor-not-allowed text-sky-950/30 dark:text-white/30"
                     }`}
