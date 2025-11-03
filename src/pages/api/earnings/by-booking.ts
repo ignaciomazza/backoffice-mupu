@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 
-type TokenPayload = JWTPayload & {
+type TokenPayload = JWTPayload & { 
   id_user?: number;
   userId?: number;
   uid?: number;
