@@ -140,10 +140,12 @@ export default async function handler(
 
     const receiptsMap = new Map<number, Record<string, number>>();
     for (const r of allReceipts) {
-      const cur = (r.amount_currency || "ARS").toUpperCase();
-      const prev = receiptsMap.get(r.bookingId_booking) || {};
+      const bid = r.bookingId_booking;
+      if (bid == null) continue; // evita TS2345
+      const cur = String(r.amount_currency || "ARS").toUpperCase();
+      const prev = receiptsMap.get(bid) || {};
       prev[cur] = (prev[cur] || 0) + (Number(r.amount) || 0);
-      receiptsMap.set(r.bookingId_booking, prev);
+      receiptsMap.set(bid, prev);
     }
 
     const validBookingCurrency = new Set<string>();

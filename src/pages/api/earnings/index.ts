@@ -138,9 +138,12 @@ export default async function handler(
     const saleTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
     services.forEach((svc) => {
       const bid = svc.booking.id_booking;
-      const cur = (svc.currency as "ARS" | "USD") || "ARS";
+      const cur = String(svc.currency || "ARS").toUpperCase();
       const prev = saleTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
-      prev[cur] += svc.sale_price;
+      if (cur === "ARS" || cur === "USD") {
+        const k = cur as "ARS" | "USD";
+        prev[k] += Number(svc.sale_price) || 0;
+      }
       saleTotalsByBooking.set(bid, prev);
     });
 
@@ -151,15 +154,18 @@ export default async function handler(
       },
       select: { bookingId_booking: true, amount: true, amount_currency: true },
     });
+
     const receiptsMap = new Map<number, { ARS: number; USD: number }>();
-    allReceipts.forEach(
-      ({ bookingId_booking: bid, amount, amount_currency }) => {
-        const cur = (amount_currency as "ARS" | "USD") || "ARS";
-        const prev = receiptsMap.get(bid) || { ARS: 0, USD: 0 };
-        prev[cur] += amount;
-        receiptsMap.set(bid, prev);
-      },
-    );
+    for (const r of allReceipts) {
+      const bid = r.bookingId_booking;
+      if (bid == null) continue; // evita TS2345 y casos sin booking
+      const cur = String(r.amount_currency || "ARS").toUpperCase();
+      if (cur !== "ARS" && cur !== "USD") continue;
+      const prev = receiptsMap.get(bid) || { ARS: 0, USD: 0 };
+      const k = cur as "ARS" | "USD";
+      prev[k] += Number(r.amount) || 0;
+      receiptsMap.set(bid, prev);
+    }
 
     // 5) Validar 40% cobrado en la misma moneda
     const validBookingCurrency = new Set<string>();
