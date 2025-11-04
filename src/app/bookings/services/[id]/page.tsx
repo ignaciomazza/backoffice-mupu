@@ -271,7 +271,7 @@ export default function ServicesPage() {
     fetchProfile();
   }, [token]);
 
-  const userRole = (userProfile?.role?.toLowerCase() as Role) || undefined;
+  const userRole = (userProfile?.role?.toLowerCase() as Role) || "";
 
   useEffect(() => {
     if (!id || !token) return;
