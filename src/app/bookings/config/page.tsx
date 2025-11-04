@@ -1,4 +1,3 @@
-// src/app/bookings/config/page.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -47,6 +46,7 @@ function percentToString(p: number): string {
   if (!Number.isFinite(v)) return "0.00";
   return (v * 100).toFixed(2);
 }
+
 function stringToProportion(input: string): number | null {
   // Siempre interpretamos el valor tipeado como PORCENTAJE (ej: "2.40" => 2.4%)
   // y lo convertimos a proporción (0.024).
@@ -60,6 +60,7 @@ function stringToProportion(input: string): number | null {
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
+
 function slugify(input: string): string {
   return input
     .normalize("NFD")
@@ -85,6 +86,7 @@ function useDebounced<T>(value: T, delay = 350): T {
 function Label({ children }: { children: React.ReactNode }) {
   return <label className="mb-1 block text-xs opacity-70">{children}</label>;
 }
+
 function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
@@ -93,6 +95,7 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
     />
   );
 }
+
 function Switch({
   checked,
   onChange,
@@ -379,7 +382,11 @@ export default function BookingsConfigPage() {
         // UPDATE
         const res = await authFetch(
           `/api/service-types/${editingType.id_service_type}`,
-          { method: "PUT", body: JSON.stringify(payload) },
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
           token,
         );
         if (res.status === 403) {
@@ -401,7 +408,11 @@ export default function BookingsConfigPage() {
         // CREATE
         const res = await authFetch(
           "/api/service-types",
-          { method: "POST", body: JSON.stringify(payload) },
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
           token,
         );
         if (res.status === 403) {
@@ -478,7 +489,11 @@ export default function BookingsConfigPage() {
       try {
         const res = await authFetch(
           `/api/service-types/${targetId}`,
-          { method: "PUT", body: JSON.stringify({ enabled: nextVal }) },
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled: nextVal }),
+          },
           token,
         );
         if (!res.ok) {
@@ -527,6 +542,7 @@ export default function BookingsConfigPage() {
         "/api/service-calc-config",
         {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         },
         token,

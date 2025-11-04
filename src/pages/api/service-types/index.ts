@@ -25,9 +25,9 @@ type ServiceTypeDTO = Pick<
 >;
 
 /* =============================
- * Helpers comunes
+ * Auth helpers (robustos)
  * ============================= */
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || "";
 const isProd = process.env.NODE_ENV === "production";
 
 type TokenPayload = JWTPayload & {
@@ -37,57 +37,65 @@ type TokenPayload = JWTPayload & {
   role?: string;
 };
 
-function getTokenFromRequest(req: NextApiRequest): string | null {
-  if (req.cookies?.token) return req.cookies.token;
+function getBearerToken(req: NextApiRequest): string | null {
   const a = req.headers.authorization || "";
-  if (a.startsWith("Bearer ")) return a.slice(7);
+  return a.startsWith("Bearer ") ? a.slice(7) : null;
+}
+function getCookieToken(req: NextApiRequest): string | null {
+  const c = req.cookies as Record<string, string | undefined>;
+  // tu cookie principal primero
+  if (c?.token) return c.token;
+  // fallback por si quedó algo viejo con otro nombre
   for (const k of [
     "session",
     "auth_token",
     "access_token",
     "next-auth.session-token",
   ]) {
-    const v = (req.cookies as Record<string, string | undefined>)?.[k];
-    if (v) return v;
+    if (c?.[k]) return c[k] as string;
   }
   return null;
 }
 
-async function getAuth(req: NextApiRequest) {
-  try {
-    const tok = getTokenFromRequest(req);
-    if (!tok || !JWT_SECRET) return null;
-    const { payload } = await jwtVerify(
-      tok,
-      new TextEncoder().encode(JWT_SECRET),
-    );
-    const p = payload as TokenPayload;
-    const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || undefined;
-    const role = String(p.role ?? "").toLowerCase();
-    if (!id_agency) return null;
-    return { id_agency, role };
-  } catch {
-    return null;
+/**
+ * Verifica candidatos en orden:
+ * 1) Authorization Bearer
+ * 2) Cookie(s)
+ * Si uno falla, prueba el siguiente (evita 401 por cookie vieja).
+ */
+export async function getAuth(req: NextApiRequest) {
+  if (!JWT_SECRET) return null;
+  const candidates = [getBearerToken(req), getCookieToken(req)].filter(
+    Boolean,
+  ) as string[];
+
+  for (const tok of candidates) {
+    try {
+      const { payload } = await jwtVerify(
+        tok,
+        new TextEncoder().encode(JWT_SECRET),
+      );
+      const p = payload as TokenPayload;
+      const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || undefined;
+      const role = String(p.role ?? "").toLowerCase();
+      if (id_agency) return { id_agency, role };
+      // si no hay agency, seguí probando siguiente candidato
+    } catch {
+      // token inválido → probamos el siguiente candidato
+      continue;
+    }
   }
+  return null;
 }
 
-function canWrite(role: string) {
-  return ["gerente", "administrativo", "desarrollador"].includes(role);
+export function canWrite(role: string) {
+  return ["gerente", "administrativo", "desarrollador"].includes(
+    (role || "").toLowerCase(),
+  );
 }
 
-function slugify(input: string): string {
-  return input
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
-
-function sendError(
-  res: NextApiResponse,
+export function sendError(
+  res: import("next").NextApiResponse,
   tag: string,
   e: unknown,
   status = 500,
@@ -98,6 +106,20 @@ function sendError(
     e instanceof Error ? e.message : typeof e === "string" ? e : undefined;
   if (isProd) return res.status(status).json({ error: fallback });
   return res.status(status).json({ error: fallback, detail });
+}
+
+/* =============================
+ * Utils locales
+ * ============================= */
+function slugify(input: string): string {
+  return input
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // quita diacríticos
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
 }
 
 /* ========== Delegates sin any ========== */
