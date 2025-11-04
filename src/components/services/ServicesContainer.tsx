@@ -205,59 +205,59 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   }, []);
 
   /* ================= Vecinos (prev/next) ================= */
-  const [neighbors, setNeighbors] = useState<{
-    prevId: number | null;
-    nextId: number | null;
-  }>({
-    prevId: null,
-    nextId: null,
-  });
+  // const [neighbors, setNeighbors] = useState<{
+  //   prevId: number | null;
+  //   nextId: number | null;
+  // }>({
+  //   prevId: null,
+  //   nextId: null,
+  // });
 
-  useEffect(() => {
-    if (!booking?.id_booking) {
-      setNeighbors({ prevId: null, nextId: null });
-      return;
-    }
+  // useEffect(() => {
+  //   if (!booking?.id_booking) {
+  //     setNeighbors({ prevId: null, nextId: null });
+  //     return;
+  //   }
 
-    const ac = new AbortController();
+  //   const ac = new AbortController();
 
-    (async () => {
-      try {
-        const res = await authFetch(
-          `/api/bookings/neighbor?bookingId=${booking.id_booking}`,
-          { cache: "no-store", signal: ac.signal },
-          token ?? undefined,
-        );
+  //   (async () => {
+  //     try {
+  //       const res = await authFetch(
+  //         `/api/bookings/neighbor?bookingId=${booking.id_booking}`,
+  //         { cache: "no-store", signal: ac.signal },
+  //         token ?? undefined,
+  //       );
 
-        if (!res.ok) {
-          setNeighbors({ prevId: null, nextId: null });
-          return;
-        }
+  //       if (!res.ok) {
+  //         setNeighbors({ prevId: null, nextId: null });
+  //         return;
+  //       }
 
-        const data: unknown = await res.json();
-        const prevId = toFiniteNumber(
-          (data as { prevId?: unknown })?.prevId,
-          NaN,
-        );
-        const nextId = toFiniteNumber(
-          (data as { nextId?: unknown })?.nextId,
-          NaN,
-        );
+  //       const data: unknown = await res.json();
+  //       const prevId = toFiniteNumber(
+  //         (data as { prevId?: unknown })?.prevId,
+  //         NaN,
+  //       );
+  //       const nextId = toFiniteNumber(
+  //         (data as { nextId?: unknown })?.nextId,
+  //         NaN,
+  //       );
 
-        if (!mountedRef.current) return;
-        setNeighbors({
-          prevId: Number.isFinite(prevId) ? prevId : null,
-          nextId: Number.isFinite(nextId) ? nextId : null,
-        });
-      } catch {
-        if (!ac.signal.aborted) {
-          setNeighbors({ prevId: null, nextId: null });
-        }
-      }
-    })();
+  //       if (!mountedRef.current) return;
+  //       setNeighbors({
+  //         prevId: Number.isFinite(prevId) ? prevId : null,
+  //         nextId: Number.isFinite(nextId) ? nextId : null,
+  //       });
+  //     } catch {
+  //       if (!ac.signal.aborted) {
+  //         setNeighbors({ prevId: null, nextId: null });
+  //       }
+  //     }
+  //   })();
 
-    return () => ac.abort();
-  }, [token, booking?.id_booking]);
+  //   return () => ac.abort();
+  // }, [token, booking?.id_booking]);
 
   /* ================= Transfer fee (agencia) ================= */
   const [agencyTransferFeePct, setAgencyTransferFeePct] =
@@ -668,7 +668,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
               </div>
 
               {/* Navegación por vecinos */}
-              {canAdminLike ? (
+              {/* {canAdminLike ? (
                 <div className="hidden items-center gap-1 md:flex">
                   <button
                     onClick={() =>
@@ -741,7 +741,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 </div>
               ) : (
                 <div className="w-24" />
-              )}
+              )} */}
             </div>
           </div>
 
