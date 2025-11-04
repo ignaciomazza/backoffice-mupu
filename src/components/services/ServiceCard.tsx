@@ -1,7 +1,7 @@
 // src/components/services/ServiceCard.tsx
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Service } from "@/types";
 import { useAuth } from "@/context/AuthContext";
@@ -94,39 +94,57 @@ export default function ServiceCard({
   const isExpanded = expandedServiceId === service.id_service;
   const { token } = useAuth();
 
-  /* ====== leer modo (auto/manual) desde API ====== */
+  /* ====== leer modo (auto/manual) desde API — SOLO al expandir ====== */
   const [agencyMode, setAgencyMode] = useState<"auto" | "manual">("auto");
+  const cfgRef = useRef<{ ac: AbortController; id: number } | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    let cancelled = false;
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (cfgRef.current) cfgRef.current.ac.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    // Solo buscamos la config si la card está expandida y tenemos token
+    if (!isExpanded || !token) {
+      setAgencyMode("auto");
+      return;
+    }
+
+    if (cfgRef.current) cfgRef.current.ac.abort();
+    const ac = new AbortController();
+    const id = Date.now();
+    cfgRef.current = { ac, id };
+
+    const isActive = () =>
+      mountedRef.current &&
+      cfgRef.current?.id === id &&
+      !cfgRef.current.ac.signal.aborted;
 
     (async () => {
-      if (!token) {
-        if (!cancelled) setAgencyMode("auto");
-        return;
-      }
       try {
         const r = await authFetch(
           "/api/service-calc-config",
-          { cache: "no-store" },
+          { cache: "no-store", signal: ac.signal },
           token,
         );
         if (!r.ok) throw new Error("fetch failed");
         const data: CalcConfigResponse = await r.json();
-        if (!cancelled) {
+        if (isActive()) {
           setAgencyMode(
             data.billing_breakdown_mode === "manual" ? "manual" : "auto",
           );
         }
       } catch {
-        if (!cancelled) setAgencyMode("auto");
+        if (isActive()) setAgencyMode("auto");
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+    return () => ac.abort();
+  }, [isExpanded, token]);
 
   const manualMode = agencyMode === "manual";
 
@@ -134,8 +152,8 @@ export default function ServiceCard({
     (v?: number) =>
       new Intl.NumberFormat("es-AR", {
         style: "currency",
-        currency: service.currency,
-      }).format(v ?? 0),
+        currency: (service.currency || "ARS").toUpperCase(),
+      }).format(Number.isFinite(v ?? 0) ? (v as number) : 0),
     [service.currency],
   );
 
@@ -147,7 +165,8 @@ export default function ServiceCard({
   const feeAmount =
     service.transfer_fee_amount != null
       ? Number(service.transfer_fee_amount)
-      : Number(service.sale_price || 0) * feePct;
+      : Number(service.sale_price || 0) *
+        (Number.isFinite(feePct) ? feePct : 0);
 
   const canEditOrDelete =
     status === "Abierta" ||
@@ -270,10 +289,8 @@ export default function ServiceCard({
           {/* ===== Impuestos ===== */}
           <Section title="Impuestos">
             {manualMode ? (
-              // En MANUAL: solo mostramos el total de impuestos cargado (other_taxes)
               <Row label="Impuestos" value={fmtMoney(service.other_taxes)} />
             ) : (
-              // En AUTO: mostramos el desglose completo
               <>
                 <Row label="IVA 21%" value={fmtMoney(service.tax_21)} />
                 <Row label="IVA 10,5%" value={fmtMoney(service.tax_105)} />
@@ -335,7 +352,7 @@ export default function ServiceCard({
 
           <Section title="Totales">
             <Row
-              label={`Costo por transferencia · ${(feePct * 100).toFixed(2)}%`}
+              label={`Costo por transferencia · ${(Number(feePct || 0) * 100).toFixed(2)}%`}
               value={fmtMoney(feeAmount)}
             />
             <Row

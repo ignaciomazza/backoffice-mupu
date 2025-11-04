@@ -1,7 +1,7 @@
 // src/components/client-payments/ClientPaymentForm.tsx
 "use client";
 import { motion } from "framer-motion";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import type { Booking, Client } from "@/types";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
@@ -11,10 +11,40 @@ import ClientPicker from "@/components/clients/ClientPicker";
 type Props = {
   token: string | null;
   booking: Booking;
-  onCreated?: () => void; // para refrescar listado si querés
+  onCreated?: () => void;
 };
 
 type AmountMode = "total" | "per_equal" | "per_custom";
+
+/* ===== helpers de moneda robustos ===== */
+function isValidCurrencyCode(code: string): boolean {
+  const c = (code || "").trim().toUpperCase();
+  if (!c) return false;
+  try {
+    new Intl.NumberFormat("es-AR", { style: "currency", currency: c }).format(
+      1,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+function normalizeCurrencyCode(raw: string): string {
+  const s = (raw || "").trim().toUpperCase();
+  if (!s) return "ARS";
+  const maps: Record<string, string> = {
+    U$D: "USD",
+    U$S: "USD",
+    US$: "USD",
+    USD$: "USD",
+    AR$: "ARS",
+    $: "ARS",
+  };
+  if (maps[s]) return maps[s];
+  const m = s.match(/[A-Z]{3}/);
+  const code = m ? m[0] : s;
+  return isValidCurrencyCode(code) ? code : "ARS";
+}
 
 export default function ClientPaymentForm({
   token,
@@ -23,7 +53,7 @@ export default function ClientPaymentForm({
 }: Props) {
   const [isFormVisible, setIsFormVisible] = useState(false);
 
-  // Cliente que paga (sin restricción)
+  // Cliente que paga (prefill: titular al abrir)
   const [payerClientId, setPayerClientId] = useState<number | null>(null);
 
   // Cantidad de pagos
@@ -31,18 +61,26 @@ export default function ClientPaymentForm({
 
   // Modo de importes
   const [amountMode, setAmountMode] = useState<AmountMode>("total");
-  const [amountInput, setAmountInput] = useState<string>(""); // total o por cuota igual
-  const [amountsArray, setAmountsArray] = useState<string[]>([""]); // por cuota personalizado
+  const [amountInput, setAmountInput] = useState<string>("");
+  const [amountsArray, setAmountsArray] = useState<string[]>([""]);
   const [currency, setCurrency] = useState<string>("ARS");
 
   // Vencimientos
-  const [dueDatesArray, setDueDatesArray] = useState<string[]>([""]);
-  const [seedDate, setSeedDate] = useState<string>(() => {
+  const mkTodayIso = () => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     return d.toISOString().slice(0, 10);
-  });
+  };
+  const [dueDatesArray, setDueDatesArray] = useState<string[]>([""]);
+  const [seedDate, setSeedDate] = useState<string>(mkTodayIso());
   const [frequencyDays, setFrequencyDays] = useState<number>(30);
+
+  // Prefill de titular cuando se abre el form
+  useEffect(() => {
+    if (isFormVisible && !payerClientId && booking?.titular?.id_client) {
+      setPayerClientId(booking.titular.id_client);
+    }
+  }, [isFormVisible, payerClientId, booking?.titular?.id_client]);
 
   // Mantener arrays en sync con 'count'
   useEffect(() => {
@@ -56,21 +94,23 @@ export default function ClientPaymentForm({
     setDueDatesArray((prev) => syncLen(prev, count));
   }, [count]);
 
-  // Helpers
+  // UI
   const inputBase =
     "w-full appearance-none bg-white/50 rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
 
-  const formatMoney = (n: number, cur = "ARS") => {
+  const formatMoney = useCallback((n: number, cur = "ARS") => {
+    const code = normalizeCurrencyCode(cur);
+    const v = Number.isFinite(n) ? n : 0;
     try {
       return new Intl.NumberFormat("es-AR", {
         style: "currency",
-        currency: cur,
+        currency: code,
         minimumFractionDigits: 2,
-      }).format(n);
+      }).format(v);
     } catch {
-      return `${n.toFixed(2)} ${cur}`;
+      return `${v.toFixed(2)} ${code}`;
     }
-  };
+  }, []);
 
   const sumCustom = (arr: string[]) =>
     arr.reduce((acc, v) => {
@@ -79,29 +119,30 @@ export default function ClientPaymentForm({
     }, 0);
 
   const previewAmount = useMemo(() => {
+    const code = normalizeCurrencyCode(currency);
     if (amountMode === "total") {
       const n = Number(amountInput);
       if (!Number.isFinite(n) || n <= 0) return "";
-      return formatMoney(n, currency);
+      return formatMoney(n, code);
     }
     if (amountMode === "per_equal") {
       const n = Number(amountInput);
       if (!Number.isFinite(n) || n <= 0) return "";
-      return `${formatMoney(n, currency)} × ${count} = ${formatMoney(n * count, currency)}`;
+      return `${formatMoney(n, code)} × ${count} = ${formatMoney(n * count, code)}`;
     }
-    // per_custom
     const total = sumCustom(amountsArray);
     if (total <= 0) return "";
     return `${amountsArray
-      .map((v, i) => `N°${i + 1}: ${formatMoney(Number(v || 0), currency)}`)
-      .join(" + ")} = ${formatMoney(total, currency)}`;
-  }, [amountMode, amountInput, currency, count, amountsArray]);
+      .map((v, i) => `N°${i + 1}: ${formatMoney(Number(v || 0), code)}`)
+      .join(" + ")} = ${formatMoney(total, code)}`;
+  }, [amountMode, amountInput, currency, count, amountsArray, formatMoney]);
 
   const addDays = (iso: string, days: number) => {
-    const d = new Date(iso + "T00:00:00");
+    const d = new Date(`${iso}T00:00:00`);
     d.setDate(d.getDate() + days);
     return d.toISOString().slice(0, 10);
   };
+
   const autofillDueDates = () => {
     if (!seedDate || !Number.isFinite(frequencyDays) || frequencyDays <= 0) {
       toast.error("Completá la fecha inicial y una frecuencia válida (> 0).");
@@ -122,16 +163,27 @@ export default function ClientPaymentForm({
     setAmountsArray([""]);
     setCurrency("ARS");
     setDueDatesArray([""]);
-    setSeedDate(new Date().toISOString().slice(0, 10));
+    setSeedDate(mkTodayIso());
     setFrequencyDays(30);
   };
 
   const [loading, setLoading] = useState(false);
 
-  // Submit
+  // Control de concurrencia submit
+  const submitRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    return () => {
+      if (submitRef.current) submitRef.current.abort();
+    };
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!token) return;
+    if (!token) {
+      toast.error("Sesión expirada. Volvé a iniciar sesión.");
+      return;
+    }
+    if (loading) return;
 
     // Validaciones básicas
     if (!payerClientId) {
@@ -142,8 +194,9 @@ export default function ClientPaymentForm({
       toast.error("La cantidad de pagos debe ser al menos 1.");
       return;
     }
-    if (!currency) {
-      toast.error("Seleccioná la moneda.");
+    const cur = normalizeCurrencyCode(currency);
+    if (!isValidCurrencyCode(cur)) {
+      toast.error("Moneda inválida.");
       return;
     }
 
@@ -167,7 +220,6 @@ export default function ClientPaymentForm({
       amountTotal = n * count;
       perInstallmentAmounts = Array.from({ length: count }, () => n);
     } else {
-      // per_custom
       const parsed = amountsArray.map((v) => Number(v));
       if (parsed.some((v) => !Number.isFinite(v) || v <= 0)) {
         toast.error(
@@ -185,39 +237,47 @@ export default function ClientPaymentForm({
       amountTotal = parsed.reduce((a, b) => a + b, 0);
     }
 
-    // Vencimientos: requeridos uno por cuota
+    // Vencimientos
     const cleanedDueDates = dueDatesArray.map((d) => (d || "").trim());
     if (cleanedDueDates.length !== count || cleanedDueDates.some((d) => !d)) {
-      toast.error(
-        "Completá la fecha de vencimiento para cada cuota (todas son obligatorias).",
-      );
+      toast.error("Completá la fecha de vencimiento para cada cuota.");
       return;
     }
 
+    // Enviar
     setLoading(true);
+    if (submitRef.current) submitRef.current.abort();
+    const ac = new AbortController();
+    submitRef.current = ac;
+
     try {
       const payload: Record<string, unknown> = {
         bookingId: booking.id_booking,
         clientId: Number(payerClientId),
         count,
         amount: amountTotal,
-        currency: currency.toUpperCase(),
-        dueDates: cleanedDueDates, // 👈 NUEVO
+        currency: cur,
+        dueDates: cleanedDueDates,
         ...(perInstallmentAmounts ? { amounts: perInstallmentAmounts } : {}),
       };
 
       const res = await authFetch(
         "/api/client-payments",
-        { method: "POST", body: JSON.stringify(payload) },
+        { method: "POST", body: JSON.stringify(payload), signal: ac.signal },
         token,
       );
 
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        const msg =
-          (data as { error?: string; message?: string }).error ||
-          (data as { error?: string; message?: string }).message ||
-          "No se pudo crear el/los pago(s) del cliente.";
+        let msg = "No se pudo crear el/los pago(s) del cliente.";
+        try {
+          const data = await res.json();
+          const maybe =
+            (data as { error?: string; message?: string }).error ||
+            (data as { error?: string; message?: string }).message;
+          if (maybe) msg = maybe;
+        } catch {
+          /* ignore */
+        }
         throw new Error(msg);
       }
 
@@ -225,6 +285,7 @@ export default function ClientPaymentForm({
       onCreated?.();
       resetForm();
     } catch (err) {
+      if ((err as DOMException)?.name === "AbortError") return;
       const msg =
         err instanceof Error ? err.message : "Error creando pagos del cliente.";
       toast.error(msg);
@@ -533,7 +594,8 @@ export default function ClientPaymentForm({
           <div className="pt-2">
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !token}
+              aria-busy={loading}
               className={`rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white ${
                 loading ? "opacity-60" : ""
               }`}

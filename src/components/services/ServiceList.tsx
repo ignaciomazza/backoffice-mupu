@@ -1,6 +1,6 @@
 // src/components/services/ServiceList.tsx
 "use client";
-import React, { useMemo } from "react";
+import React, { useMemo, useCallback } from "react";
 import ServiceCard from "./ServiceCard";
 import SummaryCard from "./SummaryCard";
 import { Service, Receipt } from "@/types";
@@ -84,7 +84,7 @@ interface ServiceListProps {
 
 export default function ServiceList({
   services,
-  receipts, // <-- nuevo
+  receipts,
   expandedServiceId,
   setExpandedServiceId,
   startEditingService,
@@ -93,16 +93,22 @@ export default function ServiceList({
   status,
   agencyTransferFeePct,
 }: ServiceListProps) {
-  const formatDate = (dateString?: string) =>
-    dateString
-      ? new Date(dateString).toLocaleDateString("es-AR", { timeZone: "UTC" })
-      : "N/A";
+  const formatDate = useCallback(
+    (dateString?: string) =>
+      dateString
+        ? new Date(dateString).toLocaleDateString("es-AR", { timeZone: "UTC" })
+        : "N/A",
+    [],
+  );
 
-  const fmtCurrency = (value: number, currency: string) =>
-    new Intl.NumberFormat("es-AR", {
-      style: "currency",
-      currency,
-    }).format(value || 0);
+  const fmtCurrency = useCallback(
+    (value: number, currency: string) =>
+      new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: currency?.toUpperCase() || "ARS",
+      }).format(Number.isFinite(value) ? value : 0),
+    [],
+  );
 
   // Agrupar y sumar totales por moneda (incluye fallback card_interest -> cardInterestRaw)
   const totalsByCurrency = useMemo(() => {
@@ -158,7 +164,7 @@ export default function ServiceList({
       const feeAmount =
         svc.transfer_fee_amount != null
           ? Number(svc.transfer_fee_amount)
-          : Number(svc.sale_price || 0) * pct;
+          : Number(svc.sale_price || 0) * (Number.isFinite(pct) ? pct : 0);
 
       if (Number.isFinite(feeAmount)) t.transferFeesAmount += feeAmount;
 
@@ -193,7 +199,7 @@ export default function ServiceList({
           totalsByCurrency={totalsByCurrency}
           fmtCurrency={fmtCurrency}
           services={services}
-          receipts={receipts} // <-- NUEVO
+          receipts={receipts}
         />
       </div>
     </div>

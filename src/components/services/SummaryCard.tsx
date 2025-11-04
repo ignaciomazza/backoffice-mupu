@@ -1,6 +1,6 @@
 // src/components/services/SummaryCard.tsx
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Service, Receipt } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
@@ -121,7 +121,7 @@ const upperKeys = (obj: Record<string, number>) =>
     Object.entries(obj || {}).map(([k, v]) => [String(k).toUpperCase(), v]),
   );
 
-/* ---------- helpers de moneda (robustos, sin utils/currency.ts) ---------- */
+/* ---------- helpers de moneda ---------- */
 function isValidCurrencyCode(code: string): boolean {
   const c = (code || "").trim().toUpperCase();
   if (!c) return false;
@@ -148,7 +148,6 @@ function normalizeCurrencyCode(raw: string): string {
     $: "ARS",
   };
   if (maps[s]) return maps[s];
-  // extrae primer match de 3 letras
   const m = s.match(/[A-Z]{3}/);
   const code = m ? m[0] : s;
   return isValidCurrencyCode(code) ? code : "ARS";
@@ -178,30 +177,66 @@ export default function SummaryCard({
   const labels: Record<string, string> = { ARS: "Pesos", USD: "Dólares" };
   const { token } = useAuth();
 
-  /* ====== Config de cálculo y costo de transferencia ====== */
+  /* ====== Config de cálculo y costo de transferencia + earnings ====== */
   const [agencyMode, setAgencyMode] = useState<"auto" | "manual">("auto");
   const [transferPct, setTransferPct] = useState<number>(0.024); // fallback 2.4%
+  const [ownerPct, setOwnerPct] = useState<number>(100);
+  const [apiCommissionBaseByCurrency, setApiCommissionBaseByCurrency] =
+    useState<Record<string, number>>({});
+  const [apiSellerEarningsByCurrency, setApiSellerEarningsByCurrency] =
+    useState<Record<string, number>>({});
+
+  const bookingId = useMemo(
+    () => pickBookingId(services as ServiceWithCalcs[]),
+    [services],
+  );
+
+  // Pipeline SECUENCIAL: (1) service-calc-config -> (2) earnings/by-booking
+  const pipelineRef = useRef<{ ac: AbortController; id: number } | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    let cancelled = false;
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (pipelineRef.current) pipelineRef.current.ac.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    // Si no hay token, reseteamos a defaults y salimos
+    if (!token) {
+      setAgencyMode("auto");
+      setTransferPct(0.024);
+      setOwnerPct(100);
+      setApiCommissionBaseByCurrency({});
+      setApiSellerEarningsByCurrency({});
+      return;
+    }
+
+    // Cancelar pipeline previo
+    if (pipelineRef.current) pipelineRef.current.ac.abort();
+
+    const ac = new AbortController();
+    const id = Date.now();
+    pipelineRef.current = { ac, id };
+
+    const isActive = () =>
+      mountedRef.current &&
+      pipelineRef.current?.id === id &&
+      !pipelineRef.current.ac.signal.aborted;
 
     (async () => {
-      if (!token) {
-        if (!cancelled) {
-          setAgencyMode("auto");
-          setTransferPct(0.024);
-        }
-        return;
-      }
+      // (1) Leer config de cálculo
       try {
         const r = await authFetch(
           "/api/service-calc-config",
-          { cache: "no-store" },
+          { cache: "no-store", signal: ac.signal },
           token,
         );
         if (!r.ok) throw new Error("fetch failed");
         const data: CalcConfigResponse = await r.json();
-        if (!cancelled) {
+        if (isActive()) {
           setAgencyMode(
             data.billing_breakdown_mode === "manual" ? "manual" : "auto",
           );
@@ -209,17 +244,51 @@ export default function SummaryCard({
           setTransferPct(Number.isFinite(pct) ? pct : 0.024);
         }
       } catch {
-        if (!cancelled) {
+        if (isActive()) {
           setAgencyMode("auto");
           setTransferPct(0.024);
         }
       }
+
+      // (2) Earnings por booking (si hay bookingId)
+      if (!isActive()) return;
+      if (!bookingId) {
+        if (isActive()) {
+          setOwnerPct(100);
+          setApiCommissionBaseByCurrency({});
+          setApiSellerEarningsByCurrency({});
+        }
+        return;
+      }
+
+      try {
+        const r = await authFetch(
+          `/api/earnings/by-booking?bookingId=${bookingId}`,
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+        if (!r.ok) throw new Error("fetch failed");
+        const json: EarningsByBookingResponse = await r.json();
+        if (isActive()) {
+          setOwnerPct(Number.isFinite(json.ownerPct) ? json.ownerPct : 100);
+          setApiCommissionBaseByCurrency(
+            upperKeys(json.commissionBaseByCurrency || {}),
+          );
+          setApiSellerEarningsByCurrency(
+            upperKeys(json.sellerEarningsByCurrency || {}),
+          );
+        }
+      } catch {
+        if (isActive()) {
+          setOwnerPct(100);
+          setApiCommissionBaseByCurrency({});
+          setApiSellerEarningsByCurrency({});
+        }
+      }
     })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+    return () => ac.abort();
+  }, [token, bookingId]);
 
   const manualMode = agencyMode === "manual";
 
@@ -294,61 +363,6 @@ export default function SummaryCard({
       return acc;
     }, {});
   }, [services, transferPct]);
-
-  /** ====== Traer % y earnings desde /api/earnings/by-booking ====== */
-  const bookingId = useMemo(
-    () => pickBookingId(services as ServiceWithCalcs[]),
-    [services],
-  );
-
-  const [ownerPct, setOwnerPct] = useState<number>(100);
-  const [apiCommissionBaseByCurrency, setApiCommissionBaseByCurrency] =
-    useState<Record<string, number>>({});
-  const [apiSellerEarningsByCurrency, setApiSellerEarningsByCurrency] =
-    useState<Record<string, number>>({});
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      if (!token || !bookingId) {
-        if (!cancelled) {
-          setOwnerPct(100);
-          setApiCommissionBaseByCurrency({});
-          setApiSellerEarningsByCurrency({});
-        }
-        return;
-      }
-      try {
-        const r = await authFetch(
-          `/api/earnings/by-booking?bookingId=${bookingId}`,
-          { cache: "no-store" },
-          token,
-        );
-        if (!r.ok) throw new Error("fetch failed");
-        const json: EarningsByBookingResponse = await r.json();
-
-        if (!cancelled) {
-          setOwnerPct(Number.isFinite(json.ownerPct) ? json.ownerPct : 100);
-          setApiCommissionBaseByCurrency(
-            upperKeys(json.commissionBaseByCurrency || {}),
-          );
-          setApiSellerEarningsByCurrency(
-            upperKeys(json.sellerEarningsByCurrency || {}),
-          );
-        }
-      } catch {
-        if (!cancelled) {
-          setOwnerPct(100);
-          setApiCommissionBaseByCurrency({});
-          setApiSellerEarningsByCurrency({});
-        }
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [token, bookingId]);
 
   /** ====== Derivados para UI ====== */
   const commissionBaseFor = (cur: string) =>

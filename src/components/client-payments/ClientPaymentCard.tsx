@@ -1,8 +1,11 @@
+// src/components/client-payments/ClientPaymentCard.tsx
 "use client";
 import { useCallback, useMemo, useState } from "react";
 import { Booking, ClientPayment } from "@/types";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
+import { useAuth } from "@/context/AuthContext";
+import { authFetch } from "@/utils/authFetch";
 
 interface Props {
   payment: ClientPayment;
@@ -18,6 +21,7 @@ export default function ClientPaymentCard({
   onPaymentDeleted,
 }: Props) {
   const [loadingDelete, setLoadingDelete] = useState(false);
+  const { token } = useAuth();
 
   const fmtMoney = useCallback((v?: number | string | null, curr?: string) => {
     const n =
@@ -39,9 +43,7 @@ export default function ClientPaymentCard({
     if (!d) return "–";
     try {
       const dt = typeof d === "string" ? new Date(d) : d;
-      return dt.toLocaleDateString("es-AR", {
-        timeZone: "UTC",
-      });
+      return dt.toLocaleDateString("es-AR", { timeZone: "UTC" });
     } catch {
       return "–";
     }
@@ -82,18 +84,45 @@ export default function ClientPaymentCard({
     );
   }
 
+  const canDelete =
+    role === "administrativo" || role === "desarrollador" || role === "gerente";
+
   const deletePayment = async () => {
+    if (!canDelete) return;
+    if (!token) {
+      toast.error("Sesión expirada. Volvé a iniciar sesión.");
+      return;
+    }
     if (!confirm("¿Seguro querés eliminar este pago?")) return;
+
     setLoadingDelete(true);
     try {
-      const res = await fetch(`/api/client-payments/${payment.id_payment}`, {
-        method: "DELETE",
-      });
-      if (!res.ok && res.status !== 204) throw new Error();
+      const res = await authFetch(
+        `/api/client-payments/${payment.id_payment}`,
+        { method: "DELETE" },
+        token,
+      );
+
+      if (!res.ok && res.status !== 204) {
+        let msg = "No se pudo eliminar el pago.";
+        try {
+          const data = await res.json();
+          const maybe =
+            (data as { error?: string; message?: string }).error ||
+            (data as { error?: string; message?: string }).message;
+          if (maybe) msg = maybe;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg);
+      }
+
       toast.success("Pago eliminado.");
       onPaymentDeleted?.(payment.id_payment);
-    } catch {
-      toast.error("No se pudo eliminar el pago.");
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "No se pudo eliminar el pago.";
+      toast.error(msg);
     } finally {
       setLoadingDelete(false);
     }
@@ -147,9 +176,7 @@ export default function ClientPaymentCard({
 
       {/* Footer */}
       <footer className="mt-6 flex justify-end">
-        {(role === "administrativo" ||
-          role === "desarrollador" ||
-          role === "gerente") && (
+        {canDelete && (
           <button
             onClick={deletePayment}
             disabled={loadingDelete}

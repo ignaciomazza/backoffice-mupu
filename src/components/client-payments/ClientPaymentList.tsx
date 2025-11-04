@@ -1,3 +1,4 @@
+// src/components/client-payments/ClientPaymentList.tsx
 import { Booking, ClientPayment } from "@/types";
 import Spinner from "@/components/Spinner";
 import ClientPaymentCard from "./ClientPaymentCard";
@@ -7,7 +8,7 @@ interface Props {
   booking: Booking;
   role: string;
   onPaymentDeleted?: (id: number) => void;
-  loading?: boolean; // nuevo flag
+  loading?: boolean;
 }
 
 export default function ClientPaymentList({

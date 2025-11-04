@@ -1,8 +1,7 @@
 // src/app/bookings/services/[id]/page.tsx
-
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -25,11 +24,6 @@ import { CreditNoteFormData } from "@/components/credite-notes/CreditNoteForm";
 import { authFetch } from "@/utils/authFetch";
 import Spinner from "@/components/Spinner";
 
-interface UserProfile {
-  role: string;
-  id_agency: number;
-}
-
 type Role =
   | "desarrollador"
   | "gerente"
@@ -49,7 +43,7 @@ export default function ServicesPage() {
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [creditNotes, setCreditNotes] = useState<CreditNoteWithItems[]>([]);
 
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [role, setRole] = useState<Role | "">("");
   const { token } = useAuth();
 
   const [invoiceFormData, setInvoiceFormData] = useState<InvoiceFormData>({
@@ -106,6 +100,7 @@ export default function ServicesPage() {
       exchangeRate: "",
       invoiceDate: "",
     });
+
   const [isCreditNoteFormVisible, setIsCreditNoteFormVisible] = useState(false);
   const [isCreditNoteSubmitting, setIsCreditNoteSubmitting] = useState(false);
 
@@ -118,190 +113,223 @@ export default function ServicesPage() {
   const [isInvoiceFormVisible, setIsInvoiceFormVisible] = useState(false);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
 
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const handleBillingUpdate = useCallback((data: BillingData) => {
     setBillingData(data);
   }, []);
 
-  const fetchBooking = useCallback(async () => {
-    if (!id || !token) return;
-    try {
-      setLoading(true);
-      const res = await authFetch(
-        `/api/bookings/${id}`,
-        { cache: "no-store" },
-        token || undefined,
-      );
-      if (!res.ok) throw new Error("Error al obtener la reserva");
-      const data = await res.json();
-      setBooking(data);
-    } catch {
-      toast.error("Error al obtener la reserva.");
-    } finally {
-      setLoading(false);
-    }
-  }, [id, token]);
+  /* ============================ LOADERS ============================ */
 
-  const fetchServices = useCallback(async () => {
-    if (!id || !token) return;
-    try {
+  const fetchServices = useCallback(
+    async (bookingId: string, signal?: AbortSignal) => {
+      if (!token) return [];
       const res = await authFetch(
-        `/api/services?bookingId=${id}`,
-        { cache: "no-store" },
-        token || undefined,
+        `/api/services?bookingId=${bookingId}`,
+        { cache: "no-store", signal },
+        token,
       );
       if (!res.ok) throw new Error("Error al obtener los servicios");
       const data = await res.json();
-      setServices(data.services);
-    } catch {
-      toast.error("Error al obtener los servicios.");
-    }
-  }, [id, token]);
+      const items: Service[] = Array.isArray(data?.services)
+        ? (data.services as Service[])
+        : [];
+      if (mountedRef.current) setServices(items);
+      return items;
+    },
+    [token],
+  );
 
-  const fetchInvoices = useCallback(async () => {
-    if (!id || !token) return;
-    try {
+  const fetchInvoices = useCallback(
+    async (bookingId: string, signal?: AbortSignal) => {
+      if (!token) return [];
       const res = await authFetch(
-        `/api/invoices?bookingId=${id}`,
-        { cache: "no-store" },
-        token || undefined,
+        `/api/invoices?bookingId=${bookingId}`,
+        { cache: "no-store", signal },
+        token,
       );
       if (!res.ok) {
         if (res.status === 404 || res.status === 405) {
-          setInvoices([]);
-          return;
+          if (mountedRef.current) setInvoices([]);
+          return [];
         }
         throw new Error("Error al obtener las facturas");
       }
       const data = await res.json();
-      setInvoices(data.invoices || []);
-    } catch {
-      setInvoices([]);
-    }
-  }, [id, token]);
+      const items: Invoice[] = Array.isArray(data?.invoices)
+        ? (data.invoices as Invoice[])
+        : [];
+      if (mountedRef.current) setInvoices(items);
+      return items;
+    },
+    [token],
+  );
 
-  const fetchReceipts = useCallback(async () => {
-    if (!id || !token) return;
-    try {
+  const fetchReceipts = useCallback(
+    async (bookingId: string, signal?: AbortSignal) => {
+      if (!token) return [];
       const res = await authFetch(
-        `/api/receipts?bookingId=${id}`,
-        { cache: "no-store" },
-        token || undefined,
+        `/api/receipts?bookingId=${bookingId}`,
+        { cache: "no-store", signal },
+        token,
       );
       if (!res.ok) {
         if (res.status === 404 || res.status === 405) {
-          setReceipts([]);
-          return;
+          if (mountedRef.current) setReceipts([]);
+          return [];
         }
         throw new Error("Error al obtener los recibos");
       }
       const data = await res.json();
-      setReceipts(data.receipts || []);
-    } catch {
-      setReceipts([]);
-    }
-  }, [id, token]);
+      const items: Receipt[] = Array.isArray(data?.receipts)
+        ? (data.receipts as Receipt[])
+        : [];
+      if (mountedRef.current) setReceipts(items);
+      return items;
+    },
+    [token],
+  );
 
-  const fetchCreditNotes = useCallback(async () => {
-    if (!invoices.length || !token) return;
-    try {
-      const all = await Promise.all(
-        invoices.map((inv) =>
-          authFetch(
-            `/api/credit-notes?invoiceId=${inv.id_invoice}`,
-            { cache: "no-store" },
-            token || undefined,
-          )
-            .then((r) => (r.ok ? r.json() : { creditNotes: [] }))
-            .then((data) => (data.creditNotes as CreditNoteWithItems[]) || []),
-        ),
+  const fetchCreditNotes = useCallback(
+    async (invs: Invoice[], signal?: AbortSignal) => {
+      if (!token || invs.length === 0) {
+        if (mountedRef.current) setCreditNotes([]);
+        return [];
+      }
+      try {
+        const all = await Promise.all(
+          invs.map(async (inv) => {
+            const r = await authFetch(
+              `/api/credit-notes?invoiceId=${inv.id_invoice}`,
+              { cache: "no-store", signal },
+              token,
+            );
+            if (!r.ok) return [];
+            const j = await r.json();
+            return (
+              Array.isArray(j?.creditNotes) ? j.creditNotes : []
+            ) as CreditNoteWithItems[];
+          }),
+        );
+        const flat = all.flat();
+        if (mountedRef.current) setCreditNotes(flat);
+        return flat;
+      } catch {
+        if (mountedRef.current) setCreditNotes([]);
+        return [];
+      }
+    },
+    [token],
+  );
+
+  const fetchOperatorsByAgency = useCallback(
+    async (agencyId: number, signal?: AbortSignal) => {
+      if (!token || !agencyId) return [];
+      const res = await authFetch(
+        `/api/operators?agencyId=${agencyId}`,
+        { cache: "no-store", signal },
+        token,
       );
-      setCreditNotes(all.flat());
-    } catch {
-      setCreditNotes([]);
-    }
-  }, [invoices, token]);
+      if (!res.ok) throw new Error("Error al obtener operadores");
+      const data = (await res.json()) as Operator[];
+      if (mountedRef.current) setOperators(data);
+      return data;
+    },
+    [token],
+  );
+
+  // Carga secuencial: booking → services → (invoices → creditNotes) → receipts → operators → role (diferido)
+  useEffect(() => {
+    if (!id || !token) return;
+    const ac = new AbortController();
+
+    (async () => {
+      try {
+        setLoading(true);
+
+        // 1) Booking
+        const res = await authFetch(
+          `/api/bookings/${id}`,
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+        if (!res.ok) throw new Error("Error al obtener la reserva");
+        const bk: Booking = await res.json();
+        if (!mountedRef.current) return;
+        setBooking(bk);
+
+        // 2) Services
+        await fetchServices(id, ac.signal);
+
+        // 3) Invoices → Credit notes
+        const invs = await fetchInvoices(id, ac.signal);
+        await fetchCreditNotes(invs, ac.signal);
+
+        // 4) Receipts
+        await fetchReceipts(id, ac.signal);
+
+        // 5) Operators por agencia (evitamos /api/user/profile)
+        if (bk?.agency?.id_agency) {
+          await fetchOperatorsByAgency(bk.agency.id_agency, ac.signal);
+        }
+      } catch (e) {
+        const msg =
+          e instanceof Error ? e.message : "No se pudieron cargar los datos.";
+        toast.error(msg);
+      } finally {
+        if (mountedRef.current) setLoading(false);
+      }
+    })();
+
+    return () => ac.abort();
+  }, [
+    id,
+    token,
+    fetchServices,
+    fetchInvoices,
+    fetchReceipts,
+    fetchCreditNotes,
+    fetchOperatorsByAgency,
+  ]);
+
+  // Rol: consulta liviana y diferida para no bloquear el pipeline
+  useEffect(() => {
+    if (!token) return;
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const r = await authFetch(
+          "/api/role",
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+        if (r.ok) {
+          const data = await r.json();
+          const value = String(data?.role || "").toLowerCase() as Role | "";
+          if (mountedRef.current) setRole(value);
+        }
+      } catch {
+        // silencioso, la UI funciona con role=""
+      }
+    })();
+    return () => ac.abort();
+  }, [token]);
+
+  /* ============================ HANDLERS ============================ */
 
   const handleReceiptCreated = () => {
-    fetchReceipts();
+    if (id) void fetchReceipts(id);
   };
-
-  const fetchOperators = useCallback(async () => {
-    if (!token || !userProfile) return;
-
-    const loadOperators = async () => {
-      try {
-        const res = await authFetch(
-          `/api/operators?agencyId=${userProfile.id_agency}`,
-          { cache: "no-store" },
-          token || undefined,
-        );
-        if (!res.ok) throw new Error("Error al obtener operadores");
-        const data = (await res.json()) as Operator[];
-        setOperators(data);
-      } catch {
-        toast.error("Error al obtener operadores.");
-      }
-    };
-
-    loadOperators();
-  }, [token, userProfile]);
 
   const handleReceiptDeleted = (id_receipt: number) => {
     setReceipts((prev) => prev.filter((r) => r.id_receipt !== id_receipt));
   };
-
-  useEffect(() => {
-    if (!token) return;
-    const fetchProfile = async () => {
-      try {
-        const res = await authFetch(
-          "/api/user/profile",
-          { cache: "no-store" },
-          token || undefined,
-        );
-        if (!res.ok) throw new Error("Error al obtener el perfil");
-        const data = await res.json();
-        setUserProfile(data);
-      } catch (error) {
-        console.error("Error fetching profile:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchProfile();
-  }, [token]);
-
-  const userRole = (userProfile?.role?.toLowerCase() as Role) || "";
-
-  useEffect(() => {
-    if (!id || !token) return;
-    fetchBooking();
-    fetchServices();
-    fetchInvoices();
-    fetchReceipts();
-  }, [id, token, fetchBooking, fetchServices, fetchInvoices, fetchReceipts]);
-
-  useEffect(() => {
-    if (invoices.length) fetchCreditNotes();
-  }, [invoices, fetchCreditNotes]);
-
-  useEffect(() => {
-    fetchOperators();
-  }, [fetchOperators]);
-
-  useEffect(() => {
-    if (booking) {
-      setFormData((prev) => ({
-        ...prev,
-        departure_date: booking.departure_date
-          ? new Date(booking.departure_date).toISOString().slice(0, 10)
-          : "",
-        return_date: booking.return_date
-          ? new Date(booking.return_date).toISOString().slice(0, 10)
-          : "",
-      }));
-    }
-  }, [booking]);
 
   const handleChange = (
     e: React.ChangeEvent<
@@ -387,10 +415,7 @@ export default function ServicesPage() {
     try {
       const res = await authFetch(
         "/api/invoices",
-        {
-          method: "POST",
-          body: JSON.stringify(payload),
-        },
+        { method: "POST", body: JSON.stringify(payload) },
         token || undefined,
       );
       if (!res.ok) {
@@ -399,7 +424,7 @@ export default function ServicesPage() {
       }
       const result = await res.json();
       if (result.success) {
-        setInvoices((prev) => [...prev, ...result.invoices]);
+        setInvoices((prev) => [...prev, ...(result.invoices as Invoice[])]);
         toast.success("Factura creada exitosamente!");
       } else {
         toast.error(result.message || "Error al crear factura.");
@@ -431,10 +456,7 @@ export default function ServicesPage() {
     try {
       const res = await authFetch(
         "/api/credit-notes",
-        {
-          method: "POST",
-          body: JSON.stringify(payload),
-        },
+        { method: "POST", body: JSON.stringify(payload) },
         token || undefined,
       );
       if (!res.ok) {
@@ -474,7 +496,6 @@ export default function ServicesPage() {
         ? `/api/services/${editingServiceId}`
         : "/api/services";
 
-      // 👇 armamos payload y agregamos los campos snake_case que espera el backend
       const payload = {
         ...formData,
         booking_id: Number(id),
@@ -495,13 +516,10 @@ export default function ServicesPage() {
         const err = await res.json();
         throw new Error(err.error || "Error al guardar servicio.");
       }
-      const updated = await authFetch(
-        `/api/services?bookingId=${id}`,
-        { cache: "no-store" },
-        token || undefined,
-      );
-      const data = await updated.json();
-      setServices(data.services);
+
+      // refrescar servicios (secuencial y con no-store)
+      await fetchServices(id);
+
       toast.success(
         editingServiceId ? "Servicio actualizado!" : "Servicio agregado!",
       );
@@ -570,7 +588,11 @@ export default function ServicesPage() {
     setBooking(updated);
   };
 
-  const handleCreditNoteCreated = () => fetchCreditNotes();
+  const handleCreditNoteCreated = () => {
+    if (invoices.length) void fetchCreditNotes(invoices);
+  };
+
+  const userRole = (role as Role) || "";
 
   return (
     <ProtectedRoute>

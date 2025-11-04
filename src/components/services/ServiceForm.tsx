@@ -2,7 +2,14 @@
 "use client";
 
 import type React from "react";
-import { ChangeEvent, FormEvent, useMemo, useState, useEffect } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  useMemo,
+  useState,
+  useEffect,
+  useRef,
+} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Operator, BillingData } from "@/types";
 import BillingBreakdown from "@/components/BillingBreakdown";
@@ -251,10 +258,8 @@ function toRawServiceCalcCfg(u: unknown): RawServiceCalcCfg | null {
     | string
     | null
     | undefined;
-
   const multiDestDefault = (u["multiDestDefault"] ??
     u["multi_dest_default"]) as boolean | number | string | null | undefined;
-
   const defaultTransferFeePct = (u["defaultTransferFeePct"] ??
     u["transfer_fee_pct"]) as number | string | null | undefined;
 
@@ -314,14 +319,11 @@ async function fetchServiceCalcCfg(
   return null;
 }
 
-/* ========= Helpers de moneda (sin utils/currency.ts) ========= */
-
-/** Verifica si un código ISO 4217 es válido para Intl.NumberFormat */
+/* ========= Helpers de moneda ========= */
 function isValidCurrencyCode(code: string): boolean {
   const c = (code || "").trim().toUpperCase();
   if (!c) return false;
   try {
-    // Intl lanza RangeError si el currency code no es válido
     new Intl.NumberFormat("es-AR", { style: "currency", currency: c }).format(
       1,
     );
@@ -331,7 +333,6 @@ function isValidCurrencyCode(code: string): boolean {
   }
 }
 
-/** Elige una moneda segura para mostrar: intenta la del form, luego la 1ra habilitada, luego 'ARS' */
 function pickDisplayCurrency(
   formCode: string,
   enabledOptions: string[],
@@ -357,51 +358,18 @@ export default function ServiceForm({
   agencyTransferFeePct,
   token,
 }: ServiceFormProps) {
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   /* ========== TIPOS DINÁMICOS ========== */
   const [serviceTypes, setServiceTypes] = useState<NormalizedServiceType[]>([]);
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [typesError, setTypesError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        setLoadingTypes(true);
-        setTypesError(null);
-        const res = await authFetch(
-          "/api/service-types",
-          { cache: "no-store" },
-          token || undefined,
-        );
-        if (!res.ok) throw new Error("No se pudo obtener tipos de servicio.");
-        const json = await res.json();
-        const raw = pickArrayFromJson<RawServiceType>(json);
-        const norm = raw
-          .filter(
-            (r: RawServiceType) =>
-              r?.is_active == null || toBool(r.is_active) !== false,
-          )
-          .map(normalizeServiceType)
-          .filter(Boolean) as NormalizedServiceType[];
-        if (!cancelled) setServiceTypes(norm);
-      } catch (e: unknown) {
-        if (!cancelled) {
-          setTypesError(
-            e instanceof Error
-              ? e.message
-              : "Error cargando tipos de servicio.",
-          );
-          setServiceTypes([]);
-        }
-      } finally {
-        if (!cancelled) setLoadingTypes(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
 
   const selectedTypeFromList = useMemo(
     () => serviceTypes.find((t) => t.value === formData.type),
@@ -412,26 +380,6 @@ export default function ServiceForm({
   const [calcCfg, setCalcCfg] = useState<ServiceCalcCfg | null>(null);
   const [loadingCfg, setLoadingCfg] = useState(false);
 
-  useEffect(() => {
-    if (!token || !formData.type) {
-      setCalcCfg(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        setLoadingCfg(true);
-        const cfg = await fetchServiceCalcCfg(token, formData.type);
-        if (!cancelled) setCalcCfg(cfg);
-      } finally {
-        if (!cancelled) setLoadingCfg(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [token, formData.type]);
-
   /* ========== AGENCY CONFIG (modo y fee global) ========== */
   const [loadingAgencyCfg, setLoadingAgencyCfg] = useState(false);
   const [agencyBillingMode, setAgencyBillingMode] = useState<"auto" | "manual">(
@@ -441,23 +389,78 @@ export default function ServiceForm({
     number | undefined
   >(undefined);
 
+  /* ========== MONEDAS ========== */
+  const [financeCurrencies, setFinanceCurrencies] = useState<
+    FinanceCurrency[] | null
+  >(null);
+  const [loadingCurrencies, setLoadingCurrencies] = useState(false);
+
+  /* ==========================================
+   * Pipeline al ABRIR el formulario (secuencial)
+   * tipos → config agencia → monedas
+   * ========================================== */
+  const openPipelineRef = useRef<{ ac: AbortController; id: number } | null>(
+    null,
+  );
+
   useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
+    if (!isFormVisible || !token) return;
+
+    // abortar pipeline anterior
+    if (openPipelineRef.current) openPipelineRef.current.ac.abort();
+
+    const ac = new AbortController();
+    const runId = Date.now();
+    openPipelineRef.current = { ac, id: runId };
+
+    const isActive = () =>
+      mountedRef.current &&
+      openPipelineRef.current?.id === runId &&
+      !ac.signal.aborted;
+
     (async () => {
+      // 1) Tipos
+      try {
+        setLoadingTypes(true);
+        setTypesError(null);
+        const res = await authFetch(
+          "/api/service-types",
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+        if (!res.ok) throw new Error("No se pudo obtener tipos de servicio.");
+        const json = await res.json();
+        const raw = pickArrayFromJson<RawServiceType>(json);
+        const norm = raw
+          .filter((r) => r?.is_active == null || toBool(r.is_active) !== false)
+          .map(normalizeServiceType)
+          .filter(Boolean) as NormalizedServiceType[];
+        if (isActive()) setServiceTypes(norm);
+      } catch (e) {
+        if (isActive()) {
+          setServiceTypes([]);
+          setTypesError(
+            e instanceof Error
+              ? e.message
+              : "Error cargando tipos de servicio.",
+          );
+        }
+      } finally {
+        if (isActive()) setLoadingTypes(false);
+      }
+
+      // 2) Config de agencia (modo + fee)
+      if (!isActive()) return;
       try {
         setLoadingAgencyCfg(true);
-        // Usamos la MISMA API que /bookings/config
         const res = await authFetch(
           "/api/service-calc-config",
-          { cache: "no-store" },
-          token || undefined,
+          { cache: "no-store", signal: ac.signal },
+          token,
         );
         if (!res.ok) throw new Error("No se pudo obtener service-calc-config.");
-
         const data = (await res.json()) as CalcConfigResponse;
-        if (cancelled) return;
-
+        if (!isActive()) return;
         setAgencyBillingMode(
           data.billing_breakdown_mode === "manual" ? "manual" : "auto",
         );
@@ -467,40 +470,66 @@ export default function ServiceForm({
             : undefined,
         );
       } catch {
-        if (!cancelled) {
-          setAgencyBillingMode("auto"); // fallback
+        if (isActive()) {
+          setAgencyBillingMode("auto");
           setAgencyFeePctFromApi(undefined);
         }
       } finally {
-        if (!cancelled) setLoadingAgencyCfg(false);
+        if (isActive()) setLoadingAgencyCfg(false);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
 
-  /* ========== MONEDAS ========== */
-  const [financeCurrencies, setFinanceCurrencies] = useState<
-    FinanceCurrency[] | null
-  >(null);
-  const [loadingCurrencies, setLoadingCurrencies] = useState(false);
-
-  useEffect(() => {
-    if (!token) return;
-    (async () => {
+      // 3) Monedas
+      if (!isActive()) return;
       try {
         setLoadingCurrencies(true);
         const picks = await loadFinancePicks(token);
+        if (!isActive()) return;
         setFinanceCurrencies(picks?.currencies ?? null);
       } catch {
-        setFinanceCurrencies(null);
+        if (isActive()) setFinanceCurrencies(null);
       } finally {
-        setLoadingCurrencies(false);
+        if (isActive()) setLoadingCurrencies(false);
       }
     })();
-  }, [token]);
 
+    return () => ac.abort();
+  }, [isFormVisible, token]);
+
+  /* ===================================================
+   * Fetch de config por TIPO (solo si el form está abierto)
+   * =================================================== */
+  const typeCfgRef = useRef<{ ac: AbortController; id: number } | null>(null);
+
+  useEffect(() => {
+    if (!isFormVisible || !token || !formData.type) {
+      setCalcCfg(null);
+      return;
+    }
+
+    if (typeCfgRef.current) typeCfgRef.current.ac.abort();
+    const ac = new AbortController();
+    const id = Date.now();
+    typeCfgRef.current = { ac, id };
+
+    const isActive = () =>
+      mountedRef.current && typeCfgRef.current?.id === id && !ac.signal.aborted;
+
+    (async () => {
+      try {
+        setLoadingCfg(true);
+        const cfg = await fetchServiceCalcCfg(token, formData.type);
+        if (isActive()) setCalcCfg(cfg);
+      } catch {
+        if (isActive()) setCalcCfg(null);
+      } finally {
+        if (isActive()) setLoadingCfg(false);
+      }
+    })();
+
+    return () => ac.abort();
+  }, [isFormVisible, token, formData.type]);
+
+  /* ========== Moneda segura para UI/formatos ========== */
   const currencyOptions = useMemo(
     () =>
       uniqSorted(
@@ -519,7 +548,6 @@ export default function ServiceForm({
     return dict;
   }, [financeCurrencies]);
 
-  /* ========== Moneda segura para UI/formatos ========== */
   const displayCurrency = useMemo(
     () => pickDisplayCurrency(formData.currency, currencyOptions),
     [formData.currency, currencyOptions],
@@ -529,7 +557,6 @@ export default function ServiceForm({
   const currencySymbol = useMemo(() => {
     if (displayCurrency === "USD") return "US$";
     if (displayCurrency === "ARS") return "$";
-    // símbolo genérico; evitamos suposiciones
     return displayCurrency;
   }, [displayCurrency]);
 
@@ -541,7 +568,6 @@ export default function ServiceForm({
         currency: displayCurrency,
       }).format(value);
     } catch {
-      // Fallback robusto
       return `${value.toFixed(2)} ${displayCurrency}`;
     }
   };
@@ -675,9 +701,7 @@ export default function ServiceForm({
 
   // ⚙️ Modo de facturación: viene de la API de agencia (DB)
   const manualMode = agencyBillingMode === "manual";
-
   const submitDisabled = !destValid || submitting;
-
   const pctToShow = Number.isFinite(effectiveTransferFeePct)
     ? (effectiveTransferFeePct as number)
     : 0;
@@ -743,7 +767,7 @@ export default function ServiceForm({
               <p className="text-lg font-semibold">
                 {editingServiceId ? "Editar Servicio" : "Agregar Servicio"}
               </p>
-              {(loadingCfg || loadingTypes || loadingAgencyCfg) && (
+              {(loadingTypes || loadingCfg || loadingAgencyCfg) && (
                 <p className="text-xs text-sky-950/70 dark:text-white/70">
                   {loadingTypes
                     ? "Cargando tipos..."

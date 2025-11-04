@@ -204,92 +204,34 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     };
   }, []);
 
-  /* ================= Vecinos (prev/next) ================= */
-  // const [neighbors, setNeighbors] = useState<{
-  //   prevId: number | null;
-  //   nextId: number | null;
-  // }>({
-  //   prevId: null,
-  //   nextId: null,
-  // });
-
-  // useEffect(() => {
-  //   if (!booking?.id_booking) {
-  //     setNeighbors({ prevId: null, nextId: null });
-  //     return;
-  //   }
-
-  //   const ac = new AbortController();
-
-  //   (async () => {
-  //     try {
-  //       const res = await authFetch(
-  //         `/api/bookings/neighbor?bookingId=${booking.id_booking}`,
-  //         { cache: "no-store", signal: ac.signal },
-  //         token ?? undefined,
-  //       );
-
-  //       if (!res.ok) {
-  //         setNeighbors({ prevId: null, nextId: null });
-  //         return;
-  //       }
-
-  //       const data: unknown = await res.json();
-  //       const prevId = toFiniteNumber(
-  //         (data as { prevId?: unknown })?.prevId,
-  //         NaN,
-  //       );
-  //       const nextId = toFiniteNumber(
-  //         (data as { nextId?: unknown })?.nextId,
-  //         NaN,
-  //       );
-
-  //       if (!mountedRef.current) return;
-  //       setNeighbors({
-  //         prevId: Number.isFinite(prevId) ? prevId : null,
-  //         nextId: Number.isFinite(nextId) ? nextId : null,
-  //       });
-  //     } catch {
-  //       if (!ac.signal.aborted) {
-  //         setNeighbors({ prevId: null, nextId: null });
-  //       }
-  //     }
-  //   })();
-
-  //   return () => ac.abort();
-  // }, [token, booking?.id_booking]);
-
   /* ================= Transfer fee (agencia) ================= */
   const [agencyTransferFeePct, setAgencyTransferFeePct] =
     useState<number>(0.024);
 
-  useEffect(() => {
-    if (!token) return;
-    const ac = new AbortController();
-    (async () => {
+  const fetchTransferFee = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!token) return 0.024;
       try {
         const res = await authFetch(
           "/api/agency/transfer-fee",
-          { cache: "no-store", signal: ac.signal },
+          { cache: "no-store", signal },
           token,
         );
-        if (res.ok) {
-          const data: unknown = await res.json();
-          const raw = toFiniteNumber(
-            (data as { transfer_fee_pct?: unknown })?.transfer_fee_pct,
-            0.024,
-          );
-          // Clamp 0..1 para evitar 100% por error de proporción
-          const safe = Math.min(Math.max(raw, 0), 1);
-          if (!mountedRef.current) return;
-          setAgencyTransferFeePct(safe);
-        }
+        if (!res.ok) return 0.024;
+        const data: unknown = await res.json();
+        const raw = toFiniteNumber(
+          (data as { transfer_fee_pct?: unknown })?.transfer_fee_pct,
+          0.024,
+        );
+        // Clamp 0..1 para evitar 100% por error de proporción
+        const safe = Math.min(Math.max(raw, 0), 1);
+        return safe;
       } catch {
-        // Silencioso: mantenemos el default
+        return 0.024;
       }
-    })();
-    return () => ac.abort();
-  }, [token]);
+    },
+    [token],
+  );
 
   /* ================= Estados de la reserva ================= */
   const [selectedClientStatus, setSelectedClientStatus] = useState("Pendiente");
@@ -325,7 +267,6 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   const [isSavingInvObs, setIsSavingInvObs] = useState(false);
 
   useEffect(() => {
-    // Mantener el draft sincronizado si cambia la reserva
     setInvObsDraft(booking?.observation || "");
   }, [booking?.observation]);
 
@@ -333,58 +274,55 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   const [clientPayments, setClientPayments] = useState<ClientPayment[]>([]);
   const [clientPaymentsLoading, setClientPaymentsLoading] = useState(false);
 
-  const fetchClientPayments = useCallback(async () => {
-    if (!booking?.id_booking || !token) return;
-    const ac = new AbortController();
-    try {
-      setClientPaymentsLoading(true);
-      const res = await authFetch(
-        `/api/client-payments?bookingId=${booking.id_booking}`,
-        { cache: "no-store", signal: ac.signal },
-        token,
-      );
-      if (!res.ok) {
-        if (res.status === 404 || res.status === 405) {
-          setClientPayments([]);
-          return;
-        }
-        throw new Error("Error al obtener pagos de cliente");
+  const fetchClientPayments = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!booking?.id_booking || !token) {
+        setClientPayments([]);
+        return;
       }
-      const data: unknown = await res.json();
-      const items: ClientPayment[] = Array.isArray(
-        (data as { payments?: unknown })?.payments,
-      )
-        ? ((data as { payments: ClientPayment[] }).payments as ClientPayment[])
-        : [];
+      try {
+        setClientPaymentsLoading(true);
+        const res = await authFetch(
+          `/api/client-payments?bookingId=${booking.id_booking}`,
+          { cache: "no-store", signal },
+          token,
+        );
+        if (!res.ok) {
+          if (res.status === 404 || res.status === 405) {
+            setClientPayments([]);
+            return;
+          }
+          throw new Error("Error al obtener pagos de cliente");
+        }
+        const data: unknown = await res.json();
+        const items: ClientPayment[] = Array.isArray(
+          (data as { payments?: unknown })?.payments,
+        )
+          ? ((data as { payments: ClientPayment[] })
+              .payments as ClientPayment[])
+          : [];
 
-      items.sort((a, b) => {
-        const da = new Date(a.due_date).getTime();
-        const db = new Date(b.due_date).getTime();
-        if (Number.isFinite(da) && Number.isFinite(db) && da !== db)
-          return da - db;
-        return (a.id_payment ?? 0) - (b.id_payment ?? 0);
-      });
+        items.sort((a, b) => {
+          const da = new Date(a.due_date).getTime();
+          const db = new Date(b.due_date).getTime();
+          if (Number.isFinite(da) && Number.isFinite(db) && da !== db)
+            return da - db;
+          return (a.id_payment ?? 0) - (b.id_payment ?? 0);
+        });
 
-      if (!mountedRef.current) return;
-      setClientPayments(items);
-      // dentro de fetchClientPayments
-    } catch {
-      if (!mountedRef.current) return;
-      // No toast para no saturar; se ve la lista vacía
-      setClientPayments([]);
-    } finally {
-      if (mountedRef.current) setClientPaymentsLoading(false);
-    }
-
-    return () => ac.abort();
-  }, [booking?.id_booking, token]);
-
-  useEffect(() => {
-    fetchClientPayments();
-  }, [fetchClientPayments]);
+        setClientPayments(items);
+      } catch {
+        setClientPayments([]);
+      } finally {
+        setClientPaymentsLoading(false);
+      }
+    },
+    [booking?.id_booking, token],
+  );
 
   const handleClientPaymentCreated = () => {
-    fetchClientPayments();
+    const ac = new AbortController();
+    void fetchClientPayments(ac.signal);
   };
 
   const handleClientPaymentDeleted = (id_payment: number) => {
@@ -397,43 +335,41 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   const [operatorDues, setOperatorDues] = useState<OperatorDue[]>([]);
   const [operatorDuesLoading, setOperatorDuesLoading] = useState(false);
 
-  const fetchOperatorDues = useCallback(async () => {
-    if (!booking?.id_booking || !token) return;
-    const ac = new AbortController();
-    try {
-      setOperatorDuesLoading(true);
-      const res = await authFetch(
-        `/api/operator-dues?bookingId=${booking.id_booking}`,
-        { cache: "no-store", signal: ac.signal },
-        token,
-      );
-      if (!res.ok) {
-        if (res.status === 404 || res.status === 405) {
-          setOperatorDues([]);
-          return;
-        }
-        throw new Error("Error al obtener cuotas al operador");
+  const fetchOperatorDues = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!booking?.id_booking || !token) {
+        setOperatorDues([]);
+        return;
       }
-      const data: unknown = await res.json();
-      const arr: OperatorDue[] = Array.isArray(
-        (data as { dues?: unknown })?.dues,
-      )
-        ? ((data as { dues: OperatorDue[] }).dues as OperatorDue[])
-        : [];
-      if (!mountedRef.current) return;
-      setOperatorDues(arr);
-    } catch {
-      if (!mountedRef.current) return;
-      setOperatorDues([]);
-    } finally {
-      if (mountedRef.current) setOperatorDuesLoading(false);
-    }
-    return () => ac.abort();
-  }, [booking?.id_booking, token]);
-
-  useEffect(() => {
-    fetchOperatorDues();
-  }, [fetchOperatorDues]);
+      try {
+        setOperatorDuesLoading(true);
+        const res = await authFetch(
+          `/api/operator-dues?bookingId=${booking.id_booking}`,
+          { cache: "no-store", signal },
+          token,
+        );
+        if (!res.ok) {
+          if (res.status === 404 || res.status === 405) {
+            setOperatorDues([]);
+            return;
+          }
+          throw new Error("Error al obtener cuotas al operador");
+        }
+        const data: unknown = await res.json();
+        const arr: OperatorDue[] = Array.isArray(
+          (data as { dues?: unknown })?.dues,
+        )
+          ? ((data as { dues: OperatorDue[] }).dues as OperatorDue[])
+          : [];
+        setOperatorDues(arr);
+      } catch {
+        setOperatorDues([]);
+      } finally {
+        setOperatorDuesLoading(false);
+      }
+    },
+    [booking?.id_booking, token],
+  );
 
   const handleOperatorDueDeleted = (id_due: number) => {
     setOperatorDues((prev) => prev.filter((d) => d.id_due !== id_due));
@@ -447,6 +383,60 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       prev.map((d) => (d.id_due === id_due ? { ...d, status } : d)),
     );
   };
+
+  /* ================== Pipeline secuencial ==================
+     Ejecuta: 1) transfer-fee → 2) client-payments → 3) operator-dues */
+  const pipelineRef = useRef<{ ac: AbortController; id: number } | null>(null);
+
+  useEffect(() => {
+    if (!token || !booking?.id_booking) return;
+
+    // Abortar pipeline anterior
+    if (pipelineRef.current) pipelineRef.current.ac.abort();
+
+    const ac = new AbortController();
+    const runId = Date.now();
+    pipelineRef.current = { ac, id: runId };
+
+    const isActive = () =>
+      mountedRef.current &&
+      pipelineRef.current?.id === runId &&
+      !ac.signal.aborted;
+
+    (async () => {
+      // Paso 1: transfer-fee
+      try {
+        const fee = await fetchTransferFee(ac.signal);
+        if (isActive()) setAgencyTransferFeePct(fee);
+      } catch {
+        // silencioso
+      }
+
+      // Paso 2: client-payments
+      if (!isActive()) return;
+      try {
+        await fetchClientPayments(ac.signal);
+      } catch {
+        // ya maneja su propio error
+      }
+
+      // Paso 3: operator-dues
+      if (!isActive()) return;
+      try {
+        await fetchOperatorDues(ac.signal);
+      } catch {
+        // ya maneja su propio error
+      }
+    })();
+
+    return () => ac.abort();
+  }, [
+    token,
+    booking?.id_booking,
+    fetchTransferFee,
+    fetchClientPayments,
+    fetchOperatorDues,
+  ]);
 
   /* ================= Attach recibo existente ================= */
   const handleAttachExistingReceipt = useCallback(
@@ -667,81 +657,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 </h1>
               </div>
 
-              {/* Navegación por vecinos */}
-              {/* {canAdminLike ? (
-                <div className="hidden items-center gap-1 md:flex">
-                  <button
-                    onClick={() =>
-                      neighbors.prevId &&
-                      router.push(`/bookings/services/${neighbors.prevId}`)
-                    }
-                    disabled={!neighbors.prevId}
-                    title={
-                      neighbors.prevId
-                        ? `Ir a #${neighbors.prevId}`
-                        : "No hay anterior"
-                    }
-                    aria-label="Anterior"
-                    className={`inline-flex h-10 items-center rounded-2xl px-3 text-sm font-light transition ${
-                      neighbors.prevId
-                        ? "text-sky-950/70 hover:bg-white/60 hover:text-sky-950 dark:text-white/70 hover:dark:bg-white/10 hover:dark:text-white"
-                        : "cursor-not-allowed text-sky-950/30 dark:text-white/30"
-                    }`}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="mr-1 size-5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      strokeWidth={1.4}
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M15.75 19.5 8.25 12l7.5-7.5"
-                      />
-                    </svg>
-                    anterior
-                  </button>
-                  <button
-                    onClick={() =>
-                      neighbors.nextId &&
-                      router.push(`/bookings/services/${neighbors.nextId}`)
-                    }
-                    disabled={!neighbors.nextId}
-                    title={
-                      neighbors.nextId
-                        ? `Ir a #${neighbors.nextId}`
-                        : "No hay siguiente"
-                    }
-                    aria-label="Siguiente"
-                    className={`inline-flex h-10 items-center rounded-2xl px-3 text-sm font-light transition ${
-                      neighbors.nextId
-                        ? "text-sky-950/70 hover:bg-white/60 hover:text-sky-950 dark:text-white/70 hover:dark:bg-white/10 hover:dark:text-white"
-                        : "cursor-not-allowed text-sky-950/30 dark:text-white/30"
-                    }`}
-                  >
-                    siguiente
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="ml-1 size-5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      strokeWidth={1.4}
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="m8.25 4.5 7.5 7.5-7.5 7.5"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              ) : (
-                <div className="w-24" />
-              )} */}
+              <div className="w-24" />
             </div>
           </div>
 
@@ -1120,7 +1036,6 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                             };
                           });
 
-                        // Si ya tenemos los services en memoria para esta reserva
                         if (
                           booking?.id_booking === bId &&
                           Array.isArray(services) &&
@@ -1131,7 +1046,6 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                           );
                         }
 
-                        // Helpers sin any
                         const parseJsonToArray = (
                           json: unknown,
                         ): BookingServiceItem[] | null => {
@@ -1389,7 +1303,10 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                       token={token}
                       booking={booking}
                       availableServices={services}
-                      onCreated={fetchOperatorDues}
+                      onCreated={() => {
+                        const ac = new AbortController();
+                        void fetchOperatorDues(ac.signal);
+                      }}
                     />
 
                     <OperatorDueList
