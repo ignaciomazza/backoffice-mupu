@@ -1,29 +1,24 @@
 // src/components/services/ServicesContainer.tsx
-
 "use client";
 
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast, ToastContainer } from "react-toastify";
+
+import Spinner from "@/components/Spinner";
 import ServiceForm from "@/components/services/ServiceForm";
 import ServiceList from "@/components/services/ServiceList";
 import InvoiceForm, {
-  InvoiceFormData,
+  type InvoiceFormData,
 } from "@/components/invoices/InvoiceForm";
 import InvoiceList from "@/components/invoices/InvoiceList";
-import Spinner from "@/components/Spinner";
-import {
-  Booking,
-  Service,
-  Operator,
-  Invoice,
-  Receipt,
-  ClientPayment,
-  OperatorDue,
-  BillingData,
-} from "@/types";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
 import ReceiptList from "@/components/receipts/ReceiptList";
+import CreditNoteForm, {
+  type CreditNoteFormData,
+} from "@/components/credite-notes/CreditNoteForm";
 import CreditNoteList from "@/components/credite-notes/CreditNoteList";
 import OperatorPaymentForm from "@/components/investments/OperatorPaymentForm";
 import OperatorPaymentList from "@/components/investments/OperatorPaymentList";
@@ -31,15 +26,24 @@ import ClientPaymentForm from "@/components/client-payments/ClientPaymentForm";
 import ClientPaymentList from "@/components/client-payments/ClientPaymentList";
 import OperatorDueForm from "@/components/operator-dues/OperatorDueForm";
 import OperatorDueList from "@/components/operator-dues/OperatorDueList";
-import CreditNoteForm, {
-  CreditNoteFormData,
-} from "@/components/credite-notes/CreditNoteForm";
-import { useEffect, useMemo, useState, useCallback } from "react";
-import type { CreditNoteWithItems } from "@/services/creditNotes";
-import { useRouter } from "next/navigation";
-import { authFetch } from "@/utils/authFetch";
-import type { ServiceLite } from "@/components/receipts/ReceiptForm";
 
+import { authFetch } from "@/utils/authFetch";
+import type { CreditNoteWithItems } from "@/services/creditNotes";
+import type { ServiceLite } from "@/components/receipts/ReceiptForm";
+import type {
+  BillingData,
+  Booking,
+  ClientPayment,
+  Invoice,
+  Operator,
+  OperatorDue,
+  Receipt,
+  Service,
+} from "@/types";
+
+/* =========================================================
+ * Tipos auxiliares y helpers
+ * ========================================================= */
 export type ServiceFormData = {
   type: string;
   description?: string;
@@ -59,7 +63,6 @@ export type ServiceFormData = {
   return_date: string;
 };
 
-// ↓ NEW: tipo safe para parsear servicios que vienen de la API en varias formas
 type BookingServiceItem = {
   id_service?: number | string | null;
   id?: number | string | null;
@@ -129,56 +132,79 @@ interface ServicesContainerProps {
   ) => void;
   handleCreditNoteSubmit: (e: React.FormEvent) => Promise<void>;
   isCreditNoteSubmitting: boolean;
-  onPaymentCreated?: () => void; // para refrescar contenedores hermanos si querés
+  onPaymentCreated?: () => void;
 }
 
-export default function ServicesContainer({
-  token,
-  booking,
-  services,
-  availableServices,
-  operators,
-  invoices,
-  receipts,
-  creditNotes,
-  onReceiptDeleted,
-  onReceiptCreated,
-  onCreditNoteCreated,
-  invoiceFormData,
-  formData,
-  editingServiceId,
-  expandedServiceId,
-  loading,
-  isFormVisible,
-  isInvoiceFormVisible,
-  handleChange,
-  handleInvoiceChange,
-  updateFormData,
-  handleInvoiceSubmit,
-  handleSubmit,
-  deleteService,
-  formatDate,
-  setEditingServiceId,
-  setIsFormVisible,
-  setFormData,
-  setExpandedServiceId,
-  setIsInvoiceFormVisible,
-  isSubmitting,
-  onBillingUpdate,
-  role,
-  onBookingUpdated,
-  creditNoteFormData,
-  isCreditNoteFormVisible,
-  setIsCreditNoteFormVisible,
-  handleCreditNoteChange,
-  updateCreditNoteFormData,
-  handleCreditNoteSubmit,
-  isCreditNoteSubmitting,
-  onPaymentCreated,
-}: ServicesContainerProps) {
-  const router = useRouter();
+function cap(s: string | null | undefined): string {
+  if (!s) return "";
+  const str = String(s);
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
 
-  // ==== Vecinos (prev/next) ====
+function toFiniteNumber(n: unknown, fallback = 0): number {
+  const num = typeof n === "number" ? n : Number(n);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+/* =========================================================
+ * Componente
+ * ========================================================= */
+export default function ServicesContainer(props: ServicesContainerProps) {
+  const {
+    token,
+    booking,
+    services,
+    availableServices,
+    operators,
+    invoices,
+    receipts,
+    creditNotes,
+    onReceiptDeleted,
+    onReceiptCreated,
+    onCreditNoteCreated,
+    invoiceFormData,
+    formData,
+    editingServiceId,
+    expandedServiceId,
+    loading,
+    isFormVisible,
+    isInvoiceFormVisible,
+    handleChange,
+    handleInvoiceChange,
+    updateFormData,
+    handleInvoiceSubmit,
+    handleSubmit,
+    deleteService,
+    formatDate,
+    setEditingServiceId,
+    setIsFormVisible,
+    setFormData,
+    setExpandedServiceId,
+    setIsInvoiceFormVisible,
+    isSubmitting,
+    onBillingUpdate,
+    role,
+    onBookingUpdated,
+    creditNoteFormData,
+    isCreditNoteFormVisible,
+    setIsCreditNoteFormVisible,
+    handleCreditNoteChange,
+    updateCreditNoteFormData,
+    handleCreditNoteSubmit,
+    isCreditNoteSubmitting,
+    onPaymentCreated,
+  } = props;
+
+  const router = useRouter();
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  /* ================= Vecinos (prev/next) ================= */
   const [neighbors, setNeighbors] = useState<{
     prevId: number | null;
     nextId: number | null;
@@ -192,92 +218,94 @@ export default function ServicesContainer({
       setNeighbors({ prevId: null, nextId: null });
       return;
     }
+    const ac = new AbortController();
     (async () => {
       try {
         const res = await authFetch(
           `/api/bookings/neighbor?bookingId=${booking.id_booking}`,
-          { cache: "no-store" },
-          token || undefined,
+          { cache: "no-store", signal: ac.signal },
+          token,
         );
         if (!res.ok) {
+          // Evitamos ruido en la UI, solo reset silencioso
           setNeighbors({ prevId: null, nextId: null });
           return;
         }
-        const data = await res.json();
+        const data: unknown = await res.json();
+        const prevId = toFiniteNumber(
+          (data as { prevId?: unknown })?.prevId,
+          NaN,
+        );
+        const nextId = toFiniteNumber(
+          (data as { nextId?: unknown })?.nextId,
+          NaN,
+        );
+        if (!mountedRef.current) return;
         setNeighbors({
-          prevId: Number.isFinite(Number(data?.prevId))
-            ? Number(data.prevId)
-            : null,
-          nextId: Number.isFinite(Number(data?.nextId))
-            ? Number(data.nextId)
-            : null,
+          prevId: Number.isFinite(prevId) ? prevId : null,
+          nextId: Number.isFinite(nextId) ? nextId : null,
         });
       } catch {
-        setNeighbors({ prevId: null, nextId: null });
+        if (!ac.signal.aborted) {
+          setNeighbors({ prevId: null, nextId: null });
+        }
       }
     })();
+    return () => ac.abort();
   }, [token, booking?.id_booking]);
 
-  const [isEditingInvObs, setIsEditingInvObs] = useState(false);
-  const [invObsDraft, setInvObsDraft] = useState(
-    booking?.invoice_observation || "",
-  );
-  const [isSavingInvObs, setIsSavingInvObs] = useState(false);
-
-  const [paymentsReloadKey, setPaymentsReloadKey] = useState(0);
-
+  /* ================= Transfer fee (agencia) ================= */
   const [agencyTransferFeePct, setAgencyTransferFeePct] =
     useState<number>(0.024);
 
-  const obsVariants = {
-    hidden: { opacity: 0, scale: 0.9 },
-    visible: { opacity: 1, scale: 1 },
-    exit: { opacity: 0, scale: 0.9 },
-  };
-
   useEffect(() => {
     if (!token) return;
+    const ac = new AbortController();
     (async () => {
       try {
         const res = await authFetch(
           "/api/agency/transfer-fee",
-          { cache: "no-store" },
-          token || undefined,
+          { cache: "no-store", signal: ac.signal },
+          token,
         );
         if (res.ok) {
-          const data = await res.json();
-          const pct = Number(data?.transfer_fee_pct);
-          if (Number.isFinite(pct) && pct >= 0) setAgencyTransferFeePct(pct);
+          const data: unknown = await res.json();
+          const raw = toFiniteNumber(
+            (data as { transfer_fee_pct?: unknown })?.transfer_fee_pct,
+            0.024,
+          );
+          // Clamp 0..1 para evitar 100% por error de proporción
+          const safe = Math.min(Math.max(raw, 0), 1);
+          if (!mountedRef.current) return;
+          setAgencyTransferFeePct(safe);
         }
-      } catch {}
+      } catch {
+        // Silencioso: mantenemos el default
+      }
     })();
+    return () => ac.abort();
   }, [token]);
 
-  // ─────────────────────────────────────────────────────────────
-  // ⚠️ Eliminamos el fetch paginado de TODOS los IDs de reservas.
-  // Esto fue la principal causa de ráfagas contra DB.
-  // Si más adelante tenés un endpoint /api/bookings/neighbor,
-  // podés setear prevId/nextId acá con 1 sola llamada.
-  // ─────────────────────────────────────────────────────────────
-
+  /* ================= Estados de la reserva ================= */
   const [selectedClientStatus, setSelectedClientStatus] = useState("Pendiente");
   const [selectedOperatorStatus, setSelectedOperatorStatus] =
     useState("Pendiente");
   const [selectedBookingStatus, setSelectedBookingStatus] = useState("Abierta");
+
   useEffect(() => {
     if (booking) {
-      setSelectedClientStatus(booking.clientStatus);
-      setSelectedOperatorStatus(booking.operatorStatus);
-      setSelectedBookingStatus(booking.status);
+      setSelectedClientStatus(booking.clientStatus ?? "Pendiente");
+      setSelectedOperatorStatus(booking.operatorStatus ?? "Pendiente");
+      setSelectedBookingStatus(booking.status ?? "Abierta");
     }
   }, [booking]);
 
   const hasChanges = useMemo(() => {
     if (!booking) return false;
     return (
-      selectedClientStatus !== booking.clientStatus ||
-      selectedOperatorStatus !== booking.operatorStatus ||
-      selectedBookingStatus !== booking.status
+      selectedClientStatus !== (booking.clientStatus ?? "") ||
+      selectedOperatorStatus !== (booking.operatorStatus ?? "") ||
+      selectedBookingStatus !== (booking.status ?? "")
     );
   }, [
     booking,
@@ -286,17 +314,28 @@ export default function ServicesContainer({
     selectedBookingStatus,
   ]);
 
-  // ===== Pagos de cliente (listar + refetch local) =====
+  /* ================= Observaciones administración ================= */
+  const [isEditingInvObs, setIsEditingInvObs] = useState(false);
+  const [invObsDraft, setInvObsDraft] = useState(booking?.observation || "");
+  const [isSavingInvObs, setIsSavingInvObs] = useState(false);
+
+  useEffect(() => {
+    // Mantener el draft sincronizado si cambia la reserva
+    setInvObsDraft(booking?.observation || "");
+  }, [booking?.observation]);
+
+  /* ================= Pagos de cliente ================= */
   const [clientPayments, setClientPayments] = useState<ClientPayment[]>([]);
   const [clientPaymentsLoading, setClientPaymentsLoading] = useState(false);
 
   const fetchClientPayments = useCallback(async () => {
     if (!booking?.id_booking || !token) return;
+    const ac = new AbortController();
     try {
       setClientPaymentsLoading(true);
       const res = await authFetch(
         `/api/client-payments?bookingId=${booking.id_booking}`,
-        { cache: "no-store" },
+        { cache: "no-store", signal: ac.signal },
         token,
       );
       if (!res.ok) {
@@ -306,12 +345,13 @@ export default function ServicesContainer({
         }
         throw new Error("Error al obtener pagos de cliente");
       }
-      const data = await res.json();
-      const items: ClientPayment[] = Array.isArray(data?.payments)
-        ? data.payments
+      const data: unknown = await res.json();
+      const items: ClientPayment[] = Array.isArray(
+        (data as { payments?: unknown })?.payments,
+      )
+        ? ((data as { payments: ClientPayment[] }).payments as ClientPayment[])
         : [];
 
-      // ordenar por vencimiento asc y luego por id
       items.sort((a, b) => {
         const da = new Date(a.due_date).getTime();
         const db = new Date(b.due_date).getTime();
@@ -320,12 +360,18 @@ export default function ServicesContainer({
         return (a.id_payment ?? 0) - (b.id_payment ?? 0);
       });
 
+      if (!mountedRef.current) return;
       setClientPayments(items);
+      // dentro de fetchClientPayments
     } catch {
+      if (!mountedRef.current) return;
+      // No toast para no saturar; se ve la lista vacía
       setClientPayments([]);
     } finally {
-      setClientPaymentsLoading(false);
+      if (mountedRef.current) setClientPaymentsLoading(false);
     }
+
+    return () => ac.abort();
   }, [booking?.id_booking, token]);
 
   useEffect(() => {
@@ -342,17 +388,18 @@ export default function ServicesContainer({
     );
   };
 
-  // ===== Cuotas/Débitos al Operador (Operator Dues) =====
+  /* ================= Cuotas/Débitos al Operador ================= */
   const [operatorDues, setOperatorDues] = useState<OperatorDue[]>([]);
   const [operatorDuesLoading, setOperatorDuesLoading] = useState(false);
 
   const fetchOperatorDues = useCallback(async () => {
     if (!booking?.id_booking || !token) return;
+    const ac = new AbortController();
     try {
       setOperatorDuesLoading(true);
       const res = await authFetch(
         `/api/operator-dues?bookingId=${booking.id_booking}`,
-        { cache: "no-store" },
+        { cache: "no-store", signal: ac.signal },
         token,
       );
       if (!res.ok) {
@@ -362,13 +409,21 @@ export default function ServicesContainer({
         }
         throw new Error("Error al obtener cuotas al operador");
       }
-      const data = await res.json();
-      setOperatorDues(Array.isArray(data?.dues) ? data.dues : []);
+      const data: unknown = await res.json();
+      const arr: OperatorDue[] = Array.isArray(
+        (data as { dues?: unknown })?.dues,
+      )
+        ? ((data as { dues: OperatorDue[] }).dues as OperatorDue[])
+        : [];
+      if (!mountedRef.current) return;
+      setOperatorDues(arr);
     } catch {
+      if (!mountedRef.current) return;
       setOperatorDues([]);
     } finally {
-      setOperatorDuesLoading(false);
+      if (mountedRef.current) setOperatorDuesLoading(false);
     }
+    return () => ac.abort();
   }, [booking?.id_booking, token]);
 
   useEffect(() => {
@@ -379,6 +434,16 @@ export default function ServicesContainer({
     setOperatorDues((prev) => prev.filter((d) => d.id_due !== id_due));
   };
 
+  const handleOperatorDueStatusChanged = (
+    id_due: number,
+    status: OperatorDue["status"],
+  ) => {
+    setOperatorDues((prev) =>
+      prev.map((d) => (d.id_due === id_due ? { ...d, status } : d)),
+    );
+  };
+
+  /* ================= Attach recibo existente ================= */
   const handleAttachExistingReceipt = useCallback(
     async ({
       id_receipt,
@@ -390,54 +455,39 @@ export default function ServicesContainer({
       serviceIds: number[];
     }) => {
       if (!token) throw new Error("Sesión inválida. Volvé a iniciar sesión.");
-
-      const res = await authFetch(
-        `/api/receipts/${id_receipt}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({
-            booking: { id_booking: bookingId },
-            serviceIds,
-          }),
-        },
-        token,
-      );
-
-      if (!res.ok) {
-        let msg = "No se pudo asociar el recibo.";
-        try {
-          const err = await res.json();
-          if (typeof err?.error === "string") msg = err.error;
-        } catch {}
-        throw new Error(msg);
+      try {
+        const res = await authFetch(
+          `/api/receipts/${id_receipt}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              booking: { id_booking: bookingId },
+              serviceIds,
+            }),
+          },
+          token,
+        );
+        if (!res.ok) {
+          let msg = "No se pudo asociar el recibo.";
+          try {
+            const err = await res.json();
+            if (typeof (err as { error?: unknown })?.error === "string")
+              msg = (err as { error: string }).error;
+          } catch {}
+          throw new Error(msg);
+        }
+        router.refresh();
+      } catch (e) {
+        const msg =
+          e instanceof Error ? e.message : "No se pudo asociar el recibo.";
+        toast.error(msg);
+        throw e;
       }
-
-      router.refresh();
     },
     [token, router],
   );
 
-  const handleOperatorDueStatusChanged = (
-    id_due: number,
-    status: OperatorDue["status"],
-  ) => {
-    setOperatorDues((prev) =>
-      prev.map((d) => (d.id_due === id_due ? { ...d, status } : d)),
-    );
-  };
-
-  if (!loading && !booking) {
-    return (
-      <div className="flex h-[80vh] w-full flex-col items-center justify-center">
-        <Spinner />
-        <p className="absolute top-[54vh] w-1/3 text-center font-light dark:text-white">
-          Si la carga de datos tarda mucho, revisa tu internet, recarga
-          nuevamente la pagina o vuelve a la anterior.
-        </p>
-      </div>
-    );
-  }
-
+  /* ================= Guardar estados ================= */
   const handleSaveStatuses = async () => {
     if (!booking) return;
     try {
@@ -462,22 +512,23 @@ export default function ServicesContainer({
             id_user: booking.user.id_user,
           }),
         },
-        token,
+        token ?? undefined,
       );
 
       if (!res.ok) {
         let msg = "No se pudieron actualizar los estados.";
         try {
           const err = await res.json();
-          if (typeof err?.error === "string") msg = err.error;
+          if (typeof (err as { error?: unknown })?.error === "string")
+            msg = (err as { error: string }).error;
         } catch {}
         throw new Error(msg);
       }
 
-      const updated = await res.json();
+      const updated = (await res.json()) as Booking;
       toast.success("¡Estados actualizados!");
       onBookingUpdated?.(updated);
-    } catch (e: unknown) {
+    } catch (e) {
       const msg =
         e instanceof Error
           ? e.message
@@ -486,11 +537,7 @@ export default function ServicesContainer({
     }
   };
 
-  const handleLocalCreditNoteSubmit = async (e: React.FormEvent) => {
-    await handleCreditNoteSubmit(e);
-    onCreditNoteCreated?.();
-  };
-
+  /* ================= Guardar observación ================= */
   const handleInvObsSave = async () => {
     if (!booking) return;
     setIsSavingInvObs(true);
@@ -516,14 +563,22 @@ export default function ServicesContainer({
             id_user: booking.user.id_user,
           }),
         },
-        token,
+        token ?? undefined,
       );
-      if (!res.ok) throw new Error();
-      const updated = await res.json();
+      if (!res.ok) {
+        let msg = "Error al guardar observación";
+        try {
+          const err = await res.json();
+          if (typeof (err as { error?: unknown })?.error === "string")
+            msg = (err as { error: string }).error;
+        } catch {}
+        throw new Error(msg);
+      }
+      const updated = (await res.json()) as Booking;
       onBookingUpdated?.(updated);
       setIsEditingInvObs(false);
       toast.success("Observación guardada");
-    } catch (e: unknown) {
+    } catch (e) {
       const msg =
         e instanceof Error ? e.message : "Error al guardar observación";
       toast.error(msg);
@@ -531,6 +586,38 @@ export default function ServicesContainer({
       setIsSavingInvObs(false);
     }
   };
+
+  /* ================= Créditos ================= */
+  const handleLocalCreditNoteSubmit = async (e: React.FormEvent) => {
+    await handleCreditNoteSubmit(e);
+    onCreditNoteCreated?.();
+  };
+
+  /* ================= Pagos a operador ================= */
+  const [paymentsReloadKey, setPaymentsReloadKey] = useState(0);
+
+  /* ================= UI variants ================= */
+  const obsVariants = {
+    hidden: { opacity: 0, scale: 0.9 },
+    visible: { opacity: 1, scale: 1 },
+    exit: { opacity: 0, scale: 0.9 },
+  } as const;
+
+  /* ================= Render ================= */
+  if (!loading && !booking) {
+    return (
+      <div className="flex h-[80vh] w-full flex-col items-center justify-center">
+        <Spinner />
+        <p className="absolute top-[54vh] w-1/3 text-center font-light dark:text-white">
+          Si la carga de datos tarda mucho, revisá tu internet, recargá la
+          página o volvé a la anterior.
+        </p>
+      </div>
+    );
+  }
+
+  const canAdminLike =
+    role === "administrativo" || role === "gerente" || role === "desarrollador";
 
   return (
     <motion.div>
@@ -575,9 +662,8 @@ export default function ServicesContainer({
                 </h1>
               </div>
 
-              {role === "gerente" ||
-              role === "administrativo" ||
-              role === "desarrollador" ? (
+              {/* Navegación por vecinos */}
+              {canAdminLike ? (
                 <div className="hidden items-center gap-1 md:flex">
                   <button
                     onClick={() =>
@@ -676,8 +762,7 @@ export default function ServicesContainer({
                   <span className="rounded-full border border-white/5 bg-white/30 px-3 py-1 text-xs font-medium shadow-sm shadow-sky-950/10 dark:bg-white/5">
                     Operador:{" "}
                     <b className="ml-1 font-medium">
-                      {booking.operatorStatus.charAt(0).toUpperCase() +
-                        booking.operatorStatus.slice(1).toLowerCase() || "-"}
+                      {cap(booking.operatorStatus) || "-"}
                     </b>
                   </span>
                 </div>
@@ -701,16 +786,14 @@ export default function ServicesContainer({
                 <div className="rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
                   <p className="text-sm font-semibold">Titular</p>
                   <p className="mt-1 text-sm font-light">
-                    {booking.titular.first_name.charAt(0).toUpperCase() +
-                      booking.titular.first_name.slice(1).toLowerCase()}{" "}
-                    {booking.titular.last_name.charAt(0).toUpperCase() +
-                      booking.titular.last_name.slice(1).toLowerCase()}{" "}
-                    — {booking.titular.id_client}
+                    {cap(booking.titular.first_name)}{" "}
+                    {cap(booking.titular.last_name)} —{" "}
+                    {booking.titular.id_client}
                   </p>
                 </div>
 
                 <div className="flex items-end gap-4 rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
-                  <div className="">
+                  <div>
                     <p className="text-sm font-semibold">Salida</p>
                     <p className="mt-1 text-sm font-light">
                       {formatDate(booking.departure_date)}
@@ -731,17 +814,12 @@ export default function ServicesContainer({
                 <p className="text-sm font-semibold">{`Lista de pasajeros (${booking.pax_count})`}</p>
                 <ul className="ml-5 mt-2 list-disc text-sm">
                   <li>
-                    {booking.titular.first_name.charAt(0).toUpperCase() +
-                      booking.titular.first_name.slice(1).toLowerCase()}{" "}
-                    {booking.titular.last_name.charAt(0).toUpperCase() +
-                      booking.titular.last_name.slice(1).toLowerCase()}{" "}
+                    {cap(booking.titular.first_name)}{" "}
+                    {cap(booking.titular.last_name)}
                   </li>
                   {booking.clients.map((client) => (
                     <li key={client.id_client}>
-                      {client.first_name.charAt(0).toUpperCase() +
-                        client.first_name.slice(1).toLowerCase()}{" "}
-                      {client.last_name.charAt(0).toUpperCase() +
-                        client.last_name.slice(1).toLowerCase()}{" "}
+                      {cap(client.first_name)} {cap(client.last_name)}
                     </li>
                   ))}
                 </ul>
@@ -857,14 +935,10 @@ export default function ServicesContainer({
                           <p className="min-h-[28px] flex-1 rounded-xl bg-white/30 p-2 text-sm font-light dark:bg-white/5">
                             {booking.observation || "Sin observaciones"}
                           </p>
-                          {(role === "administrativo" ||
-                            role === "gerente" ||
-                            role === "desarrollador") && (
+                          {canAdminLike && (
                             <button
                               onClick={() => {
-                                setInvObsDraft(
-                                  booking.observation || "Sin observaciones",
-                                );
+                                setInvObsDraft(booking.observation || "");
                                 setIsEditingInvObs(true);
                               }}
                               className="rounded-full p-2 text-sky-950 transition-transform hover:scale-95 active:scale-90 dark:text-white"
@@ -952,33 +1026,31 @@ export default function ServicesContainer({
               )}
 
               {/* PAGOS CLIENTE */}
-              {booking && (
-                <div className="mb-16">
-                  <div className="mb-4 mt-8 flex items-center justify-center gap-2">
-                    <p className="text-2xl font-medium">Pagos de Cliente</p>
-                  </div>
-
-                  {(role === "administrativo" ||
-                    role === "desarrollador" ||
-                    role === "gerente" ||
-                    role === "vendedor") &&
-                    (services.length > 0 || clientPayments.length > 0) && (
-                      <ClientPaymentForm
-                        token={token}
-                        booking={booking}
-                        onCreated={handleClientPaymentCreated}
-                      />
-                    )}
-
-                  <ClientPaymentList
-                    payments={clientPayments}
-                    booking={booking}
-                    role={role}
-                    loading={clientPaymentsLoading}
-                    onPaymentDeleted={handleClientPaymentDeleted}
-                  />
+              <div className="mb-16">
+                <div className="mb-4 mt-8 flex items-center justify-center gap-2">
+                  <p className="text-2xl font-medium">Pagos de Cliente</p>
                 </div>
-              )}
+
+                {(role === "administrativo" ||
+                  role === "desarrollador" ||
+                  role === "gerente" ||
+                  role === "vendedor") &&
+                  (services.length > 0 || clientPayments.length > 0) && (
+                    <ClientPaymentForm
+                      token={token}
+                      booking={booking}
+                      onCreated={handleClientPaymentCreated}
+                    />
+                  )}
+
+                <ClientPaymentList
+                  payments={clientPayments}
+                  booking={booking}
+                  role={role}
+                  loading={clientPaymentsLoading}
+                  onPaymentDeleted={handleClientPaymentDeleted}
+                />
+              </div>
 
               {/* RECIBOS */}
               <div className="mb-16">
@@ -986,9 +1058,7 @@ export default function ServicesContainer({
                   <p className="text-2xl font-medium">Recibos</p>
                 </div>
 
-                {(role === "administrativo" ||
-                  role === "desarrollador" ||
-                  role === "gerente") &&
+                {canAdminLike &&
                   (services.length > 0 || receipts.length > 0) && (
                     <ReceiptForm
                       token={token || null}
@@ -1003,7 +1073,7 @@ export default function ServicesContainer({
                             "Sesión expirada. Volvé a iniciar sesión.",
                           );
 
-                        // Mapea items heterogéneos de API -> ServiceLite
+                        // Mapper seguro
                         const mapToLite = (
                           arr: ReadonlyArray<BookingServiceItem>,
                         ): ServiceLite[] =>
@@ -1013,16 +1083,13 @@ export default function ServicesContainer({
                               typeof rawId === "number"
                                 ? rawId
                                 : Number(rawId ?? 0);
-
                             const currency = String(
                               s?.currency ?? s?.sale_currency ?? "ARS",
                             ).toUpperCase();
-
                             const sale =
                               typeof s?.sale_price === "number"
                                 ? s.sale_price
                                 : Number(s?.sale_price ?? 0);
-
                             const cardInt =
                               typeof s?.card_interest === "number"
                                 ? s.card_interest
@@ -1048,7 +1115,7 @@ export default function ServicesContainer({
                             };
                           });
 
-                        // Si ya tenemos los services de esta reserva en memoria, usamos eso
+                        // Si ya tenemos los services en memoria para esta reserva
                         if (
                           booking?.id_booking === bId &&
                           Array.isArray(services) &&
@@ -1059,7 +1126,7 @@ export default function ServicesContainer({
                           );
                         }
 
-                        // Helpers sin `any`
+                        // Helpers sin any
                         const parseJsonToArray = (
                           json: unknown,
                         ): BookingServiceItem[] | null => {
@@ -1077,9 +1144,8 @@ export default function ServicesContainer({
                             )?.services,
                           ].filter(Boolean);
                           for (const c of candidates) {
-                            if (Array.isArray(c)) {
+                            if (Array.isArray(c))
                               return c as BookingServiceItem[];
-                            }
                           }
                           return null;
                         };
@@ -1097,15 +1163,14 @@ export default function ServicesContainer({
                           return parseJsonToArray(json);
                         };
 
-                        // Endpoints alternativos comunes
                         const arr =
-                          (await tryFetch(`/api/bookings/${bId}/services`)) ||
+                          (await tryFetch(`/api/bookings/${bId}/services`)) ??
                           (await tryFetch(
                             `/api/bookings/${bId}?include=services`,
-                          )) ||
-                          (await tryFetch(`/api/bookings/${bId}`)) ||
-                          (await tryFetch(`/api/services?bookingId=${bId}`)) ||
-                          (await tryFetch(`/api/services/by-booking/${bId}`)) ||
+                          )) ??
+                          (await tryFetch(`/api/bookings/${bId}`)) ??
+                          (await tryFetch(`/api/services?bookingId=${bId}`)) ??
+                          (await tryFetch(`/api/services/by-booking/${bId}`)) ??
                           [];
 
                         return mapToLite(arr);
@@ -1115,13 +1180,15 @@ export default function ServicesContainer({
                         const res = await authFetch(
                           "/api/receipts",
                           { method: "POST", body: JSON.stringify(payload) },
-                          token || undefined,
+                          token ?? undefined,
                         );
                         if (!res.ok) {
                           toast.error("No se pudo crear el recibo.");
                           return;
                         }
-                        const { receipt } = await res.json();
+                        const { receipt } = (await res.json()) as {
+                          receipt: Receipt;
+                        };
                         toast.success("Recibo creado y asociado.");
                         onReceiptCreated?.(receipt);
                         router.refresh();
@@ -1140,34 +1207,29 @@ export default function ServicesContainer({
               </div>
 
               {/* FACTURAS */}
-              {(role === "administrativo" ||
-                role === "desarrollador" ||
-                role === "gerente") &&
-                (services.length > 0 || invoices.length > 0) && (
-                  <div className="mb-16">
-                    <div className="mb-4 mt-8 flex items-center justify-center gap-2">
-                      <p className="text-2xl font-medium">Facturas</p>
-                    </div>
-
-                    <InvoiceForm
-                      formData={invoiceFormData}
-                      availableServices={availableServices}
-                      handleChange={handleInvoiceChange}
-                      handleSubmit={handleInvoiceSubmit}
-                      isFormVisible={isInvoiceFormVisible}
-                      setIsFormVisible={setIsInvoiceFormVisible}
-                      updateFormData={updateFormData}
-                      isSubmitting={isSubmitting}
-                      token={token}
-                    />
-                    {invoices.length > 0 && <InvoiceList invoices={invoices} />}
+              {canAdminLike && (services.length > 0 || invoices.length > 0) && (
+                <div className="mb-16">
+                  <div className="mb-4 mt-8 flex items-center justify-center gap-2">
+                    <p className="text-2xl font-medium">Facturas</p>
                   </div>
-                )}
+
+                  <InvoiceForm
+                    formData={invoiceFormData}
+                    availableServices={availableServices}
+                    handleChange={handleInvoiceChange}
+                    handleSubmit={handleInvoiceSubmit}
+                    isFormVisible={isInvoiceFormVisible}
+                    setIsFormVisible={setIsInvoiceFormVisible}
+                    updateFormData={updateFormData}
+                    isSubmitting={isSubmitting}
+                    token={token}
+                  />
+                  {invoices.length > 0 && <InvoiceList invoices={invoices} />}
+                </div>
+              )}
 
               {/* NOTAS DE CRÉDITO */}
-              {(role === "administrativo" ||
-                role === "desarrollador" ||
-                role === "gerente") &&
+              {canAdminLike &&
                 (services.length > 0 || creditNotes.length > 0) && (
                   <div className="mb-16">
                     <div className="mb-4 mt-8 flex items-center justify-center gap-2">
@@ -1191,9 +1253,7 @@ export default function ServicesContainer({
                 )}
 
               {/* ESTADOS RESERVA */}
-              {(role === "administrativo" ||
-                role === "desarrollador" ||
-                role === "gerente") &&
+              {canAdminLike &&
                 (services.length > 0 ||
                   invoices.length > 0 ||
                   receipts.length > 0 ||
@@ -1211,21 +1271,23 @@ export default function ServicesContainer({
                         <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
                           <p className="mb-2 font-medium">Cliente</p>
                           <div className="flex gap-2">
-                            {["Pendiente", "Pago", "Facturado"].map((st) => (
-                              <button
-                                type="button"
-                                key={st}
-                                onClick={() => setSelectedClientStatus(st)}
-                                className={`flex-1 rounded-full py-2 text-center text-sm transition ${
-                                  selectedClientStatus === st
-                                    ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 dark:bg-white/10 dark:text-white"
-                                    : "text-sky-950/70 hover:bg-sky-950/5 dark:text-white/70 dark:hover:bg-white/5"
-                                }`}
-                                aria-pressed={selectedClientStatus === st}
-                              >
-                                {st}
-                              </button>
-                            ))}
+                            {(["Pendiente", "Pago", "Facturado"] as const).map(
+                              (st) => (
+                                <button
+                                  type="button"
+                                  key={st}
+                                  onClick={() => setSelectedClientStatus(st)}
+                                  className={`flex-1 rounded-full py-2 text-center text-sm transition ${
+                                    selectedClientStatus === st
+                                      ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 dark:bg-white/10 dark:text-white"
+                                      : "text-sky-950/70 hover:bg-sky-950/5 dark:text-white/70 dark:hover:bg-white/5"
+                                  }`}
+                                  aria-pressed={selectedClientStatus === st}
+                                >
+                                  {st}
+                                </button>
+                              ),
+                            )}
                           </div>
                         </div>
 
@@ -1233,7 +1295,7 @@ export default function ServicesContainer({
                         <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
                           <p className="mb-2 font-medium">Operador</p>
                           <div className="flex gap-2">
-                            {["Pendiente", "Pago"].map((st) => (
+                            {(["Pendiente", "Pago"] as const).map((st) => (
                               <button
                                 type="button"
                                 key={st}
@@ -1255,7 +1317,9 @@ export default function ServicesContainer({
                         <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
                           <p className="mb-2 font-medium">Reserva</p>
                           <div className="flex gap-2">
-                            {["Abierta", "Bloqueada", "Cancelada"].map((st) => (
+                            {(
+                              ["Abierta", "Bloqueada", "Cancelada"] as const
+                            ).map((st) => (
                               <button
                                 type="button"
                                 key={st}
@@ -1336,28 +1400,25 @@ export default function ServicesContainer({
                 )}
 
               {/* PAGOS A OPERADOR */}
-              {(role === "administrativo" ||
-                role === "desarrollador" ||
-                role === "gerente") &&
-                services.length > 0 && (
-                  <div>
-                    <OperatorPaymentForm
-                      token={token}
-                      booking={booking!}
-                      availableServices={services}
-                      operators={operators}
-                      onCreated={() => {
-                        setPaymentsReloadKey((k) => k + 1);
-                        onPaymentCreated?.();
-                      }}
-                    />
-                    <OperatorPaymentList
-                      token={token}
-                      bookingId={booking.id_booking}
-                      reloadKey={paymentsReloadKey}
-                    />
-                  </div>
-                )}
+              {canAdminLike && services.length > 0 && (
+                <div>
+                  <OperatorPaymentForm
+                    token={token}
+                    booking={booking!}
+                    availableServices={services}
+                    operators={operators}
+                    onCreated={() => {
+                      setPaymentsReloadKey((k) => k + 1);
+                      onPaymentCreated?.();
+                    }}
+                  />
+                  <OperatorPaymentList
+                    token={token}
+                    bookingId={booking.id_booking}
+                    reloadKey={paymentsReloadKey}
+                  />
+                </div>
+              )}
             </>
           ) : (
             <div className="flex h-40 items-center justify-center">
