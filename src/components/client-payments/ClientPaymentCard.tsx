@@ -1,4 +1,3 @@
-// src/components/client-payments/ClientPaymentCard.tsx
 "use client";
 import { useCallback, useMemo, useState } from "react";
 import { Booking, ClientPayment } from "@/types";
@@ -84,17 +83,12 @@ export default function ClientPaymentCard({
     );
   }
 
-  const canDelete =
-    role === "administrativo" || role === "desarrollador" || role === "gerente";
-
   const deletePayment = async () => {
-    if (!canDelete) return;
+    if (!confirm("¿Seguro querés eliminar este pago?")) return;
     if (!token) {
       toast.error("Sesión expirada. Volvé a iniciar sesión.");
       return;
     }
-    if (!confirm("¿Seguro querés eliminar este pago?")) return;
-
     setLoadingDelete(true);
     try {
       const res = await authFetch(
@@ -102,27 +96,11 @@ export default function ClientPaymentCard({
         { method: "DELETE" },
         token,
       );
-
-      if (!res.ok && res.status !== 204) {
-        let msg = "No se pudo eliminar el pago.";
-        try {
-          const data = await res.json();
-          const maybe =
-            (data as { error?: string; message?: string }).error ||
-            (data as { error?: string; message?: string }).message;
-          if (maybe) msg = maybe;
-        } catch {
-          /* ignore */
-        }
-        throw new Error(msg);
-      }
-
+      if (!res.ok && res.status !== 204) throw new Error();
       toast.success("Pago eliminado.");
       onPaymentDeleted?.(payment.id_payment);
-    } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "No se pudo eliminar el pago.";
-      toast.error(msg);
+    } catch {
+      toast.error("No se pudo eliminar el pago.");
     } finally {
       setLoadingDelete(false);
     }
@@ -176,7 +154,9 @@ export default function ClientPaymentCard({
 
       {/* Footer */}
       <footer className="mt-6 flex justify-end">
-        {canDelete && (
+        {(role === "administrativo" ||
+          role === "desarrollador" ||
+          role === "gerente") && (
           <button
             onClick={deletePayment}
             disabled={loadingDelete}

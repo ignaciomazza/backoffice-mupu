@@ -1,4 +1,3 @@
-// src/app/bookings/services/[id]/page.tsx
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -31,6 +30,28 @@ type Role =
   | "vendedor"
   | "administrativo"
   | "marketing";
+
+function normalizeRole(raw: unknown): Role | "" {
+  const s = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  if (!s) return "";
+  if (["admin", "administrador", "administrativa"].includes(s))
+    return "administrativo";
+  if (["dev", "developer"].includes(s)) return "desarrollador";
+  return (
+    [
+      "desarrollador",
+      "gerente",
+      "equipo",
+      "vendedor",
+      "administrativo",
+      "marketing",
+    ] as const
+  ).includes(s as Role)
+    ? (s as Role)
+    : "";
+}
 
 export default function ServicesPage() {
   const params = useParams();
@@ -244,7 +265,7 @@ export default function ServicesPage() {
     [token],
   );
 
-  // Carga secuencial: booking → services → (invoices → creditNotes) → receipts → operators → role (diferido)
+  // Carga secuencial: booking → services → (invoices → creditNotes) → receipts → operators
   useEffect(() => {
     if (!id || !token) return;
     const ac = new AbortController();
@@ -274,7 +295,7 @@ export default function ServicesPage() {
         // 4) Receipts
         await fetchReceipts(id, ac.signal);
 
-        // 5) Operators por agencia (evitamos /api/user/profile)
+        // 5) Operators por agencia
         if (bk?.agency?.id_agency) {
           await fetchOperatorsByAgency(bk.agency.id_agency, ac.signal);
         }
@@ -298,12 +319,13 @@ export default function ServicesPage() {
     fetchOperatorsByAgency,
   ]);
 
-  // Rol: consulta liviana y diferida para no bloquear el pipeline
+  // Rol: intenta /api/role y si da 404, cae a /api/user/profile
   useEffect(() => {
     if (!token) return;
     const ac = new AbortController();
     (async () => {
       try {
+        let value: Role | "" = "";
         const r = await authFetch(
           "/api/role",
           { cache: "no-store", signal: ac.signal },
@@ -311,11 +333,21 @@ export default function ServicesPage() {
         );
         if (r.ok) {
           const data = await r.json();
-          const value = String(data?.role || "").toLowerCase() as Role | "";
-          if (mountedRef.current) setRole(value);
+          value = normalizeRole((data as { role?: unknown })?.role);
+        } else if (r.status === 404) {
+          const p = await authFetch(
+            "/api/user/profile",
+            { cache: "no-store", signal: ac.signal },
+            token,
+          );
+          if (p.ok) {
+            const j = await p.json();
+            value = normalizeRole((j as { role?: unknown })?.role);
+          }
         }
+        if (mountedRef.current) setRole(value);
       } catch {
-        // silencioso, la UI funciona con role=""
+        // silencioso
       }
     })();
     return () => ac.abort();
@@ -364,12 +396,10 @@ export default function ServicesPage() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
-    setCreditNoteFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setCreditNoteFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  // ✅ Se usan pasando la ref al contenedor
   const updateInvoiceFormData = (
     key: keyof InvoiceFormData,
     value: InvoiceFormData[keyof InvoiceFormData],
@@ -381,10 +411,7 @@ export default function ServicesPage() {
     key: K,
     value: CreditNoteFormData[K],
   ) => {
-    setCreditNoteFormData((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
+    setCreditNoteFormData((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleInvoiceSubmit = async (e: React.FormEvent) => {
@@ -420,14 +447,21 @@ export default function ServicesPage() {
       );
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.message || "Error al crear factura.");
+        throw new Error(
+          (error as { message?: string }).message || "Error al crear factura.",
+        );
       }
       const result = await res.json();
-      if (result.success) {
-        setInvoices((prev) => [...prev, ...(result.invoices as Invoice[])]);
+      if ((result as { success?: boolean }).success) {
+        setInvoices((prev) => [
+          ...prev,
+          ...((result as { invoices?: Invoice[] }).invoices ?? []),
+        ]);
         toast.success("Factura creada exitosamente!");
       } else {
-        toast.error(result.message || "Error al crear factura.");
+        toast.error(
+          (result as { message?: string }).message || "Error al crear factura.",
+        );
       }
     } catch (err: unknown) {
       toast.error((err as Error).message || "Error servidor.");
@@ -461,10 +495,13 @@ export default function ServicesPage() {
       );
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.message || "Error al crear nota de crédito.");
+        throw new Error(
+          (err as { message?: string }).message ||
+            "Error al crear nota de crédito.",
+        );
       }
       const result = await res.json();
-      if (result.success) {
+      if ((result as { success?: boolean }).success) {
         toast.success("Nota de crédito creada exitosamente!");
         handleCreditNoteCreated();
         setCreditNoteFormData({
@@ -475,11 +512,15 @@ export default function ServicesPage() {
         });
         setIsCreditNoteFormVisible(false);
       } else {
-        toast.error(result.message || "Error al crear nota de crédito.");
+        toast.error(
+          (result as { message?: string }).message ||
+            "Error al crear nota de crédito.",
+        );
       }
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : "Error de servidor.";
-      toast.error(msg);
+      toast.error(
+        error instanceof Error ? error.message : "Error de servidor.",
+      );
     } finally {
       setIsCreditNoteSubmitting(false);
     }
@@ -513,16 +554,17 @@ export default function ServicesPage() {
         token || undefined,
       );
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Error al guardar servicio.");
+        const err = await res.json().catch(() => ({}));
+        throw new Error(
+          (err as { error?: string }).error || "Error al guardar servicio.",
+        );
       }
 
-      // refrescar servicios (secuencial y con no-store)
       await fetchServices(id);
-
       toast.success(
         editingServiceId ? "Servicio actualizado!" : "Servicio agregado!",
       );
+
       setEditingServiceId(null);
       setIsFormVisible(false);
       setFormData({
@@ -584,10 +626,7 @@ export default function ServicesPage() {
       ? new Date(dateString).toLocaleDateString("es-AR", { timeZone: "UTC" })
       : "N/A";
 
-  const handleBookingUpdated = (updated: Booking) => {
-    setBooking(updated);
-  };
-
+  const handleBookingUpdated = (updated: Booking) => setBooking(updated);
   const handleCreditNoteCreated = () => {
     if (invoices.length) void fetchCreditNotes(invoices);
   };

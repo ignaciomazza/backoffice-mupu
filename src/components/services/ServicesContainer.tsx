@@ -956,7 +956,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                   role === "desarrollador" ||
                   role === "gerente" ||
                   role === "vendedor") &&
-                  (services.length > 0 || clientPayments.length > 0) && (
+                  booking && (
                     <ClientPaymentForm
                       token={token}
                       booking={booking}
@@ -966,7 +966,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
 
                 <ClientPaymentList
                   payments={clientPayments}
-                  booking={booking}
+                  booking={booking!}
                   role={role}
                   loading={clientPaymentsLoading}
                   onPaymentDeleted={handleClientPaymentDeleted}
