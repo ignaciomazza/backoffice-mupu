@@ -193,10 +193,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     if (Number.isFinite(bookingId)) {
       await ensureBookingInAgency(bookingId, authAgencyId);
+      // ✅ reemplazá ese bloque por esto
       const receipts = await prisma.receipt.findMany({
-        where: { bookingId_booking: bookingId },
+        where: { booking: { id_booking: bookingId } },
         orderBy: { issue_date: "desc" },
       });
+
       return res.status(200).json({ receipts });
     }
 

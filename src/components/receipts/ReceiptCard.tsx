@@ -9,9 +9,13 @@ import Spinner from "@/components/Spinner";
 
 /* ======================== Utils ======================== */
 
+// src/components/receipts/ReceiptCard.tsx
 const normCurrency = (c?: string | null) => {
-  const cu = (c || "").toUpperCase();
-  if (["USD", "DOL", "U$S", "US$"].includes(cu)) return "USD";
+  const cu = (c || "").toUpperCase().trim();
+  if (["USD", "US$", "U$S", "DOL"].includes(cu)) return "USD";
+  if (["ARS", "$"].includes(cu)) return "ARS";
+  // si viene otra ISO válida (EUR, BRL, etc.), usarla
+  if (/^[A-Z]{3}$/.test(cu)) return cu;
   return "ARS";
 };
 
