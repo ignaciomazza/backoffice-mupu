@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Service } from "@/types";
 import { useAuth } from "@/context/AuthContext";
+import { authFetch } from "@/utils/authFetch";
 
 /** Config API */
 type CalcConfigResponse = {
@@ -98,16 +99,18 @@ export default function ServiceCard({
 
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
+      if (!token) {
+        if (!cancelled) setAgencyMode("auto");
+        return;
+      }
       try {
-        if (!token) {
-          if (!cancelled) setAgencyMode("auto");
-          return;
-        }
-        const r = await fetch("/api/service-calc-config", {
-          headers: { Authorization: `Bearer ${token}` },
-          cache: "no-store",
-        });
+        const r = await authFetch(
+          "/api/service-calc-config",
+          { cache: "no-store" },
+          token,
+        );
         if (!r.ok) throw new Error("fetch failed");
         const data: CalcConfigResponse = await r.json();
         if (!cancelled) {
@@ -119,6 +122,7 @@ export default function ServiceCard({
         if (!cancelled) setAgencyMode("auto");
       }
     })();
+
     return () => {
       cancelled = true;
     };

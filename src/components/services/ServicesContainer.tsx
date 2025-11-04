@@ -998,7 +998,12 @@ export default function ServicesContainer({
                       loadServicesForBooking={async (
                         bId,
                       ): Promise<ServiceLite[]> => {
-                        // map con tipos explícitos
+                        if (!token)
+                          throw new Error(
+                            "Sesión expirada. Volvé a iniciar sesión.",
+                          );
+
+                        // Mapea items heterogéneos de API -> ServiceLite
                         const mapToLite = (
                           arr: ReadonlyArray<BookingServiceItem>,
                         ): ServiceLite[] =>
@@ -1043,7 +1048,7 @@ export default function ServicesContainer({
                             };
                           });
 
-                        // Si ya tengo los services en memoria de esta reserva, uso eso.
+                        // Si ya tenemos los services de esta reserva en memoria, usamos eso
                         if (
                           booking?.id_booking === bId &&
                           Array.isArray(services) &&
@@ -1054,7 +1059,7 @@ export default function ServicesContainer({
                           );
                         }
 
-                        // helpers sin `any`
+                        // Helpers sin `any`
                         const parseJsonToArray = (
                           json: unknown,
                         ): BookingServiceItem[] | null => {
@@ -1085,14 +1090,14 @@ export default function ServicesContainer({
                           const res = await authFetch(
                             url,
                             { cache: "no-store" },
-                            token || undefined,
+                            token,
                           );
                           if (!res.ok) return null;
-                          const json = (await res.json()) as unknown;
+                          const json: unknown = await res.json();
                           return parseJsonToArray(json);
                         };
 
-                        // rutas alternativas comunes de tu API
+                        // Endpoints alternativos comunes
                         const arr =
                           (await tryFetch(`/api/bookings/${bId}/services`)) ||
                           (await tryFetch(

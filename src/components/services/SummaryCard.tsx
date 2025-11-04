@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { Service, Receipt } from "@/types";
 import { useAuth } from "@/context/AuthContext";
+import { authFetch } from "@/utils/authFetch";
 
 /* ===== Tipos ===== */
 interface Totals {
@@ -64,7 +65,14 @@ type ReceiptWithConversion = Receipt &
 /** Config API */
 type CalcConfigResponse = {
   billing_breakdown_mode: "auto" | "manual";
+  /** Proporción: 0.024 = 2.4% */
   transfer_fee_pct: number;
+};
+
+type EarningsByBookingResponse = {
+  ownerPct: number;
+  commissionBaseByCurrency: Record<string, number>;
+  sellerEarningsByCurrency: Record<string, number>;
 };
 
 /* ---------- UI helpers ---------- */
@@ -124,32 +132,44 @@ export default function SummaryCard({
   const labels: Record<string, string> = { ARS: "Pesos", USD: "Dólares" };
   const { token } = useAuth();
 
-  /* ====== Modo de cálculo (auto/manual) ====== */
+  /* ====== Config de cálculo y costo de transferencia ====== */
   const [agencyMode, setAgencyMode] = useState<"auto" | "manual">("auto");
+  const [transferPct, setTransferPct] = useState<number>(0.024); // fallback 2.4%
 
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
-      try {
-        if (!token) {
-          if (!cancelled) setAgencyMode("auto");
-          return;
+      if (!token) {
+        if (!cancelled) {
+          setAgencyMode("auto");
+          setTransferPct(0.024);
         }
-        const r = await fetch("/api/service-calc-config", {
-          headers: { Authorization: `Bearer ${token}` },
-          cache: "no-store",
-        });
+        return;
+      }
+      try {
+        const r = await authFetch(
+          "/api/service-calc-config",
+          { cache: "no-store" },
+          token,
+        );
         if (!r.ok) throw new Error("fetch failed");
         const data: CalcConfigResponse = await r.json();
         if (!cancelled) {
           setAgencyMode(
             data.billing_breakdown_mode === "manual" ? "manual" : "auto",
           );
+          const pct = Number(data.transfer_fee_pct);
+          setTransferPct(Number.isFinite(pct) ? pct : 0.024);
         }
       } catch {
-        if (!cancelled) setAgencyMode("auto");
+        if (!cancelled) {
+          setAgencyMode("auto");
+          setTransferPct(0.024);
+        }
       }
     })();
+
     return () => {
       cancelled = true;
     };
@@ -172,7 +192,7 @@ export default function SummaryCard({
     }, {});
   }, [services]);
 
-  /** Pagos por moneda (prioriza contravalor). */
+  /** Pagos por moneda (prioriza contravalor cuando existe). */
   const paidByCurrency = useMemo(() => {
     return receipts.reduce<Record<string, number>>((acc, raw) => {
       const r = raw as ReceiptWithConversion;
@@ -204,8 +224,8 @@ export default function SummaryCard({
   }, [totalsByCurrency, salesWithInterestByCurrency, paidByCurrency]);
 
   /** ====== cálculo local de comisión base por moneda (fallback) ======
-   * commissionBase = max(totalCommissionWithoutVAT - sale_price*0.024, 0)
-   * (idéntico a /api/earnings)
+   * commissionBase = max(totalCommissionWithoutVAT - sale_price*transferPct, 0)
+   * (alineado con /api/earnings y usando el transferPct de la config)
    */
   const localCommissionBaseByCurrency = useMemo(() => {
     return services.reduce<Record<string, number>>((acc, raw) => {
@@ -213,12 +233,12 @@ export default function SummaryCard({
       const cur = (s.currency || "ARS").toUpperCase();
       const sale = toNum(s.sale_price);
       const dbCommission = toNum(s.totalCommissionWithoutVAT);
-      const fee = sale * 0.024;
+      const fee = sale * (Number.isFinite(transferPct) ? transferPct : 0.024);
       const base = Math.max(dbCommission - fee, 0);
       acc[cur] = (acc[cur] || 0) + base;
       return acc;
     }, {});
-  }, [services]);
+  }, [services, transferPct]);
 
   /** ====== Traer % y earnings desde /api/earnings/by-booking ====== */
   const bookingId = useMemo(
@@ -244,27 +264,21 @@ export default function SummaryCard({
         return;
       }
       try {
-        const r = await fetch(
+        const r = await authFetch(
           `/api/earnings/by-booking?bookingId=${bookingId}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-            cache: "no-store",
-          },
+          { cache: "no-store" },
+          token,
         );
         if (!r.ok) throw new Error("fetch failed");
-        const json: {
-          ownerPct: number;
-          commissionBaseByCurrency: Record<"ARS" | "USD", number>;
-          sellerEarningsByCurrency: Record<"ARS" | "USD", number>;
-        } = await r.json();
+        const json: EarningsByBookingResponse = await r.json();
 
         if (!cancelled) {
-          setOwnerPct(json.ownerPct ?? 100);
+          setOwnerPct(Number.isFinite(json.ownerPct) ? json.ownerPct : 100);
           setApiCommissionBaseByCurrency(
-            upperKeys(json.commissionBaseByCurrency as Record<string, number>),
+            upperKeys(json.commissionBaseByCurrency || {}),
           );
           setApiSellerEarningsByCurrency(
-            upperKeys(json.sellerEarningsByCurrency as Record<string, number>),
+            upperKeys(json.sellerEarningsByCurrency || {}),
           );
         }
       } catch {

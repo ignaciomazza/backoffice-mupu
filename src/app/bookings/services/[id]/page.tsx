@@ -23,6 +23,7 @@ import { useAuth } from "@/context/AuthContext";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 import { CreditNoteFormData } from "@/components/credite-notes/CreditNoteForm";
 import { authFetch } from "@/utils/authFetch";
+import Spinner from "@/components/Spinner";
 
 interface UserProfile {
   role: string;
@@ -476,11 +477,12 @@ export default function ServicesPage() {
       // 👇 armamos payload y agregamos los campos snake_case que espera el backend
       const payload = {
         ...formData,
-        booking_id: id,
+        booking_id: Number(id),
         ...billingData,
         transfer_fee_pct: billingData.transferFeePct,
         transfer_fee_amount: billingData.transferFeeAmount,
       };
+
       const res = await authFetch(
         url,
         {
@@ -572,49 +574,55 @@ export default function ServicesPage() {
 
   return (
     <ProtectedRoute>
-      <ServicesContainer
-        token={token}
-        booking={booking}
-        services={services}
-        availableServices={services}
-        operators={operators}
-        invoices={invoices}
-        receipts={receipts}
-        creditNotes={creditNotes}
-        onReceiptCreated={handleReceiptCreated}
-        onReceiptDeleted={handleReceiptDeleted}
-        onCreditNoteCreated={handleCreditNoteCreated}
-        invoiceFormData={invoiceFormData}
-        formData={formData}
-        editingServiceId={editingServiceId}
-        expandedServiceId={expandedServiceId}
-        loading={loading}
-        isFormVisible={isFormVisible}
-        isInvoiceFormVisible={isInvoiceFormVisible}
-        handleChange={handleChange}
-        handleInvoiceChange={handleInvoiceChange}
-        updateFormData={updateInvoiceFormData}
-        handleInvoiceSubmit={handleInvoiceSubmit}
-        handleSubmit={handleSubmitService}
-        deleteService={deleteService}
-        formatDate={formatDate}
-        setEditingServiceId={setEditingServiceId}
-        setIsFormVisible={setIsFormVisible}
-        setFormData={setFormData}
-        setExpandedServiceId={setExpandedServiceId}
-        setIsInvoiceFormVisible={setIsInvoiceFormVisible}
-        isSubmitting={invoiceLoading}
-        onBillingUpdate={handleBillingUpdate}
-        role={userRole}
-        onBookingUpdated={handleBookingUpdated}
-        creditNoteFormData={creditNoteFormData}
-        isCreditNoteFormVisible={isCreditNoteFormVisible}
-        setIsCreditNoteFormVisible={setIsCreditNoteFormVisible}
-        handleCreditNoteChange={handleCreditNoteChange}
-        updateCreditNoteFormData={updateCreditNoteFormData}
-        handleCreditNoteSubmit={handleCreditNoteSubmit}
-        isCreditNoteSubmitting={isCreditNoteSubmitting}
-      />
+      {!token ? (
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <Spinner />
+        </div>
+      ) : (
+        <ServicesContainer
+          token={token}
+          booking={booking}
+          services={services}
+          availableServices={services}
+          operators={operators}
+          invoices={invoices}
+          receipts={receipts}
+          creditNotes={creditNotes}
+          onReceiptCreated={handleReceiptCreated}
+          onReceiptDeleted={handleReceiptDeleted}
+          onCreditNoteCreated={handleCreditNoteCreated}
+          invoiceFormData={invoiceFormData}
+          formData={formData}
+          editingServiceId={editingServiceId}
+          expandedServiceId={expandedServiceId}
+          loading={loading}
+          isFormVisible={isFormVisible}
+          isInvoiceFormVisible={isInvoiceFormVisible}
+          handleChange={handleChange}
+          handleInvoiceChange={handleInvoiceChange}
+          updateFormData={updateInvoiceFormData}
+          handleInvoiceSubmit={handleInvoiceSubmit}
+          handleSubmit={handleSubmitService}
+          deleteService={deleteService}
+          formatDate={formatDate}
+          setEditingServiceId={setEditingServiceId}
+          setIsFormVisible={setIsFormVisible}
+          setFormData={setFormData}
+          setExpandedServiceId={setExpandedServiceId}
+          setIsInvoiceFormVisible={setIsInvoiceFormVisible}
+          isSubmitting={invoiceLoading}
+          onBillingUpdate={handleBillingUpdate}
+          role={userRole}
+          onBookingUpdated={handleBookingUpdated}
+          creditNoteFormData={creditNoteFormData}
+          isCreditNoteFormVisible={isCreditNoteFormVisible}
+          setIsCreditNoteFormVisible={setIsCreditNoteFormVisible}
+          handleCreditNoteChange={handleCreditNoteChange}
+          updateCreditNoteFormData={updateCreditNoteFormData}
+          handleCreditNoteSubmit={handleCreditNoteSubmit}
+          isCreditNoteSubmitting={isCreditNoteSubmitting}
+        />
+      )}
     </ProtectedRoute>
   );
 }
