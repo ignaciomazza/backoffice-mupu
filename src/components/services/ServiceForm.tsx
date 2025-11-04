@@ -314,6 +314,34 @@ async function fetchServiceCalcCfg(
   return null;
 }
 
+/* ========= Helpers de moneda (sin utils/currency.ts) ========= */
+
+/** Verifica si un código ISO 4217 es válido para Intl.NumberFormat */
+function isValidCurrencyCode(code: string): boolean {
+  const c = (code || "").trim().toUpperCase();
+  if (!c) return false;
+  try {
+    // Intl lanza RangeError si el currency code no es válido
+    new Intl.NumberFormat("es-AR", { style: "currency", currency: c }).format(
+      1,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Elige una moneda segura para mostrar: intenta la del form, luego la 1ra habilitada, luego 'ARS' */
+function pickDisplayCurrency(
+  formCode: string,
+  enabledOptions: string[],
+): string {
+  const form = (formCode || "").trim().toUpperCase();
+  if (isValidCurrencyCode(form)) return form;
+  const first = (enabledOptions[0] || "ARS").toUpperCase();
+  return isValidCurrencyCode(first) ? first : "ARS";
+}
+
 /* =========================
  * Componente
  * ========================= */
@@ -491,19 +519,32 @@ export default function ServiceForm({
     return dict;
   }, [financeCurrencies]);
 
-  /* ========== FORMATO & KPI CABECERA ========== */
-  const currencySymbol = useMemo(
-    () => (formData.currency === "USD" ? "US$" : "$"),
-    [formData.currency],
+  /* ========== Moneda segura para UI/formatos ========== */
+  const displayCurrency = useMemo(
+    () => pickDisplayCurrency(formData.currency, currencyOptions),
+    [formData.currency, currencyOptions],
   );
 
-  const formatCurrency = (value: number) =>
-    isNaN(value)
-      ? ""
-      : new Intl.NumberFormat("es-AR", {
-          style: "currency",
-          currency: formData.currency || "ARS",
-        }).format(value);
+  /* ========== FORMATO & KPI CABECERA ========== */
+  const currencySymbol = useMemo(() => {
+    if (displayCurrency === "USD") return "US$";
+    if (displayCurrency === "ARS") return "$";
+    // símbolo genérico; evitamos suposiciones
+    return displayCurrency;
+  }, [displayCurrency]);
+
+  const formatCurrency = (value: number) => {
+    if (!Number.isFinite(value)) return "";
+    try {
+      return new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: displayCurrency,
+      }).format(value);
+    } catch {
+      // Fallback robusto
+      return `${value.toFixed(2)} ${displayCurrency}`;
+    }
+  };
 
   const formatIsoToDisplay = (v: string) =>
     !v || v.includes("/") ? v : v.split("-").reverse().join("/");
@@ -637,6 +678,10 @@ export default function ServiceForm({
 
   const submitDisabled = !destValid || submitting;
 
+  const pctToShow = Number.isFinite(effectiveTransferFeePct)
+    ? (effectiveTransferFeePct as number)
+    : 0;
+
   return (
     <motion.div
       layout
@@ -712,7 +757,7 @@ export default function ServiceForm({
 
           <div className="hidden items-center gap-2 md:flex">
             <span className="rounded-full bg-white/30 px-3 py-1 text-xs font-medium dark:bg-white/10">
-              {formData.currency || "ARS"}
+              {displayCurrency}
             </span>
             {hasPrices && (
               <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
@@ -1157,7 +1202,7 @@ export default function ServiceForm({
                     <span className="font-medium">Costo por transferencia</span>{" "}
                     aplicado en cálculos:{" "}
                     <span className="rounded-full bg-white/30 px-2 py-0.5 font-medium">
-                      {(effectiveTransferFeePct * 100).toFixed(2)}%
+                      {(pctToShow * 100).toFixed(2)}%
                     </span>
                   </div>
                 </div>
@@ -1170,9 +1215,9 @@ export default function ServiceForm({
                     importeVenta={formData.sale_price}
                     costo={formData.cost_price}
                     impuestos={formData.other_taxes || 0}
-                    moneda={formData.currency || "ARS"}
+                    moneda={displayCurrency}
                     onBillingUpdate={onBillingUpdate}
-                    transferFeePct={effectiveTransferFeePct}
+                    transferFeePct={pctToShow}
                   />
                 ) : (
                   <BillingBreakdown
@@ -1184,9 +1229,9 @@ export default function ServiceForm({
                     otrosImpuestos={formData.other_taxes || 0}
                     cardInterest={formData.card_interest || 0}
                     cardInterestIva={formData.card_interest_21 || 0}
-                    moneda={formData.currency || "ARS"}
+                    moneda={displayCurrency}
                     onBillingUpdate={onBillingUpdate}
-                    transferFeePct={effectiveTransferFeePct}
+                    transferFeePct={pctToShow}
                   />
                 ))}
 

@@ -28,7 +28,7 @@ interface Totals {
 
 interface SummaryCardProps {
   totalsByCurrency: Record<string, Totals>;
-  fmtCurrency: (value: number, currency: string) => string;
+  fmtCurrency?: (value: number, currency: string) => string; // ahora opcional
 
   /** Datos crudos para calcular deuda y comisión */
   services: Service[];
@@ -121,6 +121,52 @@ const upperKeys = (obj: Record<string, number>) =>
     Object.entries(obj || {}).map(([k, v]) => [String(k).toUpperCase(), v]),
   );
 
+/* ---------- helpers de moneda (robustos, sin utils/currency.ts) ---------- */
+function isValidCurrencyCode(code: string): boolean {
+  const c = (code || "").trim().toUpperCase();
+  if (!c) return false;
+  try {
+    new Intl.NumberFormat("es-AR", { style: "currency", currency: c }).format(
+      1,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Normaliza cosas como U$D, US$, AR$, etc. y devuelve ISO 4217 si es posible. */
+function normalizeCurrencyCode(raw: string): string {
+  const s = (raw || "").trim().toUpperCase();
+  if (!s) return "ARS";
+  const maps: Record<string, string> = {
+    U$D: "USD",
+    U$S: "USD",
+    US$: "USD",
+    USD$: "USD",
+    AR$: "ARS",
+    $: "ARS",
+  };
+  if (maps[s]) return maps[s];
+  // extrae primer match de 3 letras
+  const m = s.match(/[A-Z]{3}/);
+  const code = m ? m[0] : s;
+  return isValidCurrencyCode(code) ? code : "ARS";
+}
+
+function formatCurrencySafe(value: number, currency: string): string {
+  const cur = normalizeCurrencyCode(currency);
+  const v = Number.isFinite(value) ? value : 0;
+  try {
+    return new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency: cur,
+    }).format(v);
+  } catch {
+    return `${v.toFixed(2)} ${cur}`;
+  }
+}
+
 /* ------------------------------------------------------- */
 
 export default function SummaryCard({
@@ -177,11 +223,21 @@ export default function SummaryCard({
 
   const manualMode = agencyMode === "manual";
 
+  /** Normaliza totales por moneda (clave) para evitar códigos no-ISO. */
+  const totalsNorm = useMemo(() => {
+    const acc: Record<string, Totals> = {};
+    for (const [k, v] of Object.entries(totalsByCurrency || {})) {
+      const code = normalizeCurrencyCode(k);
+      acc[code] = v;
+    }
+    return acc;
+  }, [totalsByCurrency]);
+
   /** Venta con interés por moneda (sale_price + interés). */
   const salesWithInterestByCurrency = useMemo(() => {
     return services.reduce<Record<string, number>>((acc, raw) => {
       const s = raw as ServiceWithCalcs;
-      const cur = (s.currency || "ARS").toUpperCase();
+      const cur = normalizeCurrencyCode(s.currency || "ARS");
       const sale = toNum(s.sale_price);
       const splitNoVAT = toNum(s.taxableCardInterest);
       const splitVAT = toNum(s.vatOnCardInterest);
@@ -203,11 +259,11 @@ export default function SummaryCard({
         r.counter_amount !== undefined;
 
       if (hasCounter) {
-        const cur = String(r.counter_currency).toUpperCase();
+        const cur = normalizeCurrencyCode(String(r.counter_currency));
         const val = toNum(r.counter_amount ?? 0);
         acc[cur] = (acc[cur] || 0) + val;
       } else if (r.amount_currency) {
-        const cur = String(r.amount_currency).toUpperCase();
+        const cur = normalizeCurrencyCode(String(r.amount_currency));
         const val = toNum(r.amount ?? 0);
         acc[cur] = (acc[cur] || 0) + val;
       }
@@ -217,20 +273,19 @@ export default function SummaryCard({
 
   /** Unión de monedas presentes. */
   const currencies = useMemo(() => {
-    const a = new Set(Object.keys(totalsByCurrency));
+    const a = new Set<string>(Object.keys(totalsNorm));
     Object.keys(salesWithInterestByCurrency).forEach((c) => a.add(c));
     Object.keys(paidByCurrency).forEach((c) => a.add(c));
     return Array.from(a);
-  }, [totalsByCurrency, salesWithInterestByCurrency, paidByCurrency]);
+  }, [totalsNorm, salesWithInterestByCurrency, paidByCurrency]);
 
   /** ====== cálculo local de comisión base por moneda (fallback) ======
    * commissionBase = max(totalCommissionWithoutVAT - sale_price*transferPct, 0)
-   * (alineado con /api/earnings y usando el transferPct de la config)
    */
   const localCommissionBaseByCurrency = useMemo(() => {
     return services.reduce<Record<string, number>>((acc, raw) => {
       const s = raw as ServiceWithCalcs;
-      const cur = (s.currency || "ARS").toUpperCase();
+      const cur = normalizeCurrencyCode(s.currency || "ARS");
       const sale = toNum(s.sale_price);
       const dbCommission = toNum(s.totalCommissionWithoutVAT);
       const fee = sale * (Number.isFinite(transferPct) ? transferPct : 0.024);
@@ -309,6 +364,12 @@ export default function SummaryCard({
   const colsClass =
     currencies.length === 1 ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2";
 
+  // Formateador efectivo (usa prop si existe; si no, el interno seguro)
+  const fmt = (value: number, currency: string) =>
+    fmtCurrency
+      ? fmtCurrency(value, normalizeCurrencyCode(currency))
+      : formatCurrencySafe(value, currency);
+
   return (
     <div
       className={`mb-6 space-y-3 rounded-3xl ${
@@ -317,7 +378,8 @@ export default function SummaryCard({
     >
       <div className={`grid ${colsClass} gap-6`}>
         {currencies.map((currency) => {
-          const t = totalsByCurrency[currency] || {
+          const code = normalizeCurrencyCode(currency);
+          const t = totalsNorm[code] || {
             sale_price: 0,
             cost_price: 0,
             tax_21: 0,
@@ -341,37 +403,37 @@ export default function SummaryCard({
           const cardTotal =
             cardSplit > 0 ? cardSplit : (t.cardInterestRaw ?? 0);
 
-          const venta = fmtCurrency(t.sale_price, currency);
-          const costo = fmtCurrency(t.cost_price, currency);
-          const margen = fmtCurrency(t.sale_price - t.cost_price, currency);
-          const feeTransfer = fmtCurrency(t.transferFeesAmount, currency);
+          const venta = fmt(t.sale_price, code);
+          const costo = fmt(t.cost_price, code);
+          const margen = fmt(t.sale_price - t.cost_price, code);
+          const feeTransfer = fmt(t.transferFeesAmount, code);
 
           // Chip de "Impuestos": en AUTO = IVA calculado; en MANUAL = other_taxes
           const chipImpuestos = manualMode
-            ? fmtCurrency(t.other_taxes || 0, currency)
-            : fmtCurrency(
+            ? fmt(t.other_taxes || 0, code)
+            : fmt(
                 t.sale_price - t.cost_price - t.totalCommissionWithoutVAT,
-                currency,
+                code,
               );
 
           // Deuda por moneda
-          const salesWI = salesWithInterestByCurrency[currency] || 0;
-          const paid = paidByCurrency[currency] || 0;
+          const salesWI = salesWithInterestByCurrency[code] || 0;
+          const paid = paidByCurrency[code] || 0;
           const ventaParaDeuda = manualMode ? t.sale_price : salesWI;
           const debt = ventaParaDeuda - paid;
 
           // Comisión base + ganancia del vendedor (preferimos API, sino fallback)
-          const myEarning = sellerEarningFor(currency);
+          const myEarning = sellerEarningFor(code);
 
           return (
             <section
-              key={currency}
+              key={code}
               className="rounded-3xl border border-white/10 bg-white/10 p-4 shadow-sm shadow-sky-950/10"
             >
               {/* Header */}
               <header className="mb-4 flex flex-col gap-2 px-2">
                 <h3 className="text-xl font-semibold">
-                  {labels[currency] || currency}
+                  {labels[code] || code}
                 </h3>
                 <div className="flex w-full flex-wrap items-center justify-end gap-2 pl-20">
                   <Chip>Venta: {venta}</Chip>
@@ -392,26 +454,14 @@ export default function SummaryCard({
                   {manualMode ? (
                     <Row
                       label="Impuestos"
-                      value={fmtCurrency(t.other_taxes || 0, currency)}
+                      value={fmt(t.other_taxes || 0, code)}
                     />
                   ) : (
                     <>
-                      <Row
-                        label="IVA 21%"
-                        value={fmtCurrency(t.tax_21, currency)}
-                      />
-                      <Row
-                        label="IVA 10,5%"
-                        value={fmtCurrency(t.tax_105, currency)}
-                      />
-                      <Row
-                        label="Exento"
-                        value={fmtCurrency(t.exempt, currency)}
-                      />
-                      <Row
-                        label="Otros"
-                        value={fmtCurrency(t.other_taxes, currency)}
-                      />
+                      <Row label="IVA 21%" value={fmt(t.tax_21, code)} />
+                      <Row label="IVA 10,5%" value={fmt(t.tax_105, code)} />
+                      <Row label="Exento" value={fmt(t.exempt, code)} />
+                      <Row label="Otros" value={fmt(t.other_taxes, code)} />
                     </>
                   )}
                 </Section>
@@ -421,15 +471,15 @@ export default function SummaryCard({
                   <Section title="Base imponible">
                     <Row
                       label="No computable"
-                      value={fmtCurrency(t.nonComputable, currency)}
+                      value={fmt(t.nonComputable, code)}
                     />
                     <Row
                       label="Gravado 21%"
-                      value={fmtCurrency(t.taxableBase21, currency)}
+                      value={fmt(t.taxableBase21, code)}
                     />
                     <Row
                       label="Gravado 10,5%"
-                      value={fmtCurrency(t.taxableBase10_5, currency)}
+                      value={fmt(t.taxableBase10_5, code)}
                     />
                   </Section>
                 )}
@@ -439,15 +489,15 @@ export default function SummaryCard({
                   <Section title="Tarjeta">
                     <Row
                       label="Intereses (total)"
-                      value={fmtCurrency(cardTotal, currency)}
+                      value={fmt(cardTotal, code)}
                     />
                     <Row
                       label="Intereses sin IVA"
-                      value={fmtCurrency(t.taxableCardInterest || 0, currency)}
+                      value={fmt(t.taxableCardInterest || 0, code)}
                     />
                     <Row
                       label="IVA intereses"
-                      value={fmtCurrency(t.vatOnCardInterest || 0, currency)}
+                      value={fmt(t.vatOnCardInterest || 0, code)}
                     />
                   </Section>
                 )}
@@ -457,11 +507,11 @@ export default function SummaryCard({
                   <Section title="IVA sobre comisiones">
                     <Row
                       label="IVA 21%"
-                      value={fmtCurrency(t.vatOnCommission21, currency)}
+                      value={fmt(t.vatOnCommission21, code)}
                     />
                     <Row
                       label="IVA 10,5%"
-                      value={fmtCurrency(t.vatOnCommission10_5, currency)}
+                      value={fmt(t.vatOnCommission10_5, code)}
                     />
                   </Section>
                 )}
@@ -470,13 +520,10 @@ export default function SummaryCard({
                 <Section title="Deuda del cliente">
                   <Row
                     label={manualMode ? "Venta" : "Venta c/ interés"}
-                    value={fmtCurrency(ventaParaDeuda, currency)}
+                    value={fmt(ventaParaDeuda, code)}
                   />
-                  <Row
-                    label="Pagos aplicados"
-                    value={fmtCurrency(paid, currency)}
-                  />
-                  <Row label="Deuda" value={fmtCurrency(debt, currency)} />
+                  <Row label="Pagos aplicados" value={fmt(paid, code)} />
+                  <Row label="Deuda" value={fmt(debt, code)} />
                 </Section>
               </div>
 
@@ -487,9 +534,9 @@ export default function SummaryCard({
                     Total Comisión (Sin Impuestos / Costos Transferencia)
                   </p>
                   <p className="text-lg font-semibold tabular-nums">
-                    {fmtCurrency(
+                    {fmt(
                       t.totalCommissionWithoutVAT - t.transferFeesAmount,
-                      currency,
+                      code,
                     )}
                   </p>
                 </div>
@@ -498,7 +545,7 @@ export default function SummaryCard({
                     Ganancia del vendedor {`(${(ownerPct ?? 100).toFixed(0)}%)`}
                   </p>
                   <p className="text-end text-lg font-semibold tabular-nums">
-                    {fmtCurrency(myEarning, currency)}
+                    {fmt(myEarning, code)}
                   </p>
                 </div>
               </footer>
