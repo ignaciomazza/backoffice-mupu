@@ -25,6 +25,7 @@ export async function authFetch(
   const isInternal =
     urlStr.startsWith("/") || (!!origin && urlStr.startsWith(origin));
 
+  // Content-Type por defecto sólo si hay body no-FormData
   if (
     hasBody &&
     !(init.body instanceof FormData) &&
@@ -35,14 +36,25 @@ export async function authFetch(
     headers.set("Content-Type", "application/json");
   }
 
-  if (token && isInternal) headers.set("Authorization", `Bearer ${token}`);
+  // Defaults seguros que no rompen llamadas existentes
+  if (!headers.has("Accept")) headers.set("Accept", "application/json");
+  if (!headers.has("X-Requested-With"))
+    headers.set("X-Requested-With", "fetch");
 
-  const res = await fetch(input, { ...init, headers, credentials: "include" });
+  // Bearer sólo para endpoints internos (mantiene tu contrato actual)
+  if (token && isInternal && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const res = await fetch(input, {
+    ...init,
+    headers,
+    credentials: "include", // mantiene cookies de sesión
+    cache: init.cache ?? "no-store", // evita respuestas stale sin romper overrides
+  });
 
   if (process.env.NEXT_PUBLIC_DEBUG_AUTH === "1") {
     if (res.status === 401) {
-      // 👇 vas a ver motivo y fuente que agregó el middleware
-      // (si el endpoint pasa por middleware)
       // eslint-disable-next-line no-console
       console.warn("[AUTH-DEBUG][authFetch] 401", {
         url: urlStr,
@@ -56,4 +68,15 @@ export async function authFetch(
   }
 
   return res;
+}
+
+// Helper opcional, no intrusivo, útil para parsear JSON de forma segura
+export async function safeJson<T = unknown>(res: Response): Promise<T> {
+  const text = await res.text();
+  if (!text) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return {} as T;
+  }
 }

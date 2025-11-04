@@ -214,23 +214,26 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   });
 
   useEffect(() => {
-    if (!token || !booking?.id_booking) {
+    if (!booking?.id_booking) {
       setNeighbors({ prevId: null, nextId: null });
       return;
     }
+
     const ac = new AbortController();
+
     (async () => {
       try {
         const res = await authFetch(
           `/api/bookings/neighbor?bookingId=${booking.id_booking}`,
           { cache: "no-store", signal: ac.signal },
-          token,
+          token ?? undefined,
         );
+
         if (!res.ok) {
-          // Evitamos ruido en la UI, solo reset silencioso
           setNeighbors({ prevId: null, nextId: null });
           return;
         }
+
         const data: unknown = await res.json();
         const prevId = toFiniteNumber(
           (data as { prevId?: unknown })?.prevId,
@@ -240,6 +243,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
           (data as { nextId?: unknown })?.nextId,
           NaN,
         );
+
         if (!mountedRef.current) return;
         setNeighbors({
           prevId: Number.isFinite(prevId) ? prevId : null,
@@ -251,6 +255,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
         }
       }
     })();
+
     return () => ac.abort();
   }, [token, booking?.id_booking]);
 
