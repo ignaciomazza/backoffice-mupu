@@ -3,31 +3,28 @@ import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { jwtVerify, JWTPayload } from "jose";
 
-/* ================== Auth helpers ================== */
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
   userId?: number;
   uid?: number;
-  id_agency?: number;
-  agencyId?: number;
-  aid?: number;
   role?: string;
   email?: string;
 };
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
+const normalizeRole = (r?: string) =>
+  (r ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/^leader$/, "lider");
 
-function getTokenFromRequest(req: NextApiRequest): string | null {
-  // 1) Cookie "token" (más confiable detrás de proxies)
+const getTokenFromRequest = (req: NextApiRequest): string | null => {
   if (req.cookies?.token) return req.cookies.token;
-
-  // 2) Authorization: Bearer
   const auth = req.headers.authorization || "";
   if (auth.startsWith("Bearer ")) return auth.slice(7);
-
-  // 3) Otros posibles nombres de cookie (defensivo)
   const c = req.cookies || {};
   for (const k of [
     "session",
@@ -39,40 +36,7 @@ function getTokenFromRequest(req: NextApiRequest): string | null {
     if (typeof v === "string" && v) return v;
   }
   return null;
-}
-
-async function getUserIdFromAuth(req: NextApiRequest): Promise<number | null> {
-  try {
-    const token = getTokenFromRequest(req);
-    if (!token) return null;
-
-    const { payload } = await jwtVerify(
-      token,
-      new TextEncoder().encode(JWT_SECRET),
-    );
-    const p = payload as TokenPayload;
-
-    // id posible en distintos claims
-    const idFromToken = Number(p.id_user ?? p.userId ?? p.uid) || undefined;
-
-    if (idFromToken) return idFromToken;
-
-    // fallback por email si existiera
-    if (p.email) {
-      const u = await prisma.user.findUnique({
-        where: { email: p.email },
-        select: { id_user: true },
-      });
-      return u?.id_user ?? null;
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/* ================== Handler ================== */
+};
 
 export default async function handler(
   req: NextApiRequest,
@@ -83,23 +47,56 @@ export default async function handler(
     return res.status(405).end(`Método ${req.method} no permitido`);
   }
 
-  const id_user = await getUserIdFromAuth(req);
-  if (!id_user) {
+  res.setHeader("Cache-Control", "no-store");
+
+  const token = getTokenFromRequest(req);
+  if (!token) {
+    res.setHeader("x-auth-reason", "no-token");
     return res.status(401).json({ error: "No autenticado" });
   }
 
+  let payload: TokenPayload;
   try {
-    const user = await prisma.user.findUnique({
-      where: { id_user },
-      select: { role: true },
-    });
+    const out = await jwtVerify(token, new TextEncoder().encode(JWT_SECRET));
+    payload = out.payload as TokenPayload;
+  } catch {
+    res.setHeader("x-auth-reason", "invalid-token");
+    return res.status(401).json({ error: "Token inválido o expirado" });
+  }
+
+  // ✅ Fast-path: si el JWT ya trae role, devolvémoslo sin ir a DB
+  if (payload.role) {
+    return res.status(200).json({ role: normalizeRole(payload.role) });
+  }
+
+  // Fallback: buscar por id_user o email
+  try {
+    const id_user =
+      Number(payload.id_user ?? payload.userId ?? payload.uid) || null;
+    const email = payload.email ?? null;
+
+    const user = id_user
+      ? await prisma.user.findUnique({
+          where: { id_user },
+          select: { role: true },
+        })
+      : email
+        ? await prisma.user.findUnique({
+            where: { email },
+            select: { role: true },
+          })
+        : null;
+
     if (!user) {
+      res.setHeader("x-auth-reason", "user-not-found");
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
-    // Mantiene el shape esperado por el front: { role: string }
-    return res.status(200).json({ role: user.role });
-  } catch (error) {
-    console.error("[user/role][GET]", error);
-    return res.status(500).json({ error: "Error obteniendo rol" });
+
+    return res.status(200).json({ role: normalizeRole(user.role) });
+  } catch (err) {
+    console.error("[user/role][GET]", err);
+    res.setHeader("x-auth-reason", "db-error");
+    // 503 para que el front NO asuma logout por esto
+    return res.status(503).json({ error: "Error al obtener rol" });
   }
 }

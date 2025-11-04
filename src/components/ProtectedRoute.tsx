@@ -1,3 +1,4 @@
+// src/components/ProtectedRoute.tsx
 "use client";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
