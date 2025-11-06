@@ -603,7 +603,14 @@ export default function BookingForm({
                       <input
                         type="checkbox"
                         checked={useAdminAdjust}
-                        onChange={(e) => setUseAdminAdjust(e.target.checked)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setUseAdminAdjust(checked);
+                          // 👉 Al habilitar, forzamos la selección del creador a "Seleccionar…"
+                          if (checked && canPickCreator) {
+                            setFormData((prev) => ({ ...prev, id_user: 0 }));
+                          }
+                        }}
                         className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
                       />
                       Habilitar ajustes de creador/fecha de creación
@@ -626,7 +633,7 @@ export default function BookingForm({
                               const id = Number(e.target.value || 0);
                               handleChange({
                                 target: { name: "id_user", value: String(id) },
-                              } as unknown as ChangeEvent<HTMLSelectElement>);
+                              } as unknown as React.ChangeEvent<HTMLSelectElement>);
                             }}
                             className={`${inputBase} cursor-pointer`}
                           >
