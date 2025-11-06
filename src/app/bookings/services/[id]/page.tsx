@@ -23,6 +23,7 @@ import { CreditNoteFormData } from "@/components/credite-notes/CreditNoteForm";
 import { authFetch } from "@/utils/authFetch";
 import Spinner from "@/components/Spinner";
 
+// ===== Cookies utils =====
 type Role =
   | "desarrollador"
   | "gerente"
@@ -30,6 +31,19 @@ type Role =
   | "vendedor"
   | "administrativo"
   | "marketing";
+
+function getCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const row = document.cookie
+    .split("; ")
+    .find((r) => r.startsWith(`${encodeURIComponent(name)}=`));
+  return row ? decodeURIComponent(row.split("=")[1] || "") : null;
+}
+
+function readRoleFromCookie(): Role | "" {
+  const raw = getCookie("role");
+  return normalizeRole(raw);
+}
 
 function normalizeRole(raw: unknown): Role | "" {
   const s = String(raw ?? "")
@@ -319,9 +333,19 @@ export default function ServicesPage() {
     fetchOperatorsByAgency,
   ]);
 
-  // Rol: intenta /api/role y si da 404, cae a /api/user/profile
+  // Rol: cookie-first; si no existe, fallback a API una sola vez.
+  // Además, re-sincroniza al volver el foco a la pestaña.
   useEffect(() => {
     if (!token) return;
+
+    // 1) Cookie → rápido y sin golpear la DB
+    const fromCookie = readRoleFromCookie();
+    if (fromCookie) {
+      setRole(fromCookie);
+      return; // evitamos fetch innecesario
+    }
+
+    // 2) Fallback a API si no hay cookie
     const ac = new AbortController();
     (async () => {
       try {
@@ -350,8 +374,19 @@ export default function ServicesPage() {
         // silencioso
       }
     })();
+
     return () => ac.abort();
   }, [token]);
+
+  // Releer la cookie al volver el foco (por si el rol cambió en otra pestaña)
+  useEffect(() => {
+    const onFocus = () => {
+      const cookieRole = readRoleFromCookie(); // puede ser "" si no está
+      if ((cookieRole || "") !== (role || "")) setRole(cookieRole);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [role]);
 
   /* ============================ HANDLERS ============================ */
 

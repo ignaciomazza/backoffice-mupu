@@ -1,3 +1,4 @@
+// src/components/invoices/InvoiceCard.tsx
 "use client";
 import { Invoice } from "@/types";
 import { toast } from "react-toastify";
@@ -5,7 +6,6 @@ import Spinner from "@/components/Spinner";
 import { useMemo, useState } from "react";
 
 /* ======================== Utils ======================== */
-
 const normCurrency = (curr?: string) => {
   const c = (curr || "").toUpperCase();
   if (c === "USD" || c === "DOL" || c === "U$S") return "USD";
@@ -71,12 +71,11 @@ const StatusChip: React.FC<{ status?: string }> = ({ status }) => {
 
 const CurrencyChip: React.FC<{ currency?: string }> = ({ currency }) => (
   <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-xs font-medium text-sky-900 dark:border-sky-800/40 dark:bg-sky-900/30 dark:text-sky-100">
-    {normCurrency(currency) === "ARS" ? "Pesos" : "Dolares"}
+    {normCurrency(currency) === "ARS" ? "Pesos" : "Dólares"}
   </span>
 );
 
 /* ======================== Card ======================== */
-
 interface InvoiceCardProps {
   invoice: Invoice;
 }
@@ -95,7 +94,6 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
     | VoucherMinimal
     | undefined;
 
-  // ✅ mover la lectura de Iva dentro del useMemo y depender de `voucher`
   const bases = useMemo(() => {
     const Iva = voucher?.Iva ?? [];
     let base21 = 0,
@@ -143,7 +141,6 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
     }
   };
 
-  // -------- SIN payload AFIP --------
   if (!invoice.payloadAfip) {
     return (
       <div className="group h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md backdrop-blur transition-transform hover:scale-[0.999] dark:text-white">
@@ -177,9 +174,7 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
           <button
             onClick={onDownload}
             disabled={loading}
-            className={`rounded-full bg-sky-100 px-4 py-2 text-sm text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur ${
-              loading ? "cursor-not-allowed opacity-50" : ""
-            }`}
+            className={`rounded-full bg-sky-100 px-4 py-2 text-sm text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur ${loading ? "cursor-not-allowed opacity-50" : ""}`}
           >
             {loading ? (
               <Spinner />
@@ -209,10 +204,8 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
     );
   }
 
-  // -------- CON payload AFIP --------
   return (
     <div className="group h-fit rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur transition-transform hover:scale-[0.999] dark:text-white">
-      {/* Header */}
       <header className="mb-2 flex items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -241,7 +234,6 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
         <CurrencyChip currency={invoice.currency} />
       </div>
 
-      {/* Totales */}
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
           <p className="text-xs opacity-70">Base 21%</p>
@@ -281,15 +273,12 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
         </div>
       </div>
 
-      {/* CTA */}
       <div className="mt-4 flex items-center justify-end">
         <button
           onClick={onDownload}
           disabled={loading}
           aria-label="Descargar PDF de la factura"
-          className={`rounded-full bg-sky-100 px-5 py-2 text-sm text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur ${
-            loading ? "cursor-not-allowed opacity-50" : ""
-          }`}
+          className={`rounded-full bg-sky-100 px-5 py-2 text-sm text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur ${loading ? "cursor-not-allowed opacity-50" : ""}`}
         >
           {loading ? (
             <Spinner />

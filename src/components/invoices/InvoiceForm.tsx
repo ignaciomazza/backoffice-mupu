@@ -1,7 +1,7 @@
 // src/components/invoices/InvoiceForm.tsx
 "use client";
 import { motion } from "framer-motion";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Spinner from "@/components/Spinner";
 import { Client, Service } from "@/types";
 import ClientPicker from "@/components/clients/ClientPicker";
@@ -46,51 +46,70 @@ export default function InvoiceForm({
   isSubmitting,
   token,
 }: InvoiceFormProps) {
-  // ====== Cotización ======
+  /* ========= Cotización (lazy con cache TTL) ========= */
   const [fetchedExchangeRate, setFetchedExchangeRate] = useState<string>("");
+  const [rateStatus, setRateStatus] = useState<
+    "idle" | "loading" | "ok" | "error"
+  >("idle");
+
+  // Cache en memoria para evitar re-fetch por 5 min sin depender de estado
+  const rateCacheRef = useRef<{ ts: number; value: string } | null>(null);
 
   useEffect(() => {
-    let alive = true;
-    if (!token) return;
+    if (!token || !isFormVisible) return; // solo cuando se abre el form
+    if (formData.exchangeRate && formData.exchangeRate.trim() !== "") return; // si el usuario la completó manualmente, no fetchear
+
+    const TTL_MS = 5 * 60 * 1000;
+    const now = Date.now();
+
+    // Cache hit dentro del TTL
+    const cached = rateCacheRef.current;
+    if (cached && now - cached.ts < TTL_MS) {
+      setFetchedExchangeRate(cached.value);
+      setRateStatus("ok");
+      return;
+    }
+
+    const ac = new AbortController();
     (async () => {
       try {
-        const url = `/api/exchangeRate?ts=${Date.now()}`; // cache-buster
-        // Podés usar authFetch SIN token (igual manda cookies)
+        setRateStatus("loading");
         const res = await authFetch(
-          url,
-          { cache: "no-store" },
+          `/api/exchangeRate?ts=${Date.now()}`,
+          { cache: "no-store", signal: ac.signal },
           token || undefined,
         );
-
-        // Para depurar mejor:
         const raw = await res.text();
-
-        if (!res.ok) {
-          setFetchedExchangeRate("");
-          return;
-        }
-
+        if (!res.ok) throw new Error("Exchange rate fetch failed");
         const data = JSON.parse(raw);
 
-        if (alive && data?.success && data.rate != null) {
-          setFetchedExchangeRate(String(data.rate));
-        } else if (alive) {
+        if (data?.success && data.rate != null) {
+          const val = String(data.rate);
+          setFetchedExchangeRate(val);
+          setRateStatus("ok");
+          rateCacheRef.current = { ts: now, value: val };
+        } else {
           setFetchedExchangeRate("");
+          setRateStatus("error");
+          rateCacheRef.current = null;
         }
-      } catch (err) {
-        console.error("Error fetching exchange rate:", err);
+      } catch {
+        if (!ac.signal.aborted) {
+          setFetchedExchangeRate("");
+          setRateStatus("error");
+          rateCacheRef.current = null;
+        }
       }
     })();
-    return () => {
-      alive = false;
-    };
-  }, [token]);
 
-  // ====== Helpers ======
+    return () => ac.abort();
+  }, [token, isFormVisible, formData.exchangeRate]);
+
+  /* ========= Helpers ========= */
   const arraysEqual = (a: string[], b: string[]) =>
     a.length === b.length && a.every((v, i) => v === b[i]);
 
-  // ====== Servicios (picker múltiple) ======
+  /* ========= Servicios (picker múltiple) ========= */
   const [selectedServiceIds, setSelectedServiceIds] = useState<number[]>(
     () =>
       formData.services
@@ -173,7 +192,7 @@ export default function InvoiceForm({
   const desc10 = formData.description10_5 || [];
   const descNon = formData.descriptionNonComputable || [];
 
-  // ====== Clientes (picker múltiple) ======
+  /* ========= Clientes (picker múltiple) ========= */
   const [clientCount, setClientCount] = useState<number>(
     Math.max(1, formData.clientIds?.length || 1),
   );
@@ -201,7 +220,7 @@ export default function InvoiceForm({
       .map((s) => parseInt(s, 10))
       .filter((n) => Number.isFinite(n)) as number[];
 
-  // ====== Fecha mínima/máxima ======
+  /* ========= Fecha mínima/máxima ========= */
   const today = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   const dMin = new Date(today);
@@ -495,13 +514,20 @@ export default function InvoiceForm({
               value={formData.exchangeRate || ""}
               onChange={handleChange}
               placeholder={
-                fetchedExchangeRate
-                  ? `Cotización: ${fetchedExchangeRate}`
-                  : "Cotización actual"
+                rateStatus === "loading"
+                  ? "Cargando cotización..."
+                  : fetchedExchangeRate
+                    ? `Cotización: ${fetchedExchangeRate}`
+                    : "Cotización actual"
               }
               className={input}
             />
-            {fetchedExchangeRate && (
+            {rateStatus === "loading" && (
+              <div className="ml-2 mt-1 text-xs opacity-70">
+                <Spinner />
+              </div>
+            )}
+            {rateStatus === "ok" && fetchedExchangeRate && (
               <div className="ml-2 mt-1 text-xs opacity-70">
                 Cotización detectada: {fetchedExchangeRate}
               </div>

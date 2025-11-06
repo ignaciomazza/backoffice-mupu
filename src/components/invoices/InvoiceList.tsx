@@ -5,13 +5,30 @@ import { Invoice } from "@/types";
 
 interface InvoiceListProps {
   invoices: Invoice[];
+  loading?: boolean; // carga del pipeline/endpoint
+  ready?: boolean; // el contenedor ya terminó las requests iniciales
 }
 
-export default function InvoiceList({ invoices }: InvoiceListProps) {
-  if (!invoices || invoices.length === 0) {
+export default function InvoiceList({
+  invoices,
+  loading,
+  ready,
+}: InvoiceListProps) {
+  // Aún no listo: no renderizar nada (espera al container)
+  if (!ready) return null;
+
+  if (loading) {
     return (
       <div className="flex h-40 items-center justify-center">
         <Spinner />
+      </div>
+    );
+  }
+
+  if (!invoices || invoices.length === 0) {
+    return (
+      <div className="rounded-2xl border border-white/10 bg-white/10 p-4 text-center text-sm opacity-80">
+        No hay facturas para esta reserva.
       </div>
     );
   }

@@ -1137,13 +1137,15 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                     availableServices={availableServices}
                     handleChange={handleInvoiceChange}
                     handleSubmit={handleInvoiceSubmit}
+                    // ⬇️ usar los estados propios del form de factura
                     isFormVisible={isInvoiceFormVisible}
                     setIsFormVisible={setIsInvoiceFormVisible}
                     updateFormData={updateFormData}
                     isSubmitting={isSubmitting}
                     token={token}
                   />
-                  {invoices.length > 0 && <InvoiceList invoices={invoices} />}
+
+                  <InvoiceList invoices={invoices} />
                 </div>
               )}
 
