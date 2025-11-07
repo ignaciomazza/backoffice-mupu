@@ -690,21 +690,21 @@ export default function ServicesContainer(props: ServicesContainerProps) {
               </div>
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <div className="col-span-3 rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
+                <div className="col-span-1 rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5 md:col-span-2 lg:col-span-3">
                   <p className="text-sm font-semibold">Detalle</p>
                   <p className="mt-1 text-sm font-light">
                     {booking.details || "N/A"}
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
+                <div className="col-span-1 rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
                   <p className="text-sm font-semibold">Vendedor</p>
                   <p className="mt-1 text-sm font-light">
                     {booking.user.first_name} {booking.user.last_name}
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
+                <div className="col-span-1 rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
                   <p className="text-sm font-semibold">Titular</p>
                   <p className="mt-1 text-sm font-light">
                     {cap(booking.titular.first_name)}{" "}
@@ -713,7 +713,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                   </p>
                 </div>
 
-                <div className="flex items-end gap-4 rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5">
+                <div className="col-span-1 flex items-end gap-4 rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5 md:col-span-2 lg:col-span-1">
                   <div>
                     <p className="text-sm font-semibold">Salida</p>
                     <p className="mt-1 text-sm font-light">
