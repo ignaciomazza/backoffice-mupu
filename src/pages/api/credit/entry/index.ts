@@ -23,28 +23,29 @@ type DecodedAuth = {
 };
 
 type EntryCreateBody = {
-  // Opción A: pasar account_id directamente
+  // Opción A: identificar por cuenta
   account_id?: number;
 
-  // Opción B: identificar cuenta por sujeto + moneda (si no existe, la crea)
-  subject_type?: string; // "CLIENT" | "OPERATOR"
+  // Opción B: identificar por sujeto + moneda
+  // subject_type es opcional y sólo se usa para validar; no existe en el modelo.
+  subject_type?: string; // "CLIENT" | "OPERATOR" (opcional)
   client_id?: number | null;
   operator_id?: number | null;
   currency: string;
 
-  amount: number; // + suma saldo, - resta saldo
+  amount: number; // + aumenta deuda, - reduce
   concept: string;
-  doc_type?: string | null; // "manual" | "receipt" | "operator_due" | "investment" | "refund" | etc.
-  value_date?: string | null; // "YYYY-MM-DD" opcional
+  doc_type?: string | null;
+  value_date?: string | null;
   reference?: string | null;
 
-  // vínculos opcionales
+  // vínculos
   booking_id?: number | null;
   receipt_id?: number | null;
   investment_id?: number | null;
   operator_due_id?: number | null;
 
-  // v1: evitar balance < 0. Para permitirlo, requiere doc_type="adjustment" + allowNegative=true
+  // permitir saldo negativo sólo para ajustes
   allowNegative?: boolean;
 };
 
@@ -146,10 +147,7 @@ export default async function handler(
           ? req.query.account_id[0]
           : req.query.account_id,
       );
-      const subject_type =
-        typeof req.query.subject_type === "string"
-          ? req.query.subject_type
-          : undefined;
+
       const client_id = safeNumber(
         Array.isArray(req.query.client_id)
           ? req.query.client_id[0]
@@ -165,21 +163,32 @@ export default async function handler(
       const doc_type =
         typeof req.query.doc_type === "string" ? req.query.doc_type : undefined;
 
-      // Búsqueda por cuenta o por sujeto
+      // alias legacy: subject_type=CLIENT/OPERATOR → not null filter
+      const subject_type =
+        typeof req.query.subject_type === "string"
+          ? String(req.query.subject_type).toUpperCase()
+          : undefined;
+
+      let accountFilter: Prisma.CreditAccountWhereInput | undefined;
+
+      if (client_id != null || operator_id != null || subject_type) {
+        accountFilter = {
+          ...(client_id != null ? { client_id } : {}),
+          ...(operator_id != null ? { operator_id } : {}),
+          ...(subject_type === "CLIENT"
+            ? { client_id: { not: null } }
+            : subject_type === "OPERATOR"
+              ? { operator_id: { not: null } }
+              : {}),
+        };
+      }
+
       const where: Prisma.CreditEntryWhereInput = {
         id_agency: auth.id_agency,
         ...(account_id ? { account_id } : {}),
         ...(doc_type ? { doc_type } : {}),
         ...(currency ? { currency } : {}),
-        ...(subject_type || client_id || operator_id
-          ? {
-              account: {
-                subject_type: subject_type || undefined,
-                client_id: client_id ?? undefined,
-                operator_id: operator_id ?? undefined,
-              },
-            }
-          : {}),
+        ...(accountFilter ? { account: accountFilter } : {}),
       };
 
       const items = await prisma.creditEntry.findMany({
@@ -191,7 +200,6 @@ export default async function handler(
           account: {
             select: {
               id_credit_account: true,
-              subject_type: true,
               currency: true,
               client_id: true,
               operator_id: true,
@@ -210,7 +218,7 @@ export default async function handler(
     }
   }
 
-  // ===== POST: crear movimiento (aplicar/ajustar) =====
+  // ===== POST: crear movimiento =====
   if (req.method === "POST") {
     try {
       const b = (req.body ?? {}) as Partial<EntryCreateBody>;
@@ -246,35 +254,42 @@ export default async function handler(
 
       // Buscar/crear cuenta si vino sujeto+moneda
       if (!accountId) {
-        const subject_type = String(b.subject_type || "").toUpperCase();
         const client_id = b.client_id != null ? Number(b.client_id) : undefined;
         const operator_id =
           b.operator_id != null ? Number(b.operator_id) : undefined;
 
-        if (!["CLIENT", "OPERATOR"].includes(subject_type)) {
-          return res
-            .status(400)
-            .json({ error: "subject_type debe ser 'CLIENT' u 'OPERATOR'." });
-        }
-        if (subject_type === "CLIENT" && !client_id) {
-          return res
-            .status(400)
-            .json({
-              error: "client_id es obligatorio para subject_type=CLIENT.",
+        const hasClient = typeof client_id === "number";
+        const hasOperator = typeof operator_id === "number";
+
+        // validar consistencia con subject_type (si lo mandan)
+        const legacy = String(b.subject_type || "").toUpperCase();
+        if (legacy) {
+          if (legacy === "CLIENT" && !hasClient) {
+            return res.status(400).json({
+              error:
+                "subject_type=CLIENT requiere client_id (uno solo; no operator_id).",
             });
+          }
+          if (legacy === "OPERATOR" && !hasOperator) {
+            return res.status(400).json({
+              error:
+                "subject_type=OPERATOR requiere operator_id (uno solo; no client_id).",
+            });
+          }
         }
-        if (subject_type === "OPERATOR" && !operator_id) {
+
+        if (Number(hasClient) + Number(hasOperator) !== 1) {
           return res
             .status(400)
             .json({
-              error: "operator_id es obligatorio para subject_type=OPERATOR.",
+              error: "Debe indicar client_id u operator_id (uno solo).",
             });
         }
 
         // Validar pertenencia
-        if (client_id) {
+        if (hasClient) {
           const c = await prisma.client.findUnique({
-            where: { id_client: client_id },
+            where: { id_client: client_id! },
             select: { id_agency: true },
           });
           if (!c || c.id_agency !== auth.id_agency)
@@ -282,9 +297,9 @@ export default async function handler(
               .status(400)
               .json({ error: "Cliente inválido para tu agencia." });
         }
-        if (operator_id) {
+        if (hasOperator) {
           const o = await prisma.operator.findUnique({
-            where: { id_operator: operator_id },
+            where: { id_operator: operator_id! },
             select: { id_agency: true },
           });
           if (!o || o.id_agency !== auth.id_agency)
@@ -293,25 +308,25 @@ export default async function handler(
               .json({ error: "Operador inválido para tu agencia." });
         }
 
-        // Idempotente: buscar cuenta por sujeto+moneda, crear si no existe
+        // Buscar cuenta idempotente por (sujeto + moneda)
         const acct = await prisma.creditAccount.findFirst({
           where: {
             id_agency: auth.id_agency,
-            subject_type,
-            client_id: client_id ?? null,
-            operator_id: operator_id ?? null,
             currency,
+            ...(hasClient
+              ? { client_id: client_id!, operator_id: null }
+              : { operator_id: operator_id!, client_id: null }),
           },
         });
+
         if (acct) {
           accountId = acct.id_credit_account;
         } else {
           const created = await prisma.creditAccount.create({
             data: {
               id_agency: auth.id_agency,
-              subject_type,
-              client_id: client_id ?? null,
-              operator_id: operator_id ?? null,
+              client_id: hasClient ? client_id! : null,
+              operator_id: hasOperator ? operator_id! : null,
               currency,
               balance: new Prisma.Decimal(0),
               enabled: true,
@@ -332,11 +347,9 @@ export default async function handler(
           .status(403)
           .json({ error: "No autorizado para esta cuenta." });
       if (account.currency !== currency) {
-        return res
-          .status(400)
-          .json({
-            error: `La moneda del movimiento (${currency}) no coincide con la de la cuenta (${account.currency}).`,
-          });
+        return res.status(400).json({
+          error: `La moneda del movimiento (${currency}) no coincide con la de la cuenta (${account.currency}).`,
+        });
       }
       if (!account.enabled) {
         return res.status(400).json({ error: "La cuenta está deshabilitada." });
@@ -344,26 +357,20 @@ export default async function handler(
 
       // Transacción: crear entry + actualizar balance (con chequeo)
       const created = await prisma.$transaction(async (tx) => {
-        // Recargar balance dentro del tx
         const fresh = await tx.creditAccount.findUnique({
           where: { id_credit_account: account.id_credit_account },
-          select: { balance: true, credit_limit: true },
+          select: { balance: true },
         });
         if (!fresh) throw new Error("Cuenta inexistente (TX).");
 
         const current = Number(fresh.balance);
         const next = Number((current + amount).toFixed(2));
 
-        // Regla v1: no permitir saldo < 0 salvo ajuste manual explícito
+        // Regla v1: no permitir saldo < 0 salvo ajuste explícito
         if (next < 0 && !allowNegative) {
           throw new Error(
             "Saldo insuficiente: la operación dejaría el saldo negativo.",
           );
-        }
-
-        // Si se usa credit_limit en v2 (línea de crédito), podés chequear next >= -limit
-        if (fresh.credit_limit != null && next < -Number(fresh.credit_limit)) {
-          throw new Error("Límite de crédito excedido.");
         }
 
         const entry = await tx.creditEntry.create({
@@ -384,7 +391,6 @@ export default async function handler(
           },
         });
 
-        // Actualizar balance al nuevo valor exacto
         await tx.creditAccount.update({
           where: { id_credit_account: account.id_credit_account },
           data: { balance: new Prisma.Decimal(next) },
@@ -396,10 +402,7 @@ export default async function handler(
       return res.status(201).json(created);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (
-        msg.includes("Saldo insuficiente") ||
-        msg.includes("Límite de crédito")
-      ) {
+      if (msg.includes("Saldo insuficiente")) {
         return res.status(400).json({ error: msg });
       }
       console.error("[credit/entry][POST]", e);
