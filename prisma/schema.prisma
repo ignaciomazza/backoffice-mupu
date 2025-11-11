@@ -46,6 +46,8 @@ model Agency {
   Receipt              Receipt[]
   ServiceType          ServiceType[]
   ServiceCalcConfig    ServiceCalcConfig?
+  creditAccounts       CreditAccount[]
+  creditEntries        CreditEntry[]
 }
 
 // User: renombramos las colecciones para que reflejen la intención
@@ -74,6 +76,7 @@ model User {
   // 👇 Relaciones nuevas y con nombre simétrico:
   createdDestinations      Destination[]        @relation("DestinationCreatedBy")
   serviceDestinationsAdded ServiceDestination[] @relation("ServiceDestinationAddedBy")
+  creditEntries            CreditEntry[]
 }
 
 model Client {
@@ -104,6 +107,7 @@ model Client {
   titular_bookings       Booking[]       @relation("Titular")
   invoices               Invoice[]       @relation("ClientInvoices")
   ClientPayment          ClientPayment[]
+  creditAccounts         CreditAccount[]
 }
 
 model Booking {
@@ -132,6 +136,7 @@ model Booking {
   investments         Investment[]    @relation("BookingInvestments")
   OperatorDue         OperatorDue[]
   ClientPayment       ClientPayment[]
+  creditEntries       CreditEntry[]
 
   @@index([id_agency, id_booking], name: "agency_booking_idx")
 }
@@ -238,7 +243,7 @@ model ServiceDestination {
 }
 
 model Operator {
-  id_operator       Int          @id @default(autoincrement())
+  id_operator       Int             @id @default(autoincrement())
   name              String
   email             String?
   phone             String?
@@ -251,13 +256,14 @@ model Operator {
   vat_status        String?
   legal_name        String?
   tax_id            String?
-  registration_date DateTime     @default(now())
-  credit_balance    Float        @default(0)
-  debit_balance     Float        @default(0)
+  registration_date DateTime        @default(now())
+  credit_balance    Float           @default(0)
+  debit_balance     Float           @default(0)
   services          Service[]
   id_agency         Int
-  agency            Agency       @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  agency            Agency          @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   Investment        Investment[]
+  creditAccounts    CreditAccount[]
 }
 
 model Invoice {
@@ -350,9 +356,9 @@ model UserTeam {
 }
 
 model Receipt {
-  id_receipt        Int      @id @default(autoincrement())
-  receipt_number    String   @unique
-  issue_date        DateTime @default(now())
+  id_receipt        Int           @id @default(autoincrement())
+  receipt_number    String        @unique
+  issue_date        DateTime      @default(now())
   amount            Float
   amount_string     String
   amount_currency   String
@@ -360,16 +366,17 @@ model Receipt {
   currency          String
   payment_method    String?
   account           String?
-  base_amount       Decimal? @db.Decimal(18, 2)
+  base_amount       Decimal?      @db.Decimal(18, 2)
   base_currency     String?
-  counter_amount    Decimal? @db.Decimal(18, 2)
+  counter_amount    Decimal?      @db.Decimal(18, 2)
   counter_currency  String?
   bookingId_booking Int?
-  booking           Booking? @relation("BookingReceipt", fields: [bookingId_booking], references: [id_booking], onDelete: SetNull)
+  booking           Booking?      @relation("BookingReceipt", fields: [bookingId_booking], references: [id_booking], onDelete: SetNull)
   id_agency         Int?
-  agency            Agency?  @relation(fields: [id_agency], references: [id_agency], onDelete: SetNull)
+  agency            Agency?       @relation(fields: [id_agency], references: [id_agency], onDelete: SetNull)
   serviceIds        Int[]
-  clientIds         Int[]    @default([])
+  clientIds         Int[]         @default([])
+  creditEntries     CreditEntry[]
 
   @@index([bookingId_booking])
   @@index([id_agency])
@@ -395,29 +402,30 @@ model CalendarNote {
 }
 
 model Investment {
-  id_investment    Int       @id @default(autoincrement())
+  id_investment    Int           @id @default(autoincrement())
   id_agency        Int
-  agency           Agency    @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  agency           Agency        @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   category         String
   description      String
-  amount           Decimal   @db.Decimal(18, 2)
+  amount           Decimal       @db.Decimal(18, 2)
   currency         String
-  created_at       DateTime  @default(now())
+  created_at       DateTime      @default(now())
   paid_at          DateTime?
   payment_method   String?
   account          String?
-  base_amount      Decimal?  @db.Decimal(18, 2)
+  base_amount      Decimal?      @db.Decimal(18, 2)
   base_currency    String?
-  counter_amount   Decimal?  @db.Decimal(18, 2)
+  counter_amount   Decimal?      @db.Decimal(18, 2)
   counter_currency String?
   operator_id      Int?
-  operator         Operator? @relation(fields: [operator_id], references: [id_operator])
+  operator         Operator?     @relation(fields: [operator_id], references: [id_operator])
   user_id          Int?
-  user             User?     @relation("InvestmentUser", fields: [user_id], references: [id_user])
+  user             User?         @relation("InvestmentUser", fields: [user_id], references: [id_user])
   created_by       Int
-  createdBy        User      @relation("InvestmentCreatedBy", fields: [created_by], references: [id_user])
+  createdBy        User          @relation("InvestmentCreatedBy", fields: [created_by], references: [id_user])
   booking_id       Int?
-  booking          Booking?  @relation("BookingInvestments", fields: [booking_id], references: [id_booking], onDelete: SetNull)
+  booking          Booking?      @relation("BookingInvestments", fields: [booking_id], references: [id_booking], onDelete: SetNull)
+  creditEntries    CreditEntry[]
 
   @@index([id_agency, category])
   @@index([created_at])
@@ -426,17 +434,18 @@ model Investment {
 }
 
 model OperatorDue {
-  id_due     Int      @id @default(autoincrement())
-  created_at DateTime @default(now())
-  booking_id Int
-  booking    Booking  @relation(fields: [booking_id], references: [id_booking], onDelete: Cascade)
-  service_id Int
-  service    Service  @relation(fields: [service_id], references: [id_service], onDelete: Cascade)
-  due_date   DateTime
-  concept    String
-  status     String
-  amount     Decimal  @db.Decimal(18, 2)
-  currency   String
+  id_due        Int           @id @default(autoincrement())
+  created_at    DateTime      @default(now())
+  booking_id    Int
+  booking       Booking       @relation(fields: [booking_id], references: [id_booking], onDelete: Cascade)
+  service_id    Int
+  service       Service       @relation(fields: [service_id], references: [id_service], onDelete: Cascade)
+  due_date      DateTime
+  concept       String
+  status        String
+  amount        Decimal       @db.Decimal(18, 2)
+  currency      String
+  creditEntries CreditEntry[]
 
   @@index([booking_id])
   @@index([service_id])
@@ -682,4 +691,69 @@ model Lead {
   @@index([status])
   @@index([created_at])
   @@index([email])
+}
+
+model CreditAccount {
+  id_credit_account Int    @id @default(autoincrement())
+  id_agency         Int
+  agency            Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  operator_id Int?
+  operator    Operator? @relation(fields: [operator_id], references: [id_operator], onDelete: Cascade)
+  client_id   Int?
+  client      Client?   @relation(fields: [client_id], references: [id_client], onDelete: Cascade)
+
+  currency String
+  balance  Decimal @default(0) @db.Decimal(18, 2)
+
+  enabled    Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  entries CreditEntry[]
+
+  @@index([id_agency])
+  @@index([operator_id])
+  @@index([client_id])
+  @@index([currency])
+}
+
+model CreditEntry {
+  id_entry  Int    @id @default(autoincrement())
+  id_agency Int
+  agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  account_id Int
+  account    CreditAccount @relation(fields: [account_id], references: [id_credit_account], onDelete: Cascade)
+
+  created_at DateTime  @default(now())
+  value_date DateTime?
+  concept    String
+  amount     Decimal   @db.Decimal(18, 2)
+  currency   String
+
+  booking_id Int?
+  booking    Booking? @relation(fields: [booking_id], references: [id_booking], onDelete: SetNull)
+
+  receipt_id Int?
+  receipt    Receipt? @relation(fields: [receipt_id], references: [id_receipt], onDelete: SetNull)
+
+  investment_id Int?
+  investment    Investment? @relation(fields: [investment_id], references: [id_investment], onDelete: SetNull)
+
+  operator_due_id Int?
+  operatorDue     OperatorDue? @relation(fields: [operator_due_id], references: [id_due], onDelete: SetNull)
+
+  doc_type  String?
+  reference String?
+
+  created_by Int?
+  createdBy  User? @relation(fields: [created_by], references: [id_user], onDelete: SetNull)
+
+  @@index([account_id])
+  @@index([id_agency, created_at])
+  @@index([booking_id])
+  @@index([receipt_id])
+  @@index([investment_id])
+  @@index([operator_due_id])
 }
