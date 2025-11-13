@@ -11,6 +11,7 @@ import CreateAccountForm, {
   type CreateCreditAccountPayload,
 } from "@/components/credits/CreateAccountForm";
 import type { Operator } from "@/types";
+import { AnimatePresence, motion } from "framer-motion";
 import "react-toastify/dist/ReactToastify.css";
 
 /* =========================================================
@@ -37,6 +38,22 @@ const formatDateSafe = (isoLike?: string) => {
     return "-";
   }
 };
+
+const normDoc = (s?: string | null) => (s || "").trim().toLowerCase();
+
+/**
+ * Reglas de signo por tipo de documento:
+ * - investment -> negativo
+ * - receipt    -> positivo
+ * - (otros)    -> tal cual (por ahora positivo, se define más adelante)
+ */
+function signedByDocType(amount: unknown, docType?: string | null): number {
+  const a = Math.abs(Number(amount) || 0);
+  const dt = normDoc(docType);
+  if (dt === "investment") return -a;
+  if (dt === "receipt") return +a;
+  return a; // fallback hasta definir otras reglas
+}
 
 /* ===== Cookies utils (igual lógica que Services) ===== */
 type Role =
@@ -88,10 +105,10 @@ type CreditEntry = {
   account_id: number;
   id_agency: number;
   created_at: string;
-  amount: number;
+  amount: number; // siempre viene positivo desde backend
   currency: string;
   concept?: string | null;
-  doc_type?: string | null;
+  doc_type?: string | null; // "investment" | "receipt" | ...
   booking_id?: number | null;
   receipt_id?: number | null;
   investment_id?: number | null;
@@ -106,7 +123,7 @@ type CreditAccount = {
   operator_id?: number | null;
 
   currency: string;
-  balance: number | string; // Decimal serializado
+  balance: number | string; // Decimal serializado (hoy viene sin signo desde API)
   enabled: boolean;
   created_at: string;
 
@@ -126,6 +143,90 @@ type CurrencyPick = { code: string; name: string; enabled: boolean };
 type FinancePicks = {
   currencies: CurrencyPick[];
 };
+
+/* =========================================================
+ * UI primitives (pills / icons)
+ * ========================================================= */
+type Tone = "sky" | "emerald" | "rose" | "amber" | "violet" | "zinc";
+
+function pillClasses(tone: Tone) {
+  const base =
+    "inline-flex items-center gap-2 rounded-xl border px-3 py-1 text-xs font-medium";
+  const map: Record<Tone, string> = {
+    sky: "border-sky-400/30 bg-sky-400/10 text-sky-900 dark:text-sky-200",
+    emerald:
+      "border-emerald-400/30 bg-emerald-400/10 text-emerald-900 dark:text-emerald-200",
+    rose: "border-rose-400/30 bg-rose-400/10 text-rose-900 dark:text-rose-200",
+    amber:
+      "border-amber-400/30 bg-amber-400/10 text-amber-900 dark:text-amber-200",
+    violet:
+      "border-violet-400/30 bg-violet-400/10 text-violet-900 dark:text-violet-200",
+    zinc: "border-white/10 bg-white/10 text-sky-950 dark:text-white",
+  };
+  return `${base} ${map[tone]}`;
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <motion.svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      className="size-5"
+      animate={{ rotate: open ? 180 : 0 }}
+      transition={{ duration: 0.2 }}
+    >
+      <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+    </motion.svg>
+  );
+}
+
+function ResetIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="size-5"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+    >
+      <path
+        d="M3 12a9 9 0 1 0 3-6.708"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M3 3v6h6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function UpIcon() {
+  return (
+    <svg
+      className="size-4"
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
+      <path d="M12 4l-7 8h4v8h6v-8h4z" />
+    </svg>
+  );
+}
+function DownIcon() {
+  return (
+    <svg
+      className="size-4"
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
+      <path d="M12 20l7-8h-4V4h-6v8H5z" />
+    </svg>
+  );
+}
 
 /* =========================================================
  * Página
@@ -243,11 +344,10 @@ export default function CreditsPage() {
 
   /* ---------- Operadores (por agencia) para el form ---------- */
   const [operators, setOperators] = useState<Operator[]>([]);
-  // Reemplazá tu useEffect de operadores por este
   useEffect(() => {
     if (!token) return;
 
-    // ⛔️ No llames al endpoint hasta tener agencyId
+    // No llamar hasta tener agencyId
     if (agencyId == null) {
       setOperators([]);
       return;
@@ -264,7 +364,7 @@ export default function CreditsPage() {
         );
 
         if (!r.ok) {
-          // Silenciar el 400 típico “Debe proporcionar agencyId”
+          // Silenciar 400 típico “Debe proporcionar agencyId”
           const body =
             (await safeJson<{ error?: string; message?: string }>(r)) ?? {};
           const msg = body.error || body.message || "";
@@ -313,7 +413,7 @@ export default function CreditsPage() {
   );
 
   const fetchList = useCallback(async () => {
-    if (!token) return;
+    if (!token || agencyId == null) return;
     setLoading(true);
 
     listAbortRef.current?.abort();
@@ -365,12 +465,11 @@ export default function CreditsPage() {
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [buildQuery, token]);
+  }, [buildQuery, token, agencyId]);
 
   useEffect(() => {
-    if (!token || agencyId == null) return;
     fetchList();
-  }, [token, agencyId, fetchList]);
+  }, [fetchList]);
 
   const loadMore = useCallback(async () => {
     if (!token || !cursor || loadingMore) return;
@@ -404,19 +503,29 @@ export default function CreditsPage() {
     }
   }, [token, cursor, loadingMore, buildQuery]);
 
-  /* ---------- Expand & lazy details ---------- */
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  /* ---------- Expand & lazy details (multi-open) ---------- */
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [details, setDetails] = useState<Record<number, CreditAccount>>({});
   const [detailsLoading, setDetailsLoading] = useState<Record<number, boolean>>(
     {},
   );
 
-  const fetchDetails = useCallback(
+  const toggleExpand = useCallback(
     async (id: number) => {
-      if (!token || details[id]) {
-        setExpandedId((prev) => (prev === id ? null : id));
+      if (!token) return;
+
+      // Si ya está cargado, solo toggle
+      if (details[id]) {
+        setExpandedIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+        });
         return;
       }
+
+      // Cargar detalles on-demand y abrir
       setDetailsLoading((m) => ({ ...m, [id]: true }));
       try {
         const r = await authFetch(
@@ -436,7 +545,11 @@ export default function CreditsPage() {
         const j = (await safeJson<CreditAccount>(r)) ?? null;
         if (j) {
           setDetails((d) => ({ ...d, [id]: j }));
-          setExpandedId((prev) => (prev === id ? null : id));
+          setExpandedIds((prev) => {
+            const next = new Set(prev);
+            next.add(id);
+            return next;
+          });
         }
       } finally {
         setDetailsLoading((m) => ({ ...m, [id]: false }));
@@ -489,7 +602,6 @@ export default function CreditsPage() {
         throw new Error(err);
       }
 
-      // Tipado sin `any`
       const { id_operator, status, ...rest } = payload;
       const bodyToSend: Omit<
         CreateCreditAccountPayload,
@@ -563,18 +675,10 @@ export default function CreditsPage() {
           <div className="mb-4 flex items-center justify-between">
             <h1 className="text-2xl font-semibold">Cuentas de Crédito</h1>
             <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setIsFormVisible((v) => !v)}
-                className="rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
-                aria-expanded={isFormVisible}
-                aria-controls="credit-account-form"
-              >
-                {isFormVisible ? "Ocultar formulario" : "Nueva cuenta"}
-              </button>
-              <div className="text-xs opacity-70">
-                Rol: <b>{(user?.role || role || "-") as string}</b>
-              </div>
+              <span className={pillClasses("zinc")}>
+                Rol:{" "}
+                <b className="ml-1">{(user?.role || role || "-") as string}</b>
+              </span>
             </div>
           </div>
 
@@ -618,10 +722,13 @@ export default function CreditsPage() {
             <button
               type="button"
               onClick={resetFilters}
-              className="h-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="group h-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md backdrop-blur transition-colors hover:bg-white/20 dark:border-white/10 dark:bg-white/10 dark:text-white"
               title="Limpiar filtros"
             >
-              Limpiar
+              <span className="flex items-center gap-2">
+                <ResetIcon />
+                <span>Limpiar</span>
+              </span>
             </button>
           </div>
 
@@ -640,7 +747,7 @@ export default function CreditsPage() {
                 const id = acc.id_credit_account;
                 const det = details[id];
                 const busy = !!updating[id];
-                const isOpen = expandedId === id;
+                const isOpen = expandedIds.has(id);
                 const cur = (acc.currency || "").toUpperCase();
 
                 const balanceLocal =
@@ -665,132 +772,190 @@ export default function CreditsPage() {
                     ? "OPERADOR"
                     : "—";
 
+                const balanceSign =
+                  Number(balanceLocal) < 0
+                    ? "rose"
+                    : Number(balanceLocal) > 0
+                      ? "emerald"
+                      : "zinc";
+
                 return (
-                  <div
+                  <motion.div
                     key={id}
+                    layout
+                    initial={{ opacity: 0.8, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2 }}
                     className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
                   >
                     {/* Header */}
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex min-w-0 flex-col">
                         <div className="text-sm font-semibold">
-                          #{id} · {subjectLabel}
+                          N° {id} · {subjectLabel}
                         </div>
-                        <div className="text-xs opacity-70">
-                          {subjectKind} · {cur}
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                          <span className={pillClasses("violet")}>
+                            {subjectKind}
+                          </span>
+                          <span className={pillClasses("sky")}>{cur}</span>
+                          <span className={pillClasses("zinc")}>
+                            Estado:{" "}
+                            {(det ?? acc).enabled
+                              ? "Habilitada"
+                              : "Inhabilitada"}
+                          </span>
                         </div>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-3">
-                        <div className="rounded-xl border border-white/10 bg-white/20 px-3 py-1 text-sm dark:bg-white/5">
-                          Saldo:{" "}
-                          <b>
+                        <span className={pillClasses(balanceSign as Tone)}>
+                          Saldo:
+                          <b className="ml-1">
                             {balanceLocal == null
                               ? "—"
                               : formatAmount(Number(balanceLocal), cur)}
                           </b>
-                        </div>
+                        </span>
 
                         <button
                           type="button"
-                          onClick={() => fetchDetails(id)}
-                          className="rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+                          onClick={() => toggleExpand(id)}
+                          className="flex items-center gap-2 rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
                           aria-expanded={isOpen}
                           aria-controls={`acc-${id}-panel`}
                         >
-                          {isOpen ? "Ocultar" : "Ver detalles"}
+                          <ChevronIcon open={isOpen} />
+                          <span>{isOpen ? "Ocultar" : "Ver detalles"}</span>
                         </button>
                       </div>
                     </div>
 
                     {/* Panel detalles */}
-                    {isOpen && (
-                      <div
-                        id={`acc-${id}-panel`}
-                        className="mt-4 space-y-4 border-t border-white/10 pt-4"
-                      >
-                        {/* Estado + toggle */}
-                        <div className="flex flex-wrap items-center gap-3">
-                          <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-white/10 bg-white/20 px-3 py-2 text-sm dark:bg-white/5">
-                            <input
-                              type="checkbox"
-                              checked={(det ?? acc).enabled}
-                              onChange={(e) =>
-                                toggleEnabled(id, e.target.checked)
-                              }
-                              disabled={busy}
-                            />
-                            <span>
-                              {(det ?? acc).enabled
-                                ? "Habilitada"
-                                : "Deshabilitada"}
-                            </span>
-                          </label>
-                        </div>
+                    <AnimatePresence initial={false}>
+                      {isOpen && (
+                        <motion.div
+                          id={`acc-${id}-panel`}
+                          key={`panel-${id}`}
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.25, ease: "easeInOut" }}
+                          className="mt-4 overflow-hidden"
+                        >
+                          <div className="space-y-4 border-t border-white/10 pt-4">
+                            {/* Estado + toggle */}
+                            <div className="flex flex-wrap items-center gap-3">
+                              <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-white/10 bg-white/20 px-3 py-2 text-sm dark:bg-white/5">
+                                <input
+                                  type="checkbox"
+                                  checked={(det ?? acc).enabled}
+                                  onChange={(e) =>
+                                    toggleEnabled(id, e.target.checked)
+                                  }
+                                  disabled={busy}
+                                />
+                                <span>
+                                  {(det ?? acc).enabled
+                                    ? "Habilitada"
+                                    : "Deshabilitada"}
+                                </span>
+                              </label>
+                            </div>
 
-                        {/* Movimientos recientes */}
-                        <div>
-                          <p className="mb-2 text-sm font-semibold">
-                            Movimientos recientes
-                          </p>
-                          {detailsLoading[id] ? (
-                            <div className="flex h-20 items-center">
-                              <Spinner />
-                            </div>
-                          ) : (det?.recentEntries || []).length === 0 ? (
-                            <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sm">
-                              No hay movimientos recientes.
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              {(det?.recentEntries || []).map((m) => (
-                                <div
-                                  key={m.id_entry}
-                                  className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/10 p-3 text-sm"
-                                >
-                                  <div className="min-w-0">
-                                    <div className="font-medium">
-                                      {m.concept || "Movimiento"}
-                                    </div>
-                                    <div className="text-xs opacity-70">
-                                      {formatDateSafe(m.created_at)} ·{" "}
-                                      {m.doc_type || "-"} · #{m.id_entry}
-                                    </div>
-                                  </div>
-                                  <div className="text-right">
-                                    <div
-                                      className={[
-                                        "font-semibold",
-                                        m.amount > 0
-                                          ? "text-red-600"
-                                          : "text-green-600",
-                                      ].join(" ")}
-                                    >
-                                      {formatAmount(
-                                        Number(m.amount),
-                                        m.currency || cur,
-                                      )}
-                                    </div>
-                                    <div className="text-xs opacity-60">
-                                      {m.booking_id
-                                        ? `Reserva ${m.booking_id}`
-                                        : m.receipt_id
-                                          ? `Recibo ${m.receipt_id}`
-                                          : m.investment_id
-                                            ? `Gasto ${m.investment_id}`
-                                            : m.operator_due_id
-                                              ? `Cuota Op. ${m.operator_due_id}`
-                                              : ""}
-                                    </div>
-                                  </div>
+                            {/* Movimientos recientes */}
+                            <div>
+                              <p className="mb-2 text-sm font-semibold">
+                                Movimientos recientes
+                              </p>
+                              {detailsLoading[id] ? (
+                                <div className="flex h-20 items-center">
+                                  <Spinner />
                                 </div>
-                              ))}
+                              ) : (det?.recentEntries || []).length === 0 ? (
+                                <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sm">
+                                  No hay movimientos recientes.
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {(det?.recentEntries || []).map((m) => {
+                                    const signed = signedByDocType(
+                                      m.amount,
+                                      m.doc_type,
+                                    );
+                                    const amtTone: Tone =
+                                      signed < 0 ? "rose" : "emerald";
+                                    const docTone: Tone =
+                                      normDoc(m.doc_type) === "investment"
+                                        ? "rose"
+                                        : normDoc(m.doc_type) === "receipt"
+                                          ? "emerald"
+                                          : "zinc";
+                                    return (
+                                      <div
+                                        key={m.id_entry}
+                                        className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/10 p-3 text-sm"
+                                      >
+                                        <div className="min-w-0">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <div className="font-medium">
+                                              {m.concept || "Movimiento"}
+                                            </div>
+                                            <span
+                                              className={pillClasses(docTone)}
+                                            >
+                                              {normDoc(m.doc_type) ===
+                                              "investment" ? (
+                                                <>
+                                                  <DownIcon />
+                                                  Inversión
+                                                </>
+                                              ) : normDoc(m.doc_type) ===
+                                                "receipt" ? (
+                                                <>
+                                                  <UpIcon />
+                                                  Recibo
+                                                </>
+                                              ) : (
+                                                <>{m.doc_type || "—"}</>
+                                              )}
+                                            </span>
+                                          </div>
+                                          <div className="text-xs opacity-70">
+                                            {formatDateSafe(m.created_at)} · N°{" "}
+                                            {m.id_entry}
+                                          </div>
+                                        </div>
+                                        <div className="text-right">
+                                          <div className={pillClasses(amtTone)}>
+                                            {formatAmount(
+                                              Number(signed),
+                                              m.currency || cur,
+                                            )}
+                                          </div>
+                                          <div className="mt-1 text-xs opacity-60">
+                                            {m.booking_id
+                                              ? `Reserva ${m.booking_id}`
+                                              : m.receipt_id
+                                                ? `Recibo ${m.receipt_id}`
+                                                : m.investment_id
+                                                  ? `Gasto ${m.investment_id}`
+                                                  : m.operator_due_id
+                                                    ? `Cuota Op. ${m.operator_due_id}`
+                                                    : ""}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
                 );
               })}
 

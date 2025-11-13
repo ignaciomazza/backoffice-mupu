@@ -1,4 +1,3 @@
-// src/pages/api/credit/entry/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify } from "jose";
@@ -27,13 +26,18 @@ type EntryCreateBody = {
   account_id?: number;
 
   // Opción B: identificar por sujeto + moneda
-  // subject_type es opcional y sólo se usa para validar; no existe en el modelo.
-  subject_type?: string; // "CLIENT" | "OPERATOR" (opcional)
+  subject_type?: string; // "CLIENT" | "OPERATOR" (opcional, sólo validación)
   client_id?: number | null;
   operator_id?: number | null;
   currency: string;
 
-  amount: number; // + aumenta deuda, - reduce
+  /**
+   * amount SIEMPRE POSITIVO (la API aplica el signo según doc_type)
+   * - investment -> negativo (resta saldo)
+   * - receipt    -> positivo (suma saldo)
+   * - otros      -> positivo (por defecto)
+   */
+  amount: number;
   concept: string;
   doc_type?: string | null;
   value_date?: string | null;
@@ -45,7 +49,7 @@ type EntryCreateBody = {
   investment_id?: number | null;
   operator_due_id?: number | null;
 
-  // permitir saldo negativo sólo para ajustes
+  // (mantengo por compatibilidad, ya no se usa para bloquear negativos)
   allowNegative?: boolean;
 };
 
@@ -117,6 +121,20 @@ function toLocalDate(v?: string | null): Date | undefined {
   return isNaN(d.getTime()) ? undefined : d;
 }
 
+// ----- Signo por tipo de documento -----
+const DOC_SIGN: Record<string, number> = {
+  investment: -1,
+  receipt: 1,
+};
+const normDoc = (s?: string | null) => (s || "").trim().toLowerCase();
+function signForDocType(dt?: string | null): number {
+  return DOC_SIGN[normDoc(dt)] ?? 1;
+}
+function decimalDelta(amountAbs: number, dt?: string | null): Prisma.Decimal {
+  const sign = signForDocType(dt);
+  return new Prisma.Decimal(amountAbs).mul(sign);
+}
+
 /* ================== Handler ================== */
 export default async function handler(
   req: NextApiRequest,
@@ -169,6 +187,12 @@ export default async function handler(
           ? String(req.query.subject_type).toUpperCase()
           : undefined;
 
+      const investment_id = safeNumber(
+        Array.isArray(req.query.investment_id)
+          ? req.query.investment_id[0]
+          : req.query.investment_id,
+      );
+
       let accountFilter: Prisma.CreditAccountWhereInput | undefined;
 
       if (client_id != null || operator_id != null || subject_type) {
@@ -188,6 +212,7 @@ export default async function handler(
         ...(account_id ? { account_id } : {}),
         ...(doc_type ? { doc_type } : {}),
         ...(currency ? { currency } : {}),
+        ...(investment_id ? { investment_id } : {}), // 👈 nuevo
         ...(accountFilter ? { account: accountFilter } : {}),
       };
 
@@ -211,7 +236,15 @@ export default async function handler(
       const hasMore = items.length > take;
       const sliced = hasMore ? items.slice(0, take) : items;
       const nextCursor = hasMore ? sliced[sliced.length - 1].id_entry : null;
-      return res.status(200).json({ items: sliced, nextCursor });
+      return res.status(200).json({
+        items: sliced,
+        nextCursor,
+        // opcional: si querés consumir firmado desde el FE, descomentá:
+        // signed: sliced.map(i => ({
+        //   ...i,
+        //   signed_amount: Number(i.amount) * signForDocType(i.doc_type)
+        // })),
+      });
     } catch (e) {
       console.error("[credit/entry][GET]", e);
       return res.status(500).json({ error: "Error al obtener movimientos" });
@@ -227,13 +260,13 @@ export default async function handler(
       if (
         amountRaw == null ||
         !Number.isFinite(Number(amountRaw)) ||
-        Number(amountRaw) === 0
+        Number(amountRaw) <= 0
       ) {
         return res
           .status(400)
-          .json({ error: "amount es obligatorio y no puede ser 0." });
+          .json({ error: "amount es obligatorio y debe ser > 0." });
       }
-      const amount = Number(amountRaw);
+      const amountAbs = Math.abs(Number(amountRaw));
 
       const currency = String(b.currency || "").trim();
       if (!currency)
@@ -244,10 +277,6 @@ export default async function handler(
         return res.status(400).json({ error: "concept es obligatorio." });
 
       const doc_type = b.doc_type ? String(b.doc_type) : "manual";
-      const allowNegative = Boolean(
-        b.allowNegative && doc_type === "adjustment",
-      );
-
       const value_date = b.value_date ? toLocalDate(b.value_date) : undefined;
 
       let accountId = b.account_id ? Number(b.account_id) : undefined;
@@ -261,7 +290,6 @@ export default async function handler(
         const hasClient = typeof client_id === "number";
         const hasOperator = typeof operator_id === "number";
 
-        // validar consistencia con subject_type (si lo mandan)
         const legacy = String(b.subject_type || "").toUpperCase();
         if (legacy) {
           if (legacy === "CLIENT" && !hasClient) {
@@ -279,11 +307,9 @@ export default async function handler(
         }
 
         if (Number(hasClient) + Number(hasOperator) !== 1) {
-          return res
-            .status(400)
-            .json({
-              error: "Debe indicar client_id u operator_id (uno solo).",
-            });
+          return res.status(400).json({
+            error: "Debe indicar client_id u operator_id (uno solo).",
+          });
         }
 
         // Validar pertenencia
@@ -355,7 +381,7 @@ export default async function handler(
         return res.status(400).json({ error: "La cuenta está deshabilitada." });
       }
 
-      // Transacción: crear entry + actualizar balance (con chequeo)
+      // Transacción: crear entry + actualizar balance con signo por doc_type
       const created = await prisma.$transaction(async (tx) => {
         const fresh = await tx.creditAccount.findUnique({
           where: { id_credit_account: account.id_credit_account },
@@ -363,15 +389,8 @@ export default async function handler(
         });
         if (!fresh) throw new Error("Cuenta inexistente (TX).");
 
-        const current = Number(fresh.balance);
-        const next = Number((current + amount).toFixed(2));
-
-        // Regla v1: no permitir saldo < 0 salvo ajuste explícito
-        if (next < 0 && !allowNegative) {
-          throw new Error(
-            "Saldo insuficiente: la operación dejaría el saldo negativo.",
-          );
-        }
+        const delta = decimalDelta(amountAbs, doc_type); // +/- según doc_type
+        const next = fresh.balance.add(delta);
 
         const entry = await tx.creditEntry.create({
           data: {
@@ -379,7 +398,7 @@ export default async function handler(
             account_id: account.id_credit_account,
             created_by: auth.id_user,
             concept,
-            amount: new Prisma.Decimal(amount),
+            amount: new Prisma.Decimal(amountAbs), // siempre positivo
             currency,
             doc_type,
             reference: b.reference ?? null,
@@ -393,7 +412,7 @@ export default async function handler(
 
         await tx.creditAccount.update({
           where: { id_credit_account: account.id_credit_account },
-          data: { balance: new Prisma.Decimal(next) },
+          data: { balance: next },
         });
 
         return entry;
@@ -402,11 +421,8 @@ export default async function handler(
       return res.status(201).json(created);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes("Saldo insuficiente")) {
-        return res.status(400).json({ error: msg });
-      }
       console.error("[credit/entry][POST]", e);
-      return res.status(500).json({ error: "Error al crear movimiento" });
+      return res.status(500).json({ error: "Error al crear movimiento", msg });
     }
   }
 

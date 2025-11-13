@@ -39,6 +39,51 @@ async function safeJson<T>(res: Response): Promise<T | null> {
   }
 }
 
+/* ==== Role helpers (cookie-first) ==== */
+type Role =
+  | "desarrollador"
+  | "gerente"
+  | "equipo"
+  | "vendedor"
+  | "administrativo"
+  | "marketing";
+
+function getCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const row = document.cookie
+    .split("; ")
+    .find((r) => r.startsWith(`${encodeURIComponent(name)}=`));
+  return row ? decodeURIComponent(row.split("=")[1] || "") : null;
+}
+
+function normalizeRole(raw: unknown): Role | "" {
+  const s = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  if (!s) return "";
+  if (["admin", "administrador", "administrativa"].includes(s))
+    return "administrativo";
+  if (["dev", "developer"].includes(s)) return "desarrollador";
+  return (
+    [
+      "desarrollador",
+      "gerente",
+      "equipo",
+      "vendedor",
+      "administrativo",
+      "marketing",
+    ] as const
+  ).includes(s as Role)
+    ? (s as Role)
+    : "";
+}
+
+function readRoleFromCookie(): Role | "" {
+  return normalizeRole(getCookie("role"));
+}
+
+const CREDIT_METHOD = "Crédito operador";
+
 /* ==== Type guards para evitar any en parseos ==== */
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
@@ -150,8 +195,11 @@ function useDebounced<T>(value: T, delay = 350) {
 export default function Page() {
   const { token } = useAuth() as { token?: string | null };
 
+  // ------- Role cookie-first -------
+  const [role, setRole] = useState<Role | "">("");
+
   // ------- UI / form state -------
-  const [isFormOpen, setIsFormOpen] = useState(true);
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // auxiliares (selects)
@@ -201,6 +249,9 @@ export default function Page() {
     base_currency: string;
     counter_amount: string;
     counter_currency: string;
+
+    // NUEVO: usar cuenta de crédito del operador
+    use_credit: boolean;
   }>({
     category: "",
     description: "",
@@ -219,10 +270,91 @@ export default function Page() {
     base_currency: "",
     counter_amount: "",
     counter_currency: "",
+
+    use_credit: false,
   });
 
   // edición
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  // ==== Helpers de sincronización de cuenta corriente (fuera de onSubmit)
+  const fetchLinkedCreditIds = useCallback(
+    async (invId: number): Promise<number[]> => {
+      if (!token) return [];
+      const res = await authFetch(
+        // sin doc_type, y con un take grande por las dudas
+        `/api/credit/entry?investment_id=${invId}&take=500`,
+        { cache: "no-store" },
+        token,
+      );
+      if (!res.ok) return [];
+      const data = (await safeJson<{ items: { id_entry: number }[] }>(res)) ?? {
+        items: [],
+      };
+      return (data.items || []).map((i) => i.id_entry);
+    },
+    [token],
+  );
+
+  const deleteLinkedCreditEntries = useCallback(
+    async (invId: number): Promise<number> => {
+      if (!token) return 0;
+      const ids = await fetchLinkedCreditIds(invId);
+      let ok = 0;
+      for (const id of ids) {
+        const del = await authFetch(
+          `/api/credit/entry/${id}?allowLinked=1`,
+          { method: "DELETE" },
+          token,
+        );
+        if (del.ok) ok++;
+      }
+      return ok;
+    },
+    [token, fetchLinkedCreditIds],
+  );
+
+  const createCreditEntryForInvestment = useCallback(
+    async (inv: Investment) => {
+      if (!token) return;
+      if (norm(inv.category) !== "operador" || !inv.operator_id) return;
+
+      const payload = {
+        subject_type: "OPERATOR",
+        operator_id: Number(inv.operator_id),
+        currency: (inv.currency || "").toUpperCase(),
+        amount: Math.abs(Number(inv.amount || 0)), // la API aplica el signo por doc_type
+        concept: inv.description || `Gasto Operador #${inv.id_investment}`,
+        doc_type: "investment",
+        investment_id: inv.id_investment,
+        value_date: inv.paid_at ? inv.paid_at.slice(0, 10) : undefined,
+        reference: `INV-${inv.id_investment}`,
+      };
+
+      await authFetch(
+        `/api/credit/entry`,
+        { method: "POST", body: JSON.stringify(payload) },
+        token,
+      );
+    },
+    [token],
+  );
+
+  const syncCreditEntry = useCallback(
+    async (inv: Investment, wantCredit: boolean) => {
+      const removed = await deleteLinkedCreditEntries(inv.id_investment);
+      if (removed > 0) {
+        toast.info(
+          `Se eliminaron ${removed} movimiento(s) vinculado(s) a la cuenta corriente.`,
+        );
+      }
+      if (wantCredit) {
+        await createCreditEntryForInvestment(inv);
+        toast.success("Movimiento de cuenta corriente sincronizado.");
+      }
+    },
+    [deleteLinkedCreditEntries, createCreditEntryForInvestment],
+  );
 
   function resetForm() {
     setForm({
@@ -243,6 +375,8 @@ export default function Page() {
       base_currency: "",
       counter_amount: "",
       counter_currency: "",
+
+      use_credit: false,
     });
     setEditingId(null);
   }
@@ -271,6 +405,8 @@ export default function Page() {
       counter_amount:
         inv.counter_amount != null ? String(inv.counter_amount) : "",
       counter_currency: (inv.counter_currency ?? "").toUpperCase(),
+
+      use_credit: false, // no agregar crédito automáticamente al editar salvo que el usuario tildé
     });
     setEditingId(inv.id_investment);
     setIsFormOpen(true);
@@ -282,6 +418,15 @@ export default function Page() {
   async function deleteCurrent() {
     if (!editingId || !token) return;
     try {
+      // 1) borrar entries vinculados ANTES de eliminar el gasto
+      const removed = await deleteLinkedCreditEntries(editingId);
+      if (removed) {
+        toast.info(
+          `Se eliminaron ${removed} movimiento(s) de cuenta corriente asociado(s).`,
+        );
+      }
+
+      // 2) ahora sí, eliminar el gasto
       const res = await authFetch(
         `/api/investments/${editingId}`,
         { method: "DELETE" },
@@ -291,6 +436,7 @@ export default function Page() {
         const body = (await safeJson<ApiError>(res)) ?? {};
         throw new Error(body.error || "No se pudo eliminar el gasto");
       }
+
       setItems((prev) => prev.filter((i) => i.id_investment !== editingId));
       toast.success("Gasto eliminado");
       resetForm();
@@ -299,38 +445,72 @@ export default function Page() {
     }
   }
 
-  /* ========= Finance config ========= */
+  /* ========= Finance + perfil + users + operators: pipeline secuencial ========= */
   useEffect(() => {
     if (!token) return;
     const ac = new AbortController();
 
     (async () => {
       try {
-        // Traemos cuentas/métodos/monedas con el util y categorías por endpoint aparte
-        const [picks, catsRes] = await Promise.all([
-          loadFinancePicks(token),
-          authFetch(
+        // 1) Picks (cuentas / métodos / monedas)
+        let categories: FinanceCategory[] | undefined = undefined;
+        const picks = await loadFinancePicks(token);
+        if (ac.signal.aborted) return;
+
+        // 2) Categorías
+        try {
+          const catsRes = await authFetch(
             "/api/finance/categories",
             { cache: "no-store", signal: ac.signal },
             token,
-          ),
-        ]);
-
-        // Parse defensivo de categorías (puede venir como {categories}|{items}|array plano)
-        // Parse defensivo de categorías (puede venir como {categories}|{items}|array plano)
-        let categories: FinanceCategory[] | undefined = undefined;
-        if (catsRes.ok) {
-          const raw = (await safeJson<unknown>(catsRes)) ?? null; // antes: <any>
-          const cats = parseCategories(raw);
-          if (cats.length) categories = cats;
+          );
+          if (catsRes.ok) {
+            const raw = (await safeJson<unknown>(catsRes)) ?? null;
+            const cats = parseCategories(raw);
+            if (cats.length) categories = cats;
+          }
+        } catch {
+          // silencioso
         }
 
         setFinance({
-          accounts: picks.accounts, // ya vienen normalizados
+          accounts: picks.accounts,
           paymentMethods: picks.paymentMethods,
           currencies: picks.currencies,
-          categories, // puede ser undefined si no hay
+          categories,
         });
+        if (ac.signal.aborted) return;
+
+        // 3) Perfil (agencyId)
+        try {
+          const pr = await authFetch(
+            "/api/user/profile",
+            { cache: "no-store", signal: ac.signal },
+            token,
+          );
+          if (pr.ok) {
+            const p = await safeJson<{ id_agency?: number }>(pr);
+            setAgencyId(p?.id_agency ?? null);
+          }
+        } catch {
+          // silencioso
+        }
+        if (ac.signal.aborted) return;
+
+        // 4) Users
+        try {
+          const u = await authFetch(
+            "/api/users",
+            { cache: "no-store", signal: ac.signal },
+            token,
+          );
+          if (u.ok) {
+            const list = (await safeJson<User[]>(u)) ?? [];
+            setUsers(Array.isArray(list) ? list : []);
+          }
+        } catch {
+          // silencioso
+        }
       } catch (e) {
         if ((e as { name?: string })?.name !== "AbortError") setFinance(null);
       }
@@ -339,40 +519,7 @@ export default function Page() {
     return () => ac.abort();
   }, [token]);
 
-  /* ========= Perfil + users ========= */
-  useEffect(() => {
-    if (!token) return;
-    const ac = new AbortController();
-
-    (async () => {
-      try {
-        const pr = await authFetch(
-          "/api/user/profile",
-          { cache: "no-store", signal: ac.signal },
-          token,
-        );
-        if (pr.ok) {
-          const p = await safeJson<{ id_agency?: number }>(pr);
-          setAgencyId(p?.id_agency ?? null);
-        }
-      } catch {}
-      try {
-        const u = await authFetch(
-          "/api/users",
-          { cache: "no-store", signal: ac.signal },
-          token,
-        );
-        if (u.ok) {
-          const list = (await safeJson<User[]>(u)) ?? [];
-          setUsers(Array.isArray(list) ? list : []);
-        }
-      } catch {}
-    })();
-
-    return () => ac.abort();
-  }, [token]);
-
-  /* ========= Operadores ========= */
+  /* ========= Operadores por agencia ========= */
   useEffect(() => {
     if (!token || agencyId == null) return;
     const ac = new AbortController();
@@ -397,6 +544,56 @@ export default function Page() {
 
     return () => ac.abort();
   }, [token, agencyId]);
+
+  /* ========= Role: cookie → /api/role → /api/user/profile ========= */
+  useEffect(() => {
+    if (!token) return;
+
+    const fromCookie = readRoleFromCookie();
+    if (fromCookie) {
+      setRole(fromCookie);
+      return;
+    }
+
+    const ac = new AbortController();
+    (async () => {
+      try {
+        let value: Role | "" = "";
+        const r = await authFetch(
+          "/api/role",
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+        if (r.ok) {
+          const data = await r.json();
+          value = normalizeRole((data as { role?: unknown })?.role);
+        } else if (r.status === 404) {
+          const p = await authFetch(
+            "/api/user/profile",
+            { cache: "no-store", signal: ac.signal },
+            token,
+          );
+          if (p.ok) {
+            const j = await p.json();
+            value = normalizeRole((j as { role?: unknown })?.role);
+          }
+        }
+        setRole(value);
+      } catch {
+        // silencioso
+      }
+    })();
+
+    const onFocus = () => {
+      const cookieRole = readRoleFromCookie();
+      if ((cookieRole || "") !== (role || "")) setRole(cookieRole);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      ac.abort();
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [token, role]);
 
   /* ========= Lista con abort/race-safe ========= */
   const listAbortRef = useRef<AbortController | null>(null);
@@ -495,12 +692,22 @@ export default function Page() {
     [finance?.paymentMethods],
   );
 
+  // Si está activo "usar crédito" en categoría Operador, inyectamos el método virtual
+  const uiPaymentMethodOptions = useMemo(() => {
+    const needCredit = norm(form.category) === "operador" && form.use_credit;
+    return needCredit
+      ? uniqSorted([...paymentMethodOptions, CREDIT_METHOD])
+      : paymentMethodOptions;
+  }, [paymentMethodOptions, form.use_credit, form.category]);
+
   const requiresAccountMap = useMemo(() => {
     const map = new Map<string, boolean>();
     for (const m of finance?.paymentMethods || []) {
       if (!m.enabled) continue;
       map.set(norm(m.name), !!m.requires_account);
     }
+    // 👇 El método de crédito NUNCA requiere cuenta
+    map.set(norm(CREDIT_METHOD), false);
     return map;
   }, [finance?.paymentMethods]);
 
@@ -562,15 +769,18 @@ export default function Page() {
       toast.error("Completá categoría, descripción y moneda");
       return;
     }
-    if (categoryLower === "operador") {
-      toast.error("Los pagos a OPERADORES se cargan desde Reservas.");
+    if (categoryLower === "operador" && !form.operator_id) {
+      toast.error("Para la categoría OPERADOR, seleccioná un operador");
       return;
     }
-    if (!form.payment_method) {
+    const payingWithCredit =
+      norm(form.category) === "operador" && form.use_credit;
+
+    if (!form.payment_method && !payingWithCredit) {
       toast.error("Seleccioná el método de pago");
       return;
     }
-    if (showAccount && !form.account) {
+    if (showAccount && !form.account && !payingWithCredit) {
       toast.error("Seleccioná la cuenta para este método");
       return;
     }
@@ -598,12 +808,16 @@ export default function Page() {
       category: form.category,
       description: form.description,
       amount: amountNum,
-      currency: form.currency,
+      currency: form.currency.toUpperCase(),
       paid_at,
       user_id: form.user_id ?? undefined,
       operator_id: form.operator_id ?? undefined,
-      payment_method: form.payment_method,
-      account: showAccount ? form.account : undefined,
+      payment_method: payingWithCredit ? CREDIT_METHOD : form.payment_method,
+      account: payingWithCredit
+        ? undefined
+        : showAccount
+          ? form.account
+          : undefined,
     };
 
     if (form.use_conversion) {
@@ -619,6 +833,8 @@ export default function Page() {
 
     setLoading(true);
     try {
+      let created: Investment | null = null;
+
       if (!editingId) {
         const res = await authFetch(
           "/api/investments",
@@ -629,14 +845,13 @@ export default function Page() {
           const body = (await safeJson<ApiError>(res)) ?? {};
           throw new Error(body.error || "No se pudo crear el gasto");
         }
-        const created = await safeJson<Investment>(res);
+        created = await safeJson<Investment>(res);
         if (created) {
-          setItems((prev) => [created, ...prev]);
+          setItems((prev) => [created as Investment, ...prev]);
         } else {
           await fetchList();
         }
         toast.success("Gasto cargado");
-        resetForm();
       } else {
         const res = await authFetch(
           `/api/investments/${editingId}`,
@@ -654,8 +869,25 @@ export default function Page() {
           ),
         );
         toast.success("Gasto actualizado");
+
+        // 👇 Ya no llamamos a syncCreditEntry en edición (lo maneja el backend)
         resetForm();
       }
+
+      // ==== SYNC con cuenta corriente del Operador (sin helpers duplicados, sin doble POST)
+      try {
+        if (created) {
+          const wantCredit =
+            norm(created.category) === "operador" &&
+            !!created.operator_id &&
+            form.use_credit;
+          await syncCreditEntry(created, wantCredit);
+        }
+      } catch {
+        toast.error("No se pudo sincronizar la cuenta corriente del Operador.");
+      }
+
+      resetForm();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al guardar");
     } finally {
@@ -768,6 +1000,33 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.currency, form.amount]);
 
+  // Fijar/limpiar método según crédito y categoría
+  useEffect(() => {
+    setForm((f) => {
+      const isOperador = norm(f.category) === "operador";
+
+      // Caso 1: operador + crédito → fijar método y limpiar cuenta
+      if (isOperador && f.use_credit) {
+        if (f.payment_method !== CREDIT_METHOD || f.account) {
+          return { ...f, payment_method: CREDIT_METHOD, account: "" };
+        }
+        return f;
+      }
+
+      // Caso 2: dejó de ser operador → apagar crédito y limpiar método si era el virtual
+      if (!isOperador && (f.use_credit || f.payment_method === CREDIT_METHOD)) {
+        return { ...f, use_credit: false, payment_method: "", account: "" };
+      }
+
+      // Caso 3: operador pero crédito apagado y el método quedó en el virtual → limpiar
+      if (!f.use_credit && f.payment_method === CREDIT_METHOD) {
+        return { ...f, payment_method: "", account: "" };
+      }
+
+      return f;
+    });
+  }, [form.category, form.use_credit]);
+
   /* ====== Filtro local y resúmenes ====== */
   const filteredItems = useMemo(() => {
     return items.filter((it) => {
@@ -821,11 +1080,11 @@ export default function Page() {
   return (
     <ProtectedRoute>
       <section className="text-sky-950 dark:text-white">
-        {/* Aviso: operadores */}
-        <div className="mb-4 rounded-2xl border border-yellow-300/30 bg-yellow-100/30 p-3 text-sm text-yellow-900 dark:border-yellow-300/20 dark:bg-yellow-300/10 dark:text-yellow-200">
-          <b>Importante:</b> acá <u>no</u> se cargan pagos a <b>OPERADORES</b>.
-          Esos egresos se gestionan desde <b>Reservas</b>. Los verás listados
-          pero en solo lectura.
+        {/* Info: ahora se permiten pagos a Operadores + crédito */}
+        <div className="mb-4 rounded-2xl border border-sky-300/30 bg-sky-100/30 p-3 text-sm text-sky-900 dark:border-sky-300/20 dark:bg-sky-300/10 dark:text-sky-200">
+          <b>Novedad:</b> ahora podés registrar <b>pagos a Operadores</b>{" "}
+          directamente desde <b>Gastos</b> y, si querés, impactarlos en la{" "}
+          <b>cuenta de crédito</b> del Operador.
         </div>
 
         {/* FORM */}
@@ -914,28 +1173,12 @@ export default function Page() {
                       ? "Seleccionar…"
                       : "Sin categorías habilitadas"}
                   </option>
-                  {categoryOptions
-                    .filter((c) => norm(c) !== "operador")
-                    .map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
+                  {categoryOptions.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
                 </select>
-                {finance?.categories &&
-                  finance.categories.some(
-                    (c) => norm(c.name) === "operador",
-                  ) && (
-                    <p className="ml-2 mt-1 text-xs opacity-70">
-                      La categoría <b>Operador</b> se gestiona desde Reservas.
-                    </p>
-                  )}
-                {isOperador && (
-                  <p className="ml-2 mt-1 text-xs text-yellow-700 dark:text-yellow-300">
-                    No se pueden cargar pagos a <b>OPERADORES</b> desde esta
-                    página.
-                  </p>
-                )}
               </div>
 
               {/* Fecha */}
@@ -1025,14 +1268,18 @@ export default function Page() {
                     setForm((f) => ({ ...f, payment_method: e.target.value }))
                   }
                   required
-                  disabled={paymentMethodOptions.length === 0}
+                  // si uso crédito con Operador, el select queda bloqueado (fijamos el método)
+                  disabled={
+                    uiPaymentMethodOptions.length === 0 ||
+                    (norm(form.category) === "operador" && form.use_credit)
+                  }
                 >
                   <option value="" disabled>
-                    {paymentMethodOptions.length
+                    {uiPaymentMethodOptions.length
                       ? "Seleccionar método"
                       : "Sin métodos habilitados"}
                   </option>
-                  {paymentMethodOptions.map((opt) => (
+                  {uiPaymentMethodOptions.map((opt) => (
                     <option key={opt} value={opt}>
                       {opt}
                     </option>
@@ -1186,6 +1433,61 @@ export default function Page() {
                 )}
               </div>
 
+              {/* Si categoría es Operador → pedir Operador + toggle crédito */}
+              {isOperador && (
+                <div className="md:col-span-2">
+                  <label className="ml-2 block">Operador</label>
+                  <select
+                    className={`${input} cursor-pointer`}
+                    value={form.operator_id ?? ""}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        operator_id: e.target.value
+                          ? Number(e.target.value)
+                          : null,
+                      }))
+                    }
+                    required
+                    disabled={operators.length === 0}
+                  >
+                    <option value="" disabled>
+                      {operators.length
+                        ? "Seleccionar operador…"
+                        : "Sin operadores"}
+                    </option>
+                    {operators.map((o) => (
+                      <option key={o.id_operator} value={o.id_operator}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="mt-3 rounded-2xl border border-white/10 p-3">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={form.use_credit}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            use_credit: e.target.checked,
+                          }))
+                        }
+                      />
+                      <span className="text-sm">
+                        Usar <b>cuenta de crédito</b> del Operador para este
+                        pago
+                      </span>
+                    </label>
+                    <div className="ml-1 mt-1 text-xs opacity-70">
+                      Se registrará un <i>entry</i> en la cuenta del Operador
+                      con monto negativo.
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {(isSueldo || isComision) && (
                 <div className="md:col-span-2">
                   <label className="ml-2 block">
@@ -1253,7 +1555,7 @@ export default function Page() {
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.59.68-1.14 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
                       />
                     </svg>
                   </button>
@@ -1503,7 +1805,6 @@ export default function Page() {
         ) : (
           <div className="space-y-3">
             {filteredItems.map((it) => {
-              const isOperadorItem = norm(it.category) === "operador";
               return (
                 <div
                   key={it.id_investment}
@@ -1517,22 +1818,10 @@ export default function Page() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => !isOperadorItem && beginEdit(it)}
-                        disabled={isOperadorItem}
-                        className={[
-                          "text-sky-950/50 transition-colors hover:text-sky-950 dark:text-white/50 dark:hover:text-white",
-                          isOperadorItem ? "cursor-not-allowed opacity-40" : "",
-                        ].join(" ")}
-                        title={
-                          isOperadorItem
-                            ? "Los egresos de OPERADOR se gestionan desde Reservas (solo lectura aquí)"
-                            : "Editar gasto"
-                        }
-                        aria-label={
-                          isOperadorItem
-                            ? "Solo lectura"
-                            : "Editar gasto seleccionado"
-                        }
+                        onClick={() => beginEdit(it)}
+                        className="text-sky-950/50 transition-colors hover:text-sky-950 dark:text-white/50 dark:hover:text-white"
+                        title="Editar gasto"
+                        aria-label="Editar gasto seleccionado"
                       >
                         <svg
                           xmlns="http://www.w3.org/2000/svg"

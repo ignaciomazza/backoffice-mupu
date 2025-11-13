@@ -1,6 +1,5 @@
-// src/pages/api/credit/entry/[id].ts
 import { NextApiRequest, NextApiResponse } from "next";
-import prisma from "@/lib/prisma";
+import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify, JWTPayload } from "jose";
 
 /* ================== Tipos ================== */
@@ -27,14 +26,9 @@ if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
 /* ================== Helpers comunes ================== */
 function getTokenFromRequest(req: NextApiRequest): string | null {
-  // 1) Cookie "token"
   if (req.cookies?.token) return req.cookies.token;
-
-  // 2) Authorization: Bearer
   const auth = req.headers.authorization || "";
   if (auth.startsWith("Bearer ")) return auth.slice(7);
-
-  // 3) otros posibles nombres de cookie
   const c = req.cookies || {};
   for (const k of [
     "session",
@@ -66,7 +60,6 @@ async function getUserFromAuth(
     const role = String(p.role || "").toLowerCase();
     const email = p.email;
 
-    // Completar por email si falta id_user
     if (!id_user && email) {
       const u = await prisma.user.findUnique({
         where: { email },
@@ -82,7 +75,6 @@ async function getUserFromAuth(
       }
     }
 
-    // Completar agencia si falta
     if (id_user && !id_agency) {
       const u = await prisma.user.findUnique({
         where: { id_user },
@@ -119,6 +111,13 @@ function hasFinanceAdminRights(role: string): boolean {
   return r === "gerente" || r === "administrativo" || r === "desarrollador";
 }
 
+// ----- Signo por tipo -----
+const DOC_SIGN: Record<string, number> = { investment: -1, receipt: 1 };
+const normDoc = (s?: string | null) => (s || "").trim().toLowerCase();
+const signForDocType = (dt?: string | null) => DOC_SIGN[normDoc(dt)] ?? 1;
+const deltaDecimal = (amountAbs: number, dt?: string | null) =>
+  new Prisma.Decimal(Math.abs(amountAbs)).mul(signForDocType(dt));
+
 /* ================== Handler ================== */
 export default async function handler(
   req: NextApiRequest,
@@ -137,7 +136,7 @@ export default async function handler(
     return res.status(400).json({ error: "N° de movimiento inválido." });
   }
 
-  // Traer entry para validar agencia & enlaces
+  // Traer entry p/ validar agencia & enlaces
   const existing = await prisma.creditEntry.findUnique({
     where: { id_entry: entryId },
     include: {
@@ -196,7 +195,6 @@ export default async function handler(
 
   // ========= PUT /api/credit/entry/:id =========
   if (req.method === "PUT") {
-    // Sólo admin/gerente/dev
     if (!hasFinanceAdminRights(auth.role)) {
       return res
         .status(403)
@@ -209,7 +207,6 @@ export default async function handler(
         value_date?: string | null;
         doc_type?: string | null;
         reference?: string | null;
-        // NOTA: v1 no permite cambiar 'amount' ni 'currency' por PUT.
       };
 
       // Sanitizar
@@ -238,6 +235,9 @@ export default async function handler(
         }
       }
 
+      const willChangeDocType =
+        doc_type !== undefined &&
+        normDoc(doc_type) !== normDoc(existing.doc_type);
       if (doc_type !== undefined) {
         const dt = typeof doc_type === "string" ? doc_type.trim() : "";
         data.doc_type = dt || null;
@@ -254,31 +254,65 @@ export default async function handler(
           .json({ error: "No hay campos para actualizar." });
       }
 
-      const updated = await prisma.creditEntry.update({
-        where: { id_entry: entryId },
-        data,
-        include: {
-          account: {
-            include: {
-              client: {
-                select: { id_client: true, first_name: true, last_name: true },
+      // Si cambia doc_type, ajustar saldo por diferencia de signo
+      const updated = await prisma.$transaction(async (tx) => {
+        if (willChangeDocType) {
+          const before = await tx.creditEntry.findUnique({
+            where: { id_entry: entryId },
+            select: { amount: true, doc_type: true, account_id: true },
+          });
+          if (!before) throw new Error("Movimiento inexistente (TX).");
+
+          const acc = await tx.creditAccount.findUnique({
+            where: { id_credit_account: before.account_id },
+            select: { balance: true },
+          });
+          if (!acc) throw new Error("Cuenta inexistente (TX).");
+
+          const oldSign = signForDocType(before.doc_type);
+          const newSign = signForDocType(data.doc_type ?? before.doc_type);
+          if (oldSign !== newSign) {
+            const amt = new Prisma.Decimal(before.amount);
+            // diff = (nuevo efecto) - (efecto previo)
+            const diff = amt.mul(newSign).minus(amt.mul(oldSign));
+            const next = acc.balance.add(diff);
+            await tx.creditAccount.update({
+              where: { id_credit_account: before.account_id },
+              data: { balance: next },
+            });
+          }
+        }
+
+        return tx.creditEntry.update({
+          where: { id_entry: entryId },
+          data,
+          include: {
+            account: {
+              include: {
+                client: {
+                  select: {
+                    id_client: true,
+                    first_name: true,
+                    last_name: true,
+                  },
+                },
+                operator: { select: { id_operator: true, name: true } },
               },
-              operator: { select: { id_operator: true, name: true } },
+            },
+            booking: { select: { id_booking: true, details: true } },
+            receipt: { select: { id_receipt: true, receipt_number: true } },
+            investment: { select: { id_investment: true, description: true } },
+            operatorDue: { select: { id_due: true, concept: true } },
+            createdBy: {
+              select: {
+                id_user: true,
+                first_name: true,
+                last_name: true,
+                email: true,
+              },
             },
           },
-          booking: { select: { id_booking: true, details: true } },
-          receipt: { select: { id_receipt: true, receipt_number: true } },
-          investment: { select: { id_investment: true, description: true } },
-          operatorDue: { select: { id_due: true, concept: true } },
-          createdBy: {
-            select: {
-              id_user: true,
-              first_name: true,
-              last_name: true,
-              email: true,
-            },
-          },
-        },
+        });
       });
 
       return res.status(200).json(updated);
@@ -292,19 +326,28 @@ export default async function handler(
 
   // ========= DELETE /api/credit/entry/:id =========
   if (req.method === "DELETE") {
-    // Sólo admin/gerente/dev
     if (!hasFinanceAdminRights(auth.role)) {
       return res
         .status(403)
         .json({ error: "No autorizado para eliminar movimientos." });
     }
 
-    // No permitir borrar si está vinculado a docs operativos (v1)
+    const allowLinked =
+      String(
+        Array.isArray(req.query.allowLinked)
+          ? req.query.allowLinked[0]
+          : (req.query.allowLinked ?? ""),
+      )
+        .toLowerCase()
+        .trim() === "1" ||
+      String(req.query.allowLinked).toLowerCase() === "true";
+
+    // viejo guard:
     if (
       existing.receipt_id ||
       existing.operator_due_id ||
-      existing.investment_id ||
-      existing.booking_id
+      existing.booking_id ||
+      (existing.investment_id && !allowLinked) // 👈 si es de investment, permitir con allowLinked=1
     ) {
       return res.status(409).json({
         error:
@@ -314,12 +357,15 @@ export default async function handler(
     }
 
     try {
-      // Revertir saldo: balance = balance - amount (transacción)
       const deleted = await prisma.$transaction(async (tx) => {
-        // Releer por seguridad dentro del tx
         const entry = await tx.creditEntry.findUnique({
           where: { id_entry: entryId },
-          select: { id_agency: true, account_id: true, amount: true },
+          select: {
+            id_agency: true,
+            account_id: true,
+            amount: true,
+            doc_type: true,
+          },
         });
         if (!entry)
           throw new Error("Movimiento no encontrado durante la transacción.");
@@ -333,19 +379,17 @@ export default async function handler(
         });
         if (!account) throw new Error("Cuenta no encontrada.");
 
-        // balance nuevo = balance actual - amount del movimiento
-        // (si amount era +100, al borrar resta 100 -> vuelve al saldo anterior)
-        const newBalance = account.balance.minus(entry.amount);
+        // Se revierte el efecto aplicado en el alta:
+        // balance nuevo = balance actual - (signo(doc_type) * amount)
+        const delta = deltaDecimal(Number(entry.amount), entry.doc_type);
+        const next = account.balance.minus(delta);
 
-        // Actualizar cuenta y borrar entry
         await tx.creditAccount.update({
           where: { id_credit_account: entry.account_id },
-          data: { balance: newBalance },
+          data: { balance: next },
         });
 
-        return tx.creditEntry.delete({
-          where: { id_entry: entryId },
-        });
+        return tx.creditEntry.delete({ where: { id_entry: entryId } });
       });
 
       return res

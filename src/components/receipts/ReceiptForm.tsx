@@ -85,6 +85,8 @@ export type ReceiptPayload = {
   base_currency?: string;
   counter_amount?: number;
   counter_currency?: string;
+
+  account_id?: number;
 };
 
 type Mode = "agency" | "booking";
@@ -96,6 +98,32 @@ export type AttachableReceiptOption = {
   subtitle?: string; // "Sin reserva" | "Asociado a #1024"
   alreadyLinked?: boolean;
 };
+
+type ReceiptIdLeaf = number | string | null | undefined;
+
+type ReceiptIdObject = {
+  id_receipt?: ReceiptIdLeaf;
+  id?: ReceiptIdLeaf;
+  receiptId?: ReceiptIdLeaf;
+
+  // anidados comunes
+  data?: {
+    id_receipt?: ReceiptIdLeaf;
+    id?: ReceiptIdLeaf;
+    receipt?: { id_receipt?: ReceiptIdLeaf; id?: ReceiptIdLeaf };
+  };
+  result?: {
+    id_receipt?: ReceiptIdLeaf;
+    id?: ReceiptIdLeaf;
+    receipt?: { id_receipt?: ReceiptIdLeaf; id?: ReceiptIdLeaf };
+  };
+  receipt?: {
+    id_receipt?: ReceiptIdLeaf;
+    id?: ReceiptIdLeaf;
+  };
+};
+
+type SubmitResult = number | Response | ReceiptIdObject | null | void;
 
 /* =========================
  * Props
@@ -126,7 +154,7 @@ export interface ReceiptFormProps {
   initialClientIds?: number[];
 
   // Submit (CREAR)
-  onSubmit: (payload: ReceiptPayload) => Promise<void> | void;
+  onSubmit: (payload: ReceiptPayload) => Promise<SubmitResult> | SubmitResult;
 
   // Opcional
   onCancel?: () => void;
@@ -384,7 +412,7 @@ export default function ReceiptForm({
     if (mode !== "booking") return;
 
     const raw = bookingQuery.trim().replace(/^#/, ""); // permitir "#376"
-    if (raw.length < 1) {
+    if (raw.length < 2) {
       setBookingOptions([]);
       return;
     }
@@ -439,6 +467,12 @@ export default function ReceiptForm({
     () => services.filter((s) => selectedServiceIds.includes(s.id_service)),
     [services, selectedServiceIds],
   );
+
+  useEffect(() => {
+    setSelectedServiceIds((prev) =>
+      prev.filter((id) => services.some((s) => s.id_service === id)),
+    );
+  }, [services]);
 
   const lockedCurrency: string | null = useMemo(() => {
     if (selectedServices.length === 0) return null;
@@ -498,6 +532,16 @@ export default function ReceiptForm({
     if (suggestedAmount != null) setAmount(String(suggestedAmount));
   };
 
+  // ===== Créditos (Operador) =====
+  type OperatorLite = { id_operator: number; name: string };
+
+  const [useOperatorCredit, setUseOperatorCredit] = useState(false);
+  const [creditOperatorId, setCreditOperatorId] = useState<number | null>(null);
+  const [operators, setOperators] = useState<OperatorLite[]>([]);
+  const [agencyId, setAgencyId] = useState<number | null>(null);
+
+  const CREDIT_METHOD = "Crédito operador";
+
   /* ------ Método de pago / Cuenta + detalle PDF ------ */
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(
     initialPaymentMethodId,
@@ -507,14 +551,86 @@ export default function ReceiptForm({
   );
   const [paymentDescription, setPaymentDescription] = useState<string>("");
 
+  const selectedMethodIsCredit = useMemo(() => {
+    const m = paymentMethods.find((pm) => pm.id_method === paymentMethodId);
+    return (m?.name || "").toLowerCase() === CREDIT_METHOD.toLowerCase();
+  }, [paymentMethods, paymentMethodId]);
+
+  // Elegido + requiere cuenta
   const chosenMethod = paymentMethods.find(
     (m) => m.id_method === paymentMethodId,
   );
   const requiresAccount = !!chosenMethod?.requires_account;
 
+  // Cuando hay crédito operador, nunca requiere cuenta
+  const requiresAccountEffective =
+    useOperatorCredit || selectedMethodIsCredit ? false : requiresAccount;
+
+  // 🔒 Nuevo: bloquear el selector si hay crédito operador o ya está en "Crédito operador"
+  const lockPaymentMethod = useOperatorCredit || selectedMethodIsCredit;
+
   useEffect(() => {
-    if (!requiresAccount) setFinanceAccountId(null);
-  }, [requiresAccount]);
+    if (!requiresAccountEffective) setFinanceAccountId(null);
+  }, [requiresAccountEffective]);
+
+  const guessAccountCurrency = React.useCallback(
+    (accName: string | undefined | null): string | null => {
+      if (!accName) return null;
+      const upper = accName.toUpperCase();
+
+      // 1) Matcheo por códigos ISO presentes en el label
+      const isoList = (currencies ?? [])
+        .map((c) => (c.code || "").toUpperCase())
+        .filter(Boolean);
+      for (const code of isoList) {
+        if (upper.includes(code)) return code;
+      }
+
+      // 2) Sinonimias comunes
+      const synonyms: Record<string, string[]> = {
+        USD: ["USD", "U$D", "DOLARES", "DÓLARES", "US DOLLAR"],
+        ARS: ["ARS", "PESOS", "$ "],
+        EUR: ["EUR", "€", "EUROS"],
+        BRL: ["BRL", "REALES"],
+        UYU: ["UYU"],
+        CLP: ["CLP"],
+        PYG: ["PYG"],
+      };
+      for (const [code, keys] of Object.entries(synonyms)) {
+        if (keys.some((k) => upper.includes(k))) return code;
+      }
+      return null;
+    },
+    [currencies],
+  );
+
+  useEffect(() => {
+    if (useOperatorCredit) {
+      const credit = paymentMethods.find(
+        (pm) => (pm.name || "").toLowerCase() === CREDIT_METHOD.toLowerCase(),
+      );
+      if (credit) setPaymentMethodId(credit.id_method);
+    } else if (selectedMethodIsCredit) {
+      setPaymentMethodId(null);
+    }
+  }, [useOperatorCredit, paymentMethods, selectedMethodIsCredit]);
+
+  const filteredAccounts = React.useMemo(() => {
+    if (!requiresAccountEffective) return accounts;
+    const cur = (effectiveCurrency || "").toUpperCase();
+    if (!cur) return accounts;
+    return accounts.filter((a) => {
+      const label = a.display_name || a.name;
+      const accCur = guessAccountCurrency(label);
+      // Si no podemos detectar la moneda de la cuenta, no la filtramos “duro”.
+      return accCur ? accCur === cur : true;
+    });
+  }, [
+    accounts,
+    requiresAccountEffective,
+    effectiveCurrency,
+    guessAccountCurrency,
+  ]);
 
   /* ------ Clientes (picker múltiple) ------ */
   const [clientsCount, setClientsCount] = useState(
@@ -682,7 +798,8 @@ export default function ReceiptForm({
     }
     if (!effectiveCurrency) e.currency = "Elegí una moneda.";
 
-    if (requiresAccount && !financeAccountId) e.account = "Elegí una cuenta.";
+    if (requiresAccountEffective && !financeAccountId)
+      e.account = "Elegí una cuenta.";
 
     if (!amountWords.trim()) e.amountWords = "Ingresá el importe en palabras.";
     if (!amountWordsISO) e.amountWordsISO = "Elegí la moneda del texto.";
@@ -742,8 +859,8 @@ export default function ReceiptForm({
       setSubmitting(true);
       try {
         await attachExisting();
-        toast.success("Recibo asociado correctamente."); // ⬅️ feedback que faltaba
-        setVisible(false); // ⬅️ cerrar al asociar
+        toast.success("Recibo asociado correctamente.");
+        setVisible(false);
       } catch (err) {
         const msg =
           err instanceof Error ? err.message : "No se pudo asociar el recibo.";
@@ -764,13 +881,14 @@ export default function ReceiptForm({
         : (suggestedAmount as number);
 
     // Resolver nombres para API (texto)
-    const paymentMethodName =
-      paymentMethodId != null
+    const paymentMethodName = useOperatorCredit
+      ? CREDIT_METHOD
+      : paymentMethodId != null
         ? paymentMethods.find((m) => m.id_method === paymentMethodId)?.name
         : undefined;
 
     const accountName =
-      requiresAccount && financeAccountId != null
+      requiresAccountEffective && financeAccountId != null
         ? ((accounts.find((a) => a.id_account === financeAccountId)
             ?.display_name ||
             accounts.find((a) => a.id_account === financeAccountId)?.name) ??
@@ -796,7 +914,10 @@ export default function ReceiptForm({
       ),
 
       payment_method: paymentMethodName,
-      account: accountName,
+      account: accountName, // texto para PDF
+      account_id: requiresAccountEffective // 👈 NUEVO: relación real
+        ? (financeAccountId ?? undefined)
+        : undefined,
 
       currency: paymentDescription?.trim() || undefined,
 
@@ -814,13 +935,409 @@ export default function ReceiptForm({
 
     setSubmitting(true);
     try {
-      await Promise.resolve(onSubmit(apiBody));
-      // El toast de "creado" ya lo muestran los padres (ServicesContainer / ReceiptsPage)
-      setVisible(false); // ⬅️ cerrar al crear
+      // 1) Crear recibo y obtener ID (aceptando varios formatos de retorno)
+      const submitRes = await Promise.resolve(onSubmit(apiBody));
+      let rid = await resolveReceiptIdFrom(submitRes);
+
+      // si no pudimos y necesitamos el ID para crédito, probamos heurística
+      if (!rid && useOperatorCredit && token) {
+        const bId =
+          (typeof selectedBookingId === "number"
+            ? selectedBookingId
+            : bookingId) ?? null;
+        rid = await guessLatestReceiptId({
+          token,
+          bookingId: bId,
+          amount: apiBody.amount,
+          currency: apiBody.amountCurrency,
+          concept: apiBody.concept,
+        });
+      }
+
+      // 2) Si corresponde, impactar en cuenta de crédito del Operador
+      if (useOperatorCredit) {
+        try {
+          if (!rid) {
+            toast.warn(
+              "El recibo se guardó, pero no pude obtener el ID para impactar la cuenta de crédito.",
+            );
+          } else if (!creditOperatorId) {
+            toast.error(
+              "Elegí un operador para impactar la cuenta de crédito.",
+            );
+          } else {
+            await createCreditEntryForReceipt({
+              receiptId: rid,
+              amount: apiBody.amount,
+              currency: apiBody.amountCurrency,
+              concept: apiBody.concept,
+              bookingId:
+                (typeof selectedBookingId === "number"
+                  ? selectedBookingId
+                  : bookingId) || undefined,
+              operatorId: creditOperatorId,
+              agencyId,
+            });
+
+            toast.success("Movimiento de cuenta de crédito creado.");
+            // reset opcional
+            setUseOperatorCredit(false);
+            setCreditOperatorId(null);
+          }
+        } catch (err) {
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : "No se pudo impactar la cuenta de crédito",
+          );
+        }
+      }
+
+      if (requiresAccountEffective && financeAccountId != null) {
+        if (!rid) {
+          toast.warn(
+            "El recibo se guardó, pero no pude obtener el ID para impactar la cuenta.",
+          );
+        } else {
+          try {
+            await createFinanceEntryForReceipt({
+              accountId: financeAccountId,
+              receiptId: rid,
+              amount: apiBody.amount,
+              currency: apiBody.amountCurrency,
+              concept: apiBody.concept,
+              bookingId:
+                (typeof selectedBookingId === "number"
+                  ? selectedBookingId
+                  : bookingId) || undefined,
+              agencyId,
+            });
+            toast.success("Movimiento de cuenta creado.");
+          } catch (err) {
+            toast.error(
+              err instanceof Error
+                ? err.message
+                : "No se pudo registrar el movimiento de cuenta.",
+            );
+          }
+        }
+      }
+
+      // 3) Cerrar el form
+      toast.success("Recibo creado correctamente.");
+      setVisible(false);
     } finally {
       setSubmitting(false);
     }
   };
+
+  // util seguro
+  async function safeJson<T>(res: Response): Promise<T | null> {
+    try {
+      return (await res.json()) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  function isResponse(x: unknown): x is Response {
+    return typeof x === "object" && x !== null && "ok" in x && "json" in x;
+  }
+
+  function toFiniteNumber(v: unknown): number | null {
+    const n =
+      typeof v === "number"
+        ? v
+        : typeof v === "string" && v.trim() !== ""
+          ? Number(v)
+          : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  function pickNumericId(obj: unknown): number | null {
+    if (!obj || typeof obj !== "object") return null;
+    const o = obj as ReceiptIdObject;
+
+    const candidates: ReceiptIdLeaf[] = [
+      o.id_receipt,
+      o.id,
+      o.receiptId,
+      o.data?.id_receipt,
+      o.data?.id,
+      o.data?.receipt?.id_receipt,
+      o.data?.receipt?.id,
+      o.result?.id_receipt,
+      o.result?.id,
+      o.result?.receipt?.id_receipt,
+      o.result?.receipt?.id,
+      o.receipt?.id_receipt,
+      o.receipt?.id,
+    ];
+
+    for (const c of candidates) {
+      const n = toFiniteNumber(c);
+      if (n) return n;
+    }
+    return null;
+  }
+
+  /** Intenta leer un ID numérico desde headers Location/Content-Location/X-... o desde la URL del response */
+  function extractIdFromHeaders(res: Response): number | null {
+    const headerKeys = [
+      "Location",
+      "Content-Location",
+      "X-Resource-Id",
+      "X-Receipt-Id",
+    ];
+    for (const k of headerKeys) {
+      const v = res.headers.get(k);
+      if (!v) continue;
+      const m = v.match(/(\d+)(?!.*\d)/); // último grupo numérico
+      if (m) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+    }
+    if (res.url) {
+      const m = res.url.match(/(\d+)(?!.*\d)/);
+      if (m) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+    }
+    return null;
+  }
+
+  /** Acepta number | objeto | Response y devuelve el id del recibo si lo encuentra */
+  async function resolveReceiptIdFrom(
+    result: SubmitResult,
+  ): Promise<number | null> {
+    // number directo
+    if (typeof result === "number" && Number.isFinite(result)) return result;
+
+    // Response → primero headers/URL (por si el body ya fue consumido río arriba)
+    if (isResponse(result)) {
+      const fromHdr = extractIdFromHeaders(result);
+      if (fromHdr) return fromHdr;
+
+      // si no, intento parsear JSON y buscar keys conocidas
+      const j = await safeJson<unknown>(result);
+      const id = pickNumericId(j);
+      if (id) return id;
+    }
+
+    // Objeto plain
+    if (result && typeof result === "object") {
+      const id = pickNumericId(result);
+      if (id) return id;
+    }
+
+    return null;
+  }
+
+  type ReceiptSearchItem = {
+    id_receipt?: number;
+    id?: number;
+    amount?: number | string;
+    amount_currency?: string;
+    currency?: string;
+    concept?: string;
+    booking?: { id_booking?: number } | number | null;
+    created_at?: string;
+    issue_date?: string;
+    receipt_number?: string | number;
+  };
+
+  function asArray<T>(u: unknown): T[] {
+    if (Array.isArray(u)) return u as T[];
+    if (u && typeof u === "object") {
+      const o = u as Record<string, unknown>;
+      if (Array.isArray(o.items)) return o.items as T[];
+      if (Array.isArray(o.receipts)) return o.receipts as T[]; // 👈 clave
+      if (Array.isArray(o.data)) return o.data as T[];
+      if (Array.isArray(o.rows)) return o.rows as T[];
+      if (Array.isArray(o.results)) return o.results as T[];
+    }
+    return [];
+  }
+
+  async function guessLatestReceiptId(opts: {
+    token: string;
+    bookingId?: number | null;
+    amount: number;
+    currency: string;
+    concept?: string;
+  }): Promise<number | null> {
+    const { token, bookingId, amount, currency, concept } = opts;
+    const params = new URLSearchParams();
+    if (bookingId) params.set("bookingId", String(bookingId));
+    params.set("order", "desc");
+    params.set("take", "10");
+
+    try {
+      const res = await authFetch(
+        `/api/receipts?${params.toString()}`,
+        { cache: "no-store" },
+        token,
+      );
+      if (!res.ok) return null;
+      const data = await safeJson<unknown>(res);
+      const list = asArray<ReceiptSearchItem>(data);
+
+      let best: { id: number; score: number } | null = null;
+      for (const r of list) {
+        const id = r.id_receipt ?? r.id ?? null;
+        if (!id) continue;
+
+        const cur = String(
+          (r.amount_currency || r.currency || "") ?? "",
+        ).toUpperCase();
+        const amt =
+          typeof r.amount === "string" ? Number(r.amount) : (r.amount ?? NaN);
+        if (!Number.isFinite(amt as number)) continue;
+
+        const sameCur = cur === currency.toUpperCase();
+        const amtDiff = Math.abs((amt as number) - amount);
+        const maybeConcept = (r.concept || "").toString().toLowerCase();
+        const conceptMatch = concept
+          ? maybeConcept.includes(concept.toLowerCase().slice(0, 12))
+          : true;
+
+        // scoring simple: moneda + monto muy cercano + (concepto si hay)
+        const score =
+          (sameCur ? 2 : 0) +
+          (amtDiff <= 0.01 ? 2 : amtDiff <= 1 ? 1 : 0) +
+          (conceptMatch ? 1 : 0);
+
+        if (!best || score > best.score) best = { id, score };
+      }
+
+      return best?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Cargar id_agency y operadores (idéntico a investments)
+  useEffect(() => {
+    if (!token) return;
+    const ac = new AbortController();
+    (async () => {
+      try {
+        // perfil → agencyId
+        const pr = await authFetch(
+          "/api/user/profile",
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+        const pj = (await safeJson<{ id_agency?: number }>(pr)) ?? {};
+        const ag = pj?.id_agency ?? null;
+        setAgencyId(ag);
+
+        // operadores por agencia
+        if (ag != null) {
+          const or = await authFetch(
+            `/api/operators?agencyId=${ag}`,
+            { cache: "no-store", signal: ac.signal },
+            token,
+          );
+          if (or.ok) {
+            const list = ((await safeJson<OperatorLite[]>(or)) ?? []).sort(
+              (a, b) => (a.name || "").localeCompare(b.name || "", "es"),
+            );
+            setOperators(list);
+          } else {
+            setOperators([]);
+          }
+        } else {
+          setOperators([]);
+        }
+      } catch {
+        setOperators([]);
+      }
+    })();
+    return () => ac.abort();
+  }, [token]);
+
+  /** Crea un movimiento en la cuenta de crédito del Operador por un RECIBO */
+  async function createCreditEntryForReceipt(args: {
+    receiptId: number;
+    amount: number;
+    currency: string; // usar amountCurrency del recibo
+    concept: string;
+    bookingId?: number | null;
+    operatorId: number;
+    agencyId?: number | null; // ⬅️ NUEVO
+  }) {
+    if (!token) throw new Error("Sesión no válida");
+
+    const payload: Record<string, unknown> = {
+      subject_type: "OPERATOR",
+      operator_id: Number(args.operatorId),
+      currency: (args.currency || "ARS").toUpperCase(),
+      amount: Math.abs(Number(args.amount || 0)), // el backend aplica signo por doc_type
+      concept: args.concept || `Recibo #${args.receiptId}`,
+      doc_type: "receipt",
+      receipt_id: args.receiptId,
+      booking_id: args.bookingId ?? undefined,
+      reference: `REC-${args.receiptId}`,
+    };
+
+    if (args.agencyId != null) {
+      payload.agency_id = Number(args.agencyId); // ⬅️ usamos agencyId
+    }
+
+    const res = await authFetch(
+      "/api/credit/entry",
+      { method: "POST", body: JSON.stringify(payload) },
+      token,
+    );
+    if (!res.ok) {
+      const body =
+        (await safeJson<{ error?: string; message?: string }>(res)) ?? {};
+      throw new Error(
+        body.error ||
+          body.message ||
+          "No se pudo crear el movimiento de crédito",
+      );
+    }
+  }
+
+  async function createFinanceEntryForReceipt(args: {
+    accountId: number;
+    receiptId: number;
+    amount: number;
+    currency: string;
+    concept: string;
+    bookingId?: number | null;
+    agencyId?: number | null;
+  }) {
+    if (!token) throw new Error("Sesión no válida");
+    const payload = {
+      subject_type: "ACCOUNT",
+      account_id: Number(args.accountId),
+      currency: (args.currency || "ARS").toUpperCase(),
+      amount: Math.abs(Number(args.amount)), // ingreso (el backend define el signo si usa doc_type)
+      concept: args.concept || `Recibo #${args.receiptId}`,
+      doc_type: "receipt",
+      receipt_id: args.receiptId,
+      booking_id: args.bookingId ?? undefined,
+      reference: `REC-${args.receiptId}`,
+    };
+    const res = await authFetch(
+      "/api/finance/entry",
+      { method: "POST", body: JSON.stringify(payload) },
+      token,
+    );
+    if (!res.ok) {
+      const body = await safeJson<{ error?: string; message?: string }>(res);
+      throw new Error(
+        body?.error ||
+          body?.message ||
+          "No se pudo registrar el movimiento de cuenta",
+      );
+    }
+  }
 
   /* ------ Helpers UI ------ */
   const formatNum = (n: number, cur = "ARS") =>
@@ -1472,6 +1989,14 @@ export default function ReceiptForm({
                         <div className="flex h-[42px] items-center">
                           <Spinner />
                         </div>
+                      ) : lockPaymentMethod ? (
+                        // Modo lectura cuando se impacta en crédito operador
+                        <div className="rounded-2xl border border-white/10 bg-white/10 p-2 text-sm">
+                          {CREDIT_METHOD}
+                          <span className="ml-2 rounded-full bg-white/30 px-2 py-0.5 text-xs">
+                            bloqueado
+                          </span>
+                        </div>
                       ) : (
                         <select
                           id="payment_method"
@@ -1494,7 +2019,7 @@ export default function ReceiptForm({
                       )}
                     </Field>
 
-                    {requiresAccount ? (
+                    {requiresAccountEffective ? (
                       <Field id="finance_account" label="Cuenta" required>
                         {loadingPicks ? (
                           <div className="flex h-[42px] items-center">
@@ -1514,7 +2039,7 @@ export default function ReceiptForm({
                             required
                           >
                             <option value="">— Elegir —</option>
-                            {accounts.map((a) => (
+                            {filteredAccounts.map((a) => (
                               <option key={a.id_account} value={a.id_account}>
                                 {a.display_name || a.name}
                               </option>
@@ -1553,6 +2078,60 @@ export default function ReceiptForm({
                           </p>
                         )}
                       </Field>
+                    </div>
+                  </Section>
+
+                  <Section
+                    title="Cuenta de crédito (opcional)"
+                    desc="Si marcás esta opción, al guardar el recibo se impactará un movimiento en la cuenta de crédito del Operador."
+                  >
+                    <div className="md:col-span-2">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={useOperatorCredit}
+                          onChange={(e) =>
+                            setUseOperatorCredit(e.target.checked)
+                          }
+                        />
+                        <span className="text-sm">
+                          Impactar en cuenta de crédito del Operador
+                        </span>
+                      </label>
+                    </div>
+
+                    <Field
+                      id="credit-operator"
+                      label="Operador"
+                      required={useOperatorCredit}
+                    >
+                      <select
+                        id="credit-operator"
+                        className={inputBase + " cursor-pointer"}
+                        disabled={!useOperatorCredit || operators.length === 0}
+                        value={creditOperatorId ?? ""}
+                        onChange={(e) =>
+                          setCreditOperatorId(
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                      >
+                        <option value="" disabled>
+                          {operators.length
+                            ? "Seleccionar operador…"
+                            : "Sin operadores"}
+                        </option>
+                        {operators.map((o) => (
+                          <option key={o.id_operator} value={o.id_operator}>
+                            {o.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+
+                    <div className="text-xs opacity-70 md:col-span-2">
+                      Tip: si el recibo está asociado a una reserva, enviaremos
+                      también el número de reserva.
                     </div>
                   </Section>
 

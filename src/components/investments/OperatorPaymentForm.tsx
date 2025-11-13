@@ -1,8 +1,8 @@
 // src/components/investments/OperatorPaymentForm.tsx
 "use client";
 
-import { motion } from "framer-motion";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Booking, Operator, Service } from "@/types";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
@@ -36,23 +36,213 @@ async function safeJson<T>(res: Response): Promise<T | null> {
   }
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null;
+
+const hasIdAccount = (v: unknown): v is { id_account: number } =>
+  isRecord(v) && typeof v.id_account === "number";
+
+const getNum = (o: Record<string, unknown>, k: string): number | undefined => {
+  const v = o[k];
+  if (typeof v === "number") return v;
+  if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) {
+    return Number(v);
+  }
+  return undefined;
+};
+
+const getStr = (o: Record<string, unknown>, k: string): string | undefined => {
+  const v = o[k];
+  return typeof v === "string" ? v : undefined;
+};
+
+const fromKey = (o: unknown, key: string): unknown[] | null => {
+  if (!isRecord(o)) return null;
+  const rec = o as Record<string, unknown>;
+  const v = rec[key];
+  return Array.isArray(v) ? (v as unknown[]) : null;
+};
+
+type CreditAccount = {
+  id_account: number;
+  currency?: string | null;
+  currency_code?: string | null;
+  iso?: string | null;
+};
+
+function extractCreditAccounts(data: unknown): CreditAccount[] {
+  const candidates: unknown[] = Array.isArray(data)
+    ? data
+    : (fromKey(data, "items") ??
+      fromKey(data, "data") ??
+      fromKey(data, "accounts") ??
+      fromKey(data, "rows") ??
+      fromKey(data, "results") ??
+      (hasIdAccount(data) ? [data] : []));
+
+  const out: CreditAccount[] = [];
+  for (const raw of candidates) {
+    if (!isRecord(raw)) continue;
+    const rec = raw as Record<string, unknown>;
+
+    // Soportar id_credit_account de Prisma
+    const id =
+      getNum(rec, "id_account") ??
+      getNum(rec, "id_credit_account") ??
+      getNum(rec, "id") ??
+      0;
+    if (!id) continue;
+
+    out.push({
+      id_account: id, // mapeamos cualquiera de los keys al campo común
+      currency: getStr(rec, "currency"),
+      currency_code: getStr(rec, "currency_code"),
+      iso: getStr(rec, "iso"),
+    });
+  }
+  return out;
+}
+
 /* ========= Finance config (tipos) ========= */
-type FinanceAccount = { id_account: number; name: string; enabled: boolean };
+type FinanceAccount = {
+  id_account: number;
+  name: string;
+  display_name?: string;
+  enabled?: boolean;
+  // campos opcionales que algunas APIs ya traen:
+  currency?: string | null;
+  currency_code?: string | null;
+  iso?: string | null;
+};
+
 type FinanceMethod = {
   id_method: number;
   name: string;
-  enabled: boolean;
+  enabled?: boolean;
   requires_account?: boolean | null;
 };
-type FinanceCurrency = { code: string; name: string; enabled: boolean };
+
+type FinanceCurrency = { code: string; name?: string; enabled?: boolean };
+
+type FinanceCategory = { id_category: number; name: string; enabled?: boolean };
 
 type FinanceConfig = {
   accounts: FinanceAccount[];
   paymentMethods: FinanceMethod[];
   currencies: FinanceCurrency[];
+  categories?: FinanceCategory[];
 };
 
 type ApiError = { error?: string; message?: string };
+
+// Estado de verificación de cuenta de crédito del Operador (por moneda)
+type CreditAccStatus =
+  | "idle"
+  | "checking"
+  | "exists"
+  | "missing"
+  | "creating"
+  | "error";
+
+/* ========= UI primitives (igual lenguaje que ReceiptForm) ========= */
+const Section: React.FC<{
+  title: string;
+  desc?: string;
+  children: React.ReactNode;
+}> = ({ title, desc, children }) => (
+  <section className="rounded-2xl border border-white/10 bg-white/10 p-4">
+    <div className="mb-3">
+      <h3 className="text-base font-semibold tracking-tight text-sky-950 dark:text-white">
+        {title}
+      </h3>
+      {desc && (
+        <p className="mt-1 text-xs font-light text-sky-950/70 dark:text-white/70">
+          {desc}
+        </p>
+      )}
+    </div>
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">{children}</div>
+  </section>
+);
+
+const Field: React.FC<{
+  id: string;
+  label: string;
+  hint?: string;
+  required?: boolean;
+  children: React.ReactNode;
+}> = ({ id, label, hint, required, children }) => (
+  <div className="space-y-1">
+    <label
+      htmlFor={id}
+      className="ml-1 block text-sm font-medium text-sky-950 dark:text-white"
+    >
+      {label} {required && <span className="text-rose-600">*</span>}
+    </label>
+    {children}
+    {hint && (
+      <p
+        id={`${id}-hint`}
+        className="ml-1 text-xs text-sky-950/70 dark:text-white/70"
+      >
+        {hint}
+      </p>
+    )}
+  </div>
+);
+
+const pillBase = "rounded-full px-3 py-1 text-xs font-medium transition-colors";
+const pillNeutral = "bg-white/30 dark:bg-white/10";
+const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
+
+const inputBase =
+  "w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10 dark:text-white";
+
+/* ========= Categorías ========= */
+function parseCategories(raw: unknown): FinanceCategory[] {
+  const arr: unknown[] = Array.isArray(raw)
+    ? raw
+    : isRecord(raw) && Array.isArray(raw.categories)
+      ? raw.categories
+      : isRecord(raw) && Array.isArray(raw.items)
+        ? raw.items
+        : [];
+  const out: FinanceCategory[] = [];
+  for (const el of arr) {
+    if (!isRecord(el)) continue;
+    const idRaw =
+      ("id_category" in el ? el.id_category : undefined) ??
+      ("id" in el ? el.id : undefined);
+    const id =
+      typeof idRaw === "number"
+        ? idRaw
+        : typeof idRaw === "string"
+          ? Number(idRaw)
+          : 0;
+    const name =
+      typeof el.name === "string"
+        ? el.name
+        : typeof el.label === "string"
+          ? el.label
+          : "";
+    const enabled =
+      typeof el.enabled === "boolean"
+        ? el.enabled
+        : typeof (el as Record<string, unknown>).is_enabled === "boolean"
+          ? ((el as Record<string, unknown>).is_enabled as boolean)
+          : true;
+    if (id && name) out.push({ id_category: id, name, enabled });
+  }
+  return out;
+}
+
+const isOperatorCategory = (name: string) => {
+  const n = norm(name);
+  return n === "operador" || n.startsWith("operador ");
+};
+
+// método virtual de crédito
+const CREDIT_METHOD = "Crédito operador";
 
 /* ========= Props ========= */
 type Props = {
@@ -63,6 +253,17 @@ type Props = {
   onCreated?: () => void;
 };
 
+// respuesta mínima del investment creado
+type InvestmentLite = {
+  id_investment: number;
+  category: string;
+  description: string;
+  amount: number;
+  currency: string;
+  paid_at?: string | null;
+  operator_id?: number | null;
+};
+
 export default function OperatorPaymentForm({
   token,
   booking,
@@ -70,32 +271,73 @@ export default function OperatorPaymentForm({
   operators,
   onCreated,
 }: Props) {
-  const [isFormVisible, setIsFormVisible] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
-  // ====== Finance config ======
+  // ====== Finance config + categorías
   const [finance, setFinance] = useState<FinanceConfig | null>(null);
+  const [loadingPicks, setLoadingPicks] = useState(false);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      setFinance({ accounts: [], paymentMethods: [], currencies: [] });
+      return;
+    }
+    const ac = new AbortController();
     (async () => {
       try {
+        setLoadingPicks(true);
         const picks = await loadFinancePicks(token);
+        if (ac.signal.aborted) return;
+
+        let categories: FinanceCategory[] | undefined = undefined;
+        try {
+          const catsRes = await authFetch(
+            "/api/finance/categories",
+            { cache: "no-store", signal: ac.signal },
+            token,
+          );
+          if (catsRes.ok) {
+            const raw = await safeJson<unknown>(catsRes);
+            const cats = parseCategories(raw);
+            if (cats.length) categories = cats;
+          }
+        } catch {}
+
         setFinance({
-          accounts: picks.accounts,
-          paymentMethods: picks.paymentMethods,
-          currencies: picks.currencies,
+          accounts: picks.accounts || [],
+          paymentMethods: picks.paymentMethods || [],
+          currencies: picks.currencies || [],
+          categories,
         });
-      } catch {
-        setFinance(null);
+      } finally {
+        if (!ac.signal.aborted) setLoadingPicks(false);
       }
     })();
+    return () => ac.abort();
   }, [token]);
+
+  const allCategories = useMemo(
+    () => finance?.categories?.filter((c) => c.enabled !== false) ?? [],
+    [finance?.categories],
+  );
+  const operatorCategories = useMemo(
+    () => allCategories.filter((c) => isOperatorCategory(c.name)),
+    [allCategories],
+  );
 
   const paymentMethodOptions = useMemo(
     () =>
       uniqSorted(
-        finance?.paymentMethods?.filter((m) => m.enabled).map((m) => m.name) ??
-          [],
+        finance?.paymentMethods
+          ?.filter((m) => m.enabled !== false)
+          .map((m) => m.name) ?? [],
       ),
     [finance?.paymentMethods],
   );
@@ -103,17 +345,15 @@ export default function OperatorPaymentForm({
   const requiresAccountMap = useMemo(() => {
     const map = new Map<string, boolean>();
     for (const m of finance?.paymentMethods || []) {
-      if (!m.enabled) continue;
+      if (m.enabled === false) continue;
       map.set(norm(m.name), !!m.requires_account);
     }
+    map.set(norm(CREDIT_METHOD), false);
     return map;
   }, [finance?.paymentMethods]);
 
-  const accountOptions = useMemo(
-    () =>
-      uniqSorted(
-        finance?.accounts?.filter((a) => a.enabled).map((a) => a.name) ?? [],
-      ),
+  const accounts = useMemo(
+    () => (finance?.accounts ?? []).filter((a) => a.enabled !== false),
     [finance?.accounts],
   );
 
@@ -121,7 +361,7 @@ export default function OperatorPaymentForm({
     () =>
       uniqSorted(
         finance?.currencies
-          ?.filter((c) => c.enabled)
+          ?.filter((c) => c.enabled !== false)
           .map((c) => c.code.toUpperCase()) ?? [],
       ),
     [finance?.currencies],
@@ -130,12 +370,12 @@ export default function OperatorPaymentForm({
   const currencyDict = useMemo(() => {
     const d: Record<string, string> = {};
     for (const c of finance?.currencies || []) {
-      if (c.enabled) d[c.code.toUpperCase()] = c.name;
+      if (c.enabled !== false) d[c.code.toUpperCase()] = c.name || c.code;
     }
     return d;
   }, [finance?.currencies]);
 
-  // === Servicios sólo de esta reserva ===
+  /* ========= Servicios de la reserva ========= */
   const servicesFromBooking: Service[] = useMemo(() => {
     const embedded = (booking as unknown as { services?: Service[] })?.services;
     if (embedded && Array.isArray(embedded) && embedded.length > 0) {
@@ -148,34 +388,13 @@ export default function OperatorPaymentForm({
     );
   }, [booking, availableServices]);
 
-  // === Selección múltiple de servicios ===
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const selectedServices = useMemo(
     () => servicesFromBooking.filter((s) => selectedIds.includes(s.id_service)),
     [servicesFromBooking, selectedIds],
   );
 
-  // === Campos básicos ===
-  const [amount, setAmount] = useState<string>("");
-  const [currency, setCurrency] = useState<string>("");
-  const [paidAt, setPaidAt] = useState<string>("");
-  const [operatorId, setOperatorId] = useState<number | "">("");
-  const [description, setDescription] = useState<string>("");
-
-  // === Método de pago / cuenta (opcionales) ===
-  const [paymentMethod, setPaymentMethod] = useState<string>("");
-  const [account, setAccount] = useState<string>("");
-
-  // === Conversión (valor / contravalor) ===
-  const [useConversion, setUseConversion] = useState<boolean>(false);
-  const [baseAmount, setBaseAmount] = useState<string>("");
-  const [baseCurrency, setBaseCurrency] = useState<string>("");
-  const [counterAmount, setCounterAmount] = useState<string>("");
-  const [counterCurrency, setCounterCurrency] = useState<string>("");
-
-  const [loading, setLoading] = useState(false);
-
-  // === Derivados/sugeridos a partir de la selección ===
+  /* ========= Sugeridos / locks ========= */
   const operatorIdFromSelection = useMemo<number | null>(() => {
     if (selectedServices.length === 0) return null;
     const first = selectedServices[0].id_operator;
@@ -191,7 +410,7 @@ export default function OperatorPaymentForm({
     return set.size === 1;
   }, [selectedServices]);
 
-  const suggestedCurrency = useMemo<string | null>(() => {
+  const lockedSvcCurrency = useMemo<string | null>(() => {
     if (!allSameCurrency || selectedServices.length === 0) return null;
     const code = (selectedServices[0].currency || "").toUpperCase();
     return code || null;
@@ -210,6 +429,193 @@ export default function OperatorPaymentForm({
       }).format(n),
     [],
   );
+
+  /* ========= Campos ========= */
+  const [category, setCategory] = useState<string>("");
+  const [operatorId, setOperatorId] = useState<number | "">("");
+  const [useCredit, setUseCredit] = useState(false);
+
+  const [amount, setAmount] = useState<string>("");
+  const [currency, setCurrency] = useState<string>("");
+  const [paymentMethod, setPaymentMethod] = useState<string>("");
+  const [account, setAccount] = useState<string>("");
+  const [description, setDescription] = useState<string>("");
+  const [paidAt, setPaidAt] = useState<string>("");
+
+  const [useConversion, setUseConversion] = useState<boolean>(false);
+  const [baseAmount, setBaseAmount] = useState<string>("");
+  const [baseCurrency, setBaseCurrency] = useState<string>("");
+  const [counterAmount, setCounterAmount] = useState<string>("");
+  const [counterCurrency, setCounterCurrency] = useState<string>("");
+
+  const [loading, setLoading] = useState(false);
+
+  // Estado verificación/creación de cuenta de crédito
+  const [creditAccStatus, setCreditAccStatus] =
+    useState<CreditAccStatus>("idle");
+  const [creditAccMsg, setCreditAccMsg] = useState<string>("");
+
+  // Auto categoría por defecto
+  useEffect(() => {
+    if (!category && operatorCategories.length > 0) {
+      const preferred =
+        operatorCategories.find((c) => norm(c.name) === "operador") ??
+        operatorCategories[0];
+      setCategory(preferred.name);
+    }
+  }, [operatorCategories, category]);
+
+  // Reacciones a selección de servicios
+  useEffect(() => {
+    // operador
+    if (operatorIdFromSelection != null) {
+      setOperatorId(operatorIdFromSelection);
+    } else if (selectedServices.length === 0) {
+      setOperatorId("");
+    }
+
+    // moneda
+    if (lockedSvcCurrency && currencyOptions.includes(lockedSvcCurrency)) {
+      setCurrency(lockedSvcCurrency);
+    }
+
+    // monto
+    if (selectedServices.length > 0) {
+      setAmount(
+        Number.isFinite(suggestedAmount) && suggestedAmount > 0
+          ? String(suggestedAmount)
+          : "",
+      );
+    } else {
+      setAmount("");
+    }
+
+    // descripción
+    if (selectedServices.length > 0) {
+      const ids = selectedServices.map((s) => `N° ${s.id_service}`).join(", ");
+      const opName =
+        operators.find((o) => o.id_operator === operatorIdFromSelection)
+          ?.name || "Operador";
+      setDescription(
+        `Pago a operador ${opName} | Reserva N° ${booking.id_booking} | Servicios ${ids}`,
+      );
+    } else {
+      setDescription("");
+    }
+  }, [
+    selectedServices,
+    operatorIdFromSelection,
+    lockedSvcCurrency,
+    suggestedAmount,
+    operators,
+    booking.id_booking,
+    currencyOptions,
+  ]);
+
+  // Inyección método virtual si se usa crédito
+  const uiPaymentMethodOptions = useMemo(() => {
+    const needCredit = isOperatorCategory(category) && useCredit;
+    return needCredit
+      ? uniqSorted([...paymentMethodOptions, CREDIT_METHOD])
+      : paymentMethodOptions;
+  }, [paymentMethodOptions, useCredit, category]);
+
+  const requiresAccount = useMemo(() => {
+    if (!paymentMethod) return false;
+    return !!requiresAccountMap.get(norm(paymentMethod));
+  }, [paymentMethod, requiresAccountMap]);
+
+  // conversion: autocompletar
+  useEffect(() => {
+    if (!useConversion) return;
+    setBaseAmount((v) => v || amount || "");
+    setBaseCurrency((v) => v || currency || "");
+    setCounterCurrency((v) => {
+      if (v) return v;
+      const base = (baseCurrency || currency || "").toUpperCase();
+      const other = currencyOptions.find((c) => c !== base) || "";
+      return other;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useConversion]);
+
+  useEffect(() => {
+    if (!useConversion) return;
+    setBaseCurrency((v) => v || currency || "");
+    setBaseAmount((v) => v || amount || "");
+    setCounterCurrency((v) => {
+      if (v) return v;
+      const base = (baseCurrency || currency || "").toUpperCase();
+      const other = currencyOptions.find((c) => c !== base) || "";
+      return other;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currency, amount, currencyOptions]);
+
+  // Forzar/limpiar método al alternar crédito
+  useEffect(() => {
+    setPaymentMethod((pm) => {
+      const isOperador = isOperatorCategory(category);
+      if (isOperador && useCredit) {
+        if (pm !== CREDIT_METHOD) setAccount("");
+        return CREDIT_METHOD;
+      }
+      if (!isOperador && (useCredit || pm === CREDIT_METHOD)) {
+        setUseCredit(false);
+        setAccount("");
+        return "";
+      }
+      if (!useCredit && pm === CREDIT_METHOD) {
+        setAccount("");
+        return "";
+      }
+      return pm;
+    });
+  }, [category, useCredit]);
+
+  // Toggle selección con validación operador y moneda homogéneos
+  const toggleService = (svc: Service) => {
+    const isSelected = selectedIds.includes(svc.id_service);
+    if (isSelected) {
+      setSelectedIds((prev) => prev.filter((id) => id !== svc.id_service));
+      return;
+    }
+    if (selectedServices.length > 0) {
+      const baseOp = selectedServices[0].id_operator;
+      if (baseOp && svc.id_operator && baseOp !== svc.id_operator) {
+        toast.error(
+          "No podés mezclar servicios de operadores distintos en un mismo pago.",
+        );
+        return;
+      }
+      const baseCur = (selectedServices[0].currency || "").toUpperCase();
+      const cur = (svc.currency || "").toUpperCase();
+      if (baseCur && cur && baseCur !== cur) {
+        toast.error(
+          "No podés mezclar servicios de monedas distintas en un mismo pago.",
+        );
+        return;
+      }
+    }
+    setSelectedIds((prev) => [...prev, svc.id_service]);
+  };
+
+  const useSuggested = () => {
+    if (selectedServices.length === 0) return;
+    setAmount(String(suggestedAmount || 0));
+    if (lockedSvcCurrency && currencyOptions.includes(lockedSvcCurrency)) {
+      setCurrency(lockedSvcCurrency);
+    }
+    if (useConversion) {
+      setBaseAmount(String(suggestedAmount || 0));
+      setBaseCurrency(lockedSvcCurrency || currency || "");
+      const other =
+        currencyOptions.find(
+          (c) => c !== (lockedSvcCurrency || currency || ""),
+        ) || "";
+      setCounterCurrency(other);
+    }
+  };
 
   const previewAmount = useMemo(() => {
     const n = Number(amount);
@@ -253,128 +659,99 @@ export default function OperatorPaymentForm({
     }
   }, [useConversion, counterAmount, counterCurrency]);
 
-  // Al cambiar la selección, proponemos sugeridos coherentes (solo con opciones cargadas)
+  /* ========= Detección de moneda de cuenta ========= */
+  const guessAccountCurrency = useCallback(
+    (accName: string | undefined | null): string | null => {
+      if (!accName) return null;
+      const upper = accName.toUpperCase();
+      // señaladores comunes
+      const synonyms: Record<string, string[]> = {
+        USD: ["USD", "U$D", "DOLARES", "DÓLARES", "US DOLLAR", "U SD"],
+        ARS: ["ARS", "PESOS", "$ "],
+        EUR: ["EUR", "€", "EUROS"],
+        BRL: ["BRL", "REALES"],
+        UYU: ["UYU"],
+        CLP: ["CLP"],
+        PYG: ["PYG"],
+      };
+      // 1) si el account tiene campo currency/iso
+      const byObject =
+        accounts.find((a) => (a.display_name || a.name) === accName)
+          ?.currency ||
+        accounts.find((a) => (a.display_name || a.name) === accName)
+          ?.currency_code ||
+        accounts.find((a) => (a.display_name || a.name) === accName)?.iso ||
+        null;
+      if (byObject && typeof byObject === "string")
+        return byObject.trim().toUpperCase();
+
+      // 2) si matchea con alguna ISO de picks
+      for (const code of currencyOptions) {
+        if (upper.includes(code.toUpperCase())) return code.toUpperCase();
+      }
+      // 3) sinonimia simple
+      for (const [code, keys] of Object.entries(synonyms)) {
+        if (keys.some((k) => upper.includes(k))) return code;
+      }
+      return null;
+    },
+    [accounts, currencyOptions],
+  );
+
+  /* ========= Verificación explícita de cuenta de CRÉDITO del Operador ========= */
+  const checkCreditAccount = useCallback(
+    async (opId: number, cur: string) => {
+      if (!token || !opId || !cur) return "missing" as const;
+
+      const C = cur.toUpperCase();
+      try {
+        // Tu API es singular: /api/credit/account
+        const url = `/api/credit/account?operator_id=${encodeURIComponent(
+          String(opId),
+        )}&currency=${encodeURIComponent(C)}`;
+
+        const res = await authFetch(url, { cache: "no-store" }, token);
+        if (!res.ok) {
+          // 4xx → consideramos "missing", 5xx → "error"
+          return res.status >= 500 ? ("error" as const) : ("missing" as const);
+        }
+        const data = await safeJson<unknown>(res);
+        const items = extractCreditAccounts(data);
+        return items.length > 0 ? ("exists" as const) : ("missing" as const);
+      } catch {
+        return "error" as const;
+      }
+    },
+    [token],
+  );
+
   useEffect(() => {
-    // operador
-    if (operatorIdFromSelection != null) {
-      setOperatorId(operatorIdFromSelection);
-    } else if (selectedServices.length === 0) {
-      setOperatorId("");
-    } else {
-      setOperatorId("");
-      toast.info(
-        "Seleccionaste servicios de operadores distintos. Elegí el operador manualmente.",
-      );
-    }
-
-    // moneda sugerida (si todas iguales y existe en config)
-    if (suggestedCurrency && currencyOptions.includes(suggestedCurrency)) {
-      setCurrency(suggestedCurrency);
-    } else if (selectedServices.length === 0) {
-      setCurrency((c) => c); // no tocar
-    }
-
-    // monto sugerido = suma de costos
-    if (selectedServices.length > 0) {
-      setAmount(
-        Number.isFinite(suggestedAmount) && suggestedAmount > 0
-          ? String(suggestedAmount)
-          : "",
-      );
-    } else {
-      setAmount("");
-    }
-
-    // descripción sugerida con IDs
-    if (selectedServices.length > 0) {
-      const ids = selectedServices.map((s) => `N° ${s.id_service}`).join(", ");
-      const opName =
-        operators.find((o) => o.id_operator === operatorIdFromSelection)
-          ?.name || "Operador";
-      setDescription(
-        `Pago a operador ${opName} | Reserva N° ${booking.id_booking} | Servicios ${ids}`,
-      );
-    } else {
-      setDescription("");
-    }
-  }, [
-    selectedServices,
-    operatorIdFromSelection,
-    suggestedAmount,
-    suggestedCurrency,
-    operators,
-    booking.id_booking,
-    currencyOptions,
-  ]);
-
-  // Al activar conversión, sugerir usando SOLO monedas cargadas
-  useEffect(() => {
-    if (!useConversion) return;
-    setBaseAmount((v) => v || amount || "");
-    setBaseCurrency((v) => v || currency || "");
-    setCounterCurrency((v) => {
-      if (v) return v;
-      const base = (baseCurrency || currency || "").toUpperCase();
-      const other = currencyOptions.find((c) => c !== base) || "";
-      return other;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useConversion]);
-
-  // Si cambia moneda/monto con conversión activa: completar solo si vacío
-  useEffect(() => {
-    if (!useConversion) return;
-    setBaseCurrency((v) => v || currency || "");
-    setBaseAmount((v) => v || amount || "");
-    setCounterCurrency((v) => {
-      if (v) return v;
-      const base = (baseCurrency || currency || "").toUpperCase();
-      const other = currencyOptions.find((c) => c !== base) || "";
-      return other;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currency, amount, currencyOptions]);
-
-  // Toggle selección con validación de operador homogéneo
-  const toggleService = (svc: Service) => {
-    const isSelected = selectedIds.includes(svc.id_service);
-    if (isSelected) {
-      setSelectedIds((prev) => prev.filter((id) => id !== svc.id_service));
+    if (!useCredit) {
+      setCreditAccStatus("idle");
+      setCreditAccMsg("");
       return;
     }
-    if (selectedServices.length > 0) {
-      const baseOp = selectedServices[0].id_operator;
-      if (baseOp && svc.id_operator && baseOp !== svc.id_operator) {
-        toast.error(
-          "No podés mezclar servicios de operadores distintos en un mismo pago.",
-        );
-        return;
-      }
-    }
-    setSelectedIds((prev) => [...prev, svc.id_service]);
-  };
+    if (!operatorId || !currency) return;
+    let alive = true;
+    setCreditAccStatus("checking");
+    checkCreditAccount(Number(operatorId), currency)
+      .then((s) => {
+        if (alive) setCreditAccStatus(s as CreditAccStatus);
+      })
+      .catch(() => {
+        if (alive) {
+          setCreditAccStatus("error");
+          setCreditAccMsg("No se pudo verificar la cuenta.");
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [useCredit, operatorId, currency, checkCreditAccount]);
 
-  const useSuggested = () => {
-    if (selectedServices.length === 0) return;
-    setAmount(String(suggestedAmount || 0));
-    if (suggestedCurrency && currencyOptions.includes(suggestedCurrency)) {
-      setCurrency(suggestedCurrency);
-    }
-    if (useConversion) {
-      setBaseAmount(String(suggestedAmount || 0));
-      setBaseCurrency(suggestedCurrency || currency || "");
-      const other =
-        currencyOptions.find(
-          (c) => c !== (suggestedCurrency || currency || ""),
-        ) || "";
-      setCounterCurrency(other);
-    }
-  };
-
-  // Validación de conversión coherente
+  /* ========= Validaciones ========= */
   const validateConversion = (): { ok: boolean; msg?: string } => {
     if (!useConversion) return { ok: true };
-
     const bAmt = Number(baseAmount);
     const cAmt = Number(counterAmount);
     if (!Number.isFinite(bAmt) || bAmt <= 0)
@@ -385,17 +762,169 @@ export default function OperatorPaymentForm({
       return { ok: false, msg: "Ingresá un Contravalor válido (> 0)." };
     if (!counterCurrency)
       return { ok: false, msg: "Elegí la moneda del Contravalor." };
-
     return { ok: true };
   };
 
-  // Métodos que requieren seleccionar cuenta (desde config)
-  const showAccount = useMemo(() => {
-    if (!paymentMethod) return false;
-    return !!requiresAccountMap.get(norm(paymentMethod));
-  }, [paymentMethod, requiresAccountMap]);
+  const assertSameOperator = (): boolean => {
+    if (selectedServices.length === 0) return true;
+    if (
+      operatorIdFromSelection != null &&
+      Number(operatorId) !== operatorIdFromSelection
+    ) {
+      toast.error(
+        "El operador elegido no coincide con los servicios seleccionados.",
+      );
+      return false;
+    }
+    return true;
+  };
 
-  // Submit
+  const assertSameCurrencyAcross = (): boolean => {
+    if (!allSameCurrency) {
+      toast.error("Los servicios seleccionados deben ser de la misma moneda.");
+      return false;
+    }
+    // el pago debería quedar en la misma moneda que los servicios
+    if (
+      lockedSvcCurrency &&
+      currency &&
+      currency.toUpperCase() !== lockedSvcCurrency
+    ) {
+      toast.error(
+        `La moneda del pago (${currency}) debe coincidir con la moneda de los servicios (${lockedSvcCurrency}).`,
+      );
+      return false;
+    }
+    return true;
+  };
+
+  const assertAccountMatchesCurrency = (): boolean => {
+    if (!requiresAccount || !account) return true;
+    const accCur = guessAccountCurrency(account);
+    if (!accCur) {
+      toast.warn(
+        "No pude detectar la moneda de la cuenta. Revisá que coincida con la moneda de los servicios.",
+      );
+      return true; // warning, no bloquea
+    }
+    // por requerimiento: que la cuenta esté en la MISMA moneda que el servicio
+    if (lockedSvcCurrency && accCur !== lockedSvcCurrency) {
+      toast.error(
+        `La cuenta seleccionada parece ser ${accCur}, pero los servicios están en ${lockedSvcCurrency}. Cambiá la cuenta o la selección.`,
+      );
+      return false;
+    }
+    // además chequeamos contra la moneda del pago
+    if (currency && accCur !== currency.toUpperCase()) {
+      toast.error(
+        `La cuenta es ${accCur} y la moneda del pago es ${currency}. Deben coincidir.`,
+      );
+      return false;
+    }
+    return true;
+  };
+
+  // Crear cuenta de CRÉDITO (acción explícita)
+  const handleCreateCreditAccount = useCallback(async () => {
+    if (!token || !operatorId || !currency) return;
+
+    setCreditAccStatus("creating");
+    setCreditAccMsg("");
+
+    try {
+      const C = currency.toUpperCase();
+
+      // Tu API de creación es singular: /api/credit/account (POST)
+      const payload = {
+        operator_id: Number(operatorId),
+        currency: C,
+        enabled: true,
+      };
+
+      const res = await authFetch(
+        `/api/credit/account`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+        token,
+      );
+
+      if (!res.ok) {
+        const err = await safeJson<ApiError>(res);
+        const msg =
+          err?.message || err?.error || `No se pudo crear la cuenta en ${C}.`;
+        throw new Error(msg);
+      }
+
+      // Revalidar inmediatamente
+      const status = await checkCreditAccount(Number(operatorId), C);
+      if (status === "exists") {
+        setCreditAccStatus("exists");
+        toast.success(`Cuenta de crédito en ${C} creada.`);
+      } else if (status === "missing") {
+        setCreditAccStatus("missing");
+        toast.warn(
+          `La API confirmó la creación, pero no la encontramos aún en ${C}. Probá nuevamente.`,
+        );
+      } else {
+        setCreditAccStatus("error");
+        setCreditAccMsg("La verificación posterior a la creación falló.");
+      }
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Error al crear la cuenta.";
+      setCreditAccStatus("error");
+      setCreditAccMsg(msg);
+      toast.error(msg);
+    }
+  }, [token, operatorId, currency, checkCreditAccount]);
+
+  // Si el método requiere cuenta bancaria/financiera, filtrar por la moneda del pago
+  const filteredAccounts = useMemo(() => {
+    if (!requiresAccount) return accounts;
+    const cur = (currency || "").toUpperCase();
+    return accounts.filter((a) => {
+      const objCur =
+        (a.currency || a.currency_code || a.iso || "")
+          ?.toString()
+          .toUpperCase() ||
+        guessAccountCurrency(a.display_name || a.name) ||
+        "";
+      return objCur === cur;
+    });
+  }, [accounts, requiresAccount, currency, guessAccountCurrency]);
+
+  /* ========= Crear crédito vinculado ========= */
+  const createCreditEntryForInvestment = useCallback(
+    async (inv: InvestmentLite) => {
+      if (!token) return;
+      if (!isOperatorCategory(inv.category) || !inv.operator_id) return;
+
+      const payload = {
+        subject_type: "OPERATOR",
+        operator_id: Number(inv.operator_id),
+        currency: (inv.currency || "").toUpperCase(),
+        amount: Math.abs(Number(inv.amount || 0)),
+        concept: inv.description || `Gasto Operador #${inv.id_investment}`,
+        doc_type: "investment",
+        investment_id: inv.id_investment,
+        value_date: inv.paid_at ? inv.paid_at.slice(0, 10) : undefined,
+        reference: `INV-${inv.id_investment}`,
+        booking_id: booking.id_booking,
+      };
+
+      await authFetch(
+        `/api/credit/entry`,
+        { method: "POST", body: JSON.stringify(payload) },
+        token,
+      );
+    },
+    [token, booking.id_booking],
+  );
+
+  /* ========= Submit ========= */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
@@ -408,22 +937,31 @@ export default function OperatorPaymentForm({
       toast.error("Seleccioná un operador.");
       return;
     }
-    if (!paymentMethod) {
-      toast.error("Seleccioná el método de pago.");
+    if (!category || !isOperatorCategory(category)) {
+      toast.error("Elegí una categoría válida para Operador.");
       return;
     }
-    if (showAccount && !account) {
-      toast.error("Seleccioná la cuenta para este método.");
+    if (!assertSameOperator()) return;
+    if (!assertSameCurrencyAcross()) return;
+
+    const payingWithCredit = isOperatorCategory(category) && useCredit;
+
+    if (!payingWithCredit && !paymentMethod) {
+      toast.error("Seleccioná el método de pago.");
       return;
     }
     if (!currency) {
       toast.error("Seleccioná una moneda.");
       return;
     }
+    if (requiresAccount && !account && !payingWithCredit) {
+      toast.error("Seleccioná la cuenta para este método.");
+      return;
+    }
 
     const amountNum = Number(amount);
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      toast.error("El monto debe ser un número positivo");
+      toast.error("El monto debe ser un número positivo.");
       return;
     }
 
@@ -433,7 +971,30 @@ export default function OperatorPaymentForm({
       return;
     }
 
+    if (!assertAccountMatchesCurrency()) return;
+
     setLoading(true);
+
+    // Bloqueo explícito: si se usa crédito operador, debe existir la cuenta en la misma moneda
+    if (payingWithCredit) {
+      switch (creditAccStatus) {
+        case "checking":
+        case "creating":
+          toast.info("Esperá a que validemos/creemos la cuenta de crédito.");
+          setLoading(false);
+          return;
+        case "exists":
+          // OK, continuamos
+          break;
+        default: // "idle" | "missing" | "error"
+          toast.error(
+            `Necesitás una cuenta de crédito del Operador en ${currency} para registrar este pago.`,
+          );
+          setLoading(false);
+          return;
+      }
+    }
+
     try {
       const ids = selectedServices.map((s) => s.id_service).join(", ");
       const desc =
@@ -441,15 +1002,19 @@ export default function OperatorPaymentForm({
         `Pago a operador | Reserva N° ${booking.id_booking} | Servicios ${ids}`;
 
       const payload: Record<string, unknown> = {
-        category: "OPERADOR",
+        category,
         description: desc,
         amount: amountNum,
         currency: currency.toUpperCase(),
         operator_id: Number(operatorId),
         paid_at: paidAt || undefined,
         booking_id: booking.id_booking,
-        payment_method: paymentMethod,
-        account: showAccount ? account : undefined,
+        payment_method: payingWithCredit ? CREDIT_METHOD : paymentMethod,
+        account: payingWithCredit
+          ? undefined
+          : requiresAccount
+            ? account
+            : undefined,
       };
 
       if (useConversion) {
@@ -480,18 +1045,32 @@ export default function OperatorPaymentForm({
         throw new Error(msg);
       }
 
+      const created = (await safeJson<InvestmentLite>(res))!;
       toast.success("Pago al operador cargado en Investments.");
+
+      if (payingWithCredit && created?.id_investment) {
+        try {
+          await createCreditEntryForInvestment(created);
+          toast.success("Movimiento de cuenta corriente sincronizado.");
+        } catch {
+          toast.error(
+            "No se pudo sincronizar la cuenta corriente del Operador.",
+          );
+        }
+      }
+
       onCreated?.();
 
-      // Reset mínimo
+      // Reset corto
       setSelectedIds([]);
       setAmount("");
-      setCurrency("");
+      setCurrency(lockedSvcCurrency || "");
       setOperatorId("");
       setPaidAt("");
       setDescription("");
       setPaymentMethod("");
       setAccount("");
+      setUseCredit(false);
       setUseConversion(false);
       setBaseAmount("");
       setBaseCurrency("");
@@ -506,432 +1085,676 @@ export default function OperatorPaymentForm({
     }
   };
 
-  // UI helpers
-  const inputBase =
-    "w-full appearance-none bg-white/50 rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
+  /* ========= UI helpers ========= */
+  const showHeaderPills = () => {
+    const pills: React.ReactNode[] = [];
 
+    pills.push(
+      <span key="cat" className={`${pillBase} ${pillNeutral}`}>
+        {category || "Categoría"}
+      </span>,
+    );
+
+    if (operatorId) {
+      pills.push(
+        <span key="op" className={`${pillBase} ${pillNeutral}`}>
+          Operador #{operatorId}
+        </span>,
+      );
+    }
+
+    if (selectedServices.length > 0) {
+      pills.push(
+        <span key="svc" className={`${pillBase} ${pillOk}`}>
+          Svcs: {selectedServices.length}
+        </span>,
+      );
+    }
+
+    if (lockedSvcCurrency || currency) {
+      const cur = lockedSvcCurrency || currency;
+      pills.push(
+        <span
+          key="cur"
+          className={`${pillBase} ${lockedSvcCurrency ? pillOk : pillNeutral}`}
+          title={
+            lockedSvcCurrency
+              ? "Moneda bloqueada por servicios"
+              : "Moneda libre"
+          }
+        >
+          {cur}
+          {lockedSvcCurrency ? " (lock)" : ""}
+        </span>,
+      );
+    }
+
+    if (useCredit) {
+      pills.push(
+        <span key="cred" className={`${pillBase} ${pillOk}`}>
+          Crédito operador
+        </span>,
+      );
+    }
+
+    return pills;
+  };
+
+  /* ========= Render ========= */
   return (
     <motion.div
       layout
-      initial={{ maxHeight: 100, opacity: 1 }}
+      initial={{ maxHeight: 96, opacity: 1 }}
       animate={{
-        maxHeight: isFormVisible ? 1600 : 100,
+        maxHeight: visible ? 2000 : 96,
         opacity: 1,
-        transition: { duration: 0.4, ease: "easeInOut" },
+        transition: { duration: 0.35, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
+      className="mb-6 overflow-auto rounded-3xl border border-white/10 bg-white/10 text-sky-950 shadow-md shadow-sky-950/10 dark:text-white"
     >
+      {/* HEADER */}
       <div
-        className="flex cursor-pointer items-center justify-between"
-        onClick={() => setIsFormVisible((v) => !v)}
-        role="button"
-        aria-label="Alternar formulario de pago a operador"
+        className={`sticky top-0 z-10 ${visible ? "rounded-t-3xl border-b" : ""} border-white/10 px-4 py-3 backdrop-blur-sm`}
       >
-        <p className="text-lg font-medium dark:text-white">
-          {isFormVisible ? "Cerrar Formulario" : "Cargar Pago"}
-        </p>
         <button
           type="button"
-          className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
-          aria-label={isFormVisible ? "Cerrar formulario" : "Abrir formulario"}
+          onClick={() => setVisible((v) => !v)}
+          className="flex w-full items-center justify-between text-left"
+          aria-expanded={visible}
+          aria-controls="operator-payment-form-body"
         >
-          {isFormVisible ? (
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="size-6"
-              aria-hidden="true"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
-            </svg>
-          ) : (
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="size-6"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 4.5v15m7.5-7.5h-15"
-              />
-            </svg>
-          )}
+          <div className="flex items-center gap-3">
+            <div className="grid size-9 place-items-center rounded-full bg-sky-100 text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white">
+              {visible ? (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="size-5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.6}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 12h14"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="size-5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.6}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 4.5v15m7.5-7.5h-15"
+                  />
+                </svg>
+              )}
+            </div>
+            <div>
+              <p className="text-lg font-semibold">
+                {visible ? "Pago a Operador" : "Cargar Pago a Operador"}
+              </p>
+              <p className="text-xs opacity-70">
+                Reserva #{booking.id_booking}
+              </p>
+            </div>
+          </div>
+
+          <div className="hidden items-center gap-2 md:flex">
+            {showHeaderPills()}
+          </div>
         </button>
       </div>
 
-      {isFormVisible && (
-        <motion.form
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onSubmit={handleSubmit}
-          className="space-y-4"
-        >
-          <div className="text-sm opacity-80">
-            <div>
-              <b>Reserva:</b> N° {booking.id_booking}
-            </div>
-          </div>
+      {/* BODY */}
+      <AnimatePresence initial={false}>
+        {visible && (
+          <motion.div
+            key="body"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.form
+              id="operator-payment-form-body"
+              onSubmit={handleSubmit}
+              className="space-y-5 px-4 pb-6 pt-4 md:px-6"
+            >
+              {/* CONTEXTO */}
+              <Section
+                title="Contexto"
+                desc="Elegí los servicios (misma moneda y mismo operador)."
+              >
+                <div className="md:col-span-2">
+                  {servicesFromBooking.length === 0 ? (
+                    <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sm opacity-80">
+                      Esta reserva no tiene servicios cargados.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {servicesFromBooking.map((svc) => {
+                        const checked = selectedIds.includes(svc.id_service);
+                        const disabled =
+                          selectedServices.length > 0 &&
+                          ((selectedServices[0].id_operator ?? 0) !==
+                            (svc.id_operator ?? 0) ||
+                            (
+                              selectedServices[0].currency || ""
+                            ).toUpperCase() !==
+                              (svc.currency || "").toUpperCase()) &&
+                          !checked;
 
-          {/* Picker de servicios (multi-select) */}
-          <div>
-            <label className="ml-2 block dark:text-white">
-              Servicios de la reserva
-            </label>
-            {servicesFromBooking.length === 0 ? (
-              <div className="mt-2 rounded-2xl border border-white/10 bg-white/10 p-3 text-sm opacity-80">
-                Esta reserva no tiene servicios cargados.
-              </div>
-            ) : (
-              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                {servicesFromBooking.map((svc) => {
-                  const isActive = selectedIds.includes(svc.id_service);
-                  const opName =
-                    operators.find((o) => o.id_operator === svc.id_operator)
-                      ?.name || "Operador";
-                  return (
+                        const opName =
+                          operators.find(
+                            (o) => o.id_operator === svc.id_operator,
+                          )?.name || "Operador";
+
+                        return (
+                          <label
+                            key={svc.id_service}
+                            className={`flex items-start gap-3 rounded-2xl border px-3 py-2 ${
+                              checked
+                                ? "border-white/20 bg-white/10"
+                                : "border-white/10"
+                            } ${disabled ? "opacity-50" : ""}`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-1 size-4"
+                              checked={checked}
+                              disabled={disabled}
+                              onChange={() => toggleService(svc)}
+                            />
+                            <div className="flex-1">
+                              <div className="text-sm font-medium">
+                                #{svc.id_service} · {svc.type}
+                                {svc.destination ? ` · ${svc.destination}` : ""}
+                              </div>
+                              <div className="text-xs text-sky-950/70 dark:text-white/70">
+                                Operador: <b>{opName}</b> • Moneda:{" "}
+                                <b>{(svc.currency || "ARS").toUpperCase()}</b> •
+                                Costo:{" "}
+                                {formatMoney(
+                                  svc.cost_price || 0,
+                                  (svc.currency || "ARS").toUpperCase(),
+                                )}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Píldoras de contexto */}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className={`${pillBase} ${pillNeutral}`}>
+                      Seleccionados: {selectedServices.length}
+                    </span>
+                    <span
+                      className={`${pillBase} ${lockedSvcCurrency ? pillOk : pillNeutral}`}
+                    >
+                      Moneda{" "}
+                      {lockedSvcCurrency ? `${lockedSvcCurrency} (lock)` : "—"}
+                    </span>
+                    {operatorIdFromSelection != null && (
+                      <span className={`${pillBase} ${pillNeutral}`}>
+                        Operador sugerido: #{operatorIdFromSelection}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </Section>
+
+              {/* PAGO: categoría / operador / crédito */}
+              <Section
+                title="Pago"
+                desc="Definí categoría, operador y si usás crédito."
+              >
+                <Field id="category" label="Categoría" required>
+                  {loadingPicks ? (
+                    <div className="flex h-[42px] items-center">
+                      <Spinner />
+                    </div>
+                  ) : (
+                    <select
+                      id="category"
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className={`${inputBase} cursor-pointer appearance-none`}
+                      required
+                      disabled={operatorCategories.length === 0}
+                    >
+                      <option value="" disabled>
+                        {operatorCategories.length
+                          ? "Seleccionar…"
+                          : "Sin categorías de Operador"}
+                      </option>
+                      {operatorCategories.map((c) => (
+                        <option key={c.id_category} value={c.name}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </Field>
+
+                <Field id="operator" label="Operador" required>
+                  <select
+                    id="operator"
+                    value={operatorId}
+                    onChange={(e) =>
+                      setOperatorId(
+                        e.target.value ? Number(e.target.value) : "",
+                      )
+                    }
+                    className={`${inputBase} cursor-pointer appearance-none`}
+                    required
+                  >
+                    <option value="" disabled>
+                      Seleccionar operador…
+                    </option>
+                    {operators.map((o) => (
+                      <option key={o.id_operator} value={o.id_operator}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedServices.length > 0 &&
+                    operatorIdFromSelection == null && (
+                      <p className="ml-1 mt-1 text-xs opacity-70">
+                        Seleccionaste servicios de operadores distintos. Elegí
+                        uno manualmente.
+                      </p>
+                    )}
+                </Field>
+
+                {isOperatorCategory(category) ? (
+                  <div className="md:col-span-2">
+                    <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
+                        checked={useCredit}
+                        onChange={(e) => setUseCredit(e.target.checked)}
+                      />
+                      Usar <b>cuenta de crédito</b> del Operador
+                    </label>
+                    <p className="ml-1 mt-1 text-xs opacity-70">
+                      Se registrará un movimiento en la cuenta corriente del
+                      Operador vinculado a este pago.
+                    </p>
+                  </div>
+                ) : (
+                  <div />
+                )}
+              </Section>
+
+              {/* IMPORTE / MONEDA */}
+              <Section
+                title="Importe y moneda"
+                desc="Cuánto le pagás al operador y en qué divisa."
+              >
+                <Field id="amount" label="Monto" required>
+                  <input
+                    id="amount"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    className={inputBase}
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="0.00"
+                    required
+                  />
+                  {previewAmount && (
+                    <p className="ml-1 mt-1 text-xs opacity-80">
+                      {previewAmount}
+                    </p>
+                  )}
+                  {selectedServices.length > 0 && (
                     <button
                       type="button"
-                      key={svc.id_service}
-                      onClick={() => toggleService(svc)}
-                      className={`rounded-2xl border p-3 text-left transition-all ${
-                        isActive
-                          ? "border-sky-300/40 bg-sky-100 text-sky-950 shadow-sm dark:bg-white/10 dark:text-white"
-                          : "border-white/10 bg-white/10 hover:bg-white/20 dark:border-white/10 dark:bg-white/10"
-                      }`}
-                      title={`Servicio N° ${svc.id_service}`}
-                      aria-pressed={isActive}
+                      onClick={useSuggested}
+                      className="mt-2 text-xs underline underline-offset-2"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="text-sm font-medium">
-                          #{svc.id_service} · {svc.type}
-                          {svc.destination ? ` · ${svc.destination}` : ""}
-                        </div>
-                        {isActive ? (
-                          <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs text-sky-900 dark:bg-white/20 dark:text-white">
-                            seleccionado
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="mt-1 text-sm opacity-80">
-                        <b>Operador:</b> {opName}
-                      </div>
-                      <div className="text-sm opacity-80">
-                        <b>Costo:</b>{" "}
-                        {formatMoney(
-                          svc.cost_price || 0,
-                          (svc.currency || "ARS").toUpperCase(),
-                        )}{" "}
-                        <span className="opacity-70">
-                          ({(svc.currency || "ARS").toUpperCase()})
-                        </span>
-                      </div>
+                      Usar suma de costos:{" "}
+                      {formatMoney(
+                        suggestedAmount,
+                        (lockedSvcCurrency || currency || "ARS").toUpperCase(),
+                      )}
                     </button>
-                  );
-                })}
-              </div>
-            )}
-            {selectedServices.length > 0 && (
-              <div className="ml-2 mt-2 text-xs opacity-70">
-                Seleccionados:{" "}
-                {selectedServices.map((s) => `N° ${s.id_service}`).join(", ")}
-              </div>
-            )}
-          </div>
-
-          {/* Operador */}
-          <div>
-            <label className="ml-2 block dark:text-white">Operador</label>
-            <select
-              className={`${inputBase} cursor-pointer`}
-              value={operatorId}
-              onChange={(e) =>
-                setOperatorId(e.target.value ? Number(e.target.value) : "")
-              }
-              required
-            >
-              <option value="" disabled>
-                Seleccionar operador…
-              </option>
-              {operators.map((o) => (
-                <option key={o.id_operator} value={o.id_operator}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-            {selectedServices.length > 0 && operatorIdFromSelection == null && (
-              <div className="ml-2 mt-1 text-xs opacity-70">
-                Seleccionaste servicios de operadores distintos. Elegí uno
-                manualmente.
-              </div>
-            )}
-          </div>
-
-          {/* Descripción */}
-          <div>
-            <label className="ml-2 block dark:text-white">Descripción</label>
-            <input
-              className={inputBase}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Concepto / detalle del pago…"
-              required
-            />
-          </div>
-
-          {/* Monto / Moneda */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div>
-              <label className="ml-2 block dark:text-white">Monto</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                inputMode="decimal"
-                className={inputBase}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00"
-                required
-              />
-              {previewAmount && (
-                <div className="ml-2 mt-1 text-sm opacity-80">
-                  {previewAmount}
-                </div>
-              )}
-              {selectedServices.length > 0 && (
-                <div className="ml-2 mt-1 text-xs opacity-70">
-                  Sugerido (suma costos):{" "}
-                  {formatMoney(
-                    suggestedAmount,
-                    (suggestedCurrency || currency || "ARS").toUpperCase(),
                   )}
-                </div>
-              )}
-            </div>
+                </Field>
 
-            <div>
-              <label className="ml-2 block dark:text-white">Moneda</label>
-              <select
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-                className={`${inputBase} cursor-pointer`}
-                required
-                disabled={currencyOptions.length === 0}
+                <Field id="currency" label="Moneda" required>
+                  {lockedSvcCurrency ? (
+                    <div className="rounded-2xl border border-white/10 bg-white/10 p-2 text-sm">
+                      {lockedSvcCurrency} (bloqueada por servicios)
+                    </div>
+                  ) : loadingPicks ? (
+                    <div className="flex h-[42px] items-center">
+                      <Spinner />
+                    </div>
+                  ) : (
+                    <select
+                      id="currency"
+                      value={currency}
+                      onChange={(e) => setCurrency(e.target.value)}
+                      className={`${inputBase} cursor-pointer appearance-none`}
+                      required
+                      disabled={currencyOptions.length === 0}
+                    >
+                      <option value="" disabled>
+                        {currencyOptions.length
+                          ? "Seleccionar moneda"
+                          : "Sin monedas habilitadas"}
+                      </option>
+                      {currencyOptions.map((code) => (
+                        <option key={code} value={code}>
+                          {currencyDict[code]
+                            ? `${code} — ${currencyDict[code]}`
+                            : code}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </Field>
+              </Section>
+
+              {/* MÉTODO / CUENTA */}
+              <Section
+                title="Forma de pago"
+                desc="Elegí método y, si corresponde, la cuenta."
               >
-                <option value="" disabled>
-                  {currencyOptions.length
-                    ? "Seleccionar moneda"
-                    : "Sin monedas habilitadas"}
-                </option>
-                {currencyOptions.map((code) => (
-                  <option key={code} value={code}>
-                    {currencyDict[code]
-                      ? `${code} — ${currencyDict[code]}`
-                      : code}
-                  </option>
-                ))}
-              </select>
-              {selectedServices.length > 0 && (
-                <div className="ml-2 mt-1 text-xs opacity-70">
-                  {allSameCurrency
-                    ? `Sugerido: ${suggestedCurrency}`
-                    : "Los servicios seleccionados tienen monedas distintas."}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Método / Cuenta (desde config) */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div>
-              <label className="ml-2 block dark:text-white">
-                Método de pago
-              </label>
-              <select
-                className={`${inputBase} cursor-pointer`}
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                required
-                disabled={paymentMethodOptions.length === 0}
-              >
-                <option value="" disabled>
-                  {paymentMethodOptions.length
-                    ? "Seleccionar método"
-                    : "Sin métodos habilitados"}
-                </option>
-                {paymentMethodOptions.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {showAccount && (
-              <div>
-                <label className="ml-2 block dark:text-white">Cuenta</label>
-                <select
-                  className={`${inputBase} cursor-pointer`}
-                  value={account}
-                  onChange={(e) => setAccount(e.target.value)}
-                  required={showAccount}
-                  disabled={accountOptions.length === 0}
+                <Field
+                  id="payment_method"
+                  label="Método de pago"
+                  required={!useCredit}
                 >
-                  <option value="" disabled>
-                    {accountOptions.length
-                      ? "Seleccionar cuenta"
-                      : "Sin cuentas habilitadas"}
-                  </option>
-                  {accountOptions.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
+                  {loadingPicks ? (
+                    <div className="flex h-[42px] items-center">
+                      <Spinner />
+                    </div>
+                  ) : (
+                    <select
+                      id="payment_method"
+                      value={paymentMethod}
+                      onChange={(e) => setPaymentMethod(e.target.value)}
+                      className={`${inputBase} cursor-pointer appearance-none`}
+                      required={!useCredit}
+                      disabled={
+                        uiPaymentMethodOptions.length === 0 ||
+                        (isOperatorCategory(category) && useCredit)
+                      }
+                    >
+                      <option value="" disabled>
+                        {uiPaymentMethodOptions.length
+                          ? "Seleccionar método"
+                          : "Sin métodos habilitados"}
+                      </option>
+                      {uiPaymentMethodOptions.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </Field>
 
-          {/* Conversión (Valor / Contravalor) */}
-          <div className="rounded-2xl border border-white/10 p-3">
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={useConversion}
-                onChange={(e) => setUseConversion(e.target.checked)}
-              />
-              <span className="text-sm">Registrar valor / contravalor</span>
-            </label>
+                {requiresAccount ? (
+                  <Field id="account" label="Cuenta" required>
+                    <select
+                      id="account"
+                      value={account}
+                      onChange={(e) => setAccount(e.target.value)}
+                      className={`${inputBase} cursor-pointer appearance-none`}
+                      required
+                      disabled={accounts.length === 0}
+                    >
+                      <option value="" disabled>
+                        {filteredAccounts.length || accounts.length
+                          ? "Seleccionar cuenta"
+                          : "Sin cuentas habilitadas"}
+                      </option>
+                      {(filteredAccounts.length
+                        ? filteredAccounts
+                        : accounts
+                      ).map((a) => {
+                        const label = a.display_name || a.name;
+                        return (
+                          <option key={a.id_account} value={label}>
+                            {label}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    {account && (
+                      <p className="ml-1 mt-1 text-xs opacity-70">
+                        Moneda detectada:{" "}
+                        <b>{guessAccountCurrency(account) || "—"}</b>
+                      </p>
+                    )}
+                  </Field>
+                ) : (
+                  <div />
+                )}
+              </Section>
 
-            {useConversion && (
-              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div>
-                  <p className="mb-1 text-sm font-medium">Valor base</p>
-                  <div className="grid grid-cols-3 gap-2">
+              {/* INFO CRÉDITO (si está activo) */}
+              {isOperatorCategory(category) && useCredit && (
+                <div
+                  className="rounded-2xl border border-white/10 bg-white/10 p-3 text-xs md:col-span-2"
+                  role="status"
+                  aria-live="polite"
+                >
+                  {!operatorId || !currency ? (
+                    <p>
+                      Elegí operador y moneda para validar la cuenta de crédito.
+                    </p>
+                  ) : creditAccStatus === "checking" ? (
+                    <div className="flex items-center gap-2">
+                      <Spinner />
+                      <span>
+                        Verificando cuenta en {String(currency).toUpperCase()}…
+                      </span>
+                    </div>
+                  ) : creditAccStatus === "exists" ? (
+                    <p className="text-emerald-400">
+                      ✓ Existe una cuenta de crédito en{" "}
+                      {String(currency).toUpperCase()} para este operador.
+                    </p>
+                  ) : creditAccStatus === "creating" ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-amber-300">
+                        Creando cuenta de crédito en{" "}
+                        {String(currency).toUpperCase()}…
+                      </span>
+                      <button
+                        type="button"
+                        className="rounded-full bg-sky-100 px-3 py-1 text-sky-950 shadow-sm dark:bg-white/10 dark:text-white"
+                        disabled
+                      >
+                        <Spinner />
+                      </button>
+                    </div>
+                  ) : creditAccStatus === "missing" ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-amber-300">
+                        No existe cuenta de crédito en{" "}
+                        {String(currency).toUpperCase()} para este operador.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCreateCreditAccount}
+                        className="rounded-full bg-sky-100 px-3 py-1 text-sky-950 shadow-sm dark:bg-white/10 dark:text-white"
+                      >
+                        {`Crear cuenta ${String(currency).toUpperCase()}`}
+                      </button>
+                    </div>
+                  ) : creditAccStatus === "error" ? (
+                    <p className="text-rose-400">
+                      No se pudo verificar: {creditAccMsg}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+
+              {/* CONVERSIÓN */}
+              <Section
+                title="Conversión (opcional)"
+                desc="Registra valor/contravalor (sin tipo de cambio) si el acuerdo está en otra divisa."
+              >
+                <Field id="base" label="Valor base">
+                  <div className="flex gap-2">
                     <input
                       type="number"
                       step="0.01"
                       min="0"
                       inputMode="decimal"
-                      className={`col-span-2 ${inputBase}`}
+                      className={inputBase}
                       placeholder="0.00"
                       value={baseAmount}
-                      onChange={(e) => setBaseAmount(e.target.value)}
+                      onChange={(e) => {
+                        setUseConversion(true);
+                        setBaseAmount(e.target.value);
+                      }}
                     />
                     <select
-                      className={`${inputBase} cursor-pointer`}
+                      className={`${inputBase} cursor-pointer appearance-none`}
                       value={baseCurrency}
-                      onChange={(e) => setBaseCurrency(e.target.value)}
+                      onChange={(e) => {
+                        setUseConversion(true);
+                        setBaseCurrency(e.target.value);
+                      }}
                       disabled={currencyOptions.length === 0}
                     >
                       <option value="" disabled>
                         {currencyOptions.length ? "Moneda" : "Sin monedas"}
                       </option>
                       {currencyOptions.map((code) => (
-                        <option key={code} value={code}>
+                        <option key={`bc-${code}`} value={code}>
                           {code}
                         </option>
                       ))}
                     </select>
                   </div>
-                  {previewBase && (
+                  {useConversion && previewBase && (
                     <div className="ml-1 mt-1 text-xs opacity-70">
                       {previewBase}
                     </div>
                   )}
-                </div>
+                </Field>
 
-                <div>
-                  <p className="mb-1 text-sm font-medium">Contravalor</p>
-                  <div className="grid grid-cols-3 gap-2">
+                <Field id="counter" label="Contravalor">
+                  <div className="flex gap-2">
                     <input
                       type="number"
                       step="0.01"
                       min="0"
                       inputMode="decimal"
-                      className={`col-span-2 ${inputBase}`}
+                      className={inputBase}
                       placeholder="0.00"
                       value={counterAmount}
-                      onChange={(e) => setCounterAmount(e.target.value)}
+                      onChange={(e) => {
+                        setUseConversion(true);
+                        setCounterAmount(e.target.value);
+                      }}
                     />
                     <select
-                      className={`${inputBase} cursor-pointer`}
+                      className={`${inputBase} cursor-pointer appearance-none`}
                       value={counterCurrency}
-                      onChange={(e) => setCounterCurrency(e.target.value)}
+                      onChange={(e) => {
+                        setUseConversion(true);
+                        setCounterCurrency(e.target.value);
+                      }}
                       disabled={currencyOptions.length === 0}
                     >
                       <option value="" disabled>
                         {currencyOptions.length ? "Moneda" : "Sin monedas"}
                       </option>
                       {currencyOptions.map((code) => (
-                        <option key={code} value={code}>
+                        <option key={`cc-${code}`} value={code}>
                           {code}
                         </option>
                       ))}
                     </select>
                   </div>
-                  {previewCounter && (
+                  {useConversion && previewCounter && (
                     <div className="ml-1 mt-1 text-xs opacity-70">
                       {previewCounter}
                     </div>
                   )}
-                </div>
+                </Field>
 
                 <div className="text-xs opacity-70 md:col-span-2">
                   Se guarda el valor y contravalor <b>sin tipo de cambio</b>.
                   Útil si pagás en una moneda pero el acuerdo está en otra.
                 </div>
+              </Section>
+
+              {/* FECHA + DESCRIPCIÓN */}
+              <Section title="Fecha y detalle">
+                <Field id="paid_at" label="Fecha de pago">
+                  <input
+                    id="paid_at"
+                    type="date"
+                    value={paidAt}
+                    onChange={(e) => setPaidAt(e.target.value)}
+                    className={`${inputBase} cursor-pointer`}
+                  />
+                </Field>
+
+                <Field id="desc" label="Descripción" required>
+                  <input
+                    id="desc"
+                    className={inputBase}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Concepto / detalle del pago…"
+                    required
+                  />
+                </Field>
+              </Section>
+
+              {/* ACTION BAR */}
+              <div className="sticky bottom-2 z-10 flex justify-end gap-3">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  aria-busy={loading}
+                  className={`rounded-full px-6 py-2 shadow-sm shadow-sky-950/20 transition active:scale-[0.98] ${
+                    loading
+                      ? "cursor-not-allowed bg-sky-950/20 text-white/60 dark:bg-white/5 dark:text-white/40"
+                      : "bg-sky-100 text-sky-950 dark:bg-white/10 dark:text-white"
+                  }`}
+                  aria-label="Cargar pago al operador"
+                >
+                  {loading ? <Spinner /> : "Cargar pago"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={useSuggested}
+                  disabled={selectedServices.length === 0}
+                  className="rounded-full bg-sky-950/10 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition active:scale-[0.98] disabled:opacity-50 dark:bg-white/10 dark:text-white"
+                  title="Usar sugeridos"
+                >
+                  Usar sugeridos
+                </button>
               </div>
-            )}
-          </div>
-
-          {/* Fecha */}
-          <div>
-            <label className="ml-2 block dark:text-white">
-              Fecha de pago (opcional)
-            </label>
-            <input
-              type="date"
-              value={paidAt}
-              onChange={(e) => setPaidAt(e.target.value)}
-              className={`${inputBase} cursor-pointer`}
-            />
-          </div>
-
-          {/* Acciones */}
-          <div className="mt-2 flex gap-2">
-            <button
-              type="submit"
-              disabled={loading}
-              className={`rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white ${
-                loading ? "opacity-60" : ""
-              }`}
-              aria-busy={loading}
-            >
-              {loading ? <Spinner /> : "Cargar pago"}
-            </button>
-
-            <button
-              type="button"
-              onClick={useSuggested}
-              disabled={selectedServices.length === 0}
-              className="rounded-full bg-white/10 px-4 py-2 text-sm shadow-sm hover:scale-95 disabled:opacity-50 dark:text-white"
-              title="Usar sugeridos"
-            >
-              Usar sugeridos
-            </button>
-          </div>
-        </motion.form>
-      )}
+            </motion.form>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

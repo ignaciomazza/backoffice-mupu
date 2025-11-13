@@ -1,3 +1,4 @@
+// src/pages/api/receipts/[id].ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { jwtVerify, JWTPayload } from "jose";

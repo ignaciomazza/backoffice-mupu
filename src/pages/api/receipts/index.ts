@@ -39,11 +39,14 @@ type ReceiptPostBody = {
   serviceIds?: number[]; // Requerido si hay booking; vacío si es de agencia
   clientIds?: number[]; // Opcional
 
-  // Metadatos de cobro
+  // Metadatos de cobro (texto para PDF / legacy)
   payment_method?: string;
   account?: string;
 
-  // FX opcional (para equivalencias)
+  // Relación real (opcional) si tu modelo Receipt tiene account_id
+  account_id?: number;
+
+  // FX opcional (para equivalencias en PDF)
   base_amount?: number | string;
   base_currency?: string; // ISO
   counter_amount?: number | string;
@@ -193,12 +196,10 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     if (Number.isFinite(bookingId)) {
       await ensureBookingInAgency(bookingId, authAgencyId);
-      // ✅ reemplazá ese bloque por esto
       const receipts = await prisma.receipt.findMany({
         where: { booking: { id_booking: bookingId } },
         orderBy: { issue_date: "desc" },
       });
-
       return res.status(200).json({ receipts });
     }
 
@@ -493,6 +494,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       : await nextReceiptNumberForAgency(authAgencyId);
 
     // Payload Prisma
+    // Payload Prisma (sin account_id)
     const data: Prisma.ReceiptCreateInput = {
       receipt_number,
       amount,
@@ -500,7 +502,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       amount_currency: amountCurrencyISO, // ISO clave
       concept,
       // currency: texto libre; si no viene, caemos al ISO
-      currency: isNonEmptyString(currency) ? currency! : amountCurrencyISO,
+      currency: isNonEmptyString(currency) ? currency : amountCurrencyISO,
       serviceIds, // siempre enviar (vacío si es de agencia)
       clientIds, // idem
       ...(payment_method ? { payment_method } : {}),
@@ -517,6 +519,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     };
 
     const receipt = await prisma.receipt.create({ data });
+    // 👉 ayuda a los clientes a extraer el ID sin leer el body
+    res.setHeader("Location", `/api/receipts/${receipt.id_receipt}`);
+    res.setHeader("X-Receipt-Id", String(receipt.id_receipt));
     return res.status(201).json({ receipt });
   } catch (error: unknown) {
     const msg =

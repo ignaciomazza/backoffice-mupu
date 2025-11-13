@@ -132,6 +132,154 @@ const normStrUpdate = (
   return undefined;
 };
 
+// ===== Crédito operador: helpers internos (cascade) =====
+const CREDIT_METHOD = "Crédito operador";
+const normSoft = (s?: string | null) =>
+  (s || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim()
+    .toLowerCase();
+
+const DOC_SIGN: Record<string, number> = { investment: -1, receipt: 1 };
+const normDoc = (s?: string | null) => (s || "").trim().toLowerCase();
+const signForDocType = (dt?: string | null) => DOC_SIGN[normDoc(dt)] ?? 1;
+const deltaDecimal = (amountAbs: number, dt?: string | null) =>
+  new Prisma.Decimal(Math.abs(amountAbs)).mul(signForDocType(dt));
+
+async function removeLinkedCreditEntries(
+  tx: Prisma.TransactionClient,
+  investmentId: number,
+  agencyId: number,
+): Promise<number> {
+  const entries = await tx.creditEntry.findMany({
+    where: { id_agency: agencyId, investment_id: investmentId },
+    select: { id_entry: true, account_id: true, amount: true, doc_type: true },
+  });
+
+  for (const e of entries) {
+    const acc = await tx.creditAccount.findUnique({
+      where: { id_credit_account: e.account_id },
+      select: { balance: true },
+    });
+    if (!acc) continue;
+
+    // Revertir el efecto que aplicó el alta: balance -= sign(dt) * amount
+    const next = acc.balance.minus(deltaDecimal(Number(e.amount), e.doc_type));
+    await tx.creditAccount.update({
+      where: { id_credit_account: e.account_id },
+      data: { balance: next },
+    });
+
+    await tx.creditEntry.delete({ where: { id_entry: e.id_entry } });
+  }
+
+  return entries.length;
+}
+
+async function findOrCreateOperatorCreditAccount(
+  tx: Prisma.TransactionClient,
+  agencyId: number,
+  operatorId: number,
+  currency: string,
+): Promise<number> {
+  const existing = await tx.creditAccount.findFirst({
+    where: {
+      id_agency: agencyId,
+      operator_id: operatorId,
+      client_id: null,
+      currency,
+    },
+    select: { id_credit_account: true },
+  });
+  if (existing) return existing.id_credit_account;
+
+  const created = await tx.creditAccount.create({
+    data: {
+      id_agency: agencyId,
+      operator_id: operatorId,
+      client_id: null,
+      currency,
+      balance: new Prisma.Decimal(0),
+      enabled: true,
+    },
+    select: { id_credit_account: true },
+  });
+  return created.id_credit_account;
+}
+
+async function createCreditEntryForInvestment(
+  tx: Prisma.TransactionClient,
+  agencyId: number,
+  userId: number,
+  inv: {
+    id_investment: number;
+    operator_id: number;
+    currency: string;
+    amount: Prisma.Decimal | number; // <- acepta Decimal o number
+    description: string | null;
+    paid_at: Date | null;
+  },
+) {
+  const account_id = await findOrCreateOperatorCreditAccount(
+    tx,
+    agencyId,
+    inv.operator_id,
+    inv.currency,
+  );
+
+  // Normaliza a number (Decimal -> number)
+  const rawAmount =
+    typeof inv.amount === "number"
+      ? inv.amount
+      : (inv.amount as Prisma.Decimal).toNumber();
+
+  const amountAbs = Math.abs(rawAmount);
+
+  const entry = await tx.creditEntry.create({
+    data: {
+      id_agency: agencyId,
+      account_id,
+      created_by: userId,
+      concept: inv.description || `Gasto Operador #${inv.id_investment}`,
+      amount: new Prisma.Decimal(amountAbs), // siempre positivo
+      currency: inv.currency,
+      doc_type: "investment", // aplica signo negativo al balance
+      reference: `INV-${inv.id_investment}`,
+      value_date: inv.paid_at,
+      investment_id: inv.id_investment,
+    },
+    select: { id_entry: true },
+  });
+
+  // Aplicar efecto en balance (investment => negativo)
+  const acc = await tx.creditAccount.findUnique({
+    where: { id_credit_account: account_id },
+    select: { balance: true },
+  });
+  if (acc) {
+    const next = acc.balance.add(deltaDecimal(amountAbs, "investment"));
+    await tx.creditAccount.update({
+      where: { id_credit_account: account_id },
+      data: { balance: next },
+    });
+  }
+
+  return entry;
+}
+
+function shouldHaveCreditEntry(payload: {
+  category?: string | null;
+  operator_id?: number | null;
+  payment_method?: string | null;
+}) {
+  return (
+    normSoft(payload.category) === "operador" &&
+    !!payload.operator_id &&
+    (payload.payment_method || "") === CREDIT_METHOD
+  );
+}
+
 /** ===== Scoped getters ===== */
 function getInvestmentLite(id_investment: number, id_agency: number) {
   return prisma.investment.findFirst({
@@ -183,9 +331,6 @@ export default async function handler(
       if (!exists)
         return res.status(404).json({ error: "Inversión no encontrada" });
 
-      // const allowed = ["gerente", "administrativo", "desarrollador"];
-      // if (!allowed.includes(auth.role)) return res.status(403).json({ error: "No autorizado" });
-
       const b = req.body ?? {};
       const category =
         typeof b.category === "string" ? b.category.trim() : undefined;
@@ -206,7 +351,7 @@ export default async function handler(
         b.operator_id === null ? null : safeNumber(b.operator_id);
       const user_id = b.user_id === null ? null : safeNumber(b.user_id);
 
-      // 👇 NUEVO: booking_id editable (validamos agencia si viene)
+      // booking_id editable (validamos agencia si viene)
       let booking_id: number | null | undefined = undefined;
       if (b.booking_id !== undefined) {
         if (b.booking_id === null) {
@@ -231,11 +376,11 @@ export default async function handler(
         }
       }
 
-      // 👇 NUEVO: método de pago / cuenta (acepta string o null para limpiar)
+      // método de pago / cuenta (acepta string o null para limpiar)
       const payment_method = normStrUpdate(b.payment_method);
       const account = normStrUpdate(b.account);
 
-      // 👇 NUEVO: conversión (acepta Decimal o null para limpiar)
+      // conversión (acepta Decimal o null para limpiar)
       const base_amount =
         b.base_amount === null
           ? null
@@ -277,41 +422,96 @@ export default async function handler(
           .json({ error: "Para Sueldo/Comision, user_id es obligatorio" });
       }
 
-      // Usamos UncheckedUpdate para poder setear FKs y scalars opcionales
-      const data: Prisma.InvestmentUncheckedUpdateInput = {};
-      if (category !== undefined) data.category = category;
-      if (description !== undefined) data.description = description;
-      if (currency !== undefined) data.currency = currency;
-      if (amount !== undefined) data.amount = amount;
-      if (paid_at !== undefined) data.paid_at = paid_at;
-      if (operator_id !== undefined) data.operator_id = operator_id;
-      if (user_id !== undefined) data.user_id = user_id;
-      if (booking_id !== undefined) data.booking_id = booking_id;
-
-      // 👉 nuevos campos
-      if (payment_method !== undefined) data.payment_method = payment_method;
-      if (account !== undefined) data.account = account;
-
-      if (base_amount !== undefined) data.base_amount = base_amount;
-      if (base_currency !== undefined)
-        data.base_currency = base_currency || undefined;
-      if (counter_amount !== undefined) data.counter_amount = counter_amount;
-      if (counter_currency !== undefined)
-        data.counter_currency = counter_currency || undefined;
-
-      const updated = await prisma.investment.update({
-        where: { id_investment: id },
-        data,
-        include: {
-          user: {
-            select: { id_user: true, first_name: true, last_name: true },
+      // === TX: actualizar la inversión + (re)sincronizar cuenta de crédito si corresponde
+      const updated = await prisma.$transaction(async (tx) => {
+        // 1) Traigo el estado previo (opcional; útil para auditoría si la sumás)
+        const before = await tx.investment.findFirst({
+          where: { id_investment: id, id_agency: auth.id_agency },
+          select: {
+            id_investment: true,
+            category: true,
+            description: true,
+            currency: true,
+            amount: true,
+            paid_at: true,
+            operator_id: true,
+            payment_method: true,
           },
-          operator: true,
-          createdBy: {
-            select: { id_user: true, first_name: true, last_name: true },
+        });
+        if (!before) throw new Error("Inversión no encontrada (TX)");
+
+        // 2) Actualizo investment
+        const data: Prisma.InvestmentUncheckedUpdateInput = {};
+        if (category !== undefined) data.category = category;
+        if (description !== undefined) data.description = description;
+        if (currency !== undefined) data.currency = currency;
+        if (amount !== undefined) data.amount = amount;
+        if (paid_at !== undefined) data.paid_at = paid_at;
+        if (operator_id !== undefined) data.operator_id = operator_id;
+        if (user_id !== undefined) data.user_id = user_id;
+        if (booking_id !== undefined) data.booking_id = booking_id;
+
+        if (payment_method !== undefined) data.payment_method = payment_method;
+        if (account !== undefined) data.account = account;
+
+        if (base_amount !== undefined) data.base_amount = base_amount;
+        if (base_currency !== undefined)
+          data.base_currency = base_currency || undefined;
+        if (counter_amount !== undefined) data.counter_amount = counter_amount;
+        if (counter_currency !== undefined)
+          data.counter_currency = counter_currency || undefined;
+
+        const after = await tx.investment.update({
+          where: { id_investment: id },
+          data,
+          include: {
+            user: {
+              select: { id_user: true, first_name: true, last_name: true },
+            },
+            operator: true,
+            createdBy: {
+              select: { id_user: true, first_name: true, last_name: true },
+            },
+            booking: { select: { id_booking: true } },
           },
-          booking: { select: { id_booking: true } },
-        },
+        });
+
+        // 3) Cascade: limpiar movimientos previos vinculados a esta investment
+        await removeLinkedCreditEntries(
+          tx,
+          after.id_investment,
+          auth.id_agency,
+        );
+
+        // 4) Si ahora corresponde, crear movimiento de crédito (investment => negativo)
+        if (
+          shouldHaveCreditEntry({
+            category: after.category,
+            operator_id: after.operator_id,
+            payment_method: after.payment_method ?? undefined,
+          })
+        ) {
+          if (!after.operator_id) {
+            throw new Error(
+              "Para Crédito operador se requiere operator_id definido.",
+            );
+          }
+          await createCreditEntryForInvestment(
+            tx,
+            auth.id_agency,
+            auth.id_user,
+            {
+              id_investment: after.id_investment,
+              operator_id: after.operator_id,
+              currency: after.currency,
+              amount: after.amount,
+              description: after.description,
+              paid_at: after.paid_at,
+            },
+          );
+        }
+
+        return after;
       });
 
       return res.status(200).json(updated);
@@ -329,10 +529,13 @@ export default async function handler(
       if (!exists)
         return res.status(404).json({ error: "Inversión no encontrada" });
 
-      // const allowed = ["gerente", "administrativo", "desarrollador"];
-      // if (!allowed.includes(auth.role)) return res.status(403).json({ error: "No autorizado" });
+      await prisma.$transaction(async (tx) => {
+        // 1) Borrar entries de CC vinculados y revertir sus efectos en el balance
+        await removeLinkedCreditEntries(tx, id, auth.id_agency);
+        // 2) Borrar la inversión
+        await tx.investment.delete({ where: { id_investment: id } });
+      });
 
-      await prisma.investment.delete({ where: { id_investment: id } });
       return res.status(204).end();
     } catch (e) {
       console.error("[investments/:id][DELETE]", e);
