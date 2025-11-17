@@ -27,6 +27,7 @@ type AccountCreateBody = {
   operator_id?: number | null;
   currency: string;
   enabled?: boolean;
+  initial_balance?: number | string; // <-- NUEVO
 };
 
 /* ================== Constantes ================== */
@@ -174,6 +175,23 @@ export default async function handler(
         body.operator_id != null ? Number(body.operator_id) : undefined;
       const enabled = body.enabled == null ? true : Boolean(body.enabled);
 
+      // ----- Balance inicial -----
+      const rawInitialBalance = body.initial_balance;
+      const hasInitialBalance =
+        rawInitialBalance !== undefined &&
+        rawInitialBalance !== null &&
+        rawInitialBalance !== "";
+
+      const initialBalanceNumber = hasInitialBalance
+        ? Number(rawInitialBalance)
+        : 0;
+
+      if (hasInitialBalance && !Number.isFinite(initialBalanceNumber)) {
+        return res
+          .status(400)
+          .json({ error: "initial_balance debe ser un número válido." });
+      }
+
       if (!currency) {
         return res.status(400).json({ error: "currency es obligatorio." });
       }
@@ -226,7 +244,7 @@ export default async function handler(
           client_id: client_id ?? null,
           operator_id: operator_id ?? null,
           currency,
-          balance: new Prisma.Decimal(0),
+          balance: new Prisma.Decimal(initialBalanceNumber),
           enabled,
         },
       });

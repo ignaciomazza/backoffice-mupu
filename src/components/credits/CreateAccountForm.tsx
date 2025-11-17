@@ -25,6 +25,8 @@ export type CreateCreditAccountPayload = {
   currency: string;
   /** Estado */
   status?: "ACTIVE" | "PAUSED" | "CLOSED";
+  /** Balance inicial opcional (puede ser negativo o positivo) */
+  initial_balance?: string;
 };
 
 export interface CreateAccountFormProps {
@@ -206,6 +208,7 @@ export default function CreateAccountForm({
   const [status, setStatus] = useState<"ACTIVE" | "PAUSED" | "CLOSED">(
     initialStatus,
   );
+  const [initialBalance, setInitialBalance] = useState<string>("");
 
   // Al cambiar el modo (UX): limpiar el contrario
   const changeMode = (next: SubjectMode) => {
@@ -242,6 +245,13 @@ export default function CreateAccountForm({
       e.subject = "Seleccioná un operador.";
     }
 
+    if (initialBalance.trim()) {
+      const n = Number(initialBalance);
+      if (!Number.isFinite(n)) {
+        e.initial_balance = "El balance inicial debe ser un número válido.";
+      }
+    }
+
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -264,6 +274,7 @@ export default function CreateAccountForm({
       name: name.trim(),
       currency,
       status,
+      initial_balance: initialBalance.trim() || undefined,
     };
 
     setSubmitting(true);
@@ -543,10 +554,10 @@ export default function CreateAccountForm({
                 </Field>
               </Section>
 
-              {/* PARÁMETROS (solo moneda) */}
+              {/* PARÁMETROS (moneda + balance inicial) */}
               <Section
                 title="Parámetros"
-                desc="Configurá la moneda de la cuenta."
+                desc="Configurá la moneda y, opcionalmente, un balance inicial para la cuenta."
               >
                 <Field id="currency" label="Moneda" required>
                   {loadingCurrencies ? (
@@ -576,6 +587,27 @@ export default function CreateAccountForm({
                   {errors.currency && (
                     <p className="mt-1 text-xs text-red-600 dark:text-red-500/90">
                       {errors.currency}
+                    </p>
+                  )}
+                </Field>
+
+                <Field
+                  id="initial_balance"
+                  label="Balance inicial"
+                  hint="Opcional. Podés cargar un saldo a favor (+) o en contra (−)."
+                >
+                  <input
+                    id="initial_balance"
+                    type="number"
+                    step="0.01"
+                    value={initialBalance}
+                    onChange={(e) => setInitialBalance(e.target.value)}
+                    placeholder="0.00"
+                    className={inputBase}
+                  />
+                  {errors.initial_balance && (
+                    <p className="mt-1 text-xs text-red-600 dark:text-red-500/90">
+                      {errors.initial_balance}
                     </p>
                   )}
                 </Field>
