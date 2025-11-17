@@ -1,3 +1,4 @@
+// src/pages/api/cashbox/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify } from "jose";
@@ -83,7 +84,7 @@ export type CashboxSummaryResponse = {
 type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: string };
 
 /* =========================================================
- * Auth
+ * Auth (alineado con /api/bookings)
  * ========================================================= */
 
 type UserRole =
@@ -93,10 +94,27 @@ type UserRole =
   | "desarrollador"
   | "vendedor";
 
-interface AuthPayload extends JWTPayload {
+type TokenPayload = JWTPayload & {
+  id_user?: number;
+  userId?: number;
+  uid?: number;
+  role?: string;
+  id_agency?: number;
+  agencyId?: number;
+  aid?: number;
+  email?: string;
+};
+
+type AuthPayload = {
   id_user: number;
   id_agency: number;
   role?: UserRole | string;
+  email?: string;
+};
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET no configurado");
 }
 
 class HttpError extends Error {
@@ -108,33 +126,53 @@ class HttpError extends Error {
   }
 }
 
-async function getAuth(req: NextApiRequest): Promise<AuthPayload> {
-  const authHeader = req.headers.authorization;
+function getTokenFromRequest(req: NextApiRequest): string | null {
+  // 1) cookie "token" (principal en prod)
+  if (req.cookies?.token) return req.cookies.token;
 
-  if (!authHeader?.startsWith("Bearer ")) {
+  // 2) Authorization: Bearer ...
+  const auth = req.headers.authorization || "";
+  if (auth.startsWith("Bearer ")) return auth.slice(7).trim();
+
+  // 3) otros posibles nombres de cookie
+  const c = req.cookies || {};
+  for (const k of [
+    "session",
+    "auth_token",
+    "access_token",
+    "next-auth.session-token",
+  ]) {
+    if (c[k]) return c[k]!;
+  }
+  return null;
+}
+
+async function getAuth(req: NextApiRequest): Promise<AuthPayload> {
+  const token = getTokenFromRequest(req);
+  if (!token) {
     throw new HttpError(401, "Falta token de autenticación.");
   }
 
-  const token = authHeader.slice("Bearer ".length).trim();
-  const secret = process.env.JWT_SECRET;
-
-  if (!secret) {
-    throw new HttpError(
-      500,
-      "Configuración inválida del servidor (JWT_SECRET no definido).",
-    );
-  }
-
   try {
-    const key = new TextEncoder().encode(secret);
-    const { payload } = await jwtVerify(token, key);
-    const typed = payload as AuthPayload;
+    const { payload } = await jwtVerify(
+      token,
+      new TextEncoder().encode(JWT_SECRET),
+    );
+    const p = payload as TokenPayload;
 
-    if (!typed.id_user || !typed.id_agency) {
-      throw new HttpError(401, "Token inválido (faltan campos requeridos).");
+    const id_user = Number(p.id_user ?? p.userId ?? p.uid) || 0;
+    const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || 0;
+    const role = (p.role || "") as string | undefined;
+    const email = p.email;
+
+    if (!id_user || !id_agency) {
+      throw new HttpError(
+        401,
+        "Token inválido (faltan campos requeridos en el payload).",
+      );
     }
 
-    return typed;
+    return { id_user, id_agency, role, email };
   } catch (err) {
     console.error("[cashbox] Error verificando JWT:", err);
     if (err instanceof HttpError) throw err;
@@ -311,11 +349,6 @@ async function getMonthlyMovements(
   /* ----------------------------
    * 1) INGRESOS: Recibos
    * ---------------------------- */
-
-  /* ----------------------------
-   * 1) INGRESOS: Recibos
-   * ---------------------------- */
-
   const receiptsRaw = await prisma.receipt.findMany({
     where: {
       issue_date: {
@@ -347,8 +380,6 @@ async function getMonthlyMovements(
     },
   });
 
-  // Alineamos con la pantalla de Recibos:
-  // ignoramos recibos soft-deleted / deshabilitados (enabled === false)
   const receipts = receiptsRaw.filter((r) => {
     const { enabled } = r as { enabled?: boolean | null };
     return enabled !== false;
@@ -366,7 +397,6 @@ async function getMonthlyMovements(
       ? `#${booking.id_booking} • ${booking.details}`.trim()
       : null;
 
-    // 👇 clave: usar siempre la moneda ISO del importe (amount_currency)
     const currency =
       (r as { amount_currency?: string | null }).amount_currency ??
       r.currency ??
@@ -413,7 +443,6 @@ async function getMonthlyMovements(
     ],
   };
 
-  // Si está configurado ocultar gastos de operador, filtramos investments con operator_id
   if (hideOperatorExpenses) {
     investmentWhere.operator_id = null;
   }
@@ -462,7 +491,6 @@ async function getMonthlyMovements(
 
   /* ----------------------------
    * 3) DEUDA CLIENTES: ClientPayment
-   *    (vencimientos del mes)
    * ---------------------------- */
 
   const clientPayments = await prisma.clientPayment.findMany({
@@ -470,7 +498,6 @@ async function getMonthlyMovements(
       booking: {
         id_agency: agencyId,
       },
-      // Focalizamos en vencimientos dentro del rango
       due_date: {
         gte: from,
         lte: to,
@@ -498,7 +525,6 @@ async function getMonthlyMovements(
 
     return {
       id: `client_payment:${cp.id_payment}`,
-      // Fecha principal: creación del registro, pero usamos también dueDate
       date: cp.created_at.toISOString(),
       type: "client_debt",
       source: "client_payment",
@@ -513,7 +539,6 @@ async function getMonthlyMovements(
 
   /* ----------------------------
    * 4) DEUDA OPERADORES: OperatorDue
-   *    (vencimientos del mes)
    * ---------------------------- */
 
   const operatorDues = await prisma.operatorDue.findMany({
@@ -521,13 +546,10 @@ async function getMonthlyMovements(
       booking: {
         id_agency: agencyId,
       },
-      // Mismo criterio: deudas con vencimiento dentro del rango
       due_date: {
         gte: from,
         lte: to,
       },
-      // Si más adelante definís status "paid"/"cancelled",
-      // acá se puede filtrar solo "pendientes".
     },
     include: {
       booking: {
@@ -587,16 +609,6 @@ async function getMonthlyMovements(
  * Acceso a datos (Prisma): saldos globales de deuda
  * ========================================================= */
 
-/**
- * Usa CreditAccount.balance para obtener una foto global de:
- * - lo que los clientes deben a la agencia (clientDebtByCurrency)
- * - lo que la agencia debe a operadores (operatorDebtByCurrency)
- *
- * Heurística para clientes:
- * - Si hay balances < 0, se asume que esos son "cliente le debe a la agencia"
- *   (se toma el valor absoluto).
- * - Si NO hay balances < 0 para una moneda pero sí > 0, usamos los > 0 como deuda.
- */
 async function getDebtBalances(agencyId: number): Promise<{
   clientDebtByCurrency: DebtSummary[];
   operatorDebtByCurrency: DebtSummary[];
@@ -622,7 +634,6 @@ async function getDebtBalances(agencyId: number): Promise<{
     const currency = acc.currency;
     const bal = decimalToNumber(acc.balance);
 
-    // Cuentas de clientes
     if (acc.client_id != null) {
       if (bal < 0) {
         const current = clientNegMap.get(currency) ?? 0;
@@ -634,17 +645,13 @@ async function getDebtBalances(agencyId: number): Promise<{
       continue;
     }
 
-    // Cuentas de operadores
     if (acc.operator_id != null) {
       if (bal > 0) {
-        // agencia le debe al operador
         const current = operatorMap.get(currency) ?? 0;
         operatorMap.set(currency, current + bal);
       }
       continue;
     }
-
-    // Otros tipos de cuentas se pueden manejar acá en el futuro.
   }
 
   const clientDebtByCurrency: DebtSummary[] = [];
@@ -684,12 +691,11 @@ export default async function handler(
   }
 
   try {
-    // 1) Auth
+    // 1) Auth (unificado con /api/bookings)
     const auth = await getAuth(req);
 
     // 2) Params básicos (año/mes)
     const now = new Date();
-
     const year = getNumberFromQuery(req.query.year) ?? now.getFullYear();
     const month = getNumberFromQuery(req.query.month) ?? now.getMonth() + 1;
 
@@ -697,10 +703,8 @@ export default async function handler(
     const isManagerOrDev =
       auth.role === "gerente" || auth.role === "desarrollador";
 
-    // Si no mandan agencyId, usamos la del token
     const agencyId = requestedAgencyId ?? auth.id_agency;
 
-    // Si mandan agencyId distinta, solo gerente / desarrollador pueden ver otras agencias
     if (
       requestedAgencyId &&
       requestedAgencyId !== auth.id_agency &&
@@ -725,7 +729,7 @@ export default async function handler(
 
     const { from, to } = buildMonthRange(year, month);
 
-    // 3) Config financiera de la agencia (para ocultar gastos de operador si corresponde)
+    // 3) Config financiera
     const financeConfig = await prisma.financeConfig.findUnique({
       where: { id_agency: agencyId },
       select: {
