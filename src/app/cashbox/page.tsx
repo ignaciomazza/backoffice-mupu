@@ -239,12 +239,11 @@ export default function CashboxPage() {
         const res = await authFetch(
           `/api/cashbox?${params.toString()}`,
           {
+            // Dejamos que authFetch maneje los headers / Authorization
             method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-            },
+            cache: "no-store",
           },
-          token,
+          token || undefined,
         );
 
         let json: ApiResponse<CashboxSummaryResponse> | null = null;
