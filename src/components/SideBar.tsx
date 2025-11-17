@@ -136,7 +136,8 @@ export default function SideBar({
       "/investments": adm,
       "/receipts": adm,
       "/finance/config": adm,
-      "/credits": adm, // NUEVO: Créditos
+      "/credits": adm,
+      "/cashbox": adm,
       // por defecto -> sin restricción
     } as Record<string, Role[]>;
   }, []);
@@ -200,6 +201,9 @@ export default function SideBar({
         id: "finanzas",
         title: "Finanzas",
         items: [
+          hasAccess("/cashbox")
+            ? { href: "/cashbox", label: "Caja" }
+            : null, // NUEVO
           hasAccess("/credits")
             ? { href: "/credits", label: "Créditos" }
             : null, // NUEVO
