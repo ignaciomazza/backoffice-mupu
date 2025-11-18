@@ -2,6 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
+import type React from "react";
 import { useState } from "react";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
@@ -12,6 +13,10 @@ import { authFetch } from "@/utils/authFetch";
 const WA_NUMBER = process.env.NEXT_PUBLIC_WA_NUMBER ?? "54911XXXXXXXX";
 const WA_MSG = encodeURIComponent("Hola, quiero más info sobre Ofistur.");
 const WA_URL = `https://wa.me/${WA_NUMBER}?text=${WA_MSG}`;
+
+// Meses de prueba (cambiá este número si modificás la promo)
+const TRIAL_MONTHS = 3;
+const TRIAL_LABEL = `${TRIAL_MONTHS} meses`;
 
 /* ===========================
  * Pricing helpers (versión simple)
@@ -40,26 +45,14 @@ const PLAN_DATA: Record<
   },
 };
 
-// Usuarios extra (igual que landing):
-// - hasta 3 usuarios: incluido
-// - 4 a 10: +USD 5 c/u
-// - 11+:    +USD 10 c/u
 function calcExtraUsersCost(users: number): number {
   if (users <= 3) return 0;
   if (users <= 10) {
     return (users - 3) * 5;
   }
-  // >10
-  // hasta 10 => 7 * 5 = 35
-  // resto => 10 c/u
   return 35 + (users - 10) * 10;
 }
 
-// Infraestructura / Nube (igual que landing):
-// 1–3 = 0
-// 4–7 = 20
-// 8–12 = 30
-// 13+ = 30 + 10 c/u extra
 function calcCloudCost(users: number): number {
   if (users <= 3) return 0;
   if (users <= 7) return 20;
@@ -283,7 +276,7 @@ function BenefitChip({
 }
 
 /* ===========================
- * Sección cotización rápida (UI compacta)
+ * Sección cotización rápida
  * =========================== */
 function QuickQuoteBlock({
   plan,
@@ -302,10 +295,15 @@ function QuickQuoteBlock({
   const total = base + extraUsers + cloud;
 
   return (
-    <fieldset>
-      <legend className="py-4 text-xs font-medium text-sky-950">
-        Cotización rápida (opcional)
+    <fieldset className="rounded-2xl border border-white/40 bg-white/60 p-3 text-sky-950 shadow-sm shadow-sky-950/10">
+      <legend className="px-1 text-xs font-medium text-sky-950">
+        Detalle de la cotización (después de la prueba)
       </legend>
+      <p className="mb-3 mt-1 text-[11px] text-sky-950/60">
+        Esto es una estimación mensual para cuando termine tu período de prueba
+        de {TRIAL_LABEL}. Ahora es gratis; esto es solo referencia si después
+        decidís seguir.
+      </p>
 
       {/* Plan selector */}
       <div className="mb-4">
@@ -390,12 +388,13 @@ function QuickQuoteBlock({
       </div>
 
       {/* Total block */}
-      <div className="rounded-xl border border-white/20 bg-white/60 p-3 text-right text-sky-950 shadow-inner shadow-sky-950/5">
+      <div className="rounded-xl border border-white/40 bg-white/80 p-3 text-right text-sky-950 shadow-inner shadow-sky-950/5">
         <div className="text-sm font-semibold">
           Estimado aprox: USD {total.toFixed(2)} / mes
         </div>
         <div className="text-[11px] text-sky-950/60">
-          + IVA. Sólo referencia. Puede variar.
+          Monto de referencia si decidís continuar después de {TRIAL_LABEL} de
+          prueba. + IVA. Puede variar según la configuración final.
         </div>
       </div>
     </fieldset>
@@ -406,18 +405,44 @@ function QuickQuoteBlock({
  * Formulario rápido
  * =========================== */
 
+type QrSignupResponse = {
+  ok?: boolean;
+  email?: string;
+  temp_password?: string;
+  password?: string;
+  reused_user?: boolean;
+  reason?: string;
+  error?: string;
+  login?: {
+    email: string;
+    password: string;
+  };
+};
+
 function QuickLeadForm() {
   const [sent, setSent] = useState<null | "ok" | "err">(null);
   const [loading, setLoading] = useState(false);
 
+  // credenciales creadas
+  const [creds, setCreds] = useState<{
+    email: string;
+    password: string;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
+
   // cotizador local
   const [plan, setPlan] = useState<PlanKey>("basico");
   const [users, setUsers] = useState<number>(3);
+  const [showQuote, setShowQuote] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     setSent(null);
+    setCreds(null);
+    setCopied(false);
+    setErrorMsg(null);
 
     const formEl = e.currentTarget;
     const fd = new FormData(formEl);
@@ -430,21 +455,14 @@ function QuickLeadForm() {
     const plainMsg = String(fd.get("message") ?? "").trim();
     const refCode = String(fd.get("ref") ?? "").trim();
 
-    // calculamos la estimación actual
     const base = PLAN_DATA[plan].base;
     const extra = calcExtraUsersCost(users);
     const cloud = calcCloudCost(users);
     const totalEst = base + extra + cloud;
 
-    // armamos metadata para el mensaje final que vamos a guardar en la DB
-    // (similar a cómo hacíamos [REF:...])
-    // Ej:
-    // [PLAN:Básico USUARIOS:5 EST_USD:55.00]
-    // [REF:Juan]
     const metaPlan = `[PLAN:${PLAN_DATA[plan].label} USUARIOS:${users} EST_USD:${totalEst.toFixed(
       2,
     )}]`;
-
     const metaRef = refCode ? `[REF:${refCode}]` : "";
 
     const message = [plainMsg, metaPlan, metaRef]
@@ -452,71 +470,170 @@ function QuickLeadForm() {
       .join(" ")
       .trim();
 
-    // payload para /api/leads (endpoint público que ya usás)
     const payload = {
       name,
       agency,
       role,
-      size: "", // no lo pedimos acá
+      size: "",
       location: "",
       email,
       whatsapp,
-      message, // <-- incluye plan, usuarios, estimación y código de referido
+      message,
     };
 
     try {
       const res = await authFetch(
-        "/api/leads",
+        "/api/qr-signup",
         {
           method: "POST",
           body: JSON.stringify(payload),
         },
-        null, // público
+        null,
       );
 
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(
-          (errJson as { error?: string }).error || "Error al enviar",
-        );
+      const data = (await res
+        .json()
+        .catch(() => null)) as QrSignupResponse | null;
+
+      if (!res.ok || !data) {
+        const msg =
+          data?.error ||
+          "Error al guardar tus datos. Escribinos por WhatsApp y lo vemos.";
+        throw new Error(msg);
       }
 
-      // éxito
+      // Caso especial: el mail ya existía
+      if (data.reason === "EMAIL_EXISTS") {
+        setSent("err");
+        setErrorMsg(
+          "Ya existe un usuario con ese email. Escribinos por WhatsApp y te ayudamos a recuperar el acceso.",
+        );
+        return;
+      }
+
+      // usamos el objeto login que devuelve la API
+      const finalEmail = data.login?.email || data.email || email;
+      const tempPassword =
+        data.login?.password || data.temp_password || data.password || "";
+
+      if (tempPassword) {
+        setCreds({
+          email: finalEmail,
+          password: tempPassword,
+        });
+      }
+
       setSent("ok");
       formEl.reset();
     } catch (err) {
       console.error(err);
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "Hubo un problema. Probá de nuevo o escribinos por WhatsApp.";
+      setErrorMsg(msg);
       setSent("err");
     } finally {
       setLoading(false);
     }
   }
 
+  async function handleCopyPassword() {
+    if (!creds) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(creds.password);
+      } else {
+        // fallback básico
+        window.prompt("Copiá tu contraseña:", creds.password);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   // Pantalla "enviado"
   if (sent === "ok") {
     return (
-      <div className="rounded-3xl border border-emerald-300/50 bg-emerald-50/70 p-6 text-emerald-900 shadow-md shadow-emerald-950/10 backdrop-blur">
-        <div className="flex items-start gap-3">
-          <div className="mt-1 rounded-full bg-emerald-600/10 p-2 text-emerald-700 shadow-sm shadow-emerald-900/10">
-            <IconCheckCircle className="size-5" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-xl font-semibold leading-tight">
-              ¡Listo! Ya tengo tus datos 🙌
-            </h3>
-            <p className="mt-2 text-sm text-emerald-900/80">
-              Te vamos a escribir por WhatsApp o email.
-            </p>
-
-            <div className="mt-5 flex flex-col items-start gap-3">
-              <ButtonWhatsApp href={WA_URL} className="min-w-[170px]">
-                Hablar ahora
-              </ButtonWhatsApp>
-              <p className="text-[11px] leading-snug text-emerald-900/70">
-                Es contacto directo, no bot.
+      <div className="rounded-3xl border border-emerald-300/60 bg-emerald-50/80 p-6 text-emerald-900 shadow-md shadow-emerald-950/10 backdrop-blur">
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-1 rounded-full bg-emerald-600/10 p-2 text-emerald-700 shadow-sm shadow-emerald-900/10">
+              <IconCheckCircle className="size-5" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-xl font-semibold leading-tight">
+                ¡Listo! Ya tenés tu usuario de prueba 🙌
+              </h3>
+              <p className="mt-2 text-sm text-emerald-900/80">
+                Guardá estos datos o sacale una captura antes de cerrar esta
+                página. Con este usuario vas a poder entrar a Ofistur durante{" "}
+                {TRIAL_LABEL} sin costo.
               </p>
             </div>
           </div>
+
+          {/* Credenciales */}
+          {creds && (
+            <div className="rounded-2xl border border-emerald-200 bg-white/80 p-4 text-sky-950 shadow-inner shadow-emerald-900/5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                Usuario de acceso
+              </p>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <div className="text-[11px] font-medium text-sky-950/70">
+                    Email
+                  </div>
+                  <div className="mt-1 rounded-xl border border-emerald-200 bg-white px-3 py-2 font-mono text-sm text-sky-950 shadow-sm shadow-emerald-900/10">
+                    {creds.email}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-[11px] font-medium text-sky-950/70">
+                    <span>Contraseña</span>
+                    <button
+                      type="button"
+                      onClick={handleCopyPassword}
+                      className="text-[11px] text-emerald-700 underline underline-offset-2 hover:text-emerald-900"
+                    >
+                      {copied ? "Copiada ✓" : "Copiar contraseña"}
+                    </button>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <div className="flex-1 rounded-xl border border-emerald-200 bg-white px-3 py-2 font-mono text-sm text-sky-950 shadow-sm shadow-emerald-900/10">
+                      {creds.password}
+                    </div>
+                  </div>
+                  <p className="mt-1 text-[11px] text-sky-950/60">
+                    Después podés cambiarla desde tu perfil dentro de Ofistur.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* CTAs */}
+          <div className="mt-1 flex flex-wrap items-center gap-3">
+            <ButtonPrimary
+              href="https://ofistur.com/login"
+              className="min-w-[180px]"
+            >
+              Ir al login de Ofistur
+            </ButtonPrimary>
+
+            <ButtonWhatsApp href={WA_URL} className="min-w-[170px]">
+              Enviar datos por WhatsApp
+            </ButtonWhatsApp>
+          </div>
+
+          <p className="text-[11px] text-emerald-900/70">
+            Si perdés estos datos, escribinos por WhatsApp y te ayudamos a
+            recuperar el acceso.
+          </p>
         </div>
       </div>
     );
@@ -599,13 +716,39 @@ function QuickLeadForm() {
           />
         </div>
 
-        {/* Cotizador simple */}
-        <QuickQuoteBlock
-          plan={plan}
-          setPlan={setPlan}
-          users={users}
-          setUsers={setUsers}
-        />
+        {/* Cotizador simple (opcional / post-prueba) */}
+        <div>
+          <div className="rounded-2xl border border-white/40 bg-white/40 p-3 text-[11px] text-sky-950/80 shadow-sm shadow-sky-950/10">
+            <button
+              type="button"
+              onClick={() => setShowQuote((v) => !v)}
+              className="flex w-full items-center justify-between text-left"
+            >
+              <span className="text-[12px] font-medium text-sky-950">
+                Cotización rápida (opcional)
+              </span>
+              <span className="text-xs text-sky-900/60">
+                {showQuote ? "Ocultar" : "Ver estimación"}
+              </span>
+            </button>
+            <p className="mt-1 text-[11px]">
+              Tenés {TRIAL_LABEL} de prueba sin costo. Esto solo te muestra una
+              referencia de cuánto podrías pagar después si decidís seguir
+              usando Ofistur.
+            </p>
+          </div>
+
+          {showQuote && (
+            <div className="mt-3">
+              <QuickQuoteBlock
+                plan={plan}
+                setPlan={setPlan}
+                users={users}
+                setUsers={setUsers}
+              />
+            </div>
+          )}
+        </div>
 
         {/* Código referidos */}
         <div>
@@ -638,7 +781,7 @@ function QuickLeadForm() {
           className="min-w-[160px]"
           disabled={loading}
         >
-          {loading ? "Enviando…" : "Enviar mis datos"}
+          {loading ? "Generando acceso…" : "Crear mi acceso de prueba"}
         </ButtonPrimary>
 
         <ButtonWhatsApp href={WA_URL} className="min-w-[160px]">
@@ -646,11 +789,11 @@ function QuickLeadForm() {
         </ButtonWhatsApp>
       </div>
 
-      {sent === "err" && (
-        <p className="mt-3 text-sm text-red-600">
-          Hubo un problema. Probá de nuevo o escribinos por WhatsApp.
-        </p>
-      )}
+      <p className="mt-2 text-[11px] text-sky-950/60">
+        Hasta {TRIAL_LABEL} sin costo. Después decidís si seguís o no.
+      </p>
+
+      {errorMsg && <p className="mt-3 text-sm text-red-600">{errorMsg}</p>}
 
       <p className="mt-4 text-[11px] leading-relaxed text-sky-950/70">
         Al enviar aceptás nuestras{" "}
@@ -681,18 +824,25 @@ export default function QRContactPage() {
           <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[12px] font-medium text-sky-950/80 shadow-sm shadow-sky-950/10 backdrop-blur">
             <img src="/logo.png" alt="" className="size-6" />
             <span className="font-semibold text-sky-950">Ofistur</span>
-            <span className="text-sky-950/60">Demo / Info</span>
+            <span className="text-sky-950/60">
+              Acceso de prueba ·{" "}
+              <span className="font-semibold text-emerald-700">
+                {TRIAL_LABEL}
+              </span>
+            </span>
           </div>
 
           <div>
             <h1 className="text-3xl font-semibold leading-tight tracking-tight text-sky-950">
-              ¿Querés que te contactemos?
+              Probá Ofistur{" "}
+              <span className="text-emerald-800">{TRIAL_LABEL} sin costo</span>{" "}
+              con un acceso real
             </h1>
             <p className="mx-auto mt-2 max-w-md text-sm text-sky-950/70">
-              Dejá tus datos, elegí plan y cuántas personas lo usarían, y un
-              asesor te escribe por WhatsApp o email.
-              <br />
-              Sin compromiso.
+              Dejá tus datos y te armamos una agencia de prueba con un usuario
+              real. Durante {TRIAL_LABEL} no pagás nada. La cotización opcional
+              es solo para que veas cuánto podría salir después si decidís
+              seguir.
             </p>
           </div>
 
@@ -713,7 +863,7 @@ export default function QRContactPage() {
           </div>
         </header>
 
-        {/* Formulario */}
+        {/* Formulario / success */}
         <QuickLeadForm />
 
         {/* Footer mini */}
