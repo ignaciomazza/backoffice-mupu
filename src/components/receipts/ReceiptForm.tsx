@@ -23,8 +23,8 @@ export type ServiceLite = {
   id_service: number;
   description?: string;
   currency: string; // "ARS" | "USD" | ...
-  sale_price?: number; // para sugerir importe
-  card_interest?: number; // para sugerir importe
+  sale_price?: number; // para sugerir importe base
+  card_interest?: number; // para sugerir costo financiero
   // opcionales de UI (si tu API los tuviera)
   type?: string;
   destination?: string;
@@ -70,6 +70,9 @@ export type ReceiptPayload = {
   amountString: string; // “UN MILLÓN…”
   amountCurrency: string; // ISO del importe numérico (ARS, USD, ...)
 
+  // Costo financiero del medio de pago (opcional)
+  payment_fee_amount?: number;
+
   // Clientes (opcional)
   clientIds?: number[];
 
@@ -86,6 +89,7 @@ export type ReceiptPayload = {
   counter_amount?: number;
   counter_currency?: string;
 
+  // Relación real con cuenta financiera
   account_id?: number;
 };
 
@@ -247,6 +251,40 @@ function toNumberSafe(x: unknown): number | null {
   return null;
 }
 
+/**
+ * Parsea un importe escrito en distintos formatos:
+ * "1234.56", "1.234,56", "1234,56", "1,234.56", etc.
+ */
+function parseAmountInput(raw: string): number | null {
+  if (!raw) return null;
+  let s = raw.trim();
+  if (!s) return null;
+
+  // sacamos espacios
+  s = s.replace(/\s+/g, "");
+
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+
+  if (hasComma && hasDot) {
+    // elegimos cuál es separador decimal según la última aparición
+    if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
+      // "1.234,56" → "." miles, "," decimal
+      s = s.replace(/\./g, "").replace(",", ".");
+    } else {
+      // "1,234.56" → "," miles, "." decimal
+      s = s.replace(/,/g, "");
+    }
+  } else if (hasComma) {
+    // sólo coma → la tomamos como decimal
+    s = s.replace(",", ".");
+  }
+  // si sólo hay punto o no hay nada, Number ya entiende
+
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
 /* =========================
  * Componente principal
  * ========================= */
@@ -275,7 +313,7 @@ export default function ReceiptForm({
   onAttachExisting,
 }: ReceiptFormProps) {
   /* ------ Visibilidad: controlado o no controlado ------ */
-  const [internalVisible, setInternalVisible] = useState<boolean>(false); // ⬅️ antes true
+  const [internalVisible, setInternalVisible] = useState<boolean>(false);
   const visible = isFormVisible ?? internalVisible;
   const setVisible = (v: boolean) => {
     if (setIsFormVisible) setIsFormVisible(v);
@@ -503,9 +541,14 @@ export default function ReceiptForm({
 
   /* ------ Importe / moneda (numérico + sugerido) ------ */
   const [concept, setConcept] = useState(initialConcept);
-  const [amount, setAmount] = useState<string>(
+
+  // Importe neto que entra a la agencia
+  const [amountReceived, setAmountReceived] = useState<string>(
     initialAmount != null ? String(initialAmount) : "",
   );
+  // Costo financiero retenido por medio de pago
+  const [feeAmount, setFeeAmount] = useState<string>("");
+
   const [freeCurrency, setFreeCurrency] = useState<CurrencyCode>(
     initialCurrency || "ARS",
   );
@@ -519,18 +562,58 @@ export default function ReceiptForm({
 
   const effectiveCurrency: CurrencyCode = lockedCurrency || freeCurrency;
 
-  const suggestedAmount = useMemo(() => {
+  // Sugerencias a partir de servicios seleccionados
+  const suggestions = useMemo(() => {
     if (selectedServices.length === 0) return null;
-    const total = selectedServices.reduce(
-      (acc, s) => acc + (s.sale_price ?? 0) + (s.card_interest ?? 0),
+    const base = selectedServices.reduce(
+      (acc, s) => acc + (s.sale_price ?? 0),
       0,
     );
-    return total > 0 ? total : null;
+    const fee = selectedServices.reduce(
+      (acc, s) => acc + (s.card_interest ?? 0),
+      0,
+    );
+    const total = base + fee;
+    if (base <= 0 && fee <= 0) return null;
+    return {
+      base: base > 0 ? base : null,
+      fee: fee > 0 ? fee : null,
+      total: total > 0 ? total : null,
+    };
   }, [selectedServices]);
 
-  const useSuggested = () => {
-    if (suggestedAmount != null) setAmount(String(suggestedAmount));
+  const applySuggestedAmounts = () => {
+    if (!suggestions) return;
+    if (suggestions.base != null) {
+      setAmountReceived(
+        suggestions.base.toLocaleString("es-AR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }),
+      );
+    }
+    if (suggestions.fee != null) {
+      setFeeAmount(
+        suggestions.fee.toLocaleString("es-AR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }),
+      );
+    }
   };
+
+  const clientTotal = useMemo(() => {
+    const base = parseAmountInput(amountReceived) ?? suggestions?.base ?? null;
+    const fee = parseAmountInput(feeAmount) ?? suggestions?.fee ?? null;
+
+    if (base === null && fee === null) return "";
+    const total = (base ?? 0) + (fee ?? 0);
+    if (!total || total <= 0) return "";
+    return total.toLocaleString("es-AR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }, [amountReceived, feeAmount, suggestions]);
 
   // ===== Créditos (Operador) =====
   type OperatorLite = { id_operator: number; name: string };
@@ -788,14 +871,12 @@ export default function ReceiptForm({
       }
     }
 
-    const parsedAmount = Number(amount);
-    if (
-      (!amount || isNaN(parsedAmount) || parsedAmount <= 0) &&
-      suggestedAmount == null
-    ) {
+    const parsedAmount = parseAmountInput(amountReceived);
+    if ((parsedAmount === null || parsedAmount <= 0) && !suggestions?.base) {
       e.amount =
-        "Importe inválido. Ingresá un número o seleccioná servicios con precio.";
+        "Importe inválido. Ingresá cuánto recibe la agencia o usá el sugerido.";
     }
+
     if (!effectiveCurrency) e.currency = "Elegí una moneda.";
 
     if (requiresAccountEffective && !financeAccountId)
@@ -874,11 +955,24 @@ export default function ReceiptForm({
     // === CREAR NUEVO ===
     if (!validateCreate()) return;
 
-    // Si no hay amount ingresado, usamos el sugerido
-    const finalAmount =
-      amount && !isNaN(Number(amount)) && Number(amount) > 0
-        ? Number(amount)
-        : (suggestedAmount as number);
+    // Resolver montos finales (neto recibido + costo financiero)
+    let finalAmount = parseAmountInput(amountReceived);
+    let finalFee = parseAmountInput(feeAmount);
+
+    if ((finalAmount === null || finalAmount <= 0) && suggestions?.base != null)
+      finalAmount = suggestions.base;
+
+    if (finalFee === null && suggestions?.fee != null)
+      finalFee = suggestions.fee;
+
+    if (!finalAmount || finalAmount <= 0) {
+      toast.error("El importe recibido por la agencia es inválido.");
+      return;
+    }
+
+    const amountNumber = finalAmount;
+    const paymentFeeForPayload =
+      finalFee != null && finalFee > 0 ? finalFee : undefined;
 
     // Resolver nombres para API (texto)
     const paymentMethodName = useOperatorCredit
@@ -905,9 +999,12 @@ export default function ReceiptForm({
         : {}),
 
       concept: (concept ?? "").trim(),
-      amount: Number(finalAmount),
+      amount: amountNumber,
       amountString: amountWords.trim(),
       amountCurrency: effectiveCurrency,
+
+      // nuevo: costo financiero
+      payment_fee_amount: paymentFeeForPayload,
 
       clientIds: clientIds.filter(
         (v): v is number => typeof v === "number" && Number.isFinite(v),
@@ -915,7 +1012,7 @@ export default function ReceiptForm({
 
       payment_method: paymentMethodName,
       account: accountName, // texto para PDF
-      account_id: requiresAccountEffective // 👈 NUEVO: relación real
+      account_id: requiresAccountEffective
         ? (financeAccountId ?? undefined)
         : undefined,
 
@@ -1153,7 +1250,7 @@ export default function ReceiptForm({
     if (u && typeof u === "object") {
       const o = u as Record<string, unknown>;
       if (Array.isArray(o.items)) return o.items as T[];
-      if (Array.isArray(o.receipts)) return o.receipts as T[]; // 👈 clave
+      if (Array.isArray(o.receipts)) return o.receipts as T[];
       if (Array.isArray(o.data)) return o.data as T[];
       if (Array.isArray(o.rows)) return o.rows as T[];
       if (Array.isArray(o.results)) return o.results as T[];
@@ -1267,7 +1364,7 @@ export default function ReceiptForm({
     concept: string;
     bookingId?: number | null;
     operatorId: number;
-    agencyId?: number | null; // ⬅️ NUEVO
+    agencyId?: number | null;
   }) {
     if (!token) throw new Error("Sesión no válida");
 
@@ -1284,7 +1381,7 @@ export default function ReceiptForm({
     };
 
     if (args.agencyId != null) {
-      payload.agency_id = Number(args.agencyId); // ⬅️ usamos agencyId
+      payload.agency_id = Number(args.agencyId);
     }
 
     const res = await authFetch(
@@ -1888,17 +1985,21 @@ export default function ReceiptForm({
                   {/* IMPORTE NUMÉRICO Y MONEDA */}
                   <Section
                     title="Importe y moneda (numérico)"
-                    desc="Cuánto te pagan y en qué divisa."
+                    desc="Cuánto entra a la agencia, qué se retiene y en qué divisa."
                   >
-                    <Field id="amount" label="Importe" required>
+                    <Field
+                      id="amount_received"
+                      label="Importe recibido por la agencia"
+                      required
+                      hint="Es lo que efectivamente entra a la caja/cuenta."
+                    >
                       <input
-                        id="amount"
-                        type="number"
-                        name="amount"
-                        min="0"
-                        step="0.01"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
+                        id="amount_received"
+                        type="text"
+                        inputMode="decimal"
+                        name="amount_received"
+                        value={amountReceived}
+                        onChange={(e) => setAmountReceived(e.target.value)}
                         placeholder="0,00"
                         className={inputBase}
                       />
@@ -1907,16 +2008,62 @@ export default function ReceiptForm({
                           {errors.amount}
                         </p>
                       )}
-                      {suggestedAmount != null && (
+                      {suggestions?.base != null && (
                         <button
                           type="button"
-                          onClick={useSuggested}
+                          onClick={applySuggestedAmounts}
                           className="mt-2 text-xs underline underline-offset-2"
                         >
-                          Usar total sugerido:{" "}
-                          {formatNum(suggestedAmount, effectiveCurrency)}
+                          Usar importe sugerido:{" "}
+                          {formatNum(suggestions.base, effectiveCurrency)}
                         </button>
                       )}
+                    </Field>
+
+                    <Field
+                      id="fee_amount"
+                      label="Importe retenido por el medio de pago"
+                      hint="Intereses de tarjeta, comisiones de billeteras/bancos, etc. (opcional)."
+                    >
+                      <input
+                        id="fee_amount"
+                        type="text"
+                        inputMode="decimal"
+                        name="fee_amount"
+                        value={feeAmount}
+                        onChange={(e) => setFeeAmount(e.target.value)}
+                        placeholder="0,00"
+                        className={inputBase}
+                      />
+                      {suggestions?.fee != null && (
+                        <button
+                          type="button"
+                          onClick={applySuggestedAmounts}
+                          className="mt-2 text-xs underline underline-offset-2"
+                        >
+                          Usar costo financiero sugerido:{" "}
+                          {formatNum(suggestions.fee, effectiveCurrency)}
+                        </button>
+                      )}
+                    </Field>
+
+                    <Field
+                      id="client_total"
+                      label="Importe cobrado al cliente"
+                      hint="Suma del importe recibido más el importe retenido."
+                    >
+                      <input
+                        id="client_total"
+                        type="text"
+                        value={
+                          clientTotal
+                            ? `${clientTotal} ${effectiveCurrency}`
+                            : ""
+                        }
+                        readOnly
+                        disabled
+                        className="w-full rounded-2xl border border-white/10 bg-white/5 p-2 px-3 text-sm text-sky-950/80 dark:bg-white/5 dark:text-white/80"
+                      />
                     </Field>
 
                     <Field id="currency" label="Moneda" required>

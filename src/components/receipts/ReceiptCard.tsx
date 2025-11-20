@@ -6,28 +6,40 @@ import { useCallback, useMemo, useState } from "react";
 import { Receipt, Booking } from "@/types";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
+import { authFetch } from "@/utils/authFetch";
 
 /* ======================== Utils ======================== */
 
-// src/components/receipts/ReceiptCard.tsx
 const normCurrency = (c?: string | null) => {
   const cu = (c || "").toUpperCase().trim();
-  if (["USD", "US$", "U$S", "DOL"].includes(cu)) return "USD";
-  if (["ARS", "$"].includes(cu)) return "ARS";
-  // si viene otra ISO válida (EUR, BRL, etc.), usarla
+  if (["USD", "US$", "U$S", "U$D", "DOL"].includes(cu)) return "USD";
+  if (["ARS", "$", "AR$"].includes(cu)) return "ARS";
   if (/^[A-Z]{3}$/.test(cu)) return cu;
   return "ARS";
 };
 
+const toNumber = (v?: number | string | null) => {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+};
+
 const fmtMoney = (v?: number | string | null, curr?: string | null) => {
-  const n =
-    typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : 0;
+  const n = toNumber(v);
   const currency = normCurrency(curr);
   const safe = Number.isFinite(n) ? n : 0;
-  return new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency,
-  }).format(safe);
+  try {
+    return new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency,
+    }).format(safe);
+  } catch {
+    // fallback raro (por si es una moneda exótica)
+    return `${currency} ${safe.toFixed(2)}`;
+  }
 };
 
 const slugify = (s: string) =>
@@ -80,6 +92,7 @@ const IconButton: React.FC<
 /* ======================== Props ======================== */
 
 interface ReceiptCardProps {
+  token: string | null;
   receipt: Receipt;
   booking: Booking;
   role: string;
@@ -89,6 +102,7 @@ interface ReceiptCardProps {
 /* ======================== Componente ======================== */
 
 export default function ReceiptCard({
+  token,
   receipt,
   booking,
   role,
@@ -97,10 +111,9 @@ export default function ReceiptCard({
   const [loadingPDF, setLoadingPDF] = useState(false);
   const [loadingDelete, setLoadingDelete] = useState(false);
 
-  // nombre cliente por id
   const getClientName = useCallback(
     (id: number): string => {
-      if (booking.titular.id_client === id) {
+      if (booking.titular?.id_client === id) {
         return `${booking.titular.first_name} ${booking.titular.last_name} · N°${booking.titular.id_client}`;
       }
       const found = booking.clients?.find((c) => c.id_client === id);
@@ -111,14 +124,14 @@ export default function ReceiptCard({
     [booking],
   );
 
-  // string de clientes
   const clientsStr = useMemo(() => {
     return receipt.clientIds?.length
       ? receipt.clientIds.map(getClientName).join(", ")
-      : `${booking.titular.first_name} ${booking.titular.last_name} · N°${booking.titular.id_client}`;
+      : booking.titular
+        ? `${booking.titular.first_name} ${booking.titular.last_name} · N°${booking.titular.id_client}`
+        : "—";
   }, [receipt.clientIds, getClientName, booking.titular]);
 
-  // flags conversión
   const hasBase =
     receipt.base_amount !== null &&
     receipt.base_amount !== undefined &&
@@ -127,6 +140,11 @@ export default function ReceiptCard({
     receipt.counter_amount !== null &&
     receipt.counter_amount !== undefined &&
     !!receipt.counter_currency;
+
+  const hasPaymentFee =
+    receipt.payment_fee_amount !== null &&
+    receipt.payment_fee_amount !== undefined &&
+    toNumber(receipt.payment_fee_amount) !== 0;
 
   if (!receipt?.id_receipt) {
     return (
@@ -138,18 +156,27 @@ export default function ReceiptCard({
 
   /* ====== handlers ====== */
   const downloadPDF = async () => {
+    if (!token) {
+      toast.error("Sesión expirada. Volvé a iniciar sesión.");
+      return;
+    }
+
     setLoadingPDF(true);
     try {
-      const res = await fetch(`/api/receipts/${receipt.id_receipt}/pdf`, {
-        headers: { Accept: "application/pdf" },
-      });
+      const res = await authFetch(
+        `/api/receipts/${receipt.id_receipt}/pdf`,
+        { headers: { Accept: "application/pdf" } },
+        token,
+      );
       if (!res.ok) throw new Error();
+
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       const rawName =
-        booking.titular.company_name ||
-        `${booking.titular.first_name} ${booking.titular.last_name}`;
+        booking.titular?.company_name ||
+        `${booking.titular?.first_name || ""} ${booking.titular?.last_name || ""}`.trim() ||
+        `Reserva_${booking.id_booking}`;
       a.href = url;
       a.download = `Recibo_${slugify(rawName)}_${booking.id_booking}.pdf`;
       document.body.appendChild(a);
@@ -165,12 +192,19 @@ export default function ReceiptCard({
   };
 
   const deleteReceipt = async () => {
+    if (!token) {
+      toast.error("Sesión expirada. Volvé a iniciar sesión.");
+      return;
+    }
     if (!confirm("¿Seguro querés eliminar este recibo?")) return;
+
     setLoadingDelete(true);
     try {
-      const res = await fetch(`/api/receipts/${receipt.id_receipt}`, {
-        method: "DELETE",
-      });
+      const res = await authFetch(
+        `/api/receipts/${receipt.id_receipt}`,
+        { method: "DELETE" },
+        token,
+      );
       if (!res.ok && res.status !== 204) throw new Error();
       onReceiptDeleted?.(receipt.id_receipt);
       toast.success("Recibo eliminado.");
@@ -180,6 +214,14 @@ export default function ReceiptCard({
       setLoadingDelete(false);
     }
   };
+
+  const amountCurrency = normCurrency(receipt.amount_currency);
+  const amountLabel =
+    amountCurrency === "ARS"
+      ? "Pesos"
+      : amountCurrency === "USD"
+        ? "Dólares"
+        : amountCurrency;
 
   /* ====== UI ====== */
   return (
@@ -193,7 +235,9 @@ export default function ReceiptCard({
               <span className="font-medium">N°{receipt.receipt_number}</span>
             </p>
             {receipt.payment_method ? (
-              <Chip title="Método de pago">{receipt.payment_method}</Chip>
+              <Chip tone="brand" title="Método de pago">
+                {receipt.payment_method}
+              </Chip>
             ) : null}
           </div>
           <p className="text-sm opacity-80">{clientsStr}</p>
@@ -208,61 +252,64 @@ export default function ReceiptCard({
               ? new Date(receipt.issue_date).toLocaleDateString("es-AR")
               : "–"}
           </time>
+          <Chip tone="neutral" className="mt-1" title="Moneda del monto">
+            {amountLabel}
+          </Chip>
         </div>
       </header>
 
-      <div className="mb-4 flex w-full justify-end">
-        <Chip tone="brand" title="Moneda del monto">
-          {normCurrency(receipt.amount_currency) === "ARS"
-            ? "Pesos"
-            : "Dólares"}
-        </Chip>
-      </div>
-
-      {/* Totales en cards */}
-      <section className="mb-4 flex gap-3">
-        <div className="flex w-fit flex-col gap-2">
-          <div className="rounded-2xl border border-sky-200/40 bg-sky-50/60 p-3 shadow-sm shadow-sky-950/10 dark:border-sky-400/10 dark:bg-sky-400/10">
-            <p className="text-xs opacity-70">Monto</p>
-            <p className="text-base font-semibold tabular-nums">
-              {fmtMoney(receipt.amount, receipt.amount_currency)}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
-            <p className="text-xs opacity-70">Servicios (N°)</p>
-            <p className="text-sm font-medium">
-              {receipt.serviceIds?.length ? receipt.serviceIds.join(", ") : "—"}
-            </p>
-          </div>
+      {/* Totales / info principal */}
+      <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-sky-200/40 bg-sky-50/60 p-3 shadow-sm shadow-sky-950/10 dark:border-sky-400/10 dark:bg-sky-400/10">
+          <p className="text-xs opacity-70">Monto</p>
+          <p className="text-base font-semibold tabular-nums">
+            {fmtMoney(receipt.amount, receipt.amount_currency)}
+          </p>
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
-          <p className="text-xs opacity-70">Método de pago</p>
+          <p className="text-xs opacity-70">Servicios (N°)</p>
           <p className="text-sm font-medium">
+            {receipt.serviceIds?.length ? receipt.serviceIds.join(", ") : "—"}
+          </p>
+        </div>
+
+        <div className={`rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm  shadow-sky-950/10 dark:bg-white/10 ${!hasBase && !hasCounter && !hasPaymentFee? "col-span-2" : "col-span-1"}`}>
+          <p className="text-xs opacity-70">Método de pago</p>
+          <p className="mt-1 text-sm font-medium">
+            {/* currency = detalle legado / texto para PDF; payment_method = nombre corto */}
             {receipt.currency || receipt.payment_method || "—"}
           </p>
         </div>
 
-        {(hasBase || hasCounter) && (
-          <>
-            <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
-              <p className="text-xs opacity-70">Valor base</p>
-              <p className="text-sm font-medium tabular-nums">
-                {hasBase
-                  ? fmtMoney(receipt.base_amount, receipt.base_currency)
-                  : "—"}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
-              <p className="text-xs opacity-70">Contravalor</p>
-              <p className="text-sm font-medium tabular-nums">
-                {hasCounter
-                  ? fmtMoney(receipt.counter_amount, receipt.counter_currency)
-                  : "—"}
-              </p>
-            </div>
-          </>
+        {hasBase && (
+          <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
+            <p className="text-xs opacity-70">Valor base</p>
+            <p className="text-sm font-medium tabular-nums">
+              {fmtMoney(receipt.base_amount, receipt.base_currency)}
+            </p>
+          </div>
+        )}
+
+        {hasCounter && (
+          <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
+            <p className="text-xs opacity-70">Contravalor</p>
+            <p className="text-sm font-medium tabular-nums">
+              {fmtMoney(receipt.counter_amount, receipt.counter_currency)}
+            </p>
+          </div>
+        )}
+
+        {hasPaymentFee && (
+          <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
+            <p className="text-xs opacity-70">Costo financiero método</p>
+            <p className="text-sm font-medium tabular-nums">
+              {fmtMoney(
+                receipt.payment_fee_amount,
+                receipt.amount_currency || amountCurrency,
+              )}
+            </p>
+          </div>
         )}
       </section>
 
@@ -307,7 +354,8 @@ export default function ReceiptCard({
 
         {(role === "administrativo" ||
           role === "desarrollador" ||
-          role === "gerente") && (
+          role === "gerente" ||
+          role === "lider") && (
           <IconButton
             onClick={deleteReceipt}
             disabled={loadingDelete || loadingPDF}

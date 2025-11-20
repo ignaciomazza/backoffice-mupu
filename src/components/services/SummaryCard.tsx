@@ -1,5 +1,6 @@
 // src/components/services/SummaryCard.tsx
 "use client";
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Service, Receipt } from "@/types";
 import { useAuth } from "@/context/AuthContext";
@@ -60,6 +61,8 @@ type ReceiptWithConversion = Receipt &
     counter_currency: string | null;
     amount: number | string | null;
     amount_currency: string | null;
+    payment_fee_amount: number | string | null;
+    payment_fee_currency: string | null;
   }>;
 
 /** Config API */
@@ -174,7 +177,11 @@ export default function SummaryCard({
   services,
   receipts,
 }: SummaryCardProps) {
-  const labels: Record<string, string> = { ARS: "Pesos", USD: "Dólares" };
+  const labels: Record<string, string> = {
+    ARS: "Pesos",
+    USD: "Dólares",
+    UYU: "Pesos uruguayos",
+  };
   const { token } = useAuth();
 
   /* ====== Config de cálculo y costo de transferencia + earnings ====== */
@@ -317,25 +324,45 @@ export default function SummaryCard({
     }, {});
   }, [services]);
 
-  /** Pagos por moneda (prioriza contravalor cuando existe). */
+  /** Pagos por moneda (considerando también payment_fee_amount). */
+  /** Pagos por moneda (considerando también payment_fee_amount). */
   const paidByCurrency = useMemo(() => {
     return receipts.reduce<Record<string, number>>((acc, raw) => {
       const r = raw as ReceiptWithConversion;
 
-      const hasCounter =
-        !!r.counter_currency &&
-        r.counter_amount !== null &&
-        r.counter_amount !== undefined;
+      const amountCur = r.amount_currency
+        ? normalizeCurrencyCode(String(r.amount_currency))
+        : null;
+      const counterCur = r.counter_currency
+        ? normalizeCurrencyCode(String(r.counter_currency))
+        : null;
 
-      if (hasCounter) {
-        const cur = normalizeCurrencyCode(String(r.counter_currency));
-        const val = toNum(r.counter_amount ?? 0);
-        acc[cur] = (acc[cur] || 0) + val;
-      } else if (r.amount_currency) {
-        const cur = normalizeCurrencyCode(String(r.amount_currency));
-        const val = toNum(r.amount ?? 0);
-        acc[cur] = (acc[cur] || 0) + val;
+      // Si no viene moneda del fee, asumimos que es la misma que la del pago
+      const feeCurRaw = r.payment_fee_currency;
+      const feeCur =
+        feeCurRaw && String(feeCurRaw).trim() !== ""
+          ? normalizeCurrencyCode(String(feeCurRaw))
+          : (counterCur ?? amountCur);
+
+      const amountVal = toNum(r.amount ?? 0);
+      const counterVal = toNum(r.counter_amount ?? 0);
+      const feeVal = toNum(r.payment_fee_amount ?? 0);
+
+      if (counterCur) {
+        const cur = counterCur;
+        const val = counterVal + (feeCur === cur ? feeVal : 0);
+        if (val) acc[cur] = (acc[cur] || 0) + val;
+      } else if (amountCur) {
+        const cur = amountCur;
+        const val = amountVal + (feeCur === cur ? feeVal : 0);
+        if (val) acc[cur] = (acc[cur] || 0) + val;
+      } else if (feeCur) {
+        // Caso borde: solo fee con moneda conocida
+        const cur = feeCur;
+        const val = feeVal;
+        if (val) acc[cur] = (acc[cur] || 0) + val;
       }
+
       return acc;
     }, {});
   }, [receipts]);
@@ -393,7 +420,7 @@ export default function SummaryCard({
       <div className={`grid ${colsClass} gap-6`}>
         {currencies.map((currency) => {
           const code = normalizeCurrencyCode(currency);
-          const t = totalsNorm[code] || {
+          const t: Totals & { cardInterestRaw?: number } = totalsNorm[code] || {
             sale_price: 0,
             cost_price: 0,
             tax_21: 0,
@@ -409,6 +436,7 @@ export default function SummaryCard({
             vatOnCommission10_5: 0,
             totalCommissionWithoutVAT: 0,
             transferFeesAmount: 0,
+            cardInterestRaw: 0,
           };
 
           // Intereses de tarjeta (presentación)

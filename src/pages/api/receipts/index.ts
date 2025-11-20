@@ -1,11 +1,12 @@
 // src/pages/api/receipts/index.ts
-import { NextApiRequest, NextApiResponse } from "next";
+import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify, JWTPayload } from "jose";
 
-/* =========================
+/* ======================================================
  * Tipos
- * ========================= */
+ * ====================================================== */
+
 type TokenPayload = JWTPayload & {
   id_user?: number;
   userId?: number;
@@ -30,10 +31,13 @@ type ReceiptPostBody = {
 
   // Datos comunes
   concept: string;
-  currency?: string; // Texto libre heredado (para PDF)
+  currency?: string; // Texto libre (para PDF / legacy)
   amountString: string; // "UN MILLÓN..."
   amountCurrency: string; // ISO del amount/amountString (ARS | USD | ...)
-  amount: number;
+  amount: number | string;
+
+  // Costo financiero del medio de pago (misma moneda que amountCurrency)
+  payment_fee_amount?: number | string;
 
   // Asociaciones
   serviceIds?: number[]; // Requerido si hay booking; vacío si es de agencia
@@ -43,26 +47,32 @@ type ReceiptPostBody = {
   payment_method?: string;
   account?: string;
 
-  // Relación real (opcional) si tu modelo Receipt tiene account_id
+  // (solo si tu modelo Receipt tiene foreign key a cuenta real)
   account_id?: number;
 
-  // FX opcional (para equivalencias en PDF)
+  // FX opcional (para equivalencias en PDF / reportes)
   base_amount?: number | string;
   base_currency?: string; // ISO
   counter_amount?: number | string;
   counter_currency?: string; // ISO
 };
 
-/* =========================
+/* ======================================================
  * JWT / Auth
- * ========================= */
+ * ====================================================== */
+
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
 function getTokenFromRequest(req: NextApiRequest): string | null {
+  // Cookie "token" (flow propio)
   if (req.cookies?.token) return req.cookies.token;
+
+  // Header Authorization: Bearer XXX
   const auth = req.headers.authorization || "";
   if (auth.startsWith("Bearer ")) return auth.slice(7);
+
+  // Algunas cookies típicas
   const c = req.cookies || {};
   for (const k of [
     "session",
@@ -72,6 +82,7 @@ function getTokenFromRequest(req: NextApiRequest): string | null {
   ]) {
     if (c[k]) return c[k]!;
   }
+
   return null;
 }
 
@@ -90,7 +101,7 @@ async function getUserFromAuth(
 
     const id_user = Number(p.id_user ?? p.userId ?? p.uid) || undefined;
     const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || undefined;
-    const role = (p.role || "") as string | undefined;
+    const role = p.role || "" || undefined;
     const email = p.email;
 
     // Resolver id_user por email si hace falta
@@ -99,28 +110,30 @@ async function getUserFromAuth(
         where: { email },
         select: { id_user: true, id_agency: true, role: true, email: true },
       });
-      if (u)
+      if (u) {
         return {
           id_user: u.id_user,
           id_agency: u.id_agency,
           role: u.role,
           email: u.email,
         };
+      }
     }
 
-    // Resolver id_agency si hace falta
+    // Resolver id_agency por id_user si hace falta
     if (id_user && !id_agency) {
       const u = await prisma.user.findUnique({
         where: { id_user },
         select: { id_agency: true, role: true, email: true },
       });
-      if (u)
+      if (u) {
         return {
           id_user,
           id_agency: u.id_agency,
           role: role ?? u.role,
           email: email ?? u.email ?? undefined,
         };
+      }
     }
 
     return { id_user, id_agency, role, email };
@@ -129,9 +142,10 @@ async function getUserFromAuth(
   }
 }
 
-/* =========================
+/* ======================================================
  * Helpers
- * ========================= */
+ * ====================================================== */
+
 const toDec = (v: unknown) =>
   v === undefined || v === null || v === ""
     ? undefined
@@ -145,9 +159,10 @@ async function ensureBookingInAgency(bookingId: number, agencyId: number) {
     where: { id_booking: bookingId },
     select: { id_booking: true, id_agency: true },
   });
+
   if (!b) throw new Error("La reserva no existe.");
   if (b.id_agency !== agencyId)
-    throw new Error("Reserva no pertenece a tu agencia.");
+    throw new Error("La reserva no pertenece a tu agencia.");
 }
 
 async function nextReceiptNumberForBooking(bookingId: number) {
@@ -155,9 +170,11 @@ async function nextReceiptNumberForBooking(bookingId: number) {
     where: { receipt_number: { startsWith: `${bookingId}-` } },
     select: { receipt_number: true },
   });
+
   const used = existing
     .map((r) => parseInt(r.receipt_number.split("-")[1], 10))
     .filter((n) => Number.isFinite(n));
+
   const nextIdx = used.length ? Math.max(...used) + 1 : 1;
   return `${bookingId}-${nextIdx}`;
 }
@@ -170,25 +187,30 @@ async function nextReceiptNumberForAgency(agencyId: number) {
     },
     select: { receipt_number: true },
   });
+
   const used = existing
     .map((r) => parseInt(r.receipt_number.split("-")[1], 10))
     .filter((n) => Number.isFinite(n));
+
   const nextIdx = used.length ? Math.max(...used) + 1 : 1;
   return `A${agencyId}-${nextIdx}`;
 }
 
-/* =========================
+/* ======================================================
  * GET /api/receipts
- * ========================= */
+ * ====================================================== */
+
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   try {
     const authUser = await getUserFromAuth(req);
     const authUserId = authUser?.id_user;
     const authAgencyId = authUser?.id_agency;
-    if (!authUserId || !authAgencyId)
-      return res.status(401).json({ error: "No autenticado" });
 
-    // Compatibilidad: listar por bookingId
+    if (!authUserId || !authAgencyId) {
+      return res.status(401).json({ error: "No autenticado" });
+    }
+
+    // ====== Modo detalle: por booking ======
     const bookingIdParam = Array.isArray(req.query.bookingId)
       ? req.query.bookingId[0]
       : req.query.bookingId;
@@ -196,18 +218,19 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     if (Number.isFinite(bookingId)) {
       await ensureBookingInAgency(bookingId, authAgencyId);
+
       const receipts = await prisma.receipt.findMany({
         where: { booking: { id_booking: bookingId } },
         orderBy: { issue_date: "desc" },
       });
+
       return res.status(200).json({ receipts });
     }
 
-    // ====== Listado mixto (reserva + agencia) ======
+    // ====== Listado mixto (por filtros) ======
     const q =
       (Array.isArray(req.query.q) ? req.query.q[0] : req.query.q)?.trim() || "";
 
-    // Filtro ISO por amount_currency (nuevo param claro)
     const amountCurrencyQuery = (
       Array.isArray(req.query.amountCurrency)
         ? req.query.amountCurrency[0]
@@ -217,7 +240,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       .toUpperCase()
       .trim();
 
-    // Back-compat y/o texto libre
     const currencyParamRaw =
       (Array.isArray(req.query.currency)
         ? req.query.currency[0]
@@ -239,11 +261,13 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const ownerId = Number(
       Array.isArray(req.query.userId) ? req.query.userId[0] : req.query.userId,
     );
+
     const from =
       (Array.isArray(req.query.from) ? req.query.from[0] : req.query.from) ||
       "";
     const to =
       (Array.isArray(req.query.to) ? req.query.to[0] : req.query.to) || "";
+
     const minAmount = Number(
       Array.isArray(req.query.minAmount)
         ? req.query.minAmount[0]
@@ -264,11 +288,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         ) || 120,
       ),
     );
+
     const cursorId = Number(
       Array.isArray(req.query.cursor) ? req.query.cursor[0] : req.query.cursor,
     );
 
-    // 1) Alcance por agencia
+    // 1) Alcance por agencia / usuario
     const agencyScope: Prisma.ReceiptWhereInput =
       Number.isFinite(ownerId) && ownerId > 0
         ? { booking: { id_agency: authAgencyId, user: { id_user: ownerId } } }
@@ -279,9 +304,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
             ],
           };
 
-    // 2) Resto de filtros
     const whereAND: Prisma.ReceiptWhereInput[] = [agencyScope];
 
+    // 2) Búsqueda libre
     if (q) {
       const maybeNum = Number(q);
       whereAND.push({
@@ -290,36 +315,30 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
           { amount_string: { contains: q, mode: "insensitive" } },
           { receipt_number: { contains: q, mode: "insensitive" } },
           ...(Number.isFinite(maybeNum)
-            ? [
-                {
-                  booking: { id_booking: maybeNum },
-                } as Prisma.ReceiptWhereInput,
-              ]
+            ? [{ booking: { id_booking: maybeNum } }]
             : []),
         ],
       });
     }
 
-    // amount_currency (ISO)
+    // 3) Filtros por moneda / texto
     if (amountCurrencyQuery && /^[A-Z]{3}$/.test(amountCurrencyQuery)) {
       whereAND.push({ amount_currency: amountCurrencyQuery });
     }
 
-    // currency back-compat:
     const currencyParam = currencyParamRaw.toString().trim();
     if (currencyParam) {
       if (/^[A-Za-z]{3}$/.test(currencyParam)) {
-        // Si mandan "USD" como antes, filtramos por amount_currency (ISO)
+        // "USD" → amount_currency ISO
         whereAND.push({ amount_currency: currencyParam.toUpperCase() });
       } else {
-        // Si mandan texto (ej. "saldo", "caja", "macro"), buscar en currency (texto libre)
+        // Texto libre → currency
         whereAND.push({
           currency: { contains: currencyParam, mode: "insensitive" },
         });
       }
     }
 
-    // currencyText explícito (texto libre)
     if (currencyTextParam) {
       whereAND.push({
         currency: { contains: currencyTextParam, mode: "insensitive" },
@@ -329,16 +348,20 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     if (payment_method) whereAND.push({ payment_method });
     if (account) whereAND.push({ account });
 
-    const range: Prisma.DateTimeFilter = {};
-    if (from) range.gte = new Date(`${from}T00:00:00.000Z`);
-    if (to) range.lte = new Date(`${to}T23:59:59.999Z`);
-    if (range.gte || range.lte) whereAND.push({ issue_date: range });
+    // 4) Rango de fechas
+    const dateRange: Prisma.DateTimeFilter = {};
+    if (from) dateRange.gte = new Date(`${from}T00:00:00.000Z`);
+    if (to) dateRange.lte = new Date(`${to}T23:59:59.999Z`);
+    if (dateRange.gte || dateRange.lte)
+      whereAND.push({ issue_date: dateRange });
 
+    // 5) Rango de importes
     const amountRange: Prisma.FloatFilter = {};
     if (Number.isFinite(minAmount)) amountRange.gte = Number(minAmount);
     if (Number.isFinite(maxAmount)) amountRange.lte = Number(maxAmount);
-    if (amountRange.gte !== undefined || amountRange.lte !== undefined)
+    if (amountRange.gte !== undefined || amountRange.lte !== undefined) {
       whereAND.push({ amount: amountRange });
+    }
 
     const baseWhere: Prisma.ReceiptWhereInput = { AND: whereAND };
 
@@ -353,9 +376,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         receipt_number: true,
         issue_date: true,
         amount: true,
-        amount_currency: true, // ISO (clave contable)
+        amount_currency: true,
+        payment_fee_amount: true, // costo financiero
+
         concept: true,
-        currency: true, // Texto libre (para PDF/legado)
+        currency: true,
         payment_method: true,
         account: true,
         base_amount: true,
@@ -375,7 +400,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
             },
           },
         },
-        agency: { select: { id_agency: true, name: true } }, // recibos sin booking
+        agency: { select: { id_agency: true, name: true } },
       },
     });
 
@@ -386,83 +411,101 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     return res.status(200).json({ items, nextCursor });
   } catch (error: unknown) {
+    console.log("[API] GET /api/receipts error:", error);
     const msg =
       error instanceof Error ? error.message : "Error obteniendo recibos";
     return res.status(500).json({ error: msg });
   }
 }
 
-/* =========================
+/* ======================================================
  * POST /api/receipts
- * ========================= */
+ * ====================================================== */
+
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
+  const authUser = await getUserFromAuth(req);
+  const authUserId = authUser?.id_user;
+  const authAgencyId = authUser?.id_agency;
+
+  if (!authUserId || !authAgencyId) {
+    return res.status(401).json({ error: "No autenticado" });
+  }
+
+  const rawBody = req.body;
+  console.log("[API] POST /api/receipts raw body:", rawBody);
+
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+    return res.status(400).json({ error: "Body inválido o vacío" });
+  }
+
+  const {
+    booking,
+    concept,
+    currency,
+    amountString,
+    amountCurrency,
+    serviceIds = [],
+    clientIds = [],
+    amount,
+    payment_fee_amount,
+    payment_method,
+    account,
+    base_amount,
+    base_currency,
+    counter_amount,
+    counter_currency,
+  } = rawBody as ReceiptPostBody;
+
+  // Normalizaciones ISO
+  const amountCurrencyISO = (amountCurrency || "").toUpperCase();
+  const baseCurrencyISO = base_currency
+    ? base_currency.toUpperCase()
+    : undefined;
+  const counterCurrencyISO = counter_currency
+    ? counter_currency.toUpperCase()
+    : undefined;
+
+  // booking opcional
+  const bookingIdRaw = booking?.id_booking;
+  const bookingId = Number(bookingIdRaw);
+  const hasBooking = Number.isFinite(bookingId);
+
+  // Normalizar amount a número
+  const amountNum = typeof amount === "number" ? amount : Number(amount ?? NaN);
+
+  // Validaciones mínimas
+  if (!isNonEmptyString(concept)) {
+    return res.status(400).json({ error: "concept es requerido" });
+  }
+  if (!isNonEmptyString(amountString)) {
+    return res.status(400).json({ error: "amountString es requerido" });
+  }
+  if (!isNonEmptyString(amountCurrencyISO)) {
+    return res.status(400).json({ error: "amountCurrency es requerido (ISO)" });
+  }
+  if (!Number.isFinite(amountNum)) {
+    return res.status(400).json({ error: "amount numérico inválido" });
+  }
+
   try {
-    const authUser = await getUserFromAuth(req);
-    const authUserId = authUser?.id_user;
-    const authAgencyId = authUser?.id_agency;
-    if (!authUserId || !authAgencyId)
-      return res.status(401).json({ error: "No autenticado" });
-
-    if (!req.body || typeof req.body !== "object")
-      return res.status(400).json({ error: "Body inválido o vacío" });
-
-    const {
-      booking,
-      concept,
-      currency, // Texto libre, se guarda tal cual (si no viene, se cae al ISO)
-      amountString,
-      amountCurrency,
-      serviceIds = [],
-      clientIds = [],
-      amount,
-      payment_method,
-      account,
-      base_amount,
-      base_currency,
-      counter_amount,
-      counter_currency,
-    } = req.body as ReceiptPostBody;
-
-    // Normalizaciones ISO (solo para campos ISO)
-    const amountCurrencyISO = (amountCurrency || "").toUpperCase();
-    const baseCurrencyISO = base_currency
-      ? base_currency.toUpperCase()
-      : undefined;
-    const counterCurrencyISO = counter_currency
-      ? counter_currency.toUpperCase()
-      : undefined;
-
-    // booking opcional
-    const bookingId = Number(booking?.id_booking);
-    const hasBooking = Number.isFinite(bookingId);
-
-    // Validaciones mínimas comunes
-    if (!isNonEmptyString(concept))
-      return res.status(400).json({ error: "concept es requerido" });
-    if (!isNonEmptyString(amountString))
-      return res.status(400).json({ error: "amountString es requerido" });
-    if (!isNonEmptyString(amountCurrencyISO))
-      return res
-        .status(400)
-        .json({ error: "amountCurrency es requerido (ISO)" });
-    if (!Number.isFinite(amount))
-      return res.status(400).json({ error: "amount numérico inválido" });
-
-    // Si hay booking: validaciones de pertenencia y servicios
+    // Si hay booking: validar pertenencia y servicios
     if (hasBooking) {
       await ensureBookingInAgency(bookingId, authAgencyId);
+
       if (!Array.isArray(serviceIds) || serviceIds.length === 0) {
         return res.status(400).json({
           error:
-            "serviceIds debe tener al menos un ID para recibos con reserva",
+            "serviceIds debe tener al menos un ID para recibos asociados a una reserva",
         });
       }
+
       const services = await prisma.service.findMany({
         where: { id_service: { in: serviceIds }, booking_id: bookingId },
         select: { id_service: true },
       });
       const okServiceIds = new Set(services.map((s) => s.id_service));
       const badServices = serviceIds.filter((id) => !okServiceIds.has(id));
+
       if (badServices.length > 0) {
         return res
           .status(400)
@@ -474,13 +517,22 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (hasBooking && Array.isArray(clientIds) && clientIds.length > 0) {
       const bk = await prisma.booking.findUnique({
         where: { id_booking: bookingId },
-        select: { titular_id: true, clients: { select: { id_client: true } } },
+        select: {
+          titular_id: true,
+          clients: { select: { id_client: true } },
+        },
       });
-      const allowed = new Set<number>([
-        bk!.titular_id,
-        ...bk!.clients.map((c) => c.id_client),
-      ]);
+
+      if (!bk) {
+        return res.status(400).json({ error: "La reserva no existe" });
+      }
+
+      const allowed = new Set<number>();
+      if (bk.titular_id) allowed.add(bk.titular_id);
+      bk.clients.forEach((c) => allowed.add(c.id_client));
+
       const badClients = clientIds.filter((id) => !allowed.has(id));
+
       if (badClients.length > 0) {
         return res
           .status(400)
@@ -493,18 +545,17 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       ? await nextReceiptNumberForBooking(bookingId)
       : await nextReceiptNumberForAgency(authAgencyId);
 
-    // Payload Prisma
-    // Payload Prisma (sin account_id)
+    // Payload final para Prisma
     const data: Prisma.ReceiptCreateInput = {
       receipt_number,
-      amount,
-      amount_string: amountString,
-      amount_currency: amountCurrencyISO, // ISO clave
       concept,
-      // currency: texto libre; si no viene, caemos al ISO
+      amount: amountNum,
+      amount_string: amountString,
+      amount_currency: amountCurrencyISO,
       currency: isNonEmptyString(currency) ? currency : amountCurrencyISO,
-      serviceIds, // siempre enviar (vacío si es de agencia)
-      clientIds, // idem
+      serviceIds,
+      clientIds,
+      issue_date: new Date(), // por si el modelo no tiene default now()
       ...(payment_method ? { payment_method } : {}),
       ...(account ? { account } : {}),
       ...(toDec(base_amount) ? { base_amount: toDec(base_amount) } : {}),
@@ -513,32 +564,40 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         ? { counter_amount: toDec(counter_amount) }
         : {}),
       ...(counterCurrencyISO ? { counter_currency: counterCurrencyISO } : {}),
+      ...(toDec(payment_fee_amount)
+        ? { payment_fee_amount: toDec(payment_fee_amount) }
+        : {}),
       ...(hasBooking
         ? { booking: { connect: { id_booking: bookingId } } }
         : { agency: { connect: { id_agency: authAgencyId } } }),
     };
 
     const receipt = await prisma.receipt.create({ data });
-    // 👉 ayuda a los clientes a extraer el ID sin leer el body
+
     res.setHeader("Location", `/api/receipts/${receipt.id_receipt}`);
     res.setHeader("X-Receipt-Id", String(receipt.id_receipt));
+
     return res.status(201).json({ receipt });
   } catch (error: unknown) {
+    // Ojo: usamos console.log y no console.error para evitar el bug de patch-error-inspect
+    console.log("[API] POST /api/receipts error:", error);
     const msg =
       error instanceof Error ? error.message : "Error interno al crear recibo";
     return res.status(500).json({ error: msg });
   }
 }
 
-/* =========================
- * Router
- * ========================= */
+/* ======================================================
+ * Router principal
+ * ====================================================== */
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
   if (req.method === "GET") return handleGet(req, res);
   if (req.method === "POST") return handlePost(req, res);
+
   res.setHeader("Allow", ["GET", "POST"]);
   return res.status(405).end(`Method ${req.method} Not Allowed`);
 }

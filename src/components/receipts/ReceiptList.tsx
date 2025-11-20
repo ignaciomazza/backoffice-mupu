@@ -6,6 +6,7 @@ import Spinner from "@/components/Spinner";
 import "react-toastify/dist/ReactToastify.css";
 
 interface ReceiptListProps {
+  token: string | null;
   receipts: Receipt[];
   booking: Booking;
   role: string;
@@ -13,6 +14,7 @@ interface ReceiptListProps {
 }
 
 export default function ReceiptList({
+  token,
   receipts,
   booking,
   role,
@@ -33,6 +35,7 @@ export default function ReceiptList({
         .map((receipt) => (
           <ReceiptCard
             key={receipt.id_receipt}
+            token={token}
             receipt={receipt}
             booking={booking}
             role={role}

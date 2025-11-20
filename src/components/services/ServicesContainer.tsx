@@ -1117,6 +1117,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
 
                 {receipts.length > 0 && (
                   <ReceiptList
+                    token={token}
                     receipts={receipts}
                     booking={booking}
                     role={role}

@@ -51,16 +51,23 @@ type ReceiptRow = {
   id_receipt: number;
   receipt_number: string;
   issue_date: string | null;
+  /** Importe recibido por la agencia (neto) */
   amount: number;
   amount_currency: "ARS" | "USD" | string;
   concept: string;
   currency?: string | null; // descripción (legado: “detalle método”)
   payment_method?: string | null; // nombre método
   account?: string | null; // nombre cuenta
+
   base_amount?: string | number | null;
   base_currency?: "ARS" | "USD" | string | null;
   counter_amount?: string | number | null;
   counter_currency?: "ARS" | "USD" | string | null;
+
+  /** Costo financiero del medio de pago (tarjeta/billetera/banco…) */
+  payment_fee_amount?: string | number | null;
+  payment_fee_currency?: "ARS" | "USD" | string | null;
+
   serviceIds?: number[] | null;
   clientIds?: number[] | null;
   booking?: {
@@ -103,10 +110,12 @@ type FinancePickBundle = {
 /* ============ Normalizado para UI/CSV ============ */
 type NormalizedReceipt = ReceiptRow & {
   _dateLabel: string;
-  _amountLabel: string;
+  _amountLabel: string; // Importe que entra a la agencia
   _ownerFull: string;
   _titularFull: string;
   _convLabel: string; // "Base → Contra" si aplica
+  _feeLabel: string; // Costo medio de pago
+  _clientTotalLabel: string; // Total cobrado al cliente (amount + fee)
 };
 
 type SortKey = "issue_date" | "receipt_number" | "amount" | "owner";
@@ -277,6 +286,67 @@ export default function ReceiptsPage() {
     return Number.isFinite(n) ? (n as number) : 0;
   };
 
+  /** Normaliza un recibo para UI/CSV (reutilizado en página y export) */
+  const normalizeReceipt = useCallback(
+    (r: ReceiptRow): NormalizedReceipt => {
+      const dateLabel = r.issue_date
+        ? new Date(r.issue_date).toLocaleDateString("es-AR")
+        : "—";
+
+      // Importe que entra a la agencia (amount)
+      const amountLabel = fmtMoney(r.amount || 0, r.amount_currency || "ARS");
+
+      const ownerFull = r.booking?.user
+        ? `${r.booking.user.first_name || ""} ${r.booking.user.last_name || ""}`.trim()
+        : "";
+      const titularFull = r.booking?.titular
+        ? `${r.booking.titular.first_name || ""} ${r.booking.titular.last_name || ""}`.trim()
+        : "";
+
+      const hasBase = r.base_amount != null && r.base_currency;
+      const hasCounter = r.counter_amount != null && r.counter_currency;
+      const convLabel =
+        hasBase || hasCounter
+          ? `${hasBase ? fmtMoney(toNum(r.base_amount), r.base_currency || "ARS") : "—"} → ${
+              hasCounter
+                ? fmtMoney(toNum(r.counter_amount), r.counter_currency || "ARS")
+                : "—"
+            }`
+          : "—";
+
+      // Costo medio de pago
+      const fee = toNum(r.payment_fee_amount);
+      const feeCurrency =
+        (r.payment_fee_currency as string | null) ||
+        (r.amount_currency as string | null) ||
+        "ARS";
+
+      const feeLabel =
+        fee > 0 || r.payment_fee_amount != null
+          ? fmtMoney(fee, feeCurrency)
+          : "—";
+
+      // Total cobrado al cliente = amount (entra a la agencia) + fee (retención medio)
+      const clientTotal = toNum(r.amount) + fee;
+      const clientTotalLabel =
+        clientTotal > 0
+          ? fmtMoney(clientTotal, r.amount_currency || feeCurrency || "ARS")
+          : "—";
+
+      return {
+        ...r,
+        _dateLabel: dateLabel,
+        _amountLabel: amountLabel,
+        _ownerFull: ownerFull || "—",
+        _titularFull: titularFull || "—",
+        _convLabel: convLabel,
+        _feeLabel: feeLabel,
+        _clientTotalLabel: clientTotalLabel,
+      };
+    },
+    [fmtMoney],
+  );
+
   /* ---------- Forzar owner para vendedor ---------- */
   useEffect(() => {
     if (isVendor && user?.id_user) setOwnerId(user.id_user);
@@ -342,38 +412,8 @@ export default function ReceiptsPage() {
 
   /* ---------- Normalizado ---------- */
   const normalized = useMemo<NormalizedReceipt[]>(() => {
-    return data.map((r) => {
-      const dateLabel = r.issue_date
-        ? new Date(r.issue_date).toLocaleDateString("es-AR")
-        : "—";
-      const amountLabel = fmtMoney(r.amount || 0, r.amount_currency || "ARS");
-      const ownerFull = r.booking?.user
-        ? `${r.booking.user.first_name || ""} ${r.booking.user.last_name || ""}`.trim()
-        : "";
-      const titularFull = r.booking?.titular
-        ? `${r.booking.titular.first_name || ""} ${r.booking.titular.last_name || ""}`.trim()
-        : "";
-      const hasBase = r.base_amount != null && r.base_currency;
-      const hasCounter = r.counter_amount != null && r.counter_currency;
-      const convLabel =
-        hasBase || hasCounter
-          ? `${hasBase ? fmtMoney(toNum(r.base_amount), r.base_currency || "ARS") : "—"} → ${
-              hasCounter
-                ? fmtMoney(toNum(r.counter_amount), r.counter_currency || "ARS")
-                : "—"
-            }`
-          : "—";
-
-      return {
-        ...r,
-        _dateLabel: dateLabel,
-        _amountLabel: amountLabel,
-        _ownerFull: ownerFull || "—",
-        _titularFull: titularFull || "—",
-        _convLabel: convLabel,
-      };
-    });
-  }, [data, fmtMoney]);
+    return data.map((r) => normalizeReceipt(r));
+  }, [data, normalizeReceipt]);
 
   /* ---------- Orden en cliente ---------- */
   const displayRows = useMemo(() => {
@@ -515,7 +555,9 @@ export default function ReceiptsPage() {
         "Vendedor",
         "Método",
         "Cuenta",
-        "Importe",
+        "Importe (agencia)",
+        "Costo medio",
+        "Cobrado al cliente",
         "Conversión",
         "Concepto",
         "Servicios",
@@ -535,25 +577,9 @@ export default function ReceiptsPage() {
         const json: ReceiptsAPI = await res.json();
         if (!res.ok) throw new Error(json?.error || "Error al exportar CSV");
 
-        const pageNorm: NormalizedReceipt[] = json.items.map((r) => ({
-          ...r,
-          _dateLabel: r.issue_date
-            ? new Date(r.issue_date).toLocaleDateString("es-AR")
-            : "—",
-          _amountLabel: fmtMoney(r.amount || 0, r.amount_currency || "ARS"),
-          _ownerFull: r.booking?.user
-            ? `${r.booking.user.first_name || ""} ${r.booking.user.last_name || ""}`.trim() ||
-              "—"
-            : "—",
-          _titularFull: r.booking?.titular
-            ? `${r.booking.titular.first_name || ""} ${r.booking.titular.last_name || ""}`.trim() ||
-              "—"
-            : "—",
-          _convLabel:
-            r.base_amount || r.counter_amount
-              ? `${fmtMoney(toNum(r.base_amount), r.base_currency || "ARS")} → ${fmtMoney(toNum(r.counter_amount), r.counter_currency || "ARS")}`
-              : "—",
-        }));
+        const pageNorm: NormalizedReceipt[] = json.items.map((r) =>
+          normalizeReceipt(r),
+        );
 
         for (const r of pageNorm) {
           const cells = [
@@ -565,6 +591,8 @@ export default function ReceiptsPage() {
             r.payment_method || r.currency || "",
             r.account || "",
             r._amountLabel,
+            r._feeLabel,
+            r._clientTotalLabel,
             r._convLabel,
             r.concept || "",
             String(r.serviceIds?.length ?? 0),
@@ -791,7 +819,7 @@ export default function ReceiptsPage() {
   const [attachSelectedServiceIds, setAttachSelectedServiceIds] = useState<
     number[]
   >([]);
-  const [attaching, setAttaching] = useState(false); // NEW: evita doble click
+  const [attaching, setAttaching] = useState(false); // evita doble click
 
   const openAttachDialog = (row: ReceiptRow) => {
     setAttachTarget(row);
@@ -886,7 +914,7 @@ export default function ReceiptsPage() {
       setAttachOpen(false);
       setAttachTarget(null);
       refreshList();
-      router.refresh(); // NEW: por si hay SSG/SSR arriba
+      router.refresh(); // por si hay SSG/SSR arriba
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al asociar recibo");
     } finally {
@@ -926,8 +954,6 @@ export default function ReceiptsPage() {
                 throw new Error(msg);
               }
 
-              // si tu API devuelve el recibo creado
-              // const { receipt } = await res.json();
               toast.success("Recibo guardado.");
               refreshList();
               router.refresh();
@@ -1185,7 +1211,7 @@ export default function ReceiptsPage() {
                         #{r.receipt_number}
                       </span>
                       <button
-                        className={`${BADGE}`}
+                        className={BADGE}
                         onClick={() => {
                           if (
                             typeof navigator !== "undefined" &&
@@ -1203,12 +1229,31 @@ export default function ReceiptsPage() {
                       >
                         Copiar
                       </button>
-                      <span className={`${BADGE}`}>{r._dateLabel}</span>
-                      <span className={`${BADGE}`}>{cur}</span>
+                      <span className={BADGE}>{r._dateLabel}</span>
+                      <span className={BADGE}>{cur}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="text-base font-semibold">
-                        {r._amountLabel}
+                      <div className="flex flex-col items-end text-right">
+                        {/* Importe que entra a la agencia */}
+                        <div className="text-base font-semibold">
+                          {r._amountLabel}
+                        </div>
+                        {(r._clientTotalLabel !== "—" ||
+                          r._feeLabel !== "—") && (
+                          <div className="mt-0.5 text-[11px] opacity-75">
+                            {r._clientTotalLabel !== "—" && (
+                              <>
+                                Cliente pagó: <b>{r._clientTotalLabel}</b>
+                              </>
+                            )}
+                            {r._feeLabel !== "—" && (
+                              <>
+                                {r._clientTotalLabel !== "—" && " · "}
+                                Costo medio: {r._feeLabel}
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
                       {canAttach && (
                         <button
@@ -1268,6 +1313,18 @@ export default function ReceiptsPage() {
                     {r._convLabel !== "—" && (
                       <span className={CHIP}>
                         <b>Conversión:</b> {r._convLabel}
+                      </span>
+                    )}
+
+                    {r._feeLabel !== "—" && (
+                      <span className={CHIP}>
+                        <b>Costo medio:</b> {r._feeLabel}
+                      </span>
+                    )}
+
+                    {r._clientTotalLabel !== "—" && (
+                      <span className={CHIP}>
+                        <b>Cobrado al cliente:</b> {r._clientTotalLabel}
                       </span>
                     )}
 

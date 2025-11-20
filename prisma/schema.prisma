@@ -356,12 +356,21 @@ model UserTeam {
 }
 
 model Receipt {
-  id_receipt        Int           @id @default(autoincrement())
-  receipt_number    String        @unique
-  issue_date        DateTime      @default(now())
-  amount            Float
-  amount_string     String
-  amount_currency   String
+  id_receipt     Int      @id @default(autoincrement())
+  receipt_number String   @unique
+  issue_date     DateTime @default(now())
+
+  // Neto que entra a la agencia (se mantiene igual)
+  amount          Float
+  amount_string   String
+  amount_currency String
+
+  // NUEVO: costo financiero del medio de pago
+  /// Monto que paga el cliente pero retiene el medio de pago
+  /// (intereses de tarjeta, comisiones de MP/bancos, etc.).
+  /// Misma moneda que amount_currency.
+  payment_fee_amount Decimal? @db.Decimal(18, 2)
+
   concept           String
   currency          String
   payment_method    String?

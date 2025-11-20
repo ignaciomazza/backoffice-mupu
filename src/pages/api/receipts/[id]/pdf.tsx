@@ -1,3 +1,4 @@
+// src/pages/api/receipts/[id]/pdf.tsx
 import type { NextApiRequest, NextApiResponse } from "next";
 import { PrismaClient } from "@prisma/client";
 import fs from "fs";

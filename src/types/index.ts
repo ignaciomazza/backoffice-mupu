@@ -213,6 +213,7 @@ export interface Receipt {
   // En este proyecto `currency` es la descripción del método de pago impresa en PDF
   currency: string;
   payment_method?: string | null;
+  payment_fee_amount: number | null;
   account?: string | null;
   base_amount?: number | string | null;
   base_currency?: Currency | string | null;
