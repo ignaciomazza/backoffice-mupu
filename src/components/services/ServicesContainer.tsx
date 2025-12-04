@@ -211,21 +211,39 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   const fetchTransferFee = useCallback(
     async (signal?: AbortSignal) => {
       if (!token) return 0.024;
+
       try {
+        // 1) Intentar usar la misma config global que lee el ServiceForm
         const res = await authFetch(
+          "/api/service-calc-config",
+          { cache: "no-store", signal },
+          token,
+        );
+
+        if (res.ok) {
+          const data = (await res.json()) as { transfer_fee_pct?: unknown };
+          const raw = toFiniteNumber(data.transfer_fee_pct, 0.024);
+          const safe = Math.min(Math.max(raw, 0), 1); // clamp 0–1
+          return safe;
+        }
+
+        // 2) Fallback al endpoint viejo, si existe
+        const legacy = await authFetch(
           "/api/agency/transfer-fee",
           { cache: "no-store", signal },
           token,
         );
-        if (!res.ok) return 0.024;
-        const data: unknown = await res.json();
-        const raw = toFiniteNumber(
-          (data as { transfer_fee_pct?: unknown })?.transfer_fee_pct,
-          0.024,
-        );
-        // Clamp 0..1 para evitar 100% por error de proporción
-        const safe = Math.min(Math.max(raw, 0), 1);
-        return safe;
+        if (legacy.ok) {
+          const data: unknown = await legacy.json();
+          const raw = toFiniteNumber(
+            (data as { transfer_fee_pct?: unknown })?.transfer_fee_pct,
+            0.024,
+          );
+          const safe = Math.min(Math.max(raw, 0), 1);
+          return safe;
+        }
+
+        return 0.024;
       } catch {
         return 0.024;
       }

@@ -644,16 +644,8 @@ export default function ServiceForm({
   >(null);
   const [destValid, setDestValid] = useState(false);
 
-  useEffect(() => {
-    if (
-      editingServiceId &&
-      (formData.destination || "").trim() &&
-      !destSelection
-    ) {
-      setDestValid(true);
-    }
-  }, [editingServiceId, formData.destination, destSelection]);
-
+  // Si cambiás entre "solo país" / "múltiples destinos", reseteamos el picker,
+  // pero NO tocamos el valor de destination en formData.
   useEffect(() => {
     setDestSelection(null);
     setDestValid(false);
@@ -663,16 +655,28 @@ export default function ServiceForm({
     val: DestinationOption | DestinationOption[] | null,
   ) => {
     setDestSelection(val);
+
     let text = "";
     if (Array.isArray(val)) {
       text = val.map((v) => v.displayLabel).join(" · ");
     } else if (val) {
       text = val.displayLabel;
     }
+
+    // El picker considera válido si hay texto
+    const isValid = text.trim().length > 0;
+    setDestValid(isValid);
+
     handleChange({
       target: { name: "destination", value: text },
     } as ChangeEvent<HTMLInputElement>);
   };
+
+  // ¿Hay texto de destino cargado (desde DB o por el picker)?
+  const destinationHasText = useMemo(
+    () => !!(formData.destination && formData.destination.trim()),
+    [formData.destination],
+  );
 
   /* ========== SUBMIT ========== */
   const [submitting, setSubmitting] = useState(false);
@@ -685,23 +689,43 @@ export default function ServiceForm({
     }
   };
 
-  // Transfer fee efectivo: (1) formData, (2) calcCfg API (por tipo), (3) agency-config API, (4) prop fallback
+  // Transfer fee efectivo:
+  // 1) Config por tipo de servicio
+  // 2) Config general de la agencia (service-calc-config)
+  // 3) Valor ya guardado en el servicio (legado / sin config)
+  // 4) Fallback del prop (agencyTransferFeePct)
   const effectiveTransferFeePct = useMemo(() => {
-    if (formData.transfer_fee_pct != null) return formData.transfer_fee_pct;
-    if (calcCfg?.defaultTransferFeePct != null)
+    // 1) Config específica del tipo de servicio
+    if (calcCfg?.defaultTransferFeePct != null) {
       return calcCfg.defaultTransferFeePct;
-    if (typeof agencyFeePctFromApi === "number") return agencyFeePctFromApi;
+    }
+
+    // 2) Config general de la agencia (service-calc-config sin tipo)
+    if (typeof agencyFeePctFromApi === "number") {
+      return agencyFeePctFromApi;
+    }
+
+    // 3) Valor que ya tenga el servicio (solo si no hay config arriba)
+    if (formData.transfer_fee_pct != null) {
+      return formData.transfer_fee_pct;
+    }
+
+    // 4) Fallback: lo que venga del container (/api/agency/transfer-fee o default 2,4 %)
     return agencyTransferFeePct;
   }, [
-    formData.transfer_fee_pct,
     calcCfg?.defaultTransferFeePct,
     agencyFeePctFromApi,
+    formData.transfer_fee_pct,
     agencyTransferFeePct,
   ]);
 
   // ⚙️ Modo de facturación: viene de la API de agencia (DB)
   const manualMode = agencyBillingMode === "manual";
-  const submitDisabled = !destValid || submitting;
+
+  // Solo bloqueamos si NO hay texto de destino y además el picker dice que no es válido.
+  // Para servicios ya existentes con destino en DB, esto permite guardar aunque el picker esté vacío.
+  const submitDisabled = submitting || (!destValid && !destinationHasText);
+
   const pctToShow = Number.isFinite(effectiveTransferFeePct)
     ? (effectiveTransferFeePct as number)
     : 0;
