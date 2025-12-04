@@ -11,10 +11,10 @@ interface InvoiceListProps {
 
 export default function InvoiceList({
   invoices,
-  loading,
-  ready,
+  loading = false,
+  ready = true, // ✅ default: listo para renderizar
 }: InvoiceListProps) {
-  // Aún no listo: no renderizar nada (espera al container)
+  // Aún no listo: no renderizar nada (espera al container si ALGUIEN lo usa así)
   if (!ready) return null;
 
   if (loading) {
