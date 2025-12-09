@@ -58,6 +58,8 @@ type ServiceFormProps = {
   /** Fallback para fee de transferencia si no viene de config del tipo o de la API */
   agencyTransferFeePct: number;
   token: string | null;
+  /** NUEVO: indica que ya se leyó correctamente la config global de fee */
+  transferFeeReady: boolean;
 };
 
 /* ---------- helpers UI ---------- */
@@ -357,6 +359,7 @@ export default function ServiceForm({
   onBillingUpdate,
   agencyTransferFeePct,
   token,
+  transferFeeReady,
 }: ServiceFormProps) {
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -672,15 +675,22 @@ export default function ServiceForm({
     } as ChangeEvent<HTMLInputElement>);
   };
 
-  // ¿Hay texto de destino cargado (desde DB o por el picker)?
-  const destinationHasText = useMemo(
-    () => !!(formData.destination && formData.destination.trim()),
-    [formData.destination],
-  );
-
   /* ========== SUBMIT ========== */
   const [submitting, setSubmitting] = useState(false);
   const onLocalSubmit = async (e: FormEvent) => {
+    // ⛔ No dejamos enviar si la config todavía está cargando
+    const waitingConfig =
+      loadingTypes ||
+      loadingAgencyCfg ||
+      loadingCurrencies ||
+      loadingCfg ||
+      !transferFeeReady;
+
+    if (waitingConfig) {
+      e.preventDefault();
+      return;
+    }
+
     setSubmitting(true);
     try {
       await Promise.resolve(handleSubmit(e));
@@ -694,13 +704,14 @@ export default function ServiceForm({
   // 2) Config general de la agencia (service-calc-config)
   // 3) Valor ya guardado en el servicio (legado / sin config)
   // 4) Fallback del prop (agencyTransferFeePct)
+  // Transfer fee efectivo:
   const effectiveTransferFeePct = useMemo(() => {
     // 1) Config específica del tipo de servicio
     if (calcCfg?.defaultTransferFeePct != null) {
       return calcCfg.defaultTransferFeePct;
     }
 
-    // 2) Config general de la agencia (service-calc-config sin tipo)
+    // 2) Config general de la agencia (service-calc-config)
     if (typeof agencyFeePctFromApi === "number") {
       return agencyFeePctFromApi;
     }
@@ -723,12 +734,25 @@ export default function ServiceForm({
   const manualMode = agencyBillingMode === "manual";
 
   // Solo bloqueamos si NO hay texto de destino y además el picker dice que no es válido.
-  // Para servicios ya existentes con destino en DB, esto permite guardar aunque el picker esté vacío.
-  const submitDisabled = submitting || (!destValid && !destinationHasText);
+  const destinationHasText = useMemo(
+    () => !!(formData.destination && formData.destination.trim()),
+    [formData.destination],
+  );
 
   const pctToShow = Number.isFinite(effectiveTransferFeePct)
     ? (effectiveTransferFeePct as number)
     : 0;
+
+  // ⚠️ Config todavía cargando (no dejamos enviar)
+  const waitingConfig =
+    loadingTypes ||
+    loadingAgencyCfg ||
+    loadingCurrencies ||
+    loadingCfg ||
+    !transferFeeReady;
+
+  const submitDisabled =
+    submitting || waitingConfig || (!destValid && !destinationHasText);
 
   return (
     <motion.div
@@ -1252,6 +1276,11 @@ export default function ServiceForm({
                     <span className="rounded-full bg-white/30 px-2 py-0.5 font-medium">
                       {(pctToShow * 100).toFixed(2)}%
                     </span>
+                    {waitingConfig && (
+                      <span className="ml-2 text-[11px] text-amber-700 dark:text-amber-300">
+                        Cargando configuración…
+                      </span>
+                    )}
                   </div>
                 </div>
               </Section>
@@ -1288,7 +1317,7 @@ export default function ServiceForm({
                 <button
                   type="submit"
                   disabled={submitDisabled}
-                  aria-busy={submitting}
+                  aria-busy={submitting || waitingConfig}
                   className={`rounded-full px-6 py-2 shadow-sm shadow-sky-950/20 transition active:scale-[0.98] ${
                     submitDisabled
                       ? "cursor-not-allowed bg-sky-950/20 text-white/60 dark:bg-white/5 dark:text-white/40"
@@ -1300,7 +1329,9 @@ export default function ServiceForm({
                       : "Agregar servicio"
                   }
                 >
-                  {submitting ? (
+                  {waitingConfig ? (
+                    "Esperá a que termine de cargar…"
+                  ) : submitting ? (
                     <Spinner />
                   ) : editingServiceId ? (
                     "Guardar Cambios"

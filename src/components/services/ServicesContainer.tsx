@@ -207,6 +207,8 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   /* ================= Transfer fee (agencia) ================= */
   const [agencyTransferFeePct, setAgencyTransferFeePct] =
     useState<number>(0.024);
+  const [agencyTransferFeeReady, setAgencyTransferFeeReady] =
+    useState<boolean>(false);
 
   const fetchTransferFee = useCallback(
     async (signal?: AbortSignal) => {
@@ -425,9 +427,15 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       // Paso 1: transfer-fee
       try {
         const fee = await fetchTransferFee(ac.signal);
-        if (isActive()) setAgencyTransferFeePct(fee);
+        if (isActive()) {
+          setAgencyTransferFeePct(fee);
+          setAgencyTransferFeeReady(true);
+        }
       } catch {
-        // silencioso
+        if (isActive()) {
+          setAgencyTransferFeePct(0.024);
+          setAgencyTransferFeeReady(true);
+        }
       }
 
       // Paso 2: client-payments
@@ -435,7 +443,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       try {
         await fetchClientPayments(ac.signal);
       } catch {
-        // ya maneja su propio error
+        // silencioso
       }
 
       // Paso 3: operator-dues
@@ -443,7 +451,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       try {
         await fetchOperatorDues(ac.signal);
       } catch {
-        // ya maneja su propio error
+        // silencioso
       }
     })();
 
@@ -927,6 +935,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 setIsFormVisible={setIsFormVisible}
                 onBillingUpdate={onBillingUpdate}
                 agencyTransferFeePct={agencyTransferFeePct}
+                transferFeeReady={agencyTransferFeeReady}
               />
 
               {services.length > 0 && (

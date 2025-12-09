@@ -240,7 +240,7 @@ export default async function handler(
       ),
     );
 
-    // 9) Agregación
+    // 9) Agregación (una fila por vendedor+moneda, NO por equipo)
     const totals = {
       sellerComm: { ARS: 0, USD: 0 },
       leaderComm: { ARS: 0, USD: 0 },
@@ -248,9 +248,38 @@ export default async function handler(
     };
     const itemsMap = new Map<string, EarningItem>();
 
+    // Dado un usuario, armamos info de equipo para mostrar
+    function getTeamDisplay(userId: number): {
+      teamId: number;
+      teamName: string;
+    } {
+      const teamIds = userToMemberTeams.get(userId) || [];
+
+      if (!teamIds.length) {
+        return { teamId: 0, teamName: "Sin equipo" };
+      }
+
+      const names = teamIds
+        .map((id) => teamMap.get(id)?.name)
+        .filter((n): n is string => Boolean(n));
+
+      if (!names.length) {
+        return { teamId: teamIds[0] ?? 0, teamName: "Sin equipo" };
+      }
+
+      if (names.length === 1) {
+        return { teamId: teamIds[0], teamName: names[0] };
+      }
+
+      // Si está en varios equipos, mostramos todos en una sola etiqueta
+      return {
+        teamId: teamIds[0],
+        teamName: names.join(" / "),
+      };
+    }
+
     function addRow(
       currency: "ARS" | "USD",
-      teamId: number,
       userId: number,
       userName: string,
       sellerComm: number,
@@ -263,21 +292,21 @@ export default async function handler(
       totals.leaderComm[currency] += leaderComm;
       totals.agencyShare[currency] += agencyShare;
 
-      const key = `${currency}-${teamId}-${userId}`;
+      const key = `${currency}-${userId}`;
       const existing = itemsMap.get(key);
+
       if (existing) {
         existing.totalSellerComm += sellerComm;
         existing.totalLeaderComm += leaderComm;
         existing.totalAgencyShare += agencyShare;
+
+        // Deuda: sólo se suma una vez por reserva
         if (!existing.bookingIds.includes(bid)) {
           existing.debt = Math.max(0, existing.debt + debt);
           existing.bookingIds.push(bid);
         }
       } else {
-        const teamName =
-          teamId === 0
-            ? "Sin equipo"
-            : teamMap.get(teamId)?.name || "Sin equipo";
+        const { teamId, teamName } = getTeamDisplay(userId);
         itemsMap.set(key, {
           currency,
           userId,
@@ -318,27 +347,26 @@ export default async function handler(
       const agencyShareAmt = Math.max(
         0,
         commissionBase - sellerComm - leaderComm,
-      ); // resto a agencia
+      );
 
       const debtForBooking = debtByBooking.get(bid)![cur];
-      const memberTeams = userToMemberTeams.get(sellerId) || [];
 
-      // Igual que antes: se reparte visualmente por cada equipo al que pertenece el vendedor (si ninguno, teamId=0)
-      const targetTeams = memberTeams.length ? memberTeams : [0];
-      for (const teamId of targetTeams) {
-        addRow(
-          cur,
-          teamId,
-          sellerId,
-          sellerName,
-          sellerComm,
-          leaderComm,
-          agencyShareAmt,
-          debtForBooking,
-          bid,
-        );
-      }
+      // 🔴 OJO: ahora agregamos UNA sola fila por vendedor+moneda
+      addRow(
+        cur,
+        sellerId,
+        sellerName,
+        sellerComm,
+        leaderComm,
+        agencyShareAmt,
+        debtForBooking,
+        bid,
+      );
     }
+
+    return res
+      .status(200)
+      .json({ totals, items: Array.from(itemsMap.values()) });
 
     return res
       .status(200)

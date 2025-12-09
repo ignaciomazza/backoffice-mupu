@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Service, Receipt } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
+import Spinner from "@/components/Spinner";
 
 /* ===== Tipos ===== */
 interface Totals {
@@ -192,6 +193,7 @@ export default function SummaryCard({
     useState<Record<string, number>>({});
   const [apiSellerEarningsByCurrency, setApiSellerEarningsByCurrency] =
     useState<Record<string, number>>({});
+  const [loadingCalc, setLoadingCalc] = useState(false);
 
   const bookingId = useMemo(
     () => pickBookingId(services as ServiceWithCalcs[]),
@@ -211,13 +213,14 @@ export default function SummaryCard({
   }, []);
 
   useEffect(() => {
-    // Si no hay token, reseteamos a defaults y salimos
+    // Si no hay token, reseteamos y no mostramos cálculos (se verá loading)
     if (!token) {
       setAgencyMode("auto");
       setTransferPct(0.024);
       setOwnerPct(100);
       setApiCommissionBaseByCurrency({});
       setApiSellerEarningsByCurrency({});
+      setLoadingCalc(true);
       return;
     }
 
@@ -232,6 +235,8 @@ export default function SummaryCard({
       mountedRef.current &&
       pipelineRef.current?.id === id &&
       !pipelineRef.current.ac.signal.aborted;
+
+    setLoadingCalc(true);
 
     (async () => {
       // (1) Leer config de cálculo
@@ -264,6 +269,7 @@ export default function SummaryCard({
           setOwnerPct(100);
           setApiCommissionBaseByCurrency({});
           setApiSellerEarningsByCurrency({});
+          setLoadingCalc(false);
         }
         return;
       }
@@ -291,6 +297,8 @@ export default function SummaryCard({
           setApiCommissionBaseByCurrency({});
           setApiSellerEarningsByCurrency({});
         }
+      } finally {
+        if (isActive()) setLoadingCalc(false);
       }
     })();
 
@@ -324,7 +332,6 @@ export default function SummaryCard({
     }, {});
   }, [services]);
 
-  /** Pagos por moneda (considerando también payment_fee_amount). */
   /** Pagos por moneda (considerando también payment_fee_amount). */
   const paidByCurrency = useMemo(() => {
     return receipts.reduce<Record<string, number>>((acc, raw) => {
@@ -410,6 +417,22 @@ export default function SummaryCard({
     fmtCurrency
       ? fmtCurrency(value, normalizeCurrencyCode(currency))
       : formatCurrencySafe(value, currency);
+
+  // ⛔ Mientras esté cargando la config / earnings, no mostramos el resumen
+  if (loadingCalc || !token) {
+    return (
+      <div className="mb-6 flex justify-center">
+        <div className="flex w-full items-center justify-center gap-3 rounded-3xl border border-white/10 bg-white/10 px-4 py-3 text-sm text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
+          <div>
+            <Spinner />
+          </div>
+          <span>
+            Calculando impuestos, costos de transferencia y ganancias…
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

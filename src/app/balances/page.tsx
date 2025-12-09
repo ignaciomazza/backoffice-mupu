@@ -1,4 +1,3 @@
-// src/app/balances/page.tsx
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -11,10 +10,40 @@ import { authFetch } from "@/utils/authFetch";
 import { useAuth } from "@/context/AuthContext";
 
 /* ================= Tipos ================= */
+
 type UserLite = {
   id_user: number;
   first_name: string;
   last_name: string;
+};
+
+type CurrencyCode = "ARS" | "USD";
+
+type ServiceForBalance = {
+  sale_price: number;
+  currency: CurrencyCode;
+  card_interest?: number | null;
+
+  tax_21?: number | null;
+  tax_105?: number | null;
+  exempt?: number | null;
+  other_taxes?: number | null;
+  nonComputable?: number | null;
+  taxableCardInterest?: number | null;
+  vatOnCardInterest?: number | null;
+  transfer_fee_amount?: number | string | null;
+  totalCommissionWithoutVAT?: number | null;
+  vatOnCommission21?: number | null;
+  vatOnCommission10_5?: number | null;
+};
+
+type ReceiptForBalance = {
+  amount: number;
+  amount_currency: CurrencyCode;
+  base_amount?: number | string | null;
+  base_currency?: CurrencyCode | null;
+  counter_amount?: number | string | null;
+  counter_currency?: CurrencyCode | null;
 };
 
 interface Booking {
@@ -30,19 +59,8 @@ interface Booking {
     last_name: string;
   };
   user?: UserLite | null;
-  services: {
-    sale_price: number;
-    currency: "ARS" | "USD";
-    card_interest?: number;
-  }[];
-  Receipt: {
-    amount: number;
-    amount_currency: "ARS" | "USD";
-    base_amount?: number | string | null;
-    base_currency?: "ARS" | "USD" | null;
-    counter_amount?: number | string | null;
-    counter_currency?: "ARS" | "USD" | null;
-  }[];
+  services: ServiceForBalance[];
+  Receipt: ReceiptForBalance[];
 }
 
 type BookingsAPI = {
@@ -51,20 +69,54 @@ type BookingsAPI = {
   error?: string;
 };
 
+/* ====== Impuestos por moneda ====== */
+
+type TaxBucket = {
+  iva21: number;
+  iva105: number;
+  exento: number;
+  otros: number;
+  noComp: number;
+  cardIntBase: number;
+  cardIntIVA: number;
+  transf: number;
+  commSinIVA: number;
+  total: number;
+};
+
+function makeEmptyTaxBucket(): TaxBucket {
+  return {
+    iva21: 0,
+    iva105: 0,
+    exento: 0,
+    otros: 0,
+    noComp: 0,
+    cardIntBase: 0,
+    cardIntIVA: 0,
+    transf: 0,
+    commSinIVA: 0,
+    total: 0,
+  };
+}
+
+const TAX_CURRENCIES: CurrencyCode[] = ["ARS", "USD"];
+
 /* ====== Tipo normalizado para la tabla / export ====== */
+
 type NormalizedBooking = Booking & {
   _titularFull: string;
   _ownerFull: string;
-  _saleNoInt: Record<"ARS" | "USD", number>;
-  _saleWithInt: Record<"ARS" | "USD", number>;
-  _paid: Record<"ARS" | "USD", number>;
-  _debt: { ARS: number; USD: number };
+  _saleNoInt: Record<CurrencyCode, number>;
+  _saleWithInt: Record<CurrencyCode, number>;
+  _paid: Record<CurrencyCode, number>;
+  _debt: Record<CurrencyCode, number>;
   _saleLabel: string;
   _paidLabel: string;
   _debtLabel: string;
   _depDate: Date | null;
   _retDate: Date | null;
   _travelLabel: string;
+  _taxByCurrency: Record<CurrencyCode, TaxBucket>;
 };
 
 /* ================= Estilos compartidos (glass / sky) ================= */
@@ -90,7 +142,17 @@ type VisibleKey =
   | "travel"
   | "sale_total"
   | "paid_total"
-  | "debt_total";
+  | "debt_total"
+  | "tax_iva21"
+  | "tax_iva105"
+  | "tax_exento"
+  | "tax_otros"
+  | "tax_noComp"
+  | "tax_transf"
+  | "tax_cardBase"
+  | "tax_cardIVA"
+  | "tax_commNoVAT"
+  | "tax_total";
 
 type ColumnDef = { key: VisibleKey; label: string; always?: boolean };
 
@@ -105,6 +167,16 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: "sale_total", label: "Venta (sin int.)" },
   { key: "paid_total", label: "Cobrado" },
   { key: "debt_total", label: "Deuda" },
+  { key: "tax_iva21", label: "IVA 21%" },
+  { key: "tax_iva105", label: "IVA 10,5%" },
+  { key: "tax_exento", label: "Exento" },
+  { key: "tax_otros", label: "Otros" },
+  { key: "tax_noComp", label: "No comp." },
+  { key: "tax_transf", label: "Transf." },
+  { key: "tax_cardBase", label: "Base int. tarjeta" },
+  { key: "tax_cardIVA", label: "IVA int. tarjeta" },
+  { key: "tax_commNoVAT", label: "Comisión s/IVA" },
+  { key: "tax_total", label: "Total imp." },
 ];
 
 /* ================= Utilidades ================= */
@@ -120,6 +192,9 @@ const toNum = (v: number | string | null | undefined) => {
 };
 
 const TAKE = 120;
+
+const CLIENT_STATUSES = ["Pendiente", "Pago", "Facturado"];
+const OPERATOR_STATUSES = ["Pendiente", "Pago"];
 
 /* ================= Page ================= */
 export default function BalancesPage() {
@@ -156,7 +231,7 @@ export default function BalancesPage() {
   /* ---------- Densidad / layout ---------- */
   type Density = "comfortable" | "compact";
   const [density, setDensity] = useState<Density>("comfortable");
-  const STORAGE_KEY_COLS = "balances-columns-v1";
+  const STORAGE_KEY_COLS = "balances-columns-v2";
   const STORAGE_KEY_DENS = "balances-density-v1";
 
   useEffect(() => {
@@ -190,10 +265,11 @@ export default function BalancesPage() {
   /* ---------- Helpers económico-contables ---------- */
   const sumByCurrency = useCallback(
     (services: Booking["services"], withInterest: boolean) => {
-      return services.reduce<Record<"ARS" | "USD", number>>(
+      return services.reduce<Record<CurrencyCode, number>>(
         (acc, s) => {
-          const extra = withInterest ? (s.card_interest ?? 0) : 0;
-          acc[s.currency] = (acc[s.currency] || 0) + s.sale_price + extra;
+          const extra = withInterest ? toNum(s.card_interest ?? 0) : 0;
+          const cur = s.currency;
+          acc[cur] = (acc[cur] || 0) + toNum(s.sale_price) + extra;
           return acc;
         },
         { ARS: 0, USD: 0 },
@@ -203,7 +279,7 @@ export default function BalancesPage() {
   );
 
   const sumReceiptsByCurrency = useCallback((receipts: Booking["Receipt"]) => {
-    return receipts.reduce<Record<"ARS" | "USD", number>>(
+    return receipts.reduce<Record<CurrencyCode, number>>(
       (acc, r) => {
         if (
           r.counter_currency &&
@@ -224,6 +300,45 @@ export default function BalancesPage() {
     );
   }, []);
 
+  const sumTaxesByCurrency = useCallback(
+    (services: Booking["services"]): Record<CurrencyCode, TaxBucket> => {
+      const acc: Record<CurrencyCode, TaxBucket> = {
+        ARS: makeEmptyTaxBucket(),
+        USD: makeEmptyTaxBucket(),
+      };
+
+      services.forEach((s) => {
+        const cur = s.currency;
+        const bucket = acc[cur];
+
+        const iva21 = toNum(s.tax_21) + toNum(s.vatOnCommission21);
+        const iva105 = toNum(s.tax_105) + toNum(s.vatOnCommission10_5);
+        const exento = toNum(s.exempt);
+        const otros = toNum(s.other_taxes);
+        const noComp = toNum(s.nonComputable);
+        const cardIntBase = toNum(s.taxableCardInterest);
+        const cardIntIVA = toNum(s.vatOnCardInterest);
+        const transf = toNum(s.transfer_fee_amount ?? 0);
+        const commSinIVA = toNum(s.totalCommissionWithoutVAT);
+
+        bucket.iva21 += iva21;
+        bucket.iva105 += iva105;
+        bucket.exento += exento;
+        bucket.otros += otros;
+        bucket.noComp += noComp;
+        bucket.cardIntBase += cardIntBase;
+        bucket.cardIntIVA += cardIntIVA;
+        bucket.transf += transf;
+        bucket.commSinIVA += commSinIVA;
+
+        bucket.total += iva21 + iva105 + cardIntIVA + otros + noComp + transf;
+      });
+
+      return acc;
+    },
+    [],
+  );
+
   /* ---------- Normalizador reutilizable ---------- */
   const normalizeBooking = useCallback(
     (b: Booking): NormalizedBooking => {
@@ -237,7 +352,7 @@ export default function BalancesPage() {
       const saleNoInt = sumByCurrency(b.services, false);
       const saleWithInt = sumByCurrency(b.services, true);
       const paid = sumReceiptsByCurrency(b.Receipt);
-      const debt = {
+      const debt: Record<CurrencyCode, number> = {
         ARS: (saleWithInt.ARS || 0) - (paid.ARS || 0),
         USD: (saleWithInt.USD || 0) - (paid.USD || 0),
       };
@@ -255,14 +370,16 @@ export default function BalancesPage() {
         .filter(Boolean)
         .join(" y ");
       const debtLabel = [
-        (debt.ARS ?? 0) ? fmtARS(debt.ARS) : "",
-        (debt.USD ?? 0) ? fmtUSD(debt.USD) : "",
+        debt.ARS ? fmtARS(debt.ARS) : "",
+        debt.USD ? fmtUSD(debt.USD) : "",
       ]
         .filter(Boolean)
         .join(" y ");
 
       const dep = b.departure_date ? new Date(b.departure_date) : null;
       const ret = b.return_date ? new Date(b.return_date) : null;
+
+      const taxByCurrency = sumTaxesByCurrency(b.services);
 
       return {
         ...b,
@@ -281,9 +398,10 @@ export default function BalancesPage() {
           dep || ret
             ? `${formatDateAR(b.departure_date)} – ${formatDateAR(b.return_date)}`
             : "—",
+        _taxByCurrency: taxByCurrency,
       };
     },
-    [fmtARS, fmtUSD, sumByCurrency, sumReceiptsByCurrency],
+    [fmtARS, fmtUSD, sumByCurrency, sumReceiptsByCurrency, sumTaxesByCurrency],
   );
 
   /* ---------- Normalizados/derivados para la tabla ---------- */
@@ -326,7 +444,15 @@ export default function BalancesPage() {
     "sale_total",
     "paid_total",
     "debt_total",
+    "tax_iva21",
+    "tax_iva105",
+    "tax_exento",
+    "tax_otros",
+    "tax_noComp",
+    "tax_transf",
+    "tax_total",
   ];
+
   const [visible, setVisible] = useState<VisibleKey[]>(defaultVisible);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -336,7 +462,9 @@ export default function BalancesPage() {
       if (!raw) return;
       const parsed = JSON.parse(raw) as { visible?: VisibleKey[] };
       if (Array.isArray(parsed.visible)) setVisible(parsed.visible);
-    } catch {}
+    } catch {
+      // ignore
+    }
   }, []);
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_COLS, JSON.stringify({ visible }));
@@ -375,6 +503,13 @@ export default function BalancesPage() {
         "sale_total",
         "paid_total",
         "debt_total",
+        "tax_iva21",
+        "tax_iva105",
+        "tax_exento",
+        "tax_otros",
+        "tax_noComp",
+        "tax_transf",
+        "tax_total",
         "creation_date",
       ]);
     } else {
@@ -384,6 +519,9 @@ export default function BalancesPage() {
         "debt_total",
         "paid_total",
         "owner",
+        "tax_iva21",
+        "tax_iva105",
+        "tax_total",
       ]);
     }
   };
@@ -399,7 +537,18 @@ export default function BalancesPage() {
     | "travel"
     | "sale_total"
     | "paid_total"
-    | "debt_total";
+    | "debt_total"
+    | "tax_iva21"
+    | "tax_iva105"
+    | "tax_exento"
+    | "tax_otros"
+    | "tax_noComp"
+    | "tax_transf"
+    | "tax_cardBase"
+    | "tax_cardIVA"
+    | "tax_commNoVAT"
+    | "tax_total";
+
   const [sortKey, setSortKey] = useState<SortKey>("creation_date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
@@ -412,6 +561,13 @@ export default function BalancesPage() {
       setSortDir("desc");
       return k;
     });
+  };
+
+  const getTaxFieldSum = (b: NormalizedBooking, field: keyof TaxBucket) => {
+    const ars = b._taxByCurrency.ARS[field] || 0;
+    const usd = b._taxByCurrency.USD[field] || 0;
+    // le doy más peso al ARS para ordenar
+    return ars * 1e6 + usd;
   };
 
   const sortedRows = useMemo(() => {
@@ -462,6 +618,46 @@ export default function BalancesPage() {
         case "debt_total":
           va = (a._debt.ARS || 0) * 1e6 + (a._debt.USD || 0);
           vb = (b._debt.ARS || 0) * 1e6 + (b._debt.USD || 0);
+          break;
+        case "tax_iva21":
+          va = getTaxFieldSum(a, "iva21");
+          vb = getTaxFieldSum(b, "iva21");
+          break;
+        case "tax_iva105":
+          va = getTaxFieldSum(a, "iva105");
+          vb = getTaxFieldSum(b, "iva105");
+          break;
+        case "tax_exento":
+          va = getTaxFieldSum(a, "exento");
+          vb = getTaxFieldSum(b, "exento");
+          break;
+        case "tax_otros":
+          va = getTaxFieldSum(a, "otros");
+          vb = getTaxFieldSum(b, "otros");
+          break;
+        case "tax_noComp":
+          va = getTaxFieldSum(a, "noComp");
+          vb = getTaxFieldSum(b, "noComp");
+          break;
+        case "tax_transf":
+          va = getTaxFieldSum(a, "transf");
+          vb = getTaxFieldSum(b, "transf");
+          break;
+        case "tax_cardBase":
+          va = getTaxFieldSum(a, "cardIntBase");
+          vb = getTaxFieldSum(b, "cardIntBase");
+          break;
+        case "tax_cardIVA":
+          va = getTaxFieldSum(a, "cardIntIVA");
+          vb = getTaxFieldSum(b, "cardIntIVA");
+          break;
+        case "tax_commNoVAT":
+          va = getTaxFieldSum(a, "commSinIVA");
+          vb = getTaxFieldSum(b, "commSinIVA");
+          break;
+        case "tax_total":
+          va = getTaxFieldSum(a, "total");
+          vb = getTaxFieldSum(b, "total");
           break;
       }
 
@@ -585,6 +781,38 @@ export default function BalancesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* ---------- Helpers de impuestos para UI / CSV ---------- */
+
+  function formatTaxField(
+    b: NormalizedBooking,
+    field: keyof TaxBucket,
+  ): string {
+    const parts: string[] = [];
+    for (const code of TAX_CURRENCIES) {
+      const bucket = b._taxByCurrency[code];
+      if (!bucket) continue;
+      const value = bucket[field];
+      if (!value) continue;
+      const fmt = code === "ARS" ? fmtARS : fmtUSD;
+      parts.push(fmt(value));
+    }
+    return parts.join(" / ");
+  }
+
+  const renderTaxCell = (
+    b: NormalizedBooking,
+    field: keyof TaxBucket,
+    tdKey: string,
+    rowPad: string,
+  ) => {
+    const label = formatTaxField(b, field);
+    return (
+      <td key={tdKey} className={`px-4 ${rowPad} text-center`}>
+        {label || <span className="opacity-60">—</span>}
+      </td>
+    );
+  };
+
   /* ---------- CSV (full-scan, no sólo lo cargado) ---------- */
   const toCell = (col: VisibleKey, b: NormalizedBooking): string => {
     let raw = "";
@@ -619,6 +847,36 @@ export default function BalancesPage() {
       case "debt_total":
         raw = b._debtLabel;
         break;
+      case "tax_iva21":
+        raw = formatTaxField(b, "iva21") || "—";
+        break;
+      case "tax_iva105":
+        raw = formatTaxField(b, "iva105") || "—";
+        break;
+      case "tax_exento":
+        raw = formatTaxField(b, "exento") || "—";
+        break;
+      case "tax_otros":
+        raw = formatTaxField(b, "otros") || "—";
+        break;
+      case "tax_noComp":
+        raw = formatTaxField(b, "noComp") || "—";
+        break;
+      case "tax_transf":
+        raw = formatTaxField(b, "transf") || "—";
+        break;
+      case "tax_cardBase":
+        raw = formatTaxField(b, "cardIntBase") || "—";
+        break;
+      case "tax_cardIVA":
+        raw = formatTaxField(b, "cardIntIVA") || "—";
+        break;
+      case "tax_commNoVAT":
+        raw = formatTaxField(b, "commSinIVA") || "—";
+        break;
+      case "tax_total":
+        raw = formatTaxField(b, "total") || "—";
+        break;
     }
     return `"${String(raw).replace(/"/g, '""')}"`;
   };
@@ -641,7 +899,6 @@ export default function BalancesPage() {
         const json: BookingsAPI = await res.json();
         if (!res.ok) throw new Error(json?.error || "Error al exportar CSV");
 
-        // normalizar cada página para reusar formateos
         const pageNorm: NormalizedBooking[] = json.items.map((b) =>
           normalizeBooking(b),
         );
@@ -691,7 +948,7 @@ export default function BalancesPage() {
               Balances / Reservas
             </h1>
             <p className="text-sm opacity-70">
-              Visualizá ventas, cobros y deuda por reserva.
+              Visualizá ventas, cobros, deuda e impuestos por reserva.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -827,25 +1084,22 @@ export default function BalancesPage() {
               <div className="md:col-span-5">
                 <Label>Estados</Label>
                 <div className="flex flex-wrap gap-2">
-                  {["Pendiente", "Pago, Facturado".split(", ")].flat().map(
-                    (st) =>
-                      typeof st === "string" && (
-                        <button
-                          key={`c-${st}`}
-                          onClick={() =>
-                            setClientStatusArr((arr) =>
-                              arr.includes(st)
-                                ? arr.filter((x) => x !== st)
-                                : [...arr, st],
-                            )
-                          }
-                          className={`${CHIP} ${clientStatusArr.includes(st) ? "ring-1 ring-sky-400/50" : ""}`}
-                        >
-                          Cliente: {st}
-                        </button>
-                      ),
-                  )}
-                  {["Pendiente", "Pago"].map((st) => (
+                  {CLIENT_STATUSES.map((st) => (
+                    <button
+                      key={`c-${st}`}
+                      onClick={() =>
+                        setClientStatusArr((arr) =>
+                          arr.includes(st)
+                            ? arr.filter((x) => x !== st)
+                            : [...arr, st],
+                        )
+                      }
+                      className={`${CHIP} ${clientStatusArr.includes(st) ? "ring-1 ring-sky-400/50" : ""}`}
+                    >
+                      Cliente: {st}
+                    </button>
+                  ))}
+                  {OPERATOR_STATUSES.map((st) => (
                     <button
                       key={`o-${st}`}
                       onClick={() =>
@@ -1053,6 +1307,26 @@ export default function BalancesPage() {
                             {b._debtLabel}
                           </td>
                         );
+                      case "tax_iva21":
+                        return renderTaxCell(b, "iva21", col.key, rowPad);
+                      case "tax_iva105":
+                        return renderTaxCell(b, "iva105", col.key, rowPad);
+                      case "tax_exento":
+                        return renderTaxCell(b, "exento", col.key, rowPad);
+                      case "tax_otros":
+                        return renderTaxCell(b, "otros", col.key, rowPad);
+                      case "tax_noComp":
+                        return renderTaxCell(b, "noComp", col.key, rowPad);
+                      case "tax_transf":
+                        return renderTaxCell(b, "transf", col.key, rowPad);
+                      case "tax_cardBase":
+                        return renderTaxCell(b, "cardIntBase", col.key, rowPad);
+                      case "tax_cardIVA":
+                        return renderTaxCell(b, "cardIntIVA", col.key, rowPad);
+                      case "tax_commNoVAT":
+                        return renderTaxCell(b, "commSinIVA", col.key, rowPad);
+                      case "tax_total":
+                        return renderTaxCell(b, "total", col.key, rowPad);
                     }
                   })}
                 </tr>
@@ -1081,7 +1355,7 @@ export default function BalancesPage() {
               )}
             </tbody>
 
-            {/* Totales de lo visible */}
+            {/* Totales de lo visible (ventas / cobros / deuda) */}
             {sortedRows.length > 0 && (
               <tfoot className="border-t border-white/20 bg-white/10 backdrop-blur dark:border-white/10">
                 <tr>
@@ -1290,7 +1564,6 @@ function StatusBadge({
   type: "client" | "op";
   value: string;
 }) {
-  // Colores suaves según valor
   const map: Record<string, string> = {
     pendiente: "bg-amber-500/20 text-amber-900 dark:text-amber-200",
     pago: "bg-emerald-500/20 text-emerald-900 dark:text-emerald-200",
