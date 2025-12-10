@@ -11,7 +11,7 @@ import type { JWTPayload } from "jose";
 type DecimalLike = number | Prisma.Decimal;
 
 type MovementKind =
-  | "income" // Ingresos (cobros, recibos, etc.)
+  | "income" // Ingresos (cobros, etc.)
   | "expense" // Egresos (gastos, pagos, etc.)
   | "client_debt" // Deuda de clientes hacia la agencia
   | "operator_debt" // Deuda de la agencia hacia operadores
@@ -42,6 +42,10 @@ export type CashboxMovement = {
 
   // Para deudas / vencimientos
   dueDate?: string | null; // ISO si aplica
+
+  // NUEVO: clasificación de caja
+  paymentMethod?: string | null; // Efectivo, Transferencia, MP, etc.
+  account?: string | null; // Banco / billetera / caja física, etc.
 };
 
 type CurrencySummary = {
@@ -56,6 +60,22 @@ type DebtSummary = {
   amount: number;
 };
 
+type PaymentMethodSummary = {
+  paymentMethod: string; // "Efectivo", "Transferencia", "Sin método", etc.
+  currency: string;
+  income: number;
+  expenses: number;
+  net: number;
+};
+
+type AccountSummary = {
+  account: string; // "Macro CC", "MP", "Caja local", "Sin cuenta", etc.
+  currency: string;
+  income: number;
+  expenses: number;
+  net: number;
+};
+
 export type CashboxSummaryResponse = {
   // Rango principal de análisis (normalmente un mes)
   range: {
@@ -67,6 +87,10 @@ export type CashboxSummaryResponse = {
 
   // Totales de caja por moneda en el rango
   totalsByCurrency: CurrencySummary[];
+
+  // NUEVO: totales por medio de pago y cuenta
+  totalsByPaymentMethod: PaymentMethodSummary[];
+  totalsByAccount: AccountSummary[];
 
   // Saldos globales (foto actual) por moneda
   balances: {
@@ -209,6 +233,7 @@ function decimalToNumber(value: DecimalLike | null | undefined): number {
 /**
  * Agrega todos los movimientos y arma el resumen “caja”:
  * - Totales por moneda (ingresos / egresos / neto)
+ * - Totales por medio de pago y por cuenta
  * - Deuda clientes / operadores por moneda (puede venir override)
  * - Próximos vencimientos dentro del rango
  */
@@ -228,27 +253,89 @@ function aggregateCashbox(
     { currency: string; income: number; expenses: number }
   >();
 
+  // NUEVO: mapas para medios de pago y cuentas
+  const totalsByPaymentMethodMap = new Map<
+    string,
+    {
+      paymentMethod: string;
+      currency: string;
+      income: number;
+      expenses: number;
+    }
+  >();
+
+  const totalsByAccountMap = new Map<
+    string,
+    { account: string; currency: string; income: number; expenses: number }
+  >();
+
   const clientDebtByCurrencyMap = new Map<string, number>();
   const operatorDebtByCurrencyMap = new Map<string, number>();
   const upcomingDue: CashboxMovement[] = [];
 
   for (const m of movements) {
+    const isCashFlow = m.type === "income" || m.type === "expense";
+
     // === Totales por moneda (solo ingresos / egresos) ===
-    if (!totalsByCurrencyMap.has(m.currency)) {
-      totalsByCurrencyMap.set(m.currency, {
-        currency: m.currency,
-        income: 0,
-        expenses: 0,
-      });
-    }
+    if (isCashFlow) {
+      if (!totalsByCurrencyMap.has(m.currency)) {
+        totalsByCurrencyMap.set(m.currency, {
+          currency: m.currency,
+          income: 0,
+          expenses: 0,
+        });
+      }
 
-    const currentTotals = totalsByCurrencyMap.get(m.currency);
-    if (!currentTotals) continue;
+      const currentTotals = totalsByCurrencyMap.get(m.currency);
+      if (currentTotals) {
+        if (m.type === "income") {
+          currentTotals.income += m.amount;
+        } else if (m.type === "expense") {
+          currentTotals.expenses += m.amount;
+        }
+      }
 
-    if (m.type === "income") {
-      currentTotals.income += m.amount;
-    } else if (m.type === "expense") {
-      currentTotals.expenses += m.amount;
+      // === NUEVO: totales por medio de pago ===
+      const pmLabel = m.paymentMethod?.trim() || "Sin método";
+      const pmKey = `${pmLabel.toLowerCase()}::${m.currency}`;
+
+      if (!totalsByPaymentMethodMap.has(pmKey)) {
+        totalsByPaymentMethodMap.set(pmKey, {
+          paymentMethod: pmLabel,
+          currency: m.currency,
+          income: 0,
+          expenses: 0,
+        });
+      }
+      const pmTotals = totalsByPaymentMethodMap.get(pmKey);
+      if (pmTotals) {
+        if (m.type === "income") {
+          pmTotals.income += m.amount;
+        } else if (m.type === "expense") {
+          pmTotals.expenses += m.amount;
+        }
+      }
+
+      // === NUEVO: totales por cuenta ===
+      const accLabel = m.account?.trim() || "Sin cuenta";
+      const accKey = `${accLabel.toLowerCase()}::${m.currency}`;
+
+      if (!totalsByAccountMap.has(accKey)) {
+        totalsByAccountMap.set(accKey, {
+          account: accLabel,
+          currency: m.currency,
+          income: 0,
+          expenses: 0,
+        });
+      }
+      const accTotals = totalsByAccountMap.get(accKey);
+      if (accTotals) {
+        if (m.type === "income") {
+          accTotals.income += m.amount;
+        } else if (m.type === "expense") {
+          accTotals.expenses += m.amount;
+        }
+      }
     }
 
     // === Deudas por moneda (si no hay override, las calculamos desde movimientos) ===
@@ -274,10 +361,40 @@ function aggregateCashbox(
   // Totales caja por moneda
   const totalsByCurrency: CurrencySummary[] = Array.from(
     totalsByCurrencyMap.values(),
-  ).map((t) => ({
-    ...t,
-    net: t.income - t.expenses,
-  }));
+  )
+    .map((t) => ({
+      ...t,
+      net: t.income - t.expenses,
+    }))
+    .sort((a, b) => a.currency.localeCompare(b.currency, "es"));
+
+  // Totales por medio de pago
+  const totalsByPaymentMethod: PaymentMethodSummary[] = Array.from(
+    totalsByPaymentMethodMap.values(),
+  )
+    .map((t) => ({
+      ...t,
+      net: t.income - t.expenses,
+    }))
+    .sort((a, b) => {
+      const byName = a.paymentMethod.localeCompare(b.paymentMethod, "es");
+      if (byName !== 0) return byName;
+      return a.currency.localeCompare(b.currency, "es");
+    });
+
+  // Totales por cuenta
+  const totalsByAccount: AccountSummary[] = Array.from(
+    totalsByAccountMap.values(),
+  )
+    .map((t) => ({
+      ...t,
+      net: t.income - t.expenses,
+    }))
+    .sort((a, b) => {
+      const byAcc = a.account.localeCompare(b.account, "es");
+      if (byAcc !== 0) return byAcc;
+      return a.currency.localeCompare(b.currency, "es");
+    });
 
   // Deudas calculadas desde movimientos (fallback)
   const computedClientDebtByCurrency: DebtSummary[] = Array.from(
@@ -314,6 +431,8 @@ function aggregateCashbox(
       to: to.toISOString(),
     },
     totalsByCurrency,
+    totalsByPaymentMethod,
+    totalsByAccount,
     balances: {
       clientDebtByCurrency,
       operatorDebtByCurrency,
@@ -413,6 +532,8 @@ async function getMonthlyMovements(
       clientName,
       bookingLabel,
       dueDate: null,
+      paymentMethod: r.payment_method ?? null,
+      account: r.account ?? null,
     };
   });
 
@@ -486,6 +607,8 @@ async function getMonthlyMovements(
       operatorName,
       bookingLabel,
       dueDate: null,
+      paymentMethod: inv.payment_method ?? null,
+      account: inv.account ?? null,
     };
   });
 
@@ -534,6 +657,7 @@ async function getMonthlyMovements(
       clientName,
       bookingLabel,
       dueDate: cp.due_date.toISOString(),
+      // Para deudas no usamos método / cuenta
     };
   });
 
@@ -594,6 +718,7 @@ async function getMonthlyMovements(
       operatorName,
       bookingLabel,
       dueDate: od.due_date.toISOString(),
+      // Deuda, sin método / cuenta
     };
   });
 

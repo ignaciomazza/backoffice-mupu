@@ -42,6 +42,10 @@ type CashboxMovement = {
   operatorName?: string | null;
   bookingLabel?: string | null;
   dueDate?: string | null;
+
+  // Nuevos campos
+  paymentMethod?: string | null;
+  account?: string | null;
 };
 
 type CurrencySummary = {
@@ -56,6 +60,22 @@ type DebtSummary = {
   amount: number;
 };
 
+type PaymentMethodSummary = {
+  paymentMethod: string;
+  currency: string;
+  income: number;
+  expenses: number;
+  net: number;
+};
+
+type AccountSummary = {
+  account: string;
+  currency: string;
+  income: number;
+  expenses: number;
+  net: number;
+};
+
 type CashboxSummaryResponse = {
   range: {
     year: number;
@@ -63,7 +83,14 @@ type CashboxSummaryResponse = {
     from: string;
     to: string;
   };
+
+  // Totales por moneda
   totalsByCurrency: CurrencySummary[];
+
+  // Nuevos totales
+  totalsByPaymentMethod: PaymentMethodSummary[];
+  totalsByAccount: AccountSummary[];
+
   balances: {
     clientDebtByCurrency: DebtSummary[];
     operatorDebtByCurrency: DebtSummary[];
@@ -206,6 +233,8 @@ export default function CashboxPage() {
   // Filtros locales para tabla
   const [filterCurrency, setFilterCurrency] = useState<string>("ALL");
   const [filterType, setFilterType] = useState<MovementKind | "ALL">("ALL");
+  const [filterPaymentMethod, setFilterPaymentMethod] = useState<string>("ALL");
+  const [filterAccount, setFilterAccount] = useState<string>("ALL");
 
   // Monedas desde configuración financiera
   const [financeCurrencies, setFinanceCurrencies] = useState<
@@ -239,7 +268,6 @@ export default function CashboxPage() {
         const res = await authFetch(
           `/api/cashbox?${params.toString()}`,
           {
-            // Dejamos que authFetch maneje los headers / Authorization
             method: "GET",
             cache: "no-store",
           },
@@ -314,6 +342,9 @@ export default function CashboxPage() {
   const operatorDebts = cashbox?.balances.operatorDebtByCurrency ?? [];
   const upcomingDue = cashbox?.upcomingDue ?? [];
 
+  const totalsByPaymentMethod = cashbox?.totalsByPaymentMethod ?? [];
+  const totalsByAccount = cashbox?.totalsByAccount ?? [];
+
   /* ------------------------------
    * Diccionario de labels de moneda y opciones
    * ------------------------------ */
@@ -342,6 +373,32 @@ export default function CashboxPage() {
     return Array.from(all).sort((a, b) => a.localeCompare(b, "es"));
   }, [financeCurrencies, movementCurrencyCodes]);
 
+  // Opciones de medio de pago (sólo ingresos/egresos)
+  const paymentMethodOptions = useMemo(() => {
+    const set = new Set<string>();
+    movements.forEach((m) => {
+      if (m.type === "income" || m.type === "expense") {
+        const label = (m.paymentMethod ?? "Sin método").trim();
+        if (label) set.add(label);
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
+  }, [movements]);
+
+  // Opciones de cuenta según medio de pago seleccionado
+  const accountOptions = useMemo(() => {
+    if (filterPaymentMethod === "ALL") return [];
+    const set = new Set<string>();
+    movements.forEach((m) => {
+      if (m.type !== "income" && m.type !== "expense") return;
+      const pmLabel = (m.paymentMethod ?? "Sin método").trim();
+      if (pmLabel !== filterPaymentMethod) return;
+      const accLabel = (m.account ?? "Sin cuenta").trim();
+      if (accLabel) set.add(accLabel);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
+  }, [movements, filterPaymentMethod]);
+
   // Forzar que filterCurrency siga siendo válido
   useEffect(() => {
     if (
@@ -352,6 +409,29 @@ export default function CashboxPage() {
       setFilterCurrency("ALL");
     }
   }, [currencyOptions, filterCurrency]);
+
+  // Si cambia el medio de pago y ya no existe, reseteamos
+  useEffect(() => {
+    if (
+      filterPaymentMethod !== "ALL" &&
+      paymentMethodOptions.length > 0 &&
+      !paymentMethodOptions.includes(filterPaymentMethod)
+    ) {
+      setFilterPaymentMethod("ALL");
+      setFilterAccount("ALL");
+    }
+  }, [paymentMethodOptions, filterPaymentMethod]);
+
+  // Si la cuenta actual deja de existir para ese medio, reseteamos
+  useEffect(() => {
+    if (
+      filterAccount !== "ALL" &&
+      accountOptions.length > 0 &&
+      !accountOptions.includes(filterAccount)
+    ) {
+      setFilterAccount("ALL");
+    }
+  }, [accountOptions, filterAccount]);
 
   /* ------------------------------
    * Totales por moneda (agrupados por código)
@@ -399,11 +479,26 @@ export default function CashboxPage() {
       const matchCurrency =
         filterCurrency === "ALL" ||
         normCurrency(m.currency) === normCurrency(filterCurrency);
+
       const matchType = filterType === "ALL" || m.type === filterType;
 
-      return matchCurrency && matchType;
+      const pmLabel = (m.paymentMethod ?? "Sin método").trim();
+      const matchPaymentMethod =
+        filterPaymentMethod === "ALL" || pmLabel === filterPaymentMethod;
+
+      const accLabel = (m.account ?? "Sin cuenta").trim();
+      const matchAccount =
+        filterAccount === "ALL" || accLabel === filterAccount;
+
+      return matchCurrency && matchType && matchPaymentMethod && matchAccount;
     });
-  }, [movements, filterCurrency, filterType]);
+  }, [
+    movements,
+    filterCurrency,
+    filterType,
+    filterPaymentMethod,
+    filterAccount,
+  ]);
 
   const handleSetCurrentMonth = () => {
     const current = new Date();
@@ -417,7 +512,6 @@ export default function CashboxPage() {
 
   return (
     <ProtectedRoute>
-      {/* Mantengo la estética general pero con sombras más suaves y neutrales zinc */}
       <main className="min-h-screen text-zinc-900 dark:text-zinc-50">
         <ToastContainer
           position="top-right"
@@ -699,6 +793,129 @@ export default function CashboxPage() {
                 </div>
               </section>
 
+              {/* NUEVO: resumen por medio de pago y por cuenta */}
+              <section className="grid gap-4 md:grid-cols-2">
+                {/* Por medio de pago */}
+                <div className="rounded-3xl border border-white/20 bg-white/10 p-5 shadow-md shadow-zinc-900/10 backdrop-blur dark:border-white/10 dark:bg-sky-900/10 dark:shadow-zinc-950/70">
+                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
+                    Caja por medio de pago
+                  </p>
+                  <p className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                    Cómo se reparten ingresos y egresos entre efectivo,
+                    transferencias, billeteras, etc.
+                  </p>
+
+                  <div className="mt-3 space-y-2">
+                    {totalsByPaymentMethod.length === 0 ? (
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                        No hay movimientos con medios de pago registrados en
+                        este período.
+                      </p>
+                    ) : (
+                      totalsByPaymentMethod.map((t) => {
+                        const code = normCurrency(t.currency);
+                        const label = currencyLabelDict[code];
+                        const isPositive = t.net >= 0;
+
+                        return (
+                          <div
+                            key={`${t.paymentMethod}-${code}`}
+                            className="flex items-center justify-between rounded-2xl bg-white/5 px-3 py-2 dark:bg-sky-900/20"
+                          >
+                            <div>
+                              <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                                {t.paymentMethod || "Sin método"}
+                              </p>
+                              <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                                {code}
+                                {label ? ` — ${label}` : ""}
+                              </p>
+                            </div>
+                            <div className="flex flex-col items-end gap-1 text-[11px]">
+                              <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-100">
+                                {formatAmount(t.income, code)}
+                              </span>
+                              <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-rose-700 dark:bg-rose-500/20 dark:text-rose-100">
+                                {formatAmount(t.expenses, code)}
+                              </span>
+                              <span
+                                className={`rounded-full px-2 py-0.5 ${
+                                  isPositive
+                                    ? "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/25 dark:text-emerald-50"
+                                    : "bg-rose-500/10 text-rose-700 dark:bg-rose-500/25 dark:text-rose-50"
+                                }`}
+                              >
+                                Neto: {formatAmount(t.net, code)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {/* Por cuenta */}
+                <div className="rounded-3xl border border-white/20 bg-white/10 p-5 shadow-md shadow-zinc-900/10 backdrop-blur dark:border-white/10 dark:bg-sky-900/10 dark:shadow-zinc-950/70">
+                  <p className="text-xs font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
+                    Caja por cuenta
+                  </p>
+                  <p className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                    Evolución por cuenta específica (ej. Macro CC, Caja local,
+                    Mercado Pago, etc.).
+                  </p>
+
+                  <div className="mt-3 space-y-2">
+                    {totalsByAccount.length === 0 ? (
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                        No hay movimientos con cuentas asociadas en este
+                        período.
+                      </p>
+                    ) : (
+                      totalsByAccount.map((t) => {
+                        const code = normCurrency(t.currency);
+                        const label = currencyLabelDict[code];
+                        const isPositive = t.net >= 0;
+
+                        return (
+                          <div
+                            key={`${t.account}-${code}`}
+                            className="flex items-center justify-between rounded-2xl bg-white/5 px-3 py-2 dark:bg-sky-900/20"
+                          >
+                            <div>
+                              <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                                {t.account || "Sin cuenta"}
+                              </p>
+                              <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
+                                {code}
+                                {label ? ` — ${label}` : ""}
+                              </p>
+                            </div>
+                            <div className="flex flex-col items-end gap-1 text-[11px]">
+                              <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-100">
+                                {formatAmount(t.income, code)}
+                              </span>
+                              <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-rose-700 dark:bg-rose-500/20 dark:text-rose-100">
+                                {formatAmount(t.expenses, code)}
+                              </span>
+                              <span
+                                className={`rounded-full px-2 py-0.5 ${
+                                  isPositive
+                                    ? "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/25 dark:text-emerald-50"
+                                    : "bg-rose-500/10 text-rose-700 dark:bg-rose-500/25 dark:text-rose-50"
+                                }`}
+                              >
+                                Neto: {formatAmount(t.net, code)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </section>
+
               {/* Movimientos del mes + filtros (sólo ingresos/egresos, sin gráfico) */}
               <section className="rounded-3xl border border-white/20 bg-white/10 p-5 shadow-md shadow-zinc-900/10 backdrop-blur dark:border-white/10 dark:bg-sky-900/10 dark:shadow-zinc-950/80">
                 <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -725,6 +942,7 @@ export default function CashboxPage() {
                     {/* Filtros locales */}
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-3 text-xs">
                       <div className="flex flex-wrap items-center gap-3">
+                        {/* Moneda */}
                         <div className="flex items-center gap-1">
                           <span className="text-zinc-700 dark:text-zinc-300">
                             Moneda:
@@ -745,6 +963,7 @@ export default function CashboxPage() {
                           </select>
                         </div>
 
+                        {/* Tipo */}
                         <div className="flex items-center gap-1">
                           <span className="text-zinc-700 dark:text-zinc-300">
                             Tipo:
@@ -765,6 +984,52 @@ export default function CashboxPage() {
                             ))}
                           </select>
                         </div>
+
+                        {/* Medio de pago */}
+                        <div className="flex items-center gap-1">
+                          <span className="text-zinc-700 dark:text-zinc-300">
+                            Medio:
+                          </span>
+                          <select
+                            value={filterPaymentMethod}
+                            onChange={(e) => {
+                              setFilterPaymentMethod(e.target.value);
+                              setFilterAccount("ALL");
+                            }}
+                            className="cursor-pointer appearance-none rounded-2xl border border-white/30 bg-white/10 px-2 py-1 text-xs text-zinc-900 outline-none backdrop-blur hover:border-emerald-400/60 dark:border-white/15 dark:bg-sky-900/10 dark:text-zinc-100"
+                          >
+                            <option value="ALL">Todos</option>
+                            {paymentMethodOptions.map((pm) => (
+                              <option key={pm} value={pm}>
+                                {pm}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Cuenta (solo si el medio tiene cuentas asociadas) */}
+                        {filterPaymentMethod !== "ALL" &&
+                          accountOptions.length > 0 && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-zinc-700 dark:text-zinc-300">
+                                Cuenta:
+                              </span>
+                              <select
+                                value={filterAccount}
+                                onChange={(e) =>
+                                  setFilterAccount(e.target.value)
+                                }
+                                className="cursor-pointer appearance-none rounded-2xl border border-white/30 bg-white/10 px-2 py-1 text-xs text-zinc-900 outline-none backdrop-blur hover:border-emerald-400/60 dark:border-white/15 dark:bg-sky-900/10 dark:text-zinc-100"
+                              >
+                                <option value="ALL">Todas</option>
+                                {accountOptions.map((acc) => (
+                                  <option key={acc} value={acc}>
+                                    {acc}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
                       </div>
 
                       <p className="text-[10px] text-zinc-500 dark:text-zinc-500">
@@ -845,6 +1110,20 @@ export default function CashboxPage() {
                                     <p className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
                                       Registrado: {formatDateTime(m.date)}
                                     </p>
+                                    {(m.paymentMethod || m.account) && (
+                                      <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-zinc-600 dark:text-zinc-300">
+                                        {m.paymentMethod && (
+                                          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-100">
+                                            Medio: {m.paymentMethod}
+                                          </span>
+                                        )}
+                                        {m.account && (
+                                          <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-sky-800 dark:bg-sky-500/20 dark:text-sky-100">
+                                            Cuenta: {m.account}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
                                 </td>
                                 <td className="whitespace-nowrap px-3 py-2 align-top text-[11px] font-semibold">
