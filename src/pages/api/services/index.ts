@@ -1,5 +1,4 @@
 // src/pages/api/services/index.ts
-
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
@@ -9,7 +8,7 @@ export default async function handler(
   res: NextApiResponse,
 ) {
   if (req.method === "GET") {
-    const { bookingId, page = 1, limit = 10 } = req.query;
+    const { bookingId } = req.query;
 
     if (!bookingId || Array.isArray(bookingId)) {
       return res.status(400).json({ error: "N° de reserva inválido" });
@@ -18,21 +17,17 @@ export default async function handler(
     try {
       const services = await prisma.service.findMany({
         where: { booking_id: Number(bookingId) },
-        skip: (Number(page) - 1) * Number(limit),
-        take: Number(limit),
+        orderBy: { id_service: "asc" }, // opcional, para que siempre vengan ordenados
         include: { booking: true, operator: true },
       });
 
-      const total = await prisma.service.count({
-        where: { booking_id: Number(bookingId) },
-      });
-
-      return res.status(200).json({ services, total });
+      return res.status(200).json({ services, total: services.length });
     } catch (error) {
       console.error("Error al obtener servicios:", error);
       return res.status(500).json({ error: "Error al obtener servicios." });
     }
   } else if (req.method === "POST") {
+    // 👇 tu código POST queda igual
     const {
       type,
       description,
@@ -80,11 +75,9 @@ export default async function handler(
       });
     }
 
-    // Parseamos las fechas
     const parsedDepartureDate = new Date(departure_date);
     const parsedReturnDate = new Date(return_date);
 
-    // Verificamos que exista la reserva y el operador
     const bookingExists = await prisma.booking.findUnique({
       where: { id_booking: Number(booking_id) },
     });
@@ -140,7 +133,6 @@ export default async function handler(
       return res.status(201).json(service);
     } catch (error) {
       console.error("Error al crear servicio:", error);
-      // Ejemplo de manejo de error para duplicados con Prisma (código P2002)
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === "P2002") {
           return res.status(400).json({
