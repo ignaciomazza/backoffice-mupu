@@ -150,7 +150,24 @@ export default function DestinationPicker({
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
-  // Buscar opciones (destinos o países)
+  // helper simple (sin librerías)
+  const normText = (s: string) =>
+    (s || "")
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase()
+      .trim();
+
+  const looksLikeCountryQuery = (q: string) => {
+    const s = q.trim();
+    if (!s) return false;
+    // si el usuario escribe "Paris, Francia" no es país-only
+    if (s.includes(",")) return false;
+    // si mete números o símbolos raros, evitamos
+    if (/[0-9]/.test(s)) return false;
+    return true;
+  };
+
   const fetchOptions = useCallback(
     async (q: string) => {
       if (!token) return;
@@ -160,10 +177,16 @@ export default function DestinationPicker({
 
       try {
         setLoading(true);
+
+        const take = 15;
+        const cleanQ = q.trim();
+
+        // =========================
+        // 1) Fetch principal (igual que hoy)
+        // =========================
         const params = new URLSearchParams();
-        if (q.trim()) params.set("q", q.trim());
-        params.set("take", "15");
-        // no queremos inactivos
+        if (cleanQ) params.set("q", cleanQ);
+        params.set("take", String(take));
         params.set("includeDisabled", includeDisabled ? "true" : "false");
 
         const url =
@@ -176,12 +199,10 @@ export default function DestinationPicker({
           { cache: "no-store", signal: c.signal },
           token,
         );
-
         if (!res.ok) throw new Error("No se pudo obtener resultados");
-
         const json = await res.json();
 
-        const opts: DestinationOption[] =
+        let opts: DestinationOption[] =
           type === "destination"
             ? ((json.items as APIDestination[]) || []).map((d) => ({
                 id: d.id_destination,
@@ -195,16 +216,105 @@ export default function DestinationPicker({
                 displayLabel: `${d.name}, ${d.country.name} (${d.country.iso2})`,
                 raw: d,
               }))
-            : ((json.items as APICountry[]) || []).map((c) => ({
-                id: c.id_country,
+            : ((json.items as APICountry[]) || []).map((co) => ({
+                id: co.id_country,
                 kind: "country",
-                name: c.name,
-                country: { id: c.id_country, name: c.name, iso2: c.iso2 },
-                displayLabel: `${c.name} (${c.iso2})`,
-                raw: c,
+                name: co.name,
+                country: { id: co.id_country, name: co.name, iso2: co.iso2 },
+                displayLabel: `${co.name} (${co.iso2})`,
+                raw: co,
               }));
 
-        // Excluir los que ya están seleccionados (en multiple)
+        // =========================
+        // 2) Fallback: si buscás DESTINOS y el texto parece PAÍS,
+        // traemos destinos del país aunque el país esté "deshabilitado" como destino.
+        // =========================
+        if (
+          type === "destination" &&
+          cleanQ.length >= minChars &&
+          looksLikeCountryQuery(cleanQ) &&
+          // criterio simple: si no hay resultados o hay muy pocos
+          opts.length < 3
+        ) {
+          // 2.a) buscamos el país (permitiendo disabled) para obtener countryId
+          const cparams = new URLSearchParams();
+          cparams.set("q", cleanQ);
+          cparams.set("take", "5");
+          cparams.set("includeDisabled", "true"); // IMPORTANTE: acá siempre true
+
+          const cres = await authFetch(
+            `/api/countries?${cparams.toString()}`,
+            { cache: "no-store", signal: c.signal },
+            token,
+          );
+
+          if (cres.ok) {
+            const cjson = await cres.json();
+            const countries = (cjson.items as APICountry[]) || [];
+
+            const qn = normText(cleanQ);
+            const best =
+              countries.find((x) => normText(x.name) === qn) ||
+              countries.find((x) => normText(x.name).startsWith(qn)) ||
+              countries[0];
+
+            // solo si el match es razonable (evita “a” => Afganistán)
+            const isReasonableMatch =
+              !!best &&
+              (normText(best.name) === qn ||
+                (qn.length >= 3 && normText(best.name).startsWith(qn)));
+
+            if (best && isReasonableMatch) {
+              // 2.b) traemos destinos por countryId (sin q)
+              const dparams = new URLSearchParams();
+              dparams.set("countryId", String(best.id_country));
+              dparams.set("take", String(take));
+              dparams.set(
+                "includeDisabled",
+                includeDisabled ? "true" : "false",
+              );
+
+              const dres = await authFetch(
+                `/api/destinations?${dparams.toString()}`,
+                { cache: "no-store", signal: c.signal },
+                token,
+              );
+
+              if (dres.ok) {
+                const djson = await dres.json();
+                const byCountry = ((djson.items as APIDestination[]) || []).map(
+                  (d) => ({
+                    id: d.id_destination,
+                    kind: "destination" as const,
+                    name: d.name,
+                    country: {
+                      id: d.country.id_country,
+                      name: d.country.name,
+                      iso2: d.country.iso2,
+                    },
+                    displayLabel: `${d.name}, ${d.country.name} (${d.country.iso2})`,
+                    raw: d,
+                  }),
+                );
+
+                // merge + dedupe por id_destination
+                const seen = new Set<number>();
+                const merged: DestinationOption[] = [];
+                for (const o of [...byCountry, ...opts]) {
+                  if (o.kind !== "destination") continue;
+                  if (seen.has(o.id)) continue;
+                  seen.add(o.id);
+                  merged.push(o);
+                }
+
+                // si el user escribió un país, priorizamos destinos del país
+                opts = merged.length ? merged : opts;
+              }
+            }
+          }
+        }
+
+        // Excluir ya seleccionados (multiple)
         const filtered =
           multiple && selectedList.length
             ? opts.filter(
@@ -221,7 +331,7 @@ export default function DestinationPicker({
         setLoading(false);
       }
     },
-    [token, type, multiple, selectedList, includeDisabled],
+    [token, type, multiple, selectedList, includeDisabled, minChars],
   );
 
   // Dispara búsqueda cuando cambia el query debounced
@@ -298,9 +408,9 @@ export default function DestinationPicker({
         {type === "destination" ? "Destino" : "País"}
       </label>
       {includeDisabled === false && type !== "destination" && (
-        <p className=" text-xs text-red-500 mb-1">
-          Paises como Argentina o Brasil no se pueden seleccionar
-          como destinos, se mas especifico.
+        <p className="mb-1 text-xs text-red-500">
+          Paises como Argentina o Brasil no se pueden seleccionar como destinos,
+          se mas especifico.
         </p>
       )}
 
