@@ -280,12 +280,8 @@ export default function InsightsPage() {
 
         const res = await authFetch(
           url,
-          {
-            method: "GET",
-            signal: controller.signal,
-            cache: "no-store",
-          },
-          token, // acá ya es seguro usar token directo
+          { method: "GET", signal: controller.signal, cache: "no-store" },
+          token || undefined,
         );
 
         if (!res.ok) {
