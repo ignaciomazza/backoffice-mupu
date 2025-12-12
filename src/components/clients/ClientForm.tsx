@@ -419,6 +419,7 @@ export default function ClientForm({
                     value={null}
                     onChange={handleNationalitySelect}
                     placeholder="Ej.: Argentina, Uruguay…"
+                    includeDisabled={true}
                     className={
                       isRequired("nationality") && !fieldIsFilled("nationality")
                         ? // remarcar en rojo si falta

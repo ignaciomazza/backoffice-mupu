@@ -68,6 +68,8 @@ type DestinationPickerProps = {
   hint?: string;
   /** Mínimo de caracteres para empezar a buscar */
   minChars?: number; // default 1
+
+  includeDisabled?: boolean;
 };
 
 function useDebounced<T>(value: T, delay = 350) {
@@ -104,6 +106,7 @@ export default function DestinationPicker({
   name,
   hint,
   minChars = 1,
+  includeDisabled = false,
 }: DestinationPickerProps) {
   const { token } = useAuth();
 
@@ -161,7 +164,7 @@ export default function DestinationPicker({
         if (q.trim()) params.set("q", q.trim());
         params.set("take", "15");
         // no queremos inactivos
-        params.set("includeDisabled", "false");
+        params.set("includeDisabled", includeDisabled ? "true" : "false");
 
         const url =
           type === "destination"
@@ -218,7 +221,7 @@ export default function DestinationPicker({
         setLoading(false);
       }
     },
-    [token, type, multiple, selectedList],
+    [token, type, multiple, selectedList, includeDisabled],
   );
 
   // Dispara búsqueda cuando cambia el query debounced
