@@ -16,6 +16,7 @@ type Role =
   | "gerente"
   | "vendedor"
   | "lider"
+  | "marketing"
   | string;
 
 /* =========================
@@ -116,8 +117,10 @@ export default function SideBar({
   // ACL por ruta (más simple)
   // =========================
   const routeAccess = useMemo(() => {
-    const adm = ["desarrollador", "gerente", "administrativo"];
-    const devMgr = ["desarrollador", "gerente"];
+    const adm: Role[] = ["desarrollador", "gerente", "administrativo"];
+    const devMgr: Role[] = ["desarrollador", "gerente"];
+    const insightsRoles: Role[] = [...adm, "marketing"];
+
     return {
       "/operators": ["desarrollador", "administrativo", "gerente"],
       "/agency": devMgr,
@@ -138,6 +141,7 @@ export default function SideBar({
       "/finance/config": adm,
       "/credits": adm,
       "/cashbox": adm,
+      "/insights": insightsRoles,
       // por defecto -> sin restricción
     } as Record<string, Role[]>;
   }, []);
@@ -189,6 +193,9 @@ export default function SideBar({
         title: "Reservas",
         items: [
           { href: "/bookings", label: "Reservas" },
+          hasAccess("/insights")
+            ? { href: "/insights", label: "Estadisticas" }
+            : null,
           hasAccess("/invoices")
             ? { href: "/invoices", label: "Facturas" }
             : null,
@@ -201,12 +208,10 @@ export default function SideBar({
         id: "finanzas",
         title: "Finanzas",
         items: [
-          hasAccess("/cashbox")
-            ? { href: "/cashbox", label: "Caja" }
-            : null, // NUEVO
+          hasAccess("/cashbox") ? { href: "/cashbox", label: "Caja" } : null,
           hasAccess("/credits")
             ? { href: "/credits", label: "Créditos" }
-            : null, // NUEVO
+            : null,
           hasAccess("/investments")
             ? { href: "/investments", label: "Inversión" }
             : null,

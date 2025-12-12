@@ -358,3 +358,91 @@ export interface TemplateConfig<T extends DocType = DocType> {
   created_at: string;
   updated_at: string;
 }
+
+// ==========================
+// Insights comerciales
+// ==========================
+
+export type InsightsCurrencyCode = string;
+
+/**
+ * Mapa dinámico por moneda, por ejemplo:
+ * { "ARS": 120000, "USD": 500, "EUR": 200 }
+ *
+ * Las claves deberían coincidir con FinanceCurrency.code
+ * o el campo que uses como identificador de moneda.
+ */
+export type InsightsMoneyPerCurrency = Record<InsightsCurrencyCode, number>;
+
+export interface CommercialSummaryBlock {
+  /** Cantidad de reservas en el período */
+  reservations: number;
+  /** Pasajeros totales (sumatoria de pax) */
+  passengers: number;
+  /** Ticket promedio por moneda (total / reservas) */
+  avgTicket: InsightsMoneyPerCurrency;
+  /** Ticket mediano por moneda (para evitar outliers) */
+  medianTicket: InsightsMoneyPerCurrency;
+  /** Anticipación promedio en días (fecha reserva → fecha salida) */
+  avgAnticipationDays: number | null;
+}
+
+export interface DestinationItem {
+  destinationKey: string;
+  countryCode?: string | null;
+  reservations: number;
+  passengers: number;
+  /** Monto total vendido hacia ese destino, por moneda */
+  totalAmount: InsightsMoneyPerCurrency;
+  /** Ticket promedio por reserva hacia ese destino, por moneda */
+  avgTicket: InsightsMoneyPerCurrency;
+}
+
+export interface ChannelItem {
+  /** Canal / origen de venta: Instagram, Google Ads, Referido, Local, etc. */
+  channel: string;
+  reservations: number;
+  passengers: number;
+  /** Ticket promedio por reserva en ese canal, por moneda */
+  avgTicket: InsightsMoneyPerCurrency;
+}
+
+export interface NewReturningBlock {
+  newClients: {
+    reservations: number;
+    passengers: number;
+    totalAmount: InsightsMoneyPerCurrency;
+    avgTicket: InsightsMoneyPerCurrency;
+  };
+  returningClients: {
+    reservations: number;
+    passengers: number;
+    totalAmount: InsightsMoneyPerCurrency;
+    avgTicket: InsightsMoneyPerCurrency;
+  };
+}
+
+export interface TopClientItem {
+  /** Puede venir null si hay reservas sin cliente asociado explícitamente */
+  id_client: number | null;
+  name: string;
+  reservations: number;
+  passengers: number;
+  totalAmount: InsightsMoneyPerCurrency;
+  /** Última fecha de reserva de ese cliente (ISO) */
+  lastBookingDate: string | null;
+}
+
+export interface CommercialInsightsResponse {
+  summary: CommercialSummaryBlock;
+  destinations: {
+    topDestinations: DestinationItem[];
+  };
+  channels: {
+    byOrigin: ChannelItem[];
+  };
+  clients: {
+    newVsReturning: NewReturningBlock;
+    topClients: TopClientItem[];
+  };
+}
