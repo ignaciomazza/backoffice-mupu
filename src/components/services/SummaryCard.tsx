@@ -185,7 +185,7 @@ export default function SummaryCard({
   };
   const { token } = useAuth();
 
-  /* ====== Config de cálculo y costo de transferencia + earnings ====== */
+  /* ====== Config de cálculo y costos bancarios + earnings ====== */
   const [agencyMode, setAgencyMode] = useState<"auto" | "manual">("auto");
   const [transferPct, setTransferPct] = useState<number>(0.024); // fallback 2.4%
   const [ownerPct, setOwnerPct] = useState<number>(100);
@@ -427,7 +427,7 @@ export default function SummaryCard({
             <Spinner />
           </div>
           <span>
-            Calculando impuestos, costos de transferencia y ganancias…
+            Calculando impuestos, costos bancarios y ganancias…
           </span>
         </div>
       </div>
@@ -596,7 +596,7 @@ export default function SummaryCard({
               <footer className="mt-4 flex justify-between rounded-2xl border border-white/5 bg-white/10 p-3">
                 <div>
                   <p className="text-sm opacity-70">
-                    Total Comisión (Sin Impuestos / Costos Transferencia)
+                    Total Comisión (Sin Impuestos / Costos bancarios)
                   </p>
                   <p className="text-lg font-semibold tabular-nums">
                     {fmt(

@@ -758,7 +758,7 @@ const VIDEOS: TutorialVideo[] = [
   {
     title:
       "Ofistur #9: Agencia — Identidad, AFIP, Operadores, Usuarios y Roles",
-    desc: "Ajustá datos de la agencia (logo, certificados AFIP, costos por transferencia), gestioná Operadores, Usuarios y Equipos de ventas, y administrá roles y contraseñas con control fino de permisos. Más información.",
+    desc: "Ajustá datos de la agencia (logo, certificados AFIP, Costos bancarios), gestioná Operadores, Usuarios y Equipos de ventas, y administrá roles y contraseñas con control fino de permisos. Más información.",
     videoUrl: "https://youtu.be/3hXinQcW1ck",
   },
   {

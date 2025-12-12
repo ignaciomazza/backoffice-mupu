@@ -55,7 +55,7 @@ type ServiceFormProps = {
   isFormVisible: boolean;
   setIsFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
   onBillingUpdate?: (data: BillingData) => void;
-  /** Fallback para fee de transferencia si no viene de config del tipo o de la API */
+  /** Fallback para costos bancarios si no viene de config del tipo o de la API */
   agencyTransferFeePct: number;
   token: string | null;
   /** NUEVO: indica que ya se leyó correctamente la config global de fee */
@@ -1271,7 +1271,7 @@ export default function ServiceForm({
 
                 <div className="col-span-full">
                   <div className="rounded-xl border border-white/10 bg-white/10 p-3 text-xs">
-                    <span className="font-medium">Costo por transferencia</span>{" "}
+                    <span className="font-medium">Costos bancarios</span>{" "}
                     aplicado en cálculos:{" "}
                     <span className="rounded-full bg-white/30 px-2 py-0.5 font-medium">
                       {(pctToShow * 100).toFixed(2)}%

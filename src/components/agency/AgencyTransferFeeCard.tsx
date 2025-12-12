@@ -38,7 +38,7 @@ export default function AgencyTransferFeeCard() {
         setPctStr((pct * 100).toFixed(2));
       } catch (e) {
         console.error("[agency/transfer-fee][GET]", e);
-        toast.error("Error cargando el costo por transferencia");
+        toast.error("Error cargando el costo bancarios");
       } finally {
         setLoading(false);
       }
@@ -73,7 +73,7 @@ export default function AgencyTransferFeeCard() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err?.error || "No se pudo guardar el porcentaje");
       }
-      toast.success("Costo por transferencia actualizado");
+      toast.success("Costos bancarios actualizados");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Error guardando";
       toast.error(msg);
@@ -89,7 +89,7 @@ export default function AgencyTransferFeeCard() {
     >
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-medium text-sky-950 dark:text-white">
-          Costo por transferencia
+          Costos bancarios
         </h2>
         {forbidden && (
           <span className="text-xs text-sky-950/60 dark:text-white/60">
@@ -100,7 +100,7 @@ export default function AgencyTransferFeeCard() {
 
       <p className="text-sm text-sky-950/80 dark:text-white/70">
         Este porcentaje se usa por defecto para calcular los{" "}
-        <i>costos por transferencia</i> de los servicios (por ej. 2.40% =
+        <i>costos bancarios</i> de los servicios (por ej. 2.40% =
         0.024). No modifica servicios ya guardados.
       </p>
 

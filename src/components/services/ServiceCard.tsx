@@ -352,7 +352,7 @@ export default function ServiceCard({
 
           <Section title="Totales">
             <Row
-              label={`Costo por transferencia · ${(Number(feePct || 0) * 100).toFixed(2)}%`}
+              label={`Costos bancarios · ${(Number(feePct || 0) * 100).toFixed(2)}%`}
               value={fmtMoney(feeAmount)}
             />
             <Row

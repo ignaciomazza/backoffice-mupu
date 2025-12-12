@@ -839,7 +839,7 @@ export default function BookingsConfigPage() {
                     </div>
 
                     <div className="mb-4">
-                      <Label>Costo por transferencia</Label>
+                      <Label>Costos bancarios</Label>
                       <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[1fr,90px]">
                         <div className="rounded-2xl border border-white/10 p-3">
                           <input
@@ -854,7 +854,7 @@ export default function BookingsConfigPage() {
                             }}
                             disabled={!canEdit}
                             className="w-full"
-                            aria-label="Porcentaje de costo por transferencia"
+                            aria-label="Porcentaje de costos bancarios"
                           />
                         </div>
                         <div className="flex items-end gap-2">

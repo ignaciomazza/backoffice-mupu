@@ -23,7 +23,7 @@ export default function BillingBreakdownManual({
   onBillingUpdate,
   transferFeePct = 0.024,
 }: Props) {
-  // Fee por transferencia
+  // Costos bancarios
   const transferFee = round(importeVenta * (transferFeePct ?? 0), 2);
 
   // Comisión **antes** del fee (para respetar contrato: totalCommissionWithoutVAT = base antes del fee)
@@ -95,7 +95,7 @@ export default function BillingBreakdownManual({
       <h3 className="mb-2 text-base font-semibold">Impuestos</h3>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         <Row label="Impuestos (manual)" value={impuestos} />
-        <Row label="Fee transferencia" value={transferFee} />
+        <Row label="Costos bancarios" value={transferFee} />
       </div>
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/20 p-3">
