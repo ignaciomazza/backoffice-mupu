@@ -297,6 +297,12 @@ export default function DestinationPicker({
       <label className="mb-1 block text-sm opacity-80">
         {type === "destination" ? "Destino" : "País"}
       </label>
+      {includeDisabled === false && type !== "destination" && (
+        <p className=" text-xs text-red-500 mb-1">
+          Paises como Argentina o Brasil no se pueden seleccionar
+          como destinos, se mas especifico.
+        </p>
+      )}
 
       {/* Input + chips (para multiple) */}
       <div

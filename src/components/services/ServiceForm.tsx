@@ -963,7 +963,7 @@ export default function ServiceForm({
                     onValidChange={setDestValid}
                     placeholder={
                       countryMode
-                        ? "Ej.: Argentina, Brasil…"
+                        ? "Ej.: Italia, Peru..."
                         : "Ej.: París, Salta…"
                     }
                     hint={
