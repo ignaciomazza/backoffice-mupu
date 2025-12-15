@@ -964,6 +964,15 @@ export default function CreditsPage() {
                                         placeholder="Ej: 150000 o 150.000,50"
                                         className="w-full rounded-2xl border border-white/10 bg-white/20 px-3 py-2 text-sm outline-none dark:bg-white/10"
                                       />
+                                      <label className="text-xs opacity-70">
+                                        Nuevo:{" "}
+                                        <b>
+                                          {formatAmount(
+                                            Number(adjustTarget[id]),
+                                            cur,
+                                          )}
+                                        </b>
+                                      </label>
                                       <div className="mt-2 text-xs opacity-70">
                                         Actual:{" "}
                                         <b>
