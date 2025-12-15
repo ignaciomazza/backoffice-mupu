@@ -126,8 +126,15 @@ export default async function handler(
           receipt_id: true,
           investment_id: true,
           operator_due_id: true,
+
+          // NUEVO:
+          created_by: true,
+          createdBy: {
+            select: { first_name: true, last_name: true, email: true },
+          },
         },
       });
+
       return res.status(200).json({ ...account, recentEntries: recent });
     } catch (e) {
       console.error("[credit/account/:id][GET]", e);

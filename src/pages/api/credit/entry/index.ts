@@ -125,7 +125,12 @@ function toLocalDate(v?: string | null): Date | undefined {
 const DOC_SIGN: Record<string, number> = {
   investment: -1,
   receipt: 1,
+
+  // NUEVOS: ajustes manuales
+  adjust_up: 1,
+  adjust_down: -1,
 };
+
 const normDoc = (s?: string | null) => (s || "").trim().toLowerCase();
 function signForDocType(dt?: string | null): number {
   return DOC_SIGN[normDoc(dt)] ?? 1;

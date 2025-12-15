@@ -50,9 +50,15 @@ const normDoc = (s?: string | null) => (s || "").trim().toLowerCase();
 function signedByDocType(amount: unknown, docType?: string | null): number {
   const a = Math.abs(Number(amount) || 0);
   const dt = normDoc(docType);
+
   if (dt === "investment") return -a;
   if (dt === "receipt") return +a;
-  return a; // fallback hasta definir otras reglas
+
+  // NUEVO
+  if (dt === "adjust_down") return -a;
+  if (dt === "adjust_up") return +a;
+
+  return a;
 }
 
 /* ===== Cookies utils (igual lógica que Services) ===== */
@@ -113,6 +119,12 @@ type CreditEntry = {
   receipt_id?: number | null;
   investment_id?: number | null;
   operator_due_id?: number | null;
+  created_by?: number | null;
+  createdBy?: {
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+  } | null;
 };
 
 type CreditAccount = {
@@ -164,6 +176,26 @@ function pillClasses(tone: Tone) {
     zinc: "border-white/10 bg-white/10 text-sky-950 dark:text-white",
   };
   return `${base} ${map[tone]}`;
+}
+
+function docTypeMeta(docType?: string | null): {
+  tone: Tone;
+  label: string;
+  icon?: JSX.Element;
+} {
+  const dt = normDoc(docType);
+
+  if (dt === "investment")
+    return { tone: "rose", label: "Inversión", icon: <DownIcon /> };
+  if (dt === "receipt")
+    return { tone: "emerald", label: "Recibo", icon: <UpIcon /> };
+
+  if (dt === "adjust_down")
+    return { tone: "rose", label: "Ajuste -", icon: <DownIcon /> };
+  if (dt === "adjust_up")
+    return { tone: "emerald", label: "Ajuste +", icon: <UpIcon /> };
+
+  return { tone: "zinc", label: docType || "—" };
 }
 
 function ChevronIcon({ open }: { open: boolean }) {
@@ -663,6 +695,38 @@ export default function CreditsPage() {
     setOnlyEnabled(true);
   };
 
+  const canAdjust = useMemo(() => {
+    const r = String(user?.role || role || "").toLowerCase();
+    return ["gerente", "administrativo", "desarrollador"].includes(r);
+  }, [user?.role, role]);
+
+  const [adjustOpen, setAdjustOpen] = useState<Record<number, boolean>>({});
+  const [adjustTarget, setAdjustTarget] = useState<Record<number, string>>({});
+  const [adjustReason, setAdjustReason] = useState<Record<number, string>>({});
+  const [adjusting, setAdjusting] = useState<Record<number, boolean>>({});
+
+  function parseAmountInput(raw: string): number | null {
+    if (!raw) return null;
+    let s = raw.trim().replace(/\s+/g, "");
+    if (!s) return null;
+
+    const hasComma = s.includes(",");
+    const hasDot = s.includes(".");
+
+    if (hasComma && hasDot) {
+      if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
+        s = s.replace(/\./g, "").replace(",", ".");
+      } else {
+        s = s.replace(/,/g, "");
+      }
+    } else if (hasComma) {
+      s = s.replace(",", ".");
+    }
+
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+
   return (
     <ProtectedRoute>
       {!token ? (
@@ -863,6 +927,256 @@ export default function CreditsPage() {
                               </label>
                             </div>
 
+                            {canAdjust && (
+                              <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <p className="text-sm font-semibold">
+                                    Ajustar saldo (auditado)
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setAdjustOpen((m) => ({
+                                        ...m,
+                                        [id]: !m[id],
+                                      }))
+                                    }
+                                    className="rounded-full bg-sky-100 px-4 py-1.5 text-sm text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white"
+                                  >
+                                    {adjustOpen[id] ? "Cerrar" : "Ajustar"}
+                                  </button>
+                                </div>
+
+                                {adjustOpen[id] && (
+                                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                                    <div className="md:col-span-1">
+                                      <label className="ml-1 block text-xs font-medium opacity-80">
+                                        Nuevo saldo (se setea)
+                                      </label>
+                                      <input
+                                        value={adjustTarget[id] ?? ""}
+                                        onChange={(e) =>
+                                          setAdjustTarget((m) => ({
+                                            ...m,
+                                            [id]: e.target.value,
+                                          }))
+                                        }
+                                        placeholder="Ej: 150000 o 150.000,50"
+                                        className="w-full rounded-2xl border border-white/10 bg-white/20 px-3 py-2 text-sm outline-none dark:bg-white/10"
+                                      />
+                                      <div className="mt-2 text-xs opacity-70">
+                                        Actual:{" "}
+                                        <b>
+                                          {formatAmount(
+                                            Number(balanceLocal || 0),
+                                            cur,
+                                          )}
+                                        </b>
+                                      </div>
+                                    </div>
+
+                                    <div className="md:col-span-2">
+                                      <label className="ml-1 block text-xs font-medium opacity-80">
+                                        Motivo (obligatorio)
+                                      </label>
+                                      <input
+                                        value={adjustReason[id] ?? ""}
+                                        onChange={(e) =>
+                                          setAdjustReason((m) => ({
+                                            ...m,
+                                            [id]: e.target.value,
+                                          }))
+                                        }
+                                        placeholder="Ej: Corrección por saldo inicial / conciliación..."
+                                        className="w-full rounded-2xl border border-white/10 bg-white/20 px-3 py-2 text-sm outline-none dark:bg-white/10"
+                                      />
+
+                                      {(() => {
+                                        const target = parseAmountInput(
+                                          adjustTarget[id] ?? "",
+                                        );
+                                        const current = Number(
+                                          balanceLocal || 0,
+                                        );
+                                        const delta =
+                                          target == null
+                                            ? null
+                                            : target - current;
+                                        const deltaTone: Tone =
+                                          delta == null
+                                            ? "zinc"
+                                            : delta < 0
+                                              ? "rose"
+                                              : delta > 0
+                                                ? "emerald"
+                                                : "zinc";
+
+                                        return (
+                                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                                            <span
+                                              className={pillClasses(deltaTone)}
+                                            >
+                                              Diferencia:{" "}
+                                              <b className="ml-1">
+                                                {delta == null
+                                                  ? "—"
+                                                  : formatAmount(delta, cur)}
+                                              </b>
+                                            </span>
+
+                                            <button
+                                              type="button"
+                                              disabled={!!adjusting[id]}
+                                              onClick={async () => {
+                                                if (!token) return;
+
+                                                const target = parseAmountInput(
+                                                  adjustTarget[id] ?? "",
+                                                );
+                                                if (target == null) {
+                                                  toast.error(
+                                                    "Ingresá un saldo válido.",
+                                                  );
+                                                  return;
+                                                }
+                                                const reason = String(
+                                                  adjustReason[id] ?? "",
+                                                ).trim();
+                                                if (!reason) {
+                                                  toast.error(
+                                                    "Ingresá un motivo (obligatorio).",
+                                                  );
+                                                  return;
+                                                }
+
+                                                setAdjusting((m) => ({
+                                                  ...m,
+                                                  [id]: true,
+                                                }));
+                                                try {
+                                                  const r = await authFetch(
+                                                    `/api/credit/account/${id}/adjust`,
+                                                    {
+                                                      method: "POST",
+                                                      body: JSON.stringify({
+                                                        target_balance: String(
+                                                          adjustTarget[id] ??
+                                                            "",
+                                                        ).trim(),
+                                                        reason,
+                                                      }),
+                                                    },
+                                                    token,
+                                                  );
+
+                                                  const body =
+                                                    (await safeJson<{
+                                                      error?: string;
+                                                      account?: {
+                                                        balance?: unknown;
+                                                      };
+                                                    }>(r)) ?? {};
+                                                  if (!r.ok) {
+                                                    throw new Error(
+                                                      body.error ||
+                                                        "No se pudo ajustar el saldo",
+                                                    );
+                                                  }
+
+                                                  toast.success(
+                                                    "Saldo ajustado (queda registrado).",
+                                                  );
+
+                                                  // refrescar lista + detalles
+                                                  await (async () => {
+                                                    // 1) refrescar detalles (para ver el asiento nuevo)
+                                                    setDetailsLoading((m) => ({
+                                                      ...m,
+                                                      [id]: true,
+                                                    }));
+                                                    try {
+                                                      const dres =
+                                                        await authFetch(
+                                                          `/api/credit/account/${id}`,
+                                                          { cache: "no-store" },
+                                                          token,
+                                                        );
+                                                      if (dres.ok) {
+                                                        const dj =
+                                                          await safeJson<CreditAccount>(
+                                                            dres,
+                                                          );
+                                                        if (dj) {
+                                                          setDetails(
+                                                            (prev) => ({
+                                                              ...prev,
+                                                              [id]: dj,
+                                                            }),
+                                                          );
+                                                          setItems((prev) =>
+                                                            prev.map((a) =>
+                                                              a.id_credit_account ===
+                                                              id
+                                                                ? {
+                                                                    ...a,
+                                                                    balance:
+                                                                      dj.balance,
+                                                                  }
+                                                                : a,
+                                                            ),
+                                                          );
+                                                        }
+                                                      }
+                                                    } finally {
+                                                      setDetailsLoading(
+                                                        (m) => ({
+                                                          ...m,
+                                                          [id]: false,
+                                                        }),
+                                                      );
+                                                    }
+                                                  })();
+
+                                                  setAdjustOpen((m) => ({
+                                                    ...m,
+                                                    [id]: false,
+                                                  }));
+                                                  setAdjustTarget((m) => ({
+                                                    ...m,
+                                                    [id]: "",
+                                                  }));
+                                                  setAdjustReason((m) => ({
+                                                    ...m,
+                                                    [id]: "",
+                                                  }));
+                                                } catch (e) {
+                                                  toast.error(
+                                                    e instanceof Error
+                                                      ? e.message
+                                                      : "Error al ajustar",
+                                                  );
+                                                } finally {
+                                                  setAdjusting((m) => ({
+                                                    ...m,
+                                                    [id]: false,
+                                                  }));
+                                                }
+                                              }}
+                                              className="rounded-full bg-emerald-500/20 px-4 py-1.5 text-sm font-medium text-emerald-900 disabled:opacity-60 dark:text-emerald-200"
+                                            >
+                                              {adjusting[id]
+                                                ? "Guardando..."
+                                                : "Confirmar ajuste"}
+                                            </button>
+                                          </div>
+                                        );
+                                      })()}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
                             {/* Movimientos recientes */}
                             <div>
                               <p className="mb-2 text-sm font-semibold">
@@ -884,13 +1198,13 @@ export default function CreditsPage() {
                                       m.doc_type,
                                     );
                                     const amtTone: Tone =
-                                      signed < 0 ? "rose" : "emerald";
-                                    const docTone: Tone =
-                                      normDoc(m.doc_type) === "investment"
+                                      signed < 0
                                         ? "rose"
-                                        : normDoc(m.doc_type) === "receipt"
+                                        : signed > 0
                                           ? "emerald"
                                           : "zinc";
+                                    const meta = docTypeMeta(m.doc_type);
+
                                     return (
                                       <div
                                         key={m.id_entry}
@@ -901,31 +1215,38 @@ export default function CreditsPage() {
                                             <div className="font-medium">
                                               {m.concept || "Movimiento"}
                                             </div>
+
                                             <span
-                                              className={pillClasses(docTone)}
+                                              className={pillClasses(meta.tone)}
                                             >
-                                              {normDoc(m.doc_type) ===
-                                              "investment" ? (
-                                                <>
-                                                  <DownIcon />
-                                                  Inversión
-                                                </>
-                                              ) : normDoc(m.doc_type) ===
-                                                "receipt" ? (
-                                                <>
-                                                  <UpIcon />
-                                                  Recibo
-                                                </>
-                                              ) : (
-                                                <>{m.doc_type || "—"}</>
-                                              )}
+                                              {meta.icon}
+                                              {meta.label}
                                             </span>
                                           </div>
-                                          <div className="text-xs opacity-70">
-                                            {formatDateSafe(m.created_at)} · N°{" "}
-                                            {m.id_entry}
+
+                                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-80">
+                                            <span
+                                              className={pillClasses("zinc")}
+                                            >
+                                              {formatDateSafe(m.created_at)}
+                                            </span>
+                                            <span
+                                              className={pillClasses("zinc")}
+                                            >
+                                              Entry #{m.id_entry}
+                                            </span>
+
+                                            {m.createdBy?.first_name ||
+                                            m.createdBy?.last_name ? (
+                                              <span
+                                                className={pillClasses("zinc")}
+                                              >
+                                                {`${m.createdBy?.first_name ?? ""} ${m.createdBy?.last_name ?? ""}`.trim()}
+                                              </span>
+                                            ) : null}
                                           </div>
                                         </div>
+
                                         <div className="text-right">
                                           <div className={pillClasses(amtTone)}>
                                             {formatAmount(
@@ -933,6 +1254,7 @@ export default function CreditsPage() {
                                               m.currency || cur,
                                             )}
                                           </div>
+
                                           <div className="mt-1 text-xs opacity-60">
                                             {m.booking_id
                                               ? `Reserva ${m.booking_id}`
