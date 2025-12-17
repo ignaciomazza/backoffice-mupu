@@ -29,7 +29,7 @@ import OperatorDueList from "@/components/operator-dues/OperatorDueList";
 
 import { authFetch } from "@/utils/authFetch";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
-import type { ServiceLite } from "@/types/receipts";
+import type { ServiceLite, SubmitResult } from "@/types/receipts";
 import type {
   BillingData,
   Booking,
@@ -159,6 +159,21 @@ function pickApiMessage(u: unknown): string | null {
   if (typeof err === "string" && err.trim()) return err;
   if (typeof msg === "string" && msg.trim()) return msg;
   return null;
+}
+
+function isSubmitResultLike(value: unknown): value is SubmitResult {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "number" && Number.isFinite(value)) return true;
+  return isRecord(value);
+}
+
+function submitResultFromReceipt(receipt: Receipt): SubmitResult {
+  return {
+    receipt: {
+      id_receipt: receipt.id_receipt,
+      id: receipt.id_receipt,
+    },
+  };
 }
 
 /* =========================================================
@@ -1160,6 +1175,9 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                         const json: unknown = await res
                           .json()
                           .catch(() => null);
+                        const submitResult = isSubmitResultLike(json)
+                          ? json
+                          : null;
 
                         const raw =
                           (isRecord(json) && json.receipt) ||
@@ -1173,7 +1191,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                         if (!raw) {
                           toast.success("Recibo creado y asociado.");
                           router.refresh();
-                          return json;
+                          return submitResult;
                         }
 
                         const obj = isRecord(raw) ? raw : {};
@@ -1188,7 +1206,9 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                         toast.success("Recibo creado y asociado.");
                         onReceiptCreated?.(receipt);
                         router.refresh();
-                        return json ?? { receipt };
+                        return (
+                          submitResult ?? submitResultFromReceipt(receipt)
+                        );
                       }}
                     />
                   )}
