@@ -11,16 +11,34 @@ import {
   Font,
 } from "@react-pdf/renderer";
 
+/** Línea de pago para el PDF */
+export type ReceiptPdfPaymentLine = {
+  amount: number;
+  payment_method_id: number | null;
+  account_id: number | null;
+
+  // si se resolvió con lookup
+  paymentMethodName?: string;
+  accountName?: string;
+};
+
 export interface ReceiptPdfData {
   receiptNumber: string;
   issueDate: Date;
   concept: string;
   amount: number;
   amountString: string;
-  /** Texto del método de pago (lo que mostrás en UI) */
+
+  /** Texto legacy (no lo usamos como “método”, lo dejamos por compat) */
   currency: string;
-  /** Código ISO de la moneda del monto (ARS/USD) para formateo */
+
+  /** ISO del monto total (ARS/USD) */
   amount_currency: string;
+
+  /** NUEVO */
+  paymentFeeAmount?: number;
+  payments?: ReceiptPdfPaymentLine[];
+
   services: Array<{
     id: number;
     description: string;
@@ -28,6 +46,7 @@ export interface ReceiptPdfData {
     cardInterest: number;
     currency: string;
   }>;
+
   booking: {
     details: string;
     departureDate: Date;
@@ -45,10 +64,10 @@ export interface ReceiptPdfData {
       taxId: string;
       address: string;
       logoBase64?: string;
-      /** MIME del logo (image/png, image/jpeg, ...) */
       logoMime?: string;
     };
   };
+
   recipients: Array<{
     firstName: string;
     lastName: string;
@@ -107,7 +126,30 @@ const fmtDate = (d: Date) =>
     year: "numeric",
   }).format(d);
 
-/* ====== Estilos (alineados a InvoiceDocument) ====== */
+const CREDIT_METHOD_LABEL = "Crédito operador";
+const VIRTUAL_CREDIT_METHOD_ID = 999000000;
+
+const paymentLabel = (p: ReceiptPdfPaymentLine) => {
+  const isVirtualCredit =
+    typeof p.payment_method_id === "number" &&
+    p.payment_method_id >= VIRTUAL_CREDIT_METHOD_ID;
+
+  const pm =
+    (p.paymentMethodName && p.paymentMethodName.trim()) ||
+    (isVirtualCredit
+      ? CREDIT_METHOD_LABEL
+      : p.payment_method_id
+        ? `Método #${p.payment_method_id}`
+        : "Método");
+
+  const acc =
+    (p.accountName && p.accountName.trim()) ||
+    (p.account_id ? `Cuenta #${p.account_id}` : "");
+
+  return acc ? `${pm} (${acc})` : pm;
+};
+
+/* ====== Estilos ====== */
 const styles = StyleSheet.create({
   page: {
     fontFamily: "Poppins",
@@ -197,6 +239,16 @@ const styles = StyleSheet.create({
     marginTop: 24,
     color: "#777",
   },
+
+  payLine: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 3,
+  },
+  payLeft: { fontSize: 9.5, color: "#333" },
+  payRight: { fontSize: 9.5, color: "#333" },
+  payMeta: { fontSize: 8.5, color: "#666" },
 });
 
 /* ====== Componente ====== */
@@ -206,9 +258,10 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
   concept,
   amount,
   amountString,
-  currency,
-  services,
   amount_currency,
+  paymentFeeAmount,
+  payments,
+  services,
   booking: { details, departureDate, returnDate, agency },
   recipients,
 }) => {
@@ -217,10 +270,17 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
       ? `data:${agency.logoMime || "image/png"};base64,${agency.logoBase64}`
       : undefined;
 
+  const safePayments = Array.isArray(payments) ? payments : [];
+  const fee =
+    typeof paymentFeeAmount === "number" && Number.isFinite(paymentFeeAmount)
+      ? paymentFeeAmount
+      : 0;
+  const clientTotal = amount + fee;
+
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        {/* Cabecera (mismo patrón que Invoice) */}
+        {/* Cabecera */}
         <View style={styles.headerBand}>
           {logoSrc ? (
             // eslint-disable-next-line jsx-a11y/alt-text
@@ -235,7 +295,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
           </View>
         </View>
 
-        {/* Cliente(s) y Agencia (look & feel de “partyBox”) */}
+        {/* Datos */}
         <Text style={styles.sectionTitle}>Datos</Text>
         <View style={styles.twoCols}>
           <View style={styles.col}>
@@ -265,7 +325,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
           </View>
         </View>
 
-        {/* Detalle de servicios (tabla con estética Invoice) */}
+        {/* Servicios */}
         <Text style={styles.sectionTitle}>Detalle de servicios</Text>
         <View style={styles.table}>
           <View style={styles.headerCell}>
@@ -281,7 +341,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
           ))}
         </View>
 
-        {/* Concepto / Importe mostrado / Monto en letras / Método */}
+        {/* Concepto / Total */}
         <View style={styles.twoCols}>
           <View style={styles.col}>
             <View style={styles.infoBox}>
@@ -291,14 +351,21 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
           </View>
           <View style={styles.col}>
             <View style={styles.infoBox}>
-              <Text style={styles.infoLabel}>El cliente pagó</Text>
+              <Text style={styles.infoLabel}>Total recibido</Text>
               <Text style={styles.infoText}>
-                {safeFmtCurrency(amount, amount_currency)}
+                {safeFmtCurrency(clientTotal, amount_currency)}
               </Text>
+              {fee > 0 ? (
+                <Text style={styles.payMeta}>
+                  Incluye {safeFmtCurrency(amount, amount_currency)} acreditados
+                  + costo financiero {safeFmtCurrency(fee, amount_currency)}
+                </Text>
+              ) : null}
             </View>
           </View>
         </View>
 
+        {/* Monto en letras / Pagos */}
         <View style={styles.twoCols}>
           <View style={styles.col}>
             <View style={styles.infoBox}>
@@ -308,13 +375,25 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
           </View>
           <View style={styles.col}>
             <View style={styles.infoBox}>
-              <Text style={styles.infoLabel}>Método de pago</Text>
-              <Text style={styles.infoText}>{currency}</Text>
+              <Text style={styles.infoLabel}>Pagos</Text>
+
+              {safePayments.length ? (
+                safePayments.map((p, idx) => (
+                  <View key={idx} style={styles.payLine}>
+                    <Text style={styles.payLeft}>{paymentLabel(p)}</Text>
+                    <Text style={styles.payRight}>
+                      {safeFmtCurrency(p.amount, amount_currency)}
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.infoText}>-</Text>
+              )}
             </View>
           </View>
         </View>
 
-        {/* Rango del servicio (visual consistente) */}
+        {/* Servicio contratado */}
         <Text style={styles.sectionTitle}>Servicio contratado</Text>
         <View style={styles.twoCols}>
           <View style={styles.col}>
@@ -334,7 +413,6 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
           </View>
         </View>
 
-        {/* Pie (igual estética que Invoice) */}
         <View style={styles.divider} />
         <Text style={styles.footer} fixed>
           Este comprobante no es válido como factura.

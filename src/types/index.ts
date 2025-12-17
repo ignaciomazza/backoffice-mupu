@@ -446,3 +446,4 @@ export interface CommercialInsightsResponse {
     topClients: TopClientItem[];
   };
 }
+

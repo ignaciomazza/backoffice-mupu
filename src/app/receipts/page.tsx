@@ -12,10 +12,7 @@ import { authFetch } from "@/utils/authFetch";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
 import { useRouter } from "next/navigation";
-import type {
-  BookingOption,
-  ServiceLite,
-} from "@/components/receipts/ReceiptForm";
+import type { BookingOption, ServiceLite } from "@/types/receipts";
 
 /* ================= Helpers módulo (evita deps en useMemo) ================= */
 const norm = (s: string) =>
@@ -895,6 +892,7 @@ export default function ReceiptsPage() {
         {
           method: "PATCH",
           body: JSON.stringify({
+            bookingId: bId,
             booking: { id_booking: bId },
             serviceIds: attachSelectedServiceIds,
           }),
@@ -954,9 +952,12 @@ export default function ReceiptsPage() {
                 throw new Error(msg);
               }
 
+              const json = await res.json().catch(() => null);
+
               toast.success("Recibo guardado.");
               refreshList();
               router.refresh();
+              return json;
             } catch (e) {
               toast.error(
                 e instanceof Error ? e.message : "Error al guardar recibo",

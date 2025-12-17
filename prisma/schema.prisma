@@ -375,20 +375,37 @@ model Receipt {
   currency          String
   payment_method    String?
   account           String?
-  base_amount       Decimal?      @db.Decimal(18, 2)
+  base_amount       Decimal? @db.Decimal(18, 2)
   base_currency     String?
-  counter_amount    Decimal?      @db.Decimal(18, 2)
+  counter_amount    Decimal? @db.Decimal(18, 2)
   counter_currency  String?
+  payment_method_id Int?
+  account_id        Int?
+
+  payments          ReceiptPayment[]
   bookingId_booking Int?
-  booking           Booking?      @relation("BookingReceipt", fields: [bookingId_booking], references: [id_booking], onDelete: SetNull)
+  booking           Booking?         @relation("BookingReceipt", fields: [bookingId_booking], references: [id_booking], onDelete: SetNull)
   id_agency         Int?
-  agency            Agency?       @relation(fields: [id_agency], references: [id_agency], onDelete: SetNull)
+  agency            Agency?          @relation(fields: [id_agency], references: [id_agency], onDelete: SetNull)
   serviceIds        Int[]
-  clientIds         Int[]         @default([])
+  clientIds         Int[]            @default([])
   creditEntries     CreditEntry[]
 
   @@index([bookingId_booking])
   @@index([id_agency])
+}
+
+model ReceiptPayment {
+  id_receipt_payment Int     @id @default(autoincrement())
+  receipt_id         Int
+  amount             Decimal @db.Decimal(18, 2)
+
+  payment_method_id Int
+  account_id        Int?
+
+  receipt Receipt @relation(fields: [receipt_id], references: [id_receipt], onDelete: Cascade)
+
+  @@index([receipt_id])
 }
 
 model Resources {

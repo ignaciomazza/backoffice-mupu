@@ -1,3 +1,4 @@
+// src/pages/api/credit/entry/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify } from "jose";

@@ -25,168 +25,227 @@ export default function BookingCard({
   role,
 }: BookingCardProps) {
   const isExpanded = expandedBookingId === booking.id_booking;
+  const canManage =
+    booking.status === "Abierta" ||
+    role === "administrativo" ||
+    role === "desarrollador" ||
+    role === "gerente";
 
-  const handleEdit = (booking: Booking) => {
-    startEditingBooking(booking);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  const statusLabel = (value?: string) => {
+    if (!value) return "—";
+    const lower = value.toLowerCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
   };
+
+  const Field = ({
+    label,
+    value,
+  }: {
+    label: string;
+    value: React.ReactNode;
+  }) => (
+    <p className="text-sm text-sky-950 dark:text-white">
+      <span className="font-semibold text-sky-700 dark:text-sky-300">
+        {label}
+      </span>
+      <span className="ml-2 font-medium">{value || "—"}</span>
+    </p>
+  );
+
+  const getChipColors = (value?: string) => {
+    const key = (value || "").toLowerCase();
+    if (key === "pendiente")
+      return "bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-100";
+    if (key === "pago")
+      return "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-100";
+    if (key === "facturado")
+      return "bg-sky-100 text-sky-900 dark:bg-sky-500/20 dark:text-sky-100";
+    if (key === "bloqueada")
+      return "bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-100";
+    if (key === "cancelada")
+      return "bg-rose-100 text-rose-900 dark:bg-rose-500/20 dark:text-rose-100";
+    if (key === "abierta")
+      return "bg-sky-100 text-sky-900 dark:bg-sky-500/20 dark:text-sky-100";
+    return "bg-gray-100 text-gray-800 dark:bg-white/10 dark:text-white";
+  };
+
+  const statusChip = (label: string, value: string) => (
+    <span
+      key={label}
+      className={`rounded-full px-3 py-1 text-xs font-semibold shadow-sm shadow-sky-950/10 ${getChipColors(value)}`}
+    >
+      {label}: {value}
+    </span>
+  );
+
+  const badge = (() => {
+    const base =
+      "rounded-full p-2 shadow-md shadow-emerald-900/10 dark:shadow-emerald-900/30";
+    if (booking.status === "Bloqueada") {
+      return {
+      cls: `${base} bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-100`,
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.7}
+            stroke="currentColor"
+            className="size-5"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+            />
+          </svg>
+        ),
+      };
+    }
+    if (booking.status === "Cancelada") {
+      return {
+      cls: `${base} bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200`,
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.7}
+            stroke="currentColor"
+            className="size-5"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636"
+            />
+          </svg>
+        ),
+      };
+    }
+    return {
+      cls: `${base} bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-100`,
+      icon: (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth={1.7}
+          stroke="currentColor"
+          className="size-5"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+          />
+        </svg>
+      ),
+    };
+  })();
+
+  const passengers = booking.clients || [];
+  const toggleExpanded = () =>
+    setExpandedBookingId((prevId) =>
+      prevId === booking.id_booking ? null : booking.id_booking,
+    );
+  const actionBtn =
+    "rounded-full bg-sky-100 px-5 py-2 text-sm font-semibold text-sky-950 shadow-sm shadow-sky-950/10 transition-transform hover:scale-95 active:scale-95 dark:bg-white/10 dark:text-white/90";
+  const toggleBtn =
+    "rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/10 transition-transform hover:scale-95 active:scale-95 dark:bg-white/10 dark:text-white";
 
   return (
     <motion.div
       layout
       layoutId={`booking-${booking.id_booking}`}
-      className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
+      className="h-fit space-y-4 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
-      <div className="flex items-center justify-end gap-2">
-        <p className="font-light text-gray-500 dark:text-gray-400">
-          N° {booking.id_booking}
-        </p>
-        {booking.status === "Bloqueada" ? (
-          <div className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white dark:backdrop-blur">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.7}
-              stroke="currentColor"
-              className="size-4"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
-              />
-            </svg>
-          </div>
-        ) : booking.status === "Cancelada" ? (
-          <div className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white dark:backdrop-blur">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.7}
-              stroke="currentColor"
-              className="size-4"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636"
-              />
-            </svg>
-          </div>
-        ) : (
-          <div className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white dark:backdrop-blur">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.7}
-              stroke="currentColor"
-              className="size-4"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
-              />
-            </svg>
-          </div>
-        )}
-      </div>
-      <p className="font-semibold dark:font-medium">
-        Detalle
-        <span className="ml-2 font-light">{booking.details || "N/A"}</span>
-      </p>
-
-      <p className="font-semibold dark:font-medium">
-        Estado Cliente
-        <span className="ml-2 font-light">
-          {booking.clientStatus.charAt(0).toUpperCase() +
-            booking.clientStatus.slice(1).toLowerCase() || "-"}
-        </span>
-      </p>
-      <p className="font-semibold dark:font-medium">
-        Estado Operador
-        <span className="ml-2 font-light">
-          {booking.operatorStatus.charAt(0).toUpperCase() +
-            booking.operatorStatus.slice(1).toLowerCase() || "-"}
-        </span>
-      </p>
-      <p className="font-semibold dark:font-medium">
-        Vendedor
-        <span className="ml-2 font-light">
-          {booking.user.first_name} {booking.user.last_name}
-        </span>
-      </p>
-      <p className="font-semibold dark:font-medium">
-        Titular
-        <span className="ml-2 font-light">
-          {booking.titular.first_name.charAt(0).toUpperCase() +
-            booking.titular.first_name.slice(1).toLowerCase()}{" "}
-          {booking.titular.last_name.charAt(0).toUpperCase() +
-            booking.titular.last_name.slice(1).toLowerCase()}
-        </span>
-      </p>
-      {isExpanded && (
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-semibold dark:font-medium">
-            Fecha de Salida
-            <span className="ml-2 font-light">
-              {formatDate(booking.departure_date)}
-            </span>
+          <p className="text-xs uppercase tracking-[0.2em] text-sky-700 dark:text-sky-300">
+            Reserva #{booking.id_booking}
           </p>
-          <p className="font-semibold dark:font-medium">
-            Fecha de Regreso
-            <span className="ml-2 font-light">
-              {formatDate(booking.return_date)}
-            </span>
+          <p className="mt-1 text-lg font-semibold text-sky-950 dark:text-white">
+            {booking.details || "Sin detalle"}
           </p>
-          <p className="mt-4 font-semibold dark:font-medium">{`Pasajeros ( ${booking.pax_count} )`}</p>
-          <ul className="ml-4 list-disc">
-            <li>
-              {booking.titular.first_name.charAt(0).toUpperCase() +
-                booking.titular.first_name.slice(1).toLowerCase()}{" "}
-              {booking.titular.last_name.charAt(0).toUpperCase() +
-                booking.titular.last_name.slice(1).toLowerCase()}
-            </li>
-            {booking.clients.map((client) => (
-              <li key={client.id_client}>
-                {client.first_name.charAt(0).toUpperCase() +
-                  client.first_name.slice(1).toLowerCase()}{" "}
-                {client.last_name.charAt(0).toUpperCase() +
-                  client.last_name.slice(1).toLowerCase()}
+        </div>
+        <div className={badge.cls}>{badge.icon}</div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {statusChip("Cliente", statusLabel(booking.clientStatus))}
+        {statusChip("Operador", statusLabel(booking.operatorStatus))}
+        {statusChip("Estado", statusLabel(booking.status))}
+      </div>
+
+      <div className="grid gap-3 text-sm sm:grid-cols-2">
+        <Field
+          label="Vendedor"
+          value={`${booking.user.first_name} ${booking.user.last_name}`}
+        />
+        <Field
+          label="Titular"
+          value={`${booking.titular.first_name} ${booking.titular.last_name}`}
+        />
+      </div>
+
+      {isExpanded && (
+        <div className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4 shadow-inner shadow-sky-950/5 dark:border-white/10 dark:bg-white/5">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field
+              label="Fecha de salida"
+              value={formatDate(booking.departure_date)}
+            />
+            <Field
+              label="Fecha de regreso"
+              value={formatDate(booking.return_date)}
+            />
+            <Field
+              label="Fecha de creación"
+              value={formatDate(booking.creation_date)}
+            />
+            <Field label="Pasajeros" value={`${Math.max(1, booking.pax_count)}`} />
+          </div>
+
+          <div>
+            <p className="text-xs uppercase tracking-[0.15em] text-sky-700 dark:text-sky-300">
+              Pasajeros
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-sky-950 dark:text-white">
+              <li>
+                {booking.titular.first_name} {booking.titular.last_name}
               </li>
-            ))}
-          </ul>
-          <p className="mt-4 font-semibold dark:font-medium">Facturacion</p>
-          <ul className="ml-4 list-disc">
-            <li>
-              <p className="font-light">
-                {booking.invoice_type || "Sin observaciones"}
-              </p>
-            </li>
-            <li>
-              <p className="font-light">
-                {`${booking.invoice_observation}` || "Sin observaciones"}
-              </p>
-            </li>
-          </ul>
-          <p className="mt-4 font-semibold dark:font-medium">
-            Fecha de Creacion
-            <span className="ml-2 font-light">
-              {formatDate(booking.creation_date)}
-            </span>
-          </p>
-          <p className="mt-4 font-semibold dark:font-medium">
-            Observaciones de administracion
-          </p>
-          <p className="font-light">
-            {booking.observation || "Sin observaciones"}
-          </p>
+              {passengers.map((client) => (
+                <li key={client.id_client}>
+                  {client.first_name} {client.last_name}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field
+              label="Facturación"
+              value={booking.invoice_type || "Sin datos"}
+            />
+            <Field
+              label="Observación factura"
+              value={booking.invoice_observation || "Sin observaciones"}
+            />
+          </div>
+
+          <div>
+            <p className="text-xs uppercase tracking-[0.15em] text-sky-700 dark:text-sky-300">
+              Observaciones de administración
+            </p>
+            <p className="mt-1 text-sm text-sky-950 dark:text-white">
+              {booking.observation || "Sin observaciones"}
+            </p>
+          </div>
+
           <Link
             href={`/bookings/services/${booking.id_booking}`}
-            className="mt-6 flex w-full gap-1 rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-sky-100 px-4 py-2 text-sm font-semibold text-sky-950 shadow-sm shadow-sky-950/10 transition-transform hover:scale-95 dark:bg-white/10 dark:text-white"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -194,7 +253,7 @@ export default function BookingCard({
               viewBox="0 0 24 24"
               strokeWidth={1.4}
               stroke="currentColor"
-              className="size-6"
+              className="size-5"
             >
               <path
                 strokeLinecap="round"
@@ -202,21 +261,15 @@ export default function BookingCard({
                 d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H2.25"
               />
             </svg>
-            Reserva
+            Ver reserva completa
           </Link>
         </div>
       )}
+
       <div>
         {isExpanded ? (
           <div className="flex w-full justify-between">
-            <button
-              onClick={() =>
-                setExpandedBookingId((prevId) =>
-                  prevId === booking.id_booking ? null : booking.id_booking,
-                )
-              }
-              className="mt-4 rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-            >
+            <button onClick={toggleExpanded} className={`mt-4 ${toggleBtn}`}>
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
@@ -225,29 +278,19 @@ export default function BookingCard({
                 stroke="currentColor"
                 className="size-6"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5 12h14"
-                />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
               </svg>
             </button>
             <div className="mt-4 flex gap-2">
-              {(booking.status === "Abierta" ||
-                role === "administrativo" ||
-                role === "desarrollador" ||
-                role === "gerente") && (
-                <button
-                  className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-                  onClick={() => handleEdit(booking)}
-                >
+              {canManage && (
+                <button className={actionBtn} onClick={() => startEditingBooking(booking)}>
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
                     viewBox="0 0 24 24"
                     strokeWidth={1.4}
                     stroke="currentColor"
-                    className="size-6"
+                    className="size-5"
                   >
                     <path
                       strokeLinecap="round"
@@ -257,12 +300,9 @@ export default function BookingCard({
                   </svg>
                 </button>
               )}
-              {(booking.status === "Abierta" ||
-                role === "administrativo" ||
-                role === "desarrollador" ||
-                role === "gerente") && (
+              {canManage && (
                 <button
-                  className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+                  className="rounded-full bg-red-600 px-5 py-2 text-sm font-semibold text-red-100 shadow-sm shadow-red-900/20 transition-transform hover:scale-95 active:scale-95 dark:bg-red-800"
                   onClick={() => deleteBooking(booking.id_booking)}
                 >
                   <svg
@@ -271,7 +311,7 @@ export default function BookingCard({
                     viewBox="0 0 24 24"
                     strokeWidth={1.4}
                     stroke="currentColor"
-                    className="size-6"
+                    className="size-5"
                   >
                     <path
                       strokeLinecap="round"
@@ -285,14 +325,7 @@ export default function BookingCard({
           </div>
         ) : (
           <div className="flex w-full items-end justify-between">
-            <button
-              onClick={() =>
-                setExpandedBookingId((prevId) =>
-                  prevId === booking.id_booking ? null : booking.id_booking,
-                )
-              }
-              className="mt-4 rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-            >
+            <button onClick={toggleExpanded} className={`mt-4 ${toggleBtn}`}>
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
@@ -308,7 +341,7 @@ export default function BookingCard({
                 />
               </svg>
             </button>
-            <p className="text-sm font-light">
+            <p className="text-sm font-medium text-emerald-900 dark:text-emerald-100">
               {formatDate(booking.creation_date)}
             </p>
           </div>

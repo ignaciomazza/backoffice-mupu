@@ -1,19 +1,122 @@
 // src/pages/api/receipts/[id]/pdf.tsx
 import type { NextApiRequest, NextApiResponse } from "next";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import fs from "fs";
 import path from "path";
 import { renderToStream } from "@react-pdf/renderer";
 import ReceiptDocument, {
   ReceiptPdfData,
+  ReceiptPdfPaymentLine,
 } from "@/services/receipts/ReceiptDocument";
+
+type PdfPaymentRaw = {
+  amount: number;
+  payment_method_id: number | null;
+  account_id: number | null;
+  payment_method_text?: string;
+  account_text?: string;
+};
+
+type ReceiptWithRelations = Prisma.ReceiptGetPayload<{
+  include: {
+    payments: true;
+    booking: {
+      include: { titular: true; agency: true; services: true; clients: true };
+    };
+    agency: true;
+  };
+}>;
 
 type AgencyExtras = {
   id_agency?: number | null;
   logo_url?: string | null;
   slug?: string | null;
   logo_filename?: string | null;
+
+  // 👇 campos que venías leyendo con (ag as any)
+  legal_name?: string | null;
+  tax_id?: string | null;
+  address?: string | null;
 };
+
+const toNum = (v: unknown, fallback = 0): number => {
+  if (v === null || v === undefined) return fallback;
+  if (typeof v === "number") return Number.isFinite(v) ? v : fallback;
+  if (typeof v === "string") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  const s = (v as { toString?: () => string })?.toString?.();
+  const n = Number(s ?? NaN);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+function normalizePayments(receipt: ReceiptWithRelations): PdfPaymentRaw[] {
+  const rel = Array.isArray(receipt.payments) ? receipt.payments : [];
+
+  if (rel.length > 0) {
+    return rel.map((p) => ({
+      amount: toNum(p.amount, 0),
+      payment_method_id:
+        Number.isFinite(Number(p.payment_method_id)) &&
+        Number(p.payment_method_id) > 0
+          ? Number(p.payment_method_id)
+          : null,
+      account_id:
+        Number.isFinite(Number(p.account_id)) && Number(p.account_id) > 0
+          ? Number(p.account_id)
+          : null,
+    }));
+  }
+
+  // fallback legacy
+  const amt = toNum(receipt.amount, 0);
+  const pmText = String(
+    (receipt as unknown as { payment_method?: unknown })?.payment_method ?? "",
+  ).trim();
+  const accText = String(
+    (receipt as unknown as { account?: unknown })?.account ?? "",
+  ).trim();
+
+  const pmId =
+    Number.isFinite(
+      Number(
+        (receipt as unknown as { payment_method_id?: unknown })
+          ?.payment_method_id,
+      ),
+    ) &&
+    Number(
+      (receipt as unknown as { payment_method_id?: unknown })
+        ?.payment_method_id,
+    ) > 0
+      ? Number(
+          (receipt as unknown as { payment_method_id?: unknown })
+            ?.payment_method_id,
+        )
+      : null;
+
+  const accId =
+    Number.isFinite(
+      Number((receipt as unknown as { account_id?: unknown })?.account_id),
+    ) &&
+    Number((receipt as unknown as { account_id?: unknown })?.account_id) > 0
+      ? Number((receipt as unknown as { account_id?: unknown })?.account_id)
+      : null;
+
+  if (Number.isFinite(amt) && (pmText || accText || pmId || accId)) {
+    return [
+      {
+        amount: amt,
+        payment_method_id: pmId,
+        account_id: accId,
+        ...(pmText ? { payment_method_text: pmText } : {}),
+        ...(accText ? { account_text: accText } : {}),
+      },
+    ];
+  }
+
+  return [];
+}
 
 async function fetchLogoFromUrl(
   url?: string | null,
@@ -51,37 +154,45 @@ export default async function handler(
   const id = parseInt(req.query.id as string, 10);
   if (Number.isNaN(id)) return res.status(400).end("ID inválido");
 
-  // 1) Recibo + (booking | agencia) + clientes
+  // 1) Recibo + relaciones
   const receipt = await prisma.receipt.findUnique({
     where: { id_receipt: id },
     include: {
+      payments: true,
       booking: {
         include: { titular: true, agency: true, services: true, clients: true },
       },
-      agency: true, // para recibos sin booking
+      agency: true,
     },
   });
   if (!receipt) return res.status(404).end("Recibo no encontrado");
+
+  const receiptTyped = receipt as ReceiptWithRelations;
+
+  const agency = (receipt.booking?.agency ?? receipt.agency) as
+    | (typeof receipt.agency & AgencyExtras)
+    | null;
 
   // 2) Logo multi-agencia
   let logoBase64: string | undefined;
   let logoMime: string | undefined;
 
   try {
-    const agency = (receipt.booking?.agency ??
-      receipt.agency) as typeof receipt.agency & AgencyExtras;
     const fetched = await fetchLogoFromUrl(agency?.logo_url);
     if (fetched) {
       logoBase64 = fetched.base64;
       logoMime = fetched.mime;
     }
+
     if (!logoBase64) {
       const preferred: string[] = [];
-      const slug = (agency as AgencyExtras)?.slug ?? undefined;
-      const logoFile = (agency as AgencyExtras)?.logo_filename ?? undefined;
+      const slug = agency?.slug ?? undefined;
+      const logoFile = agency?.logo_filename ?? undefined;
+
       if (logoFile) preferred.push(logoFile);
       if (slug) preferred.push(`logo_${slug}.png`);
       if (agency?.id_agency) preferred.push(`logo_ag_${agency.id_agency}.png`);
+
       for (const fname of preferred) {
         const candidate = path.join(process.cwd(), "public", "agencies", fname);
         if (fs.existsSync(candidate)) {
@@ -94,6 +205,7 @@ export default async function handler(
           break;
         }
       }
+
       if (!logoBase64) {
         const fallback = path.join(process.cwd(), "public", "logo.png");
         if (fs.existsSync(fallback)) {
@@ -113,8 +225,8 @@ export default async function handler(
     (receipt.serviceIds ?? []).includes(s.id_service),
   );
 
-  // 4) Destinatarios: clientIds => buscar; si no, titular (si hay booking); si no, vacío
-  const rawClients = receipt.clientIds.length
+  // 4) Destinatarios
+  const rawClients = receipt.clientIds?.length
     ? await prisma.client.findMany({
         where: { id_client: { in: receipt.clientIds } },
       })
@@ -125,18 +237,90 @@ export default async function handler(
       ? [receipt.booking.titular]
       : [];
 
-  // 5) Armar datos para el PDF
-  const ag = (receipt.booking?.agency ?? receipt.agency)!;
+  // 5) Pagos normalizados (soporta viejos y nuevos)
+  const paymentsRaw = normalizePayments(receipt);
+
+  // 5b) Lookup nombres (si hay IDs)
+  const agencyId =
+    agency?.id_agency ??
+    receipt.id_agency ??
+    receipt.booking?.id_agency ??
+    null;
+
+  const methodIds = Array.from(
+    new Set(
+      paymentsRaw
+        .map((p) => p.payment_method_id)
+        .filter((x): x is number => typeof x === "number" && x > 0),
+    ),
+  );
+
+  const accountIds = Array.from(
+    new Set(
+      paymentsRaw
+        .map((p) => p.account_id)
+        .filter((x): x is number => typeof x === "number" && x > 0),
+    ),
+  );
+
+  const methods =
+    agencyId && methodIds.length
+      ? await prisma.financePaymentMethod.findMany({
+          where: { id_agency: Number(agencyId), id_method: { in: methodIds } },
+          select: { id_method: true, name: true },
+        })
+      : [];
+
+  const accounts =
+    agencyId && accountIds.length
+      ? await prisma.financeAccount.findMany({
+          where: {
+            id_agency: Number(agencyId),
+            id_account: { in: accountIds },
+          },
+          select: { id_account: true, name: true },
+        })
+      : [];
+
+  const methodNameById = new Map(methods.map((m) => [m.id_method, m.name]));
+  const accountNameById = new Map(accounts.map((a) => [a.id_account, a.name]));
+
+  const payments: ReceiptPdfPaymentLine[] = paymentsRaw.map((p) => ({
+    amount: p.amount,
+    payment_method_id: p.payment_method_id,
+    account_id: p.account_id,
+    paymentMethodName:
+      (p.payment_method_id
+        ? methodNameById.get(p.payment_method_id)
+        : undefined) ??
+      p.payment_method_text ??
+      undefined,
+    accountName:
+      (p.account_id ? accountNameById.get(p.account_id) : undefined) ??
+      p.account_text ??
+      undefined,
+  }));
+
+  // 6) Armar datos para el PDF
+  const ag = (receiptTyped.booking?.agency ?? receiptTyped.agency) as
+    | (typeof receiptTyped.agency & AgencyExtras)
+    | null;
+
   const data: ReceiptPdfData = {
     receiptNumber: receipt.receipt_number,
     issueDate: receipt.issue_date ?? new Date(),
     concept: receipt.concept,
-    amount: receipt.amount,
+    amount: Number(receipt.amount),
     amountString: receipt.amount_string,
-    // etiqueta visible: texto libre si existe, si no ISO
     currency: receipt.currency || receipt.amount_currency,
-    // ISO para formatear montos
     amount_currency: receipt.amount_currency,
+
+    paymentFeeAmount: receiptTyped.payment_fee_amount
+      ? toNum(receiptTyped.payment_fee_amount, 0)
+      : 0,
+
+    payments,
+
     services: selectedServices.map((s) => ({
       id: s.id_service,
       description: s.description ?? `Servicio ${s.id_service}`,
@@ -144,9 +328,9 @@ export default async function handler(
       cardInterest: s.card_interest ?? 0,
       currency: s.currency,
     })),
+
     booking: {
       details: receipt.booking?.details ?? "-",
-      // Nunca null: si no hay booking, uso la fecha del recibo; si falta return, uso departure
       departureDate:
         receipt.booking?.departure_date ?? receipt.issue_date ?? new Date(),
       returnDate:
@@ -170,14 +354,15 @@ export default async function handler(
             locality: "-",
           },
       agency: {
-        name: ag.name,
-        legalName: ag.legal_name,
-        taxId: ag.tax_id,
-        address: ag.address ?? "-",
+        name: ag?.name ?? "-",
+        legalName: ag?.legal_name ?? ag?.name ?? "-", // ✅ string siempre
+        taxId: ag?.tax_id ?? "-", // ✅ string siempre
+        address: ag?.address ?? "-",
         logoBase64,
         logoMime,
       },
     },
+
     recipients: recipientsArr.map((c) => ({
       firstName: c.first_name,
       lastName: c.last_name,
@@ -187,7 +372,7 @@ export default async function handler(
     })),
   };
 
-  // 6) Render
+  // 7) Render
   const stream = await renderToStream(<ReceiptDocument {...data} />);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename=recibo_${id}.pdf`);

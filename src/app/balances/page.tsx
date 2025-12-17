@@ -16,6 +16,7 @@ type UserLite = {
   first_name: string;
   last_name: string;
 };
+type CurrentUser = UserLite & { role?: string | null };
 
 type CurrencyCode = "ARS" | "USD";
 
@@ -198,12 +199,13 @@ const OPERATOR_STATUSES = ["Pendiente", "Pago"];
 
 /* ================= Page ================= */
 export default function BalancesPage() {
-  const { token, user } = useAuth() as {
-    token?: string | null;
-    user?: { id_user?: number; role?: string } | null;
-  };
-
-  const role = (user?.role || "").toLowerCase();
+  const { token, role: ctxRole } = useAuth();
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const role = useMemo(
+    () => (ctxRole || currentUser?.role || "").toLowerCase(),
+    [ctxRole, currentUser?.role],
+  );
+  const currentUserId = currentUser?.id_user;
   const isVendor = role === "vendedor";
   const canPickOwner = [
     "gerente",
@@ -211,6 +213,68 @@ export default function BalancesPage() {
     "desarrollador",
     "lider",
   ].includes(role);
+  const [calcMode, setCalcMode] = useState<"auto" | "manual" | null>(null);
+
+  useEffect(() => {
+    if (!token) {
+      setCurrentUser(null);
+      return;
+    }
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/user/profile",
+          { cache: "no-store", signal: controller.signal },
+          token || undefined,
+        );
+        if (!res.ok) throw new Error("No se pudo cargar tu perfil");
+        const data = (await res.json()) as CurrentUser;
+        if (!controller.signal.aborted) setCurrentUser(data);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        console.error("[balances] profile fetch failed", err);
+      }
+    })();
+    return () => controller.abort();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) {
+      setCalcMode(null);
+      return;
+    }
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/service-calc-config",
+          { cache: "no-store", signal: controller.signal },
+          token || undefined,
+        );
+        if (!res.ok) throw new Error("No se pudo cargar Cálculo & Comisiones");
+        const data = (await res.json()) as {
+          billing_breakdown_mode?: string | null;
+        };
+        if (controller.signal.aborted) return;
+        const mode =
+          (data?.billing_breakdown_mode || "").toLowerCase() === "manual"
+            ? "manual"
+            : "auto";
+        setCalcMode(mode);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        console.error("[balances] calc config", err);
+        setCalcMode(null);
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : "No se pudo cargar Cálculo & Comisiones",
+        );
+      }
+    })();
+    return () => controller.abort();
+  }, [token]);
 
   /* ---------- Filtros ---------- */
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -308,7 +372,7 @@ export default function BalancesPage() {
       };
 
       services.forEach((s) => {
-        const cur = s.currency;
+        const cur = s.currency === "USD" ? "USD" : "ARS";
         const bucket = acc[cur];
 
         const iva21 = toNum(s.tax_21) + toNum(s.vatOnCommission21);
@@ -411,7 +475,7 @@ export default function BalancesPage() {
   );
 
   /* ---------- Owners para selector ---------- */
-  const owners = useMemo(() => {
+  const ownersFromData = useMemo(() => {
     const map = new Map<number, string>();
     for (const b of normalized) {
       const id = b.user?.id_user;
@@ -426,11 +490,68 @@ export default function BalancesPage() {
       a[1].localeCompare(b[1], "es"),
     );
   }, [normalized]);
+  const [ownerCatalog, setOwnerCatalog] = useState<UserLite[]>([]);
+
+  useEffect(() => {
+    if (!token) {
+      setOwnerCatalog([]);
+      return;
+    }
+    if (!canPickOwner) return;
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/users",
+          { cache: "no-store", signal: controller.signal },
+          token || undefined,
+        );
+        if (!res.ok) throw new Error("No se pudieron cargar los vendedores");
+        const list = (await res.json()) as (UserLite & {
+          role?: string | null;
+        })[];
+        if (controller.signal.aborted) return;
+        const cleaned = list
+          .map((u) => ({
+            id_user: u.id_user,
+            first_name: u.first_name,
+            last_name: u.last_name,
+          }))
+          .filter((u) => typeof u.id_user === "number");
+        setOwnerCatalog(cleaned);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        console.error("[balances] owners fetch", err);
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : "No se pudieron cargar los vendedores",
+        );
+      }
+    })();
+    return () => controller.abort();
+  }, [token, canPickOwner]);
+
+  const ownerOptions = useMemo(() => {
+    const map = new Map<number, string>();
+    ownerCatalog.forEach((u) => {
+      const label = `${u.first_name || ""} ${u.last_name || ""}`.trim();
+      map.set(u.id_user, label || `#${u.id_user}`);
+    });
+    ownersFromData.forEach(([id, name]) => {
+      if (!map.has(id)) map.set(id, name);
+    });
+    return Array.from(map.entries()).sort((a, b) =>
+      a[1].localeCompare(b[1], "es"),
+    );
+  }, [ownerCatalog, ownersFromData]);
+  const ownerLabelMap = useMemo(() => new Map(ownerOptions), [ownerOptions]);
 
   /* ---------- Forzar owner para vendedor ---------- */
   useEffect(() => {
-    if (isVendor && user?.id_user) setOwnerId(user.id_user);
-  }, [isVendor, user?.id_user]);
+    if (isVendor && currentUserId && ownerId !== currentUserId)
+      setOwnerId(currentUserId);
+  }, [isVendor, currentUserId, ownerId]);
 
   /* ---------- Columnas visibles ---------- */
   const defaultVisible: VisibleKey[] = [
@@ -441,16 +562,6 @@ export default function BalancesPage() {
     "operatorStatus",
     "creation_date",
     "travel",
-    "sale_total",
-    "paid_total",
-    "debt_total",
-    "tax_iva21",
-    "tax_iva105",
-    "tax_exento",
-    "tax_otros",
-    "tax_noComp",
-    "tax_transf",
-    "tax_total",
   ];
 
   const [visible, setVisible] = useState<VisibleKey[]>(defaultVisible);
@@ -705,7 +816,7 @@ export default function BalancesPage() {
 
       // owner (según permisos)
       const wantedUserId =
-        isVendor && user?.id_user ? user.id_user : canPickOwner ? ownerId : 0;
+        isVendor && currentUserId ? currentUserId : canPickOwner ? ownerId : 0;
       if (wantedUserId) qs.append("userId", String(wantedUserId));
 
       // estados
@@ -733,7 +844,7 @@ export default function BalancesPage() {
     [
       q,
       isVendor,
-      user?.id_user,
+      currentUserId,
       canPickOwner,
       ownerId,
       clientStatusArr,
@@ -934,6 +1045,48 @@ export default function BalancesPage() {
     setTo("");
     if (!isVendor) setOwnerId(0);
   };
+  const activeFilters = useMemo(() => {
+    const chips: { key: string; label: string }[] = [];
+    const trimmedQ = q.trim();
+    if (trimmedQ) chips.push({ key: "q", label: `Búsqueda: "${trimmedQ}"` });
+    if (ownerId && (!isVendor || canPickOwner)) {
+      const label =
+        ownerLabelMap.get(ownerId) ||
+        (isVendor && currentUserId === ownerId
+          ? "Mis reservas"
+          : `#${ownerId}`);
+      chips.push({ key: "owner", label: `Vendedor: ${label}` });
+    }
+    if (clientStatusArr.length)
+      chips.push({
+        key: "clientStatus",
+        label: `Cliente: ${clientStatusArr.join(", ")}`,
+      });
+    if (operatorStatusArr.length)
+      chips.push({
+        key: "operatorStatus",
+        label: `Operador: ${operatorStatusArr.join(", ")}`,
+      });
+    if (from || to) {
+      const range = `${from ? formatDateAR(from) : "—"} – ${to ? formatDateAR(to) : "—"}`;
+      const title = dateMode === "creation" ? "Creación" : "Viaje";
+      chips.push({ key: "date", label: `Fecha (${title}): ${range}` });
+    }
+    return chips;
+  }, [
+    q,
+    ownerId,
+    isVendor,
+    canPickOwner,
+    ownerLabelMap,
+    currentUserId,
+    clientStatusArr,
+    operatorStatusArr,
+    from,
+    to,
+    dateMode,
+  ]);
+  const activeFilterCount = activeFilters.length;
 
   /* ================= UI ================= */
   const rowPad = density === "compact" ? "py-1.5" : "py-2.5";
@@ -989,13 +1142,39 @@ export default function BalancesPage() {
           </div>
         </div>
 
+        {calcMode === "manual" && (
+          <div
+            className={`${GLASS} mb-6 border-amber-400/30 bg-amber-50/60 p-4 text-amber-900 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-100`}
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold">
+                  Cálculo &amp; Comisiones está en modo manual
+                </p>
+                <p className="text-sm opacity-80">
+                  Los importes de impuestos y comisiones se completan
+                  manualmente. Revisá la configuración de reservas si querés
+                  activar el cálculo automático para esta agencia.
+                </p>
+              </div>
+              <Link href="/bookings/config" className={PRIMARY_BTN}>
+                Ir a configuración
+              </Link>
+            </div>
+          </div>
+        )}
+
         {/* Toolbar */}
         <div className="mb-6 flex flex-wrap items-center gap-4">
           <button
             onClick={() => setFiltersOpen((v) => !v)}
             className={ICON_BTN}
           >
-            {filtersOpen ? "Ocultar filtros" : "Mostrar filtros"}
+            {filtersOpen
+              ? "Ocultar filtros"
+              : activeFilterCount > 0
+                ? `Mostrar filtros (${activeFilterCount})`
+                : "Mostrar filtros"}
           </button>
 
           <div className="hidden h-5 w-px bg-sky-950/30 dark:bg-white/30 sm:block" />
@@ -1042,7 +1221,25 @@ export default function BalancesPage() {
           <button onClick={downloadCSV} className={PRIMARY_BTN}>
             Exportar CSV
           </button>
+          {activeFilterCount > 0 && (
+            <button onClick={clearFilters} className={ICON_BTN}>
+              Limpiar filtros
+            </button>
+          )}
         </div>
+
+        {activeFilterCount > 0 && (
+          <div className="mb-6 flex flex-wrap items-center gap-2 text-xs">
+            {activeFilters.map((chip) => (
+              <span
+                key={chip.key}
+                className={`${CHIP} border-sky-200/60 bg-sky-50/60 text-sky-900 dark:border-white/20 dark:bg-white/5 dark:text-white`}
+              >
+                {chip.label}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Filtros */}
         {filtersOpen && (
@@ -1064,15 +1261,15 @@ export default function BalancesPage() {
                 <select
                   value={ownerId}
                   onChange={(e) => setOwnerId(Number(e.target.value))}
-                  disabled={!canPickOwner && isVendor}
+                  disabled={!canPickOwner}
                   className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-3 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
                 >
                   {!isVendor && <option value={0}>Todos</option>}
-                  {isVendor && user?.id_user && (
-                    <option value={user.id_user}>Mis reservas</option>
+                  {isVendor && currentUserId && (
+                    <option value={currentUserId}>Mis reservas</option>
                   )}
                   {(!isVendor || canPickOwner) &&
-                    owners.map(([id, name]) => (
+                    ownerOptions.map(([id, name]) => (
                       <option key={id} value={id}>
                         {name}
                       </option>

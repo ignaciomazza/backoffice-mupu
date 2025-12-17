@@ -1,6 +1,7 @@
 // src/pages/api/receipts/[id].ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { jwtVerify, JWTPayload } from "jose";
 
 type TokenPayload = JWTPayload & {
@@ -21,8 +22,31 @@ type DecodedUser = {
   email?: string;
 };
 
+type ReceiptWithPayments = Prisma.ReceiptGetPayload<{
+  include: { payments: true };
+}>;
+
+type ReceiptPaymentOut = {
+  amount: number;
+  payment_method_id: number | null;
+  account_id: number | null;
+  payment_method_text?: string;
+  account_text?: string;
+};
+
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
+
+const CREDIT_DOC_SIGN: Record<string, number> = {
+  receipt: 1,
+  investment: -1,
+  adjust_up: 1,
+  adjust_down: -1,
+};
+
+const normDocType = (s?: string | null) => (s || "").trim().toLowerCase();
+const creditSignForDoc = (dt?: string | null) =>
+  CREDIT_DOC_SIGN[normDocType(dt)] ?? 1;
 
 function getTokenFromRequest(req: NextApiRequest): string | null {
   if (req.cookies?.token) return req.cookies.token;
@@ -89,6 +113,105 @@ async function getUserFromAuth(
   }
 }
 
+async function deleteCreditEntriesForReceipt(
+  tx: Prisma.TransactionClient,
+  receiptId: number,
+  agencyId: number,
+) {
+  const entries = await tx.creditEntry.findMany({
+    where: { receipt_id: receiptId, id_agency: agencyId },
+    select: {
+      id_entry: true,
+      account_id: true,
+      amount: true,
+      doc_type: true,
+    },
+  });
+
+  for (const entry of entries) {
+    const account = await tx.creditAccount.findUnique({
+      where: { id_credit_account: entry.account_id },
+      select: { balance: true },
+    });
+
+    if (account) {
+      const delta = new Prisma.Decimal(entry.amount).mul(
+        new Prisma.Decimal(creditSignForDoc(entry.doc_type)),
+      );
+      const next = account.balance.minus(delta);
+      await tx.creditAccount.update({
+        where: { id_credit_account: entry.account_id },
+        data: { balance: next },
+      });
+    }
+
+    await tx.creditEntry.delete({ where: { id_entry: entry.id_entry } });
+  }
+}
+
+function normalizePaymentsFromReceipt(
+  r: ReceiptWithPayments,
+): ReceiptPaymentOut[] {
+  const rel = Array.isArray(r.payments) ? r.payments : [];
+  if (rel.length > 0) {
+    return rel.map((p) => ({
+      amount: Number((p as { amount?: unknown }).amount ?? 0),
+      payment_method_id:
+        Number.isFinite(Number(p.payment_method_id)) &&
+        Number(p.payment_method_id) > 0
+          ? Number(p.payment_method_id)
+          : null,
+      account_id:
+        Number.isFinite(Number(p.account_id)) && Number(p.account_id) > 0
+          ? Number(p.account_id)
+          : null,
+    }));
+  }
+
+  const amt = Number(r.amount ?? 0);
+  const pmText = String(
+    (r as unknown as { payment_method?: unknown })?.payment_method ?? "",
+  ).trim();
+  const accText = String(
+    (r as unknown as { account?: unknown })?.account ?? "",
+  ).trim();
+
+  const pmId =
+    Number.isFinite(
+      Number(
+        (r as unknown as { payment_method_id?: unknown })?.payment_method_id,
+      ),
+    ) &&
+    Number(
+      (r as unknown as { payment_method_id?: unknown })?.payment_method_id,
+    ) > 0
+      ? Number(
+          (r as unknown as { payment_method_id?: unknown })?.payment_method_id,
+        )
+      : null;
+
+  const accId =
+    Number.isFinite(
+      Number((r as unknown as { account_id?: unknown })?.account_id),
+    ) && Number((r as unknown as { account_id?: unknown })?.account_id) > 0
+      ? Number((r as unknown as { account_id?: unknown })?.account_id)
+      : null;
+
+  if (Number.isFinite(amt) && (pmText || accText || pmId || accId)) {
+    return [
+      {
+        amount: amt,
+        payment_method_id: pmId,
+        account_id: accId,
+        ...(pmText ? { payment_method_text: pmText } : {}),
+        ...(accText ? { account_text: accText } : {}),
+      },
+    ];
+  }
+
+  return [];
+}
+
 // Seguridad: aceptar recibos con booking o con agencia
 async function ensureReceiptInAgency(receiptId: number, agencyId: number) {
   const r = await prisma.receipt.findUnique({
@@ -106,7 +229,7 @@ async function ensureReceiptInAgency(receiptId: number, agencyId: number) {
   if (!belongs) throw new Error("No autorizado para este recibo");
 }
 
-// NUEVO: validar que la reserva exista y pertenezca a la agencia
+// validar que la reserva exista y pertenezca a la agencia
 async function ensureBookingInAgency(bookingId: number, agencyId: number) {
   const b = await prisma.booking.findUnique({
     where: { id_booking: bookingId },
@@ -118,9 +241,9 @@ async function ensureBookingInAgency(bookingId: number, agencyId: number) {
 }
 
 type PatchBody = {
-  booking?: { id_booking?: number }; // requerido para "attach"
-  serviceIds?: number[]; // requerido para "attach"
-  clientIds?: number[]; // opcional; si vienen, se validan
+  booking?: { id_booking?: number };
+  serviceIds?: number[];
+  clientIds?: number[];
 };
 
 export default async function handler(
@@ -145,10 +268,17 @@ export default async function handler(
       await ensureReceiptInAgency(id, authAgencyId);
       const receipt = await prisma.receipt.findUnique({
         where: { id_receipt: id },
+        include: { payments: true },
       });
       if (!receipt)
         return res.status(404).json({ error: "Recibo no encontrado" });
-      return res.status(200).json({ receipt });
+
+      return res.status(200).json({
+        receipt: {
+          ...receipt,
+          payments: normalizePaymentsFromReceipt(receipt),
+        },
+      });
     } catch (error: unknown) {
       const msg =
         error instanceof Error ? error.message : "Error al obtener el recibo";
@@ -164,7 +294,10 @@ export default async function handler(
   if (req.method === "DELETE") {
     try {
       await ensureReceiptInAgency(id, authAgencyId);
-      await prisma.receipt.delete({ where: { id_receipt: id } });
+      await prisma.$transaction(async (tx) => {
+        await deleteCreditEntriesForReceipt(tx, id, authAgencyId);
+        await tx.receipt.delete({ where: { id_receipt: id } });
+      });
       return res.status(204).end();
     } catch (error: unknown) {
       const msg =
@@ -180,10 +313,9 @@ export default async function handler(
     }
   }
 
-  // NUEVO: Attach vía PATCH
+  // Attach vía PATCH (igual que tenías)
   if (req.method === "PATCH") {
     try {
-      // 1) control de pertenencia del recibo
       await ensureReceiptInAgency(id, authAgencyId);
 
       const body = (req.body || {}) as PatchBody;
@@ -197,10 +329,8 @@ export default async function handler(
           .status(400)
           .json({ error: "serviceIds debe contener al menos un ID" });
 
-      // 2) control de pertenencia de la reserva
       await ensureBookingInAgency(bookingId, authAgencyId);
 
-      // 3) validar que todos los servicios pertenezcan a la reserva
       const svcs = await prisma.service.findMany({
         where: { id_service: { in: serviceIds }, booking_id: bookingId },
         select: { id_service: true },
@@ -212,7 +342,6 @@ export default async function handler(
           .status(400)
           .json({ error: "Algún servicio no pertenece a la reserva" });
 
-      // 4) validar clientIds (si vienen)
       let nextClientIds: number[] | undefined = undefined;
       if (Array.isArray(body.clientIds)) {
         if (body.clientIds.length) {
@@ -238,7 +367,6 @@ export default async function handler(
         }
       }
 
-      // 5) update: conectar booking, desconectar agency si venía como de agencia, setear arrays
       const updated = await prisma.receipt.update({
         where: { id_receipt: id },
         data: {
@@ -247,9 +375,15 @@ export default async function handler(
           serviceIds,
           ...(nextClientIds !== undefined ? { clientIds: nextClientIds } : {}),
         },
+        include: { payments: true },
       });
 
-      return res.status(200).json({ receipt: updated });
+      return res.status(200).json({
+        receipt: {
+          ...updated,
+          payments: normalizePaymentsFromReceipt(updated),
+        },
+      });
     } catch (error: unknown) {
       const msg =
         error instanceof Error ? error.message : "Error actualizando recibo";

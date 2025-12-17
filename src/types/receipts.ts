@@ -1,0 +1,127 @@
+// src/types/receipts.ts
+
+export type CurrencyCode = string;
+
+/** Opción de reserva para buscadores/autocomplete */
+export type BookingOption = {
+  id_booking: number;
+  label: string; // ej: "#1024 • Juan Pérez"
+  subtitle?: string; // ej: "Europa 2025"
+};
+
+/** Servicio “liviano” para selección dentro de un recibo */
+export type ServiceLite = {
+  id_service: number;
+  description?: string;
+  currency: string; // "ARS" | "USD" | ...
+  sale_price?: number; // sugerencia importe base
+  card_interest?: number; // sugerencia costo financiero
+  type?: string;
+  destination?: string;
+};
+
+export type FinanceAccount = {
+  id_account: number;
+  name: string;
+  display_name?: string;
+  enabled?: boolean;
+};
+
+export type FinancePaymentMethod = {
+  id_method: number;
+  name: string;
+  requires_account?: boolean;
+  enabled?: boolean;
+};
+
+export type FinanceCurrency = {
+  code: string;
+  name?: string;
+  enabled?: boolean;
+};
+
+export type FinancePicks = {
+  accounts: FinanceAccount[];
+  paymentMethods: FinancePaymentMethod[];
+  currencies: FinanceCurrency[];
+};
+
+/** ✅ línea de pago (para ReceiptPayment en backend) */
+export type ReceiptPaymentLine = {
+  amount: number;
+  payment_method_id: number;
+  account_id: number | null;
+
+  // (para UI / movimiento crédito)
+  operator_id?: number | null;
+
+  // ✅ NUEVO: cuenta crédito elegida
+  credit_account_id?: number | null;
+};
+
+
+/** Payload que espera tu API al crear/editar recibos */
+export type ReceiptPayload = {
+  booking?: { id_booking: number };
+  serviceIds?: number[];
+
+  concept: string;
+  amount: number;
+  amountString: string;
+  amountCurrency: string;
+
+  payment_fee_amount?: number;
+  clientIds?: number[];
+
+  payment_method?: string;
+  account?: string;
+  currency?: string;
+
+  base_amount?: number;
+  base_currency?: string;
+  counter_amount?: number;
+  counter_currency?: string;
+
+  payment_method_id?: number;
+  account_id?: number;
+
+  payments?: ReceiptPaymentLine[];
+};
+
+/** Opción para “asociar recibo existente” */
+export type AttachableReceiptOption = {
+  id_receipt: number;
+  label: string; // "#000123 • U$D 500 • 12/10/2025"
+  subtitle?: string;
+  alreadyLinked?: boolean;
+};
+
+/* =========================
+ * Helpers de IDs (para resolver id_receipt)
+ * ========================= */
+
+export type ReceiptIdLeaf = number | string | null | undefined;
+
+export type ReceiptIdObject = {
+  id_receipt?: ReceiptIdLeaf;
+  id?: ReceiptIdLeaf;
+  receiptId?: ReceiptIdLeaf;
+
+  data?: {
+    id_receipt?: ReceiptIdLeaf;
+    id?: ReceiptIdLeaf;
+    receipt?: { id_receipt?: ReceiptIdLeaf; id?: ReceiptIdLeaf };
+  };
+  result?: {
+    id_receipt?: ReceiptIdLeaf;
+    id?: ReceiptIdLeaf;
+    receipt?: { id_receipt?: ReceiptIdLeaf; id?: ReceiptIdLeaf };
+  };
+  receipt?: {
+    id_receipt?: ReceiptIdLeaf;
+    id?: ReceiptIdLeaf;
+  };
+};
+
+/** Lo que puede devolver onSubmit en tu ReceiptForm */
+export type SubmitResult = number | Response | ReceiptIdObject | null | void;

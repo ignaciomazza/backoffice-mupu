@@ -3,7 +3,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import BookingForm from "@/components/bookings/BookingForm";
-import BookingList from "@/components/bookings/BookingList";
+import BookingList, {
+  BookingViewMode,
+} from "@/components/bookings/BookingList";
 import FilterPanel from "@/components/bookings/FilterPanel";
 import Spinner from "@/components/Spinner";
 import { motion } from "framer-motion";
@@ -41,6 +43,8 @@ type BookingFormData = {
   /** fecha de creación editable por admin/gerente/dev (YYYY-MM-DD) */
   creation_date?: string;
 };
+
+const VIEW_MODE_STORAGE_KEY = "bookings-view-mode";
 
 // === Pills sutiles para UI (conteo resultados) ===
 const pillBase = "rounded-full px-2.5 py-0.5 text-xs font-medium";
@@ -149,6 +153,20 @@ export default function Page() {
 
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingBookingId, setEditingBookingId] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<BookingViewMode>("grid");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    if (stored === "grid" || stored === "list") {
+      setViewMode(stored);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
+  }, [viewMode]);
 
   const todayYMD = () => {
     const d = new Date();
@@ -672,18 +690,45 @@ export default function Page() {
           />
         </motion.div>
 
-        <h2 className="my-4 flex items-center gap-2 text-2xl font-semibold dark:font-medium">
-          Reservas
-          <span
-            className={`${pillBase} ${
-              displayedBookings.length > 0 ? pillOk : pillWarn
-            }`}
-            title="Resultados actuales"
-          >
-            {displayedBookings.length}{" "}
-            {displayedBookings.length === 1 ? "resultado" : "resultados"}
-          </span>
-        </h2>
+        <div className="my-4 flex flex-wrap items-center justify-between gap-4">
+          <h2 className="flex items-center gap-2 text-2xl font-semibold dark:font-medium">
+            Reservas
+            <span
+              className={`${pillBase} ${
+                displayedBookings.length > 0 ? pillOk : pillWarn
+              }`}
+              title="Resultados actuales"
+            >
+              {displayedBookings.length}{" "}
+              {displayedBookings.length === 1 ? "resultado" : "resultados"}
+            </span>
+          </h2>
+
+          <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1 text-xs dark:border-white/5 dark:bg-white/5">
+            <button
+              onClick={() => setViewMode("grid")}
+              className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
+                viewMode === "grid"
+                  ? "bg-emerald-600 text-white shadow-sm shadow-emerald-900/20"
+                  : "text-emerald-900/70 hover:text-emerald-900 dark:text-emerald-100"
+              }`}
+              aria-pressed={viewMode === "grid"}
+            >
+              Cards
+            </button>
+            <button
+              onClick={() => setViewMode("list")}
+              className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
+                viewMode === "list"
+                  ? "bg-emerald-600 text-white shadow-sm shadow-emerald-900/20"
+                  : "text-emerald-900/70 hover:text-emerald-900 dark:text-emerald-100"
+              }`}
+              aria-pressed={viewMode === "list"}
+            >
+              Lista
+            </button>
+          </div>
+        </div>
 
         <div className="mb-4 space-y-4 text-sm md:text-base">
           <FilterPanel
@@ -728,6 +773,7 @@ export default function Page() {
             hasMore={Boolean(nextCursor)}
             onLoadMore={loadMore}
             loadingMore={loadingMore}
+            viewMode={viewMode}
           />
         )}
 

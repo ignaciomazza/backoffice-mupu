@@ -1,154 +1,103 @@
 // src/components/receipts/ReceiptForm.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState, FormEvent } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, {
+  FormEvent,
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+} from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import Spinner from "@/components/Spinner";
-import { loadFinancePicks } from "@/utils/loadFinancePicks";
-import { authFetch } from "@/utils/authFetch";
-import ClientPicker from "@/components/clients/ClientPicker";
-import type { Client } from "@/types";
 import { toast } from "react-toastify";
+import type { Client } from "@/types";
+import { authFetch } from "@/utils/authFetch";
 
-/* =========================
- * Tipos mínimos
- * ========================= */
-export type BookingOption = {
-  id_booking: number;
-  label: string; // ej: "#1024 • Juan Pérez"
-  subtitle?: string; // ej: "Europa 2025"
-};
+import type {
+  AttachableReceiptOption,
+  BookingOption,
+  CurrencyCode,
+  ReceiptPayload,
+  ServiceLite,
+  FinanceAccount,
+  FinanceCurrency,
+  FinancePaymentMethod,
+  SubmitResult,
+  ReceiptPaymentLine,
+} from "@/types/receipts";
 
-export type ServiceLite = {
-  id_service: number;
-  description?: string;
-  currency: string; // "ARS" | "USD" | ...
-  sale_price?: number; // para sugerir importe base
-  card_interest?: number; // para sugerir costo financiero
-  // opcionales de UI (si tu API los tuviera)
-  type?: string;
-  destination?: string;
-};
+import {
+  parseAmountInput,
+  resolveReceiptIdFrom,
+} from "@/utils/receipts/receiptForm";
+import { filterAccountsByCurrency } from "@/utils/receipts/accounts";
 
-type FinanceAccount = {
-  id_account: number;
-  name: string;
-  display_name?: string;
-  enabled?: boolean;
-};
+import { useFinancePicks } from "@/hooks/receipts/useFinancePicks";
+import { useBookingSearch } from "@/hooks/receipts/useBookingSearch";
+import { useServicesForBooking } from "@/hooks/receipts/useServicesForBooking";
+import { useReceiptSearch } from "@/hooks/receipts/useReceiptSearch";
 
-type FinancePaymentMethod = {
-  id_method: number;
-  name: string;
-  requires_account?: boolean;
-  enabled?: boolean;
-};
+import {
+  createCreditEntryForReceipt,
+  createFinanceEntryForReceipt,
+} from "@/services/receipts/entries";
+import { attachExistingReceipt } from "@/services/receipts/attach";
 
-type FinanceCurrency = {
-  code: string;
-  name?: string;
-  enabled?: boolean;
-};
-
-type FinancePicks = {
-  accounts: FinanceAccount[];
-  paymentMethods: FinancePaymentMethod[];
-  currencies: FinanceCurrency[];
-};
-
-type CurrencyCode = string;
-
-/* ========= Payload de creación (API) ========= */
-export type ReceiptPayload = {
-  // Si es con reserva:
-  booking?: { id_booking: number };
-  serviceIds?: number[];
-
-  // Datos obligatorios:
-  concept: string;
-  amount: number;
-  amountString: string; // “UN MILLÓN…”
-  amountCurrency: string; // ISO del importe numérico (ARS, USD, ...)
-
-  // Costo financiero del medio de pago (opcional)
-  payment_fee_amount?: number;
-
-  // Clientes (opcional)
-  clientIds?: number[];
-
-  // Método/cuenta como TEXTO (no IDs)
-  payment_method?: string;
-  account?: string;
-
-  // Texto libre que se imprime en el PDF (nota de cobro, detalle)
-  currency?: string;
-
-  // Conversión opcional
-  base_amount?: number;
-  base_currency?: string;
-  counter_amount?: number;
-  counter_currency?: string;
-
-  // Relación real con cuenta financiera
-  account_id?: number;
-};
+import ReceiptHeader from "@/components/receipts/receipt-form/ReceiptHeader";
+import ContextSection from "@/components/receipts/receipt-form/ContextSection";
+import AttachReceiptSection from "@/components/receipts/receipt-form/AttachReceiptSection";
+import CreateReceiptFields from "@/components/receipts/receipt-form/CreateReceiptFields";
 
 type Mode = "agency" | "booking";
 
-/* ========= Adjuntar recibo existente ========= */
-export type AttachableReceiptOption = {
-  id_receipt: number;
-  label: string; // "#000123 • U$D 500 • 12/10/2025"
-  subtitle?: string; // "Sin reserva" | "Asociado a #1024"
-  alreadyLinked?: boolean;
+const CREDIT_METHOD = "Crédito operador";
+const VIRTUAL_CREDIT_METHOD_ID = 999_000_000;
+
+// 👇 Cambiá esto si tu endpoint es otro
+const CREDIT_ACCOUNTS_ENDPOINT = "/api/credit/account";
+
+type CreditAccountOption = {
+  id_credit_account: number;
+  name: string;
+  currency?: string; // "ARS" | "USD" ...
+  enabled?: boolean;
+  operator_id?: number;
 };
 
-type ReceiptIdLeaf = number | string | null | undefined;
-
-type ReceiptIdObject = {
-  id_receipt?: ReceiptIdLeaf;
-  id?: ReceiptIdLeaf;
-  receiptId?: ReceiptIdLeaf;
-
-  // anidados comunes
-  data?: {
-    id_receipt?: ReceiptIdLeaf;
-    id?: ReceiptIdLeaf;
-    receipt?: { id_receipt?: ReceiptIdLeaf; id?: ReceiptIdLeaf };
-  };
-  result?: {
-    id_receipt?: ReceiptIdLeaf;
-    id?: ReceiptIdLeaf;
-    receipt?: { id_receipt?: ReceiptIdLeaf; id?: ReceiptIdLeaf };
-  };
-  receipt?: {
-    id_receipt?: ReceiptIdLeaf;
-    id?: ReceiptIdLeaf;
-  };
+type OperatorLite = {
+  id_operator: number;
+  name: string;
 };
 
-type SubmitResult = number | Response | ReceiptIdObject | null | void;
+type PaymentDraft = {
+  key: string;
+  amount: string;
+  payment_method_id: number | null;
+  account_id: number | null;
 
-/* =========================
- * Props
- * ========================= */
+  // crédito operador
+  operator_id: number | null;
+
+  // ✅ cuenta crédito (CreditAccount)
+  credit_account_id: number | null;
+};
+
+const uid = () => `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
 export interface ReceiptFormProps {
   token: string | null;
 
-  // Ahora opcionales (controlado/NO controlado)
   editingReceiptId?: number | null;
   isFormVisible?: boolean;
   setIsFormVisible?: React.Dispatch<React.SetStateAction<boolean>>;
 
-  // Contexto (forzado desde una reserva)
   bookingId?: number;
-  allowAgency?: boolean; // default true
+  allowAgency?: boolean;
 
-  // Data loaders
   searchBookings?: (q: string) => Promise<BookingOption[]>;
   loadServicesForBooking?: (bookingId: number) => Promise<ServiceLite[]>;
 
-  // Initial values
   initialServiceIds?: number[];
   initialConcept?: string;
   initialAmount?: number;
@@ -157,20 +106,11 @@ export interface ReceiptFormProps {
   initialFinanceAccountId?: number | null;
   initialClientIds?: number[];
 
-  // Submit (CREAR)
   onSubmit: (payload: ReceiptPayload) => Promise<SubmitResult> | SubmitResult;
-
-  // Opcional
   onCancel?: () => void;
 
-  /* ==== NUEVO: Adjuntar existente (solo ServicesContainer) ==== */
-  /** Habilita el modo "asociar recibo existente" (solo para ServicesContainer). Default: false */
   enableAttachAction?: boolean;
-
-  /** Buscador de recibos existentes (si no pasás, usa fallback /api/receipts?q=) */
   searchReceipts?: (q: string) => Promise<AttachableReceiptOption[]>;
-
-  /** Hook de attach si querés manejarlo arriba. Si no lo pasás, usa /api/receipts/attach o PATCH /api/receipts/:id */
   onAttachExisting?: (args: {
     id_receipt: number;
     bookingId: number;
@@ -178,116 +118,17 @@ export interface ReceiptFormProps {
   }) => Promise<void> | void;
 }
 
-/* =========================
- * UI primitives
- * ========================= */
-const Section: React.FC<{
-  title: string;
-  desc?: string;
-  children: React.ReactNode;
-}> = ({ title, desc, children }) => (
-  <section className="rounded-2xl border border-white/10 bg-white/10 p-4">
-    <div className="mb-3">
-      <h3 className="text-base font-semibold tracking-tight text-sky-950 dark:text-white">
-        {title}
-      </h3>
-      {desc && (
-        <p className="mt-1 text-xs font-light text-sky-950/70 dark:text-white/70">
-          {desc}
-        </p>
-      )}
-    </div>
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">{children}</div>
-  </section>
-);
-
-const Field: React.FC<{
-  id: string;
-  label: string;
-  hint?: string;
-  required?: boolean;
-  children: React.ReactNode;
-}> = ({ id, label, hint, required, children }) => (
-  <div className="space-y-1">
-    <label
-      htmlFor={id}
-      className="ml-1 block text-sm font-medium text-sky-950 dark:text-white"
-    >
-      {label} {required && <span className="text-rose-600">*</span>}
-    </label>
-    {children}
-    {hint && (
-      <p
-        id={`${id}-hint`}
-        className="ml-1 text-xs text-sky-950/70 dark:text-white/70"
-      >
-        {hint}
-      </p>
-    )}
-  </div>
-);
-
-/* Pills e inputs (mismo lenguaje visual) */
-const pillBase = "rounded-full px-3 py-1 text-xs font-medium transition-colors";
-const pillNeutral = "bg-white/30 dark:bg-white/10";
-const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
-
-const inputBase =
-  "w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10 dark:text-white";
-
-/* =========================
- * Helpers de parseo seguro
- * ========================= */
-function isObj(x: unknown): x is Record<string, unknown> {
-  return typeof x === "object" && x !== null;
-}
-
-function toNumberSafe(x: unknown): number | null {
-  if (typeof x === "number" && Number.isFinite(x)) return x;
-  if (typeof x === "string" && x.trim() !== "") {
-    const n = Number(x);
-    return Number.isFinite(n) ? n : null;
+async function safeJson<T>(res: Response): Promise<T | null> {
+  try {
+    return (await res.json()) as T;
+  } catch {
+    return null;
   }
-  return null;
 }
 
-/**
- * Parsea un importe escrito en distintos formatos:
- * "1234.56", "1.234,56", "1234,56", "1,234.56", etc.
- */
-function parseAmountInput(raw: string): number | null {
-  if (!raw) return null;
-  let s = raw.trim();
-  if (!s) return null;
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === "object" && !Array.isArray(v);
 
-  // sacamos espacios
-  s = s.replace(/\s+/g, "");
-
-  const hasComma = s.includes(",");
-  const hasDot = s.includes(".");
-
-  if (hasComma && hasDot) {
-    // elegimos cuál es separador decimal según la última aparición
-    if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
-      // "1.234,56" → "." miles, "," decimal
-      s = s.replace(/\./g, "").replace(",", ".");
-    } else {
-      // "1,234.56" → "," miles, "." decimal
-      s = s.replace(/,/g, "");
-    }
-  } else if (hasComma) {
-    // sólo coma → la tomamos como decimal
-    s = s.replace(",", ".");
-  }
-  // si sólo hay punto o no hay nada, Number ya entiende
-
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
-}
-
-/* =========================
- * Componente principal
- * ========================= */
 export default function ReceiptForm({
   token,
   editingReceiptId = null,
@@ -306,205 +147,95 @@ export default function ReceiptForm({
   initialClientIds = [],
   onSubmit,
   onCancel,
-
-  // nuevo (attach)
   enableAttachAction = false,
   searchReceipts,
   onAttachExisting,
 }: ReceiptFormProps) {
-  /* ------ Visibilidad: controlado o no controlado ------ */
-  const [internalVisible, setInternalVisible] = useState<boolean>(false);
+  /* ===== Visibilidad ===== */
+  const [internalVisible, setInternalVisible] = useState(false);
   const visible = isFormVisible ?? internalVisible;
-  const setVisible = (v: boolean) => {
-    if (setIsFormVisible) setIsFormVisible(v);
-    else setInternalVisible(v);
-  };
-  const toggleVisible = () => setVisible(!visible);
+  const setVisible = (v: boolean) =>
+    setIsFormVisible ? setIsFormVisible(v) : setInternalVisible(v);
 
-  /* ------ Acción: crear o adjuntar ------ */
+  /* ===== Acción ===== */
   const [action, setAction] = useState<"create" | "attach">("create");
   const attachEnabled = !!enableAttachAction;
 
-  /* ------ Picks financieros ------ */
-  const [picks, setPicks] = useState<FinancePicks | null>(null);
-  const [loadingPicks, setLoadingPicks] = useState(false);
+  /* ===== Picks ===== */
+  const {
+    loading: loadingPicks,
+    paymentMethods,
+    accounts,
+    currencies,
+  } = useFinancePicks(token);
 
-  useEffect(() => {
-    if (!token) {
-      setPicks({ accounts: [], paymentMethods: [], currencies: [] });
-      return;
-    }
-    let alive = true;
-    (async () => {
-      try {
-        setLoadingPicks(true);
-        const raw = await loadFinancePicks(token);
-        if (!alive) return;
-        setPicks({
-          accounts: raw?.accounts ?? [],
-          paymentMethods: raw?.paymentMethods ?? [],
-          currencies: raw?.currencies ?? [],
-        });
-      } finally {
-        if (alive) setLoadingPicks(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [token]);
+  const paymentMethodsTyped: FinancePaymentMethod[] = paymentMethods;
+  const accountsTyped: FinanceAccount[] = accounts;
+  const currenciesTyped: FinanceCurrency[] = currencies;
 
-  // Memo para arrays derivados de picks (evita deps inestables)
-  const paymentMethods = useMemo(
-    () => (picks?.paymentMethods ?? []) as FinancePaymentMethod[],
-    [picks],
-  );
-  const accounts = useMemo(
-    () => (picks?.accounts ?? []) as FinanceAccount[],
-    [picks],
-  );
-  const currencies = useMemo(
-    () => (picks?.currencies ?? []) as FinanceCurrency[],
-    [picks],
-  );
+  /* ===== Crédito: método ID real (si existe) o virtual (0) ===== */
+  const creditMethodId = useMemo(() => {
+    const m = paymentMethodsTyped.find(
+      (pm) => (pm.name || "").toLowerCase() === CREDIT_METHOD.toLowerCase(),
+    );
+    return m?.id_method ?? VIRTUAL_CREDIT_METHOD_ID;
+  }, [paymentMethodsTyped]);
 
-  /* ------ Modo (agency / booking) ------ */
+  const paymentMethodsUi = useMemo(() => {
+    const hasCreditInDb = paymentMethodsTyped.some(
+      (pm) => (pm.name || "").toLowerCase() === CREDIT_METHOD.toLowerCase(),
+    );
+
+    if (hasCreditInDb) return paymentMethodsTyped;
+
+    const virtualCredit = {
+      id_method: VIRTUAL_CREDIT_METHOD_ID,
+      name: CREDIT_METHOD,
+      requires_account: false,
+      enabled: true,
+    } as FinancePaymentMethod;
+
+    return [virtualCredit, ...paymentMethodsTyped];
+  }, [paymentMethodsTyped]);
+
+  /* ===== Mode ===== */
   const forcedBookingMode = !!bookingId;
   const [mode, setMode] = useState<Mode>(
     forcedBookingMode ? "booking" : "agency",
   );
+
   useEffect(() => {
     if (forcedBookingMode) setMode("booking");
   }, [forcedBookingMode]);
 
-  // Si el usuario pasa a "attach", siempre trabajamos con reserva
+  useEffect(() => {
+    if (action === "attach") setMode("booking");
+  }, [action]);
+
   const canToggleAgency =
     !forcedBookingMode && allowAgency && action !== "attach";
 
-  /* ------ Reserva (buscador) ------ */
-  const [bookingQuery, setBookingQuery] = useState("");
-  const [bookingOptions, setBookingOptions] = useState<BookingOption[]>([]);
+  /* ===== Booking ===== */
   const [selectedBookingId, setSelectedBookingId] = useState<number | null>(
     bookingId ?? null,
   );
-  const [loadingBookings, setLoadingBookings] = useState(false);
 
-  // Fallback interno si no pasás searchBookings
-  const effectiveSearchBookings = useMemo<
-    ((q: string) => Promise<BookingOption[]>) | undefined
-  >(() => {
-    if (searchBookings) return searchBookings;
-    if (!token) return undefined;
-    return async (q: string) => {
-      try {
-        const res = await authFetch(
-          `/api/bookings/search?q=${encodeURIComponent(q)}`,
-          { cache: "no-store" },
-          token || undefined,
-        );
-        if (!res.ok) return [];
-        const json = await res.json();
-        const items: unknown[] =
-          (Array.isArray(json) && json) ||
-          (isObj(json) && Array.isArray(json.items) && json.items) ||
-          [];
-        return items
-          .map((b): BookingOption | null => {
-            if (!isObj(b)) return null;
-            const rawId = (b.id_booking ?? b.id) as unknown;
-            const idNum = toNumberSafe(rawId);
-            if (!idNum || idNum <= 0) return null;
+  const bookingSearchEnabled = !forcedBookingMode && mode === "booking";
+  const { bookingQuery, setBookingQuery, bookingOptions, loadingBookings } =
+    useBookingSearch({
+      token,
+      enabled: bookingSearchEnabled,
+      searchBookings,
+    });
 
-            const titularObj = (b.titular ?? null) as unknown;
-            let titular = "";
-            if (isObj(titularObj)) {
-              const first = (titularObj.first_name ?? "") as unknown;
-              const last = (titularObj.last_name ?? "") as unknown;
-              titular = `${String(first ?? "")} ${String(last ?? "")}`.trim();
-            } else {
-              const tname = (b.titular_name ?? "") as unknown;
-              titular = typeof tname === "string" ? tname : "";
-            }
-
-            const label = `#${idNum}${titular ? ` • ${titular}` : ""}`;
-            const subtitleRaw = (b.details ?? b.title ?? "") as unknown;
-            const subtitle =
-              typeof subtitleRaw === "string" ? subtitleRaw : undefined;
-
-            return { id_booking: idNum, label: label.trim(), subtitle };
-          })
-          .filter((x): x is BookingOption => x !== null);
-      } catch {
-        return [];
-      }
-    };
-  }, [searchBookings, token]);
-
-  useEffect(() => {
-    if (action === "attach") setMode("booking"); // attach requiere reserva
-  }, [action]);
-
-  useEffect(() => {
-    if (!effectiveSearchBookings) return;
-    if (forcedBookingMode) return;
-    if (mode !== "booking") return;
-
-    const raw = bookingQuery.trim().replace(/^#/, ""); // permitir "#376"
-    if (raw.length < 2) {
-      setBookingOptions([]);
-      return;
-    }
-
-    let alive = true;
-    setLoadingBookings(true);
-
-    const t = setTimeout(() => {
-      effectiveSearchBookings(raw)
-        .then((res) => {
-          if (alive) setBookingOptions(res || []);
-        })
-        .finally(() => {
-          if (alive) setLoadingBookings(false);
-        });
-    }, 250);
-
-    return () => {
-      alive = false;
-      clearTimeout(t);
-    };
-  }, [mode, bookingQuery, forcedBookingMode, effectiveSearchBookings]);
-
-  /* ------ Servicios por reserva ------ */
-  const [services, setServices] = useState<ServiceLite[]>([]);
-  const [loadingServices, setLoadingServices] = useState(false);
-
-  useEffect(() => {
-    if (!loadServicesForBooking) return;
-    const bId = selectedBookingId ?? null;
-    if (!bId) {
-      setServices([]);
-      return;
-    }
-    let alive = true;
-    setLoadingServices(true);
-    loadServicesForBooking(bId)
-      .then((res) => {
-        if (alive) setServices(res || []);
-      })
-      .finally(() => {
-        if (alive) setLoadingServices(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [selectedBookingId, loadServicesForBooking]);
+  /* ===== Services ===== */
+  const { services, loadingServices } = useServicesForBooking({
+    bookingId: selectedBookingId,
+    loadServicesForBooking,
+  });
 
   const [selectedServiceIds, setSelectedServiceIds] =
     useState<number[]>(initialServiceIds);
-  const selectedServices = useMemo(
-    () => services.filter((s) => selectedServiceIds.includes(s.id_service)),
-    [services, selectedServiceIds],
-  );
 
   useEffect(() => {
     setSelectedServiceIds((prev) =>
@@ -512,26 +243,30 @@ export default function ReceiptForm({
     );
   }, [services]);
 
-  const lockedCurrency: string | null = useMemo(() => {
-    if (selectedServices.length === 0) return null;
+  const selectedServices = useMemo(
+    () => services.filter((s) => selectedServiceIds.includes(s.id_service)),
+    [services, selectedServiceIds],
+  );
+
+  const lockedCurrency = useMemo(() => {
+    if (!selectedServices.length) return null;
     return selectedServices[0].currency;
   }, [selectedServices]);
 
-  // Si por error quedaran servicios con moneda distinta, corregimos
   useEffect(() => {
     if (selectedServices.length <= 1) return;
     const first = selectedServices[0].currency;
-    const allSame = selectedServices.every((s) => s.currency === first);
-    if (!allSame) {
-      const onlyFirst = selectedServices
-        .filter((s) => s.currency === first)
-        .map((s) => s.id_service);
-      setSelectedServiceIds(onlyFirst);
+    if (!selectedServices.every((s) => s.currency === first)) {
+      setSelectedServiceIds(
+        selectedServices
+          .filter((s) => s.currency === first)
+          .map((s) => s.id_service),
+      );
     }
   }, [selectedServices]);
 
   const toggleService = (svc: ServiceLite) => {
-    if (lockedCurrency && svc.currency !== lockedCurrency) return; // bloqueado
+    if (lockedCurrency && svc.currency !== lockedCurrency) return;
     setSelectedServiceIds((prev) =>
       prev.includes(svc.id_service)
         ? prev.filter((id) => id !== svc.id_service)
@@ -539,14 +274,18 @@ export default function ReceiptForm({
     );
   };
 
-  /* ------ Importe / moneda (numérico + sugerido) ------ */
+  const clearBookingContext = () => {
+    setSelectedBookingId(null);
+    setSelectedServiceIds([]);
+  };
+
+  /* ===== Concepto ===== */
   const [concept, setConcept] = useState(initialConcept);
 
-  // Importe neto que entra a la agencia
+  /* ===== Monto / moneda (total) ===== */
   const [amountReceived, setAmountReceived] = useState<string>(
     initialAmount != null ? String(initialAmount) : "",
   );
-  // Costo financiero retenido por medio de pago
   const [feeAmount, setFeeAmount] = useState<string>("");
 
   const [freeCurrency, setFreeCurrency] = useState<CurrencyCode>(
@@ -554,17 +293,17 @@ export default function ReceiptForm({
   );
 
   useEffect(() => {
-    if (!lockedCurrency && !initialCurrency && currencies.length) {
-      const firstEnabled = currencies.find((c) => c.enabled)?.code || "ARS";
+    if (!lockedCurrency && !initialCurrency && currenciesTyped.length) {
+      const firstEnabled =
+        currenciesTyped.find((c) => c.enabled)?.code || "ARS";
       setFreeCurrency(firstEnabled);
     }
-  }, [currencies, lockedCurrency, initialCurrency]);
+  }, [currenciesTyped, lockedCurrency, initialCurrency]);
 
   const effectiveCurrency: CurrencyCode = lockedCurrency || freeCurrency;
 
-  // Sugerencias a partir de servicios seleccionados
   const suggestions = useMemo(() => {
-    if (selectedServices.length === 0) return null;
+    if (!selectedServices.length) return null;
     const base = selectedServices.reduce(
       (acc, s) => acc + (s.sale_price ?? 0),
       0,
@@ -582,16 +321,282 @@ export default function ReceiptForm({
     };
   }, [selectedServices]);
 
+  /* ===== Payments (múltiples líneas) ===== */
+  const [paymentLines, setPaymentLines] = useState<PaymentDraft[]>(() => [
+    {
+      key: uid(),
+      amount: initialAmount != null ? String(initialAmount) : "",
+      payment_method_id: initialPaymentMethodId ?? null,
+      account_id: initialFinanceAccountId ?? null,
+      operator_id: null,
+      credit_account_id: null,
+    },
+  ]);
+
+  const paymentsTotalNum = useMemo(() => {
+    return paymentLines.reduce(
+      (acc, l) => acc + (parseAmountInput(l.amount) ?? 0),
+      0,
+    );
+  }, [paymentLines]);
+
+  useEffect(() => {
+    if (!paymentLines.length || paymentsTotalNum <= 0) {
+      setAmountReceived("");
+      return;
+    }
+    setAmountReceived(
+      paymentsTotalNum.toLocaleString("es-AR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+    );
+  }, [paymentsTotalNum, paymentLines.length]);
+
+  const addPaymentLine = () => {
+    setPaymentLines((prev) => [
+      ...prev,
+      {
+        key: uid(),
+        amount: "",
+        payment_method_id: null,
+        account_id: null,
+        operator_id: null,
+        credit_account_id: null,
+      },
+    ]);
+  };
+
+  const removePaymentLine = (key: string) => {
+    setPaymentLines((prev) =>
+      prev.length <= 1 ? prev : prev.filter((l) => l.key !== key),
+    );
+  };
+
+  const setPaymentLineAmount = (key: string, v: string) => {
+    setPaymentLines((prev) =>
+      prev.map((l) => (l.key === key ? { ...l, amount: v } : l)),
+    );
+  };
+
+  /* ===== Credit accounts (cache por operador) ===== */
+  const [creditAccountsByOperator, setCreditAccountsByOperator] = useState<
+    Record<number, CreditAccountOption[]>
+  >({});
+  const [loadingCreditAccountsByOperator, setLoadingCreditAccountsByOperator] =
+    useState<Record<number, boolean>>({});
+
+  // si cambia moneda efectiva, limpiamos cache (para no mezclar cuentas por moneda)
+  useEffect(() => {
+    setCreditAccountsByOperator({});
+    setLoadingCreditAccountsByOperator({});
+    setPaymentLines((prev) =>
+      prev.map((l) => ({ ...l, credit_account_id: null })),
+    );
+  }, [effectiveCurrency]);
+
+  const fetchCreditAccountsForOperator = useCallback(
+    async (operatorId: number): Promise<CreditAccountOption[]> => {
+      if (!token) return [];
+      if (!operatorId || operatorId <= 0) return [];
+
+      if (creditAccountsByOperator[operatorId]?.length)
+        return creditAccountsByOperator[operatorId];
+
+      if (loadingCreditAccountsByOperator[operatorId])
+        return creditAccountsByOperator[operatorId] ?? [];
+
+      setLoadingCreditAccountsByOperator((m) => ({ ...m, [operatorId]: true }));
+      try {
+        const qs = new URLSearchParams();
+        const cur = String(effectiveCurrency || "").toUpperCase();
+        qs.set("operator_id", String(operatorId));
+        qs.set("operatorId", String(operatorId)); // compat backend viejo
+        if (cur) qs.set("currency", cur);
+        qs.set("enabled", "true");
+
+        const res = await authFetch(
+          `${CREDIT_ACCOUNTS_ENDPOINT}?${qs.toString()}`,
+          { cache: "no-store" },
+          token,
+        );
+
+        const data = await safeJson<unknown>(res);
+
+        if (!res.ok) {
+          const msg =
+            isRecord(data) && typeof data["error"] === "string"
+              ? String(data["error"])
+              : isRecord(data) && typeof data["message"] === "string"
+                ? String(data["message"])
+                : "No se pudieron cargar las cuentas crédito.";
+          throw new Error(msg);
+        }
+
+        const rawList: unknown[] = Array.isArray(data)
+          ? data
+          : isRecord(data) && Array.isArray(data["items"])
+            ? (data["items"] as unknown[])
+            : isRecord(data) && Array.isArray(data["accounts"])
+              ? (data["accounts"] as unknown[])
+              : [];
+
+        const items: CreditAccountOption[] = rawList
+          .filter(isRecord)
+          .map((x) => {
+            const id = Number(x["id_credit_account"]);
+            const rawName = typeof x["name"] === "string" ? x["name"] : "";
+
+            return {
+              id_credit_account: id,
+              name: rawName && rawName.trim().length > 0 ? rawName : `Cuenta #${id}`,
+              currency:
+                typeof x["currency"] === "string"
+                  ? String(x["currency"])
+                  : undefined,
+              enabled:
+                typeof x["enabled"] === "boolean"
+                  ? Boolean(x["enabled"])
+                  : undefined,
+              operator_id:
+                typeof x["operator_id"] === "number"
+                  ? Number(x["operator_id"])
+                  : undefined,
+            };
+          })
+          .filter(
+            (a) =>
+              Number.isFinite(a.id_credit_account) && a.id_credit_account > 0,
+          );
+
+        const filtered = items.filter((a) => {
+          const okEnabled = a.enabled === undefined ? true : !!a.enabled;
+          const okCur = a.currency
+            ? String(a.currency).toUpperCase() ===
+              String(effectiveCurrency).toUpperCase()
+            : true;
+          return okEnabled && okCur;
+        });
+
+        setCreditAccountsByOperator((m) => ({ ...m, [operatorId]: filtered }));
+        return filtered;
+      } finally {
+        setLoadingCreditAccountsByOperator((m) => ({
+          ...m,
+          [operatorId]: false,
+        }));
+      }
+    },
+    [
+      token,
+      effectiveCurrency,
+      creditAccountsByOperator,
+      loadingCreditAccountsByOperator,
+    ],
+  );
+
+  const setPaymentLineMethod = (key: string, methodId: number | null) => {
+    const method = paymentMethodsUi.find((m) => m.id_method === methodId);
+    const isCredit =
+      methodId != null && Number(methodId) === Number(creditMethodId);
+
+    setPaymentLines((prev) =>
+      prev.map((l) => {
+        if (l.key !== key) return l;
+
+        if (isCredit) {
+          return {
+            ...l,
+            payment_method_id: methodId,
+            account_id: null,
+            // operator_id y credit_account_id se eligen a mano
+          };
+        }
+
+        // no crédito: limpiar campos de crédito
+        if (!method?.requires_account) {
+          return {
+            ...l,
+            payment_method_id: methodId,
+            account_id: null,
+            operator_id: null,
+            credit_account_id: null,
+          };
+        }
+
+        return {
+          ...l,
+          payment_method_id: methodId,
+          operator_id: null,
+          credit_account_id: null,
+        };
+      }),
+    );
+  };
+
+  const setPaymentLineAccount = (key: string, accountId: number | null) => {
+    setPaymentLines((prev) =>
+      prev.map((l) => (l.key === key ? { ...l, account_id: accountId } : l)),
+    );
+  };
+
+  const setPaymentLineCreditAccount = (
+    key: string,
+    creditAccountId: number | null,
+  ) => {
+    setPaymentLines((prev) =>
+      prev.map((l) =>
+        l.key === key ? { ...l, credit_account_id: creditAccountId } : l,
+      ),
+    );
+  };
+
+  const setPaymentLineOperator = (key: string, operatorId: number | null) => {
+    setPaymentLines((prev) =>
+      prev.map((l) =>
+        l.key === key
+          ? { ...l, operator_id: operatorId, credit_account_id: null }
+          : l,
+      ),
+    );
+
+    if (!operatorId) return;
+
+    fetchCreditAccountsForOperator(operatorId)
+      .then((items) => {
+        const validIds = items.map((a) => a.id_credit_account);
+        setPaymentLines((prev) =>
+          prev.map((l) => {
+            if (l.key !== key) return l;
+            if (l.operator_id !== operatorId) return l;
+
+            const hasCurrent =
+              l.credit_account_id != null &&
+              validIds.includes(l.credit_account_id);
+
+            if (hasCurrent) return l;
+
+            if (items.length === 1) {
+              return { ...l, credit_account_id: items[0].id_credit_account };
+            }
+
+            return { ...l, credit_account_id: null };
+          }),
+        );
+      })
+      .catch((err) => {
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : "Error cargando cuentas crédito.",
+        );
+      });
+  };
+
+  // aplicar sugeridos: ajusta la ÚLTIMA línea para que el total matchee
   const applySuggestedAmounts = () => {
     if (!suggestions) return;
-    if (suggestions.base != null) {
-      setAmountReceived(
-        suggestions.base.toLocaleString("es-AR", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        }),
-      );
-    }
+
     if (suggestions.fee != null) {
       setFeeAmount(
         suggestions.fee.toLocaleString("es-AR", {
@@ -600,12 +605,45 @@ export default function ReceiptForm({
         }),
       );
     }
+
+    if (suggestions.base == null) return;
+    const target = suggestions.base;
+
+    setPaymentLines((prev) => {
+      if (!prev.length) {
+        return [
+          {
+            key: uid(),
+            amount: String(target),
+            payment_method_id: null,
+            account_id: null,
+            operator_id: null,
+            credit_account_id: null,
+          },
+        ];
+      }
+      const lastIdx = prev.length - 1;
+      const sumExceptLast = prev
+        .slice(0, lastIdx)
+        .reduce((acc, l) => acc + (parseAmountInput(l.amount) ?? 0), 0);
+      const nextLast = Math.max(0, target - sumExceptLast);
+
+      const next = [...prev];
+      next[lastIdx] = {
+        ...next[lastIdx],
+        amount: nextLast.toLocaleString("es-AR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }),
+      };
+      return next;
+    });
   };
 
   const clientTotal = useMemo(() => {
-    const base = parseAmountInput(amountReceived) ?? suggestions?.base ?? null;
+    const base =
+      paymentsTotalNum > 0 ? paymentsTotalNum : (suggestions?.base ?? null);
     const fee = parseAmountInput(feeAmount) ?? suggestions?.fee ?? null;
-
     if (base === null && fee === null) return "";
     const total = (base ?? 0) + (fee ?? 0);
     if (!total || total <= 0) return "";
@@ -613,125 +651,160 @@ export default function ReceiptForm({
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
-  }, [amountReceived, feeAmount, suggestions]);
+  }, [paymentsTotalNum, feeAmount, suggestions]);
 
-  // ===== Créditos (Operador) =====
-  type OperatorLite = { id_operator: number; name: string };
+  /* ===== Detalle de pago para PDF ===== */
+  const [paymentDescription, setPaymentDescription] = useState("");
 
-  const [useOperatorCredit, setUseOperatorCredit] = useState(false);
-  const [creditOperatorId, setCreditOperatorId] = useState<number | null>(null);
-  const [operators, setOperators] = useState<OperatorLite[]>([]);
-  const [agencyId, setAgencyId] = useState<number | null>(null);
-
-  const CREDIT_METHOD = "Crédito operador";
-
-  /* ------ Método de pago / Cuenta + detalle PDF ------ */
-  const [paymentMethodId, setPaymentMethodId] = useState<number | null>(
-    initialPaymentMethodId,
-  );
-  const [financeAccountId, setFinanceAccountId] = useState<number | null>(
-    initialFinanceAccountId,
-  );
-  const [paymentDescription, setPaymentDescription] = useState<string>("");
-
-  const selectedMethodIsCredit = useMemo(() => {
-    const m = paymentMethods.find((pm) => pm.id_method === paymentMethodId);
-    return (m?.name || "").toLowerCase() === CREDIT_METHOD.toLowerCase();
-  }, [paymentMethods, paymentMethodId]);
-
-  // Elegido + requiere cuenta
-  const chosenMethod = paymentMethods.find(
-    (m) => m.id_method === paymentMethodId,
-  );
-  const requiresAccount = !!chosenMethod?.requires_account;
-
-  // Cuando hay crédito operador, nunca requiere cuenta
-  const requiresAccountEffective =
-    useOperatorCredit || selectedMethodIsCredit ? false : requiresAccount;
-
-  // 🔒 Nuevo: bloquear el selector si hay crédito operador o ya está en "Crédito operador"
-  const lockPaymentMethod = useOperatorCredit || selectedMethodIsCredit;
-
-  useEffect(() => {
-    if (!requiresAccountEffective) setFinanceAccountId(null);
-  }, [requiresAccountEffective]);
-
-  const guessAccountCurrency = React.useCallback(
-    (accName: string | undefined | null): string | null => {
-      if (!accName) return null;
-      const upper = accName.toUpperCase();
-
-      // 1) Matcheo por códigos ISO presentes en el label
-      const isoList = (currencies ?? [])
-        .map((c) => (c.code || "").toUpperCase())
-        .filter(Boolean);
-      for (const code of isoList) {
-        if (upper.includes(code)) return code;
-      }
-
-      // 2) Sinonimias comunes
-      const synonyms: Record<string, string[]> = {
-        USD: ["USD", "U$D", "DOLARES", "DÓLARES", "US DOLLAR"],
-        ARS: ["ARS", "PESOS", "$ "],
-        EUR: ["EUR", "€", "EUROS"],
-        BRL: ["BRL", "REALES"],
-        UYU: ["UYU"],
-        CLP: ["CLP"],
-        PYG: ["PYG"],
-      };
-      for (const [code, keys] of Object.entries(synonyms)) {
-        if (keys.some((k) => upper.includes(k))) return code;
-      }
-      return null;
-    },
-    [currencies],
-  );
-
-  useEffect(() => {
-    if (useOperatorCredit) {
-      const credit = paymentMethods.find(
-        (pm) => (pm.name || "").toLowerCase() === CREDIT_METHOD.toLowerCase(),
-      );
-      if (credit) setPaymentMethodId(credit.id_method);
-    } else if (selectedMethodIsCredit) {
-      setPaymentMethodId(null);
-    }
-  }, [useOperatorCredit, paymentMethods, selectedMethodIsCredit]);
-
-  const filteredAccounts = React.useMemo(() => {
-    if (!requiresAccountEffective) return accounts;
-    const cur = (effectiveCurrency || "").toUpperCase();
-    if (!cur) return accounts;
-    return accounts.filter((a) => {
-      const label = a.display_name || a.name;
-      const accCur = guessAccountCurrency(label);
-      // Si no podemos detectar la moneda de la cuenta, no la filtramos “duro”.
-      return accCur ? accCur === cur : true;
+  const filteredAccounts = useMemo(() => {
+    return filterAccountsByCurrency({
+      accounts: accountsTyped,
+      currencies: currenciesTyped,
+      effectiveCurrency,
+      enabled: true,
     });
+  }, [accountsTyped, currenciesTyped, effectiveCurrency]);
+
+  const [agencyId, setAgencyId] = useState<number | null>(null);
+  const [operators, setOperators] = useState<OperatorLite[]>([]);
+
+  useEffect(() => {
+    if (!token) {
+      setAgencyId(null);
+      setOperators([]);
+      return;
+    }
+
+    const ac = new AbortController();
+
+    (async () => {
+      try {
+        const profileRes = await authFetch(
+          "/api/user/profile",
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+        const profileJson = await safeJson<{ id_agency?: number }>(profileRes);
+        const ag = profileJson?.id_agency ?? null;
+        setAgencyId(ag ?? null);
+
+        if (ag == null) {
+          setOperators([]);
+          return;
+        }
+
+        const opsRes = await authFetch(
+          `/api/operators?agencyId=${ag}`,
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+
+        if (!opsRes.ok) {
+          setOperators([]);
+          return;
+        }
+
+        const opsJson = (await safeJson<OperatorLite[]>(opsRes)) ?? [];
+        setOperators(
+          opsJson
+            .filter((o) => o && typeof o.id_operator === "number")
+            .sort((a, b) => (a.name || "").localeCompare(b.name || "", "es")),
+        );
+      } catch (err) {
+        if ((err as { name?: string })?.name !== "AbortError") {
+          setOperators([]);
+        }
+      }
+    })();
+
+    return () => ac.abort();
+  }, [token]);
+
+  const paymentSummary = useMemo(() => {
+    const parts: string[] = [];
+
+    for (const l of paymentLines) {
+      const amt = parseAmountInput(l.amount);
+      if (!amt || amt <= 0) continue;
+
+      const isCredit =
+        l.payment_method_id != null &&
+        Number(l.payment_method_id) === Number(creditMethodId);
+
+      const m = paymentMethodsUi.find(
+        (pm) => pm.id_method === l.payment_method_id,
+      );
+      const mName = isCredit ? CREDIT_METHOD : m?.name || "Método";
+
+      const accName =
+        l.account_id != null
+          ? accountsTyped.find((a) => a.id_account === l.account_id)
+              ?.display_name ||
+            accountsTyped.find((a) => a.id_account === l.account_id)?.name
+          : "";
+
+      const opName =
+        l.operator_id != null
+          ? operators.find((o) => o.id_operator === l.operator_id)?.name
+          : "";
+
+      const caName =
+        l.operator_id != null && l.credit_account_id != null
+          ? creditAccountsByOperator[l.operator_id]?.find(
+              (x) => x.id_credit_account === l.credit_account_id,
+            )?.name || ""
+          : "";
+
+      let tail = "";
+      if (isCredit) {
+        const bits = [opName, caName, accName].filter(Boolean);
+        tail = bits.length ? ` (${bits.join(" · ")})` : "";
+      } else {
+        tail = accName ? ` (${accName})` : "";
+      }
+
+      parts.push(
+        `${mName}${tail}: ${amt.toLocaleString("es-AR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })} ${effectiveCurrency}`,
+      );
+    }
+
+    return parts.join(" + ");
   }, [
-    accounts,
-    requiresAccountEffective,
+    paymentLines,
+    paymentMethodsUi,
+    accountsTyped,
+    operators,
     effectiveCurrency,
-    guessAccountCurrency,
+    creditAccountsByOperator,
+    creditMethodId,
   ]);
 
-  /* ------ Clientes (picker múltiple) ------ */
+  useEffect(() => {
+    if (!paymentDescription.trim() && paymentSummary.trim()) {
+      setPaymentDescription(paymentSummary);
+    }
+  }, [paymentSummary, paymentDescription]);
+
+  /* ===== Clientes ===== */
   const [clientsCount, setClientsCount] = useState(
     Math.max(1, initialClientIds?.length || 1),
   );
   const [clientIds, setClientIds] = useState<(number | null)[]>(
     clientsCount === (initialClientIds?.length || 0)
-      ? initialClientIds!
+      ? initialClientIds
       : Array.from({ length: Math.max(1, initialClientIds?.length || 1) }).map(
           (_, i) => initialClientIds?.[i] ?? null,
         ),
   );
 
-  const handleIncrementClient = () => {
+  const onIncClient = () => {
     setClientsCount((c) => c + 1);
     setClientIds((arr) => [...arr, null]);
   };
-  const handleDecrementClient = () => {
+  const onDecClient = () => {
     if (clientsCount <= 1) return;
     setClientsCount((c) => c - 1);
     setClientIds((arr) => arr.slice(0, -1));
@@ -746,145 +819,94 @@ export default function ReceiptForm({
   const excludeForIndex = (idx: number) =>
     clientIds.filter((_, i) => i !== idx).filter(Boolean) as number[];
 
-  /* ------ Importe en palabras (para PDF) ------ */
-  const [amountWords, setAmountWords] = useState<string>(""); // texto en palabras
-  const [amountWordsISO, setAmountWordsISO] = useState<string>(""); // ISO del texto
+  /* ===== Importe en palabras (PDF) ===== */
+  const [amountWords, setAmountWords] = useState("");
+  const [amountWordsISO, setAmountWordsISO] = useState("");
 
-  // Sugerimos ISO del texto con la moneda efectiva si no elegiste una
   useEffect(() => {
     if (!amountWordsISO && effectiveCurrency)
       setAmountWordsISO(effectiveCurrency);
   }, [amountWordsISO, effectiveCurrency]);
 
-  /* ------ Conversión (opcional) ------ */
-  const [baseAmount, setBaseAmount] = useState<string>("");
-  const [baseCurrency, setBaseCurrency] = useState<string>("");
-  const [counterAmount, setCounterAmount] = useState<string>("");
-  const [counterCurrency, setCounterCurrency] = useState<string>("");
+  /* ===== Conversión (opcional) ===== */
+  const [baseAmount, setBaseAmount] = useState("");
+  const [baseCurrency, setBaseCurrency] = useState("");
+  const [counterAmount, setCounterAmount] = useState("");
+  const [counterCurrency, setCounterCurrency] = useState("");
 
-  /* ------ Adjuntar existente (UI/estado) ------ */
-  const [receiptQuery, setReceiptQuery] = useState("");
-  const [receiptOptions, setReceiptOptions] = useState<
-    AttachableReceiptOption[]
-  >([]);
+  /* ===== Attach search ===== */
+  const attachSearchEnabled = attachEnabled && action === "attach";
+  const { receiptQuery, setReceiptQuery, receiptOptions, loadingReceipts } =
+    useReceiptSearch({
+      token,
+      enabled: attachSearchEnabled,
+      searchReceipts,
+    });
   const [selectedReceiptId, setSelectedReceiptId] = useState<number | null>(
     null,
   );
-  const [loadingReceipts, setLoadingReceipts] = useState(false);
 
-  const effectiveSearchReceipts = useMemo<
-    ((q: string) => Promise<AttachableReceiptOption[]>) | undefined
-  >(() => {
-    if (searchReceipts) return searchReceipts;
-    if (!token) return undefined;
-    return async (q: string) => {
-      try {
-        const url = `/api/receipts?q=${encodeURIComponent(q)}&take=10`;
-        const res = await authFetch(
-          url,
-          { cache: "no-store" },
-          token || undefined,
-        );
-        if (!res.ok) return [];
-        const json = await res.json();
-        const items: unknown[] =
-          (Array.isArray(json) && json) ||
-          (isObj(json) && Array.isArray(json.items) && json.items) ||
-          [];
-        return items
-          .map((r): AttachableReceiptOption | null => {
-            if (!isObj(r)) return null;
-            const id = toNumberSafe(r.id_receipt);
-            if (!id || id <= 0) return null;
-            const numberStr =
-              typeof r.receipt_number === "string"
-                ? r.receipt_number
-                : String(r.receipt_number ?? id);
-            const cur =
-              typeof r.amount_currency === "string"
-                ? r.amount_currency.toUpperCase()
-                : "ARS";
-            const amt = toNumberSafe(r.amount) ?? 0;
-            const dStr =
-              typeof r.issue_date === "string" && r.issue_date
-                ? new Date(r.issue_date).toLocaleDateString("es-AR")
-                : "—";
-            const label = `#${numberStr} • ${cur} ${amt.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} • ${dStr}`;
-
-            // detectar si está ya asociado
-            let already = false;
-            if (isObj(r.booking)) {
-              const bid = toNumberSafe(
-                (r.booking as Record<string, unknown>).id_booking,
-              );
-              already = !!bid && bid > 0;
-            }
-            const subtitle = already ? "Asociado a reserva" : "Sin reserva";
-            return { id_receipt: id, label, subtitle, alreadyLinked: already };
-          })
-          .filter((x): x is AttachableReceiptOption => x !== null);
-      } catch {
-        return [];
-      }
-    };
-  }, [searchReceipts, token]);
-
-  useEffect(() => {
-    if (!attachEnabled || action !== "attach") return;
-    const q = receiptQuery.trim().replace(/^#/, "");
-    if (!q) {
-      setReceiptOptions([]);
-      return;
-    }
-    if (!effectiveSearchReceipts) return;
-    let alive = true;
-    setLoadingReceipts(true);
-    const t = setTimeout(() => {
-      effectiveSearchReceipts(q)
-        .then((opts) => alive && setReceiptOptions(opts || []))
-        .finally(() => alive && setLoadingReceipts(false));
-    }, 250);
-    return () => {
-      alive = false;
-      clearTimeout(t);
-    };
-  }, [attachEnabled, action, receiptQuery, effectiveSearchReceipts]);
-
-  /* ------ Validación simple ------ */
+  /* ===== Validación ===== */
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const validateCreate = (): boolean => {
+  const validateCreate = () => {
     const e: Record<string, string> = {};
 
     if (mode === "booking") {
       if (!selectedBookingId) e.booking = "Elegí una reserva.";
       if (selectedServiceIds.length === 0)
         e.services = "Seleccioná al menos un servicio.";
-      const svcs = services.filter((s) =>
-        selectedServiceIds.includes(s.id_service),
-      );
-      if (svcs.length) {
-        const m = svcs[0].currency;
-        if (!svcs.every((s) => s.currency === m)) {
-          e.services = "Todos los servicios deben ser de la misma moneda.";
-        }
-      }
     }
 
-    const parsedAmount = parseAmountInput(amountReceived);
-    if ((parsedAmount === null || parsedAmount <= 0) && !suggestions?.base) {
-      e.amount =
-        "Importe inválido. Ingresá cuánto recibe la agencia o usá el sugerido.";
+    if (!paymentLines.length) {
+      e.payments = "Cargá al menos una línea de pago.";
+    } else {
+      paymentLines.forEach((l, idx) => {
+        const isCredit =
+          l.payment_method_id != null &&
+          Number(l.payment_method_id) === Number(creditMethodId);
+
+        const m = paymentMethodsUi.find(
+          (pm) => pm.id_method === l.payment_method_id,
+        );
+        const requiresAcc = !!m?.requires_account;
+
+        const amt = parseAmountInput(l.amount);
+        if (!amt || amt <= 0) e[`payment_amount_${idx}`] = "Importe inválido.";
+
+        // 👇 clave: 0 es válido, solo invalidamos null/undefined
+        if (l.payment_method_id == null)
+          e[`payment_method_${idx}`] = "Elegí método.";
+
+        if (isCredit) {
+          if (!l.operator_id) e[`payment_operator_${idx}`] = "Elegí operador.";
+          const accountsForOperator =
+            l.operator_id != null
+              ? creditAccountsByOperator[l.operator_id] || []
+              : [];
+          if (!l.credit_account_id) {
+            e[`payment_credit_account_${idx}`] =
+              accountsForOperator.length === 0
+                ? `El operador no tiene cuentas crédito en ${
+                    effectiveCurrency || "esta moneda"
+                  }.`
+                : "Elegí la cuenta crédito.";
+          }
+        }
+
+        if (!isCredit && requiresAcc) {
+          if (!l.account_id) e[`payment_account_${idx}`] = "Elegí cuenta.";
+        }
+      });
     }
+
+    const total = paymentsTotalNum || suggestions?.base || 0;
+    if (!total || total <= 0)
+      e.amount = "El total es inválido. Cargá importes o usá el sugerido.";
 
     if (!effectiveCurrency) e.currency = "Elegí una moneda.";
-
-    if (requiresAccountEffective && !financeAccountId)
-      e.account = "Elegí una cuenta.";
-
     if (!amountWords.trim()) e.amountWords = "Ingresá el importe en palabras.";
     if (!amountWordsISO) e.amountWordsISO = "Elegí la moneda del texto.";
-
     if (!paymentDescription.trim())
       e.paymentDescription =
         "Agregá el detalle del método de pago (para el PDF).";
@@ -893,7 +915,7 @@ export default function ReceiptForm({
     return Object.keys(e).length === 0;
   };
 
-  const validateAttach = (): boolean => {
+  const validateAttach = () => {
     const e: Record<string, string> = {};
     if (!selectedReceiptId) e.receipt = "Elegí un recibo.";
     if (!selectedBookingId) e.booking = "Elegí una reserva.";
@@ -903,10 +925,10 @@ export default function ReceiptForm({
     return Object.keys(e).length === 0;
   };
 
-  /* ------ Submit (CREAR o ADJUNTAR) ------ */
+  /* ===== Submit ===== */
   const [submitting, setSubmitting] = useState(false);
 
-  const attachExisting = async () => {
+  const handleAttachExisting = async () => {
     if (!token || !selectedReceiptId || !selectedBookingId) return;
     if (onAttachExisting) {
       await onAttachExisting({
@@ -916,80 +938,93 @@ export default function ReceiptForm({
       });
       return;
     }
-    const res = await authFetch(
-      `/api/receipts/${selectedReceiptId}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          booking: { id_booking: selectedBookingId },
-          serviceIds: selectedServiceIds,
-          // clientIds
-        }),
-      },
+    await attachExistingReceipt({
       token,
-    );
-    if (!res.ok) throw new Error("No se pudo asociar el recibo.");
+      receiptId: selectedReceiptId,
+      bookingId: selectedBookingId,
+      serviceIds: selectedServiceIds,
+    });
   };
 
   const onLocalSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
-    // === ASOCIAR EXISTENTE ===
     if (action === "attach") {
       if (!validateAttach()) return;
       setSubmitting(true);
       try {
-        await attachExisting();
+        await handleAttachExisting();
         toast.success("Recibo asociado correctamente.");
         setVisible(false);
       } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : "No se pudo asociar el recibo.";
-        toast.error(msg);
+        toast.error(
+          err instanceof Error ? err.message : "No se pudo asociar el recibo.",
+        );
       } finally {
         setSubmitting(false);
       }
       return;
     }
 
-    // === CREAR NUEVO ===
     if (!validateCreate()) return;
 
-    // Resolver montos finales (neto recibido + costo financiero)
-    let finalAmount = parseAmountInput(amountReceived);
-    let finalFee = parseAmountInput(feeAmount);
+    // 👇 IMPORTANTE: no convertir null -> 0, porque 0 es nuestro crédito virtual
+    const normalizedPayments: ReceiptPaymentLine[] = paymentLines
+      .map((l): ReceiptPaymentLine => {
+        const pmId =
+          l.payment_method_id == null ? -1 : Number(l.payment_method_id);
+        const isCredit = pmId === Number(creditMethodId);
+        return {
+          amount: parseAmountInput(l.amount) ?? 0,
+          payment_method_id: pmId,
+          account_id: isCredit ? null : l.account_id ?? null,
+          operator_id: l.operator_id ?? null,
+          credit_account_id: l.credit_account_id ?? null,
+        };
+      })
+      .filter((p) => {
+        const isCredit = p.payment_method_id === Number(creditMethodId);
+        return p.amount > 0 && (p.payment_method_id > 0 || isCredit);
+      });
 
-    if ((finalAmount === null || finalAmount <= 0) && suggestions?.base != null)
+    let finalAmount = normalizedPayments.reduce((acc, p) => acc + p.amount, 0);
+
+    if ((!finalAmount || finalAmount <= 0) && suggestions?.base != null) {
       finalAmount = suggestions.base;
-
-    if (finalFee === null && suggestions?.fee != null)
-      finalFee = suggestions.fee;
+    }
 
     if (!finalAmount || finalAmount <= 0) {
-      toast.error("El importe recibido por la agencia es inválido.");
+      toast.error("El total del recibo es inválido.");
       return;
     }
 
-    const amountNumber = finalAmount;
+    const finalFee = parseAmountInput(feeAmount);
     const paymentFeeForPayload =
       finalFee != null && finalFee > 0 ? finalFee : undefined;
 
-    // Resolver nombres para API (texto)
-    const paymentMethodName = useOperatorCredit
-      ? CREDIT_METHOD
-      : paymentMethodId != null
-        ? paymentMethods.find((m) => m.id_method === paymentMethodId)?.name
-        : undefined;
+    // para los campos legacy: preferí un pago real (>0), sino el primero (puede ser crédito)
+    const primaryPayment =
+      normalizedPayments.find(
+        (p) => p.payment_method_id !== Number(creditMethodId),
+      ) ?? normalizedPayments[0] ?? null;
 
-    const accountName =
-      requiresAccountEffective && financeAccountId != null
-        ? ((accounts.find((a) => a.id_account === financeAccountId)
+    const single =
+      normalizedPayments.length === 1 ? normalizedPayments[0] : null;
+
+    const singleMethodName = single
+      ? single.payment_method_id === Number(creditMethodId)
+        ? CREDIT_METHOD
+        : paymentMethodsUi.find((m) => m.id_method === single.payment_method_id)
+            ?.name
+      : undefined;
+
+    const singleAccountName =
+      single?.account_id != null
+        ? accountsTyped.find((a) => a.id_account === single.account_id)
             ?.display_name ||
-            accounts.find((a) => a.id_account === financeAccountId)?.name) ??
-          undefined)
+          accountsTyped.find((a) => a.id_account === single.account_id)?.name
         : undefined;
 
-    // Body para API
     const apiBody: ReceiptPayload = {
       ...(mode === "booking" && selectedBookingId
         ? {
@@ -999,22 +1034,25 @@ export default function ReceiptForm({
         : {}),
 
       concept: (concept ?? "").trim(),
-      amount: amountNumber,
+      amount: finalAmount,
       amountString: amountWords.trim(),
       amountCurrency: effectiveCurrency,
 
-      // nuevo: costo financiero
       payment_fee_amount: paymentFeeForPayload,
 
       clientIds: clientIds.filter(
         (v): v is number => typeof v === "number" && Number.isFinite(v),
       ),
 
-      payment_method: paymentMethodName,
-      account: accountName, // texto para PDF
-      account_id: requiresAccountEffective
-        ? (financeAccountId ?? undefined)
-        : undefined,
+      payment_method:
+        singleMethodName ||
+        (normalizedPayments.length > 1 ? "Múltiples" : undefined),
+      account: singleAccountName,
+
+      payment_method_id: primaryPayment?.payment_method_id,
+      account_id: primaryPayment?.account_id ?? undefined,
+
+      payments: normalizedPayments,
 
       currency: paymentDescription?.trim() || undefined,
 
@@ -1032,411 +1070,94 @@ export default function ReceiptForm({
 
     setSubmitting(true);
     try {
-      // 1) Crear recibo y obtener ID (aceptando varios formatos de retorno)
       const submitRes = await Promise.resolve(onSubmit(apiBody));
-      let rid = await resolveReceiptIdFrom(submitRes);
+      const rid = await resolveReceiptIdFrom(submitRes);
 
-      // si no pudimos y necesitamos el ID para crédito, probamos heurística
-      if (!rid && useOperatorCredit && token) {
-        const bId =
-          (typeof selectedBookingId === "number"
-            ? selectedBookingId
-            : bookingId) ?? null;
-        rid = await guessLatestReceiptId({
-          token,
-          bookingId: bId,
-          amount: apiBody.amount,
-          currency: apiBody.amountCurrency,
-          concept: apiBody.concept,
-        });
+      if (!rid) {
+        toast.success("Recibo creado (sin ID detectable para movimientos).");
+        setVisible(false);
+        return;
       }
 
-      // 2) Si corresponde, impactar en cuenta de crédito del Operador
-      if (useOperatorCredit) {
-        try {
-          if (!rid) {
-            toast.warn(
-              "El recibo se guardó, pero no pude obtener el ID para impactar la cuenta de crédito.",
+      const entryErrors: string[] = [];
+
+      for (const p of normalizedPayments) {
+        const isCredit = p.payment_method_id === Number(creditMethodId);
+
+        if (isCredit) {
+          const opId = p.operator_id ?? null;
+          const caId = p.credit_account_id ?? null;
+
+          if (!opId) {
+            entryErrors.push(
+              "Falta operador en una línea de Crédito operador.",
             );
-          } else if (!creditOperatorId) {
-            toast.error(
-              "Elegí un operador para impactar la cuenta de crédito.",
+          } else if (!caId) {
+            entryErrors.push(
+              "Falta cuenta crédito en una línea de Crédito operador.",
             );
           } else {
-            await createCreditEntryForReceipt({
-              receiptId: rid,
-              amount: apiBody.amount,
-              currency: apiBody.amountCurrency,
-              concept: apiBody.concept,
-              bookingId:
-                (typeof selectedBookingId === "number"
-                  ? selectedBookingId
-                  : bookingId) || undefined,
-              operatorId: creditOperatorId,
-              agencyId,
-            });
-
-            toast.success("Movimiento de cuenta de crédito creado.");
-            // reset opcional
-            setUseOperatorCredit(false);
-            setCreditOperatorId(null);
+            try {
+              await createCreditEntryForReceipt({
+                token: token!,
+                receiptId: rid,
+                amount: p.amount,
+                currency: apiBody.amountCurrency,
+                concept: apiBody.concept,
+                bookingId: selectedBookingId ?? bookingId ?? undefined,
+                operatorId: opId,
+                agencyId,
+                creditAccountId: caId,
+              });
+            } catch (err) {
+              entryErrors.push(
+                err instanceof Error
+                  ? err.message
+                  : "Error creando movimiento de crédito.",
+              );
+            }
           }
-        } catch (err) {
-          toast.error(
-            err instanceof Error
-              ? err.message
-              : "No se pudo impactar la cuenta de crédito",
-          );
         }
-      }
 
-      if (requiresAccountEffective && financeAccountId != null) {
-        if (!rid) {
-          toast.warn(
-            "El recibo se guardó, pero no pude obtener el ID para impactar la cuenta.",
-          );
-        } else {
+        if (p.account_id != null) {
           try {
             await createFinanceEntryForReceipt({
-              accountId: financeAccountId,
+              token: token!,
+              accountId: p.account_id,
               receiptId: rid,
-              amount: apiBody.amount,
+              amount: p.amount,
               currency: apiBody.amountCurrency,
               concept: apiBody.concept,
-              bookingId:
-                (typeof selectedBookingId === "number"
-                  ? selectedBookingId
-                  : bookingId) || undefined,
+              bookingId: selectedBookingId ?? bookingId ?? undefined,
               agencyId,
             });
-            toast.success("Movimiento de cuenta creado.");
           } catch (err) {
-            toast.error(
+            entryErrors.push(
               err instanceof Error
                 ? err.message
-                : "No se pudo registrar el movimiento de cuenta.",
+                : "Error creando movimiento de cuenta.",
             );
           }
         }
       }
 
-      // 3) Cerrar el form
-      toast.success("Recibo creado correctamente.");
+      if (entryErrors.length) {
+        toast.warn(
+          `Recibo creado, pero hubo problemas al impactar movimientos: ${entryErrors.join(
+            " | ",
+          )}`,
+        );
+      } else {
+        toast.success("Recibo creado correctamente.");
+      }
+
       setVisible(false);
     } finally {
       setSubmitting(false);
     }
   };
 
-  // util seguro
-  async function safeJson<T>(res: Response): Promise<T | null> {
-    try {
-      return (await res.json()) as T;
-    } catch {
-      return null;
-    }
-  }
-
-  function isResponse(x: unknown): x is Response {
-    return typeof x === "object" && x !== null && "ok" in x && "json" in x;
-  }
-
-  function toFiniteNumber(v: unknown): number | null {
-    const n =
-      typeof v === "number"
-        ? v
-        : typeof v === "string" && v.trim() !== ""
-          ? Number(v)
-          : NaN;
-    return Number.isFinite(n) && n > 0 ? n : null;
-  }
-
-  function pickNumericId(obj: unknown): number | null {
-    if (!obj || typeof obj !== "object") return null;
-    const o = obj as ReceiptIdObject;
-
-    const candidates: ReceiptIdLeaf[] = [
-      o.id_receipt,
-      o.id,
-      o.receiptId,
-      o.data?.id_receipt,
-      o.data?.id,
-      o.data?.receipt?.id_receipt,
-      o.data?.receipt?.id,
-      o.result?.id_receipt,
-      o.result?.id,
-      o.result?.receipt?.id_receipt,
-      o.result?.receipt?.id,
-      o.receipt?.id_receipt,
-      o.receipt?.id,
-    ];
-
-    for (const c of candidates) {
-      const n = toFiniteNumber(c);
-      if (n) return n;
-    }
-    return null;
-  }
-
-  /** Intenta leer un ID numérico desde headers Location/Content-Location/X-... o desde la URL del response */
-  function extractIdFromHeaders(res: Response): number | null {
-    const headerKeys = [
-      "Location",
-      "Content-Location",
-      "X-Resource-Id",
-      "X-Receipt-Id",
-    ];
-    for (const k of headerKeys) {
-      const v = res.headers.get(k);
-      if (!v) continue;
-      const m = v.match(/(\d+)(?!.*\d)/); // último grupo numérico
-      if (m) {
-        const n = Number(m[1]);
-        if (Number.isFinite(n) && n > 0) return n;
-      }
-    }
-    if (res.url) {
-      const m = res.url.match(/(\d+)(?!.*\d)/);
-      if (m) {
-        const n = Number(m[1]);
-        if (Number.isFinite(n) && n > 0) return n;
-      }
-    }
-    return null;
-  }
-
-  /** Acepta number | objeto | Response y devuelve el id del recibo si lo encuentra */
-  async function resolveReceiptIdFrom(
-    result: SubmitResult,
-  ): Promise<number | null> {
-    // number directo
-    if (typeof result === "number" && Number.isFinite(result)) return result;
-
-    // Response → primero headers/URL (por si el body ya fue consumido río arriba)
-    if (isResponse(result)) {
-      const fromHdr = extractIdFromHeaders(result);
-      if (fromHdr) return fromHdr;
-
-      // si no, intento parsear JSON y buscar keys conocidas
-      const j = await safeJson<unknown>(result);
-      const id = pickNumericId(j);
-      if (id) return id;
-    }
-
-    // Objeto plain
-    if (result && typeof result === "object") {
-      const id = pickNumericId(result);
-      if (id) return id;
-    }
-
-    return null;
-  }
-
-  type ReceiptSearchItem = {
-    id_receipt?: number;
-    id?: number;
-    amount?: number | string;
-    amount_currency?: string;
-    currency?: string;
-    concept?: string;
-    booking?: { id_booking?: number } | number | null;
-    created_at?: string;
-    issue_date?: string;
-    receipt_number?: string | number;
-  };
-
-  function asArray<T>(u: unknown): T[] {
-    if (Array.isArray(u)) return u as T[];
-    if (u && typeof u === "object") {
-      const o = u as Record<string, unknown>;
-      if (Array.isArray(o.items)) return o.items as T[];
-      if (Array.isArray(o.receipts)) return o.receipts as T[];
-      if (Array.isArray(o.data)) return o.data as T[];
-      if (Array.isArray(o.rows)) return o.rows as T[];
-      if (Array.isArray(o.results)) return o.results as T[];
-    }
-    return [];
-  }
-
-  async function guessLatestReceiptId(opts: {
-    token: string;
-    bookingId?: number | null;
-    amount: number;
-    currency: string;
-    concept?: string;
-  }): Promise<number | null> {
-    const { token, bookingId, amount, currency, concept } = opts;
-    const params = new URLSearchParams();
-    if (bookingId) params.set("bookingId", String(bookingId));
-    params.set("order", "desc");
-    params.set("take", "10");
-
-    try {
-      const res = await authFetch(
-        `/api/receipts?${params.toString()}`,
-        { cache: "no-store" },
-        token,
-      );
-      if (!res.ok) return null;
-      const data = await safeJson<unknown>(res);
-      const list = asArray<ReceiptSearchItem>(data);
-
-      let best: { id: number; score: number } | null = null;
-      for (const r of list) {
-        const id = r.id_receipt ?? r.id ?? null;
-        if (!id) continue;
-
-        const cur = String(
-          (r.amount_currency || r.currency || "") ?? "",
-        ).toUpperCase();
-        const amt =
-          typeof r.amount === "string" ? Number(r.amount) : (r.amount ?? NaN);
-        if (!Number.isFinite(amt as number)) continue;
-
-        const sameCur = cur === currency.toUpperCase();
-        const amtDiff = Math.abs((amt as number) - amount);
-        const maybeConcept = (r.concept || "").toString().toLowerCase();
-        const conceptMatch = concept
-          ? maybeConcept.includes(concept.toLowerCase().slice(0, 12))
-          : true;
-
-        // scoring simple: moneda + monto muy cercano + (concepto si hay)
-        const score =
-          (sameCur ? 2 : 0) +
-          (amtDiff <= 0.01 ? 2 : amtDiff <= 1 ? 1 : 0) +
-          (conceptMatch ? 1 : 0);
-
-        if (!best || score > best.score) best = { id, score };
-      }
-
-      return best?.id ?? null;
-    } catch {
-      return null;
-    }
-  }
-
-  // Cargar id_agency y operadores (idéntico a investments)
-  useEffect(() => {
-    if (!token) return;
-    const ac = new AbortController();
-    (async () => {
-      try {
-        // perfil → agencyId
-        const pr = await authFetch(
-          "/api/user/profile",
-          { cache: "no-store", signal: ac.signal },
-          token,
-        );
-        const pj = (await safeJson<{ id_agency?: number }>(pr)) ?? {};
-        const ag = pj?.id_agency ?? null;
-        setAgencyId(ag);
-
-        // operadores por agencia
-        if (ag != null) {
-          const or = await authFetch(
-            `/api/operators?agencyId=${ag}`,
-            { cache: "no-store", signal: ac.signal },
-            token,
-          );
-          if (or.ok) {
-            const list = ((await safeJson<OperatorLite[]>(or)) ?? []).sort(
-              (a, b) => (a.name || "").localeCompare(b.name || "", "es"),
-            );
-            setOperators(list);
-          } else {
-            setOperators([]);
-          }
-        } else {
-          setOperators([]);
-        }
-      } catch {
-        setOperators([]);
-      }
-    })();
-    return () => ac.abort();
-  }, [token]);
-
-  /** Crea un movimiento en la cuenta de crédito del Operador por un RECIBO */
-  async function createCreditEntryForReceipt(args: {
-    receiptId: number;
-    amount: number;
-    currency: string; // usar amountCurrency del recibo
-    concept: string;
-    bookingId?: number | null;
-    operatorId: number;
-    agencyId?: number | null;
-  }) {
-    if (!token) throw new Error("Sesión no válida");
-
-    const payload: Record<string, unknown> = {
-      subject_type: "OPERATOR",
-      operator_id: Number(args.operatorId),
-      currency: (args.currency || "ARS").toUpperCase(),
-      amount: Math.abs(Number(args.amount || 0)), // el backend aplica signo por doc_type
-      concept: args.concept || `Recibo #${args.receiptId}`,
-      doc_type: "receipt",
-      receipt_id: args.receiptId,
-      booking_id: args.bookingId ?? undefined,
-      reference: `REC-${args.receiptId}`,
-    };
-
-    if (args.agencyId != null) {
-      payload.agency_id = Number(args.agencyId);
-    }
-
-    const res = await authFetch(
-      "/api/credit/entry",
-      { method: "POST", body: JSON.stringify(payload) },
-      token,
-    );
-    if (!res.ok) {
-      const body =
-        (await safeJson<{ error?: string; message?: string }>(res)) ?? {};
-      throw new Error(
-        body.error ||
-          body.message ||
-          "No se pudo crear el movimiento de crédito",
-      );
-    }
-  }
-
-  async function createFinanceEntryForReceipt(args: {
-    accountId: number;
-    receiptId: number;
-    amount: number;
-    currency: string;
-    concept: string;
-    bookingId?: number | null;
-    agencyId?: number | null;
-  }) {
-    if (!token) throw new Error("Sesión no válida");
-    const payload = {
-      subject_type: "ACCOUNT",
-      account_id: Number(args.accountId),
-      currency: (args.currency || "ARS").toUpperCase(),
-      amount: Math.abs(Number(args.amount)), // ingreso (el backend define el signo si usa doc_type)
-      concept: args.concept || `Recibo #${args.receiptId}`,
-      doc_type: "receipt",
-      receipt_id: args.receiptId,
-      booking_id: args.bookingId ?? undefined,
-      reference: `REC-${args.receiptId}`,
-    };
-    const res = await authFetch(
-      "/api/finance/entry",
-      { method: "POST", body: JSON.stringify(payload) },
-      token,
-    );
-    if (!res.ok) {
-      const body = await safeJson<{ error?: string; message?: string }>(res);
-      throw new Error(
-        body?.error ||
-          body?.message ||
-          "No se pudo registrar el movimiento de cuenta",
-      );
-    }
-  }
-
-  /* ------ Helpers UI ------ */
+  /* ===== UI helpers ===== */
   const formatNum = (n: number, cur = "ARS") =>
     new Intl.NumberFormat("es-AR", {
       style: "currency",
@@ -1444,73 +1165,6 @@ export default function ReceiptForm({
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(n);
-
-  const clearBookingContext = () => {
-    setSelectedBookingId(null);
-    setSelectedServiceIds([]);
-  };
-
-  /* =========================
-   * Render
-   * ========================= */
-  const showHeaderPills = () => {
-    const pills: React.ReactNode[] = [];
-
-    pills.push(
-      <span
-        key="action"
-        className={`${pillBase} ${action === "attach" ? pillOk : pillNeutral}`}
-      >
-        {action === "attach" ? "Asociar existente" : "Crear nuevo"}
-      </span>,
-    );
-
-    pills.push(
-      <span
-        key="mode"
-        className={`${pillBase} ${mode === "booking" ? pillOk : pillNeutral}`}
-      >
-        {mode === "booking" ? "Con reserva" : "Agencia"}
-      </span>,
-    );
-
-    if (mode === "booking" && selectedBookingId) {
-      pills.push(
-        <span key="bk" className={`${pillBase} ${pillNeutral}`}>
-          Reserva #{selectedBookingId}
-        </span>,
-      );
-    }
-
-    if (selectedServiceIds.length > 0) {
-      pills.push(
-        <span
-          key="svc"
-          className={`${pillBase} ${pillOk}`}
-          title="Servicios seleccionados"
-        >
-          Svcs: {selectedServiceIds.length}
-        </span>,
-      );
-    }
-
-    if (effectiveCurrency) {
-      pills.push(
-        <span
-          key="cur"
-          className={`${pillBase} ${lockedCurrency ? pillOk : pillNeutral}`}
-          title={
-            lockedCurrency ? "Moneda bloqueada por servicios" : "Moneda libre"
-          }
-        >
-          {effectiveCurrency}
-          {lockedCurrency ? " (lock)" : ""}
-        </span>,
-      );
-    }
-
-    return pills;
-  };
 
   return (
     <motion.div
@@ -1521,72 +1175,20 @@ export default function ReceiptForm({
         opacity: 1,
         transition: { duration: 0.35, ease: "easeInOut" },
       }}
-      id="receipt-form"
       className="mb-6 overflow-auto rounded-3xl border border-white/10 bg-white/10 text-sky-950 shadow-md shadow-sky-950/10 dark:text-white"
     >
-      {/* HEADER */}
-      <div
-        className={`sticky top-0 z-10 ${visible ? "rounded-t-3xl border-b" : ""} border-white/10 px-4 py-3 backdrop-blur-sm`}
-      >
-        <button
-          type="button"
-          onClick={toggleVisible}
-          className="flex w-full items-center justify-between text-left"
-          aria-expanded={visible}
-          aria-controls="receipt-form-body"
-        >
-          <div className="flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-full bg-sky-100 text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white">
-              {visible ? (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="size-5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={1.6}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M5 12h14"
-                  />
-                </svg>
-              ) : (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="size-5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={1.6}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 4.5v15m7.5-7.5h-15"
-                  />
-                </svg>
-              )}
-            </div>
-            <div>
-              <p className="text-lg font-semibold">
-                {editingReceiptId
-                  ? "Editar Recibo"
-                  : action === "attach"
-                    ? "Asociar Recibo Existente"
-                    : "Agregar Recibo"}
-              </p>
-            </div>
-          </div>
+      <ReceiptHeader
+        visible={visible}
+        onToggle={() => setVisible(!visible)}
+        editingReceiptId={editingReceiptId}
+        action={action}
+        mode={mode}
+        selectedBookingId={selectedBookingId}
+        selectedServiceCount={selectedServiceIds.length}
+        effectiveCurrency={effectiveCurrency}
+        lockedCurrency={lockedCurrency}
+      />
 
-          <div className="hidden items-center gap-2 md:flex">
-            {showHeaderPills()}
-          </div>
-        </button>
-      </div>
-
-      {/* BODY */}
       <AnimatePresence initial={false}>
         {visible && (
           <motion.div
@@ -1594,774 +1196,105 @@ export default function ReceiptForm({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="relative"
           >
-            <motion.form
-              id="receipt-form-body"
+            <form
               onSubmit={onLocalSubmit}
               className="space-y-5 px-4 pb-6 pt-4 md:px-6"
             >
-              {/* ACCIÓN (crear/adjuntar) SOLO si lo habilitás */}
-              {attachEnabled && (
-                <Section
-                  title="Modo"
-                  desc="Podés crear un recibo nuevo o asociar uno existente a una reserva/servicios."
-                >
-                  <div className="md:col-span-2">
-                    <div className="inline-flex rounded-2xl border border-white/10 p-1">
-                      <button
-                        type="button"
-                        onClick={() => setAction("create")}
-                        className={`rounded-xl px-3 py-1 text-sm ${action === "create" ? "bg-white/20" : ""}`}
-                      >
-                        Crear nuevo
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setAction("attach")}
-                        className={`rounded-xl px-3 py-1 text-sm ${action === "attach" ? "bg-white/20" : ""}`}
-                      >
-                        Asociar existente
-                      </button>
-                    </div>
-                  </div>
-                </Section>
-              )}
+              <ContextSection
+                attachEnabled={attachEnabled}
+                action={action}
+                setAction={setAction}
+                canToggleAgency={canToggleAgency}
+                mode={mode}
+                setMode={setMode}
+                clearBookingContext={clearBookingContext}
+                forcedBookingMode={forcedBookingMode}
+                bookingId={bookingId}
+                bookingQuery={bookingQuery}
+                setBookingQuery={setBookingQuery}
+                bookingOptions={bookingOptions}
+                loadingBookings={loadingBookings}
+                selectedBookingId={selectedBookingId}
+                setSelectedBookingId={setSelectedBookingId}
+                services={services}
+                loadingServices={loadingServices}
+                selectedServiceIds={selectedServiceIds}
+                toggleService={toggleService}
+                lockedCurrency={lockedCurrency}
+                effectiveCurrency={effectiveCurrency}
+                errors={errors}
+                formatNum={formatNum}
+              />
 
-              {/* CONTEXTO */}
-              <Section
-                title="Contexto"
-                desc={
-                  action === "attach"
-                    ? "Elegí la reserva y los servicios a los que querés asociar el recibo."
-                    : "Podés asociarlo a una reserva y elegir servicios, o crearlo como recibo de agencia."
-                }
-              >
-                {/* Toggle modo (si no viene forzado y si la acción es crear) */}
-                {canToggleAgency && (
-                  <div className="md:col-span-2">
-                    <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
-                        checked={mode === "booking"}
-                        onChange={(e) => {
-                          const next = e.target.checked ? "booking" : "agency";
-                          setMode(next);
-                          if (next === "agency") clearBookingContext();
-                        }}
-                      />
-                      Asociar a una reserva ahora
-                    </label>
-                  </div>
-                )}
+              <AttachReceiptSection
+                show={attachEnabled && action === "attach"}
+                receiptQuery={receiptQuery}
+                setReceiptQuery={setReceiptQuery}
+                receiptOptions={receiptOptions}
+                loadingReceipts={loadingReceipts}
+                selectedReceiptId={selectedReceiptId}
+                setSelectedReceiptId={setSelectedReceiptId}
+                errors={errors}
+              />
 
-                {/* Booking picker */}
-                {mode === "booking" && (
-                  <>
-                    {forcedBookingMode ? (
-                      <div className="md:col-span-2">
-                        <div className="rounded-xl border border-white/10 bg-white/10 p-3 text-sm">
-                          ID de reserva:{" "}
-                          <span className="font-semibold">#{bookingId}</span>{" "}
-                          <span className="ml-2 rounded-full bg-white/30 px-2 py-0.5 text-xs">
-                            bloqueado
-                          </span>
-                        </div>
-                        <p className="ml-1 mt-1 text-xs opacity-70">
-                          Seleccioná los servicios debajo.
-                        </p>
-                      </div>
-                    ) : (
-                      <>
-                        <Field
-                          id="booking_search"
-                          label="Buscar reserva"
-                          hint="Por número o titular…"
-                        >
-                          <input
-                            id="booking_search"
-                            type="text"
-                            name="booking_search"
-                            value={bookingQuery}
-                            onChange={(e) => setBookingQuery(e.target.value)}
-                            placeholder="Escribí al menos 2 caracteres"
-                            className={inputBase}
-                            autoComplete="off"
-                          />
-                        </Field>
-
-                        <div className="md:col-span-2">
-                          {loadingBookings ? (
-                            <div className="py-2">
-                              <Spinner />
-                            </div>
-                          ) : bookingOptions.length > 0 ? (
-                            <div className="max-h-56 overflow-auto rounded-2xl border border-white/10">
-                              {bookingOptions.map((opt) => {
-                                const active =
-                                  selectedBookingId === opt.id_booking;
-                                return (
-                                  <button
-                                    type="button"
-                                    key={opt.id_booking}
-                                    className={`w-full px-3 py-2 text-left transition hover:bg-white/5 ${active ? "bg-white/10" : ""}`}
-                                    onClick={() =>
-                                      setSelectedBookingId(opt.id_booking)
-                                    }
-                                  >
-                                    <div className="text-sm font-medium">
-                                      {opt.label}
-                                    </div>
-                                    {opt.subtitle && (
-                                      <div className="text-xs text-sky-950/70 dark:text-white/70">
-                                        {opt.subtitle}
-                                      </div>
-                                    )}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          ) : bookingQuery && bookingQuery.length >= 2 ? (
-                            <p className="text-sm text-sky-950/70 dark:text-white/70">
-                              Sin resultados.
-                            </p>
-                          ) : null}
-                          {errors.booking && (
-                            <p className="mt-1 text-xs text-red-600 dark:text-red-500/90">
-                              {errors.booking}
-                            </p>
-                          )}
-                        </div>
-                      </>
-                    )}
-
-                    {/* Services picker */}
-                    {selectedBookingId && (
-                      <div className="md:col-span-2">
-                        <label className="mb-1 ml-1 block text-sm font-medium text-sky-950 dark:text-white">
-                          Servicios de la reserva
-                        </label>
-
-                        {loadingServices ? (
-                          <div className="py-2">
-                            <Spinner />
-                          </div>
-                        ) : services.length === 0 ? (
-                          <p className="text-sm text-sky-950/70 dark:text-white/70">
-                            No hay servicios para esta reserva.
-                          </p>
-                        ) : (
-                          <div className="space-y-2">
-                            {services.map((svc) => {
-                              const checked = selectedServiceIds.includes(
-                                svc.id_service,
-                              );
-                              const disabled =
-                                !!lockedCurrency &&
-                                svc.currency !== lockedCurrency &&
-                                !checked;
-                              return (
-                                <label
-                                  key={svc.id_service}
-                                  className={`flex items-start gap-3 rounded-2xl border px-3 py-2 ${
-                                    checked
-                                      ? "border-white/20 bg-white/10"
-                                      : "border-white/10"
-                                  } ${disabled ? "opacity-50" : ""}`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    className="mt-1 size-4"
-                                    checked={checked}
-                                    disabled={disabled}
-                                    onChange={() => toggleService(svc)}
-                                  />
-                                  <div className="flex-1">
-                                    <div className="text-sm font-medium">
-                                      #{svc.id_service}{" "}
-                                      {svc.type
-                                        ? `· ${svc.type}`
-                                        : svc.description || "Servicio"}
-                                      {svc.destination
-                                        ? ` · ${svc.destination}`
-                                        : ""}
-                                    </div>
-                                    <div className="text-xs text-sky-950/70 dark:text-white/70">
-                                      Moneda: <b>{svc.currency}</b>
-                                      {typeof svc.sale_price === "number" && (
-                                        <>
-                                          {" "}
-                                          • Venta:{" "}
-                                          {formatNum(
-                                            (svc.sale_price ?? 0) +
-                                              (svc.card_interest ?? 0),
-                                            (
-                                              svc.currency || "ARS"
-                                            ).toUpperCase(),
-                                          )}
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Pill de moneda */}
-                        <div className="mt-2">
-                          <span
-                            className={`${pillBase} ${lockedCurrency ? pillOk : pillNeutral}`}
-                          >
-                            Moneda{" "}
-                            {lockedCurrency
-                              ? `${lockedCurrency} (lock)`
-                              : "libre"}
-                          </span>
-                        </div>
-
-                        {errors.services && (
-                          <p className="mt-1 text-xs text-red-600 dark:text-red-500/90">
-                            {errors.services}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-              </Section>
-
-              {/* ====== BLOQUE EXCLUSIVO DE ADJUNTAR ====== */}
-              {attachEnabled && action === "attach" && (
-                <Section
-                  title="Recibo existente"
-                  desc="Buscá el recibo que ya fue creado para asociarlo a esta reserva/servicios."
-                >
-                  <Field
-                    id="receipt_search"
-                    label="Buscar recibo"
-                    hint="Por número o importe…"
-                  >
-                    <input
-                      id="receipt_search"
-                      type="text"
-                      value={receiptQuery}
-                      onChange={(e) => setReceiptQuery(e.target.value)}
-                      placeholder='Ej.: "#123", "USD 500", "ARS 1200000"...'
-                      className={inputBase}
-                    />
-                  </Field>
-
-                  <div className="md:col-span-2">
-                    {loadingReceipts ? (
-                      <div className="py-2">
-                        <Spinner />
-                      </div>
-                    ) : receiptOptions.length > 0 ? (
-                      <div className="max-h-56 overflow-auto rounded-2xl border border-white/10">
-                        {receiptOptions.map((opt) => {
-                          const active = selectedReceiptId === opt.id_receipt;
-                          return (
-                            <button
-                              type="button"
-                              key={opt.id_receipt}
-                              className={`w-full px-3 py-2 text-left transition hover:bg-white/5 ${active ? "bg-white/10" : ""}`}
-                              onClick={() =>
-                                setSelectedReceiptId(opt.id_receipt)
-                              }
-                            >
-                              <div className="text-sm font-medium">
-                                {opt.label}
-                              </div>
-                              {opt.subtitle && (
-                                <div className="text-xs text-sky-950/70 dark:text-white/70">
-                                  {opt.subtitle}
-                                </div>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : receiptQuery ? (
-                      <p className="text-sm text-sky-950/70 dark:text-white/70">
-                        Sin resultados.
-                      </p>
-                    ) : (
-                      <p className="text-sm text-sky-950/70 dark:text-white/70">
-                        Escribí para buscar…
-                      </p>
-                    )}
-                    {errors.receipt && (
-                      <p className="mt-1 text-xs text-red-600 dark:text-red-500/90">
-                        {errors.receipt}
-                      </p>
-                    )}
-                  </div>
-                </Section>
-              )}
-
-              {/* ====== BLOQUES DE CREACIÓN (se ocultan si action=attach) ====== */}
               {action === "create" && (
-                <>
-                  {/* CLIENTES */}
-                  <Section
-                    title="Clientes"
-                    desc="Podés adjudicar el recibo a uno o varios clientes (opcional)."
-                  >
-                    <div className="flex items-center gap-2 pl-1 md:col-span-2">
-                      <button
-                        type="button"
-                        onClick={handleDecrementClient}
-                        className="rounded-full border border-sky-950 p-1 disabled:opacity-40 dark:border-white dark:text-white"
-                        disabled={clientsCount <= 1}
-                        title="Quitar cliente"
-                        aria-label="Quitar cliente"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          strokeWidth={1.5}
-                          stroke="currentColor"
-                          className="size-5"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M5 12h14"
-                          />
-                        </svg>
-                      </button>
-                      <span className="rounded-full border border-sky-950 px-3 py-1 text-sm dark:border-white dark:text-white">
-                        {clientsCount}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleIncrementClient}
-                        className="rounded-full border border-sky-950 p-1 dark:border-white dark:text-white"
-                        title="Agregar cliente"
-                        aria-label="Agregar cliente"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          strokeWidth={1.5}
-                          stroke="currentColor"
-                          className="size-5"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M12 4.5v15m7.5-7.5h-15"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-
-                    <div className="space-y-3 md:col-span-2">
-                      {Array.from({ length: clientsCount }).map((_, idx) => (
-                        <div key={idx} className="pl-1">
-                          <ClientPicker
-                            token={token}
-                            label={`Cliente ${idx + 1}`}
-                            placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
-                            valueId={clientIds[idx] ?? null}
-                            excludeIds={excludeForIndex(idx)}
-                            onSelect={(c) => setClientAt(idx, c)}
-                            onClear={() => setClientAt(idx, null)}
-                          />
-                          <p className="ml-1 mt-1 text-xs text-sky-950/70 dark:text-white/60">
-                            Si no corresponde a un cliente específico, dejalo
-                            vacío.
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </Section>
-
-                  {/* IMPORTE NUMÉRICO Y MONEDA */}
-                  <Section
-                    title="Importe y moneda (numérico)"
-                    desc="Cuánto entra a la agencia, qué se retiene y en qué divisa."
-                  >
-                    <Field
-                      id="amount_received"
-                      label="Importe recibido por la agencia"
-                      required
-                      hint="Es lo que efectivamente entra a la caja/cuenta."
-                    >
-                      <input
-                        id="amount_received"
-                        type="text"
-                        inputMode="decimal"
-                        name="amount_received"
-                        value={amountReceived}
-                        onChange={(e) => setAmountReceived(e.target.value)}
-                        placeholder="0,00"
-                        className={inputBase}
-                      />
-                      {errors.amount && (
-                        <p className="mt-1 text-xs text-red-600 dark:text-red-500/90">
-                          {errors.amount}
-                        </p>
-                      )}
-                      {suggestions?.base != null && (
-                        <button
-                          type="button"
-                          onClick={applySuggestedAmounts}
-                          className="mt-2 text-xs underline underline-offset-2"
-                        >
-                          Usar importe sugerido:{" "}
-                          {formatNum(suggestions.base, effectiveCurrency)}
-                        </button>
-                      )}
-                    </Field>
-
-                    <Field
-                      id="fee_amount"
-                      label="Importe retenido por el medio de pago"
-                      hint="Intereses de tarjeta, comisiones de billeteras/bancos, etc. (opcional)."
-                    >
-                      <input
-                        id="fee_amount"
-                        type="text"
-                        inputMode="decimal"
-                        name="fee_amount"
-                        value={feeAmount}
-                        onChange={(e) => setFeeAmount(e.target.value)}
-                        placeholder="0,00"
-                        className={inputBase}
-                      />
-                      {suggestions?.fee != null && (
-                        <button
-                          type="button"
-                          onClick={applySuggestedAmounts}
-                          className="mt-2 text-xs underline underline-offset-2"
-                        >
-                          Usar costo financiero sugerido:{" "}
-                          {formatNum(suggestions.fee, effectiveCurrency)}
-                        </button>
-                      )}
-                    </Field>
-
-                    <Field
-                      id="client_total"
-                      label="Importe cobrado al cliente"
-                      hint="Suma del importe recibido más el importe retenido."
-                    >
-                      <input
-                        id="client_total"
-                        type="text"
-                        value={
-                          clientTotal
-                            ? `${clientTotal} ${effectiveCurrency}`
-                            : ""
-                        }
-                        readOnly
-                        disabled
-                        className="w-full rounded-2xl border border-white/10 bg-white/5 p-2 px-3 text-sm text-sky-950/80 dark:bg-white/5 dark:text-white/80"
-                      />
-                    </Field>
-
-                    <Field id="currency" label="Moneda" required>
-                      {lockedCurrency ? (
-                        <div className="rounded-2xl border border-white/10 bg-white/10 p-2 text-sm">
-                          {lockedCurrency} (bloqueada por servicios)
-                        </div>
-                      ) : loadingPicks ? (
-                        <div className="flex h-[42px] items-center">
-                          <Spinner />
-                        </div>
-                      ) : (
-                        <select
-                          id="currency"
-                          name="currency"
-                          value={freeCurrency}
-                          onChange={(e) => setFreeCurrency(e.target.value)}
-                          className={`${inputBase} cursor-pointer appearance-none`}
-                        >
-                          {currencies
-                            .filter((c) => c.enabled)
-                            .map((c) => (
-                              <option key={c.code} value={c.code}>
-                                {c.code} {c.name ? `— ${c.name}` : ""}
-                              </option>
-                            ))}
-                        </select>
-                      )}
-                      {errors.currency && (
-                        <p className="mt-1 text-xs text-red-600 dark:text-red-500/90">
-                          {errors.currency}
-                        </p>
-                      )}
-                    </Field>
-                  </Section>
-
-                  {/* IMPORTE EN PALABRAS (PDF) */}
-                  <Section
-                    title="Importe en palabras (PDF)"
-                    desc='Ej.: "UN MILLÓN CIEN MIL" + Moneda ("ARS", "USD", ...)'
-                  >
-                    <Field
-                      id="amount_words"
-                      label="Equivalente en palabras"
-                      required
-                    >
-                      <input
-                        id="amount_words"
-                        type="text"
-                        value={amountWords}
-                        onChange={(e) => setAmountWords(e.target.value)}
-                        placeholder='Ej.: "UN MILLÓN CIEN MIL"'
-                        className={inputBase}
-                      />
-                      {errors.amountWords && (
-                        <p className="mt-1 text-xs text-red-600 dark:text-red-500/90">
-                          {errors.amountWords}
-                        </p>
-                      )}
-                    </Field>
-                  </Section>
-
-                  {/* FORMA DE COBRO + DETALLE PDF */}
-                  <Section
-                    title="Forma de cobro"
-                    desc="Seleccioná método/cuenta y agregá el detalle para el PDF."
-                  >
-                    <Field id="payment_method" label="Método de pago">
-                      {loadingPicks ? (
-                        <div className="flex h-[42px] items-center">
-                          <Spinner />
-                        </div>
-                      ) : lockPaymentMethod ? (
-                        // Modo lectura cuando se impacta en crédito operador
-                        <div className="rounded-2xl border border-white/10 bg-white/10 p-2 text-sm">
-                          {CREDIT_METHOD}
-                          <span className="ml-2 rounded-full bg-white/30 px-2 py-0.5 text-xs">
-                            bloqueado
-                          </span>
-                        </div>
-                      ) : (
-                        <select
-                          id="payment_method"
-                          name="payment_method"
-                          value={paymentMethodId ?? ""}
-                          onChange={(e) =>
-                            setPaymentMethodId(
-                              e.target.value ? Number(e.target.value) : null,
-                            )
-                          }
-                          className={`${inputBase} cursor-pointer appearance-none`}
-                        >
-                          <option value="">— Elegir —</option>
-                          {paymentMethods.map((m) => (
-                            <option key={m.id_method} value={m.id_method}>
-                              {m.name}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </Field>
-
-                    {requiresAccountEffective ? (
-                      <Field id="finance_account" label="Cuenta" required>
-                        {loadingPicks ? (
-                          <div className="flex h-[42px] items-center">
-                            <Spinner />
-                          </div>
-                        ) : (
-                          <select
-                            id="finance_account"
-                            name="finance_account"
-                            value={financeAccountId ?? ""}
-                            onChange={(e) =>
-                              setFinanceAccountId(
-                                e.target.value ? Number(e.target.value) : null,
-                              )
-                            }
-                            className={`${inputBase} cursor-pointer appearance-none`}
-                            required
-                          >
-                            <option value="">— Elegir —</option>
-                            {filteredAccounts.map((a) => (
-                              <option key={a.id_account} value={a.id_account}>
-                                {a.display_name || a.name}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        {errors.account && (
-                          <p className="mt-1 text-xs text-red-600 dark:text-red-500/90">
-                            {errors.account}
-                          </p>
-                        )}
-                      </Field>
-                    ) : (
-                      <div />
-                    )}
-
-                    <div className="md:col-span-2">
-                      <Field
-                        id="payment_desc"
-                        label="Método de pago (detalle para el PDF)"
-                        required
-                      >
-                        <input
-                          id="payment_desc"
-                          type="text"
-                          value={paymentDescription}
-                          onChange={(e) =>
-                            setPaymentDescription(e.target.value)
-                          }
-                          placeholder="Ej.: Transferencia bancaria — No adeuda saldo"
-                          className={inputBase}
-                        />
-                        {errors.paymentDescription && (
-                          <p className="mt-1 text-xs text-red-600 dark:text-red-500/90">
-                            {errors.paymentDescription}
-                          </p>
-                        )}
-                      </Field>
-                    </div>
-                  </Section>
-
-                  <Section
-                    title="Cuenta de crédito (opcional)"
-                    desc="Si marcás esta opción, al guardar el recibo se impactará un movimiento en la cuenta de crédito del Operador."
-                  >
-                    <div className="md:col-span-2">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={useOperatorCredit}
-                          onChange={(e) =>
-                            setUseOperatorCredit(e.target.checked)
-                          }
-                        />
-                        <span className="text-sm">
-                          Impactar en cuenta de crédito del Operador
-                        </span>
-                      </label>
-                    </div>
-
-                    <Field
-                      id="credit-operator"
-                      label="Operador"
-                      required={useOperatorCredit}
-                    >
-                      <select
-                        id="credit-operator"
-                        className={inputBase + " cursor-pointer"}
-                        disabled={!useOperatorCredit || operators.length === 0}
-                        value={creditOperatorId ?? ""}
-                        onChange={(e) =>
-                          setCreditOperatorId(
-                            e.target.value ? Number(e.target.value) : null,
-                          )
-                        }
-                      >
-                        <option value="" disabled>
-                          {operators.length
-                            ? "Seleccionar operador…"
-                            : "Sin operadores"}
-                        </option>
-                        {operators.map((o) => (
-                          <option key={o.id_operator} value={o.id_operator}>
-                            {o.name}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-
-                    <div className="text-xs opacity-70 md:col-span-2">
-                      Tip: si el recibo está asociado a una reserva, enviaremos
-                      también el número de reserva.
-                    </div>
-                  </Section>
-
-                  {/* CONCEPTO */}
-                  <Section
-                    title="Concepto"
-                    desc="Opcional — visible en el recibo."
-                  >
-                    <div className="md:col-span-2">
-                      <Field id="concept" label="Detalle / Concepto">
-                        <input
-                          id="concept"
-                          type="text"
-                          name="concept"
-                          value={concept}
-                          onChange={(e) => setConcept(e.target.value)}
-                          placeholder="Ej.: Pago parcial reserva #1024"
-                          className={inputBase}
-                        />
-                      </Field>
-                    </div>
-                  </Section>
-
-                  {/* CONVERSIÓN (OPCIONAL) */}
-                  <Section
-                    title="Conversión (opcional)"
-                    desc="Registra un contravalor entre monedas (se imprime en PDF si lo completás)."
-                  >
-                    <Field id="base" label="Base">
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={baseAmount}
-                          onChange={(e) => setBaseAmount(e.target.value)}
-                          className={inputBase}
-                          placeholder="Ej: 500"
-                        />
-                        <select
-                          value={baseCurrency}
-                          onChange={(e) => setBaseCurrency(e.target.value)}
-                          className={`${inputBase} cursor-pointer appearance-none`}
-                        >
-                          <option value="">Moneda</option>
-                          {currencies
-                            .filter((c) => c.enabled)
-                            .map((c) => (
-                              <option key={`bc-${c.code}`} value={c.code}>
-                                {c.code}
-                              </option>
-                            ))}
-                        </select>
-                      </div>
-                    </Field>
-
-                    <Field id="counter" label="Contravalor">
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={counterAmount}
-                          onChange={(e) => setCounterAmount(e.target.value)}
-                          className={inputBase}
-                          placeholder="Ej: 700000"
-                        />
-                        <select
-                          value={counterCurrency}
-                          onChange={(e) => setCounterCurrency(e.target.value)}
-                          className={`${inputBase} cursor-pointer appearance-none`}
-                        >
-                          <option value="">Moneda</option>
-                          {currencies
-                            .filter((c) => c.enabled)
-                            .map((c) => (
-                              <option key={`cc-${c.code}`} value={c.code}>
-                                {c.code}
-                              </option>
-                            ))}
-                        </select>
-                      </div>
-                    </Field>
-                  </Section>
-                </>
+                <CreateReceiptFields
+                  token={token}
+                  creditMethodId={creditMethodId}
+                  clientsCount={clientsCount}
+                  clientIds={clientIds}
+                  onIncClient={onIncClient}
+                  onDecClient={onDecClient}
+                  setClientAt={setClientAt}
+                  excludeForIndex={excludeForIndex}
+                  amountReceived={amountReceived}
+                  feeAmount={feeAmount}
+                  setFeeAmount={setFeeAmount}
+                  clientTotal={clientTotal}
+                  lockedCurrency={lockedCurrency}
+                  loadingPicks={loadingPicks}
+                  currencies={currenciesTyped}
+                  freeCurrency={freeCurrency}
+                  setFreeCurrency={setFreeCurrency}
+                  effectiveCurrency={effectiveCurrency}
+                  suggestions={suggestions}
+                  applySuggestedAmounts={applySuggestedAmounts}
+                  formatNum={formatNum}
+                  amountWords={amountWords}
+                  setAmountWords={setAmountWords}
+                  amountWordsISO={amountWordsISO}
+                  setAmountWordsISO={setAmountWordsISO}
+                  paymentMethods={paymentMethodsUi}
+                  accounts={accountsTyped}
+                  filteredAccounts={filteredAccounts}
+                  paymentLines={paymentLines}
+                  addPaymentLine={addPaymentLine}
+                  removePaymentLine={removePaymentLine}
+                  setPaymentLineAmount={setPaymentLineAmount}
+                  setPaymentLineMethod={setPaymentLineMethod}
+                  setPaymentLineAccount={setPaymentLineAccount}
+                  setPaymentLineOperator={setPaymentLineOperator}
+                  setPaymentLineCreditAccount={setPaymentLineCreditAccount}
+                  operators={operators}
+                  creditAccountsByOperator={creditAccountsByOperator}
+                  loadingCreditAccountsByOperator={
+                    loadingCreditAccountsByOperator
+                  }
+                  paymentDescription={paymentDescription}
+                  setPaymentDescription={setPaymentDescription}
+                  concept={concept}
+                  setConcept={setConcept}
+                  baseAmount={baseAmount}
+                  setBaseAmount={setBaseAmount}
+                  baseCurrency={baseCurrency}
+                  setBaseCurrency={setBaseCurrency}
+                  counterAmount={counterAmount}
+                  setCounterAmount={setCounterAmount}
+                  counterCurrency={counterCurrency}
+                  setCounterCurrency={setCounterCurrency}
+                  errors={errors}
+                />
               )}
 
               {/* ACTION BAR */}
@@ -2375,6 +1308,7 @@ export default function ReceiptForm({
                     Cancelar
                   </button>
                 )}
+
                 <button
                   type="submit"
                   disabled={submitting}
@@ -2384,13 +1318,6 @@ export default function ReceiptForm({
                       ? "cursor-not-allowed bg-sky-950/20 text-white/60 dark:bg-white/5 dark:text-white/40"
                       : "bg-sky-100 text-sky-950 dark:bg-white/10 dark:text-white"
                   }`}
-                  aria-label={
-                    editingReceiptId
-                      ? "Guardar cambios del recibo"
-                      : action === "attach"
-                        ? "Asociar recibo"
-                        : "Agregar recibo"
-                  }
                 >
                   {submitting ? (
                     <Spinner />
@@ -2403,7 +1330,7 @@ export default function ReceiptForm({
                   )}
                 </button>
               </div>
-            </motion.form>
+            </form>
           </motion.div>
         )}
       </AnimatePresence>

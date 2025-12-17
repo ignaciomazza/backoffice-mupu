@@ -68,6 +68,52 @@ function normalizeRole(raw: unknown): Role | "" {
     : "";
 }
 
+type AnyRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is AnyRecord {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function extractReceiptsArray(json: unknown): unknown[] {
+  if (Array.isArray(json)) return json;
+  if (!isRecord(json)) return [];
+
+  if (Array.isArray(json.receipts)) return json.receipts;
+  if (Array.isArray(json.items)) return json.items;
+
+  const data = json.data;
+  if (isRecord(data)) {
+    if (Array.isArray(data.receipts)) return data.receipts;
+    if (Array.isArray(data.items)) return data.items;
+  }
+
+  return [];
+}
+
+function coerceReceipt(r: unknown): Receipt {
+  const obj = isRecord(r) ? r : {};
+
+  const rawId = obj.id_receipt ?? obj.id ?? 0;
+  const id = Number(rawId);
+
+  const rawIssue = obj.issue_date ?? obj.date ?? null;
+
+  const rawAmount = obj.amount ?? obj.total ?? 0;
+  const amount =
+    typeof rawAmount === "number" ? rawAmount : Number(rawAmount ?? 0);
+
+  const base = (isRecord(r) ? (r as Partial<Receipt>) : {}) as Partial<Receipt>;
+
+  return {
+    ...base,
+    id_receipt: Number.isFinite(id) ? id : 0,
+    receipt_number: String(obj.receipt_number ?? obj.number ?? ""),
+    issue_date: rawIssue as Receipt["issue_date"],
+    amount: Number.isFinite(amount) ? amount : 0,
+    amount_currency: String(obj.amount_currency ?? obj.currency ?? "ARS"),
+  } as Receipt;
+}
+
 export default function ServicesPage() {
   const params = useParams();
   const id = params?.id ? String(params.id) : null;
@@ -210,11 +256,18 @@ export default function ServicesPage() {
   const fetchReceipts = useCallback(
     async (bookingId: string, signal?: AbortSignal) => {
       if (!token) return [];
+
+      // 👇 si tu endpoint nuevo es paginado, pedimos un take grande para reservas
+      const qs = new URLSearchParams();
+      qs.set("bookingId", bookingId);
+      qs.set("take", "200");
+
       const res = await authFetch(
-        `/api/receipts?bookingId=${bookingId}`,
+        `/api/receipts?${qs.toString()}`,
         { cache: "no-store", signal },
         token,
       );
+
       if (!res.ok) {
         if (res.status === 404 || res.status === 405) {
           if (mountedRef.current) setReceipts([]);
@@ -222,10 +275,11 @@ export default function ServicesPage() {
         }
         throw new Error("Error al obtener los recibos");
       }
-      const data = await res.json();
-      const items: Receipt[] = Array.isArray(data?.receipts)
-        ? (data.receipts as Receipt[])
-        : [];
+
+      const json: unknown = await res.json().catch(() => null);
+      const arr = extractReceiptsArray(json);
+      const items = arr.map(coerceReceipt).filter((x) => x.id_receipt > 0);
+
       if (mountedRef.current) setReceipts(items);
       return items;
     },

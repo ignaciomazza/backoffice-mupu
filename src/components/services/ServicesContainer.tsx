@@ -29,7 +29,7 @@ import OperatorDueList from "@/components/operator-dues/OperatorDueList";
 
 import { authFetch } from "@/utils/authFetch";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
-import type { ServiceLite } from "@/components/receipts/ReceiptForm";
+import type { ServiceLite } from "@/types/receipts";
 import type {
   BillingData,
   Booking,
@@ -144,6 +144,21 @@ function cap(s: string | null | undefined): string {
 function toFiniteNumber(n: unknown, fallback = 0): number {
   const num = typeof n === "number" ? n : Number(n);
   return Number.isFinite(num) ? num : fallback;
+}
+
+type AnyRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is AnyRecord {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function pickApiMessage(u: unknown): string | null {
+  if (!isRecord(u)) return null;
+  const err = u.error;
+  const msg = u.message;
+  if (typeof err === "string" && err.trim()) return err;
+  if (typeof msg === "string" && msg.trim()) return msg;
+  return null;
 }
 
 /* =========================================================
@@ -482,12 +497,14 @@ export default function ServicesContainer(props: ServicesContainerProps) {
           {
             method: "PATCH",
             body: JSON.stringify({
+              bookingId,
               booking: { id_booking: bookingId },
               serviceIds,
             }),
           },
           token,
         );
+
         if (!res.ok) {
           let msg = "No se pudo asociar el recibo.";
           try {
@@ -1128,16 +1145,50 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                           { method: "POST", body: JSON.stringify(payload) },
                           token ?? undefined,
                         );
+
                         if (!res.ok) {
-                          toast.error("No se pudo crear el recibo.");
+                          let msg = "No se pudo crear el recibo.";
+                          const errJson: unknown = await res
+                            .json()
+                            .catch(() => null);
+                          const picked = pickApiMessage(errJson);
+                          if (picked) msg = picked;
+                          toast.error(msg);
                           return;
                         }
-                        const { receipt } = (await res.json()) as {
-                          receipt: Receipt;
-                        };
+
+                        const json: unknown = await res
+                          .json()
+                          .catch(() => null);
+
+                        const raw =
+                          (isRecord(json) && json.receipt) ||
+                          (isRecord(json) &&
+                            isRecord(json.data) &&
+                            json.data.receipt) ||
+                          (isRecord(json) && Array.isArray(json.items)
+                            ? json.items[0]
+                            : null);
+
+                        if (!raw) {
+                          toast.success("Recibo creado y asociado.");
+                          router.refresh();
+                          return json;
+                        }
+
+                        const obj = isRecord(raw) ? raw : {};
+                        const receipt = {
+                          ...(raw as Partial<Receipt>),
+                          id_receipt: Number(obj.id_receipt ?? obj.id ?? 0),
+                          receipt_number: String(
+                            obj.receipt_number ?? obj.number ?? "",
+                          ),
+                        } as Receipt;
+
                         toast.success("Recibo creado y asociado.");
                         onReceiptCreated?.(receipt);
                         router.refresh();
+                        return json ?? { receipt };
                       }}
                     />
                   )}

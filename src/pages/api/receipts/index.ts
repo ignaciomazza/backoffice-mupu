@@ -25,6 +25,41 @@ type DecodedUser = {
   email?: string;
 };
 
+// Línea de pago (NUEVO, con IDs)
+export type ReceiptPaymentLine = {
+  amount: number | string;
+  payment_method_id: number;
+  account_id?: number;
+
+  // ✅ nuevo (no se persiste en ReceiptPayment, se usa para el FE)
+  operator_id?: number;
+};
+
+// Respuesta normalizada (para no romper recibos viejos)
+export type ReceiptPaymentOut = {
+  amount: number;
+  payment_method_id: number | null;
+  account_id: number | null;
+
+  // extras legacy para UI/PDF si existían como texto
+  payment_method_text?: string;
+  account_text?: string;
+};
+
+type ReceiptPaymentLineIn = {
+  amount: unknown;
+  payment_method_id: unknown;
+  account_id?: unknown;
+  operator_id?: unknown;
+};
+
+type ReceiptPaymentLineNormalized = {
+  amount: number;
+  payment_method_id: number;
+  account_id?: number;
+  operator_id?: number;
+};
+
 type ReceiptPostBody = {
   // Opcional si el recibo pertenece a una reserva
   booking?: { id_booking?: number };
@@ -36,25 +71,29 @@ type ReceiptPostBody = {
   amountCurrency: string; // ISO del amount/amountString (ARS | USD | ...)
   amount: number | string;
 
+  // NUEVO: pagos múltiples (si viene esto, el amount total sale de la suma)
+  payments?: ReceiptPaymentLineIn[];
+
   // Costo financiero del medio de pago (misma moneda que amountCurrency)
   payment_fee_amount?: number | string;
 
   // Asociaciones
-  serviceIds?: number[]; // Requerido si hay booking; vacío si es de agencia
-  clientIds?: number[]; // Opcional
+  serviceIds?: number[];
+  clientIds?: number[];
 
-  // Metadatos de cobro (texto para PDF / legacy)
+  // Metadatos legacy (texto)
   payment_method?: string;
   account?: string;
 
-  // (solo si tu modelo Receipt tiene foreign key a cuenta real)
+  // legacy ids a nivel Receipt (existen en tu schema)
+  payment_method_id?: number;
   account_id?: number;
 
-  // FX opcional (para equivalencias en PDF / reportes)
+  // FX opcional
   base_amount?: number | string;
-  base_currency?: string; // ISO
+  base_currency?: string;
   counter_amount?: number | string;
-  counter_currency?: string; // ISO
+  counter_currency?: string;
 };
 
 /* ======================================================
@@ -65,14 +104,11 @@ const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
 function getTokenFromRequest(req: NextApiRequest): string | null {
-  // Cookie "token" (flow propio)
   if (req.cookies?.token) return req.cookies.token;
 
-  // Header Authorization: Bearer XXX
   const auth = req.headers.authorization || "";
   if (auth.startsWith("Bearer ")) return auth.slice(7);
 
-  // Algunas cookies típicas
   const c = req.cookies || {};
   for (const k of [
     "session",
@@ -104,7 +140,6 @@ async function getUserFromAuth(
     const role = p.role || "" || undefined;
     const email = p.email;
 
-    // Resolver id_user por email si hace falta
     if (!id_user && email) {
       const u = await prisma.user.findUnique({
         where: { email },
@@ -120,7 +155,6 @@ async function getUserFromAuth(
       }
     }
 
-    // Resolver id_agency por id_user si hace falta
     if (id_user && !id_agency) {
       const u = await prisma.user.findUnique({
         where: { id_user },
@@ -154,6 +188,62 @@ const toDec = (v: unknown) =>
 const isNonEmptyString = (s: unknown): s is string =>
   typeof s === "string" && s.trim().length > 0;
 
+const toNum = (v: unknown): number => {
+  const n = typeof v === "number" ? v : Number(v ?? NaN);
+  return n;
+};
+
+const toOptionalId = (v: unknown): number | undefined => {
+  const n = typeof v === "number" ? v : Number(v ?? NaN);
+  if (!Number.isFinite(n)) return undefined;
+  const i = Math.trunc(n);
+  return i > 0 ? i : undefined;
+};
+
+function normalizePaymentsFromReceipt(r: unknown): ReceiptPaymentOut[] {
+  if (!r || typeof r !== "object") return [];
+
+  const obj = r as Record<string, unknown>;
+  const rel = Array.isArray(obj.payments) ? obj.payments : [];
+
+  if (rel.length > 0) {
+    return rel.map((p) => {
+      const pay = (p ?? {}) as Record<string, unknown>;
+      const pm = Number(pay.payment_method_id);
+      const acc = Number(pay.account_id);
+      return {
+        amount: Number(pay.amount ?? 0),
+        payment_method_id: Number.isFinite(pm) && pm > 0 ? pm : null,
+        account_id: Number.isFinite(acc) && acc > 0 ? acc : null,
+      };
+    });
+  }
+
+  const amt = toNum(obj.amount);
+  const pmText = String(obj.payment_method ?? "").trim();
+  const accText = String(obj.account ?? "").trim();
+
+  const pmIdRaw = Number(obj.payment_method_id);
+  const accIdRaw = Number(obj.account_id);
+
+  const pmId = Number.isFinite(pmIdRaw) && pmIdRaw > 0 ? pmIdRaw : null;
+  const accId = Number.isFinite(accIdRaw) && accIdRaw > 0 ? accIdRaw : null;
+
+  if (Number.isFinite(amt) && (pmText || accText || pmId || accId)) {
+    return [
+      {
+        amount: amt,
+        payment_method_id: pmId,
+        account_id: accId,
+        ...(pmText ? { payment_method_text: pmText } : {}),
+        ...(accText ? { account_text: accText } : {}),
+      },
+    ];
+  }
+
+  return [];
+}
+
 async function ensureBookingInAgency(bookingId: number, agencyId: number) {
   const b = await prisma.booking.findUnique({
     where: { id_booking: bookingId },
@@ -172,7 +262,7 @@ async function nextReceiptNumberForBooking(bookingId: number) {
   });
 
   const used = existing
-    .map((r) => parseInt(r.receipt_number.split("-")[1], 10))
+    .map((r) => parseInt(String(r.receipt_number).split("-")[1], 10))
     .filter((n) => Number.isFinite(n));
 
   const nextIdx = used.length ? Math.max(...used) + 1 : 1;
@@ -189,7 +279,7 @@ async function nextReceiptNumberForAgency(agencyId: number) {
   });
 
   const used = existing
-    .map((r) => parseInt(r.receipt_number.split("-")[1], 10))
+    .map((r) => parseInt(String(r.receipt_number).split("-")[1], 10))
     .filter((n) => Number.isFinite(n));
 
   const nextIdx = used.length ? Math.max(...used) + 1 : 1;
@@ -222,9 +312,15 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       const receipts = await prisma.receipt.findMany({
         where: { booking: { id_booking: bookingId } },
         orderBy: { issue_date: "desc" },
+        include: { payments: true },
       });
 
-      return res.status(200).json({ receipts });
+      const normalized = receipts.map((r) => ({
+        ...r,
+        payments: normalizePaymentsFromReceipt(r),
+      }));
+
+      return res.status(200).json({ receipts: normalized });
     }
 
     // ====== Listado mixto (por filtros) ======
@@ -244,19 +340,35 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       (Array.isArray(req.query.currency)
         ? req.query.currency[0]
         : req.query.currency) ?? "";
+
     const currencyTextParam =
       (Array.isArray(req.query.currencyText)
         ? req.query.currencyText[0]
         : req.query.currencyText) ?? "";
 
-    const payment_method =
+    // legacy filtros por texto (Receipt.payment_method / Receipt.account)
+    const payment_method_text =
       (Array.isArray(req.query.payment_method)
         ? req.query.payment_method[0]
         : req.query.payment_method) || undefined;
-    const account =
+
+    const account_text =
       (Array.isArray(req.query.account)
         ? req.query.account[0]
         : req.query.account) || undefined;
+
+    // NUEVO filtros por IDs (ReceiptPayment)
+    const payment_method_id = Number(
+      Array.isArray(req.query.payment_method_id)
+        ? req.query.payment_method_id[0]
+        : req.query.payment_method_id,
+    );
+
+    const account_id = Number(
+      Array.isArray(req.query.account_id)
+        ? req.query.account_id[0]
+        : req.query.account_id,
+    );
 
     const ownerId = Number(
       Array.isArray(req.query.userId) ? req.query.userId[0] : req.query.userId,
@@ -329,10 +441,8 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const currencyParam = currencyParamRaw.toString().trim();
     if (currencyParam) {
       if (/^[A-Za-z]{3}$/.test(currencyParam)) {
-        // "USD" → amount_currency ISO
         whereAND.push({ amount_currency: currencyParam.toUpperCase() });
       } else {
-        // Texto libre → currency
         whereAND.push({
           currency: { contains: currencyParam, mode: "insensitive" },
         });
@@ -345,8 +455,18 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
-    if (payment_method) whereAND.push({ payment_method });
-    if (account) whereAND.push({ account });
+    // 3bis) filtros legacy texto
+    if (payment_method_text)
+      whereAND.push({ payment_method: payment_method_text });
+    if (account_text) whereAND.push({ account: account_text });
+
+    // 3ter) filtros nuevos por IDs (payments)
+    if (Number.isFinite(payment_method_id) && payment_method_id > 0) {
+      whereAND.push({ payments: { some: { payment_method_id } } });
+    }
+    if (Number.isFinite(account_id) && account_id > 0) {
+      whereAND.push({ payments: { some: { account_id } } });
+    }
 
     // 4) Rango de fechas
     const dateRange: Prisma.DateTimeFilter = {};
@@ -355,7 +475,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     if (dateRange.gte || dateRange.lte)
       whereAND.push({ issue_date: dateRange });
 
-    // 5) Rango de importes
+    // 5) Rango de importes (total del recibo)
     const amountRange: Prisma.FloatFilter = {};
     if (Number.isFinite(minAmount)) amountRange.gte = Number(minAmount);
     if (Number.isFinite(maxAmount)) amountRange.lte = Number(maxAmount);
@@ -377,18 +497,34 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         issue_date: true,
         amount: true,
         amount_currency: true,
-        payment_fee_amount: true, // costo financiero
+        payment_fee_amount: true,
 
         concept: true,
         currency: true,
+
+        // legacy (Receipt)
         payment_method: true,
         account: true,
+        payment_method_id: true,
+        account_id: true,
+
         base_amount: true,
         base_currency: true,
         counter_amount: true,
         counter_currency: true,
         serviceIds: true,
         clientIds: true,
+
+        // NUEVO (ReceiptPayment)
+        payments: {
+          select: {
+            id_receipt_payment: true,
+            amount: true,
+            payment_method_id: true,
+            account_id: true,
+          },
+        },
+
         booking: {
           select: {
             id_booking: true,
@@ -404,13 +540,19 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       },
     });
 
+    const normalized = items.map((r) => ({
+      ...r,
+      payments: normalizePaymentsFromReceipt(r),
+    }));
+
     const nextCursor =
       items.length === take
         ? (items[items.length - 1]?.id_receipt ?? null)
         : null;
 
-    return res.status(200).json({ items, nextCursor });
+    return res.status(200).json({ items: normalized, nextCursor });
   } catch (error: unknown) {
+    // eslint-disable-next-line no-console
     console.log("[API] GET /api/receipts error:", error);
     const msg =
       error instanceof Error ? error.message : "Error obteniendo recibos";
@@ -432,6 +574,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const rawBody = req.body;
+  // eslint-disable-next-line no-console
   console.log("[API] POST /api/receipts raw body:", rawBody);
 
   if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
@@ -447,16 +590,21 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     serviceIds = [],
     clientIds = [],
     amount,
+    payments,
     payment_fee_amount,
+
+    // legacy
     payment_method,
     account,
+    payment_method_id,
+    account_id,
+
     base_amount,
     base_currency,
     counter_amount,
     counter_currency,
   } = rawBody as ReceiptPostBody;
 
-  // Normalizaciones ISO
   const amountCurrencyISO = (amountCurrency || "").toUpperCase();
   const baseCurrencyISO = base_currency
     ? base_currency.toUpperCase()
@@ -465,15 +613,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     ? counter_currency.toUpperCase()
     : undefined;
 
-  // booking opcional
-  const bookingIdRaw = booking?.id_booking;
-  const bookingId = Number(bookingIdRaw);
+  const bookingId = Number(booking?.id_booking);
   const hasBooking = Number.isFinite(bookingId);
 
-  // Normalizar amount a número
-  const amountNum = typeof amount === "number" ? amount : Number(amount ?? NaN);
-
-  // Validaciones mínimas
   if (!isNonEmptyString(concept)) {
     return res.status(400).json({ error: "concept es requerido" });
   }
@@ -483,6 +625,42 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   if (!isNonEmptyString(amountCurrencyISO)) {
     return res.status(400).json({ error: "amountCurrency es requerido (ISO)" });
   }
+
+  // ---- NUEVO: validar pagos múltiples si vienen
+  const hasPayments = Array.isArray(payments) && payments.length > 0;
+
+  let normalizedPayments: ReceiptPaymentLineNormalized[] = [];
+
+  if (Array.isArray(payments) && payments.length > 0) {
+    normalizedPayments = payments.map((p) => ({
+      amount: toNum(p.amount),
+      payment_method_id: Number(p.payment_method_id),
+      account_id: toOptionalId(p.account_id),
+      operator_id: toOptionalId(p.operator_id),
+    }));
+
+    const invalid = normalizedPayments.find(
+      (p) =>
+        !Number.isFinite(p.amount) ||
+        p.amount <= 0 ||
+        !Number.isFinite(p.payment_method_id) ||
+        p.payment_method_id <= 0,
+    );
+
+    if (invalid) {
+      return res.status(400).json({
+        error:
+          "payments inválido: cada línea debe tener amount > 0 y payment_method_id válido",
+      });
+    }
+  }
+
+  // amount total
+  const legacyAmountNum = toNum(amount);
+  const amountNum = hasPayments
+    ? normalizedPayments.reduce((acc, p) => acc + Number(p.amount), 0)
+    : legacyAmountNum;
+
   if (!Number.isFinite(amountNum)) {
     return res.status(400).json({ error: "amount numérico inválido" });
   }
@@ -540,12 +718,24 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
-    // Número de recibo
     const receipt_number = hasBooking
       ? await nextReceiptNumberForBooking(bookingId)
       : await nextReceiptNumberForAgency(authAgencyId);
 
-    // Payload final para Prisma
+    // legacy fields: si hay payments => seteo ids a nivel Receipt (primera línea)
+    const legacyPmId = hasPayments
+      ? normalizedPayments[0].payment_method_id
+      : Number.isFinite(Number(payment_method_id)) &&
+          Number(payment_method_id) > 0
+        ? Number(payment_method_id)
+        : undefined;
+
+    const legacyAccId = hasPayments
+      ? normalizedPayments[0].account_id
+      : Number.isFinite(Number(account_id)) && Number(account_id) > 0
+        ? Number(account_id)
+        : undefined;
+
     const data: Prisma.ReceiptCreateInput = {
       receipt_number,
       concept,
@@ -555,9 +745,16 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       currency: isNonEmptyString(currency) ? currency : amountCurrencyISO,
       serviceIds,
       clientIds,
-      issue_date: new Date(), // por si el modelo no tiene default now()
-      ...(payment_method ? { payment_method } : {}),
-      ...(account ? { account } : {}),
+      issue_date: new Date(),
+
+      // legacy texto (para no romper listados viejos)
+      ...(isNonEmptyString(payment_method) ? { payment_method } : {}),
+      ...(isNonEmptyString(account) ? { account } : {}),
+
+      // ids a nivel Receipt (existen en tu schema)
+      ...(legacyPmId ? { payment_method_id: legacyPmId } : {}),
+      ...(legacyAccId ? { account_id: legacyAccId ?? undefined } : {}),
+
       ...(toDec(base_amount) ? { base_amount: toDec(base_amount) } : {}),
       ...(baseCurrencyISO ? { base_currency: baseCurrencyISO } : {}),
       ...(toDec(counter_amount)
@@ -567,19 +764,48 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       ...(toDec(payment_fee_amount)
         ? { payment_fee_amount: toDec(payment_fee_amount) }
         : {}),
+
       ...(hasBooking
         ? { booking: { connect: { id_booking: bookingId } } }
         : { agency: { connect: { id_agency: authAgencyId } } }),
     };
 
-    const receipt = await prisma.receipt.create({ data });
+    // ---- Crear recibo + payments en transacción
+    const createdReceipt = await prisma.$transaction(async (tx) => {
+      const created = await tx.receipt.create({ data });
 
-    res.setHeader("Location", `/api/receipts/${receipt.id_receipt}`);
-    res.setHeader("X-Receipt-Id", String(receipt.id_receipt));
+      if (hasPayments) {
+        await tx.receiptPayment.createMany({
+          data: normalizedPayments.map((p) => ({
+            receipt_id: created.id_receipt,
+            amount: new Prisma.Decimal(Number(p.amount)),
+            payment_method_id: Number(p.payment_method_id),
+            account_id: p.account_id ? Number(p.account_id) : null,
+          })),
+        });
+      } else {
+        // Si no vinieron payments, no forzamos crear ReceiptPayment (así no “cambiás” históricos)
+        // Si después querés “uniformar”, lo hacemos con un script/migración controlada.
+      }
 
-    return res.status(201).json({ receipt });
+      return created;
+    });
+
+    res.setHeader("Location", `/api/receipts/${createdReceipt.id_receipt}`);
+    res.setHeader("X-Receipt-Id", String(createdReceipt.id_receipt));
+
+    const full = await prisma.receipt.findUnique({
+      where: { id_receipt: createdReceipt.id_receipt },
+      include: { payments: true },
+    });
+
+    return res.status(201).json({
+      receipt: full
+        ? { ...full, payments: normalizePaymentsFromReceipt(full) }
+        : createdReceipt,
+    });
   } catch (error: unknown) {
-    // Ojo: usamos console.log y no console.error para evitar el bug de patch-error-inspect
+    // eslint-disable-next-line no-console
     console.log("[API] POST /api/receipts error:", error);
     const msg =
       error instanceof Error ? error.message : "Error interno al crear recibo";
