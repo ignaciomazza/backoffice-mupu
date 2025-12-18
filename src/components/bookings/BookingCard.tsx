@@ -4,6 +4,12 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Booking } from "@/types";
 import Link from "next/link";
+import {
+  ACTION_BUTTON,
+  DANGER_BUTTON,
+  ICON_BUTTON,
+  getStatusChipClasses,
+} from "./palette";
 
 interface BookingCardProps {
   booking: Booking;
@@ -45,45 +51,25 @@ export default function BookingCard({
     value: React.ReactNode;
   }) => (
     <p className="text-sm text-sky-950 dark:text-white">
-      <span className="font-semibold text-sky-700 dark:text-sky-300">
+      <span className="font-semibold text-sky-900/80 dark:text-sky-100/80">
         {label}
       </span>
       <span className="ml-2 font-medium">{value || "—"}</span>
     </p>
   );
 
-  const getChipColors = (value?: string) => {
-    const key = (value || "").toLowerCase();
-    if (key === "pendiente")
-      return "bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-100";
-    if (key === "pago")
-      return "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-100";
-    if (key === "facturado")
-      return "bg-sky-100 text-sky-900 dark:bg-sky-500/20 dark:text-sky-100";
-    if (key === "bloqueada")
-      return "bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-100";
-    if (key === "cancelada")
-      return "bg-rose-100 text-rose-900 dark:bg-rose-500/20 dark:text-rose-100";
-    if (key === "abierta")
-      return "bg-sky-100 text-sky-900 dark:bg-sky-500/20 dark:text-sky-100";
-    return "bg-gray-100 text-gray-800 dark:bg-white/10 dark:text-white";
-  };
-
   const statusChip = (label: string, value: string) => (
-    <span
-      key={label}
-      className={`rounded-full px-3 py-1 text-xs font-semibold shadow-sm shadow-sky-950/10 ${getChipColors(value)}`}
-    >
+    <span key={label} className={getStatusChipClasses(value)}>
       {label}: {value}
     </span>
   );
 
   const badge = (() => {
     const base =
-      "rounded-full p-2 shadow-md shadow-emerald-900/10 dark:shadow-emerald-900/30";
+      "rounded-full p-2 shadow-md shadow-sky-900/20 dark:shadow-sky-950/40";
     if (booking.status === "Bloqueada") {
       return {
-      cls: `${base} bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-100`,
+        cls: `${base} bg-amber-100/30 dark:bg-amber-500/15 text-amber-600 shadow-sm shadow-amber-900/20 dark:text-amber-200`,
         icon: (
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -104,7 +90,7 @@ export default function BookingCard({
     }
     if (booking.status === "Cancelada") {
       return {
-      cls: `${base} bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200`,
+        cls: `${base} bg-rose-100/30 dark:bg-rose-500/15 text-rose-600 shadow-sm shadow-rose-900/20 dark:text-rose-200`,
         icon: (
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -124,7 +110,7 @@ export default function BookingCard({
       };
     }
     return {
-      cls: `${base} bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-100`,
+      cls: `${base} bg-emerald-100/30 dark:bg-emerald-500/15 text-emerald-600 shadow-sm shadow-emerald-900/20 dark:text-emerald-200`,
       icon: (
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -145,15 +131,16 @@ export default function BookingCard({
   })();
 
   const passengers = booking.clients || [];
+  const departure = formatDate(booking.departure_date);
+  const returnDate = formatDate(booking.return_date);
+  const creationDate = formatDate(booking.creation_date);
+  const paxCount = Math.max(1, booking.pax_count);
   const toggleExpanded = () =>
     setExpandedBookingId((prevId) =>
       prevId === booking.id_booking ? null : booking.id_booking,
     );
-  const actionBtn =
-    "rounded-full bg-sky-100 px-5 py-2 text-sm font-semibold text-sky-950 shadow-sm shadow-sky-950/10 transition-transform hover:scale-95 active:scale-95 dark:bg-white/10 dark:text-white/90";
-  const toggleBtn =
-    "rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/10 transition-transform hover:scale-95 active:scale-95 dark:bg-white/10 dark:text-white";
-
+  const actionBtn = `${ACTION_BUTTON} px-4 py-2 text-sm font-semibold`;
+  const toggleBtn = `${ICON_BUTTON} p-2`;
   return (
     <motion.div
       layout
@@ -162,11 +149,11 @@ export default function BookingCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-sky-700 dark:text-sky-300">
-            Reserva #{booking.id_booking}
+          <p className="text-xs uppercase tracking-[0.2em] text-sky-900/85 dark:text-sky-100/85">
+            Reserva N°{booking.id_booking}
           </p>
           <p className="mt-1 text-lg font-semibold text-sky-950 dark:text-white">
-            {booking.details || "Sin detalle"}
+            {booking.details.toUpperCase() || "Sin detalle"}
           </p>
         </div>
         <div className={badge.cls}>{badge.icon}</div>
@@ -175,7 +162,6 @@ export default function BookingCard({
       <div className="flex flex-wrap gap-2">
         {statusChip("Cliente", statusLabel(booking.clientStatus))}
         {statusChip("Operador", statusLabel(booking.operatorStatus))}
-        {statusChip("Estado", statusLabel(booking.status))}
       </div>
 
       <div className="grid gap-3 text-sm sm:grid-cols-2">
@@ -191,25 +177,27 @@ export default function BookingCard({
 
       {isExpanded && (
         <div className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4 shadow-inner shadow-sky-950/5 dark:border-white/10 dark:bg-white/5">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field
-              label="Fecha de salida"
-              value={formatDate(booking.departure_date)}
-            />
-            <Field
-              label="Fecha de regreso"
-              value={formatDate(booking.return_date)}
-            />
-            <Field
-              label="Fecha de creación"
-              value={formatDate(booking.creation_date)}
-            />
-            <Field label="Pasajeros" value={`${Math.max(1, booking.pax_count)}`} />
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-sky-900/70 dark:text-sky-100/70">
+              Duración del viaje
+            </p>
+            <div className="mt-1 flex items-center gap-2 text-sm font-semibold">
+              <span>{departure}</span>
+              <span className="text-[11px] font-bold tracking-[0.4em] text-sky-900/50 dark:text-sky-100/60">
+                →
+              </span>
+              <span>{returnDate}</span>
+            </div>
+            <div className="flex w-full justify-end">
+              <p className="mt-1 text-xs text-sky-900/70 dark:text-sky-100/70">
+                Creada {creationDate}
+              </p>
+            </div>
           </div>
 
           <div>
-            <p className="text-xs uppercase tracking-[0.15em] text-sky-700 dark:text-sky-300">
-              Pasajeros
+            <p className="text-xs uppercase tracking-[0.15em] text-sky-900/85 dark:text-sky-100/85">
+              {`Pasajeros (${paxCount} PAX)`}
             </p>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-sky-950 dark:text-white">
               <li>
@@ -223,7 +211,7 @@ export default function BookingCard({
             </ul>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-3">
             <Field
               label="Facturación"
               value={booking.invoice_type || "Sin datos"}
@@ -235,7 +223,7 @@ export default function BookingCard({
           </div>
 
           <div>
-            <p className="text-xs uppercase tracking-[0.15em] text-sky-700 dark:text-sky-300">
+            <p className="text-xs uppercase tracking-[0.15em] text-sky-900/85 dark:text-sky-100/85">
               Observaciones de administración
             </p>
             <p className="mt-1 text-sm text-sky-950 dark:text-white">
@@ -245,7 +233,7 @@ export default function BookingCard({
 
           <Link
             href={`/bookings/services/${booking.id_booking}`}
-            className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-sky-100 px-4 py-2 text-sm font-semibold text-sky-950 shadow-sm shadow-sky-950/10 transition-transform hover:scale-95 dark:bg-white/10 dark:text-white"
+            className={`${ACTION_BUTTON} mt-6 flex w-full items-center justify-center gap-2 px-4 py-2 text-sm font-semibold`}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -278,12 +266,19 @@ export default function BookingCard({
                 stroke="currentColor"
                 className="size-6"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M5 12h14"
+                />
               </svg>
             </button>
             <div className="mt-4 flex gap-2">
               {canManage && (
-                <button className={actionBtn} onClick={() => startEditingBooking(booking)}>
+                <button
+                  className={actionBtn}
+                  onClick={() => startEditingBooking(booking)}
+                >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
@@ -302,7 +297,7 @@ export default function BookingCard({
               )}
               {canManage && (
                 <button
-                  className="rounded-full bg-red-600 px-5 py-2 text-sm font-semibold text-red-100 shadow-sm shadow-red-900/20 transition-transform hover:scale-95 active:scale-95 dark:bg-red-800"
+                  className={`${DANGER_BUTTON} px-4 py-2 text-sm font-semibold`}
                   onClick={() => deleteBooking(booking.id_booking)}
                 >
                   <svg
@@ -341,7 +336,7 @@ export default function BookingCard({
                 />
               </svg>
             </button>
-            <p className="text-sm font-medium text-emerald-900 dark:text-emerald-100">
+            <p className="text-sm font-medium text-sky-950/80 dark:text-sky-100/80">
               {formatDate(booking.creation_date)}
             </p>
           </div>

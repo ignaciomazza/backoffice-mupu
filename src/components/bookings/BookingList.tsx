@@ -4,6 +4,12 @@ import React from "react";
 import Link from "next/link";
 import BookingCard from "./BookingCard";
 import { Booking } from "@/types";
+import {
+  ACTION_BUTTON,
+  DANGER_BUTTON,
+  ICON_BUTTON,
+  getStatusChipClasses,
+} from "./palette";
 
 export type BookingViewMode = "grid" | "list";
 
@@ -80,7 +86,7 @@ export default function BookingList({
           <button
             onClick={onLoadMore}
             disabled={loadingMore}
-            className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+            className={`${ACTION_BUTTON} px-6 py-2 text-sm font-semibold disabled:opacity-60 dark:backdrop-blur`}
           >
             {loadingMore ? "Cargando..." : "Ver más"}
           </button>
@@ -131,59 +137,27 @@ function BookingListRow({
     return lower.charAt(0).toUpperCase() + lower.slice(1);
   };
 
-  const getChipColors = (value?: string) => {
-    const key = (value || "").toLowerCase();
-    if (key === "pendiente")
-      return "bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-100";
-    if (key === "pago")
-      return "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-100";
-    if (key === "facturado")
-      return "bg-sky-100 text-sky-900 dark:bg-sky-500/20 dark:text-sky-100";
-    if (key === "bloqueada")
-      return "bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-100";
-    if (key === "cancelada")
-      return "bg-rose-100 text-rose-900 dark:bg-rose-500/20 dark:text-rose-100";
-    if (key === "abierta")
-      return "bg-sky-100 text-sky-900 dark:bg-sky-500/20 dark:text-sky-100";
-    return "bg-gray-100 text-gray-800 dark:bg-white/10 dark:text-white";
-  };
-
   const statusChip = (label: string, value: string) => (
-    <span
-      className={`rounded-full px-3 py-1 text-xs font-semibold shadow-sm shadow-sky-900/10 ${getChipColors(value)}`}
-    >
+    <span className={getStatusChipClasses(value)}>
       {label}: {value}
     </span>
   );
 
-  const InfoBlock = ({
-    label,
-    value,
-  }: {
-    label: string;
-    value: string;
-  }) => (
-    <div>
-      <p className="text-[11px] uppercase tracking-[0.08em] text-sky-700 dark:text-sky-300">
-        {label}
-      </p>
-      <p className="text-sm font-medium text-emerald-950 dark:text-emerald-50">
-        {value || "—"}
-      </p>
-    </div>
-  );
-
   const passengers = booking.clients || [];
+  const departure = formatDate(booking.departure_date);
+  const returnDate = formatDate(booking.return_date);
+  const creationDate = formatDate(booking.creation_date);
+  const paxCount = Math.max(1, booking.pax_count);
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-sm shadow-sky-950/10 backdrop-blur dark:bg-white/5 dark:text-white">
+    <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sky-950 shadow-sm shadow-sky-950/10 backdrop-blur dark:bg-white/5 dark:text-white">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700 dark:text-sky-300">
-            #{booking.id_booking}
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-900/80 dark:text-sky-100/80">
+            N°{booking.id_booking}
           </span>
           <p className="text-base font-semibold text-sky-950 dark:text-white">
-            {booking.details || "Sin detalle"}
+            {booking.details.toUpperCase() || "Sin detalle"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -191,7 +165,7 @@ function BookingListRow({
           {statusChip("Operador", formatStatus(booking.operatorStatus))}
           <button
             onClick={toggleRow}
-            className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+            className={`${ICON_BUTTON} p-2`}
             aria-label={isExpanded ? "Ocultar detalles" : "Mostrar detalles"}
           >
             {isExpanded ? (
@@ -225,35 +199,46 @@ function BookingListRow({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-        <InfoBlock
-          label="Titular"
-          value={`${booking.titular.first_name} ${booking.titular.last_name}`}
-        />
-        <InfoBlock
-          label="Vendedor"
-          value={`${booking.user.first_name} ${booking.user.last_name}`}
-        />
-        <InfoBlock label="Salida" value={formatDate(booking.departure_date)} />
-        <InfoBlock label="Regreso" value={formatDate(booking.return_date)} />
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-sky-900/80 dark:text-sky-100/80">
+        <span className="font-semibold text-sky-950 dark:text-white">
+          {booking.titular.first_name} {booking.titular.last_name}
+        </span>
+        <span className="text-sky-900/50 dark:text-sky-100/50">•</span>
+        <span className="font-medium text-sky-950 dark:text-white">
+          {booking.user.first_name} {booking.user.last_name}
+        </span>
+        <span className="text-sky-900/50 dark:text-sky-100/50">•</span>
+        <span className="font-semibold text-sky-950 dark:text-white">
+          {departure}
+        </span>
+        <span className="text-sky-900/60 dark:text-sky-100/60">→</span>
+        <span className="font-semibold text-sky-950 dark:text-white">
+          {returnDate}
+        </span>
+        <span className="text-sky-900/50 dark:text-sky-100/50">•</span>
+        <span>{paxCount} pax</span>
       </div>
 
       {isExpanded && (
         <div className="mt-4 space-y-3 border-t border-white/10 pt-4 text-sm dark:border-white/10">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <InfoBlock
-              label="Creación"
-              value={formatDate(booking.creation_date)}
-            />
-            <InfoBlock
-              label="Pasajeros"
-              value={String(Math.max(1, booking.pax_count))}
-            />
-            <InfoBlock label="Estado" value={booking.status || "—"} />
+          <div className="rounded-3xl border border-white/10 bg-white/40 px-4 py-3 text-sky-950 shadow shadow-sky-950/5 dark:bg-white/10 dark:text-white">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-sky-900/70 dark:text-sky-100/70">
+              Duración del viaje
+            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold">
+              <span>{departure}</span>
+              <span className="text-[11px] font-bold tracking-[0.4em] text-sky-900/50 dark:text-sky-100/60">
+                →
+              </span>
+              <span>{returnDate}</span>
+            </div>
+            <p className="text-xs text-sky-900/70 dark:text-sky-100/70">
+              Creada {creationDate} • {paxCount} pax
+            </p>
           </div>
 
           <div>
-            <p className="text-xs uppercase tracking-[0.08em] text-sky-700 dark:text-sky-300">
+            <p className="text-xs uppercase tracking-[0.08em] text-sky-900/80 dark:text-sky-100/80">
               Facturación
             </p>
             <p className="text-sm text-sky-950 dark:text-white">
@@ -263,7 +248,7 @@ function BookingListRow({
           </div>
 
           <div>
-            <p className="text-xs uppercase tracking-[0.08em] text-sky-700 dark:text-sky-300">
+            <p className="text-xs uppercase tracking-[0.08em] text-sky-900/80 dark:text-sky-100/80">
               Observaciones
             </p>
             <p className="text-sm text-sky-950 dark:text-white">
@@ -272,7 +257,7 @@ function BookingListRow({
           </div>
 
           <div>
-            <p className="text-xs uppercase tracking-[0.08em] text-sky-700 dark:text-sky-300">
+            <p className="text-xs uppercase tracking-[0.08em] text-sky-900/80 dark:text-sky-100/80">
               Pasajeros
             </p>
             <ul className="ml-4 list-disc text-sm text-sky-950 dark:text-white">
@@ -290,13 +275,13 @@ function BookingListRow({
           <div className="flex flex-wrap gap-2">
             <Link
               href={`/bookings/services/${booking.id_booking}`}
-              className="flex gap-1 rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+              className={`${ACTION_BUTTON} flex gap-1 px-4 py-2 text-sm font-semibold`}
             >
               Reserva
             </Link>
             {canManage && (
               <button
-                className="rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+                className={`${ACTION_BUTTON} px-4 py-2 text-sm font-semibold`}
                 onClick={handleEdit}
               >
                 Editar
@@ -304,7 +289,7 @@ function BookingListRow({
             )}
             {canManage && (
               <button
-                className="rounded-full bg-red-600 px-4 py-2 text-red-100 shadow-sm shadow-red-950/30 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+                className={`${DANGER_BUTTON} px-4 py-2 text-sm font-semibold`}
                 onClick={() => deleteBooking(booking.id_booking)}
               >
                 Eliminar

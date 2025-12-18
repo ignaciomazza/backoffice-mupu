@@ -109,13 +109,28 @@ export default function Page() {
     null,
   );
 
-  const TAKE = 24; // tamaño de página sugerido
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
 
   // Para evitar race conditions y cancelar requests
   const fetchAbortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
+
+  const [viewMode, setViewMode] = useState<BookingViewMode>("grid");
+  const take = viewMode === "list" ? 40 : 20;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    if (stored === "grid" || stored === "list") {
+      setViewMode(stored);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
+  }, [viewMode]);
 
   const buildBookingsQuery = useCallback(
     (opts?: { cursor?: number | null }) => {
@@ -133,7 +148,7 @@ export default function Page() {
       if (travelFrom) qs.append("from", travelFrom);
       if (travelTo) qs.append("to", travelTo);
       if (debouncedSearch.trim()) qs.append("q", debouncedSearch.trim());
-      qs.append("take", String(TAKE));
+      qs.append("take", String(take));
       if (opts?.cursor) qs.append("cursor", String(opts.cursor));
       return qs.toString();
     },
@@ -148,25 +163,12 @@ export default function Page() {
       travelFrom,
       travelTo,
       debouncedSearch,
+      take,
     ],
   );
 
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingBookingId, setEditingBookingId] = useState<number | null>(null);
-  const [viewMode, setViewMode] = useState<BookingViewMode>("grid");
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY);
-    if (stored === "grid" || stored === "list") {
-      setViewMode(stored);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
-  }, [viewMode]);
 
   const todayYMD = () => {
     const d = new Date();
@@ -707,24 +709,52 @@ export default function Page() {
           <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1 text-xs dark:border-white/5 dark:bg-white/5">
             <button
               onClick={() => setViewMode("grid")}
-              className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
+              className={`flex items-center justify-center gap-1 rounded-full px-4 py-1.5 text-sm transition-colors ${
                 viewMode === "grid"
-                  ? "bg-emerald-600 text-white shadow-sm shadow-emerald-900/20"
+                  ? "bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-900/20 dark:text-emerald-300"
                   : "text-emerald-900/70 hover:text-emerald-900 dark:text-emerald-100"
               }`}
               aria-pressed={viewMode === "grid"}
             >
-              Cards
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="size-4"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"
+                />
+              </svg>
+              Grilla
             </button>
             <button
               onClick={() => setViewMode("list")}
-              className={`rounded-full px-4 py-1.5 text-sm transition-colors ${
+              className={`flex items-center justify-center gap-1 rounded-full px-4 py-1.5 text-sm transition-colors ${
                 viewMode === "list"
-                  ? "bg-emerald-600 text-white shadow-sm shadow-emerald-900/20"
+                  ? "bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-900/20 dark:text-emerald-300"
                   : "text-emerald-900/70 hover:text-emerald-900 dark:text-emerald-100"
               }`}
               aria-pressed={viewMode === "list"}
             >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="size-4"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"
+                />
+              </svg>
               Lista
             </button>
           </div>
