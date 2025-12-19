@@ -18,6 +18,10 @@ import {
 } from "recharts";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
+import {
+  trackCompleteRegistration,
+  trackContact,
+} from "@/lib/meta/pixel";
 
 /* ===========================
  * Config
@@ -25,6 +29,9 @@ import { authFetch } from "@/utils/authFetch";
 const WA_NUMBER = process.env.NEXT_PUBLIC_WA_NUMBER ?? "54911XXXXXXXX";
 const WA_MSG = encodeURIComponent("Hola, quiero más info sobre Ofistur.");
 const WA_URL = `https://wa.me/${WA_NUMBER}?text=${WA_MSG}`;
+const handleWhatsAppClick = () => {
+  trackContact({ content_name: "landing_whatsapp" });
+};
 
 /* ===========================
  * Motion presets
@@ -163,6 +170,7 @@ function ButtonPrimary({
         target="_blank"
         rel="noopener noreferrer"
         aria-disabled={disabled}
+        onClick={onClick}
       >
         {content}
       </a>
@@ -814,6 +822,16 @@ function LeadForm() {
       }
 
       // éxito
+      trackCompleteRegistration(
+        { content_name: "landing_lead_form" },
+        {
+          user: {
+            email: payload.email,
+            phone: payload.whatsapp,
+            city: payload.location,
+          },
+        },
+      );
       setSent("ok");
       formEl.reset();
     } catch (err) {
@@ -845,7 +863,12 @@ function LeadForm() {
             </p>
 
             <div className="mt-5 flex flex-wrap items-center gap-4">
-              <ButtonPrimary variant="emerald" href={WA_URL} size="sm">
+              <ButtonPrimary
+                variant="emerald"
+                href={WA_URL}
+                size="sm"
+                onClick={handleWhatsAppClick}
+              >
                 Abrir WhatsApp
               </ButtonPrimary>
               <p className="text-[11px] leading-snug text-emerald-900/70">
@@ -950,7 +973,12 @@ function LeadForm() {
           {loading ? "Enviando…" : "Enviar"}
         </ButtonPrimary>
 
-        <ButtonPrimary variant="emerald" href={WA_URL} size="sm">
+        <ButtonPrimary
+          variant="emerald"
+          href={WA_URL}
+          size="sm"
+          onClick={handleWhatsAppClick}
+        >
           WhatsApp
         </ButtonPrimary>
 
@@ -1274,7 +1302,12 @@ function PricingCalculator() {
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <ButtonPrimary variant="emerald" href={WA_URL} size="sm">
+        <ButtonPrimary
+          variant="emerald"
+          href={WA_URL}
+          size="sm"
+          onClick={handleWhatsAppClick}
+        >
           Quiero cotizar con alguien
         </ButtonPrimary>
         <p className="text-[11px] text-sky-950/60">
@@ -1363,7 +1396,12 @@ export default function LandingClient() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.35, ease: "easeOut", delay: 0.12 }}
             >
-              <ButtonPrimary variant="emerald" href={WA_URL} size="sm">
+              <ButtonPrimary
+                variant="emerald"
+                href={WA_URL}
+                size="sm"
+                onClick={handleWhatsAppClick}
+              >
                 Escribinos por WhatsApp
               </ButtonPrimary>
               <ButtonGhost href="#contacto" size="sm">
@@ -1512,7 +1550,12 @@ export default function LandingClient() {
               Te respondemos por WhatsApp. Contanos brevemente tu caso.
             </p>
             <div className="mt-4">
-              <ButtonPrimary variant="emerald" href={WA_URL} size="sm">
+              <ButtonPrimary
+                variant="emerald"
+                href={WA_URL}
+                size="sm"
+                onClick={handleWhatsAppClick}
+              >
                 Abrir WhatsApp
               </ButtonPrimary>
             </div>
@@ -1546,6 +1589,7 @@ export default function LandingClient() {
         rel="noopener noreferrer"
         aria-label="Escribir por WhatsApp"
         className="fixed bottom-5 right-5 z-[60] inline-flex size-12 items-center justify-center rounded-full border border-emerald-300/50 bg-emerald-50 text-emerald-950 shadow-lg shadow-emerald-950/20 transition hover:scale-105 active:scale-95"
+        onClick={handleWhatsAppClick}
       >
         <IconWhatsApp className="size-6" />
       </a>

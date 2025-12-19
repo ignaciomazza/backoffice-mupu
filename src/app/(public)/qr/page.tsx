@@ -6,6 +6,10 @@ import type React from "react";
 import { useState } from "react";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
+import {
+  trackCompleteRegistration,
+  trackContact,
+} from "@/lib/meta/pixel";
 
 /* ===========================
  * Config
@@ -13,6 +17,9 @@ import { authFetch } from "@/utils/authFetch";
 const WA_NUMBER = process.env.NEXT_PUBLIC_WA_NUMBER ?? "54911XXXXXXXX";
 const WA_MSG = encodeURIComponent("Hola, quiero más info sobre Ofistur.");
 const WA_URL = `https://wa.me/${WA_NUMBER}?text=${WA_MSG}`;
+const handleWhatsAppClick = () => {
+  trackContact({ content_name: "qr_whatsapp" });
+};
 
 // Meses de prueba (cambiá este número si modificás la promo)
 const TRIAL_MONTHS = 3;
@@ -106,11 +113,13 @@ function ButtonWhatsApp({
   children,
   className = "",
   disabled,
+  onClick,
 }: {
   href: string;
   children: React.ReactNode;
   className?: string;
   disabled?: boolean;
+  onClick?: () => void;
 }) {
   const base =
     "inline-flex items-center justify-center gap-2 rounded-full border border-emerald-300/50 bg-emerald-50 px-4 py-2 text-[15px] font-medium text-emerald-950  transition-all hover:scale-[0.98] active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-1 focus:ring-emerald-700/30";
@@ -121,6 +130,7 @@ function ButtonWhatsApp({
       rel="noopener noreferrer"
       aria-disabled={disabled}
       className={`${base} ${className}`}
+      onClick={onClick}
     >
       <IconWhatsApp className="size-5" />
       <span>{children}</span>
@@ -523,6 +533,15 @@ function QuickLeadForm() {
         });
       }
 
+      trackCompleteRegistration(
+        { content_name: "qr_signup", plan, users },
+        {
+          user: {
+            email,
+            phone: whatsapp,
+          },
+        },
+      );
       setSent("ok");
       formEl.reset();
     } catch (err) {
@@ -625,7 +644,11 @@ function QuickLeadForm() {
               Ir al login de Ofistur
             </ButtonPrimary>
 
-            <ButtonWhatsApp href={WA_URL} className="min-w-[170px]">
+            <ButtonWhatsApp
+              href={WA_URL}
+              className="min-w-[170px]"
+              onClick={handleWhatsAppClick}
+            >
               Enviar datos por WhatsApp
             </ButtonWhatsApp>
           </div>
@@ -784,7 +807,11 @@ function QuickLeadForm() {
           {loading ? "Generando acceso…" : "Crear mi acceso de prueba"}
         </ButtonPrimary>
 
-        <ButtonWhatsApp href={WA_URL} className="min-w-[160px]">
+        <ButtonWhatsApp
+          href={WA_URL}
+          className="min-w-[160px]"
+          onClick={handleWhatsAppClick}
+        >
           WhatsApp directo
         </ButtonWhatsApp>
       </div>
@@ -875,6 +902,7 @@ export default function QRContactPage() {
               className="underline decoration-emerald-400/70 underline-offset-4"
               target="_blank"
               rel="noreferrer"
+              onClick={handleWhatsAppClick}
             >
               WhatsApp directo
             </a>
