@@ -949,8 +949,8 @@ export default function ReceiptForm({
       e.amount = "El total es inválido. Cargá importes o usá el sugerido.";
 
     if (!effectiveCurrency) e.currency = "Elegí una moneda.";
-    if (currencyOverride) {
-      const baseNum = parseAmountInput(baseAmount);
+    const baseNum = parseAmountInput(baseAmount);
+    if (baseAmount.trim() !== "" || baseCurrency) {
       if (!baseNum || baseNum <= 0) {
         e.base = "Ingresá un valor base válido.";
       } else if (!baseCurrency) {
