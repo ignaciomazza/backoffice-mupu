@@ -18,6 +18,13 @@ import { useAgencyOperators } from "@/hooks/receipts/useAgencyOperators";
 
 type PeriodType = "month" | "quarter" | "semester" | "year";
 type DateMode = "creation" | "travel";
+type InsightsView =
+  | "all"
+  | "incomes"
+  | "expenses"
+  | "cashflow"
+  | "debt"
+  | "activity";
 
 type MoneyMap = Record<string, number>;
 type StatTone = "sky" | "emerald" | "rose" | "amber" | "slate";
@@ -32,6 +39,15 @@ const PERIOD_OPTIONS: { value: PeriodType; label: string }[] = [
 const DATE_MODE_OPTIONS: { value: DateMode; label: string }[] = [
   { value: "creation", label: "Creacion" },
   { value: "travel", label: "Viaje" },
+];
+
+const VIEW_OPTIONS: { value: InsightsView; label: string }[] = [
+  { value: "all", label: "Todo" },
+  { value: "incomes", label: "Ingresos" },
+  { value: "expenses", label: "Egresos" },
+  { value: "cashflow", label: "Ingresos + Egresos" },
+  { value: "debt", label: "Deuda" },
+  { value: "activity", label: "Actividad" },
 ];
 
 const CARD_GLOW: Record<StatTone, string> = {
@@ -76,15 +92,22 @@ type OperatorInsightsResponse = {
     servicesPerBooking: number;
   };
   lists: {
-    debtServices: {
-      id_service: number;
-      description: string;
-      cost_price: number;
-      currency: string;
-      booking_id: number;
-      booking_details: string | null;
+    bookings: {
+      id_booking: number;
+      details: string | null;
       departure_date: string | null;
       return_date: string | null;
+      creation_date: string | null;
+      shared_operators: { id_operator: number; name: string | null }[];
+      debt: MoneyMap;
+      sale_with_interest: MoneyMap;
+      paid: MoneyMap;
+      unreceipted_services: {
+        id_service: number;
+        description: string;
+        cost_price: number;
+        currency: string;
+      }[];
     }[];
     receipts: {
       id_receipt: number;
@@ -234,6 +257,7 @@ export default function OperatorInsightsPage() {
   const [selectedOperatorId, setSelectedOperatorId] = useState<number | "">("");
   const [periodType, setPeriodType] = useState<PeriodType>("month");
   const [dateMode, setDateMode] = useState<DateMode>("creation");
+  const [view, setView] = useState<InsightsView>("all");
 
   const now = useMemo(() => new Date(), []);
   const [monthValue, setMonthValue] = useState<string>(
@@ -320,13 +344,46 @@ export default function OperatorInsightsPage() {
   ]);
 
   const dateModeLabel = useMemo(
-    () => (dateMode === "travel" ? "Viaje reserva" : "Creacion reserva"),
+    () => (dateMode === "travel" ? "Viaje" : "Creacion reserva"),
     [dateMode],
   );
 
   const operatorTitle = operatorName || "Panel de operadores";
   const operatorMeta =
     typeof selectedOperatorId === "number" ? `#${selectedOperatorId}` : "";
+  const sharedBookings = useMemo(() => {
+    if (!data?.lists.bookings) return 0;
+    return data.lists.bookings.filter((b) => b.shared_operators.length > 0)
+      .length;
+  }, [data]);
+
+  const showIncomeCard =
+    view === "all" || view === "incomes" || view === "cashflow";
+  const showExpenseCard =
+    view === "all" || view === "expenses" || view === "cashflow";
+  const showNetCard = view === "all" || view === "cashflow";
+  const showSalesCard = view === "all" || view === "debt";
+  const showDebtCard = view === "all" || view === "debt";
+  const showSummary =
+    showIncomeCard ||
+    showExpenseCard ||
+    showNetCard ||
+    showSalesCard ||
+    showDebtCard;
+
+  const showDebtSection = view === "all" || view === "debt";
+  const showActivitySection = view === "all" || view === "activity";
+  const showMovements =
+    view === "all" ||
+    view === "cashflow" ||
+    view === "incomes" ||
+    view === "expenses";
+  const showIncomeMovements =
+    view === "all" || view === "cashflow" || view === "incomes";
+  const showExpenseMovements =
+    view === "all" || view === "cashflow" || view === "expenses";
+  const movementCols =
+    showIncomeMovements && showExpenseMovements ? "md:grid-cols-2" : "md:grid-cols-1";
 
   const loadInsights = useCallback(async () => {
     if (!token) {
@@ -688,88 +745,198 @@ export default function OperatorInsightsPage() {
 
           {!loading && data && (
             <>
-              <section className="grid gap-4 md:grid-cols-3">
-                <StatCard title="Ingresos" tone="emerald">
-                  <MoneyLines data={data.totals.incomes} />
-                </StatCard>
-                <StatCard title="Egresos" tone="rose">
-                  <MoneyLines data={data.totals.expenses} />
-                </StatCard>
-                <StatCard title="Neto" tone="sky">
-                  <MoneyLines data={data.totals.net} />
-                </StatCard>
-                <StatCard title="Ventas del operador" tone="amber">
-                  <MoneyLines data={data.totals.sales} />
-                </StatCard>
-                <StatCard title="Deuda operador (sin recibo)" tone="amber">
-                  <MoneyLines data={data.totals.operatorDebt} />
-                  <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                    Servicios sin recibo:{" "}
-                    {formatNumber(data.counts.debtServices)}
-                  </div>
-                </StatCard>
-              </section>
-
-              <section className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
-                <div className="mb-3 flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  <span>Servicios sin recibo</span>
-                  <StatusPill
-                    label={`${data.counts.debtServices} items`}
-                    tone="slate"
-                  />
+              <section className="rounded-3xl border border-white/10 bg-white/10 p-4 shadow-md shadow-sky-950/10 backdrop-blur">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Visualizacion
                 </div>
-                <div className="mb-4">
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {VIEW_OPTIONS.map((option) => {
+                    const active = view === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setView(option.value)}
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide transition ${
+                          active
+                            ? "border-sky-900 bg-sky-950 text-white dark:border-white/40 dark:bg-white/10"
+                            : "border-white/10 bg-white/60 text-slate-600 hover:border-sky-200 hover:text-slate-900 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:text-white"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+              {showSummary && (
+                <section className="grid gap-4 md:grid-cols-3">
+                  {showIncomeCard && (
+                    <StatCard title="Ingresos" tone="emerald">
+                      <MoneyLines data={data.totals.incomes} />
+                    </StatCard>
+                  )}
+                  {showExpenseCard && (
+                    <StatCard title="Egresos" tone="rose">
+                      <MoneyLines data={data.totals.expenses} />
+                    </StatCard>
+                  )}
+                  {showNetCard && (
+                    <StatCard title="Neto" tone="sky">
+                      <MoneyLines data={data.totals.net} />
+                    </StatCard>
+                  )}
+                  {showSalesCard && (
+                    <StatCard title="Ventas del operador" tone="amber">
+                      <MoneyLines data={data.totals.sales} />
+                    </StatCard>
+                  )}
+                  {showDebtCard && (
+                    <StatCard title="Deuda operador (sin recibo)" tone="amber">
+                      <MoneyLines data={data.totals.operatorDebt} />
+                      <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        Servicios sin recibo:{" "}
+                        {formatNumber(data.counts.debtServices)}
+                      </div>
+                    </StatCard>
+                  )}
+                </section>
+              )}
+
+              {showDebtSection && (
+                <section className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <span>Reservas con servicios del operador</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill
+                      label={`${data.lists.bookings.length} reservas`}
+                      tone="slate"
+                    />
+                    <StatusPill
+                      label={`${data.counts.debtServices} servicios sin recibo`}
+                      tone="amber"
+                    />
+                  </div>
+                </div>
+                <div className="mb-4 rounded-2xl border border-white/10 bg-white/60 p-4 shadow-sm dark:bg-slate-900/50">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Deuda estimada
+                    Deuda estimada (servicios sin recibo)
                   </div>
                   <div className="mt-2">
                     <MoneyLines data={data.totals.operatorDebt} />
                   </div>
                 </div>
-                {data.lists.debtServices.length === 0 ? (
+                {data.lists.bookings.length === 0 ? (
                   <div className="text-sm text-slate-500 dark:text-slate-400">
-                    No hay servicios sin recibo en el periodo.
+                    No hay reservas con servicios del operador en el periodo.
                   </div>
                 ) : (
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {data.lists.debtServices.map((svc) => (
-                      <div
-                        key={svc.id_service}
-                        className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
-                      >
-                        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                          <span>Servicio #{svc.id_service}</span>
-                          <span>Reserva #{svc.booking_id}</span>
+                  <div className="space-y-4">
+                    {data.lists.bookings.map((booking) => {
+                      const sharedCount = booking.shared_operators.length;
+                      const sharedNames = booking.shared_operators
+                        .map((op) => op.name || `Operador #${op.id_operator}`)
+                        .join(", ");
+                      return (
+                        <div
+                          key={booking.id_booking}
+                          className="rounded-2xl border border-white/10 bg-white/60 p-4 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-4">
+                            <div className="space-y-1">
+                              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Reserva #{booking.id_booking}
+                              </div>
+                              <div className="text-lg font-semibold">
+                                {booking.details || "Sin detalle"}
+                              </div>
+                              <div className="text-xs text-slate-500 dark:text-slate-400">
+                                Viaje: {formatDate(booking.departure_date)} -{" "}
+                                {formatDate(booking.return_date)}
+                              </div>
+                              {sharedCount > 0 ? (
+                                <div className="text-xs text-slate-500 dark:text-slate-400">
+                                  Compartida con: {sharedNames}
+                                </div>
+                              ) : null}
+                            </div>
+                            <div className="min-w-[180px] text-right">
+                              {sharedCount > 0 ? (
+                                <StatusPill
+                                  label={`Compartida (${sharedCount + 1})`}
+                                  tone="rose"
+                                />
+                              ) : (
+                                <StatusPill label="Solo operador" tone="emerald" />
+                              )}
+                              <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                Deuda reserva
+                              </div>
+                              <div className="mt-2">
+                                <MoneyLines data={booking.debt} />
+                              </div>
+                              <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                Venta + interes - cobrado
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 border-t border-white/10 pt-4">
+                            <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                              <span>Servicios del operador sin recibo</span>
+                              <StatusPill
+                                label={`${booking.unreceipted_services.length} items`}
+                                tone="amber"
+                              />
+                            </div>
+                            {booking.unreceipted_services.length === 0 ? (
+                              <div className="text-sm text-slate-500 dark:text-slate-400">
+                                Todos los servicios del operador tienen recibo.
+                              </div>
+                            ) : (
+                              <div className="grid gap-3 md:grid-cols-2">
+                                {booking.unreceipted_services.map((svc) => (
+                                  <div
+                                    key={svc.id_service}
+                                    className="rounded-2xl border border-white/10 bg-white/70 p-3 shadow-sm dark:bg-slate-900/50"
+                                  >
+                                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                                      <span>Servicio #{svc.id_service}</span>
+                                      <StatusPill
+                                        label={svc.currency}
+                                        tone="amber"
+                                      />
+                                    </div>
+                                    <div className="mt-1 font-medium">
+                                      {svc.description}
+                                    </div>
+                                    <div className="mt-2 text-right text-sm font-semibold">
+                                      {formatMoney(
+                                        svc.cost_price,
+                                        svc.currency,
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="mt-1 font-medium">
-                          {svc.description}
-                        </div>
-                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                          <span>{svc.booking_details || "Sin detalle"}</span>
-                          <span>
-                            {formatDate(svc.departure_date)} -{" "}
-                            {formatDate(svc.return_date)}
-                          </span>
-                        </div>
-                        <div className="mt-2 flex items-center justify-between text-xs">
-                          <StatusPill label={svc.currency} tone="amber" />
-                          <span className="font-semibold">
-                            {formatMoney(svc.cost_price, svc.currency)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
                 <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
                   {dateMode === "travel"
-                    ? "Filtrado por fecha de viaje de la reserva."
+                    ? "Filtrado por fecha de viaje del servicio."
                     : "Filtrado por fecha de creacion de la reserva."}
                 </p>
-              </section>
+                </section>
+              )}
 
-              <section className="grid gap-4 md:grid-cols-2">
-                <StatCard title="Actividad" tone="slate">
+              {showActivitySection && (
+                <section className="grid gap-4 md:grid-cols-2">
+                  <StatCard title="Actividad" tone="slate">
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center justify-between">
                       <span>Servicios</span>
@@ -781,6 +948,12 @@ export default function OperatorInsightsPage() {
                       <span>Reservas</span>
                       <span className="font-semibold">
                         {formatNumber(data.counts.bookings)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Reservas compartidas</span>
+                      <span className="font-semibold">
+                        {formatNumber(sharedBookings)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -813,9 +986,9 @@ export default function OperatorInsightsPage() {
                       </span>
                     </div>
                   </div>
-                </StatCard>
+                  </StatCard>
 
-                <StatCard title="Promedios" tone="slate">
+                  <StatCard title="Promedios" tone="slate">
                   <div className="space-y-4 text-sm">
                     <div>
                       <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -834,142 +1007,160 @@ export default function OperatorInsightsPage() {
                       </div>
                     </div>
                   </div>
-                </StatCard>
-              </section>
+                  </StatCard>
+                </section>
+              )}
 
-              <section className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
-                  <div className="mb-3 flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    <span>Movimientos - Ingresos</span>
-                    <StatusPill
-                      label={`${data.lists.receipts.length} items`}
-                      tone="slate"
-                    />
-                  </div>
-                  {data.lists.receipts.length === 0 ? (
-                    <div className="text-sm text-slate-500 dark:text-slate-400">
-                      Sin recibos asociados a reservas en el periodo.
-                    </div>
-                  ) : (
-                    <div className="space-y-3 text-sm">
-                      {data.lists.receipts.map((item) => (
-                        <div
-                          key={item.id_receipt}
-                          className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
-                        >
-                          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                            <span>Recibo #{item.id_receipt}</span>
-                            <span>{formatDate(item.issue_date)}</span>
-                          </div>
-                          <div className="mt-1 font-medium">{item.concept}</div>
-                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                            <span>
-                              {item.booking_id
-                                ? `Reserva ${item.booking_id}`
-                                : "Sin reserva"}
-                            </span>
-                            <span className="flex items-center gap-2">
-                              <StatusPill label={item.currency} tone="sky" />
-                              <span className="font-semibold">
-                                {formatMoney(item.amount, item.currency)}
-                              </span>
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
-                  <div className="mb-3 flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    <span>Movimientos - Egresos</span>
-                    <StatusPill
-                      label={`${data.lists.investments.length} items`}
-                      tone="slate"
-                    />
-                  </div>
-                  {data.lists.investments.length === 0 ? (
-                    <div className="text-sm text-slate-500 dark:text-slate-400">
-                      Sin pagos asociados a reservas en el periodo.
-                    </div>
-                  ) : (
-                    <div className="space-y-3 text-sm">
-                      {data.lists.investments.map((item) => (
-                        <div
-                          key={item.id_investment}
-                          className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
-                        >
-                          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                            <span>Pago #{item.id_investment}</span>
-                            <span>{formatDate(item.created_at)}</span>
-                          </div>
-                          <div className="mt-1 font-medium">
-                            {item.description}
-                          </div>
-                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                            <span>
-                              {item.booking_id
-                                ? `Reserva ${item.booking_id}`
-                                : "Sin reserva"}
-                            </span>
-                            <span className="flex items-center gap-2">
-                              <StatusPill label={item.currency} tone="rose" />
-                              <span className="font-semibold">
-                                {formatMoney(item.amount, item.currency)}
-                              </span>
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {data.lists.investmentsUnlinked.length > 0 ? (
-                    <div className="mt-4 border-t border-white/10 pt-4">
-                      <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                        <span>Pagos sin reserva</span>
+              {showMovements && (
+                <section className={`grid gap-4 ${movementCols}`}>
+                  {showIncomeMovements && (
+                    <div className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
+                      <div className="mb-3 flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        <span>Movimientos - Ingresos</span>
                         <StatusPill
-                          label={`${data.counts.investmentsUnlinked} items`}
+                          label={`${data.lists.receipts.length} items`}
                           tone="slate"
                         />
                       </div>
-                      <div className="mb-3">
-                        <MoneyLines data={data.totals.expensesUnlinked} />
-                      </div>
-                      <div className="space-y-3 text-sm">
-                        {data.lists.investmentsUnlinked.map((item) => (
-                          <div
-                            key={item.id_investment}
-                            className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
-                          >
-                            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                              <span>Pago #{item.id_investment}</span>
-                              <span>{formatDate(item.created_at)}</span>
-                            </div>
-                            <div className="mt-1 font-medium">
-                              {item.description}
-                            </div>
-                            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                              <span>Sin reserva</span>
-                              <span className="flex items-center gap-2">
-                                <StatusPill label={item.currency} tone="rose" />
-                                <span className="font-semibold">
-                                  {formatMoney(item.amount, item.currency)}
+                      {data.lists.receipts.length === 0 ? (
+                        <div className="text-sm text-slate-500 dark:text-slate-400">
+                          Sin recibos asociados a reservas en el periodo.
+                        </div>
+                      ) : (
+                        <div className="space-y-3 text-sm">
+                          {data.lists.receipts.map((item) => (
+                            <div
+                              key={item.id_receipt}
+                              className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
+                            >
+                              <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                                <span>Recibo #{item.id_receipt}</span>
+                                <span>{formatDate(item.issue_date)}</span>
+                              </div>
+                              <div className="mt-1 font-medium">
+                                {item.concept}
+                              </div>
+                              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                <span>
+                                  {item.booking_id
+                                    ? `Reserva ${item.booking_id}`
+                                    : "Sin reserva"}
                                 </span>
-                              </span>
+                                <span className="flex items-center gap-2">
+                                  <StatusPill
+                                    label={item.currency}
+                                    tone="sky"
+                                  />
+                                  <span className="font-semibold">
+                                    {formatMoney(item.amount, item.currency)}
+                                  </span>
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                        {dateMode === "travel"
-                          ? "No aplican fecha de viaje ni se suman al neto."
-                          : "Filtrados por fecha de pago y fuera del neto."}
-                      </p>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ) : null}
-                </div>
-              </section>
+                  )}
+
+                  {showExpenseMovements && (
+                    <div className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
+                      <div className="mb-3 flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        <span>Movimientos - Egresos</span>
+                        <StatusPill
+                          label={`${data.lists.investments.length} items`}
+                          tone="slate"
+                        />
+                      </div>
+                      {data.lists.investments.length === 0 ? (
+                        <div className="text-sm text-slate-500 dark:text-slate-400">
+                          Sin pagos asociados a reservas en el periodo.
+                        </div>
+                      ) : (
+                        <div className="space-y-3 text-sm">
+                          {data.lists.investments.map((item) => (
+                            <div
+                              key={item.id_investment}
+                              className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
+                            >
+                              <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                                <span>Pago #{item.id_investment}</span>
+                                <span>{formatDate(item.created_at)}</span>
+                              </div>
+                              <div className="mt-1 font-medium">
+                                {item.description}
+                              </div>
+                              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                <span>
+                                  {item.booking_id
+                                    ? `Reserva ${item.booking_id}`
+                                    : "Sin reserva"}
+                                </span>
+                                <span className="flex items-center gap-2">
+                                  <StatusPill
+                                    label={item.currency}
+                                    tone="rose"
+                                  />
+                                  <span className="font-semibold">
+                                    {formatMoney(item.amount, item.currency)}
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {data.lists.investmentsUnlinked.length > 0 ? (
+                        <div className="mt-4 border-t border-white/10 pt-4">
+                          <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                            <span>Pagos sin reserva</span>
+                            <StatusPill
+                              label={`${data.counts.investmentsUnlinked} items`}
+                              tone="slate"
+                            />
+                          </div>
+                          <div className="mb-3">
+                            <MoneyLines data={data.totals.expensesUnlinked} />
+                          </div>
+                          <div className="space-y-3 text-sm">
+                            {data.lists.investmentsUnlinked.map((item) => (
+                              <div
+                                key={item.id_investment}
+                                className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
+                              >
+                                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                                  <span>Pago #{item.id_investment}</span>
+                                  <span>{formatDate(item.created_at)}</span>
+                                </div>
+                                <div className="mt-1 font-medium">
+                                  {item.description}
+                                </div>
+                                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                  <span>Sin reserva</span>
+                                  <span className="flex items-center gap-2">
+                                    <StatusPill
+                                      label={item.currency}
+                                      tone="rose"
+                                    />
+                                    <span className="font-semibold">
+                                      {formatMoney(item.amount, item.currency)}
+                                    </span>
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                            {dateMode === "travel"
+                              ? "No aplican fecha de viaje ni se suman al neto."
+                              : "Filtrados por fecha de pago y fuera del neto."}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </section>
+              )}
 
             </>
           )}
