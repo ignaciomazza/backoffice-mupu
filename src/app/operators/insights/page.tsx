@@ -23,7 +23,9 @@ type InsightsView =
   | "incomes"
   | "expenses"
   | "cashflow"
-  | "debt"
+  | "clientDebt"
+  | "operatorDebt"
+  | "due"
   | "activity";
 
 type MoneyMap = Record<string, number>;
@@ -46,7 +48,9 @@ const VIEW_OPTIONS: { value: InsightsView; label: string }[] = [
   { value: "incomes", label: "Ingresos" },
   { value: "expenses", label: "Egresos" },
   { value: "cashflow", label: "Ingresos + Egresos" },
-  { value: "debt", label: "Deuda" },
+  { value: "clientDebt", label: "Deuda cliente" },
+  { value: "operatorDebt", label: "Deuda operador" },
+  { value: "due", label: "Vencimientos" },
   { value: "activity", label: "Actividad" },
 ];
 
@@ -77,6 +81,7 @@ type OperatorInsightsResponse = {
     investments: number;
     investmentsUnlinked: number;
     debtServices: number;
+    operatorDues: number;
   };
   totals: {
     sales: MoneyMap;
@@ -85,6 +90,7 @@ type OperatorInsightsResponse = {
     expensesUnlinked: MoneyMap;
     net: MoneyMap;
     operatorDebt: MoneyMap;
+    clientDebt: MoneyMap;
   };
   averages: {
     avgSalePerBooking: MoneyMap;
@@ -98,16 +104,35 @@ type OperatorInsightsResponse = {
       departure_date: string | null;
       return_date: string | null;
       creation_date: string | null;
+      titular: {
+        id_client: number;
+        first_name: string;
+        last_name: string;
+      } | null;
       shared_operators: { id_operator: number; name: string | null }[];
       debt: MoneyMap;
       sale_with_interest: MoneyMap;
       paid: MoneyMap;
+      operator_cost: MoneyMap;
+      operator_payments: MoneyMap;
+      operator_debt: MoneyMap;
       unreceipted_services: {
         id_service: number;
         description: string;
+        sale_price: number;
         cost_price: number;
         currency: string;
       }[];
+    }[];
+    operatorDues: {
+      id_due: number;
+      due_date: string;
+      status: string;
+      amount: number;
+      currency: string;
+      booking_id: number;
+      service_id: number;
+      concept: string;
     }[];
     receipts: {
       id_receipt: number;
@@ -169,6 +194,11 @@ function formatMoney(value: number, currency: string): string {
   } catch {
     return `${safe.toFixed(2)} ${currency}`;
   }
+}
+
+function formatName(first?: string | null, last?: string | null): string {
+  const parts = [first, last].filter((item) => item && item.trim().length > 0);
+  return parts.length > 0 ? parts.join(" ") : "Sin titular";
 }
 
 function MoneyLines({ data }: { data?: MoneyMap }) {
@@ -249,6 +279,14 @@ function StatusPill({ label, tone }: { label: string; tone: StatTone }) {
       {label}
     </span>
   );
+}
+
+function dueStatusTone(status?: string): StatTone {
+  const normalized = (status || "").trim().toUpperCase();
+  if (normalized === "PAGADA") return "emerald";
+  if (normalized === "CANCELADA") return "slate";
+  if (normalized === "VENCIDA" || normalized === "VENCIDO") return "rose";
+  return "amber";
 }
 
 export default function OperatorInsightsPage() {
@@ -362,16 +400,21 @@ export default function OperatorInsightsPage() {
   const showExpenseCard =
     view === "all" || view === "expenses" || view === "cashflow";
   const showNetCard = view === "all" || view === "cashflow";
-  const showSalesCard = view === "all" || view === "debt";
-  const showDebtCard = view === "all" || view === "debt";
+  const showSalesCard =
+    view === "all" || view === "clientDebt" || view === "operatorDebt";
+  const showClientDebtCard = view === "all" || view === "clientDebt";
+  const showOperatorDebtCard = view === "all" || view === "operatorDebt";
   const showSummary =
     showIncomeCard ||
     showExpenseCard ||
     showNetCard ||
     showSalesCard ||
-    showDebtCard;
+    showClientDebtCard ||
+    showOperatorDebtCard;
 
-  const showDebtSection = view === "all" || view === "debt";
+  const showClientDebtSection = view === "all" || view === "clientDebt";
+  const showOperatorDebtSection = view === "all" || view === "operatorDebt";
+  const showDueSection = view === "all" || view === "due";
   const showActivitySection = view === "all" || view === "activity";
   const showMovements =
     view === "all" ||
@@ -383,7 +426,9 @@ export default function OperatorInsightsPage() {
   const showExpenseMovements =
     view === "all" || view === "cashflow" || view === "expenses";
   const movementCols =
-    showIncomeMovements && showExpenseMovements ? "md:grid-cols-2" : "md:grid-cols-1";
+    showIncomeMovements && showExpenseMovements
+      ? "md:grid-cols-2"
+      : "md:grid-cols-1";
 
   const loadInsights = useCallback(async () => {
     if (!token) {
@@ -791,222 +836,416 @@ export default function OperatorInsightsPage() {
                       <MoneyLines data={data.totals.sales} />
                     </StatCard>
                   )}
-                  {showDebtCard && (
-                    <StatCard title="Deuda operador (sin recibo)" tone="amber">
-                      <MoneyLines data={data.totals.operatorDebt} />
+                  {showClientDebtCard && (
+                    <StatCard title="Deuda cliente" tone="amber">
+                      <MoneyLines data={data.totals.clientDebt} />
                       <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                         Servicios sin recibo:{" "}
                         {formatNumber(data.counts.debtServices)}
                       </div>
                     </StatCard>
                   )}
+                  {showOperatorDebtCard && (
+                    <StatCard title="Deuda al operador" tone="rose">
+                      <MoneyLines data={data.totals.operatorDebt} />
+                    </StatCard>
+                  )}
                 </section>
               )}
 
-              {showDebtSection && (
+              {showClientDebtSection && (
                 <section className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  <span>Reservas con servicios del operador</span>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <span>Deuda cliente por reserva</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusPill
+                        label={`${data.lists.bookings.length} reservas`}
+                        tone="slate"
+                      />
+                      <StatusPill
+                        label={`${data.counts.debtServices} servicios sin recibo`}
+                        tone="amber"
+                      />
+                    </div>
+                  </div>
+                  <div className="mb-4 rounded-2xl border border-white/10 bg-white/60 p-4 shadow-sm dark:bg-slate-900/50">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Deuda cliente (venta - cobrado)
+                    </div>
+                    <div className="mt-2">
+                      <MoneyLines data={data.totals.clientDebt} />
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                      Servicios sin recibo:{" "}
+                      {formatNumber(data.counts.debtServices)}
+                    </div>
+                  </div>
+                  {data.lists.bookings.length === 0 ? (
+                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                      No hay reservas con servicios del operador en el periodo.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {data.lists.bookings.map((booking) => {
+                        const sharedCount = booking.shared_operators.length;
+                        const sharedNames = booking.shared_operators
+                          .map((op) => op.name || `Operador #${op.id_operator}`)
+                          .join(", ");
+                        const titularName = formatName(
+                          booking.titular?.first_name,
+                          booking.titular?.last_name,
+                        );
+                        return (
+                          <div
+                            key={booking.id_booking}
+                            className="rounded-2xl border border-white/10 bg-white/60 p-4 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-4">
+                              <div className="space-y-1">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                  Reserva #{booking.id_booking}
+                                </div>
+                                <div className="text-lg font-semibold">
+                                  {booking.details || "Sin detalle"}
+                                </div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">
+                                  Titular: {titularName}
+                                </div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">
+                                  Viaje: {formatDate(booking.departure_date)} -{" "}
+                                  {formatDate(booking.return_date)}
+                                </div>
+                                {sharedCount > 0 ? (
+                                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                                    Compartida con: {sharedNames}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="min-w-[220px] text-right">
+                                {sharedCount > 0 ? (
+                                  <StatusPill
+                                    label={`Compartida (${sharedCount + 1})`}
+                                    tone="rose"
+                                  />
+                                ) : (
+                                  <StatusPill
+                                    label="Solo operador"
+                                    tone="emerald"
+                                  />
+                                )}
+                                <div className="mt-3 text-left">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    Deuda cliente
+                                  </div>
+                                  <div className="mt-2">
+                                    <MoneyLines data={booking.debt} />
+                                  </div>
+                                  <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                    Venta + interes - cobrado
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="mt-4 border-t border-white/10 pt-4">
+                              <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                <span>Servicios del operador sin recibo</span>
+                                <StatusPill
+                                  label={`${booking.unreceipted_services.length} items`}
+                                  tone="amber"
+                                />
+                              </div>
+                              {booking.unreceipted_services.length === 0 ? (
+                                <div className="text-sm text-slate-500 dark:text-slate-400">
+                                  Todos los servicios del operador tienen recibo.
+                                </div>
+                              ) : (
+                                <div className="grid gap-3 md:grid-cols-2">
+                                  {booking.unreceipted_services.map((svc) => (
+                                    <div
+                                      key={svc.id_service}
+                                      className="rounded-2xl border border-white/10 bg-white/70 p-3 shadow-sm dark:bg-slate-900/50"
+                                    >
+                                      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                                        <span>Servicio #{svc.id_service}</span>
+                                        <StatusPill
+                                          label={svc.currency}
+                                          tone="amber"
+                                        />
+                                      </div>
+                                      <div className="mt-1 font-medium">
+                                        {svc.description}
+                                      </div>
+                                      <div className="mt-2 text-right text-sm font-semibold">
+                                        {formatMoney(
+                                          svc.sale_price,
+                                          svc.currency,
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                    {dateMode === "travel"
+                      ? "Filtrado por fecha de viaje del servicio."
+                      : "Filtrado por fecha de creacion de la reserva."}
+                  </p>
+                </section>
+              )}
+
+              {showOperatorDebtSection && (
+                <section className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <span>Deuda al operador por reserva</span>
                     <StatusPill
                       label={`${data.lists.bookings.length} reservas`}
                       tone="slate"
                     />
+                  </div>
+                  <div className="mb-4 rounded-2xl border border-white/10 bg-white/60 p-4 shadow-sm dark:bg-slate-900/50">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      Deuda al operador (costo - pagos)
+                    </div>
+                    <div className="mt-2">
+                      <MoneyLines data={data.totals.operatorDebt} />
+                    </div>
+                  </div>
+                  {data.lists.bookings.length === 0 ? (
+                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                      No hay reservas con servicios del operador en el periodo.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {data.lists.bookings.map((booking) => {
+                        const sharedCount = booking.shared_operators.length;
+                        const sharedNames = booking.shared_operators
+                          .map((op) => op.name || `Operador #${op.id_operator}`)
+                          .join(", ");
+                        const titularName = formatName(
+                          booking.titular?.first_name,
+                          booking.titular?.last_name,
+                        );
+                        return (
+                          <div
+                            key={booking.id_booking}
+                            className="rounded-2xl border border-white/10 bg-white/60 p-4 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-4">
+                              <div className="space-y-1">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                  Reserva #{booking.id_booking}
+                                </div>
+                                <div className="text-lg font-semibold">
+                                  {booking.details || "Sin detalle"}
+                                </div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">
+                                  Titular: {titularName}
+                                </div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">
+                                  Viaje: {formatDate(booking.departure_date)} -{" "}
+                                  {formatDate(booking.return_date)}
+                                </div>
+                                {sharedCount > 0 ? (
+                                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                                    Compartida con: {sharedNames}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="min-w-[220px] text-right">
+                                {sharedCount > 0 ? (
+                                  <StatusPill
+                                    label={`Compartida (${sharedCount + 1})`}
+                                    tone="rose"
+                                  />
+                                ) : (
+                                  <StatusPill
+                                    label="Solo operador"
+                                    tone="emerald"
+                                  />
+                                )}
+                                <div className="mt-3 text-left">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                    Deuda operador
+                                  </div>
+                                  <div className="mt-2">
+                                    <MoneyLines data={booking.operator_debt} />
+                                  </div>
+                                  <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                    Costo - pagos
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 md:grid-cols-2">
+                              <div className="rounded-2xl border border-white/10 bg-white/70 p-3 shadow-sm dark:bg-slate-900/50">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                  Costo del operador
+                                </div>
+                                <div className="mt-2">
+                                  <MoneyLines data={booking.operator_cost} />
+                                </div>
+                              </div>
+                              <div className="rounded-2xl border border-white/10 bg-white/70 p-3 shadow-sm dark:bg-slate-900/50">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                  Pagos al operador
+                                </div>
+                                <div className="mt-2">
+                                  <MoneyLines data={booking.operator_payments} />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                    {dateMode === "travel"
+                      ? "Filtrado por fecha de viaje del servicio."
+                      : "Filtrado por fecha de creacion de la reserva."}
+                  </p>
+                </section>
+              )}
+
+              {showDueSection && (
+                <section className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <span>Vencimientos de pago</span>
                     <StatusPill
-                      label={`${data.counts.debtServices} servicios sin recibo`}
-                      tone="amber"
+                      label={`${data.lists.operatorDues.length} items`}
+                      tone="slate"
                     />
                   </div>
-                </div>
-                <div className="mb-4 rounded-2xl border border-white/10 bg-white/60 p-4 shadow-sm dark:bg-slate-900/50">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Deuda estimada (servicios sin recibo)
-                  </div>
-                  <div className="mt-2">
-                    <MoneyLines data={data.totals.operatorDebt} />
-                  </div>
-                </div>
-                {data.lists.bookings.length === 0 ? (
-                  <div className="text-sm text-slate-500 dark:text-slate-400">
-                    No hay reservas con servicios del operador en el periodo.
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {data.lists.bookings.map((booking) => {
-                      const sharedCount = booking.shared_operators.length;
-                      const sharedNames = booking.shared_operators
-                        .map((op) => op.name || `Operador #${op.id_operator}`)
-                        .join(", ");
-                      return (
+                  {data.lists.operatorDues.length === 0 ? (
+                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                      No hay vencimientos cargados en el periodo.
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {data.lists.operatorDues.map((due) => (
                         <div
-                          key={booking.id_booking}
-                          className="rounded-2xl border border-white/10 bg-white/60 p-4 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
+                          key={due.id_due}
+                          className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
                         >
-                          <div className="flex flex-wrap items-start justify-between gap-4">
-                            <div className="space-y-1">
-                              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                Reserva #{booking.id_booking}
-                              </div>
-                              <div className="text-lg font-semibold">
-                                {booking.details || "Sin detalle"}
-                              </div>
-                              <div className="text-xs text-slate-500 dark:text-slate-400">
-                                Viaje: {formatDate(booking.departure_date)} -{" "}
-                                {formatDate(booking.return_date)}
-                              </div>
-                              {sharedCount > 0 ? (
-                                <div className="text-xs text-slate-500 dark:text-slate-400">
-                                  Compartida con: {sharedNames}
-                                </div>
-                              ) : null}
-                            </div>
-                            <div className="min-w-[180px] text-right">
-                              {sharedCount > 0 ? (
-                                <StatusPill
-                                  label={`Compartida (${sharedCount + 1})`}
-                                  tone="rose"
-                                />
-                              ) : (
-                                <StatusPill label="Solo operador" tone="emerald" />
-                              )}
-                              <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                Deuda reserva
-                              </div>
-                              <div className="mt-2">
-                                <MoneyLines data={booking.debt} />
-                              </div>
-                              <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                                Venta + interes - cobrado
-                              </div>
-                            </div>
+                          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                            <span>Vence {formatDate(due.due_date)}</span>
+                            <StatusPill
+                              label={due.status}
+                              tone={dueStatusTone(due.status)}
+                            />
                           </div>
-
-                          <div className="mt-4 border-t border-white/10 pt-4">
-                            <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                              <span>Servicios del operador sin recibo</span>
-                              <StatusPill
-                                label={`${booking.unreceipted_services.length} items`}
-                                tone="amber"
-                              />
-                            </div>
-                            {booking.unreceipted_services.length === 0 ? (
-                              <div className="text-sm text-slate-500 dark:text-slate-400">
-                                Todos los servicios del operador tienen recibo.
-                              </div>
-                            ) : (
-                              <div className="grid gap-3 md:grid-cols-2">
-                                {booking.unreceipted_services.map((svc) => (
-                                  <div
-                                    key={svc.id_service}
-                                    className="rounded-2xl border border-white/10 bg-white/70 p-3 shadow-sm dark:bg-slate-900/50"
-                                  >
-                                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                                      <span>Servicio #{svc.id_service}</span>
-                                      <StatusPill
-                                        label={svc.currency}
-                                        tone="amber"
-                                      />
-                                    </div>
-                                    <div className="mt-1 font-medium">
-                                      {svc.description}
-                                    </div>
-                                    <div className="mt-2 text-right text-sm font-semibold">
-                                      {formatMoney(
-                                        svc.cost_price,
-                                        svc.currency,
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                          <div className="mt-1 font-medium">
+                            {due.concept || `Servicio #${due.service_id}`}
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <span>
+                              Reserva {due.booking_id} · Servicio{" "}
+                              {due.service_id}
+                            </span>
+                            <span className="flex items-center gap-2">
+                              <StatusPill label={due.currency} tone="sky" />
+                              <span className="font-semibold">
+                                {formatMoney(due.amount, due.currency)}
+                              </span>
+                            </span>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-                <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-                  {dateMode === "travel"
-                    ? "Filtrado por fecha de viaje del servicio."
-                    : "Filtrado por fecha de creacion de la reserva."}
-                </p>
+                      ))}
+                    </div>
+                  )}
+                  <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                    Filtrados por fecha de vencimiento del operador.
+                  </p>
                 </section>
               )}
 
               {showActivitySection && (
                 <section className="grid gap-4 md:grid-cols-2">
                   <StatCard title="Actividad" tone="slate">
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span>Servicios</span>
-                      <span className="font-semibold">
-                        {formatNumber(data.counts.services)}
-                      </span>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span>Servicios</span>
+                        <span className="font-semibold">
+                          {formatNumber(data.counts.services)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Reservas</span>
+                        <span className="font-semibold">
+                          {formatNumber(data.counts.bookings)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Reservas compartidas</span>
+                        <span className="font-semibold">
+                          {formatNumber(sharedBookings)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Recibos</span>
+                        <span className="font-semibold">
+                          {formatNumber(data.counts.receipts)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Pagos a operador</span>
+                        <span className="font-semibold">
+                          {formatNumber(data.counts.investments)}
+                          {data.counts.investmentsUnlinked
+                            ? ` (+${formatNumber(
+                                data.counts.investmentsUnlinked,
+                              )} sin reserva)`
+                            : ""}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Vencimientos operador</span>
+                        <span className="font-semibold">
+                          {formatNumber(data.counts.operatorDues)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Servicios sin recibo</span>
+                        <span className="font-semibold">
+                          {formatNumber(data.counts.debtServices)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Servicios por reserva</span>
+                        <span className="font-semibold">
+                          {data.averages.servicesPerBooking.toFixed(2)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span>Reservas</span>
-                      <span className="font-semibold">
-                        {formatNumber(data.counts.bookings)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>Reservas compartidas</span>
-                      <span className="font-semibold">
-                        {formatNumber(sharedBookings)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>Recibos</span>
-                      <span className="font-semibold">
-                        {formatNumber(data.counts.receipts)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>Pagos a operador</span>
-                      <span className="font-semibold">
-                        {formatNumber(data.counts.investments)}
-                        {data.counts.investmentsUnlinked
-                          ? ` (+${formatNumber(
-                              data.counts.investmentsUnlinked,
-                            )} sin reserva)`
-                          : ""}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>Servicios sin recibo</span>
-                      <span className="font-semibold">
-                        {formatNumber(data.counts.debtServices)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>Servicios por reserva</span>
-                      <span className="font-semibold">
-                        {data.averages.servicesPerBooking.toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
                   </StatCard>
 
                   <StatCard title="Promedios" tone="slate">
-                  <div className="space-y-4 text-sm">
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                        Venta promedio por reserva
+                    <div className="space-y-4 text-sm">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Venta promedio por reserva
+                        </div>
+                        <div className="mt-2">
+                          <MoneyLines data={data.averages.avgSalePerBooking} />
+                        </div>
                       </div>
-                      <div className="mt-2">
-                        <MoneyLines data={data.averages.avgSalePerBooking} />
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Ingreso promedio por recibo
+                        </div>
+                        <div className="mt-2">
+                          <MoneyLines data={data.averages.avgIncomePerReceipt} />
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                        Ingreso promedio por recibo
-                      </div>
-                      <div className="mt-2">
-                        <MoneyLines data={data.averages.avgIncomePerReceipt} />
-                      </div>
-                    </div>
-                  </div>
                   </StatCard>
                 </section>
               )}

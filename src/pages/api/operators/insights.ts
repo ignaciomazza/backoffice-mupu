@@ -34,6 +34,7 @@ type OperatorInsightsResponse = {
     investments: number;
     investmentsUnlinked: number;
     debtServices: number;
+    operatorDues: number;
   };
   totals: {
     sales: MoneyMap;
@@ -42,6 +43,7 @@ type OperatorInsightsResponse = {
     expensesUnlinked: MoneyMap;
     net: MoneyMap;
     operatorDebt: MoneyMap;
+    clientDebt: MoneyMap;
   };
   averages: {
     avgSalePerBooking: MoneyMap;
@@ -55,16 +57,35 @@ type OperatorInsightsResponse = {
       departure_date: string | null;
       return_date: string | null;
       creation_date: string | null;
+      titular: {
+        id_client: number;
+        first_name: string;
+        last_name: string;
+      } | null;
       shared_operators: { id_operator: number; name: string | null }[];
       debt: MoneyMap;
       sale_with_interest: MoneyMap;
       paid: MoneyMap;
+      operator_cost: MoneyMap;
+      operator_payments: MoneyMap;
+      operator_debt: MoneyMap;
       unreceipted_services: {
         id_service: number;
         description: string;
+        sale_price: number;
         cost_price: number;
         currency: string;
       }[];
+    }[];
+    operatorDues: {
+      id_due: number;
+      due_date: string;
+      status: string;
+      amount: number;
+      currency: string;
+      booking_id: number;
+      service_id: number;
+      concept: string;
     }[];
     receipts: {
       id_receipt: number;
@@ -213,6 +234,17 @@ function sumPaid(receipts: {
   return totals;
 }
 
+function sumCosts(services: {
+  currency: string;
+  cost_price: unknown;
+}[]): MoneyMap {
+  const totals: MoneyMap = {};
+  services.forEach((svc) => {
+    addMoney(totals, svc.currency, Number(svc.cost_price) || 0);
+  });
+  return totals;
+}
+
 function combineNet(incomes: MoneyMap, expenses: MoneyMap): MoneyMap {
   const out: MoneyMap = {};
   const keys = new Set([...Object.keys(incomes), ...Object.keys(expenses)]);
@@ -220,6 +252,21 @@ function combineNet(incomes: MoneyMap, expenses: MoneyMap): MoneyMap {
     out[key] = (incomes[key] ?? 0) - (expenses[key] ?? 0);
   }
   return out;
+}
+
+function subtractMoneyMaps(base: MoneyMap, subtract: MoneyMap): MoneyMap {
+  const out: MoneyMap = {};
+  const keys = new Set([...Object.keys(base), ...Object.keys(subtract)]);
+  for (const key of keys) {
+    out[key] = (base[key] ?? 0) - (subtract[key] ?? 0);
+  }
+  return out;
+}
+
+function mergeMoneyMaps(target: MoneyMap, addition: MoneyMap) {
+  Object.entries(addition).forEach(([currency, amount]) => {
+    addMoney(target, currency, amount);
+  });
 }
 
 function pickMoney(
@@ -355,9 +402,20 @@ export default async function handler(
 
     const bookingIds = new Set<number>();
     const salesByCurrency: MoneyMap = {};
+    const operatorCostByBooking = new Map<number, MoneyMap>();
+    const operatorServiceIdsByBooking = new Map<number, Set<number>>();
     services.forEach((svc) => {
       bookingIds.add(svc.booking_id);
       addMoney(salesByCurrency, svc.currency, Number(svc.sale_price) || 0);
+
+      const serviceSet =
+        operatorServiceIdsByBooking.get(svc.booking_id) ?? new Set<number>();
+      serviceSet.add(svc.id_service);
+      operatorServiceIdsByBooking.set(svc.booking_id, serviceSet);
+
+      const costMap = operatorCostByBooking.get(svc.booking_id) ?? {};
+      addMoney(costMap, svc.currency, Number(svc.cost_price) || 0);
+      operatorCostByBooking.set(svc.booking_id, costMap);
     });
 
     const receipts = await prisma.receipt.findMany({
@@ -398,6 +456,37 @@ export default async function handler(
     const serviceIdSet = new Set(serviceIds);
     const bookingIdList = Array.from(bookingIds);
 
+    const operatorPayments = bookingIdList.length
+      ? await prisma.investment.findMany({
+          where: {
+            id_agency: auth.id_agency,
+            operator_id: operatorId,
+            booking_id: { in: bookingIdList },
+          },
+          select: {
+            booking_id: true,
+            amount: true,
+            currency: true,
+            base_amount: true,
+            base_currency: true,
+          },
+        })
+      : [];
+
+    const operatorPaymentsByBooking = new Map<number, MoneyMap>();
+    operatorPayments.forEach((inv) => {
+      if (!inv.booking_id) return;
+      const { cur, val } = pickMoney(
+        inv.amount,
+        inv.currency,
+        inv.base_amount,
+        inv.base_currency,
+      );
+      const map = operatorPaymentsByBooking.get(inv.booking_id) ?? {};
+      addMoney(map, cur, val);
+      operatorPaymentsByBooking.set(inv.booking_id, map);
+    });
+
     const bookings = bookingIdList.length
       ? await prisma.booking.findMany({
           where: {
@@ -410,6 +499,13 @@ export default async function handler(
             creation_date: true,
             departure_date: true,
             return_date: true,
+            titular: {
+              select: {
+                id_client: true,
+                first_name: true,
+                last_name: true,
+              },
+            },
             services: {
               select: {
                 id_service: true,
@@ -453,16 +549,20 @@ export default async function handler(
     const debtServices = services.filter(
       (svc) => !receiptedServiceIds.has(svc.id_service),
     );
-    const operatorDebtByCurrency: MoneyMap = {};
-    debtServices.forEach((svc) => {
-      addMoney(operatorDebtByCurrency, svc.currency, Number(svc.cost_price) || 0);
-    });
 
     const serviceIdsInRange = new Set(services.map((svc) => svc.id_service));
     const bookingSummaries = bookings.map((booking) => {
-      const saleWithInterest = sumSalesWithInterest(booking.services);
-      const paid = sumPaid(booking.Receipt);
-      const debt = combineNet(saleWithInterest, paid);
+      const operatorServiceIds =
+        operatorServiceIdsByBooking.get(booking.id_booking) ?? new Set<number>();
+      const operatorServices = booking.services.filter((svc) =>
+        operatorServiceIds.has(svc.id_service),
+      );
+      const saleWithInterest = sumSalesWithInterest(operatorServices);
+      const relevantReceipts = booking.Receipt.filter((rec) =>
+        (rec.serviceIds || []).some((sid) => operatorServiceIds.has(sid)),
+      );
+      const paid = sumPaid(relevantReceipts);
+      const debt = subtractMoneyMaps(saleWithInterest, paid);
 
       const otherOperators = new Map<number, string | null>();
       booking.services.forEach((svc) => {
@@ -470,6 +570,13 @@ export default async function handler(
           otherOperators.set(svc.operator.id_operator, svc.operator.name ?? null);
         }
       });
+
+      const operatorCost =
+        operatorCostByBooking.get(booking.id_booking) ??
+        sumCosts(operatorServices);
+      const operatorPayments =
+        operatorPaymentsByBooking.get(booking.id_booking) ?? {};
+      const operatorDebt = subtractMoneyMaps(operatorCost, operatorPayments);
 
       const unreceiptedServices = booking.services
         .filter(
@@ -481,30 +588,48 @@ export default async function handler(
         .map((svc) => ({
           id_service: svc.id_service,
           description: svc.description,
+          sale_price: Number(svc.sale_price) || 0,
           cost_price: Number(svc.cost_price) || 0,
           currency: String(svc.currency || "ARS").toUpperCase(),
         }));
 
-      return {
-        id_booking: booking.id_booking,
-        details: booking.details,
-        creation_date: booking.creation_date
-          ? booking.creation_date.toISOString()
-          : null,
-        departure_date: booking.departure_date
-          ? booking.departure_date.toISOString()
-          : null,
-        return_date: booking.return_date
-          ? booking.return_date.toISOString()
-          : null,
-        shared_operators: Array.from(otherOperators.entries()).map(
-          ([id_operator, name]) => ({ id_operator, name }),
-        ),
+        return {
+          id_booking: booking.id_booking,
+          details: booking.details,
+          creation_date: booking.creation_date
+            ? booking.creation_date.toISOString()
+            : null,
+          departure_date: booking.departure_date
+            ? booking.departure_date.toISOString()
+            : null,
+          return_date: booking.return_date
+            ? booking.return_date.toISOString()
+            : null,
+          titular: booking.titular
+            ? {
+                id_client: booking.titular.id_client,
+                first_name: booking.titular.first_name,
+                last_name: booking.titular.last_name,
+              }
+            : null,
+          shared_operators: Array.from(otherOperators.entries()).map(
+            ([id_operator, name]) => ({ id_operator, name }),
+          ),
         debt,
         sale_with_interest: saleWithInterest,
         paid,
+        operator_cost: operatorCost,
+        operator_payments: operatorPayments,
+        operator_debt: operatorDebt,
         unreceipted_services: unreceiptedServices,
       };
+    });
+
+    const clientDebtTotals: MoneyMap = {};
+    const operatorDebtTotals: MoneyMap = {};
+    bookingSummaries.forEach((summary) => {
+      mergeMoneyMaps(clientDebtTotals, summary.debt);
+      mergeMoneyMaps(operatorDebtTotals, summary.operator_debt);
     });
 
     const sortedBookings = [...bookingSummaries].sort((a, b) => {
@@ -558,6 +683,29 @@ export default async function handler(
         booking_id: true,
       },
       orderBy: { created_at: "desc" },
+    });
+
+    const operatorDues = await prisma.operatorDue.findMany({
+      where: {
+        booking: {
+          id_agency: auth.id_agency,
+        },
+        service: {
+          id_operator: operatorId,
+        },
+        due_date: { gte: fromDate, lt: toExclusive },
+      },
+      select: {
+        id_due: true,
+        due_date: true,
+        status: true,
+        amount: true,
+        currency: true,
+        booking_id: true,
+        service_id: true,
+        concept: true,
+      },
+      orderBy: { due_date: "asc" },
     });
 
     const expensesByCurrency: MoneyMap = {};
@@ -651,36 +799,48 @@ export default async function handler(
       });
 
     return res.status(200).json({
-      operator,
-      range: { from: fromRaw, to: toRaw, mode: dateMode },
-      counts: {
-        services: services.length,
-        bookings: bookingCount,
-        receipts: receipts.length,
-        investments: investmentsWithBooking.length,
-        investmentsUnlinked: investmentsUnlinked.length,
-        debtServices: debtServices.length,
+        operator,
+        range: { from: fromRaw, to: toRaw, mode: dateMode },
+        counts: {
+          services: services.length,
+          bookings: bookingCount,
+          receipts: receipts.length,
+          investments: investmentsWithBooking.length,
+          investmentsUnlinked: investmentsUnlinked.length,
+          debtServices: debtServices.length,
+          operatorDues: operatorDues.length,
+        },
+        totals: {
+          sales: salesByCurrency,
+          incomes: incomesByCurrency,
+          expenses: expensesByCurrency,
+          expensesUnlinked: expensesUnlinkedByCurrency,
+          net: combineNet(incomesByCurrency, expensesByCurrency),
+          operatorDebt: operatorDebtTotals,
+          clientDebt: clientDebtTotals,
+        },
+        averages: {
+          avgSalePerBooking,
+          avgIncomePerReceipt,
+          servicesPerBooking,
       },
-      totals: {
-        sales: salesByCurrency,
-        incomes: incomesByCurrency,
-        expenses: expensesByCurrency,
-        expensesUnlinked: expensesUnlinkedByCurrency,
-        net: combineNet(incomesByCurrency, expensesByCurrency),
-        operatorDebt: operatorDebtByCurrency,
-      },
-      averages: {
-        avgSalePerBooking,
-        avgIncomePerReceipt,
-        servicesPerBooking,
-      },
-      lists: {
-        bookings: sortedBookings,
-        receipts: recentReceipts,
-        investments: recentInvestments,
-        investmentsUnlinked: recentInvestmentsUnlinked,
-      },
-    });
+        lists: {
+          bookings: sortedBookings,
+          operatorDues: operatorDues.map((due) => ({
+            id_due: due.id_due,
+            due_date: due.due_date.toISOString(),
+            status: due.status,
+            amount: Number(due.amount) || 0,
+            currency: String(due.currency || "ARS").toUpperCase(),
+            booking_id: due.booking_id,
+            service_id: due.service_id,
+            concept: due.concept,
+          })),
+          receipts: recentReceipts,
+          investments: recentInvestments,
+          investmentsUnlinked: recentInvestmentsUnlinked,
+        },
+      });
   } catch (error: unknown) {
     const msg =
       error instanceof Error ? error.message : "Error cargando insights";
