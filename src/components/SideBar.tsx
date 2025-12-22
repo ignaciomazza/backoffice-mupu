@@ -217,6 +217,9 @@ export default function SideBar({
           hasAccess("/investments")
             ? { href: "/investments", label: "Inversión" }
             : null,
+          hasAccess("/operators/insights")
+            ? { href: "/operators/insights", label: "Panel Operadores" }
+            : null,
           hasAccess("/receipts")
             ? { href: "/receipts", label: "Recibos" }
             : null,
@@ -253,9 +256,6 @@ export default function SideBar({
           hasAccess("/agency") ? { href: "/agency", label: "Agencia" } : null,
           hasAccess("/operators")
             ? { href: "/operators", label: "Operadores" }
-            : null,
-          hasAccess("/operators/insights")
-            ? { href: "/operators/insights", label: "Panel Operadores" }
             : null,
           hasAccess("/users")
             ? {

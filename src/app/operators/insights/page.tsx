@@ -17,6 +17,7 @@ import { authFetch } from "@/utils/authFetch";
 import { useAgencyOperators } from "@/hooks/receipts/useAgencyOperators";
 
 type PeriodType = "month" | "quarter" | "semester" | "year";
+type DateMode = "creation" | "travel";
 
 type MoneyMap = Record<string, number>;
 type StatTone = "sky" | "emerald" | "rose" | "amber" | "slate";
@@ -26,6 +27,11 @@ const PERIOD_OPTIONS: { value: PeriodType; label: string }[] = [
   { value: "quarter", label: "Trimestre" },
   { value: "semester", label: "Semestre" },
   { value: "year", label: "Ano" },
+];
+
+const DATE_MODE_OPTIONS: { value: DateMode; label: string }[] = [
+  { value: "creation", label: "Creacion" },
+  { value: "travel", label: "Viaje" },
 ];
 
 const CARD_GLOW: Record<StatTone, string> = {
@@ -47,21 +53,36 @@ const PILL_TONE: Record<StatTone, string> = {
 
 type OperatorInsightsResponse = {
   operator: { id_operator: number; name: string | null };
-  range: { from: string; to: string };
+  range: { from: string; to: string; mode: DateMode };
   counts: {
     services: number;
     bookings: number;
     receipts: number;
     investments: number;
+    investmentsUnlinked: number;
     dues: number;
   };
   totals: {
     sales: MoneyMap;
     incomes: MoneyMap;
     expenses: MoneyMap;
+    expensesUnlinked: MoneyMap;
     net: MoneyMap;
     duePending: MoneyMap;
     dueOverdue: MoneyMap;
+  };
+  debtBreakdown: {
+    pending: MoneyMap;
+    overdue: MoneyMap;
+    paid: MoneyMap;
+    cancelled: MoneyMap;
+    totalOpen: MoneyMap;
+    counts: {
+      pending: number;
+      overdue: number;
+      paid: number;
+      cancelled: number;
+    };
   };
   averages: {
     avgSalePerBooking: MoneyMap;
@@ -88,6 +109,14 @@ type OperatorInsightsResponse = {
       booking_id: number | null;
     }[];
     investments: {
+      id_investment: number;
+      created_at: string;
+      description: string;
+      amount: number;
+      currency: string;
+      booking_id: number | null;
+    }[];
+    investmentsUnlinked: {
       id_investment: number;
       created_at: string;
       description: string;
@@ -133,11 +162,25 @@ function formatMoney(value: number, currency: string): string {
   }
 }
 
-function isPaidStatus(status?: string | null): boolean {
-  const s = String(status || "")
+function normalizeStatus(status?: string | null): string {
+  return String(status || "")
     .trim()
     .toLowerCase();
-  return s === "pago" || s === "pagado" || s === "paid";
+}
+
+function isPaidStatus(status?: string | null): boolean {
+  const s = normalizeStatus(status);
+  return s === "pago" || s === "pagado" || s === "pagada" || s === "paid";
+}
+
+function isCancelledStatus(status?: string | null): boolean {
+  const s = normalizeStatus(status);
+  return (
+    s === "cancelado" ||
+    s === "cancelada" ||
+    s === "cancelled" ||
+    s === "canceled"
+  );
 }
 
 function MoneyLines({ data }: { data?: MoneyMap }) {
@@ -220,11 +263,36 @@ function StatusPill({ label, tone }: { label: string; tone: StatTone }) {
   );
 }
 
+function DebtBreakdownItem({
+  label,
+  tone,
+  count,
+  data,
+}: {
+  label: string;
+  tone: StatTone;
+  count: number;
+  data?: MoneyMap;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/60 p-3 text-sm shadow-sm dark:bg-slate-900/50">
+      <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <span>{label}</span>
+        <StatusPill label={`${count} items`} tone={tone} />
+      </div>
+      <div className="mt-2">
+        <MoneyLines data={data} />
+      </div>
+    </div>
+  );
+}
+
 export default function OperatorInsightsPage() {
   const { token } = useAuth();
   const { operators } = useAgencyOperators(token);
   const [selectedOperatorId, setSelectedOperatorId] = useState<number | "">("");
   const [periodType, setPeriodType] = useState<PeriodType>("month");
+  const [dateMode, setDateMode] = useState<DateMode>("creation");
 
   const now = useMemo(() => new Date(), []);
   const [monthValue, setMonthValue] = useState<string>(
@@ -323,6 +391,11 @@ export default function OperatorInsightsPage() {
     yearValue,
   ]);
 
+  const dateModeLabel = useMemo(
+    () => (dateMode === "travel" ? "Viaje reserva" : "Creacion reserva"),
+    [dateMode],
+  );
+
   const operatorTitle = operatorName || "Panel de operadores";
   const operatorMeta =
     typeof selectedOperatorId === "number" ? `#${selectedOperatorId}` : "";
@@ -339,7 +412,7 @@ export default function OperatorInsightsPage() {
     setLoading(true);
     try {
       const res = await authFetch(
-        `/api/operators/insights?operatorId=${selectedOperatorId}&from=${range.from}&to=${range.to}`,
+        `/api/operators/insights?operatorId=${selectedOperatorId}&from=${range.from}&to=${range.to}&dateMode=${dateMode}`,
         { cache: "no-store" },
         token,
       );
@@ -356,12 +429,12 @@ export default function OperatorInsightsPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, selectedOperatorId, range]);
+  }, [token, selectedOperatorId, range, dateMode]);
 
   useEffect(() => {
     if (!selectedOperatorId) return;
     loadInsights();
-  }, [selectedOperatorId, range, loadInsights]);
+  }, [selectedOperatorId, range, dateMode, loadInsights]);
 
   return (
     <ProtectedRoute>
@@ -386,6 +459,9 @@ export default function OperatorInsightsPage() {
                 <div className="flex flex-col items-end gap-2">
                   <div className="rounded-full border border-white/10 bg-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     {periodLabel}
+                  </div>
+                  <div className="rounded-full border border-white/10 bg-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    {dateModeLabel}
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400">
                     {range.from} - {range.to}
@@ -437,6 +513,12 @@ export default function OperatorInsightsPage() {
                   tone="rose"
                 />
               </div>
+              {data?.counts.investmentsUnlinked ? (
+                <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                  Pagos sin reserva:{" "}
+                  {formatNumber(data.counts.investmentsUnlinked)}
+                </div>
+              ) : null}
             </div>
           </section>
 
@@ -497,6 +579,36 @@ export default function OperatorInsightsPage() {
                       })}
                     </div>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Base del rango
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2 rounded-full border border-white/20 bg-white/80 p-1 text-xs font-semibold uppercase tracking-wide shadow-sm dark:bg-slate-900/60">
+                    {DATE_MODE_OPTIONS.map((option) => {
+                      const active = dateMode === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setDateMode(option.value)}
+                          className={`rounded-full px-3 py-1 transition ${
+                            active
+                              ? "bg-sky-950 text-white shadow-sm dark:bg-white/10"
+                              : "text-slate-500 hover:bg-white/70 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-white/5"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {dateMode === "travel" ? (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Los pagos sin reserva se muestran aparte.
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-white/60 p-4 shadow-sm dark:bg-slate-900/50">
@@ -615,7 +727,7 @@ export default function OperatorInsightsPage() {
 
               <div className="rounded-2xl border border-white/10 bg-white/60 p-4 shadow-sm dark:bg-slate-900/50">
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Rango seleccionado
+                  Rango seleccionado ({dateModeLabel})
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold">
                   <span className="rounded-full border border-white/10 bg-white/20 px-3 py-1 text-slate-600 dark:text-slate-200">
@@ -669,6 +781,50 @@ export default function OperatorInsightsPage() {
                 </StatCard>
               </section>
 
+              <section className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
+                <div className="mb-3 flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <span>Desglose de deuda</span>
+                  <StatusPill
+                    label={`${data.counts.dues} items`}
+                    tone="slate"
+                  />
+                </div>
+                <div className="mb-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Total abierto
+                  </div>
+                  <div className="mt-2">
+                    <MoneyLines data={data.debtBreakdown.totalOpen} />
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <DebtBreakdownItem
+                    label="Pendiente"
+                    tone="amber"
+                    count={data.debtBreakdown.counts.pending}
+                    data={data.debtBreakdown.pending}
+                  />
+                  <DebtBreakdownItem
+                    label="Vencida"
+                    tone="rose"
+                    count={data.debtBreakdown.counts.overdue}
+                    data={data.debtBreakdown.overdue}
+                  />
+                  <DebtBreakdownItem
+                    label="Pagada"
+                    tone="emerald"
+                    count={data.debtBreakdown.counts.paid}
+                    data={data.debtBreakdown.paid}
+                  />
+                  <DebtBreakdownItem
+                    label="Cancelada"
+                    tone="slate"
+                    count={data.debtBreakdown.counts.cancelled}
+                    data={data.debtBreakdown.cancelled}
+                  />
+                </div>
+              </section>
+
               <section className="grid gap-4 md:grid-cols-2">
                 <StatCard title="Actividad" tone="slate">
                   <div className="space-y-2 text-sm">
@@ -694,6 +850,11 @@ export default function OperatorInsightsPage() {
                       <span>Pagos a operador</span>
                       <span className="font-semibold">
                         {formatNumber(data.counts.investments)}
+                        {data.counts.investmentsUnlinked
+                          ? ` (+${formatNumber(
+                              data.counts.investmentsUnlinked,
+                            )} sin reserva)`
+                          : ""}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -738,7 +899,7 @@ export default function OperatorInsightsPage() {
                   </div>
                   {data.lists.receipts.length === 0 ? (
                     <div className="text-sm text-slate-500 dark:text-slate-400">
-                      Sin recibos en el periodo.
+                      Sin recibos asociados a reservas en el periodo.
                     </div>
                   ) : (
                     <div className="space-y-3 text-sm">
@@ -781,7 +942,7 @@ export default function OperatorInsightsPage() {
                   </div>
                   {data.lists.investments.length === 0 ? (
                     <div className="text-sm text-slate-500 dark:text-slate-400">
-                      Sin pagos cargados en el periodo.
+                      Sin pagos asociados a reservas en el periodo.
                     </div>
                   ) : (
                     <div className="space-y-3 text-sm">
@@ -814,6 +975,50 @@ export default function OperatorInsightsPage() {
                       ))}
                     </div>
                   )}
+                  {data.lists.investmentsUnlinked.length > 0 ? (
+                    <div className="mt-4 border-t border-white/10 pt-4">
+                      <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        <span>Pagos sin reserva</span>
+                        <StatusPill
+                          label={`${data.counts.investmentsUnlinked} items`}
+                          tone="slate"
+                        />
+                      </div>
+                      <div className="mb-3">
+                        <MoneyLines data={data.totals.expensesUnlinked} />
+                      </div>
+                      <div className="space-y-3 text-sm">
+                        {data.lists.investmentsUnlinked.map((item) => (
+                          <div
+                            key={item.id_investment}
+                            className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
+                          >
+                            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                              <span>Pago #{item.id_investment}</span>
+                              <span>{formatDate(item.created_at)}</span>
+                            </div>
+                            <div className="mt-1 font-medium">
+                              {item.description}
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                              <span>Sin reserva</span>
+                              <span className="flex items-center gap-2">
+                                <StatusPill label={item.currency} tone="rose" />
+                                <span className="font-semibold">
+                                  {formatMoney(item.amount, item.currency)}
+                                </span>
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        {dateMode === "travel"
+                          ? "No aplican fecha de viaje ni se suman al neto."
+                          : "Filtrados por fecha de pago y fuera del neto."}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               </section>
 
@@ -834,17 +1039,22 @@ export default function OperatorInsightsPage() {
                     {data.lists.dues.map((due) => {
                       const dueDate = new Date(due.due_date);
                       const paid = isPaidStatus(due.status);
-                      const overdue = !paid && dueDate < todayStart;
+                      const cancelled = isCancelledStatus(due.status);
+                      const overdue = !paid && !cancelled && dueDate < todayStart;
                       const tone = paid
                         ? "emerald"
-                        : overdue
-                          ? "rose"
-                          : "amber";
+                        : cancelled
+                          ? "slate"
+                          : overdue
+                            ? "rose"
+                            : "amber";
                       const statusLabel = paid
                         ? "Pago"
-                        : overdue
-                          ? "Vencida"
-                          : "Pendiente";
+                        : cancelled
+                          ? "Cancelada"
+                          : overdue
+                            ? "Vencida"
+                            : "Pendiente";
 
                       return (
                         <div
