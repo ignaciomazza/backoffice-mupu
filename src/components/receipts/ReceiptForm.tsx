@@ -950,7 +950,7 @@ export default function ReceiptForm({
 
     if (!effectiveCurrency) e.currency = "Elegí una moneda.";
     const baseNum = parseAmountInput(baseAmount);
-    if (baseAmount.trim() !== "" || baseCurrency) {
+    if (baseAmount.trim() !== "") {
       if (!baseNum || baseNum <= 0) {
         e.base = "Ingresá un valor base válido.";
       } else if (!baseCurrency) {
@@ -961,7 +961,7 @@ export default function ReceiptForm({
     }
 
     const counterNum = parseAmountInput(counterAmount);
-    if (counterAmount.trim() !== "" || counterCurrency) {
+    if (counterAmount.trim() !== "") {
       if (!counterNum || counterNum <= 0) {
         e.counter = "Ingresá un contravalor válido.";
       } else if (!counterCurrency) {
