@@ -391,6 +391,16 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         : req.query.maxAmount,
     );
 
+    const verificationStatusRaw = Array.isArray(req.query.verification_status)
+      ? req.query.verification_status[0]
+      : Array.isArray(req.query.verificationStatus)
+        ? req.query.verificationStatus[0]
+        : req.query.verification_status ?? req.query.verificationStatus ?? "";
+
+    const verificationStatus = String(verificationStatusRaw || "")
+      .trim()
+      .toUpperCase();
+
     const take = Math.max(
       1,
       Math.min(
@@ -483,6 +493,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       whereAND.push({ amount: amountRange });
     }
 
+    if (verificationStatus && verificationStatus !== "ALL") {
+      if (["PENDING", "VERIFIED"].includes(verificationStatus)) {
+        whereAND.push({ verification_status: verificationStatus });
+      }
+    }
+
     const baseWhere: Prisma.ReceiptWhereInput = { AND: whereAND };
 
     const items = await prisma.receipt.findMany({
@@ -498,6 +514,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         amount: true,
         amount_currency: true,
         payment_fee_amount: true,
+        verification_status: true,
+        verified_at: true,
+        verified_by: true,
 
         concept: true,
         currency: true,
@@ -536,6 +555,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
             },
           },
         },
+        verifiedBy: {
+          select: { id_user: true, first_name: true, last_name: true },
+        },
         agency: { select: { id_agency: true, name: true } },
       },
     });
@@ -552,10 +574,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     return res.status(200).json({ items: normalized, nextCursor });
   } catch (error: unknown) {
-    // eslint-disable-next-line no-console
-    console.log("[API] GET /api/receipts error:", error);
     const msg =
       error instanceof Error ? error.message : "Error obteniendo recibos";
+    const stack = error instanceof Error ? error.stack : undefined;
+    // eslint-disable-next-line no-console
+    console.error("[API] GET /api/receipts error:", { msg, stack });
     return res.status(500).json({ error: msg });
   }
 }

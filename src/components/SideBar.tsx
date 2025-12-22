@@ -138,6 +138,7 @@ export default function SideBar({
       ],
       "/investments": adm,
       "/receipts": adm,
+      "/receipts/verify": adm,
       "/finance/config": adm,
       "/credits": adm,
       "/cashbox": adm,
@@ -217,6 +218,9 @@ export default function SideBar({
             : null,
           hasAccess("/receipts")
             ? { href: "/receipts", label: "Recibos" }
+            : null,
+          hasAccess("/receipts/verify")
+            ? { href: "/receipts/verify", label: "Verificacion ingresos" }
             : null,
           hasAccess("/balances")
             ? { href: "/balances", label: "Saldos" }

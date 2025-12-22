@@ -219,6 +219,10 @@ export interface Receipt {
   base_currency?: Currency | string | null;
   counter_amount?: number | string | null;
   counter_currency?: Currency | string | null;
+  verification_status?: string | null;
+  verified_at?: string | null;
+  verified_by?: number | null;
+  verifiedBy?: { id_user: number; first_name: string; last_name: string } | null;
   bookingId_booking: number;
   booking?: Booking;
   serviceIds?: number[];
@@ -446,4 +450,3 @@ export interface CommercialInsightsResponse {
     topClients: TopClientItem[];
   };
 }
-

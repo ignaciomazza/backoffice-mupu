@@ -77,6 +77,7 @@ model User {
   createdDestinations      Destination[]        @relation("DestinationCreatedBy")
   serviceDestinationsAdded ServiceDestination[] @relation("ServiceDestinationAddedBy")
   creditEntries            CreditEntry[]
+  verifiedReceipts         Receipt[]            @relation("ReceiptVerifiedBy")
 }
 
 model Client {
@@ -371,6 +372,11 @@ model Receipt {
   /// Misma moneda que amount_currency.
   payment_fee_amount Decimal? @db.Decimal(18, 2)
 
+  verification_status String   @default("PENDING")
+  verified_at         DateTime?
+  verified_by         Int?
+  verifiedBy          User?    @relation("ReceiptVerifiedBy", fields: [verified_by], references: [id_user], onDelete: SetNull)
+
   concept           String
   currency          String
   payment_method    String?
@@ -393,6 +399,8 @@ model Receipt {
 
   @@index([bookingId_booking])
   @@index([id_agency])
+  @@index([verification_status])
+  @@index([verified_by])
 }
 
 model ReceiptPayment {
