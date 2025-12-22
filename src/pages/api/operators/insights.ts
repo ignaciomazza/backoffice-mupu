@@ -33,7 +33,7 @@ type OperatorInsightsResponse = {
     receipts: number;
     investments: number;
     investmentsUnlinked: number;
-    dues: number;
+    debtServices: number;
   };
   totals: {
     sales: MoneyMap;
@@ -41,21 +41,7 @@ type OperatorInsightsResponse = {
     expenses: MoneyMap;
     expensesUnlinked: MoneyMap;
     net: MoneyMap;
-    duePending: MoneyMap;
-    dueOverdue: MoneyMap;
-  };
-  debtBreakdown: {
-    pending: MoneyMap;
-    overdue: MoneyMap;
-    paid: MoneyMap;
-    cancelled: MoneyMap;
-    totalOpen: MoneyMap;
-    counts: {
-      pending: number;
-      overdue: number;
-      paid: number;
-      cancelled: number;
-    };
+    operatorDebt: MoneyMap;
   };
   averages: {
     avgSalePerBooking: MoneyMap;
@@ -63,15 +49,15 @@ type OperatorInsightsResponse = {
     servicesPerBooking: number;
   };
   lists: {
-    dues: {
-      id_due: number;
-      due_date: string;
-      status: string;
-      amount: number;
+    debtServices: {
+      id_service: number;
+      description: string;
+      cost_price: number;
       currency: string;
       booking_id: number;
-      service_id: number;
-      concept: string;
+      booking_details: string | null;
+      departure_date: string | null;
+      return_date: string | null;
     }[];
     receipts: {
       id_receipt: number;
@@ -189,27 +175,6 @@ function combineNet(incomes: MoneyMap, expenses: MoneyMap): MoneyMap {
   return out;
 }
 
-function normalizeStatus(status?: string | null): string {
-  return String(status || "")
-    .trim()
-    .toLowerCase();
-}
-
-function isPaidStatus(status?: string | null): boolean {
-  const s = normalizeStatus(status);
-  return s === "pago" || s === "pagado" || s === "pagada" || s === "paid";
-}
-
-function isCancelledStatus(status?: string | null): boolean {
-  const s = normalizeStatus(status);
-  return (
-    s === "cancelado" ||
-    s === "cancelada" ||
-    s === "cancelled" ||
-    s === "canceled"
-  );
-}
-
 function pickMoney(
   amount: unknown,
   currency: unknown,
@@ -245,12 +210,6 @@ function buildBookingDateFilter(
     };
   }
   return { creation_date: { gte: fromDate, lt: toExclusive } };
-}
-
-function mergeMoneyMaps(target: MoneyMap, source: MoneyMap) {
-  for (const [cur, val] of Object.entries(source)) {
-    addMoney(target, cur, val);
-  }
 }
 
 export default async function handler(
@@ -332,6 +291,18 @@ export default async function handler(
         booking_id: true,
         currency: true,
         sale_price: true,
+        cost_price: true,
+        description: true,
+        departure_date: true,
+        return_date: true,
+        booking: {
+          select: {
+            id_booking: true,
+            details: true,
+            departure_date: true,
+            return_date: true,
+          },
+        },
       },
     });
 
@@ -374,6 +345,37 @@ export default async function handler(
       );
       addMoney(incomesByCurrency, cur, val);
       incomeCounts[cur] = (incomeCounts[cur] ?? 0) + 1;
+    });
+
+    const serviceIds = services.map((svc) => svc.id_service);
+    const serviceIdSet = new Set(serviceIds);
+    const receiptedServiceIds = new Set<number>();
+
+    if (serviceIds.length > 0) {
+      const receiptServices = await prisma.receipt.findMany({
+        where: {
+          serviceIds: { hasSome: serviceIds },
+          OR: [
+            { booking: { id_agency: auth.id_agency } },
+            { id_agency: auth.id_agency },
+          ],
+        },
+        select: { serviceIds: true },
+      });
+
+      receiptServices.forEach((rec) => {
+        (rec.serviceIds || []).forEach((sid) => {
+          if (serviceIdSet.has(sid)) receiptedServiceIds.add(sid);
+        });
+      });
+    }
+
+    const debtServices = services.filter(
+      (svc) => !receiptedServiceIds.has(svc.id_service),
+    );
+    const operatorDebtByCurrency: MoneyMap = {};
+    debtServices.forEach((svc) => {
+      addMoney(operatorDebtByCurrency, svc.currency, Number(svc.cost_price) || 0);
     });
 
     const investmentsWithBooking = await prisma.investment.findMany({
@@ -439,74 +441,6 @@ export default async function handler(
       );
       addMoney(expensesUnlinkedByCurrency, cur, val);
     });
-
-    const dues = await prisma.operatorDue.findMany({
-      where: {
-        booking: {
-          id_agency: auth.id_agency,
-          ...bookingDateFilter,
-        },
-        service: { id_operator: operatorId },
-      },
-      select: {
-        id_due: true,
-        due_date: true,
-        status: true,
-        amount: true,
-        currency: true,
-        booking_id: true,
-        service_id: true,
-        concept: true,
-      },
-      orderBy: [{ due_date: "asc" }, { id_due: "asc" }],
-    });
-
-    const duePendingByCurrency: MoneyMap = {};
-    const dueOverdueByCurrency: MoneyMap = {};
-    const duePaidByCurrency: MoneyMap = {};
-    const dueCancelledByCurrency: MoneyMap = {};
-    const dueCounts = {
-      pending: 0,
-      overdue: 0,
-      paid: 0,
-      cancelled: 0,
-    };
-    const today = new Date();
-    const todayStart = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate(),
-      0,
-      0,
-      0,
-      0,
-    );
-
-    dues.forEach((due) => {
-      const cur = String(due.currency || "ARS").toUpperCase();
-      const amt = Number(due.amount) || 0;
-      if (isPaidStatus(due.status)) {
-        addMoney(duePaidByCurrency, cur, amt);
-        dueCounts.paid += 1;
-        return;
-      }
-      if (isCancelledStatus(due.status)) {
-        addMoney(dueCancelledByCurrency, cur, amt);
-        dueCounts.cancelled += 1;
-        return;
-      }
-      if (due.due_date < todayStart) {
-        addMoney(dueOverdueByCurrency, cur, amt);
-        dueCounts.overdue += 1;
-        return;
-      }
-      addMoney(duePendingByCurrency, cur, amt);
-      dueCounts.pending += 1;
-    });
-
-    const dueTotalOpenByCurrency: MoneyMap = {};
-    mergeMoneyMaps(dueTotalOpenByCurrency, duePendingByCurrency);
-    mergeMoneyMaps(dueTotalOpenByCurrency, dueOverdueByCurrency);
 
     const bookingCount = bookingIds.size;
     const servicesPerBooking =
@@ -576,16 +510,20 @@ export default async function handler(
         };
       });
 
-    const dueList = dues.slice(0, 12).map((due) => ({
-      id_due: due.id_due,
-      due_date: due.due_date.toISOString(),
-      status: due.status,
-      amount: Number(due.amount) || 0,
-      currency: String(due.currency || "ARS").toUpperCase(),
-      booking_id: due.booking_id,
-      service_id: due.service_id,
-      concept: due.concept,
-    }));
+    const debtServicesList = debtServices.slice(0, 16).map((svc) => {
+      const departure = svc.booking?.departure_date ?? svc.departure_date;
+      const returnDate = svc.booking?.return_date ?? svc.return_date;
+      return {
+        id_service: svc.id_service,
+        description: svc.description,
+        cost_price: Number(svc.cost_price) || 0,
+        currency: String(svc.currency || "ARS").toUpperCase(),
+        booking_id: svc.booking_id,
+        booking_details: svc.booking?.details ?? null,
+        departure_date: departure ? departure.toISOString() : null,
+        return_date: returnDate ? returnDate.toISOString() : null,
+      };
+    });
 
     return res.status(200).json({
       operator,
@@ -596,7 +534,7 @@ export default async function handler(
         receipts: receipts.length,
         investments: investmentsWithBooking.length,
         investmentsUnlinked: investmentsUnlinked.length,
-        dues: dues.length,
+        debtServices: debtServices.length,
       },
       totals: {
         sales: salesByCurrency,
@@ -604,16 +542,7 @@ export default async function handler(
         expenses: expensesByCurrency,
         expensesUnlinked: expensesUnlinkedByCurrency,
         net: combineNet(incomesByCurrency, expensesByCurrency),
-        duePending: duePendingByCurrency,
-        dueOverdue: dueOverdueByCurrency,
-      },
-      debtBreakdown: {
-        pending: duePendingByCurrency,
-        overdue: dueOverdueByCurrency,
-        paid: duePaidByCurrency,
-        cancelled: dueCancelledByCurrency,
-        totalOpen: dueTotalOpenByCurrency,
-        counts: dueCounts,
+        operatorDebt: operatorDebtByCurrency,
       },
       averages: {
         avgSalePerBooking,
@@ -621,7 +550,7 @@ export default async function handler(
         servicesPerBooking,
       },
       lists: {
-        dues: dueList,
+        debtServices: debtServicesList,
         receipts: recentReceipts,
         investments: recentInvestments,
         investmentsUnlinked: recentInvestmentsUnlinked,

@@ -60,7 +60,7 @@ type OperatorInsightsResponse = {
     receipts: number;
     investments: number;
     investmentsUnlinked: number;
-    dues: number;
+    debtServices: number;
   };
   totals: {
     sales: MoneyMap;
@@ -68,21 +68,7 @@ type OperatorInsightsResponse = {
     expenses: MoneyMap;
     expensesUnlinked: MoneyMap;
     net: MoneyMap;
-    duePending: MoneyMap;
-    dueOverdue: MoneyMap;
-  };
-  debtBreakdown: {
-    pending: MoneyMap;
-    overdue: MoneyMap;
-    paid: MoneyMap;
-    cancelled: MoneyMap;
-    totalOpen: MoneyMap;
-    counts: {
-      pending: number;
-      overdue: number;
-      paid: number;
-      cancelled: number;
-    };
+    operatorDebt: MoneyMap;
   };
   averages: {
     avgSalePerBooking: MoneyMap;
@@ -90,15 +76,15 @@ type OperatorInsightsResponse = {
     servicesPerBooking: number;
   };
   lists: {
-    dues: {
-      id_due: number;
-      due_date: string;
-      status: string;
-      amount: number;
+    debtServices: {
+      id_service: number;
+      description: string;
+      cost_price: number;
       currency: string;
       booking_id: number;
-      service_id: number;
-      concept: string;
+      booking_details: string | null;
+      departure_date: string | null;
+      return_date: string | null;
     }[];
     receipts: {
       id_receipt: number;
@@ -160,27 +146,6 @@ function formatMoney(value: number, currency: string): string {
   } catch {
     return `${safe.toFixed(2)} ${currency}`;
   }
-}
-
-function normalizeStatus(status?: string | null): string {
-  return String(status || "")
-    .trim()
-    .toLowerCase();
-}
-
-function isPaidStatus(status?: string | null): boolean {
-  const s = normalizeStatus(status);
-  return s === "pago" || s === "pagado" || s === "pagada" || s === "paid";
-}
-
-function isCancelledStatus(status?: string | null): boolean {
-  const s = normalizeStatus(status);
-  return (
-    s === "cancelado" ||
-    s === "cancelada" ||
-    s === "cancelled" ||
-    s === "canceled"
-  );
 }
 
 function MoneyLines({ data }: { data?: MoneyMap }) {
@@ -263,30 +228,6 @@ function StatusPill({ label, tone }: { label: string; tone: StatTone }) {
   );
 }
 
-function DebtBreakdownItem({
-  label,
-  tone,
-  count,
-  data,
-}: {
-  label: string;
-  tone: StatTone;
-  count: number;
-  data?: MoneyMap;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/60 p-3 text-sm shadow-sm dark:bg-slate-900/50">
-      <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        <span>{label}</span>
-        <StatusPill label={`${count} items`} tone={tone} />
-      </div>
-      <div className="mt-2">
-        <MoneyLines data={data} />
-      </div>
-    </div>
-  );
-}
-
 export default function OperatorInsightsPage() {
   const { token } = useAuth();
   const { operators } = useAgencyOperators(token);
@@ -315,19 +256,6 @@ export default function OperatorInsightsPage() {
     const found = operators.find((op) => op.id_operator === selectedOperatorId);
     return found?.name || "";
   }, [data?.operator?.name, operators, selectedOperatorId]);
-
-  const todayStart = useMemo(() => {
-    const nowDate = new Date();
-    return new Date(
-      nowDate.getFullYear(),
-      nowDate.getMonth(),
-      nowDate.getDate(),
-      0,
-      0,
-      0,
-      0,
-    );
-  }, []);
 
   useEffect(() => {
     if (selectedOperatorId) return;
@@ -773,56 +701,71 @@ export default function OperatorInsightsPage() {
                 <StatCard title="Ventas del operador" tone="amber">
                   <MoneyLines data={data.totals.sales} />
                 </StatCard>
-                <StatCard title="Deuda pendiente" tone="amber">
-                  <MoneyLines data={data.totals.duePending} />
-                </StatCard>
-                <StatCard title="Deuda vencida" tone="rose">
-                  <MoneyLines data={data.totals.dueOverdue} />
+                <StatCard title="Deuda operador (sin recibo)" tone="amber">
+                  <MoneyLines data={data.totals.operatorDebt} />
+                  <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    Servicios sin recibo:{" "}
+                    {formatNumber(data.counts.debtServices)}
+                  </div>
                 </StatCard>
               </section>
 
               <section className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
                 <div className="mb-3 flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  <span>Desglose de deuda</span>
+                  <span>Servicios sin recibo</span>
                   <StatusPill
-                    label={`${data.counts.dues} items`}
+                    label={`${data.counts.debtServices} items`}
                     tone="slate"
                   />
                 </div>
                 <div className="mb-4">
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Total abierto
+                    Deuda estimada
                   </div>
                   <div className="mt-2">
-                    <MoneyLines data={data.debtBreakdown.totalOpen} />
+                    <MoneyLines data={data.totals.operatorDebt} />
                   </div>
                 </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <DebtBreakdownItem
-                    label="Pendiente"
-                    tone="amber"
-                    count={data.debtBreakdown.counts.pending}
-                    data={data.debtBreakdown.pending}
-                  />
-                  <DebtBreakdownItem
-                    label="Vencida"
-                    tone="rose"
-                    count={data.debtBreakdown.counts.overdue}
-                    data={data.debtBreakdown.overdue}
-                  />
-                  <DebtBreakdownItem
-                    label="Pagada"
-                    tone="emerald"
-                    count={data.debtBreakdown.counts.paid}
-                    data={data.debtBreakdown.paid}
-                  />
-                  <DebtBreakdownItem
-                    label="Cancelada"
-                    tone="slate"
-                    count={data.debtBreakdown.counts.cancelled}
-                    data={data.debtBreakdown.cancelled}
-                  />
-                </div>
+                {data.lists.debtServices.length === 0 ? (
+                  <div className="text-sm text-slate-500 dark:text-slate-400">
+                    No hay servicios sin recibo en el periodo.
+                  </div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {data.lists.debtServices.map((svc) => (
+                      <div
+                        key={svc.id_service}
+                        className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
+                      >
+                        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                          <span>Servicio #{svc.id_service}</span>
+                          <span>Reserva #{svc.booking_id}</span>
+                        </div>
+                        <div className="mt-1 font-medium">
+                          {svc.description}
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <span>{svc.booking_details || "Sin detalle"}</span>
+                          <span>
+                            {formatDate(svc.departure_date)} -{" "}
+                            {formatDate(svc.return_date)}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between text-xs">
+                          <StatusPill label={svc.currency} tone="amber" />
+                          <span className="font-semibold">
+                            {formatMoney(svc.cost_price, svc.currency)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                  {dateMode === "travel"
+                    ? "Filtrado por fecha de viaje de la reserva."
+                    : "Filtrado por fecha de creacion de la reserva."}
+                </p>
               </section>
 
               <section className="grid gap-4 md:grid-cols-2">
@@ -855,6 +798,12 @@ export default function OperatorInsightsPage() {
                               data.counts.investmentsUnlinked,
                             )} sin reserva)`
                           : ""}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Servicios sin recibo</span>
+                      <span className="font-semibold">
+                        {formatNumber(data.counts.debtServices)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -1022,72 +971,6 @@ export default function OperatorInsightsPage() {
                 </div>
               </section>
 
-              <section className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
-                <div className="mb-3 flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  <span>Vencimientos</span>
-                  <StatusPill
-                    label={`${data.lists.dues.length} items`}
-                    tone="slate"
-                  />
-                </div>
-                {data.lists.dues.length === 0 ? (
-                  <div className="text-sm text-slate-500 dark:text-slate-400">
-                    Sin vencimientos en el periodo.
-                  </div>
-                ) : (
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {data.lists.dues.map((due) => {
-                      const dueDate = new Date(due.due_date);
-                      const paid = isPaidStatus(due.status);
-                      const cancelled = isCancelledStatus(due.status);
-                      const overdue = !paid && !cancelled && dueDate < todayStart;
-                      const tone = paid
-                        ? "emerald"
-                        : cancelled
-                          ? "slate"
-                          : overdue
-                            ? "rose"
-                            : "amber";
-                      const statusLabel = paid
-                        ? "Pago"
-                        : cancelled
-                          ? "Cancelada"
-                          : overdue
-                            ? "Vencida"
-                            : "Pendiente";
-
-                      return (
-                        <div
-                          key={due.id_due}
-                          className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
-                        >
-                          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                            <span>Vencimiento #{due.id_due}</span>
-                            <span>{formatDate(due.due_date)}</span>
-                          </div>
-                          <div className="mt-1 font-medium">{due.concept}</div>
-                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                            <span>
-                              Reserva {due.booking_id} - Servicio{" "}
-                              {due.service_id}
-                            </span>
-                            <span className="flex items-center gap-2">
-                              <StatusPill label={due.currency} tone="amber" />
-                              <span className="font-semibold">
-                                {formatMoney(due.amount, due.currency)}
-                              </span>
-                            </span>
-                          </div>
-                          <div className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                            <span>Estado</span>
-                            <StatusPill label={statusLabel} tone={tone} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
             </>
           )}
 
