@@ -123,6 +123,7 @@ export default function SideBar({
 
     return {
       "/operators": ["desarrollador", "administrativo", "gerente"],
+      "/operators/insights": ["desarrollador", "administrativo", "gerente"],
       "/agency": devMgr,
       "/teams": devMgr,
       "/invoices": adm,
@@ -252,6 +253,9 @@ export default function SideBar({
           hasAccess("/agency") ? { href: "/agency", label: "Agencia" } : null,
           hasAccess("/operators")
             ? { href: "/operators", label: "Operadores" }
+            : null,
+          hasAccess("/operators/insights")
+            ? { href: "/operators/insights", label: "Panel Operadores" }
             : null,
           hasAccess("/users")
             ? {
