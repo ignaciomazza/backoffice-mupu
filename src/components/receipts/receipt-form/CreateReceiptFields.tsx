@@ -11,6 +11,7 @@ import type {
 } from "@/types/receipts";
 import type { Client } from "@/types";
 import Spinner from "@/components/Spinner";
+import { parseAmountInput } from "@/utils/receipts/receiptForm";
 import { Field, Section, inputBase } from "./primitives";
 
 type CreditAccountOption = {
@@ -59,6 +60,7 @@ export default function CreateReceiptFields(props: {
   freeCurrency: CurrencyCode;
   setFreeCurrency: (v: CurrencyCode) => void;
   effectiveCurrency: CurrencyCode;
+  currencyOverride: boolean;
 
   suggestions: {
     base: number | null;
@@ -142,6 +144,7 @@ export default function CreateReceiptFields(props: {
     freeCurrency,
     setFreeCurrency,
     effectiveCurrency,
+    currencyOverride,
 
     suggestions,
     applySuggestedAmounts,
@@ -188,6 +191,16 @@ export default function CreateReceiptFields(props: {
     errors,
   } = props;
 
+  const baseNum = parseAmountInput(baseAmount);
+  const counterNum = parseAmountInput(counterAmount);
+  const paymentsNum = parseAmountInput(amountReceived);
+
+  const fmtMaybe = (raw: string, num: number | null, cur: string | null) => {
+    if (num != null && cur) return formatNum(num, cur);
+    if (raw && cur) return `${raw} ${cur}`;
+    return "—";
+  };
+
   return (
     <>
       <Section
@@ -233,10 +246,15 @@ export default function CreateReceiptFields(props: {
       </Section>
 
       <Section
-        title="Importe y moneda (numérico)"
-        desc="Total calculado desde las líneas de pago."
+        title="Totales del cobro"
+        desc="Se calcula desde las líneas de pago. Esta moneda es la del cobro."
       >
-        <Field id="amount_received" label="Total (suma de pagos)" required>
+        <Field
+          id="amount_received"
+          label="Total cobrado (entra al banco/caja)"
+          hint="Suma de los importes cargados abajo."
+          required
+        >
           <input
             id="amount_received"
             value={amountReceived}
@@ -253,13 +271,19 @@ export default function CreateReceiptFields(props: {
               onClick={applySuggestedAmounts}
               className="mt-2 text-xs underline underline-offset-2"
             >
-              Ajustar al sugerido:{" "}
-              {formatNum(suggestions.base, effectiveCurrency)}
+              {currencyOverride
+                ? "Usar valor base sugerido:"
+                : "Ajustar al sugerido:"}{" "}
+              {formatNum(suggestions.base, lockedCurrency || effectiveCurrency)}
             </button>
           )}
         </Field>
 
-        <Field id="fee_amount" label="Importe retenido por el medio de pago">
+        <Field
+          id="fee_amount"
+          label="Costo financiero (retención del medio)"
+          hint="Solo si el medio retiene parte del cobro."
+        >
           <input
             id="fee_amount"
             value={feeAmount}
@@ -267,19 +291,23 @@ export default function CreateReceiptFields(props: {
             placeholder="0,00"
             className={inputBase}
           />
-          {suggestions?.fee != null && (
+          {!currencyOverride && suggestions?.fee != null && (
             <button
               type="button"
               onClick={applySuggestedAmounts}
               className="mt-2 text-xs underline underline-offset-2"
             >
               Usar costo financiero sugerido:{" "}
-              {formatNum(suggestions.fee, effectiveCurrency)}
+              {formatNum(suggestions.fee, lockedCurrency || effectiveCurrency)}
             </button>
           )}
         </Field>
 
-        <Field id="client_total" label="Importe cobrado al cliente">
+        <Field
+          id="client_total"
+          label="Total con costo financiero"
+          hint="Pagos + retención del medio."
+        >
           <input
             id="client_total"
             value={clientTotal ? `${clientTotal} ${effectiveCurrency}` : ""}
@@ -289,12 +317,8 @@ export default function CreateReceiptFields(props: {
           />
         </Field>
 
-        <Field id="currency" label="Moneda" required>
-          {lockedCurrency ? (
-            <div className="rounded-2xl border border-white/10 bg-white/10 p-2 text-sm">
-              {lockedCurrency} (bloqueada por servicios)
-            </div>
-          ) : loadingPicks ? (
+        <Field id="currency" label="Moneda del cobro" required>
+          {loadingPicks ? (
             <div className="flex h-[42px] items-center">
               <Spinner />
             </div>
@@ -314,6 +338,12 @@ export default function CreateReceiptFields(props: {
                 ))}
             </select>
           )}
+          {lockedCurrency && (
+            <p className="mt-1 text-xs text-sky-950/70 dark:text-white/70">
+              Servicios en {lockedCurrency}. Si cobrás en otra moneda, completá
+              Valor base y Contravalor.
+            </p>
+          )}
           {errors.currency && (
             <p className="mt-1 text-xs text-red-600">{errors.currency}</p>
           )}
@@ -322,7 +352,7 @@ export default function CreateReceiptFields(props: {
 
       <Section
         title="Pagos"
-        desc="Acá cargás varios métodos en un mismo recibo."
+        desc={`Acá cargás varios métodos. Importes en ${effectiveCurrency}.`}
       >
         <div className="space-y-3 md:col-span-2">
           {errors.payments && (
@@ -606,7 +636,7 @@ export default function CreateReceiptFields(props: {
 
       <Section
         title="Importe en palabras (PDF)"
-        desc='Ej.: "UN MILLÓN CIEN MIL" + Moneda ("ARS", "USD", ...)'
+        desc='Debe coincidir con el valor aplicado (ej.: "UN MILLÓN CIEN MIL" + Moneda).'
       >
         <Field id="amount_words" label="Equivalente en palabras" required>
           <input
@@ -645,7 +675,7 @@ export default function CreateReceiptFields(props: {
 
       <Section
         title="Detalle para PDF"
-        desc="Se imprime como ‘método de pago’. Si no escribís nada, se autogenera."
+        desc="Texto visible en el recibo. Si no escribís nada, se autogenera."
       >
         <div className="md:col-span-2">
           <Field
@@ -685,15 +715,51 @@ export default function CreateReceiptFields(props: {
 
       <Section
         title="Conversión (opcional)"
-        desc="Registra un contravalor entre monedas (se imprime en PDF si lo completás)."
+        desc="Usalo si cobrás en una moneda distinta al servicio."
       >
-        <Field id="base" label="Base">
+        {currencyOverride && (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
+            <p>
+              Servicio en {lockedCurrency}. Cobro en {effectiveCurrency}. El PDF
+              mostrará el valor base.
+            </p>
+            <div className="mt-2 grid gap-1 text-[11px]">
+              <div>
+                <span className="font-medium">Recibo (PDF):</span>{" "}
+                {fmtMaybe(baseAmount, baseNum, baseCurrency || lockedCurrency)}
+              </div>
+              <div>
+                <span className="font-medium">
+                  Administración (entra al banco/caja):
+                </span>{" "}
+                {fmtMaybe(amountReceived, paymentsNum, effectiveCurrency)}
+              </div>
+              <div>
+                <span className="font-medium">Contravalor:</span>{" "}
+                {fmtMaybe(
+                  counterAmount || amountReceived,
+                  counterNum ?? paymentsNum,
+                  counterCurrency || effectiveCurrency,
+                )}
+              </div>
+            </div>
+            <p className="mt-2 text-[10px] opacity-70">
+              Si dejás contravalor vacío, se toma el total cobrado.
+            </p>
+          </div>
+        )}
+        <Field
+          id="base"
+          label="Valor base (moneda del servicio)"
+          hint="Ej.: 1500 USD (si es pago parcial, ingresá el parcial)."
+        >
           <div className="flex gap-2">
             <input
               type="number"
               step="0.01"
               value={baseAmount}
               onChange={(e) => setBaseAmount(e.target.value)}
+              placeholder="1500"
               className={inputBase}
             />
             <select
@@ -711,15 +777,23 @@ export default function CreateReceiptFields(props: {
                 ))}
             </select>
           </div>
+          {errors.base && (
+            <p className="mt-1 text-xs text-red-600">{errors.base}</p>
+          )}
         </Field>
 
-        <Field id="counter" label="Contravalor">
+        <Field
+          id="counter"
+          label="Contravalor (moneda del cobro)"
+          hint="Ej.: 2.000.000 ARS"
+        >
           <div className="flex gap-2">
             <input
               type="number"
               step="0.01"
               value={counterAmount}
               onChange={(e) => setCounterAmount(e.target.value)}
+              placeholder="2000000"
               className={inputBase}
             />
             <select
@@ -737,6 +811,9 @@ export default function CreateReceiptFields(props: {
                 ))}
             </select>
           </div>
+          {errors.counter && (
+            <p className="mt-1 text-xs text-red-600">{errors.counter}</p>
+          )}
         </Field>
       </Section>
     </>

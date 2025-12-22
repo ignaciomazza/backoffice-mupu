@@ -114,6 +114,8 @@ type ReceiptLite = {
   bookingId_booking: number;
   amount: number;
   amount_currency: "ARS" | "USD" | string;
+  base_amount?: number | string | null;
+  base_currency?: "ARS" | "USD" | string | null;
 };
 
 type RuleShare = {
@@ -229,21 +231,29 @@ export default async function handler(
           bookingId_booking: true,
           amount: true,
           amount_currency: true,
+          base_amount: true,
+          base_currency: true,
         },
       });
       allReceiptsRaw = r.map((x) => ({
         bookingId_booking: x.bookingId_booking as number,
         amount: x.amount as number,
         amount_currency: (x.amount_currency as string) || "ARS",
+        base_amount: x.base_amount as number | string | null,
+        base_currency: (x.base_currency as string) || null,
       }));
     }
 
     const receiptsMap = new Map<number, { ARS: number; USD: number }>();
     for (const r of allReceiptsRaw) {
-      const cur = (r.amount_currency as "ARS" | "USD") || "ARS";
+      const useBase = r.base_amount != null && r.base_currency;
+      const cur = String(
+        useBase ? r.base_currency : r.amount_currency || "ARS",
+      ).toUpperCase();
       const prev = receiptsMap.get(r.bookingId_booking) || { ARS: 0, USD: 0 };
       if (cur === "ARS" || cur === "USD") {
-        prev[cur] += r.amount;
+        const val = Number(useBase ? r.base_amount : r.amount) || 0;
+        prev[cur] += val;
       }
       receiptsMap.set(r.bookingId_booking, prev);
     }

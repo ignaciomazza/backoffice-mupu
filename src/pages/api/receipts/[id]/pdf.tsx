@@ -315,6 +315,17 @@ export default async function handler(
     currency: receipt.currency || receipt.amount_currency,
     amount_currency: receipt.amount_currency,
 
+    base_amount:
+      receiptTyped.base_amount != null
+        ? toNum(receiptTyped.base_amount, 0)
+        : null,
+    base_currency: receiptTyped.base_currency ?? null,
+    counter_amount:
+      receiptTyped.counter_amount != null
+        ? toNum(receiptTyped.counter_amount, 0)
+        : null,
+    counter_currency: receiptTyped.counter_currency ?? null,
+
     paymentFeeAmount: receiptTyped.payment_fee_amount
       ? toNum(receiptTyped.payment_fee_amount, 0)
       : 0,

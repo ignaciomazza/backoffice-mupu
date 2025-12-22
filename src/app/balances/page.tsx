@@ -345,13 +345,9 @@ export default function BalancesPage() {
   const sumReceiptsByCurrency = useCallback((receipts: Booking["Receipt"]) => {
     return receipts.reduce<Record<CurrencyCode, number>>(
       (acc, r) => {
-        if (
-          r.counter_currency &&
-          r.counter_amount !== null &&
-          r.counter_amount !== undefined
-        ) {
-          const cur = r.counter_currency;
-          const val = toNum(r.counter_amount);
+        if (r.base_currency && r.base_amount != null) {
+          const cur = r.base_currency;
+          const val = toNum(r.base_amount);
           acc[cur] = (acc[cur] || 0) + val;
         } else if (r.amount_currency) {
           const cur = r.amount_currency;

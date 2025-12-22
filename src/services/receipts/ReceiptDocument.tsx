@@ -39,6 +39,12 @@ export interface ReceiptPdfData {
   paymentFeeAmount?: number;
   payments?: ReceiptPdfPaymentLine[];
 
+  /** Conversión (valor / contravalor) */
+  base_amount?: number | null;
+  base_currency?: string | null;
+  counter_amount?: number | null;
+  counter_currency?: string | null;
+
   services: Array<{
     id: number;
     description: string;
@@ -261,6 +267,10 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
   amount_currency,
   paymentFeeAmount,
   payments,
+  base_amount,
+  base_currency,
+  counter_amount,
+  counter_currency,
   services,
   booking: { details, departureDate, returnDate, agency },
   recipients,
@@ -276,6 +286,23 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
       ? paymentFeeAmount
       : 0;
   const clientTotal = amount + fee;
+  const hasBase = base_amount != null && !!base_currency;
+  const hasCounter = counter_amount != null && !!counter_currency;
+  const displayAmount = hasBase ? Number(base_amount) : amount;
+  const displayCurrency = hasBase
+    ? base_currency || amount_currency
+    : amount_currency;
+  const hideAltValues =
+    hasBase &&
+    base_currency &&
+    amount_currency &&
+    base_currency !== amount_currency;
+  const counterAmount = hasCounter ? Number(counter_amount) : amount;
+  const counterCurrency = hasCounter
+    ? counter_currency || amount_currency
+    : amount_currency;
+  const showCounter = hasCounter && !hideAltValues;
+  const showPaymentAmounts = !hideAltValues;
 
   return (
     <Document>
@@ -351,11 +378,21 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
           </View>
           <View style={styles.col}>
             <View style={styles.infoBox}>
-              <Text style={styles.infoLabel}>Total recibido</Text>
-              <Text style={styles.infoText}>
-                {safeFmtCurrency(clientTotal, amount_currency)}
+              <Text style={styles.infoLabel}>
+                {hasBase ? "Importe" : "Total recibido"}
               </Text>
-              {fee > 0 ? (
+              <Text style={styles.infoText}>
+                {safeFmtCurrency(
+                  hasBase ? displayAmount : clientTotal,
+                  hasBase ? displayCurrency : amount_currency,
+                )}
+              </Text>
+              {showCounter ? (
+                <Text style={styles.payMeta}>
+                  Contravalor: {safeFmtCurrency(counterAmount, counterCurrency)}
+                </Text>
+              ) : null}
+              {!hasBase && fee > 0 ? (
                 <Text style={styles.payMeta}>
                   Incluye {safeFmtCurrency(amount, amount_currency)} acreditados
                   + costo financiero {safeFmtCurrency(fee, amount_currency)}
@@ -381,9 +418,11 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
                 safePayments.map((p, idx) => (
                   <View key={idx} style={styles.payLine}>
                     <Text style={styles.payLeft}>{paymentLabel(p)}</Text>
-                    <Text style={styles.payRight}>
-                      {safeFmtCurrency(p.amount, amount_currency)}
-                    </Text>
+                    {showPaymentAmounts ? (
+                      <Text style={styles.payRight}>
+                        {safeFmtCurrency(p.amount, amount_currency)}
+                      </Text>
+                    ) : null}
                   </View>
                 ))
               ) : (

@@ -78,10 +78,23 @@ export default function ReceiptHeader(props: {
             <span className={`${pillBase} ${pillOk}`}>Svcs: {selectedServiceCount}</span>
           )}
 
-          {!!effectiveCurrency && (
-            <span className={`${pillBase} ${lockedCurrency ? pillOk : pillNeutral}`}>
-              {effectiveCurrency} {lockedCurrency ? "(lock)" : ""}
-            </span>
+          {!!effectiveCurrency && lockedCurrency && lockedCurrency !== effectiveCurrency ? (
+            <>
+              <span className={`${pillBase} ${pillOk}`}>
+                Servicio: {lockedCurrency} (lock)
+              </span>
+              <span className={`${pillBase} ${pillNeutral}`}>
+                Cobro: {effectiveCurrency}
+              </span>
+            </>
+          ) : (
+            !!effectiveCurrency && (
+              <span
+                className={`${pillBase} ${lockedCurrency ? pillOk : pillNeutral}`}
+              >
+                {effectiveCurrency} {lockedCurrency ? "(lock)" : ""}
+              </span>
+            )
           )}
         </div>
       </button>

@@ -146,6 +146,20 @@ export default function ReceiptCard({
     receipt.payment_fee_amount !== undefined &&
     toNumber(receipt.payment_fee_amount) !== 0;
 
+  const displayAmount = hasBase ? receipt.base_amount : receipt.amount;
+  const displayCurrency = hasBase
+    ? receipt.base_currency
+    : receipt.amount_currency;
+
+  const cashAmount = hasCounter ? receipt.counter_amount : receipt.amount;
+  const cashCurrency = hasCounter
+    ? receipt.counter_currency
+    : receipt.amount_currency;
+  const showCounter =
+    hasCounter ||
+    (hasBase &&
+      normCurrency(cashCurrency) !== normCurrency(displayCurrency));
+
   if (!receipt?.id_receipt) {
     return (
       <div className="flex h-40 items-center justify-center dark:text-white">
@@ -215,7 +229,7 @@ export default function ReceiptCard({
     }
   };
 
-  const amountCurrency = normCurrency(receipt.amount_currency);
+  const amountCurrency = normCurrency(displayCurrency);
   const amountLabel =
     amountCurrency === "ARS"
       ? "Pesos"
@@ -261,9 +275,11 @@ export default function ReceiptCard({
       {/* Totales / info principal */}
       <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="rounded-2xl border border-sky-200/40 bg-sky-50/60 p-3 shadow-sm shadow-sky-950/10 dark:border-sky-400/10 dark:bg-sky-400/10">
-          <p className="text-xs opacity-70">Monto</p>
+          <p className="text-xs opacity-70">
+            {hasBase ? "Valor aplicado" : "Monto"}
+          </p>
           <p className="text-base font-semibold tabular-nums">
-            {fmtMoney(receipt.amount, receipt.amount_currency)}
+            {fmtMoney(displayAmount, displayCurrency)}
           </p>
         </div>
 
@@ -274,7 +290,11 @@ export default function ReceiptCard({
           </p>
         </div>
 
-        <div className={`rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm  shadow-sky-950/10 dark:bg-white/10 ${!hasBase && !hasCounter && !hasPaymentFee? "col-span-2" : "col-span-1"}`}>
+        <div
+          className={`rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10 ${
+            !showCounter && !hasPaymentFee ? "col-span-2" : "col-span-1"
+          }`}
+        >
           <p className="text-xs opacity-70">Método de pago</p>
           <p className="mt-1 text-sm font-medium">
             {/* currency = detalle legado / texto para PDF; payment_method = nombre corto */}
@@ -282,20 +302,11 @@ export default function ReceiptCard({
           </p>
         </div>
 
-        {hasBase && (
-          <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
-            <p className="text-xs opacity-70">Valor base</p>
-            <p className="text-sm font-medium tabular-nums">
-              {fmtMoney(receipt.base_amount, receipt.base_currency)}
-            </p>
-          </div>
-        )}
-
-        {hasCounter && (
+        {showCounter && (
           <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
             <p className="text-xs opacity-70">Contravalor</p>
             <p className="text-sm font-medium tabular-nums">
-              {fmtMoney(receipt.counter_amount, receipt.counter_currency)}
+              {fmtMoney(cashAmount, cashCurrency)}
             </p>
           </div>
         )}

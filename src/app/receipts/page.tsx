@@ -107,7 +107,9 @@ type FinancePickBundle = {
 /* ============ Normalizado para UI/CSV ============ */
 type NormalizedReceipt = ReceiptRow & {
   _dateLabel: string;
-  _amountLabel: string; // Importe que entra a la agencia
+  _amountLabel: string; // Valor aplicado (base si existe)
+  _displayAmount: number;
+  _displayCurrency: string;
   _ownerFull: string;
   _titularFull: string;
   _convLabel: string; // "Base → Contra" si aplica
@@ -290,8 +292,16 @@ export default function ReceiptsPage() {
         ? new Date(r.issue_date).toLocaleDateString("es-AR")
         : "—";
 
-      // Importe que entra a la agencia (amount)
-      const amountLabel = fmtMoney(r.amount || 0, r.amount_currency || "ARS");
+      const hasBase = r.base_amount != null && r.base_currency;
+      const displayAmount = hasBase ? toNum(r.base_amount) : toNum(r.amount);
+      const displayCurrency = hasBase
+        ? (r.base_currency as string | null)
+        : (r.amount_currency as string | null);
+
+      const amountLabel = fmtMoney(
+        displayAmount,
+        displayCurrency || "ARS",
+      );
 
       const ownerFull = r.booking?.user
         ? `${r.booking.user.first_name || ""} ${r.booking.user.last_name || ""}`.trim()
@@ -300,13 +310,22 @@ export default function ReceiptsPage() {
         ? `${r.booking.titular.first_name || ""} ${r.booking.titular.last_name || ""}`.trim()
         : "";
 
-      const hasBase = r.base_amount != null && r.base_currency;
       const hasCounter = r.counter_amount != null && r.counter_currency;
-      const convLabel =
-        hasBase || hasCounter
-          ? `${hasBase ? fmtMoney(toNum(r.base_amount), r.base_currency || "ARS") : "—"} → ${
-              hasCounter
-                ? fmtMoney(toNum(r.counter_amount), r.counter_currency || "ARS")
+      const counterAmount = hasCounter ? toNum(r.counter_amount) : toNum(r.amount);
+      const counterCurrency = hasCounter
+        ? (r.counter_currency as string | null)
+        : (r.amount_currency as string | null);
+
+      const convLabel = hasBase
+        ? `${fmtMoney(toNum(r.base_amount), r.base_currency || "ARS")} → ${
+            counterCurrency
+              ? fmtMoney(counterAmount, counterCurrency || "ARS")
+              : "—"
+          }`
+        : hasCounter
+          ? `${fmtMoney(toNum(r.amount), r.amount_currency || "ARS")} → ${
+              counterCurrency
+                ? fmtMoney(counterAmount, counterCurrency || "ARS")
                 : "—"
             }`
           : "—";
@@ -334,6 +353,8 @@ export default function ReceiptsPage() {
         ...r,
         _dateLabel: dateLabel,
         _amountLabel: amountLabel,
+        _displayAmount: displayAmount,
+        _displayCurrency: (displayCurrency || "ARS").toUpperCase(),
         _ownerFull: ownerFull || "—",
         _titularFull: titularFull || "—",
         _convLabel: convLabel,
@@ -430,8 +451,8 @@ export default function ReceiptsPage() {
           vb = b.receipt_number || "";
           break;
         case "amount":
-          va = a.amount || 0;
-          vb = b.amount || 0;
+          va = a._displayAmount || 0;
+          vb = b._displayAmount || 0;
           break;
         case "owner":
           va = a._ownerFull || "";
@@ -453,9 +474,9 @@ export default function ReceiptsPage() {
     let ars = 0,
       usd = 0;
     for (const r of normalized) {
-      if (String(r.amount_currency).toUpperCase() === "USD")
-        usd += r.amount || 0;
-      else ars += r.amount || 0;
+      if (String(r._displayCurrency).toUpperCase() === "USD")
+        usd += r._displayAmount || 0;
+      else ars += r._displayAmount || 0;
     }
     return { count, ars, usd };
   }, [normalized]);
@@ -552,7 +573,7 @@ export default function ReceiptsPage() {
         "Vendedor",
         "Método",
         "Cuenta",
-        "Importe (agencia)",
+        "Valor aplicado",
         "Costo medio",
         "Cobrado al cliente",
         "Conversión",
@@ -1194,7 +1215,9 @@ export default function ReceiptsPage() {
             {displayRows.map((r) => {
               const servicesCount = r.serviceIds?.length ?? 0;
               const clientsCount = r.clientIds?.length ?? 0;
-              const cur = String(r.amount_currency).toUpperCase();
+              const cur = String(
+                r._displayCurrency || r.amount_currency,
+              ).toUpperCase();
 
               const canAttach =
                 !r.booking?.id_booking ||
@@ -1235,7 +1258,7 @@ export default function ReceiptsPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="flex flex-col items-end text-right">
-                        {/* Importe que entra a la agencia */}
+                        {/* Valor aplicado */}
                         <div className="text-base font-semibold">
                           {r._amountLabel}
                         </div>

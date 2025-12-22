@@ -135,16 +135,26 @@ export default async function handler(
       where: {
         bookingId_booking: { in: Array.from(saleTotalsByBooking.keys()) },
       },
-      select: { bookingId_booking: true, amount: true, amount_currency: true },
+      select: {
+        bookingId_booking: true,
+        amount: true,
+        amount_currency: true,
+        base_amount: true,
+        base_currency: true,
+      },
     });
 
     const receiptsMap = new Map<number, Record<string, number>>();
     for (const r of allReceipts) {
       const bid = r.bookingId_booking;
       if (bid == null) continue; // evita TS2345
-      const cur = String(r.amount_currency || "ARS").toUpperCase();
+      const useBase = r.base_amount != null && r.base_currency;
+      const cur = String(
+        useBase ? r.base_currency : r.amount_currency || "ARS",
+      ).toUpperCase();
       const prev = receiptsMap.get(bid) || {};
-      prev[cur] = (prev[cur] || 0) + (Number(r.amount) || 0);
+      const val = Number(useBase ? r.base_amount : r.amount) || 0;
+      prev[cur] = (prev[cur] || 0) + val;
       receiptsMap.set(bid, prev);
     }
 

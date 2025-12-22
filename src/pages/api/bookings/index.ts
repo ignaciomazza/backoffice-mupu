@@ -417,7 +417,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         (sum, s) => sum + (s.totalCommissionWithoutVAT ?? 0),
         0,
       );
-      const totalReceipts = b.Receipt.reduce((sum, r) => sum + r.amount, 0);
+      const totalReceipts = b.Receipt.reduce((sum, r) => {
+        const hasBase = r.base_amount != null && r.base_currency;
+        const val = hasBase ? Number(r.base_amount) : r.amount;
+        return sum + (Number.isFinite(val) ? val : 0);
+      }, 0);
       const debt = totalSale - totalReceipts;
       return { ...b, totalSale, totalCommission, debt };
     });

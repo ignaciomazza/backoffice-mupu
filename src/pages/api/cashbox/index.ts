@@ -516,10 +516,15 @@ async function getMonthlyMovements(
       ? `#${booking.id_booking} • ${booking.details}`.trim()
       : null;
 
-    const currency =
-      (r as { amount_currency?: string | null }).amount_currency ??
-      r.currency ??
-      "ARS";
+    const hasCounter =
+      (r as { counter_amount?: unknown }).counter_amount != null &&
+      (r as { counter_currency?: string | null }).counter_currency;
+    const currency = hasCounter
+      ? (r as { counter_currency?: string | null }).counter_currency ??
+        "ARS"
+      : (r as { amount_currency?: string | null }).amount_currency ??
+        r.currency ??
+        "ARS";
 
     return {
       id: `receipt:${r.id_receipt}`,
@@ -528,7 +533,11 @@ async function getMonthlyMovements(
       source: "receipt",
       description: r.concept ?? `Recibo ${r.receipt_number}`,
       currency,
-      amount: decimalToNumber(r.amount),
+      amount: hasCounter
+        ? decimalToNumber(
+            (r as { counter_amount?: DecimalLike | null }).counter_amount,
+          )
+        : decimalToNumber(r.amount),
       clientName,
       bookingLabel,
       dueDate: null,

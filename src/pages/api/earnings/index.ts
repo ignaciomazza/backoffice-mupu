@@ -152,18 +152,28 @@ export default async function handler(
       where: {
         bookingId_booking: { in: Array.from(saleTotalsByBooking.keys()) },
       },
-      select: { bookingId_booking: true, amount: true, amount_currency: true },
+      select: {
+        bookingId_booking: true,
+        amount: true,
+        amount_currency: true,
+        base_amount: true,
+        base_currency: true,
+      },
     });
 
     const receiptsMap = new Map<number, { ARS: number; USD: number }>();
     for (const r of allReceipts) {
       const bid = r.bookingId_booking;
       if (bid == null) continue; // evita TS2345 y casos sin booking
-      const cur = String(r.amount_currency || "ARS").toUpperCase();
+      const useBase = r.base_amount != null && r.base_currency;
+      const cur = String(
+        useBase ? r.base_currency : r.amount_currency || "ARS",
+      ).toUpperCase();
       if (cur !== "ARS" && cur !== "USD") continue;
       const prev = receiptsMap.get(bid) || { ARS: 0, USD: 0 };
       const k = cur as "ARS" | "USD";
-      prev[k] += Number(r.amount) || 0;
+      const val = Number(useBase ? r.base_amount : r.amount) || 0;
+      prev[k] += val;
       receiptsMap.set(bid, prev);
     }
 

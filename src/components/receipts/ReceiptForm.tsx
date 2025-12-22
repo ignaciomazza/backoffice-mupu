@@ -291,16 +291,32 @@ export default function ReceiptForm({
   const [freeCurrency, setFreeCurrency] = useState<CurrencyCode>(
     initialCurrency || "ARS",
   );
+  const [currencyTouched, setCurrencyTouched] = useState(
+    Boolean(initialCurrency),
+  );
 
   useEffect(() => {
-    if (!lockedCurrency && !initialCurrency && currenciesTyped.length) {
-      const firstEnabled =
-        currenciesTyped.find((c) => c.enabled)?.code || "ARS";
-      setFreeCurrency(firstEnabled);
-    }
-  }, [currenciesTyped, lockedCurrency, initialCurrency]);
+    if (lockedCurrency) return;
+    if (currencyTouched) return;
+    if (!currenciesTyped.length) return;
+    const firstEnabled = currenciesTyped.find((c) => c.enabled)?.code || "ARS";
+    setFreeCurrency(firstEnabled);
+  }, [currenciesTyped, lockedCurrency, currencyTouched]);
 
-  const effectiveCurrency: CurrencyCode = lockedCurrency || freeCurrency;
+  useEffect(() => {
+    if (!lockedCurrency) return;
+    if (currencyTouched) return;
+    setFreeCurrency(lockedCurrency);
+  }, [lockedCurrency, currencyTouched]);
+
+  const effectiveCurrency: CurrencyCode = freeCurrency;
+  const currencyOverride =
+    lockedCurrency != null && effectiveCurrency !== lockedCurrency;
+
+  const handleCurrencyChange = useCallback((next: CurrencyCode) => {
+    setFreeCurrency(next);
+    setCurrencyTouched(true);
+  }, []);
 
   const suggestions = useMemo(() => {
     if (!selectedServices.length) return null;
@@ -597,6 +613,12 @@ export default function ReceiptForm({
   const applySuggestedAmounts = () => {
     if (!suggestions) return;
 
+    if (currencyOverride && lockedCurrency) {
+      if (suggestions.base != null) setBaseAmount(String(suggestions.base));
+      if (!baseCurrency) setBaseCurrency(lockedCurrency);
+      return;
+    }
+
     if (suggestions.fee != null) {
       setFeeAmount(
         suggestions.fee.toLocaleString("es-AR", {
@@ -642,8 +664,14 @@ export default function ReceiptForm({
 
   const clientTotal = useMemo(() => {
     const base =
-      paymentsTotalNum > 0 ? paymentsTotalNum : (suggestions?.base ?? null);
-    const fee = parseAmountInput(feeAmount) ?? suggestions?.fee ?? null;
+      paymentsTotalNum > 0
+        ? paymentsTotalNum
+        : currencyOverride
+          ? null
+          : (suggestions?.base ?? null);
+    const fee =
+      parseAmountInput(feeAmount) ??
+      (currencyOverride ? null : suggestions?.fee ?? null);
     if (base === null && fee === null) return "";
     const total = (base ?? 0) + (fee ?? 0);
     if (!total || total <= 0) return "";
@@ -651,7 +679,7 @@ export default function ReceiptForm({
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
-  }, [paymentsTotalNum, feeAmount, suggestions]);
+  }, [paymentsTotalNum, feeAmount, suggestions, currencyOverride]);
 
   /* ===== Detalle de pago para PDF ===== */
   const [paymentDescription, setPaymentDescription] = useState("");
@@ -823,16 +851,30 @@ export default function ReceiptForm({
   const [amountWords, setAmountWords] = useState("");
   const [amountWordsISO, setAmountWordsISO] = useState("");
 
-  useEffect(() => {
-    if (!amountWordsISO && effectiveCurrency)
-      setAmountWordsISO(effectiveCurrency);
-  }, [amountWordsISO, effectiveCurrency]);
-
   /* ===== Conversión (opcional) ===== */
   const [baseAmount, setBaseAmount] = useState("");
   const [baseCurrency, setBaseCurrency] = useState("");
   const [counterAmount, setCounterAmount] = useState("");
   const [counterCurrency, setCounterCurrency] = useState("");
+
+  useEffect(() => {
+    if (!lockedCurrency) return;
+    setBaseCurrency((prev) => prev || lockedCurrency);
+  }, [lockedCurrency]);
+
+  useEffect(() => {
+    if (!currencyOverride) return;
+    setCounterCurrency((prev) => prev || effectiveCurrency);
+  }, [currencyOverride, effectiveCurrency]);
+
+  useEffect(() => {
+    if (amountWordsISO) return;
+    if (currencyOverride && baseCurrency) {
+      setAmountWordsISO(baseCurrency);
+      return;
+    }
+    if (effectiveCurrency) setAmountWordsISO(effectiveCurrency);
+  }, [amountWordsISO, baseCurrency, currencyOverride, effectiveCurrency]);
 
   /* ===== Attach search ===== */
   const attachSearchEnabled = attachEnabled && action === "attach";
@@ -900,11 +942,33 @@ export default function ReceiptForm({
       });
     }
 
-    const total = paymentsTotalNum || suggestions?.base || 0;
+    const total =
+      paymentsTotalNum ||
+      (currencyOverride ? 0 : suggestions?.base || 0);
     if (!total || total <= 0)
       e.amount = "El total es inválido. Cargá importes o usá el sugerido.";
 
     if (!effectiveCurrency) e.currency = "Elegí una moneda.";
+    if (currencyOverride) {
+      const baseNum = parseAmountInput(baseAmount);
+      if (!baseNum || baseNum <= 0) {
+        e.base = "Ingresá un valor base válido.";
+      } else if (!baseCurrency) {
+        e.base = "Elegí la moneda del valor base.";
+      } else if (lockedCurrency && baseCurrency !== lockedCurrency) {
+        e.base = `La moneda base debe ser ${lockedCurrency}.`;
+      }
+    }
+
+    const counterNum = parseAmountInput(counterAmount);
+    if (counterAmount.trim() !== "" || counterCurrency) {
+      if (!counterNum || counterNum <= 0) {
+        e.counter = "Ingresá un contravalor válido.";
+      } else if (!counterCurrency) {
+        e.counter = "Elegí la moneda del contravalor.";
+      }
+    }
+
     if (!amountWords.trim()) e.amountWords = "Ingresá el importe en palabras.";
     if (!amountWordsISO) e.amountWordsISO = "Elegí la moneda del texto.";
     if (!paymentDescription.trim())
@@ -989,7 +1053,11 @@ export default function ReceiptForm({
 
     let finalAmount = normalizedPayments.reduce((acc, p) => acc + p.amount, 0);
 
-    if ((!finalAmount || finalAmount <= 0) && suggestions?.base != null) {
+    if (
+      (!finalAmount || finalAmount <= 0) &&
+      !currencyOverride &&
+      suggestions?.base != null
+    ) {
       finalAmount = suggestions.base;
     }
 
@@ -1025,6 +1093,27 @@ export default function ReceiptForm({
           accountsTyped.find((a) => a.id_account === single.account_id)?.name
         : undefined;
 
+    const baseAmountNum = parseAmountInput(baseAmount);
+    const counterAmountNum = parseAmountInput(counterAmount);
+    const baseAmountValid = baseAmountNum != null && baseAmountNum > 0;
+    const counterAmountValid = counterAmountNum != null && counterAmountNum > 0;
+    const baseReady = baseAmountValid && !!baseCurrency;
+    const useConversion = currencyOverride && baseReady;
+
+    const payloadBaseAmount = baseReady ? baseAmountNum : undefined;
+    const payloadBaseCurrency = baseReady ? baseCurrency || undefined : undefined;
+
+    const payloadCounterAmount = counterAmountValid
+      ? counterAmountNum
+      : useConversion
+        ? finalAmount
+        : undefined;
+    const payloadCounterCurrency = counterAmountValid
+      ? counterCurrency || undefined
+      : useConversion
+        ? effectiveCurrency
+        : undefined;
+
     const apiBody: ReceiptPayload = {
       ...(mode === "booking" && selectedBookingId
         ? {
@@ -1056,16 +1145,10 @@ export default function ReceiptForm({
 
       currency: paymentDescription?.trim() || undefined,
 
-      base_amount:
-        baseAmount.trim() !== "" && !isNaN(Number(baseAmount))
-          ? Number(baseAmount)
-          : undefined,
-      base_currency: baseCurrency || undefined,
-      counter_amount:
-        counterAmount.trim() !== "" && !isNaN(Number(counterAmount))
-          ? Number(counterAmount)
-          : undefined,
-      counter_currency: counterCurrency || undefined,
+      base_amount: payloadBaseAmount,
+      base_currency: payloadBaseCurrency,
+      counter_amount: payloadCounterAmount,
+      counter_currency: payloadCounterCurrency,
     };
 
     setSubmitting(true);
@@ -1256,8 +1339,9 @@ export default function ReceiptForm({
                   loadingPicks={loadingPicks}
                   currencies={currenciesTyped}
                   freeCurrency={freeCurrency}
-                  setFreeCurrency={setFreeCurrency}
+                  setFreeCurrency={handleCurrencyChange}
                   effectiveCurrency={effectiveCurrency}
+                  currencyOverride={currencyOverride}
                   suggestions={suggestions}
                   applySuggestedAmounts={applySuggestedAmounts}
                   formatNum={formatNum}

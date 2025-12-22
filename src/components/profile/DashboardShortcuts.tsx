@@ -278,8 +278,11 @@ export default function DashboardShortcuts() {
   const sumReceipts = (receipts: Booking["Receipt"]) =>
     receipts.reduce<Record<"ARS" | "USD", number>>(
       (acc, r) => {
-        if (r.counter_currency && r.counter_amount != null) {
-          acc[r.counter_currency] += toNum(r.counter_amount);
+        if (r.base_currency && r.base_amount != null) {
+          const cur = String(r.base_currency).toUpperCase();
+          if (cur === "ARS" || cur === "USD") {
+            acc[cur] += toNum(r.base_amount);
+          }
         } else {
           acc[r.amount_currency] += toNum(r.amount);
         }

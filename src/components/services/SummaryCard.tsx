@@ -337,11 +337,13 @@ export default function SummaryCard({
     return receipts.reduce<Record<string, number>>((acc, raw) => {
       const r = raw as ReceiptWithConversion;
 
+      const baseCur = r.base_currency
+        ? normalizeCurrencyCode(String(r.base_currency))
+        : null;
+      const baseVal = toNum(r.base_amount ?? 0);
+
       const amountCur = r.amount_currency
         ? normalizeCurrencyCode(String(r.amount_currency))
-        : null;
-      const counterCur = r.counter_currency
-        ? normalizeCurrencyCode(String(r.counter_currency))
         : null;
 
       // Si no viene moneda del fee, asumimos que es la misma que la del pago
@@ -349,15 +351,14 @@ export default function SummaryCard({
       const feeCur =
         feeCurRaw && String(feeCurRaw).trim() !== ""
           ? normalizeCurrencyCode(String(feeCurRaw))
-          : (counterCur ?? amountCur);
+          : (amountCur ?? baseCur);
 
       const amountVal = toNum(r.amount ?? 0);
-      const counterVal = toNum(r.counter_amount ?? 0);
       const feeVal = toNum(r.payment_fee_amount ?? 0);
 
-      if (counterCur) {
-        const cur = counterCur;
-        const val = counterVal + (feeCur === cur ? feeVal : 0);
+      if (baseCur) {
+        const cur = baseCur;
+        const val = baseVal + (feeCur === cur ? feeVal : 0);
         if (val) acc[cur] = (acc[cur] || 0) + val;
       } else if (amountCur) {
         const cur = amountCur;
