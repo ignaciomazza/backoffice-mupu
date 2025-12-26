@@ -1,7 +1,7 @@
 // src/app/finance/config/page.tsx
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
@@ -189,7 +189,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "commissions", label: "Comisiones" },
 ];
 
-export default function FinanceConfigPage() {
+function FinanceConfigPageInner() {
   const { token } = useAuth();
   const searchParams = useSearchParams();
   const [agencyId, setAgencyId] = useState<number | null>(null);
@@ -201,6 +201,7 @@ export default function FinanceConfigPage() {
   const [savingGeneral, setSavingGeneral] = useState(false);
 
   useEffect(() => {
+    if (!searchParams) return;
     const tab = searchParams.get("tab");
     if (!tab) return;
     const normalized = tab.toLowerCase();
@@ -1696,5 +1697,19 @@ export default function FinanceConfigPage() {
         <ToastContainer position="bottom-right" />
       </section>
     </ProtectedRoute>
+  );
+}
+
+export default function FinanceConfigPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-[60vh]">
+          <Spinner />
+        </div>
+      }
+    >
+      <FinanceConfigPageInner />
+    </Suspense>
   );
 }
