@@ -1,11 +1,70 @@
 // src/components/invoices/InvoiceForm.tsx
 "use client";
-import { motion } from "framer-motion";
-import { useState, useEffect, useMemo, useRef } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
 import Spinner from "@/components/Spinner";
 import { Client, Service } from "@/types";
 import ClientPicker from "@/components/clients/ClientPicker";
 import { authFetch } from "@/utils/authFetch";
+import { toast } from "react-toastify";
+
+const Section = ({
+  title,
+  desc,
+  children,
+}: {
+  title: string;
+  desc?: string;
+  children: ReactNode;
+}) => (
+  <section className="rounded-2xl border border-white/10 bg-white/10 p-4">
+    <div className="mb-3">
+      <h3 className="text-base font-semibold tracking-tight text-sky-950 dark:text-white">
+        {title}
+      </h3>
+      {desc && (
+        <p className="mt-1 text-xs font-light text-sky-950/70 dark:text-white/70">
+          {desc}
+        </p>
+      )}
+    </div>
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">{children}</div>
+  </section>
+);
+
+const Field = ({
+  id,
+  label,
+  hint,
+  required,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  required?: boolean;
+  children: ReactNode;
+}) => (
+  <div className="space-y-1">
+    <label
+      htmlFor={id}
+      className="ml-1 block text-sm font-medium text-sky-950 dark:text-white"
+    >
+      {label} {required && <span className="text-rose-600">*</span>}
+    </label>
+    {children}
+    {hint && (
+      <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">{hint}</p>
+    )}
+  </div>
+);
+
+const pillBase = "rounded-full px-3 py-1 text-xs font-medium transition-colors";
+const pillNeutral = "bg-white/30 dark:bg-white/10";
+const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
+
+const inputBase =
+  "w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10 dark:text-white";
 
 export type InvoiceFormData = {
   tipoFactura: string;
@@ -33,6 +92,8 @@ interface InvoiceFormProps {
   ) => void;
   isSubmitting: boolean;
   token?: string | null;
+  collapsible?: boolean;
+  containerClassName?: string;
 }
 
 export default function InvoiceForm({
@@ -45,7 +106,11 @@ export default function InvoiceForm({
   updateFormData,
   isSubmitting,
   token,
+  collapsible = true,
+  containerClassName = "",
 }: InvoiceFormProps) {
+  const showForm = collapsible ? isFormVisible : true;
+
   /* ========= Cotización (lazy con cache TTL) ========= */
   const [fetchedExchangeRate, setFetchedExchangeRate] = useState<string>("");
   const [rateStatus, setRateStatus] = useState<
@@ -230,319 +295,480 @@ export default function InvoiceForm({
   dMax.setDate(dMax.getDate() + 8);
   const maxDate = `${dMax.getFullYear()}-${pad(dMax.getMonth() + 1)}-${pad(dMax.getDate())}`;
 
-  const input =
-    "w-full appearance-none bg-white/50 rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
+  const invoiceTypeLabel =
+    formData.tipoFactura === "1"
+      ? "Factura A"
+      : formData.tipoFactura === "6"
+        ? "Factura B"
+        : "";
+
+  const selectedClientsCount = useMemo(
+    () =>
+      (formData.clientIds || []).filter((v) => String(v || "").trim()).length,
+    [formData.clientIds],
+  );
+
+  const formatDateLabel = (raw?: string) => {
+    if (!raw) return "";
+    const d = new Date(`${raw}T00:00:00`);
+    return Number.isNaN(d.getTime())
+      ? raw
+      : d.toLocaleDateString("es-AR", { timeZone: "UTC" });
+  };
+
+  const headerPills = useMemo(() => {
+    const pills: JSX.Element[] = [];
+    if (invoiceTypeLabel) {
+      pills.push(
+        <span key="type" className={`${pillBase} ${pillOk}`}>
+          {invoiceTypeLabel}
+        </span>,
+      );
+    }
+    if (selectedClientsCount > 0) {
+      pills.push(
+        <span key="clients" className={`${pillBase} ${pillNeutral}`}>
+          Clientes: {selectedClientsCount}
+        </span>,
+      );
+    }
+    if (selectedServiceIds.length > 0) {
+      pills.push(
+        <span key="services" className={`${pillBase} ${pillNeutral}`}>
+          Servicios: {selectedServiceIds.length}
+        </span>,
+      );
+    }
+    if (formData.invoiceDate) {
+      pills.push(
+        <span key="date" className={`${pillBase} ${pillNeutral}`}>
+          {formatDateLabel(formData.invoiceDate)}
+        </span>,
+      );
+    }
+    if (formData.exchangeRate?.trim()) {
+      pills.push(
+        <span key="rate" className={`${pillBase} ${pillNeutral}`}>
+          TC {formData.exchangeRate}
+        </span>,
+      );
+    }
+    return pills;
+  }, [
+    invoiceTypeLabel,
+    selectedClientsCount,
+    selectedServiceIds.length,
+    formData.invoiceDate,
+    formData.exchangeRate,
+  ]);
+
+  const hasDescriptionFields = useMemo(
+    () =>
+      selectedServices.some(
+        (svc) =>
+          (svc?.vatOnCommission21 ?? 0) > 0 ||
+          (svc?.vatOnCommission10_5 ?? 0) > 0 ||
+          (svc?.nonComputable ?? 0) > 0,
+      ),
+    [selectedServices],
+  );
 
   return (
     <motion.div
       layout
-      initial={{ maxHeight: 100, opacity: 1 }}
+      initial={{ maxHeight: 96, opacity: 1 }}
       animate={{
-        maxHeight: isFormVisible ? 1000 : 100,
+        maxHeight: showForm ? 1400 : 96,
         opacity: 1,
-        transition: { duration: 0.4, ease: "easeInOut" },
+        transition: { duration: 0.35, ease: "easeInOut" },
       }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
+      className={`mb-6 overflow-auto rounded-3xl border border-white/10 bg-white/10 text-sky-950 shadow-md shadow-sky-950/10 dark:text-white ${containerClassName}`}
     >
       <div
-        className="flex cursor-pointer items-center justify-between"
-        onClick={() => setIsFormVisible(!isFormVisible)}
+        className={`sticky top-0 z-10 ${showForm ? "rounded-t-3xl border-b" : ""} border-white/10 px-4 py-3 backdrop-blur-sm`}
       >
-        <p className="text-lg font-medium dark:text-white">
-          {isFormVisible ? "Cerrar Formulario" : "Crear Factura"}
-        </p>
-        <button className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white">
-          {isFormVisible ? (
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="size-6"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
-            </svg>
-          ) : (
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="size-6"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 4.5v15m7.5-7.5h-15"
-              />
-            </svg>
-          )}
-        </button>
+        {collapsible ? (
+          <button
+            type="button"
+            onClick={() => setIsFormVisible(!isFormVisible)}
+            className="flex w-full items-center justify-between text-left"
+            aria-expanded={showForm}
+            aria-controls="invoice-form-body"
+          >
+            <div className="flex items-center gap-3">
+              <div className="grid size-9 place-items-center rounded-full bg-sky-100 text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white">
+                {showForm ? (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="size-5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.6}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M5 12h14"
+                    />
+                  </svg>
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="size-5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.6}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 4.5v15m7.5-7.5h-15"
+                    />
+                  </svg>
+                )}
+              </div>
+              <div>
+                <p className="text-lg font-semibold">
+                  {showForm ? "Factura" : "Crear factura"}
+                </p>
+                <p className="text-xs opacity-70">
+                  Seleccioná clientes y servicios.
+                </p>
+              </div>
+            </div>
+            <div className="hidden items-center gap-2 md:flex">
+              {headerPills}
+            </div>
+          </button>
+        ) : (
+          <div className="flex w-full items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="grid size-9 place-items-center rounded-full bg-sky-100 text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="size-5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.6}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M5 12h14"
+                  />
+                </svg>
+              </div>
+              <div>
+                <p className="text-lg font-semibold">Factura</p>
+                <p className="text-xs opacity-70">
+                  Seleccioná clientes y servicios.
+                </p>
+              </div>
+            </div>
+            <div className="hidden items-center gap-2 md:flex">
+              {headerPills}
+            </div>
+          </div>
+        )}
       </div>
 
-      {isFormVisible && (
-        <motion.form
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onSubmit={(e) => {
-            e.preventDefault();
-            const hasClients = (formData.clientIds || []).some(
-              (v) => v && v.trim(),
-            );
-            const hasServices = selectedServiceIds.length > 0;
-            if (!formData.tipoFactura || !hasClients || !hasServices) {
-              alert(
-                "Completá tipo de factura, al menos un cliente y al menos un servicio.",
+      <AnimatePresence initial={false}>
+        {showForm && (
+          <motion.form
+            id="invoice-form-body"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              const hasClients = (formData.clientIds || []).some(
+                (v) => v && v.trim(),
               );
-              return;
-            }
-            handleSubmit(e);
-          }}
-          className="max-h-[800px] space-y-3 overflow-y-auto py-2"
-        >
-          {/* Tipo de factura */}
-          <div>
-            <label className="ml-2 block dark:text-white">
-              Tipo de Factura
-            </label>
-            <select
-              name="tipoFactura"
-              value={formData.tipoFactura}
-              onChange={handleChange}
-              className={`${input} cursor-pointer appearance-none`}
-              required
-            >
-              <option value="">Seleccionar</option>
-              <option value="1">Factura A</option>
-              <option value="6">Factura B</option>
-            </select>
-          </div>
-
-          {/* Fecha */}
-          <div>
-            <label className="ml-2 block dark:text-white">
-              Fecha de Factura
-            </label>
-            <input
-              type="date"
-              name="invoiceDate"
-              value={formData.invoiceDate || ""}
-              onChange={handleChange}
-              min={minDate}
-              max={maxDate}
-              className={input}
-              required
-            />
-          </div>
-
-          {/* Clientes */}
-          <div>
-            <label className="ml-2 block dark:text-white">
-              Cantidad de Clientes
-            </label>
-            <input
-              type="number"
-              value={clientCount}
-              min={1}
-              onChange={(e) => setClientCount(Number(e.target.value))}
-              placeholder="Cantidad de clientes..."
-              className={input}
-            />
-          </div>
-
-          {Array.from({ length: clientCount }).map((_, idx) => (
-            <div key={idx}>
-              <ClientPicker
-                token={token}
-                label={`Cliente ${idx + 1}`}
-                placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
-                valueId={
-                  formData.clientIds?.[idx]
-                    ? parseInt(formData.clientIds[idx]!, 10)
-                    : null
-                }
-                excludeIds={excludeForIndex(idx)}
-                onSelect={(c) => setClientAt(idx, c)}
-                onClear={() => setClientAt(idx, null)}
-                required
-              />
-            </div>
-          ))}
-
-          {/* Servicios */}
-          <div>
-            <label className="ml-2 block dark:text-white">
-              Servicios de la reserva
-            </label>
-            {availableServices.length === 0 ? (
-              <div className="mt-2 rounded-2xl border border-white/10 bg-white/10 p-3 text-sm opacity-80">
-                Esta reserva no tiene servicios cargados.
-              </div>
-            ) : (
-              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                {availableServices.map((svc) => {
-                  const isActive = selectedServiceIds.includes(svc.id_service);
-                  return (
-                    <button
-                      type="button"
-                      key={svc.id_service}
-                      onClick={() => toggleService(svc)}
-                      className={`rounded-2xl border p-3 text-left transition-all ${
-                        isActive
-                          ? "border-sky-300/40 bg-sky-100 text-sky-950 shadow-sm dark:bg-white/10 dark:text-white"
-                          : "border-white/10 bg-white/10 hover:bg-white/20 dark:border-white/10 dark:bg-white/10"
-                      }`}
-                      title={`Servicio N° ${svc.id_service}`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="text-sm font-medium">
-                          #{svc.id_service} · {svc.type}
-                          {svc.destination ? ` · ${svc.destination}` : ""}
-                        </div>
-                        {isActive && (
-                          <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs text-sky-900 dark:bg-white/20 dark:text-white">
-                            seleccionado
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-1 text-sm opacity-80">
-                        <b>Venta:</b>{" "}
-                        {new Intl.NumberFormat("es-AR", {
-                          style: "currency",
-                          currency: svc.currency || "ARS",
-                          minimumFractionDigits: 2,
-                        }).format(
-                          (svc.sale_price ?? 0) + (svc.card_interest ?? 0),
-                        )}
-                        <span className="opacity-70">
-                          {" "}
-                          ({svc.currency || "ARS"})
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {selectedServices.length > 0 && (
-              <div className="ml-2 mt-2 text-xs opacity-70">
-                Seleccionados:{" "}
-                {selectedServices.map((s) => `N° ${s.id_service}`).join(", ")}
-              </div>
-            )}
-          </div>
-
-          {/* Descripciones por servicio */}
-          {selectedServices.map((svc, idx) => (
-            <div key={svc.id_service} className="space-y-2">
-              <div className="ml-2 text-sm font-medium opacity-80">
-                Detalles del servicio #{svc.id_service}
-              </div>
-
-              <div className="flex w-full flex-col gap-2 md:flex-row">
-                {(svc?.vatOnCommission21 ?? 0) > 0 && (
-                  <div className="md:basis-1/2">
-                    <label className="ml-2 block dark:text-white">
-                      Descripción IVA 21% (servicio {idx + 1})
-                    </label>
-                    <input
-                      type="text"
-                      value={desc21[idx] || ""}
-                      onChange={(e) => {
-                        const arr = [...desc21];
-                        arr[idx] = e.target.value;
-                        updateFormData("description21", arr);
-                      }}
-                      placeholder="Ej: Excursión guiada 21%"
-                      className={input}
-                    />
-                  </div>
-                )}
-
-                {(svc?.vatOnCommission10_5 ?? 0) > 0 && (
-                  <div className="md:basis-1/2">
-                    <label className="ml-2 block dark:text-white">
-                      Descripción IVA 10.5% (servicio {idx + 1})
-                    </label>
-                    <input
-                      type="text"
-                      value={desc10[idx] || ""}
-                      onChange={(e) => {
-                        const arr = [...desc10];
-                        arr[idx] = e.target.value;
-                        updateFormData("description10_5", arr);
-                      }}
-                      placeholder="Ej: Servicio terrestre 10.5%"
-                      className={input}
-                    />
-                  </div>
-                )}
-
-                {(svc?.nonComputable ?? 0) > 0 && (
-                  <div className="md:basis-1/2">
-                    <label className="ml-2 block dark:text-white">
-                      Descripción No Computable
-                    </label>
-                    <input
-                      type="text"
-                      value={descNon[idx] || ""}
-                      onChange={(e) => {
-                        const arr = [...descNon];
-                        arr[idx] = e.target.value;
-                        updateFormData("descriptionNonComputable", arr);
-                      }}
-                      placeholder="Ej: Cargo no computable"
-                      className={input}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {/* Cotización (opcional) */}
-          <div>
-            <label className="ml-2 block dark:text-white">
-              Cotización del dólar (opcional)
-            </label>
-            <input
-              type="text"
-              name="exchangeRate"
-              value={formData.exchangeRate || ""}
-              onChange={handleChange}
-              placeholder={
-                rateStatus === "loading"
-                  ? "Cargando cotización..."
-                  : fetchedExchangeRate
-                    ? `Cotización: ${fetchedExchangeRate}`
-                    : "Cotización actual"
+              const hasServices = selectedServiceIds.length > 0;
+              if (!formData.tipoFactura || !hasClients || !hasServices) {
+                toast.error(
+                  "Completá tipo de factura, al menos un cliente y un servicio.",
+                );
+                return;
               }
-              className={input}
-            />
-            {rateStatus === "loading" && (
-              <div className="ml-2 mt-1 text-xs opacity-70">
-                <Spinner />
-              </div>
-            )}
-            {rateStatus === "ok" && fetchedExchangeRate && (
-              <div className="ml-2 mt-1 text-xs opacity-70">
-                Cotización detectada: {fetchedExchangeRate}
-              </div>
-            )}
-          </div>
-
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="mt-4 rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+              handleSubmit(e);
+            }}
+            className="space-y-5 px-4 pb-6 pt-4 md:px-6"
           >
-            {isSubmitting ? <Spinner /> : "Crear Factura"}
-          </button>
-        </motion.form>
-      )}
+            <Section title="Comprobante" desc="Definí tipo y fecha de emisión.">
+              <Field id="tipoFactura" label="Tipo de factura" required>
+                <select
+                  id="tipoFactura"
+                  name="tipoFactura"
+                  value={formData.tipoFactura}
+                  onChange={handleChange}
+                  className={`${inputBase} cursor-pointer appearance-none`}
+                  required
+                >
+                  <option value="">Seleccionar</option>
+                  <option value="1">Factura A</option>
+                  <option value="6">Factura B</option>
+                </select>
+              </Field>
+
+              <Field id="invoiceDate" label="Fecha de factura" required>
+                <input
+                  id="invoiceDate"
+                  type="date"
+                  name="invoiceDate"
+                  value={formData.invoiceDate || ""}
+                  onChange={handleChange}
+                  min={minDate}
+                  max={maxDate}
+                  className={inputBase}
+                  required
+                />
+              </Field>
+            </Section>
+
+            <Section title="Clientes" desc="Agregá uno o más destinatarios.">
+              <Field id="clientCount" label="Cantidad de clientes" required>
+                <input
+                  id="clientCount"
+                  type="number"
+                  value={clientCount}
+                  min={1}
+                  onChange={(e) =>
+                    setClientCount(Math.max(1, Number(e.target.value) || 1))
+                  }
+                  placeholder="Cantidad de clientes..."
+                  className={inputBase}
+                />
+              </Field>
+
+              <div className="grid grid-cols-1 gap-3 md:col-span-2">
+                {Array.from({ length: clientCount }).map((_, idx) => (
+                  <div key={idx}>
+                    <ClientPicker
+                      token={token}
+                      label={`Cliente ${idx + 1}`}
+                      placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
+                      valueId={
+                        formData.clientIds?.[idx]
+                          ? parseInt(formData.clientIds[idx]!, 10)
+                          : null
+                      }
+                      excludeIds={excludeForIndex(idx)}
+                      onSelect={(c) => setClientAt(idx, c)}
+                      onClear={() => setClientAt(idx, null)}
+                      required
+                    />
+                  </div>
+                ))}
+              </div>
+            </Section>
+
+            <Section
+              title="Servicios"
+              desc="Seleccioná los servicios de la reserva."
+            >
+              <div className="md:col-span-2">
+                {availableServices.length === 0 ? (
+                  <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sm opacity-80">
+                    Esta reserva no tiene servicios cargados.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    {availableServices.map((svc) => {
+                      const isActive = selectedServiceIds.includes(
+                        svc.id_service,
+                      );
+                      return (
+                        <button
+                          type="button"
+                          key={svc.id_service}
+                          onClick={() => toggleService(svc)}
+                          className={`rounded-2xl border p-3 text-left transition-all ${
+                            isActive
+                              ? "border-sky-300/40 bg-sky-100 text-sky-950 shadow-sm dark:bg-white/10 dark:text-white"
+                              : "border-white/10 bg-white/10 hover:bg-white/20 dark:border-white/10 dark:bg-white/10"
+                          }`}
+                          title={`Servicio N° ${svc.id_service}`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="text-sm font-medium">
+                              #{svc.id_service} · {svc.type}
+                              {svc.destination ? ` · ${svc.destination}` : ""}
+                            </div>
+                            {isActive && (
+                              <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs text-sky-900 dark:bg-white/20 dark:text-white">
+                                seleccionado
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-1 text-sm opacity-80">
+                            <b>Venta:</b>{" "}
+                            {new Intl.NumberFormat("es-AR", {
+                              style: "currency",
+                              currency: svc.currency || "ARS",
+                              minimumFractionDigits: 2,
+                            }).format(
+                              (svc.sale_price ?? 0) + (svc.card_interest ?? 0),
+                            )}
+                            <span className="opacity-70">
+                              {" "}
+                              ({svc.currency || "ARS"})
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {selectedServices.length > 0 ? (
+                  <div className="ml-1 mt-2 text-xs text-sky-950/70 dark:text-white/70">
+                    Seleccionados:{" "}
+                    {selectedServices
+                      .map((s) => `N° ${s.id_service}`)
+                      .join(", ")}
+                  </div>
+                ) : availableServices.length > 0 ? (
+                  <div className="ml-1 mt-2 text-xs text-amber-700 dark:text-amber-200">
+                    Seleccioná al menos un servicio para emitir la factura.
+                  </div>
+                ) : null}
+              </div>
+            </Section>
+
+            {hasDescriptionFields && (
+              <Section
+                title="Descripciones por servicio"
+                desc="Solo aplica a servicios con conceptos impositivos."
+              >
+                <div className="space-y-3 md:col-span-2">
+                  {selectedServices.map((svc, idx) => (
+                    <div
+                      key={svc.id_service}
+                      className="rounded-2xl border border-white/10 bg-white/5 p-3"
+                    >
+                      <div className="text-sm font-medium text-sky-950 dark:text-white">
+                        Servicio #{svc.id_service}
+                      </div>
+                      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                        {(svc?.vatOnCommission21 ?? 0) > 0 && (
+                          <Field
+                            id={`desc21-${svc.id_service}`}
+                            label={`Descripción IVA 21% (servicio ${idx + 1})`}
+                          >
+                            <input
+                              id={`desc21-${svc.id_service}`}
+                              type="text"
+                              value={desc21[idx] || ""}
+                              onChange={(e) => {
+                                const arr = [...desc21];
+                                arr[idx] = e.target.value;
+                                updateFormData("description21", arr);
+                              }}
+                              placeholder="Ej: Excursión guiada 21%"
+                              className={inputBase}
+                            />
+                          </Field>
+                        )}
+
+                        {(svc?.vatOnCommission10_5 ?? 0) > 0 && (
+                          <Field
+                            id={`desc10-${svc.id_service}`}
+                            label={`Descripción IVA 10.5% (servicio ${idx + 1})`}
+                          >
+                            <input
+                              id={`desc10-${svc.id_service}`}
+                              type="text"
+                              value={desc10[idx] || ""}
+                              onChange={(e) => {
+                                const arr = [...desc10];
+                                arr[idx] = e.target.value;
+                                updateFormData("description10_5", arr);
+                              }}
+                              placeholder="Ej: Servicio terrestre 10.5%"
+                              className={inputBase}
+                            />
+                          </Field>
+                        )}
+
+                        {(svc?.nonComputable ?? 0) > 0 && (
+                          <Field
+                            id={`descNon-${svc.id_service}`}
+                            label="Descripción No Computable"
+                          >
+                            <input
+                              id={`descNon-${svc.id_service}`}
+                              type="text"
+                              value={descNon[idx] || ""}
+                              onChange={(e) => {
+                                const arr = [...descNon];
+                                arr[idx] = e.target.value;
+                                updateFormData("descriptionNonComputable", arr);
+                              }}
+                              placeholder="Ej: Cargo no computable"
+                              className={inputBase}
+                            />
+                          </Field>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            <Section
+              title="Cotización"
+              desc="Completá solo si la factura se emite en USD."
+            >
+              <Field id="exchangeRate" label="Cotización del dólar (opcional)">
+                <input
+                  id="exchangeRate"
+                  type="text"
+                  name="exchangeRate"
+                  value={formData.exchangeRate || ""}
+                  onChange={handleChange}
+                  placeholder={
+                    rateStatus === "loading"
+                      ? "Cargando cotización..."
+                      : fetchedExchangeRate
+                        ? `Cotización: ${fetchedExchangeRate}`
+                        : "Cotización actual"
+                  }
+                  className={inputBase}
+                />
+                {rateStatus === "loading" && (
+                  <div className="ml-1 mt-1 text-xs opacity-70">
+                    <Spinner />
+                  </div>
+                )}
+                {rateStatus === "ok" && fetchedExchangeRate && (
+                  <div className="ml-1 mt-1 text-xs opacity-70">
+                    Cotización detectada: {fetchedExchangeRate}
+                  </div>
+                )}
+              </Field>
+            </Section>
+
+            <div className="sticky bottom-2 z-10 flex justify-end">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                aria-busy={isSubmitting}
+                className={`rounded-full px-6 py-2 shadow-sm shadow-sky-950/20 transition active:scale-[0.98] ${
+                  isSubmitting
+                    ? "cursor-not-allowed bg-sky-950/20 text-white/60 dark:bg-white/5 dark:text-white/40"
+                    : "bg-sky-100 text-sky-950 dark:bg-white/10 dark:text-white"
+                }`}
+              >
+                {isSubmitting ? <Spinner /> : "Crear factura"}
+              </button>
+            </div>
+          </motion.form>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

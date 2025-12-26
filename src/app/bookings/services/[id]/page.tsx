@@ -183,7 +183,7 @@ export default function ServicesPage() {
       invoiceDate: "",
     });
 
-  const [isCreditNoteFormVisible, setIsCreditNoteFormVisible] = useState(false);
+  const [isBillingFormVisible, setIsBillingFormVisible] = useState(false);
   const [isCreditNoteSubmitting, setIsCreditNoteSubmitting] = useState(false);
 
   const [editingServiceId, setEditingServiceId] = useState<number | null>(null);
@@ -192,7 +192,6 @@ export default function ServicesPage() {
   );
   const [loading, setLoading] = useState(false);
   const [isFormVisible, setIsFormVisible] = useState(false);
-  const [isInvoiceFormVisible, setIsInvoiceFormVisible] = useState(false);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
 
   const mountedRef = useRef(true);
@@ -600,7 +599,7 @@ export default function ServicesPage() {
           exchangeRate: "",
           invoiceDate: "",
         });
-        setIsCreditNoteFormVisible(false);
+        setIsBillingFormVisible(false);
       } else {
         toast.error(
           (result as { message?: string }).message ||
@@ -748,7 +747,7 @@ export default function ServicesPage() {
           expandedServiceId={expandedServiceId}
           loading={loading}
           isFormVisible={isFormVisible}
-          isInvoiceFormVisible={isInvoiceFormVisible}
+          isBillingFormVisible={isBillingFormVisible}
           handleChange={handleChange}
           handleInvoiceChange={handleInvoiceChange}
           updateFormData={updateInvoiceFormData}
@@ -760,14 +759,12 @@ export default function ServicesPage() {
           setIsFormVisible={setIsFormVisible}
           setFormData={setFormData}
           setExpandedServiceId={setExpandedServiceId}
-          setIsInvoiceFormVisible={setIsInvoiceFormVisible}
+          setIsBillingFormVisible={setIsBillingFormVisible}
           isSubmitting={invoiceLoading}
           onBillingUpdate={handleBillingUpdate}
           role={userRole}
           onBookingUpdated={handleBookingUpdated}
           creditNoteFormData={creditNoteFormData}
-          isCreditNoteFormVisible={isCreditNoteFormVisible}
-          setIsCreditNoteFormVisible={setIsCreditNoteFormVisible}
           handleCreditNoteChange={handleCreditNoteChange}
           updateCreditNoteFormData={updateCreditNoteFormData}
           handleCreditNoteSubmit={handleCreditNoteSubmit}

@@ -8,6 +8,8 @@ interface SidebarProps {
   menuOpen: boolean;
   closeMenu: () => void;
   currentPath: string;
+  collapsed: boolean;
+  toggleCollapsed: () => void;
 }
 
 type Role =
@@ -77,12 +79,21 @@ export default function SideBar({
   menuOpen,
   closeMenu,
   currentPath,
+  collapsed,
+  toggleCollapsed,
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false);
   const [role, setRole] = useState<Role | "">("");
 
   // Para abortar si desmonta mientras pedimos el rol
   const fetchingRef = useRef(false);
+  const refreshRole = useCallback(async () => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    const r = await fetchRoleFromApis();
+    setRole(r || "");
+    fetchingRef.current = false;
+  }, []);
 
   useEffect(() => setMounted(true), []);
 
@@ -94,24 +105,22 @@ export default function SideBar({
       return;
     }
     // Si no hay cookie, consultamos APIs
-    if (fetchingRef.current) return;
-    fetchingRef.current = true;
-    void (async () => {
-      const r = await fetchRoleFromApis();
-      setRole(r || "");
-      fetchingRef.current = false;
-    })();
-  }, []);
+    void refreshRole();
+  }, [refreshRole]);
 
   // Releer cookie al volver el foco (por si cambió en otra pestaña)
   useEffect(() => {
     const onFocus = () => {
       const cookieRole = normalizeRole(getCookie("role"));
-      if ((cookieRole || "") !== (role || "")) setRole(cookieRole);
+      if (cookieRole) {
+        if (cookieRole !== role) setRole(cookieRole);
+        return;
+      }
+      if (!role) void refreshRole();
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [role]);
+  }, [refreshRole, role]);
 
   // =========================
   // ACL por ruta (más simple)
@@ -120,6 +129,7 @@ export default function SideBar({
     const adm: Role[] = ["desarrollador", "gerente", "administrativo"];
     const devMgr: Role[] = ["desarrollador", "gerente"];
     const insightsRoles: Role[] = [...adm, "marketing"];
+    const devOnly: Role[] = ["desarrollador"];
 
     return {
       "/operators": ["desarrollador", "administrativo", "gerente"],
@@ -144,6 +154,8 @@ export default function SideBar({
       "/credits": adm,
       "/cashbox": adm,
       "/insights": insightsRoles,
+      "/dev/agencies": devOnly,
+      "/dev/agencies/leads": devOnly,
       // por defecto -> sin restricción
     } as Record<string, Role[]>;
   }, []);
@@ -167,10 +179,8 @@ export default function SideBar({
 
   const itemCls = (active: boolean) =>
     [
-      "block rounded-full py-2 text-center text-sky-950 transition-colors duration-200 dark:text-white",
-      active
-        ? "bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur"
-        : "shadow-sky-950/10 hover:bg-white/10 hover:shadow-md hover:backdrop-blur",
+      "group flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-[13px] font-medium tracking-wide text-sky-950/90 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40 dark:text-white/90",
+      active ? "bg-white/20 shadow-sm shadow-sky-950/10" : "hover:bg-white/10",
     ].join(" ");
 
   // ==============================
@@ -196,7 +206,7 @@ export default function SideBar({
         items: [
           { href: "/bookings", label: "Reservas" },
           hasAccess("/insights")
-            ? { href: "/insights", label: "Estadisticas" }
+            ? { href: "/insights", label: "Estadísticas" }
             : null,
           hasAccess("/invoices")
             ? { href: "/invoices", label: "Facturas" }
@@ -224,7 +234,7 @@ export default function SideBar({
             ? { href: "/receipts", label: "Recibos" }
             : null,
           hasAccess("/receipts/verify")
-            ? { href: "/receipts/verify", label: "Verificacion ingresos" }
+            ? { href: "/receipts/verify", label: "Verificación ingresos" }
             : null,
           hasAccess("/balances")
             ? { href: "/balances", label: "Saldos" }
@@ -271,6 +281,18 @@ export default function SideBar({
           hasAccess("/teams") ? { href: "/teams", label: "Equipos" } : null,
         ].filter(Boolean) as { href: string; label: string }[],
       },
+      {
+        id: "dev",
+        title: "Dev",
+        items: [
+          hasAccess("/dev/agencies")
+            ? { href: "/dev/agencies", label: "Agencias" }
+            : null,
+          hasAccess("/dev/agencies/leads")
+            ? { href: "/dev/agencies/leads", label: "Leads" }
+            : null,
+        ].filter(Boolean) as { href: string; label: string }[],
+      },
     ];
 
     return chunks.filter((sec) => sec.items.length > 0);
@@ -286,32 +308,31 @@ export default function SideBar({
   );
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
-  // Evitamos reinit en cada render con un ref
-  const initRef = useRef(false);
+  // Evitamos reinit salvo cambio de rol (clave distinta)
+  const initKeyRef = useRef<string | null>(null);
+  const buildDefaultExpanded = useCallback(() => {
+    const init: Record<string, boolean> = {};
+    const firstId = sections[0]?.id;
+    sections.forEach((s) => (init[s.id] = s.id === firstId));
+    return init;
+  }, [sections]);
 
   useEffect(() => {
-    if (!mounted || initRef.current) return;
-    initRef.current = true;
+    if (!mounted) return;
+    if (initKeyRef.current === STORAGE_KEY) return;
+    initKeyRef.current = STORAGE_KEY;
+    let next = buildDefaultExpanded();
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Record<string, boolean>;
-        setExpanded(parsed);
-      } else {
-        // Por defecto, abrir la primera sección disponible
-        const init: Record<string, boolean> = {};
-        const firstId = sections[0]?.id;
-        sections.forEach((s) => (init[s.id] = s.id === firstId));
-        setExpanded(init);
+        next = { ...next, ...parsed };
       }
     } catch {
-      const init: Record<string, boolean> = {};
-      const firstId = sections[0]?.id;
-      sections.forEach((s) => (init[s.id] = s.id === firstId));
-      setExpanded(init);
+      // noop
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, STORAGE_KEY, sections.length]);
+    setExpanded(next);
+  }, [buildDefaultExpanded, mounted, STORAGE_KEY]);
 
   // Persistir cambios
   useEffect(() => {
@@ -341,39 +362,86 @@ export default function SideBar({
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-50 h-dvh w-44 overflow-y-auto border-r border-white/10 bg-white/10 p-4 shadow-md shadow-sky-950/10 backdrop-blur-lg transition-transform duration-300 md:block md:translate-x-0 md:border-none md:bg-transparent md:shadow-none ${
-        menuOpen ? "translate-x-0" : "-translate-x-full"
+      className={`fixed left-0 top-0 z-50 h-dvh w-[78vw] max-w-72 overflow-y-auto border-r border-white/10 bg-white/10 p-4 shadow-md shadow-sky-950/10 backdrop-blur-lg transition-[transform,opacity] duration-300 ease-out md:block md:w-52 md:border-none md:bg-transparent md:shadow-none ${
+        menuOpen ? "translate-x-0 opacity-100" : "-translate-x-full opacity-0"
+      } ${
+        collapsed
+          ? "md:pointer-events-none md:-translate-x-full md:opacity-0"
+          : "md:translate-x-0 md:opacity-100"
       }`}
       aria-label="Barra lateral de navegación"
+      aria-hidden={collapsed && !menuOpen}
     >
       <nav className="flex min-h-full flex-col pb-6">
-        <ul className="flex flex-1 flex-col items-center justify-center space-y-3 text-sm font-extralight">
+        <div className="mb-3 flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-950/60 dark:text-white/60">
+            Menú
+          </span>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            className="hidden rounded-full border border-white/20 bg-white/20 p-2 text-sky-900 transition hover:bg-white/30 dark:text-white md:inline-flex"
+            aria-label={collapsed ? "Mostrar sidebar" : "Ocultar sidebar"}
+            aria-pressed={collapsed}
+          >
+            {collapsed ? (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="size-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
+              </svg>
+            ) : (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="size-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            )}
+          </button>
+        </div>
+        <ul className="flex flex-1 flex-col items-stretch gap-4 pt-1">
           {/* Perfil */}
-          <li className="w-full transition-transform hover:scale-95 active:scale-90">
+          <li className="w-full transition-transform active:scale-[0.98]">
             <Link
               href="/profile"
               className={itemCls(isActive("/profile"))}
               onClick={closeMenu}
               aria-current={isActive("/profile") ? "page" : undefined}
             >
-              <span className="inline-flex items-center justify-center gap-2">
-                Perfil
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={2}
-                  stroke="currentColor"
-                  className="size-4"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"
-                  />
-                </svg>
-              </span>
+              <span className="flex-1">Perfil</span>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+                stroke="currentColor"
+                className="size-4 text-sky-950/70 transition-colors group-hover:text-sky-950 dark:text-white/70 dark:group-hover:text-white"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"
+                />
+              </svg>
             </Link>
           </li>
 
@@ -385,18 +453,16 @@ export default function SideBar({
               <li key={sec.id} className="w-full select-none">
                 <button
                   type="button"
-                  className={`flex w-full items-center justify-between rounded-full px-4 py-2 text-left tracking-wide text-sky-950 transition-colors dark:text-white ${
+                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold tracking-wide text-sky-950/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40 dark:text-white/80 ${
                     anyActive
-                      ? "bg-white/10 shadow-sm backdrop-blur"
+                      ? "bg-white/15 shadow-sm shadow-sky-950/10"
                       : "hover:bg-white/10"
                   }`}
                   onClick={() => toggleSection(sec.id)}
                   aria-expanded={open}
                   aria-controls={`sec-${sec.id}`}
                 >
-                  <span className="text-sm font-medium tracking-wide">
-                    {sec.title}
-                  </span>
+                  <span>{sec.title}</span>
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     className={`size-4 transition-transform ${open ? "rotate-180" : ""}`}
@@ -416,33 +482,35 @@ export default function SideBar({
 
                 <div
                   id={`sec-${sec.id}`}
-                  className="mt-2 overflow-hidden transition-[max-height] duration-300"
-                  style={{
-                    maxHeight: open
-                      ? `${Math.min(48 * sec.items.length + 8, 600)}px`
-                      : "0px",
-                  }}
+                  className={`mt-2 grid transition-[grid-template-rows,opacity] duration-300 ${
+                    open
+                      ? "grid-rows-[1fr] opacity-100"
+                      : "grid-rows-[0fr] opacity-0"
+                  }`}
+                  aria-hidden={!open}
                 >
-                  <ul className="mb-3 space-y-2 pl-1">
-                    {sec.items.map((it) => {
-                      const active = isActive(it.href);
-                      return (
-                        <li
-                          key={it.href}
-                          className="text-sm transition-transform hover:scale-95 active:scale-90"
-                        >
-                          <Link
-                            href={it.href}
-                            className={itemCls(active)}
-                            onClick={closeMenu}
-                            aria-current={active ? "page" : undefined}
+                  <div className="overflow-hidden">
+                    <ul className="mb-3 space-y-2 pl-1">
+                      {sec.items.map((it) => {
+                        const active = isActive(it.href);
+                        return (
+                          <li
+                            key={it.href}
+                            className="transition-transform active:scale-[0.98]"
                           >
-                            {it.label}
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                            <Link
+                              href={it.href}
+                              className={itemCls(active)}
+                              onClick={closeMenu}
+                              aria-current={active ? "page" : undefined}
+                            >
+                              <span className="flex-1">{it.label}</span>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
                 </div>
               </li>
             );

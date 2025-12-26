@@ -17,7 +17,6 @@ import {
 } from "recharts";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
-import Link from "next/link";
 
 interface EarningItem {
   currency: "ARS" | "USD";
@@ -186,12 +185,7 @@ export default function EarningsPage() {
   return (
     <ProtectedRoute>
       <div className="text-sky-950 dark:text-white">
-        <div className="flex w-full justify-between">
-          <h1 className="mb-6 text-2xl font-semibold">Ganancias</h1>
-          <button className="h-fit rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-50 dark:bg-white/10 dark:text-white dark:backdrop-blur">
-            <Link href={`/commissions`}>Configuracion</Link>
-          </button>
-        </div>
+        <h1 className="mb-6 text-2xl font-semibold">Ganancias</h1>
 
         <form
           onSubmit={(e) => {

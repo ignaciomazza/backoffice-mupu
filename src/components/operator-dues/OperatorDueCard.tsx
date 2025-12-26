@@ -1,10 +1,9 @@
 "use client";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, type ReactNode } from "react";
 import { Booking, Operator, OperatorDue, Service } from "@/types";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 
-// ---------- Helpers y tipos fuera del componente ----------
 type ServiceWithOperator = Service & {
   operator?: { id_operator: number; name?: string };
 };
@@ -36,7 +35,82 @@ function getServiceOperatorId(
   return undefined;
 }
 
-// ---------- Componente ----------
+type ChipProps = {
+  children: ReactNode;
+  tone?: "neutral" | "success" | "warn" | "danger";
+};
+
+type StatProps = {
+  label: string;
+  value: string;
+};
+
+const Chip = ({ children, tone = "neutral" }: ChipProps) => {
+  const palette =
+    tone === "success"
+      ? "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-800/40"
+      : tone === "warn"
+        ? "bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-800/40"
+        : tone === "danger"
+          ? "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-800/40"
+          : "bg-white/20 text-sky-950 border-white/10 dark:bg-white/10 dark:text-white";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${palette}`}
+    >
+      {children}
+    </span>
+  );
+};
+
+const Stat = ({ label, value }: StatProps) => (
+  <div className="rounded-2xl border border-white/10 bg-white/10 px-3 py-2">
+    <p className="text-xs opacity-70">{label}</p>
+    <p className="text-base font-medium tabular-nums">{value}</p>
+  </div>
+);
+
+const STATUS_OPTIONS = [
+  { value: "PENDIENTE", label: "Pendiente", tone: "warn" },
+  { value: "PAGADA", label: "Pagada", tone: "success" },
+  { value: "CANCELADA", label: "Cancelada", tone: "neutral" },
+] as const;
+
+type StatusValue = (typeof STATUS_OPTIONS)[number]["value"];
+
+const normalizeStatus = (status?: string): StatusValue => {
+  const normalized = (status || "").trim().toUpperCase();
+  if (normalized === "PAGO" || normalized === "PAGADA") return "PAGADA";
+  if (normalized === "CANCELADA" || normalized === "CANCELADO")
+    return "CANCELADA";
+  return "PENDIENTE";
+};
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+const todayKey = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+};
+
+const dateKeyFrom = (d?: string | Date | null): string | null => {
+  if (!d) return null;
+  if (d instanceof Date) {
+    return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : null;
+  }
+  const raw = String(d).trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const dt = new Date(raw);
+  return Number.isFinite(dt.getTime()) ? dt.toISOString().slice(0, 10) : null;
+};
+
+const formatDateKey = (key: string | null): string => {
+  if (!key) return "-";
+  const dt = new Date(`${key}T00:00:00.000Z`);
+  return dt.toLocaleDateString("es-AR", { timeZone: "UTC" });
+};
+
 interface Props {
   due: OperatorDue;
   booking: Booking;
@@ -45,12 +119,6 @@ interface Props {
   onStatusChanged?: (id: number, status: OperatorDue["status"]) => void;
   operators: Operator[];
 }
-
-const STATUS_OPTIONS: OperatorDue["status"][] = [
-  "PENDIENTE",
-  "PAGADA",
-  "CANCELADA",
-];
 
 export default function OperatorDueCard({
   due,
@@ -62,8 +130,8 @@ export default function OperatorDueCard({
 }: Props) {
   const [loadingDelete, setLoadingDelete] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
-  const [localStatus, setLocalStatus] = useState<OperatorDue["status"]>(
-    (due.status as OperatorDue["status"]) || "PENDIENTE",
+  const [localStatus, setLocalStatus] = useState<StatusValue>(() =>
+    normalizeStatus(due.status),
   );
 
   const fmtMoney = useCallback((v?: number | string | null, curr?: string) => {
@@ -82,13 +150,18 @@ export default function OperatorDueCard({
     }
   }, []);
 
-  // Buscar servicio por ID
   const service = useMemo(
     () => booking.services?.find((s) => s.id_service === due.service_id),
     [booking.services, due.service_id],
   );
 
-  // Índice de operadores por id (resolución O(1))
+  const serviceLabel = useMemo(() => {
+    const parts = [`#${due.service_id}`];
+    if (service?.type) parts.push(service.type);
+    if (service?.destination) parts.push(service.destination);
+    return `Servicio ${parts.join(" · ")}`;
+  }, [due.service_id, service?.type, service?.destination]);
+
   const operatorIndex = useMemo(() => {
     const map = new Map<number, string>();
     for (const op of operators || []) {
@@ -99,7 +172,6 @@ export default function OperatorDueCard({
     return map;
   }, [operators]);
 
-  // Nombre del operador (embebido > por id > fallback)
   const operatorName = useMemo(() => {
     if (!service) return "Operador";
     if (hasEmbeddedOperator(service) && service.operator?.name?.trim()) {
@@ -110,14 +182,46 @@ export default function OperatorDueCard({
     return operatorIndex.get(operatorId) ?? `Operador #${operatorId}`;
   }, [service, operatorIndex]);
 
-  const statusColor = useMemo(() => {
-    const s = (localStatus || "PENDIENTE").toUpperCase();
-    if (s === "PAGADA")
-      return "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200";
-    if (s === "CANCELADA")
-      return "bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200";
-    return "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200";
-  }, [localStatus]);
+  const statusMeta = useMemo(
+    () => STATUS_OPTIONS.find((opt) => opt.value === localStatus),
+    [localStatus],
+  );
+
+  const statusTone = statusMeta?.tone ?? "warn";
+  const statusLabel = statusMeta?.label ?? localStatus;
+
+  const dueKey = useMemo(
+    () => dateKeyFrom(due?.due_date),
+    [due?.due_date],
+  );
+
+  const createdKey = useMemo(
+    () => dateKeyFrom(due?.created_at),
+    [due?.created_at],
+  );
+
+  const dueLabel = useMemo(() => formatDateKey(dueKey), [dueKey]);
+  const createdLabel = useMemo(
+    () => formatDateKey(createdKey),
+    [createdKey],
+  );
+
+  const isOverdue = useMemo(() => {
+    if (!dueKey) return false;
+    return dueKey < todayKey();
+  }, [dueKey]);
+
+  const showOverdue = isOverdue && localStatus === "PENDIENTE";
+
+  const currencyCode = useMemo(
+    () => (due?.currency || "ARS").toString().toUpperCase(),
+    [due?.currency],
+  );
+
+  const canEdit =
+    role === "administrativo" ||
+    role === "desarrollador" ||
+    role === "gerente";
 
   const deleteDue = async () => {
     if (!confirm("¿Seguro querés eliminar esta cuota al operador?")) return;
@@ -136,7 +240,7 @@ export default function OperatorDueCard({
     }
   };
 
-  const updateStatus = async (next: OperatorDue["status"]) => {
+  const updateStatus = async (next: StatusValue) => {
     if (next === localStatus) return;
     setUpdatingStatus(true);
     const prev = localStatus;
@@ -158,87 +262,64 @@ export default function OperatorDueCard({
     }
   };
 
-  // (JSX del return omitido a pedido)
-
   return (
-    <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-      {/* Header */}
-      <header className="mb-4 flex items-center justify-between">
-        <time className="text-sm text-gray-500 dark:text-gray-400">
-          Vto:{" "}
-          {due.due_date
-            ? new Date(due.due_date).toLocaleDateString("es-AR", {
-                timeZone: "UTC",
-              })
-            : "–"}
-        </time>
-        <div className="flex items-center gap-2">
-          <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor}`}>
-            {(localStatus || "PENDIENTE").toUpperCase()}
-          </span>
+    <div className="h-fit space-y-4 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur-sm dark:text-white">
+      <header className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+            Vencimiento N° {due.id_due}
+          </p>
+          <p className="mt-2 text-2xl font-semibold">
+            {fmtMoney(due.amount, due.currency)}
+          </p>
+          <p className="mt-2 text-sm text-sky-950/70 dark:text-white/70">
+            {operatorName} · {serviceLabel}
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-2 text-xs">
+          <Chip tone={statusTone}>{statusLabel}</Chip>
+          {showOverdue && <Chip tone="danger">Vencido</Chip>}
+          <time className="text-sky-950/60 dark:text-white/60">
+            Creado {createdLabel}
+          </time>
         </div>
       </header>
 
-      {/* Body */}
-      <div className="flex flex-col gap-3 text-sm">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <p className="font-semibold">Servicio</p>
-            <p className="mt-1">N° {due.service_id}</p>
-          </div>
-          <div>
-            <p className="font-semibold">Operador</p>
-            <p className="mt-1">{operatorName}</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <p className="font-semibold">Monto</p>
-            <p className="mt-1">{fmtMoney(due.amount, due.currency)}</p>
-          </div>
-        </div>
-
-        <div className="col-span-2">
-          <p className="font-semibold">Concepto</p>
-          <p className="mt-1">{due.concept || "–"}</p>
-        </div>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <Stat label="Vence" value={dueLabel} />
+        <Stat label="Moneda" value={currencyCode} />
       </div>
 
-      {/* Footer acciones */}
-      <footer className="mt-6 flex items-center justify-between gap-2">
-        {/* Selector de estado */}
-        {(role === "administrativo" ||
-          role === "desarrollador" ||
-          role === "gerente") && (
+      <div className="rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-sm">
+        <p className="text-xs opacity-70">Concepto</p>
+        <p className="mt-1 text-sm">{due.concept || "-"}</p>
+      </div>
+
+      {canEdit && (
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
           <div className="flex items-center gap-2">
-            <label className="text-sm opacity-70">Estado</label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+              Estado
+            </label>
             <select
-              className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/50 px-2 py-1 text-center text-xs outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              className="min-w-[140px] cursor-pointer appearance-none rounded-full border border-white/10 bg-white/50 px-3 py-1 text-center text-xs font-medium outline-none backdrop-blur dark:bg-white/10"
               value={localStatus}
-              onChange={(e) =>
-                updateStatus(e.target.value as OperatorDue["status"])
-              }
+              onChange={(e) => updateStatus(e.target.value as StatusValue)}
               disabled={updatingStatus}
             >
               {STATUS_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
                 </option>
               ))}
             </select>
             {updatingStatus && <Spinner />}
           </div>
-        )}
 
-        {/* Borrar */}
-        {(role === "administrativo" ||
-          role === "desarrollador" ||
-          role === "gerente") && (
           <button
             onClick={deleteDue}
             disabled={loadingDelete || updatingStatus}
-            className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+            className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-red-800"
             title="Eliminar cuota"
           >
             {loadingDelete ? (
@@ -260,8 +341,8 @@ export default function OperatorDueCard({
               </svg>
             )}
           </button>
-        )}
-      </footer>
+        </footer>
+      )}
     </div>
   );
 }

@@ -18,6 +18,9 @@ import {
 interface HeaderProps {
   toggleMenu: () => void;
   menuOpen: boolean;
+  toggleSidebar?: () => void;
+  sidebarHidden?: boolean;
+  showSidebar?: boolean;
 }
 
 const WA_NUMBER = process.env.NEXT_PUBLIC_WA_NUMBER ?? "54911XXXXXXXX";
@@ -85,7 +88,13 @@ function PlatformBtn() {
   );
 }
 
-export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
+export default function Header({
+  toggleMenu,
+  menuOpen,
+  toggleSidebar,
+  sidebarHidden = false,
+  showSidebar = true,
+}: HeaderProps) {
   const pathname = usePathname() || "/";
   const isLoginPage = pathname === "/login";
   const isLanding = pathname === "/";
@@ -336,6 +345,41 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
           />
         </Link>
       )}
+      {!isLoginPage && showSidebar && toggleSidebar && (
+        <div
+          className={`absolute left-4 hidden items-center gap-2 transition-[opacity,transform] duration-300 ease-out md:left-8 md:flex ${
+            sidebarHidden
+              ? "translate-x-0 opacity-100"
+              : "pointer-events-none -translate-x-2 opacity-0"
+          }`}
+          aria-hidden={!sidebarHidden}
+        >
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className="group inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/70 px-3 py-1.5 text-sm font-medium text-sky-900 shadow-sm transition hover:bg-white/90"
+            aria-label="Mostrar sidebar"
+            aria-pressed={sidebarHidden}
+            tabIndex={sidebarHidden ? 0 : -1}
+          >
+            <span>Mostrar menú</span>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="size-4 transition-transform duration-300 group-hover:-translate-x-0.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
       <div className="flex w-full flex-auto justify-start md:justify-center">
         {!isLoginPage ? (
           <div className="flex select-none items-center gap-1">
@@ -360,41 +404,26 @@ export default function Header({ toggleMenu, menuOpen }: HeaderProps) {
         {!isLoginPage && <ThemeToggle />}
         {!isLoginPage && (
           <button
-            className="ml-2 block rounded-full border border-sky-200 bg-white/70 p-2 shadow-sm md:hidden"
+            className="relative inline-flex size-9 items-center justify-center rounded-full border border-sky-200 bg-white/70 text-sky-900 shadow-sm transition hover:bg-white/90 md:hidden"
             onClick={toggleMenu}
-            aria-label="Toggle Menu"
+            aria-label={menuOpen ? "Cerrar menu" : "Abrir menu"}
+            aria-expanded={menuOpen}
           >
-            {menuOpen ? (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="size-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            ) : (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="size-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M4 6h16M4 12h16M4 18h16"
-                />
-              </svg>
-            )}
+            <span
+              className={`absolute h-0.5 w-4 rounded bg-current transition-transform duration-300 ${
+                menuOpen ? "translate-y-0 rotate-45" : "-translate-y-1.5"
+              }`}
+            />
+            <span
+              className={`absolute h-0.5 w-4 rounded bg-current transition-opacity duration-300 ${
+                menuOpen ? "opacity-0" : "opacity-100"
+              }`}
+            />
+            <span
+              className={`absolute h-0.5 w-4 rounded bg-current transition-transform duration-300 ${
+                menuOpen ? "translate-y-0 -rotate-45" : "translate-y-1.5"
+              }`}
+            />
           </button>
         )}
       </div>

@@ -13,13 +13,13 @@ import ServiceList from "@/components/services/ServiceList";
 import InvoiceForm, {
   type InvoiceFormData,
 } from "@/components/invoices/InvoiceForm";
-import InvoiceList from "@/components/invoices/InvoiceList";
+import InvoiceCard from "@/components/invoices/InvoiceCard";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
 import ReceiptList from "@/components/receipts/ReceiptList";
 import CreditNoteForm, {
   type CreditNoteFormData,
 } from "@/components/credite-notes/CreditNoteForm";
-import CreditNoteList from "@/components/credite-notes/CreditNoteList";
+import CreditNoteCard from "@/components/credite-notes/CreditNoteCard";
 import OperatorPaymentForm from "@/components/investments/OperatorPaymentForm";
 import OperatorPaymentList from "@/components/investments/OperatorPaymentList";
 import ClientPaymentForm from "@/components/client-payments/ClientPaymentForm";
@@ -94,7 +94,7 @@ interface ServicesContainerProps {
   expandedServiceId: number | null;
   loading: boolean;
   isFormVisible: boolean;
-  isInvoiceFormVisible: boolean;
+  isBillingFormVisible: boolean;
   handleChange: (
     e: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
@@ -115,14 +115,12 @@ interface ServicesContainerProps {
   setIsFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
   setFormData: React.Dispatch<React.SetStateAction<ServiceFormData>>;
   setExpandedServiceId: React.Dispatch<React.SetStateAction<number | null>>;
-  setIsInvoiceFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsBillingFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
   isSubmitting: boolean;
   onBillingUpdate?: (data: BillingData) => void;
   role: string;
   onBookingUpdated?: (updated: Booking) => void;
   creditNoteFormData: CreditNoteFormData;
-  isCreditNoteFormVisible: boolean;
-  setIsCreditNoteFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
   handleCreditNoteChange: (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => void;
@@ -198,7 +196,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     expandedServiceId,
     loading,
     isFormVisible,
-    isInvoiceFormVisible,
+    isBillingFormVisible,
     handleChange,
     handleInvoiceChange,
     updateFormData,
@@ -210,14 +208,12 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     setIsFormVisible,
     setFormData,
     setExpandedServiceId,
-    setIsInvoiceFormVisible,
+    setIsBillingFormVisible,
     isSubmitting,
     onBillingUpdate,
     role,
     onBookingUpdated,
     creditNoteFormData,
-    isCreditNoteFormVisible,
-    setIsCreditNoteFormVisible,
     handleCreditNoteChange,
     updateCreditNoteFormData,
     handleCreditNoteSubmit,
@@ -646,6 +642,57 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     onCreditNoteCreated?.();
   };
 
+  /* ================= Facturación (UI unificada) ================= */
+  const [billingMode, setBillingMode] = useState<"invoice" | "credit">(
+    "invoice",
+  );
+  const [billingFilter, setBillingFilter] = useState<
+    "all" | "invoice" | "credit"
+  >("all");
+
+  type BillingItem = {
+    kind: "invoice" | "credit";
+    id: string;
+    sortKey: number;
+    invoice?: Invoice;
+    creditNote?: CreditNoteWithItems;
+  };
+
+  const toSortKey = (raw?: string | Date | null) => {
+    if (!raw) return 0;
+    const d = raw instanceof Date ? raw : new Date(raw);
+    const ts = d.getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  };
+
+  const billingItems = useMemo<BillingItem[]>(() => {
+    const invItems = invoices.map((inv) => ({
+      kind: "invoice" as const,
+      id: `inv-${inv.id_invoice}`,
+      sortKey: toSortKey(inv.issue_date),
+      invoice: inv,
+    }));
+    const creditItems = creditNotes.map((cn) => ({
+      kind: "credit" as const,
+      id: `cn-${cn.id_credit_note}`,
+      sortKey: toSortKey(cn.issue_date as unknown as string | Date | null),
+      creditNote: cn,
+    }));
+    return [...invItems, ...creditItems].sort(
+      (a, b) => b.sortKey - a.sortKey,
+    );
+  }, [invoices, creditNotes]);
+
+  const filteredBillingItems = useMemo(() => {
+    if (billingFilter === "all") return billingItems;
+    return billingItems.filter((it) => it.kind === billingFilter);
+  }, [billingItems, billingFilter]);
+
+  const openBillingForm = (mode: "invoice" | "credit") => {
+    setBillingMode(mode);
+    setIsBillingFormVisible(true);
+  };
+
   /* ================= Pagos a operador ================= */
   const [paymentsReloadKey, setPaymentsReloadKey] = useState(0);
 
@@ -655,6 +702,33 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     visible: { opacity: 1, scale: 1 },
     exit: { opacity: 0, scale: 0.9 },
   } as const;
+
+  const billingModeBase =
+    "rounded-full px-4 py-1.5 text-sm font-medium transition";
+  const billingModeInactive =
+    "text-sky-950/70 hover:bg-white/50 dark:text-white/70 dark:hover:bg-white/10";
+  const billingModeInvoiceActive =
+    "bg-emerald-100 text-emerald-900 shadow-sm shadow-emerald-900/10 dark:bg-emerald-500/15 dark:text-emerald-100";
+  const billingModeCreditActive =
+    "bg-rose-100 text-rose-900 shadow-sm shadow-rose-900/10 dark:bg-rose-500/15 dark:text-rose-100";
+
+  const billingFilterBase =
+    "rounded-full px-3 py-1 text-xs font-medium transition";
+  const billingFilterInactive =
+    "text-sky-950/60 hover:bg-white/40 dark:text-white/60 dark:hover:bg-white/10";
+  const billingFilterAllActive =
+    "bg-sky-100 text-sky-900 shadow-sm shadow-sky-900/10 dark:bg-white/15 dark:text-white";
+  const billingFilterInvoiceActive =
+    "bg-emerald-100 text-emerald-900 shadow-sm shadow-emerald-900/10 dark:bg-emerald-500/15 dark:text-emerald-100";
+  const billingFilterCreditActive =
+    "bg-rose-100 text-rose-900 shadow-sm shadow-rose-900/10 dark:bg-rose-500/15 dark:text-rose-100";
+
+  const emptyBillingMessage =
+    billingFilter === "invoice"
+      ? "No hay facturas para esta reserva."
+      : billingFilter === "credit"
+        ? "No hay notas de crédito para esta reserva."
+        : "No hay facturas ni notas de crédito para esta reserva.";
 
   /* ================= Render ================= */
   if (!loading && !booking) {
@@ -1224,50 +1298,182 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 )}
               </div>
 
-              {/* FACTURAS */}
-              {canAdminLike && (services.length > 0 || invoices.length > 0) && (
-                <div className="mb-16">
-                  <div className="mb-4 mt-8 flex items-center justify-center gap-2">
-                    <p className="text-2xl font-medium">Facturas</p>
-                  </div>
-
-                  <InvoiceForm
-                    formData={invoiceFormData}
-                    availableServices={availableServices}
-                    handleChange={handleInvoiceChange}
-                    handleSubmit={handleInvoiceSubmit}
-                    // ⬇️ usar los estados propios del form de factura
-                    isFormVisible={isInvoiceFormVisible}
-                    setIsFormVisible={setIsInvoiceFormVisible}
-                    updateFormData={updateFormData}
-                    isSubmitting={isSubmitting}
-                    token={token}
-                  />
-
-                  <InvoiceList invoices={invoices} />
-                </div>
-              )}
-
-              {/* NOTAS DE CRÉDITO */}
+              {/* FACTURACIÓN */}
               {canAdminLike &&
-                (services.length > 0 || creditNotes.length > 0) && (
+                (services.length > 0 ||
+                  invoices.length > 0 ||
+                  creditNotes.length > 0) && (
                   <div className="mb-16">
                     <div className="mb-4 mt-8 flex items-center justify-center gap-2">
-                      <p className="text-2xl font-medium">Notas de Crédito</p>
+                      <p className="text-2xl font-medium">Facturación</p>
                     </div>
 
-                    <CreditNoteForm
-                      formData={creditNoteFormData}
-                      availableServices={availableServices}
-                      handleChange={handleCreditNoteChange}
-                      handleSubmit={handleLocalCreditNoteSubmit}
-                      isFormVisible={isCreditNoteFormVisible}
-                      setIsFormVisible={setIsCreditNoteFormVisible}
-                      updateFormData={updateCreditNoteFormData}
-                      isSubmitting={isCreditNoteSubmitting}
-                    />
-                    {creditNotes.length > 0 && (
-                      <CreditNoteList creditNotes={creditNotes} />
+                    <div className="mb-6 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
+                      <div className="flex flex-wrap items-center justify-between gap-4">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+                            Comprobantes
+                          </p>
+                          <p className="text-lg font-medium">
+                            Facturas y notas de crédito
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="rounded-full border border-emerald-300/40 bg-emerald-100/60 px-3 py-1 text-xs font-medium text-emerald-900 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-100">
+                            Facturas {invoices.length}
+                          </span>
+                          <span className="rounded-full border border-rose-300/40 bg-rose-100/60 px-3 py-1 text-xs font-medium text-rose-900 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-100">
+                            Notas {creditNotes.length}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                        <div className="inline-flex rounded-full border border-white/15 bg-white/30 p-1 backdrop-blur dark:bg-white/5">
+                          <button
+                            type="button"
+                            onClick={() => openBillingForm("invoice")}
+                            className={`${billingModeBase} ${
+                              billingMode === "invoice"
+                                ? billingModeInvoiceActive
+                                : billingModeInactive
+                            }`}
+                          >
+                            Factura
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openBillingForm("credit")}
+                            className={`${billingModeBase} ${
+                              billingMode === "credit"
+                                ? billingModeCreditActive
+                                : billingModeInactive
+                            }`}
+                          >
+                            Nota de crédito
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setIsBillingFormVisible((prev) => !prev)
+                          }
+                          className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                            billingMode === "invoice"
+                              ? "border-emerald-300/40 bg-emerald-100/60 text-emerald-900 shadow-sm shadow-emerald-900/10 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-100"
+                              : "border-rose-300/40 bg-rose-100/60 text-rose-900 shadow-sm shadow-rose-900/10 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-100"
+                          }`}
+                        >
+                          {isBillingFormVisible
+                            ? "Cerrar formulario"
+                            : "Crear comprobante"}
+                        </button>
+                      </div>
+
+                      {isBillingFormVisible && (
+                        <div className="mt-4">
+                          {billingMode === "invoice" ? (
+                            <InvoiceForm
+                              formData={invoiceFormData}
+                              availableServices={availableServices}
+                              handleChange={handleInvoiceChange}
+                              handleSubmit={handleInvoiceSubmit}
+                              isFormVisible={isBillingFormVisible}
+                              setIsFormVisible={setIsBillingFormVisible}
+                              updateFormData={updateFormData}
+                              isSubmitting={isSubmitting}
+                              token={token}
+                              collapsible={false}
+                              containerClassName="mb-0"
+                            />
+                          ) : (
+                            <CreditNoteForm
+                              formData={creditNoteFormData}
+                              invoices={invoices}
+                              handleChange={handleCreditNoteChange}
+                              handleSubmit={handleLocalCreditNoteSubmit}
+                              isFormVisible={isBillingFormVisible}
+                              setIsFormVisible={setIsBillingFormVisible}
+                              updateFormData={updateCreditNoteFormData}
+                              isSubmitting={isCreditNoteSubmitting}
+                              token={token}
+                              collapsible={false}
+                              containerClassName="mb-0"
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-sky-950/70 dark:text-white/70">
+                        Historial
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setBillingFilter("all")}
+                          className={`${billingFilterBase} ${
+                            billingFilter === "all"
+                              ? billingFilterAllActive
+                              : billingFilterInactive
+                          }`}
+                        >
+                          Todos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBillingFilter("invoice")}
+                          className={`${billingFilterBase} ${
+                            billingFilter === "invoice"
+                              ? billingFilterInvoiceActive
+                              : billingFilterInactive
+                          }`}
+                        >
+                          Facturas
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBillingFilter("credit")}
+                          className={`${billingFilterBase} ${
+                            billingFilter === "credit"
+                              ? billingFilterCreditActive
+                              : billingFilterInactive
+                          }`}
+                        >
+                          Notas
+                        </button>
+                      </div>
+                    </div>
+
+                    {filteredBillingItems.length > 0 ? (
+                      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                        {filteredBillingItems.map((item) => (
+                          <div key={item.id} className="space-y-2">
+                            <span
+                              className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                                item.kind === "invoice"
+                                  ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-100"
+                                  : "bg-rose-100 text-rose-900 dark:bg-rose-500/15 dark:text-rose-100"
+                              }`}
+                            >
+                              {item.kind === "invoice"
+                                ? "Factura"
+                                : "Nota de crédito"}
+                            </span>
+                            {item.invoice ? (
+                              <InvoiceCard invoice={item.invoice} />
+                            ) : item.creditNote ? (
+                              <CreditNoteCard creditNote={item.creditNote} />
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-white/10 bg-white/10 p-4 text-center text-sm opacity-80">
+                        {emptyBillingMessage}
+                      </div>
                     )}
                   </div>
                 )}

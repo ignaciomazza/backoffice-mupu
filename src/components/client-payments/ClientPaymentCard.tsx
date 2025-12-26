@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Booking, ClientPayment } from "@/types";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
@@ -12,6 +12,66 @@ interface Props {
   role: string;
   onPaymentDeleted?: (id: number) => void;
 }
+
+type ChipProps = {
+  children: ReactNode;
+  tone?: "neutral" | "success" | "warn" | "danger";
+};
+
+type StatProps = {
+  label: string;
+  value: string;
+};
+
+const Chip = ({ children, tone = "neutral" }: ChipProps) => {
+  const palette =
+    tone === "success"
+      ? "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-800/40"
+      : tone === "warn"
+        ? "bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-800/40"
+        : tone === "danger"
+          ? "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-800/40"
+          : "bg-white/20 text-sky-950 border-white/10 dark:bg-white/10 dark:text-white";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${palette}`}
+    >
+      {children}
+    </span>
+  );
+};
+
+const Stat = ({ label, value }: StatProps) => (
+  <div className="rounded-2xl border border-white/10 bg-white/10 px-3 py-2">
+    <p className="text-xs opacity-70">{label}</p>
+    <p className="text-base font-medium tabular-nums">{value}</p>
+  </div>
+);
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+const todayKey = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+};
+
+const dateKeyFrom = (d?: string | Date | null): string | null => {
+  if (!d) return null;
+  if (d instanceof Date) {
+    return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : null;
+  }
+  const raw = String(d).trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const dt = new Date(raw);
+  return Number.isFinite(dt.getTime()) ? dt.toISOString().slice(0, 10) : null;
+};
+
+const formatDateKey = (key: string | null): string => {
+  if (!key) return "–";
+  const dt = new Date(`${key}T00:00:00.000Z`);
+  return dt.toLocaleDateString("es-AR", { timeZone: "UTC" });
+};
 
 export default function ClientPaymentCard({
   payment,
@@ -38,32 +98,40 @@ export default function ClientPaymentCard({
     }
   }, []);
 
-  const fmtDate = (d?: string | Date | null) => {
-    if (!d) return "–";
-    try {
-      const dt = typeof d === "string" ? new Date(d) : d;
-      return dt.toLocaleDateString("es-AR", { timeZone: "UTC" });
-    } catch {
-      return "–";
-    }
-  };
+  const dueKey = useMemo(
+    () => dateKeyFrom(payment?.due_date),
+    [payment?.due_date],
+  );
+
+  const createdKey = useMemo(
+    () => dateKeyFrom(payment?.created_at),
+    [payment?.created_at],
+  );
 
   const isOverdue = useMemo(() => {
-    if (!payment?.due_date) return false;
-    try {
-      const due = new Date(payment.due_date);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      due.setHours(0, 0, 0, 0);
-      return due < today;
-    } catch {
-      return false;
-    }
-  }, [payment?.due_date]);
+    if (!dueKey) return false;
+    return dueKey < todayKey();
+  }, [dueKey]);
+
+  const isDueToday = useMemo(() => {
+    if (!dueKey) return false;
+    return dueKey === todayKey();
+  }, [dueKey]);
+
+  const dueLabel = useMemo(() => formatDateKey(dueKey), [dueKey]);
+  const createdLabel = useMemo(
+    () => formatDateKey(createdKey),
+    [createdKey],
+  );
 
   const clientName = useMemo(() => {
+    const fromPayment = payment?.client;
+    if (fromPayment) {
+      const full = `${fromPayment.first_name ?? ""} ${fromPayment.last_name ?? ""}`.trim();
+      if (full) return `${full} · N° ${fromPayment.id_client}`;
+    }
     if (!payment?.client_id) return "—";
-    const tid = booking.titular.id_client;
+    const tid = booking.titular?.id_client;
     if (payment.client_id === tid) {
       return `${booking.titular.first_name} ${booking.titular.last_name} · N° ${tid}`;
     }
@@ -73,7 +141,42 @@ export default function ClientPaymentCard({
     return found
       ? `${found.first_name} ${found.last_name} · N° ${found.id_client}`
       : `N° ${payment.client_id}`;
-  }, [payment?.client_id, booking.titular, booking.clients]);
+  }, [
+    payment?.client,
+    payment?.client_id,
+    booking.titular,
+    booking.clients,
+  ]);
+
+  const currencyCode = useMemo(
+    () => (payment?.currency || "ARS").toUpperCase(),
+    [payment?.currency],
+  );
+
+  const statusBadge = useMemo(() => {
+    if (!dueKey) {
+      return {
+        label: "Sin vencimiento",
+        tone: "neutral" as const,
+      };
+    }
+    if (isOverdue) {
+      return {
+        label: "Vencido",
+        tone: "danger" as const,
+      };
+    }
+    if (isDueToday) {
+      return {
+        label: "Vence hoy",
+        tone: "warn" as const,
+      };
+    }
+    return {
+      label: "En termino",
+      tone: "success" as const,
+    };
+  }, [dueKey, isOverdue, isDueToday]);
 
   if (typeof payment?.id_payment !== "number") {
     return (
@@ -107,60 +210,40 @@ export default function ClientPaymentCard({
   };
 
   return (
-    <div className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-      {/* Header */}
-      <header className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+    <div className="h-fit space-y-4 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur-sm dark:text-white">
+      <header className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide text-sky-950/60 dark:text-white/60">
             Pago N° {payment.id_payment}
           </p>
-          {isOverdue && (
-            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700 dark:bg-red-900/40 dark:text-red-200">
-              Vencido
-            </span>
-          )}
+          <p className="mt-2 text-2xl font-semibold">
+            {fmtMoney(payment.amount, payment.currency)}
+          </p>
+          <p className="mt-2 text-sm text-sky-950/70 dark:text-white/70">
+            {clientName}
+          </p>
         </div>
-        <time className="text-sm text-gray-500 dark:text-gray-400">
-          Creado: {fmtDate(payment.created_at)}
-        </time>
+        <div className="flex flex-col items-end gap-2 text-xs">
+          <Chip tone={statusBadge.tone}>{statusBadge.label}</Chip>
+          <time className="text-sky-950/60 dark:text-white/60">
+            Creado {createdLabel}
+          </time>
+        </div>
       </header>
 
-      {/* Body */}
-      <div className="flex flex-col gap-3 text-sm">
-        <div>
-          <p className="font-semibold">Cliente</p>
-          <p className="mt-1">{clientName}</p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <p className="font-semibold">Monto</p>
-            <p className="mt-1">{fmtMoney(payment.amount, payment.currency)}</p>
-          </div>
-          <div>
-            <p className="font-semibold">Moneda</p>
-            <p className="mt-1">{(payment.currency || "ARS").toUpperCase()}</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <p className="font-semibold">Vence</p>
-            <p className="mt-1">{fmtDate(payment.due_date)}</p>
-          </div>
-          <div />
-        </div>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <Stat label="Vence" value={dueLabel} />
+        <Stat label="Moneda" value={currencyCode} />
       </div>
 
-      {/* Footer */}
-      <footer className="mt-6 flex justify-end">
+      <footer className="flex justify-end">
         {(role === "administrativo" ||
           role === "desarrollador" ||
           role === "gerente") && (
           <button
             onClick={deletePayment}
             disabled={loadingDelete}
-            className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+            className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-red-800"
             title="Eliminar pago"
           >
             {loadingDelete ? (

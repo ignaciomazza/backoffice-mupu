@@ -12,10 +12,12 @@ export default function LayoutWrapper({
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(false);
   const pathname = usePathname() || "";
 
   const toggleMenu = () => setMenuOpen(!menuOpen);
   const closeMenu = () => setMenuOpen(false);
+  const toggleSidebar = () => setSidebarHidden((v) => !v);
 
   const isLoginPage = pathname === "/login";
   const isLanding = pathname === "/"; // ✅ NUEVO
@@ -32,22 +34,60 @@ export default function LayoutWrapper({
   const showSidebar = !isLoginPage && !isLanding && !isQr; // ✅ sin sidebar en landing
   const showVanta = !isLoginPage; // mantenemos Vanta (en light queda bien)
 
+  // Bloqueo del scroll cuando el menú lateral está abierto (mejor UX móvil)
+  useEffect(() => {
+    if (!showSidebar) return;
+    const b = document.body;
+    if (menuOpen) {
+      const prev = b.style.overflow;
+      b.style.overflow = "hidden";
+      return () => {
+        b.style.overflow = prev;
+      };
+    }
+  }, [menuOpen, showSidebar]);
+
   return (
     <div className="flex min-h-screen flex-col text-sky-950 dark:text-white">
       {showVanta && <VantaBackground />}
-      {!isQr && <Header toggleMenu={toggleMenu} menuOpen={menuOpen} />}
+      {!isQr && (
+        <Header
+          toggleMenu={toggleMenu}
+          menuOpen={menuOpen}
+          toggleSidebar={toggleSidebar}
+          sidebarHidden={sidebarHidden}
+          showSidebar={showSidebar}
+        />
+      )}
       <div
         className={`flex flex-1 ${isLoginPage ? "items-center justify-center" : ""}`}
       >
+        {showSidebar && (
+          <div
+            className={`fixed inset-0 z-40 bg-sky-950/20 backdrop-blur-sm transition-opacity duration-300 ease-out md:hidden ${
+              menuOpen ? "opacity-100" : "pointer-events-none opacity-0"
+            }`}
+            onClick={closeMenu}
+            aria-hidden="true"
+          />
+        )}
         {showSidebar && (
           <SideBar
             menuOpen={menuOpen}
             closeMenu={closeMenu}
             currentPath={pathname}
+            collapsed={sidebarHidden}
+            toggleCollapsed={toggleSidebar}
           />
         )}
         <main
-          className={`flex-1 px-2 pb-6 md:px-6 ${showSidebar ? "md:pl-48 md:pr-8" : ""}`}
+          className={`flex-1 px-2 pb-6 transition-[margin,max-width,padding] duration-300 ease-out md:px-6 ${
+            showSidebar
+              ? sidebarHidden
+                ? "md:mx-auto md:max-w-7xl md:px-8"
+                : "md:pl-56 md:pr-8"
+              : ""
+          }`}
         >
           {children}
         </main>

@@ -10,13 +10,44 @@ function isWeekend(date: Date): boolean {
   return day === 0 || day === 6;
 }
 
+function toErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  return String(err ?? "");
+}
+
+function isNoResultsError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("sin resultados") ||
+    m.includes("feparamgetcotizacion") ||
+    m.includes("(602)") ||
+    m.includes("602")
+  );
+}
+
+function isExpectedExchangeError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    isNoResultsError(m) ||
+    m.includes("faltan cert") ||
+    m.includes("afip_secret_key") ||
+    m.includes("afip: formato cifrado inválido") ||
+    m.includes("cuit inválido") ||
+    m.includes("agencia no encontrada")
+  );
+}
+
 async function getValidExchangeRate(
   client: AfipClient,
   currency: string,
   startDate: Date,
 ): Promise<number> {
   const date = new Date(startDate);
-  for (let i = 0; i < 5; i++) {
+  const maxAttempts = 10;
+  let attempts = 0;
+  let lastError: string | null = null;
+
+  while (attempts < maxAttempts) {
     if (isWeekend(date)) {
       date.setDate(date.getDate() - 1);
       continue;
@@ -31,20 +62,23 @@ async function getValidExchangeRate(
       const rate = rateStr ? parseFloat(rateStr) : NaN;
       if (!Number.isNaN(rate) && rate > 0) return rate;
     } catch (err) {
-      if (err instanceof Error) {
-        console.error(`Error para la fecha ${yyyymmdd}: ${err.message}`);
-      }
+      const msg = toErrorMessage(err);
+      if (!isNoResultsError(msg)) lastError = msg;
     }
+    attempts += 1;
     date.setDate(date.getDate() - 1);
   }
 
   if (process.env.AFIP_ENV === "testing") {
     console.warn(
-      `No se pudo obtener la cotización en los últimos 5 días para ${currency}. Se usará 1.`,
+      `No se pudo obtener la cotización en los últimos ${maxAttempts} días hábiles para ${currency}. Se usará 1.`,
     );
     return 1;
   }
-  throw new Error("No se pudo obtener la cotización en los últimos 5 días.");
+  const suffix = lastError ? ` (${lastError})` : "";
+  throw new Error(
+    `No se pudo obtener la cotización en los últimos ${maxAttempts} días hábiles.${suffix}`,
+  );
 }
 
 export default async function handler(
@@ -74,11 +108,13 @@ export default async function handler(
     const message =
       error instanceof Error ? error.message : "Error desconocido.";
     // Si falla por no tener x-user-id, devolvemos 401 para que el front no lo reintente en loop.
-    const status =
-      message.includes("x-user-id") || message.includes("agencia asociada")
-        ? 401
-        : 500;
-    console.error("Error obteniendo la cotización del dólar:", message);
+    const isAuthError =
+      message.includes("x-user-id") || message.includes("agencia asociada");
+    const expected = isExpectedExchangeError(message);
+    const status = isAuthError ? 401 : expected ? 200 : 500;
+    if (!expected && !isAuthError) {
+      console.error("Error obteniendo la cotización del dólar:", message);
+    }
     return res.status(status).json({ success: false, message });
   }
 }

@@ -170,6 +170,15 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const payments = await prisma.clientPayment.findMany({
       where: { booking_id: bookingId },
       orderBy: [{ due_date: "asc" }, { id_payment: "asc" }],
+      include: {
+        client: {
+          select: {
+            id_client: true,
+            first_name: true,
+            last_name: true,
+          },
+        },
+      },
     });
 
     return res.status(200).json({ payments });

@@ -2,8 +2,10 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
+import CommissionsConfig from "@/components/finance/CommissionsConfig";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "@/context/AuthContext";
@@ -168,10 +170,28 @@ function Modal({
 }
 
 /* =================== Página =================== */
-type TabKey = "general" | "currencies" | "accounts" | "methods" | "categories";
+const TAB_KEYS = [
+  "general",
+  "currencies",
+  "accounts",
+  "methods",
+  "categories",
+  "commissions",
+] as const;
+type TabKey = (typeof TAB_KEYS)[number];
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "general", label: "General" },
+  { key: "currencies", label: "Monedas" },
+  { key: "accounts", label: "Cuentas" },
+  { key: "methods", label: "Métodos" },
+  { key: "categories", label: "Categorías" },
+  { key: "commissions", label: "Comisiones" },
+];
 
 export default function FinanceConfigPage() {
   const { token } = useAuth();
+  const searchParams = useSearchParams();
   const [agencyId, setAgencyId] = useState<number | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -179,6 +199,16 @@ export default function FinanceConfigPage() {
 
   const [active, setActive] = useState<TabKey>("general");
   const [savingGeneral, setSavingGeneral] = useState(false);
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (!tab) return;
+    const normalized = tab.toLowerCase();
+    if (!TAB_KEYS.includes(normalized as TabKey)) return;
+    if (normalized !== active) {
+      setActive(normalized as TabKey);
+    }
+  }, [searchParams, active]);
 
   // ====== Form estado general ======
   const [generalForm, setGeneralForm] = useState<{
@@ -918,17 +948,11 @@ export default function FinanceConfigPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {[
-              { key: "general", label: "General" },
-              { key: "currencies", label: "Monedas" },
-              { key: "accounts", label: "Cuentas" },
-              { key: "methods", label: "Métodos" },
-              { key: "categories", label: "Categorías" },
-            ].map((t) => (
+            {TABS.map((t) => (
               <button
                 key={t.key}
                 type="button"
-                onClick={() => setActive(t.key as TabKey)}
+                onClick={() => setActive(t.key)}
                 className={`${ICON_BTN} ${
                   active === t.key ? "ring-1 ring-sky-400/60" : ""
                 }`}
@@ -1415,6 +1439,9 @@ export default function FinanceConfigPage() {
                 )}
               </div>
             )}
+
+            {/* COMISIONES */}
+            {active === "commissions" && <CommissionsConfig />}
           </>
         )}
 
