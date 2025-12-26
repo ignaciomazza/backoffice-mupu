@@ -5,12 +5,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
-import Spinner from "@/components/Spinner";
-import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import Link from "next/link";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
+import InvestmentsForm from "./InvestmentsForm";
+import InvestmentsList from "./InvestmentsList";
+import type {
+  Investment,
+  InvestmentFormState,
+  Operator,
+  RecurringFormState,
+  RecurringInvestment,
+  User,
+} from "./types";
 
 /* ================= Helpers ================= */
 const norm = (s: string) =>
@@ -131,35 +138,6 @@ function parseCategories(raw: unknown): FinanceCategory[] {
   return out;
 }
 
-/* ================= Tipos ================= */
-type Investment = {
-  id_investment: number;
-  id_agency: number;
-  category: string;
-  description: string;
-  amount: number;
-  currency: string;
-  created_at: string;
-  paid_at?: string | null;
-  user_id?: number | null;
-  operator_id?: number | null;
-  user?: { id_user: number; first_name: string; last_name: string } | null;
-  operator?: { id_operator: number; name: string } | null;
-  createdBy?: { id_user: number; first_name: string; last_name: string } | null;
-  booking_id?: number | null;
-
-  payment_method?: string | null;
-  account?: string | null;
-
-  base_amount?: number | null;
-  base_currency?: string | null;
-  counter_amount?: number | null;
-  counter_currency?: string | null;
-};
-
-type User = { id_user: number; first_name: string; last_name: string };
-type Operator = { id_operator: number; name: string };
-
 type ListResponse = { items: Investment[]; nextCursor: number | null };
 type ApiError = { error?: string; message?: string };
 
@@ -191,6 +169,8 @@ function useDebounced<T>(value: T, delay = 350) {
   return v;
 }
 
+const todayISO = () => new Date().toISOString().slice(0, 10);
+
 /* ==== Componente ==== */
 export default function Page() {
   const { token } = useAuth() as { token?: string | null };
@@ -216,6 +196,15 @@ export default function Page() {
   const [loadingList, setLoadingList] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
+  // gastos automáticos
+  const [recurring, setRecurring] = useState<RecurringInvestment[]>([]);
+  const [loadingRecurring, setLoadingRecurring] = useState(false);
+  const [savingRecurring, setSavingRecurring] = useState(false);
+  const [recurringOpen, setRecurringOpen] = useState(false);
+  const [recurringEditingId, setRecurringEditingId] = useState<number | null>(
+    null,
+  );
+
   // filtros
   const [q, setQ] = useState("");
   const [category, setCategory] = useState<string>("");
@@ -225,34 +214,17 @@ export default function Page() {
   const [operatorFilter, setOperatorFilter] = useState<number>(0);
   const debouncedQ = useDebounced(q, 400);
 
+  const [viewMode, setViewMode] = useState<"cards" | "table" | "monthly">(
+    "cards",
+  );
+
   // Filtro local: Operador / Otros / Todos
   const [operadorMode, setOperadorMode] = useState<"all" | "only" | "others">(
     "all",
   );
 
   // form (sin defaults duros)
-  const [form, setForm] = useState<{
-    category: string;
-    description: string;
-    amount: string;
-    currency: string;
-    paid_at: string; // YYYY-MM-DD
-    user_id: number | null;
-    operator_id: number | null;
-    paid_today: boolean;
-
-    payment_method: string;
-    account: string;
-
-    use_conversion: boolean;
-    base_amount: string;
-    base_currency: string;
-    counter_amount: string;
-    counter_currency: string;
-
-    // NUEVO: usar cuenta de crédito del operador
-    use_credit: boolean;
-  }>({
+  const [form, setForm] = useState<InvestmentFormState>({
     category: "",
     description: "",
     amount: "",
@@ -261,6 +233,30 @@ export default function Page() {
     user_id: null,
     operator_id: null,
     paid_today: false,
+
+    payment_method: "",
+    account: "",
+
+    use_conversion: false,
+    base_amount: "",
+    base_currency: "",
+    counter_amount: "",
+    counter_currency: "",
+
+    use_credit: false,
+  });
+
+  const [recurringForm, setRecurringForm] = useState<RecurringFormState>({
+    category: "",
+    description: "",
+    amount: "",
+    currency: "",
+    start_date: todayISO(),
+    day_of_month: "1",
+    interval_months: "1",
+    user_id: null,
+    operator_id: null,
+    active: true,
 
     payment_method: "",
     account: "",
@@ -381,6 +377,33 @@ export default function Page() {
     setEditingId(null);
   }
 
+  function resetRecurringForm() {
+    setRecurringForm({
+      category: "",
+      description: "",
+      amount: "",
+      currency: "",
+      start_date: todayISO(),
+      day_of_month: "1",
+      interval_months: "1",
+      user_id: null,
+      operator_id: null,
+      active: true,
+
+      payment_method: "",
+      account: "",
+
+      use_conversion: false,
+      base_amount: "",
+      base_currency: "",
+      counter_amount: "",
+      counter_currency: "",
+
+      use_credit: false,
+    });
+    setRecurringEditingId(null);
+  }
+
   function beginEdit(inv: Investment) {
     setForm({
       category: inv.category ?? "",
@@ -415,6 +438,44 @@ export default function Page() {
     }
   }
 
+  function beginRecurringEdit(rule: RecurringInvestment) {
+    setRecurringForm({
+      category: rule.category ?? "",
+      description: rule.description ?? "",
+      amount: String(rule.amount ?? ""),
+      currency: (rule.currency ?? "").toUpperCase(),
+      start_date: rule.start_date ? rule.start_date.slice(0, 10) : todayISO(),
+      day_of_month: String(rule.day_of_month ?? 1),
+      interval_months: String(rule.interval_months ?? 1),
+      user_id: rule.user_id ?? null,
+      operator_id: rule.operator_id ?? null,
+      active: rule.active ?? true,
+
+      payment_method: rule.payment_method ?? "",
+      account: rule.account ?? "",
+
+      use_conversion:
+        !!rule.base_amount ||
+        !!rule.base_currency ||
+        !!rule.counter_amount ||
+        !!rule.counter_currency,
+      base_amount: rule.base_amount != null ? String(rule.base_amount) : "",
+      base_currency: (rule.base_currency ?? "").toUpperCase(),
+      counter_amount:
+        rule.counter_amount != null ? String(rule.counter_amount) : "",
+      counter_currency: (rule.counter_currency ?? "").toUpperCase(),
+
+      use_credit:
+        norm(rule.category) === "operador" &&
+        rule.payment_method === CREDIT_METHOD,
+    });
+    setRecurringEditingId(rule.id_recurring);
+    setRecurringOpen(true);
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
   async function deleteCurrent() {
     if (!editingId || !token) return;
     try {
@@ -442,6 +503,73 @@ export default function Page() {
       resetForm();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al eliminar");
+    }
+  }
+
+  async function deleteRecurring(id: number) {
+    if (!token) return;
+    try {
+      const res = await authFetch(
+        `/api/investments/recurring/${id}`,
+        { method: "DELETE" },
+        token,
+      );
+      if (!res.ok && res.status !== 204) {
+        const body = (await safeJson<ApiError>(res)) ?? {};
+        throw new Error(body.error || "No se pudo eliminar el automático");
+      }
+      setRecurring((prev) => prev.filter((r) => r.id_recurring !== id));
+      if (recurringEditingId === id) {
+        resetRecurringForm();
+      }
+      toast.success("Gasto automático eliminado");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al eliminar");
+    }
+  }
+
+  async function toggleRecurringActive(rule: RecurringInvestment) {
+    if (!token) return;
+    setSavingRecurring(true);
+    try {
+      const payload = {
+        category: rule.category,
+        description: rule.description,
+        amount: rule.amount,
+        currency: rule.currency,
+        start_date: rule.start_date?.slice(0, 10) || todayISO(),
+        day_of_month: rule.day_of_month,
+        interval_months: rule.interval_months,
+        active: !rule.active,
+        user_id: rule.user_id ?? undefined,
+        operator_id: rule.operator_id ?? undefined,
+        payment_method: rule.payment_method ?? "",
+        account: rule.account ?? "",
+        base_amount: rule.base_amount ?? undefined,
+        base_currency: rule.base_currency ?? undefined,
+        counter_amount: rule.counter_amount ?? undefined,
+        counter_currency: rule.counter_currency ?? undefined,
+      };
+
+      const res = await authFetch(
+        `/api/investments/recurring/${rule.id_recurring}`,
+        { method: "PUT", body: JSON.stringify(payload) },
+        token,
+      );
+      if (!res.ok) {
+        const body = (await safeJson<ApiError>(res)) ?? {};
+        throw new Error(body.error || "No se pudo actualizar el automático");
+      }
+      const updated = (await safeJson<RecurringInvestment>(res))!;
+      setRecurring((prev) =>
+        prev.map((it) =>
+          it.id_recurring === updated.id_recurring ? updated : it,
+        ),
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al actualizar");
+    } finally {
+      setSavingRecurring(false);
     }
   }
 
@@ -614,6 +742,26 @@ export default function Page() {
     [debouncedQ, category, currency, paymentMethodFilter, accountFilter],
   );
 
+  const fetchRecurring = useCallback(async () => {
+    if (!token) return;
+    setLoadingRecurring(true);
+    try {
+      const res = await authFetch(
+        "/api/investments/recurring",
+        { cache: "no-store" },
+        token,
+      );
+      if (!res.ok) throw new Error("No se pudo obtener los automáticos");
+      const data = (await safeJson<RecurringInvestment[]>(res)) ?? [];
+      setRecurring(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error(e);
+      setRecurring([]);
+    } finally {
+      setLoadingRecurring(false);
+    }
+  }, [token]);
+
   const fetchList = useCallback(async () => {
     if (!token) return;
     setLoadingList(true);
@@ -651,6 +799,10 @@ export default function Page() {
   useEffect(() => {
     fetchList();
   }, [fetchList]);
+
+  useEffect(() => {
+    fetchRecurring();
+  }, [fetchRecurring]);
 
   const loadMore = useCallback(async () => {
     if (!token || !nextCursor || loadingMore) return;
@@ -700,6 +852,14 @@ export default function Page() {
       : paymentMethodOptions;
   }, [paymentMethodOptions, form.use_credit, form.category]);
 
+  const recurringPaymentMethodOptions = useMemo(() => {
+    const needCredit =
+      norm(recurringForm.category) === "operador" && recurringForm.use_credit;
+    return needCredit
+      ? uniqSorted([...paymentMethodOptions, CREDIT_METHOD])
+      : paymentMethodOptions;
+  }, [paymentMethodOptions, recurringForm.use_credit, recurringForm.category]);
+
   const requiresAccountMap = useMemo(() => {
     const map = new Map<string, boolean>();
     for (const m of finance?.paymentMethods || []) {
@@ -737,10 +897,25 @@ export default function Page() {
     return d;
   }, [finance?.currencies]);
 
+  const dayOptions = useMemo(
+    () => Array.from({ length: 31 }, (_, i) => i + 1),
+    [],
+  );
+
+  const intervalOptions = useMemo(
+    () => Array.from({ length: 12 }, (_, i) => i + 1),
+    [],
+  );
+
   const showAccount = useMemo(() => {
     if (!form.payment_method) return false;
     return !!requiresAccountMap.get(norm(form.payment_method));
   }, [form.payment_method, requiresAccountMap]);
+
+  const showRecurringAccount = useMemo(() => {
+    if (!recurringForm.payment_method) return false;
+    return !!requiresAccountMap.get(norm(recurringForm.payment_method));
+  }, [recurringForm.payment_method, requiresAccountMap]);
 
   /* ========= Validación de conversión ========= */
   const validateConversion = (): { ok: boolean; msg?: string } => {
@@ -754,6 +929,21 @@ export default function Page() {
     if (!Number.isFinite(cAmt) || cAmt <= 0)
       return { ok: false, msg: "Ingresá un Contravalor válido (> 0)." };
     if (!form.counter_currency)
+      return { ok: false, msg: "Elegí la moneda del Contravalor." };
+    return { ok: true };
+  };
+
+  const validateRecurringConversion = (): { ok: boolean; msg?: string } => {
+    if (!recurringForm.use_conversion) return { ok: true };
+    const bAmt = Number(recurringForm.base_amount);
+    const cAmt = Number(recurringForm.counter_amount);
+    if (!Number.isFinite(bAmt) || bAmt <= 0)
+      return { ok: false, msg: "Ingresá un Valor base válido (> 0)." };
+    if (!recurringForm.base_currency)
+      return { ok: false, msg: "Elegí la moneda del Valor base." };
+    if (!Number.isFinite(cAmt) || cAmt <= 0)
+      return { ok: false, msg: "Ingresá un Contravalor válido (> 0)." };
+    if (!recurringForm.counter_currency)
       return { ok: false, msg: "Elegí la moneda del Contravalor." };
     return { ok: true };
   };
@@ -895,16 +1085,178 @@ export default function Page() {
     }
   };
 
+  const onSubmitRecurring = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+
+    const categoryLower = norm(recurringForm.category);
+    const amountNum = Number(recurringForm.amount);
+    const dayNum = Number(recurringForm.day_of_month);
+    const intervalNum = Number(recurringForm.interval_months);
+
+    if (!recurringForm.category || !recurringForm.description) {
+      toast.error("Completá categoría y descripción");
+      return;
+    }
+    if (!recurringForm.currency) {
+      toast.error("Elegí la moneda");
+      return;
+    }
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      toast.error("El monto debe ser un número positivo");
+      return;
+    }
+    if (!Number.isFinite(dayNum) || dayNum < 1 || dayNum > 31) {
+      toast.error("El día del mes debe estar entre 1 y 31");
+      return;
+    }
+    if (!Number.isFinite(intervalNum) || intervalNum < 1 || intervalNum > 12) {
+      toast.error("El intervalo debe ser entre 1 y 12 meses");
+      return;
+    }
+    if (categoryLower === "operador" && !recurringForm.operator_id) {
+      toast.error("Para la categoría OPERADOR, seleccioná un operador");
+      return;
+    }
+    if (
+      ["sueldo", "comision"].includes(categoryLower) &&
+      !recurringForm.user_id
+    ) {
+      toast.error("Para SUELDO/COMISION, seleccioná un usuario");
+      return;
+    }
+
+    const payingWithCredit =
+      norm(recurringForm.category) === "operador" && recurringForm.use_credit;
+
+    if (!recurringForm.payment_method && !payingWithCredit) {
+      toast.error("Seleccioná el método de pago");
+      return;
+    }
+    if (showRecurringAccount && !recurringForm.account && !payingWithCredit) {
+      toast.error("Seleccioná la cuenta para este método");
+      return;
+    }
+
+    const conv = validateRecurringConversion();
+    if (!conv.ok) {
+      toast.error(conv.msg || "Revisá los datos de Valor/Contravalor");
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      category: recurringForm.category,
+      description: recurringForm.description,
+      amount: amountNum,
+      currency: recurringForm.currency.toUpperCase(),
+      start_date: recurringForm.start_date || todayISO(),
+      day_of_month: dayNum,
+      interval_months: intervalNum,
+      active: recurringForm.active,
+      user_id: recurringForm.user_id ?? undefined,
+      operator_id: recurringForm.operator_id ?? undefined,
+      payment_method: payingWithCredit
+        ? CREDIT_METHOD
+        : recurringForm.payment_method,
+      account: payingWithCredit
+        ? undefined
+        : showRecurringAccount
+          ? recurringForm.account
+          : undefined,
+    };
+
+    if (recurringForm.use_conversion) {
+      const bAmt = Number(recurringForm.base_amount);
+      const cAmt = Number(recurringForm.counter_amount);
+      payload.base_amount =
+        Number.isFinite(bAmt) && bAmt > 0 ? bAmt : undefined;
+      payload.base_currency = recurringForm.base_currency || undefined;
+      payload.counter_amount =
+        Number.isFinite(cAmt) && cAmt > 0 ? cAmt : undefined;
+      payload.counter_currency = recurringForm.counter_currency || undefined;
+    }
+
+    setSavingRecurring(true);
+    try {
+      if (!recurringEditingId) {
+        const res = await authFetch(
+          "/api/investments/recurring",
+          { method: "POST", body: JSON.stringify(payload) },
+          token,
+        );
+        if (!res.ok) {
+          const body = (await safeJson<ApiError>(res)) ?? {};
+          throw new Error(body.error || "No se pudo crear el gasto automático");
+        }
+        const created = await safeJson<RecurringInvestment>(res);
+        if (created) {
+          setRecurring((prev) => [created, ...prev]);
+        } else {
+          await fetchRecurring();
+        }
+        toast.success("Gasto automático guardado");
+      } else {
+        const res = await authFetch(
+          `/api/investments/recurring/${recurringEditingId}`,
+          { method: "PUT", body: JSON.stringify(payload) },
+          token,
+        );
+        if (!res.ok) {
+          const body = (await safeJson<ApiError>(res)) ?? {};
+          throw new Error(body.error || "No se pudo actualizar el automático");
+        }
+        const updated = (await safeJson<RecurringInvestment>(res))!;
+        setRecurring((prev) =>
+          prev.map((it) =>
+            it.id_recurring === updated.id_recurring ? updated : it,
+          ),
+        );
+        toast.success("Gasto automático actualizado");
+      }
+
+      resetRecurringForm();
+      setRecurringOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar");
+    } finally {
+      setSavingRecurring(false);
+    }
+  };
+
   /* ========= Helpers UI ========= */
   const isOperador = norm(form.category) === "operador";
   const isSueldo = norm(form.category) === "sueldo";
   const isComision = norm(form.category) === "comision";
+  const isRecurringOperador = norm(recurringForm.category) === "operador";
+  const isRecurringSueldo = norm(recurringForm.category) === "sueldo";
+  const isRecurringComision = norm(recurringForm.category) === "comision";
 
+  const pillBase =
+    "rounded-full px-3 py-1 text-xs font-medium transition-colors";
+  const pillNeutral = "bg-white/30 dark:bg-white/10";
+  const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
   const input =
-    "w-full appearance-none rounded-2xl bg-white/50 border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
+    "w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10 dark:text-white";
+  const filterControl =
+    "cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/60 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/10 outline-none transition focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-200/40 dark:bg-white/10 dark:text-white";
+  const filterPanel =
+    "rounded-3xl border border-white/10 bg-white/10 p-3 shadow-md shadow-sky-950/10 backdrop-blur dark:bg-white/10";
 
   const formatDate = (s?: string | null) =>
     s ? new Date(s).toLocaleDateString("es-AR", { timeZone: "UTC" }) : "-";
+
+  const getItemDate = useCallback(
+    (it: Investment) => new Date(it.paid_at ?? it.created_at),
+    [],
+  );
+
+  const formatMonthLabel = useCallback((d: Date) => {
+    const label = d.toLocaleDateString("es-AR", {
+      month: "long",
+      year: "numeric",
+    });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }, []);
 
   const previewAmount = useMemo(() => {
     const n = Number(form.amount);
@@ -963,6 +1315,121 @@ export default function Page() {
     }
   }, [form.use_conversion, form.counter_amount, form.counter_currency]);
 
+  const headerPills = useMemo(() => {
+    const pills: JSX.Element[] = [];
+    if (editingId) {
+      pills.push(
+        <span key="edit" className={`${pillBase} ${pillOk}`}>
+          Editando #{editingId}
+        </span>,
+      );
+    }
+    if (form.category) {
+      pills.push(
+        <span key="cat" className={`${pillBase} ${pillNeutral}`}>
+          {form.category}
+        </span>,
+      );
+    }
+    if (form.currency) {
+      pills.push(
+        <span key="cur" className={`${pillBase} ${pillNeutral}`}>
+          {form.currency.toUpperCase()}
+        </span>,
+      );
+    }
+    if (form.amount) {
+      pills.push(
+        <span key="amt" className={`${pillBase} ${pillOk}`}>
+          {previewAmount || form.amount}
+        </span>,
+      );
+    }
+    if (form.payment_method) {
+      pills.push(
+        <span key="pm" className={`${pillBase} ${pillNeutral}`}>
+          {form.payment_method}
+        </span>,
+      );
+    }
+    return pills;
+  }, [
+    editingId,
+    form.amount,
+    form.category,
+    form.currency,
+    form.payment_method,
+    pillBase,
+    pillNeutral,
+    pillOk,
+    previewAmount,
+  ]);
+
+  const previewRecurringAmount = useMemo(() => {
+    const n = Number(recurringForm.amount);
+    if (!Number.isFinite(n)) return "";
+    if (!recurringForm.currency)
+      return n.toLocaleString("es-AR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+    try {
+      return new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: recurringForm.currency,
+        minimumFractionDigits: 2,
+      }).format(n);
+    } catch {
+      return `${n.toFixed(2)} ${recurringForm.currency}`;
+    }
+  }, [recurringForm.amount, recurringForm.currency]);
+
+  const previewRecurringBase = useMemo(() => {
+    const n = Number(recurringForm.base_amount);
+    if (
+      !recurringForm.use_conversion ||
+      !Number.isFinite(n) ||
+      n <= 0 ||
+      !recurringForm.base_currency
+    )
+      return "";
+    try {
+      return new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: recurringForm.base_currency,
+      }).format(n);
+    } catch {
+      return `${n.toFixed(2)} ${recurringForm.base_currency}`;
+    }
+  }, [
+    recurringForm.use_conversion,
+    recurringForm.base_amount,
+    recurringForm.base_currency,
+  ]);
+
+  const previewRecurringCounter = useMemo(() => {
+    const n = Number(recurringForm.counter_amount);
+    if (
+      !recurringForm.use_conversion ||
+      !Number.isFinite(n) ||
+      n <= 0 ||
+      !recurringForm.counter_currency
+    )
+      return "";
+    try {
+      return new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: recurringForm.counter_currency,
+      }).format(n);
+    } catch {
+      return `${n.toFixed(2)} ${recurringForm.counter_currency}`;
+    }
+  }, [
+    recurringForm.use_conversion,
+    recurringForm.counter_amount,
+    recurringForm.counter_currency,
+  ]);
+
   // Sugerencias SOLO con opciones cargadas
   useEffect(() => {
     if (!form.use_conversion) return;
@@ -1000,6 +1467,42 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.currency, form.amount]);
 
+  useEffect(() => {
+    if (!recurringForm.use_conversion) return;
+    setRecurringForm((f) => {
+      const next = { ...f };
+      if (!next.base_amount) next.base_amount = f.amount || "";
+      if (!next.base_currency && f.currency) next.base_currency = f.currency;
+      if (!next.counter_currency) {
+        const other =
+          currencyOptions.find(
+            (c) => c !== (next.base_currency || f.currency),
+          ) || "";
+        next.counter_currency = other;
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recurringForm.use_conversion, currencyOptions]);
+
+  useEffect(() => {
+    if (!recurringForm.use_conversion) return;
+    setRecurringForm((f) => {
+      const next = { ...f };
+      if (!next.base_currency && f.currency) next.base_currency = f.currency;
+      if (!next.base_amount) next.base_amount = f.amount || "";
+      if (!next.counter_currency && currencyOptions.length > 0) {
+        const other =
+          currencyOptions.find(
+            (c) => c !== (next.base_currency || f.currency),
+          ) || "";
+        next.counter_currency = other;
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recurringForm.currency, recurringForm.amount, currencyOptions]);
+
   // Fijar/limpiar método según crédito y categoría
   useEffect(() => {
     setForm((f) => {
@@ -1026,6 +1529,77 @@ export default function Page() {
       return f;
     });
   }, [form.category, form.use_credit]);
+
+  useEffect(() => {
+    setRecurringForm((f) => {
+      const isOperador = norm(f.category) === "operador";
+
+      if (isOperador && f.use_credit) {
+        if (f.payment_method !== CREDIT_METHOD || f.account) {
+          return { ...f, payment_method: CREDIT_METHOD, account: "" };
+        }
+        return f;
+      }
+
+      if (!isOperador && (f.use_credit || f.payment_method === CREDIT_METHOD)) {
+        return { ...f, use_credit: false, payment_method: "", account: "" };
+      }
+
+      if (!f.use_credit && f.payment_method === CREDIT_METHOD) {
+        return { ...f, payment_method: "", account: "" };
+      }
+
+      return f;
+    });
+  }, [recurringForm.category, recurringForm.use_credit]);
+
+  const nextRecurringRun = useCallback((rule: RecurringInvestment) => {
+    const day = Math.min(Math.max(rule.day_of_month || 1, 1), 31);
+    const interval = Math.max(rule.interval_months || 1, 1);
+    const startRaw = new Date(rule.start_date);
+    const start = new Date(
+      startRaw.getFullYear(),
+      startRaw.getMonth(),
+      startRaw.getDate(),
+      0,
+      0,
+      0,
+      0,
+    );
+    const last = rule.last_run ? new Date(rule.last_run) : null;
+
+    const buildDue = (year: number, month: number) => {
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      const d = Math.min(day, lastDay);
+      return new Date(year, month, d, 0, 0, 0, 0);
+    };
+
+    const addMonths = (date: Date, months: number) => {
+      const total = date.getMonth() + months;
+      const year = date.getFullYear() + Math.floor(total / 12);
+      const month = total % 12;
+      return buildDue(year, month);
+    };
+
+    if (last) {
+      const base = new Date(
+        last.getFullYear(),
+        last.getMonth(),
+        last.getDate(),
+        0,
+        0,
+        0,
+        0,
+      );
+      return addMonths(base, interval);
+    }
+
+    let due = buildDue(start.getFullYear(), start.getMonth());
+    if (due < start) {
+      due = addMonths(due, interval);
+    }
+    return due;
+  }, []);
 
   /* ====== Filtro local y resúmenes ====== */
   const filteredItems = useMemo(() => {
@@ -1067,6 +1641,38 @@ export default function Page() {
     return { op, others, total: items.length, filtered: filteredItems.length };
   }, [items, filteredItems]);
 
+  const groupedByMonth = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        key: string;
+        label: string;
+        items: Investment[];
+        totals: Record<string, number>;
+      }
+    >();
+
+    for (const it of filteredItems) {
+      const d = getItemDate(it);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          key,
+          label: formatMonthLabel(d),
+          items: [it],
+          totals: { [it.currency]: Number(it.amount || 0) },
+        });
+      } else {
+        existing.items.push(it);
+        existing.totals[it.currency] =
+          (existing.totals[it.currency] || 0) + Number(it.amount || 0);
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.key.localeCompare(a.key));
+  }, [filteredItems, getItemDate, formatMonthLabel]);
+
   const resetFilters = () => {
     setQ("");
     setCategory("");
@@ -1081,874 +1687,108 @@ export default function Page() {
     <ProtectedRoute>
       <section className="text-sky-950 dark:text-white">
         {/* Info: ahora se permiten pagos a Operadores + crédito */}
-        <div className="mb-4 rounded-2xl border border-sky-300/30 bg-sky-100/30 p-3 text-sm text-sky-900 dark:border-sky-300/20 dark:bg-sky-300/10 dark:text-sky-200">
-          <b>Novedad:</b> ahora podés registrar <b>pagos a Operadores</b>{" "}
-          directamente desde <b>Gastos</b> y, si querés, impactarlos en la{" "}
-          <b>cuenta de crédito</b> del Operador.
+        <div className="mb-4 rounded-2xl border border-white/10 bg-white/10 p-3 text-sm text-sky-950 shadow-md shadow-sky-950/10 dark:text-white">
+          <div className="flex items-start gap-3">
+            <span className="mt-1 size-2 rounded-full bg-amber-400" />
+            <p>
+              <b>Novedad:</b> ahora podés registrar <b>pagos a Operadores</b>{" "}
+              directamente desde <b>Gastos</b> y, si querés, impactarlos en la{" "}
+              <b>cuenta de crédito</b> del Operador.
+            </p>
+          </div>
         </div>
 
         {/* FORM */}
-        <motion.div
-          layout
-          initial={{ maxHeight: 100, opacity: 1 }}
-          animate={{
-            maxHeight: isFormOpen ? 1000 : 100,
-            opacity: 1,
-            transition: { duration: 0.4, ease: "easeInOut" },
-          }}
-          className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 shadow-md shadow-sky-950/10 backdrop-blur"
-        >
-          <div
-            className="flex cursor-pointer items-center justify-between"
-            onClick={() => setIsFormOpen((v) => !v)}
-            role="button"
-            aria-label="Alternar formulario de gastos"
-          >
-            <p className="text-lg font-medium">
-              {editingId ? "Editar gasto" : "Cargar gasto"}
-            </p>
-            <button
-              type="button"
-              className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
-              aria-label={isFormOpen ? "Cerrar formulario" : "Abrir formulario"}
-            >
-              {isFormOpen ? (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="size-6"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M5 12h14"
-                  />
-                </svg>
-              ) : (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="size-6"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 4.5v15m7.5-7.5h-15"
-                  />
-                </svg>
-              )}
-            </button>
-          </div>
+        <InvestmentsForm
+          isFormOpen={isFormOpen}
+          setIsFormOpen={setIsFormOpen}
+          editingId={editingId}
+          headerPills={headerPills}
+          onSubmit={onSubmit}
+          loading={loading}
+          deleteCurrent={deleteCurrent}
+          form={form}
+          setForm={setForm}
+          categoryOptions={categoryOptions}
+          currencyOptions={currencyOptions}
+          currencyDict={currencyDict}
+          uiPaymentMethodOptions={uiPaymentMethodOptions}
+          accountOptions={accountOptions}
+          showAccount={showAccount}
+          previewAmount={previewAmount}
+          previewBase={previewBase}
+          previewCounter={previewCounter}
+          isOperador={isOperador}
+          isSueldo={isSueldo}
+          isComision={isComision}
+          users={users}
+          operators={operators}
+          inputClass={input}
+          recurringOpen={recurringOpen}
+          setRecurringOpen={setRecurringOpen}
+          recurringEditingId={recurringEditingId}
+          recurringForm={recurringForm}
+          setRecurringForm={setRecurringForm}
+          onSubmitRecurring={onSubmitRecurring}
+          savingRecurring={savingRecurring}
+          loadingRecurring={loadingRecurring}
+          recurring={recurring}
+          fetchRecurring={fetchRecurring}
+          resetRecurringForm={resetRecurringForm}
+          beginRecurringEdit={beginRecurringEdit}
+          toggleRecurringActive={toggleRecurringActive}
+          deleteRecurring={deleteRecurring}
+          showRecurringAccount={showRecurringAccount}
+          recurringPaymentMethodOptions={recurringPaymentMethodOptions}
+          dayOptions={dayOptions}
+          intervalOptions={intervalOptions}
+          previewRecurringAmount={previewRecurringAmount}
+          previewRecurringBase={previewRecurringBase}
+          previewRecurringCounter={previewRecurringCounter}
+          isRecurringOperador={isRecurringOperador}
+          isRecurringSueldo={isRecurringSueldo}
+          isRecurringComision={isRecurringComision}
+          nextRecurringRun={nextRecurringRun}
+        />
 
-          {isFormOpen && (
-            <form
-              onSubmit={onSubmit}
-              className="grid grid-cols-1 gap-4 md:grid-cols-2"
-            >
-              {/* Categoría */}
-              <div>
-                <label className="ml-2 block">Categoría</label>
-                <select
-                  className={`${input} cursor-pointer`}
-                  value={form.category}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      category: e.target.value,
-                      user_id: null,
-                      operator_id: null,
-                    }))
-                  }
-                  required
-                  disabled={categoryOptions.length === 0}
-                >
-                  <option value="" disabled>
-                    {categoryOptions.length
-                      ? "Seleccionar…"
-                      : "Sin categorías habilitadas"}
-                  </option>
-                  {categoryOptions.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Fecha */}
-              <div>
-                <label className="ml-2 block">Fecha de pago (opcional)</label>
-                <input
-                  type="date"
-                  className={`${input} cursor-pointer`}
-                  value={form.paid_at}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, paid_at: e.target.value }))
-                  }
-                />
-              </div>
-
-              {/* Descripción */}
-              <div className="md:col-span-2">
-                <label className="ml-2 block">Descripción</label>
-                <input
-                  className={input}
-                  value={form.description}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, description: e.target.value }))
-                  }
-                  placeholder="Concepto / detalle del gasto…"
-                  required
-                />
-              </div>
-
-              {/* Monto */}
-              <div>
-                <label className="ml-2 block">Monto</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  inputMode="decimal"
-                  className={input}
-                  value={form.amount}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, amount: e.target.value }))
-                  }
-                  placeholder="0.00"
-                  required
-                />
-                {form.amount && (
-                  <div className="ml-2 mt-1 text-sm opacity-80">
-                    {previewAmount}
-                  </div>
-                )}
-              </div>
-
-              {/* Moneda (solo config) */}
-              <div>
-                <label className="ml-2 block">Moneda</label>
-                <select
-                  className={`${input} cursor-pointer`}
-                  value={form.currency}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, currency: e.target.value }))
-                  }
-                  required
-                  disabled={currencyOptions.length === 0}
-                >
-                  <option value="" disabled>
-                    {currencyOptions.length
-                      ? "Seleccionar moneda"
-                      : "Sin monedas habilitadas"}
-                  </option>
-                  {currencyOptions.map((code) => (
-                    <option key={code} value={code}>
-                      {currencyDict[code]
-                        ? `${code} — ${currencyDict[code]}`
-                        : code}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Método de pago (solo config) */}
-              <div>
-                <label className="ml-2 block">Método de pago</label>
-                <select
-                  className={`${input} cursor-pointer`}
-                  value={form.payment_method}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, payment_method: e.target.value }))
-                  }
-                  required
-                  // si uso crédito con Operador, el select queda bloqueado (fijamos el método)
-                  disabled={
-                    uiPaymentMethodOptions.length === 0 ||
-                    (norm(form.category) === "operador" && form.use_credit)
-                  }
-                >
-                  <option value="" disabled>
-                    {uiPaymentMethodOptions.length
-                      ? "Seleccionar método"
-                      : "Sin métodos habilitados"}
-                  </option>
-                  {uiPaymentMethodOptions.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Cuenta (si el método la requiere; solo config) */}
-              {showAccount && (
-                <div>
-                  <label className="ml-2 block">Cuenta</label>
-                  <select
-                    className={`${input} cursor-pointer`}
-                    value={form.account}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, account: e.target.value }))
-                    }
-                    required={showAccount}
-                    disabled={accountOptions.length === 0}
-                  >
-                    <option value="" disabled>
-                      {accountOptions.length
-                        ? "Seleccionar cuenta"
-                        : "Sin cuentas habilitadas"}
-                    </option>
-                    {accountOptions.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Conversión (Valor / Contravalor) */}
-              <div className="rounded-2xl border border-white/10 p-3 md:col-span-2">
-                <label className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={form.use_conversion}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        use_conversion: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span className="text-sm">Registrar valor / contravalor</span>
-                </label>
-
-                {form.use_conversion && (
-                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div>
-                      <p className="mb-1 text-sm font-medium">Valor base</p>
-                      <div className="grid grid-cols-3 gap-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          inputMode="decimal"
-                          className={`col-span-2 ${input}`}
-                          placeholder="0.00"
-                          value={form.base_amount}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              base_amount: e.target.value,
-                            }))
-                          }
-                        />
-                        <select
-                          className={`${input} cursor-pointer`}
-                          value={form.base_currency}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              base_currency: e.target.value,
-                            }))
-                          }
-                          disabled={currencyOptions.length === 0}
-                        >
-                          <option value="" disabled>
-                            {currencyOptions.length ? "Moneda" : "Sin monedas"}
-                          </option>
-                          {currencyOptions.map((code) => (
-                            <option key={code} value={code}>
-                              {code}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      {previewBase && (
-                        <div className="ml-1 mt-1 text-xs opacity-70">
-                          {previewBase}
-                        </div>
-                      )}
-                    </div>
-
-                    <div>
-                      <p className="mb-1 text-sm font-medium">Contravalor</p>
-                      <div className="grid grid-cols-3 gap-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          inputMode="decimal"
-                          className={`col-span-2 ${input}`}
-                          placeholder="0.00"
-                          value={form.counter_amount}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              counter_amount: e.target.value,
-                            }))
-                          }
-                        />
-                        <select
-                          className={`${input} cursor-pointer`}
-                          value={form.counter_currency}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              counter_currency: e.target.value,
-                            }))
-                          }
-                          disabled={currencyOptions.length === 0}
-                        >
-                          <option value="" disabled>
-                            {currencyOptions.length ? "Moneda" : "Sin monedas"}
-                          </option>
-                          {currencyOptions.map((code) => (
-                            <option key={code} value={code}>
-                              {code}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      {previewCounter && (
-                        <div className="ml-1 mt-1 text-xs opacity-70">
-                          {previewCounter}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="text-xs opacity-70 md:col-span-2">
-                      Se guarda el valor y contravalor <b>sin tipo de cambio</b>
-                      . Útil si pagás en una moneda pero el acuerdo está en
-                      otra.
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Si categoría es Operador → pedir Operador + toggle crédito */}
-              {isOperador && (
-                <div className="md:col-span-2">
-                  <label className="ml-2 block">Operador</label>
-                  <select
-                    className={`${input} cursor-pointer`}
-                    value={form.operator_id ?? ""}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        operator_id: e.target.value
-                          ? Number(e.target.value)
-                          : null,
-                      }))
-                    }
-                    required
-                    disabled={operators.length === 0}
-                  >
-                    <option value="" disabled>
-                      {operators.length
-                        ? "Seleccionar operador…"
-                        : "Sin operadores"}
-                    </option>
-                    {operators.map((o) => (
-                      <option key={o.id_operator} value={o.id_operator}>
-                        {o.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  <div className="mt-3 rounded-2xl border border-white/10 p-3">
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={form.use_credit}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            use_credit: e.target.checked,
-                          }))
-                        }
-                      />
-                      <span className="text-sm">
-                        Usar <b>cuenta de crédito</b> del Operador para este
-                        pago
-                      </span>
-                    </label>
-                    <div className="ml-1 mt-1 text-xs opacity-70">
-                      Se registrará un <i>entry</i> en la cuenta del Operador
-                      con monto negativo.
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {(isSueldo || isComision) && (
-                <div className="md:col-span-2">
-                  <label className="ml-2 block">
-                    {isSueldo ? "Empleado" : "Vendedor"}
-                  </label>
-                  <select
-                    className={`${input} cursor-pointer`}
-                    value={form.user_id ?? ""}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        user_id: e.target.value ? Number(e.target.value) : null,
-                      }))
-                    }
-                    required
-                    disabled={users.length === 0}
-                  >
-                    <option value="" disabled>
-                      {users.length ? "Seleccionar usuario…" : "Sin usuarios"}
-                    </option>
-                    {users.map((u) => (
-                      <option key={u.id_user} value={u.id_user}>
-                        {u.first_name} {u.last_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Botones */}
-              <div className="flex flex-wrap gap-3 md:col-span-2">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className={`mt-2 rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white ${
-                    loading ? "opacity-60" : ""
-                  }`}
-                >
-                  {loading ? (
-                    <Spinner />
-                  ) : editingId ? (
-                    "Actualizar gasto"
-                  ) : (
-                    "Agregar gasto"
-                  )}
-                </button>
-
-                {editingId && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm("¿Eliminar este gasto?")) deleteCurrent();
-                    }}
-                    className="mt-2 rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
-                    title="Eliminar gasto"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      strokeWidth={1.4}
-                      stroke="currentColor"
-                      className="size-6"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.59.68-1.14 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
-                      />
-                    </svg>
-                  </button>
-                )}
-              </div>
-            </form>
-          )}
-        </motion.div>
-
-        {/* FILTROS */}
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <div className="flex w-full appearance-none items-center gap-2 rounded-2xl border border-white/10 bg-white/10 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white">
-            <input
-              className="w-full bg-transparent p-2 px-4 outline-none"
-              placeholder="Buscar por texto, usuario u operador…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") fetchList();
-              }}
-              aria-label="Buscar gastos"
-            />
-            <button
-              type="button"
-              onClick={fetchList}
-              className="w-fit cursor-pointer appearance-none px-3 outline-none"
-              title="Buscar"
-              aria-label="Ejecutar búsqueda"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="size-6"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
-                />
-              </svg>
-            </button>
-          </div>
-
-          {/* Categoría (config) */}
-          <select
-            className="cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            disabled={categoryOptions.length === 0}
-            aria-label="Filtrar por categoría"
-          >
-            <option value="">
-              {categoryOptions.length ? "Categoría (todas)" : "Sin categorías"}
-            </option>
-            {categoryOptions.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-
-          {/* Moneda (config) */}
-          <select
-            className="cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value)}
-            disabled={currencyOptions.length === 0}
-            aria-label="Filtrar por moneda"
-          >
-            <option value="">
-              {currencyOptions.length ? "Moneda (todas)" : "Sin monedas"}
-            </option>
-            {currencyOptions.map((code) => (
-              <option key={code} value={code}>
-                {code}
-              </option>
-            ))}
-          </select>
-
-          {/* Método (config) */}
-          <select
-            className="cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
-            value={paymentMethodFilter}
-            onChange={(e) => setPaymentMethodFilter(e.target.value)}
-            disabled={paymentMethodOptions.length === 0}
-            aria-label="Filtrar por método de pago"
-          >
-            <option value="">
-              {paymentMethodOptions.length ? "Método (todos)" : "Sin métodos"}
-            </option>
-            {paymentMethodOptions.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-
-          {/* Cuenta (config) */}
-          <select
-            className="cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
-            value={accountFilter}
-            onChange={(e) => setAccountFilter(e.target.value)}
-            disabled={accountOptions.length === 0}
-            aria-label="Filtrar por cuenta"
-          >
-            <option value="">
-              {accountOptions.length ? "Cuenta (todas)" : "Sin cuentas"}
-            </option>
-            {accountOptions.map((acc) => (
-              <option key={acc} value={acc}>
-                {acc}
-              </option>
-            ))}
-          </select>
-
-          {/* Operador (local, para discriminar) */}
-          <select
-            className="cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
-            value={operatorFilter}
-            onChange={(e) => setOperatorFilter(Number(e.target.value))}
-            disabled={operators.length === 0}
-            aria-label="Filtrar por operador"
-          >
-            <option value={0}>
-              {operators.length ? "Operador (todos)" : "Sin operadores"}
-            </option>
-            {operators.map((o) => (
-              <option key={o.id_operator} value={o.id_operator}>
-                {o.name}
-              </option>
-            ))}
-          </select>
-
-          {/* Filtro local: Operador / Otros / Todos */}
-          <div className="flex items-center rounded-2xl border border-white/10 bg-white/10 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10">
-            {[
-              { key: "all", label: "Todos", badge: counters.total },
-              { key: "only", label: "Operador", badge: counters.op },
-              { key: "others", label: "Otros", badge: counters.others },
-            ].map((opt) => {
-              const active = operadorMode === (opt.key as typeof operadorMode);
-              return (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() =>
-                    setOperadorMode(opt.key as "all" | "only" | "others")
-                  }
-                  className={[
-                    "flex items-center gap-2 rounded-2xl px-4 py-2 text-sm transition-colors",
-                    active
-                      ? "bg-sky-100 text-sky-950 dark:bg-white/10 dark:text-white"
-                      : "text-sky-950/80 hover:bg-white/10 dark:text-white/80",
-                  ].join(" ")}
-                  title={`Mostrar ${opt.label.toLowerCase()}`}
-                >
-                  <span>{opt.label}</span>
-                  <span className="rounded-full border border-white/10 bg-white/20 px-2 text-xs">
-                    {opt.badge}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          <button
-            type="button"
-            onClick={resetFilters}
-            className="h-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
-            title="Limpiar filtros"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="size-6"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
-              />
-            </svg>
-          </button>
-        </div>
-
-        {/* RESUMEN */}
-        {Object.keys(totalsByCurrencyAll).length > 0 && (
-          <div className="mb-3 space-y-2 text-sm">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="opacity-70">
-                Resumen (filtrado • {counters.filtered}/{counters.total}):
-              </span>
-              {Object.entries(totalsByCurrencyFiltered).map(([cur, total]) => (
-                <span
-                  key={`f-${cur}`}
-                  className="rounded-xl border border-white/10 bg-white/10 px-3 py-1"
-                >
-                  {cur}:{" "}
-                  {new Intl.NumberFormat("es-AR", {
-                    style: "currency",
-                    currency: cur,
-                  }).format(total)}
-                </span>
-              ))}
-              {Object.keys(totalsByCurrencyFiltered).length === 0 && (
-                <span className="opacity-60">
-                  Sin totales para el filtro actual
-                </span>
-              )}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 opacity-80">
-              <span className="opacity-70">
-                Resumen general (lista cargada):
-              </span>
-              {Object.entries(totalsByCurrencyAll).map(([cur, total]) => (
-                <span
-                  key={`a-${cur}`}
-                  className="rounded-xl border border-white/10 bg-white/10 px-3 py-1"
-                >
-                  {cur}:{" "}
-                  {new Intl.NumberFormat("es-AR", {
-                    style: "currency",
-                    currency: cur,
-                  }).format(total)}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* LISTA */}
-        {loadingList ? (
-          <div className="flex min-h-[40vh] items-center">
-            <Spinner />
-          </div>
-        ) : filteredItems.length === 0 ? (
-          <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-center text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white">
-            No hay gastos para el filtro seleccionado.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {filteredItems.map((it) => {
-              return (
-                <div
-                  key={it.id_investment}
-                  className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-sm font-semibold">{it.category}</div>
-                    <div className="flex items-center gap-2">
-                      <div className="text-sm opacity-70">
-                        #{it.id_investment}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => beginEdit(it)}
-                        className="text-sky-950/50 transition-colors hover:text-sky-950 dark:text-white/50 dark:hover:text-white"
-                        title="Editar gasto"
-                        aria-label="Editar gasto seleccionado"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          strokeWidth={1.5}
-                          stroke="currentColor"
-                          className="size-6"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-1 text-lg opacity-90">
-                    {it.description}
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-4 text-sm">
-                    <span>
-                      <b>Monto:</b>{" "}
-                      {new Intl.NumberFormat("es-AR", {
-                        style: "currency",
-                        currency: it.currency,
-                      }).format(it.amount)}
-                    </span>
-                    <span>
-                      <b>Creado:</b> {formatDate(it.created_at)}
-                    </span>
-                    {it.paid_at && (
-                      <span>
-                        <b>Pagado:</b> {formatDate(it.paid_at)}
-                      </span>
-                    )}
-                    {it.payment_method && (
-                      <span>
-                        <b>Método:</b> {it.payment_method}
-                      </span>
-                    )}
-                    {it.account && (
-                      <span>
-                        <b>Cuenta:</b> {it.account}
-                      </span>
-                    )}
-                    {it.base_amount && it.base_currency && (
-                      <span>
-                        <b>Valor:</b>{" "}
-                        {new Intl.NumberFormat("es-AR", {
-                          style: "currency",
-                          currency: it.base_currency,
-                        }).format(it.base_amount)}
-                      </span>
-                    )}
-                    {it.counter_amount && it.counter_currency && (
-                      <span>
-                        <b>Contravalor:</b>{" "}
-                        {new Intl.NumberFormat("es-AR", {
-                          style: "currency",
-                          currency: it.counter_currency,
-                        }).format(it.counter_amount)}
-                      </span>
-                    )}
-                    {it.operator && (
-                      <span>
-                        <b>Operador:</b> {it.operator.name}
-                      </span>
-                    )}
-                    {it.user && (
-                      <span>
-                        <b>Usuario:</b> {it.user.first_name} {it.user.last_name}
-                      </span>
-                    )}
-                    {it.createdBy && (
-                      <span className="opacity-80">
-                        <b>Cargado por:</b> {it.createdBy.first_name}{" "}
-                        {it.createdBy.last_name}
-                      </span>
-                    )}
-                    {it.booking_id && (
-                      <span className="flex w-fit items-center gap-2">
-                        <b>Reserva N° </b> {it.booking_id}
-                        <Link
-                          href={`/bookings/services/${it.booking_id}`}
-                          target="_blank"
-                          className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-                          aria-label={`Abrir reserva ${it.booking_id} en nueva pestaña`}
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            strokeWidth={2}
-                            stroke="currentColor"
-                            className="size-4"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
-                            />
-                          </svg>
-                        </Link>
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-
-            {nextCursor && (
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  onClick={loadMore}
-                  disabled={loadingMore}
-                  className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-white/10 dark:text-white"
-                >
-                  {loadingMore ? <Spinner /> : "Ver más"}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+        <InvestmentsList
+          filterPanelClass={filterPanel}
+          filterControlClass={filterControl}
+          q={q}
+          setQ={setQ}
+          fetchList={fetchList}
+          category={category}
+          setCategory={setCategory}
+          currency={currency}
+          setCurrency={setCurrency}
+          paymentMethodFilter={paymentMethodFilter}
+          setPaymentMethodFilter={setPaymentMethodFilter}
+          accountFilter={accountFilter}
+          setAccountFilter={setAccountFilter}
+          operatorFilter={operatorFilter}
+          setOperatorFilter={setOperatorFilter}
+          categoryOptions={categoryOptions}
+          currencyOptions={currencyOptions}
+          paymentMethodOptions={paymentMethodOptions}
+          accountOptions={accountOptions}
+          operators={operators}
+          operadorMode={operadorMode}
+          setOperadorMode={setOperadorMode}
+          counters={counters}
+          resetFilters={resetFilters}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          totalsByCurrencyAll={totalsByCurrencyAll}
+          totalsByCurrencyFiltered={totalsByCurrencyFiltered}
+          loadingList={loadingList}
+          filteredItems={filteredItems}
+          groupedByMonth={groupedByMonth}
+          nextCursor={nextCursor}
+          loadingMore={loadingMore}
+          loadMore={loadMore}
+          formatDate={formatDate}
+          onEdit={beginEdit}
+        />
 
         <ToastContainer />
       </section>

@@ -118,12 +118,275 @@ const toDec = (v: unknown) =>
     ? undefined
     : new Prisma.Decimal(typeof v === "number" ? v : String(v));
 
+const CREDIT_METHOD = "Crédito operador";
+
+const normSoft = (s?: string | null) =>
+  (s || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim()
+    .toLowerCase();
+
+const DOC_SIGN: Record<string, number> = { investment: -1, receipt: 1 };
+const normDoc = (s?: string | null) => (s || "").trim().toLowerCase();
+const signForDocType = (dt?: string | null) => DOC_SIGN[normDoc(dt)] ?? 1;
+const deltaDecimal = (amountAbs: number, dt?: string | null) =>
+  new Prisma.Decimal(Math.abs(amountAbs)).mul(signForDocType(dt));
+
+async function findOrCreateOperatorCreditAccount(
+  tx: Prisma.TransactionClient,
+  agencyId: number,
+  operatorId: number,
+  currency: string,
+): Promise<number> {
+  const existing = await tx.creditAccount.findFirst({
+    where: {
+      id_agency: agencyId,
+      operator_id: operatorId,
+      client_id: null,
+      currency,
+    },
+    select: { id_credit_account: true },
+  });
+  if (existing) return existing.id_credit_account;
+
+  const created = await tx.creditAccount.create({
+    data: {
+      id_agency: agencyId,
+      operator_id: operatorId,
+      client_id: null,
+      currency,
+      balance: new Prisma.Decimal(0),
+      enabled: true,
+    },
+    select: { id_credit_account: true },
+  });
+  return created.id_credit_account;
+}
+
+async function createCreditEntryForInvestment(
+  tx: Prisma.TransactionClient,
+  agencyId: number,
+  userId: number,
+  inv: {
+    id_investment: number;
+    operator_id: number;
+    currency: string;
+    amount: Prisma.Decimal | number;
+    description: string | null;
+    paid_at: Date | null;
+  },
+) {
+  const account_id = await findOrCreateOperatorCreditAccount(
+    tx,
+    agencyId,
+    inv.operator_id,
+    inv.currency,
+  );
+
+  const rawAmount =
+    typeof inv.amount === "number"
+      ? inv.amount
+      : (inv.amount as Prisma.Decimal).toNumber();
+
+  const amountAbs = Math.abs(rawAmount);
+
+  const entry = await tx.creditEntry.create({
+    data: {
+      id_agency: agencyId,
+      account_id,
+      created_by: userId,
+      concept: inv.description || `Gasto Operador #${inv.id_investment}`,
+      amount: new Prisma.Decimal(amountAbs),
+      currency: inv.currency,
+      doc_type: "investment",
+      reference: `INV-${inv.id_investment}`,
+      value_date: inv.paid_at,
+      investment_id: inv.id_investment,
+    },
+    select: { id_entry: true },
+  });
+
+  const acc = await tx.creditAccount.findUnique({
+    where: { id_credit_account: account_id },
+    select: { balance: true },
+  });
+  if (acc) {
+    const next = acc.balance.add(deltaDecimal(amountAbs, "investment"));
+    await tx.creditAccount.update({
+      where: { id_credit_account: account_id },
+      data: { balance: next },
+    });
+  }
+
+  return entry;
+}
+
+function shouldHaveCreditEntry(payload: {
+  category?: string | null;
+  operator_id?: number | null;
+  payment_method?: string | null;
+}) {
+  return (
+    normSoft(payload.category) === "operador" &&
+    !!payload.operator_id &&
+    (payload.payment_method || "") === CREDIT_METHOD
+  );
+}
+
+function startOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+
+function clampDay(year: number, month: number, day: number) {
+  const last = new Date(year, month + 1, 0).getDate();
+  return Math.min(Math.max(day, 1), last);
+}
+
+function buildDueDate(year: number, month: number, day: number) {
+  return new Date(year, month, clampDay(year, month, day), 0, 0, 0, 0);
+}
+
+function addMonthsToDue(date: Date, months: number, day: number) {
+  const total = date.getMonth() + months;
+  const year = date.getFullYear() + Math.floor(total / 12);
+  const month = total % 12;
+  return buildDueDate(year, month, day);
+}
+
+function computeFirstDue(
+  startDate: Date,
+  dayOfMonth: number,
+  intervalMonths: number,
+) {
+  const base = startOfDay(startDate);
+  let due = buildDueDate(base.getFullYear(), base.getMonth(), dayOfMonth);
+  if (due < base) {
+    due = addMonthsToDue(due, intervalMonths, dayOfMonth);
+  }
+  return due;
+}
+
+async function ensureRecurringInvestments(auth: DecodedAuth) {
+  const rules = await prisma.recurringInvestment.findMany({
+    where: { id_agency: auth.id_agency, active: true },
+  });
+  if (rules.length === 0) return;
+
+  const today = startOfDay(new Date());
+  const maxRuns = 36;
+
+  for (const rule of rules) {
+    const dayOfMonth = Number(rule.day_of_month);
+    const intervalMonths = Math.max(Number(rule.interval_months) || 1, 1);
+    if (dayOfMonth < 1 || dayOfMonth > 31 || intervalMonths < 1) continue;
+
+    let nextDue = rule.last_run
+      ? addMonthsToDue(rule.last_run, intervalMonths, dayOfMonth)
+      : computeFirstDue(rule.start_date, dayOfMonth, intervalMonths);
+
+    let processed: Date | null = null;
+    let guard = 0;
+
+    while (nextDue <= today && guard < maxRuns) {
+      const exists = await prisma.investment.findFirst({
+        where: {
+          id_agency: auth.id_agency,
+          recurring_id: rule.id_recurring,
+          paid_at: nextDue,
+        },
+        select: { id_investment: true },
+      });
+
+      if (!exists) {
+        await prisma.$transaction(async (tx) => {
+          const created = await tx.investment.create({
+            data: {
+              id_agency: auth.id_agency,
+              recurring_id: rule.id_recurring,
+              category: rule.category,
+              description: rule.description,
+              amount: rule.amount,
+              currency: rule.currency,
+              paid_at: nextDue,
+              operator_id: rule.operator_id ?? null,
+              user_id: rule.user_id ?? null,
+              created_by: rule.created_by,
+              ...(rule.payment_method ? { payment_method: rule.payment_method } : {}),
+              ...(rule.account ? { account: rule.account } : {}),
+              ...(rule.base_amount ? { base_amount: rule.base_amount } : {}),
+              ...(rule.base_currency ? { base_currency: rule.base_currency } : {}),
+              ...(rule.counter_amount
+                ? { counter_amount: rule.counter_amount }
+                : {}),
+              ...(rule.counter_currency
+                ? { counter_currency: rule.counter_currency }
+                : {}),
+            },
+            select: {
+              id_investment: true,
+              operator_id: true,
+              currency: true,
+              amount: true,
+              description: true,
+              paid_at: true,
+              payment_method: true,
+              category: true,
+            },
+          });
+
+          if (
+            shouldHaveCreditEntry({
+              category: created.category,
+              operator_id: created.operator_id ?? undefined,
+              payment_method: created.payment_method ?? undefined,
+            })
+          ) {
+            if (created.operator_id) {
+              await createCreditEntryForInvestment(
+                tx,
+                auth.id_agency,
+                rule.created_by,
+                {
+                  id_investment: created.id_investment,
+                  operator_id: created.operator_id,
+                  currency: created.currency,
+                  amount: created.amount,
+                  description: created.description,
+                  paid_at: created.paid_at,
+                },
+              );
+            }
+          }
+        });
+      }
+
+      processed = nextDue;
+      nextDue = addMonthsToDue(nextDue, intervalMonths, dayOfMonth);
+      guard++;
+    }
+
+    if (processed) {
+      await prisma.recurringInvestment.update({
+        where: { id_recurring: rule.id_recurring },
+        data: { last_run: processed },
+      });
+    }
+  }
+}
+
 // ==== GET ====
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const auth = await getUserFromAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
 
   try {
+    try {
+      await ensureRecurringInvestments(auth);
+    } catch (e) {
+      console.error("[investments][recurring][sync]", e);
+    }
+
     const takeParam = safeNumber(
       Array.isArray(req.query.take) ? req.query.take[0] : req.query.take,
     );
@@ -138,6 +401,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       typeof req.query.category === "string" ? req.query.category.trim() : "";
     const currency =
       typeof req.query.currency === "string" ? req.query.currency.trim() : "";
+    const paymentMethod =
+      typeof req.query.payment_method === "string"
+        ? req.query.payment_method.trim()
+        : "";
+    const account =
+      typeof req.query.account === "string" ? req.query.account.trim() : "";
     const operatorId = safeNumber(
       Array.isArray(req.query.operatorId)
         ? req.query.operatorId[0]
@@ -180,6 +449,8 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       id_agency: auth.id_agency,
       ...(category ? { category } : {}),
       ...(currency ? { currency } : {}),
+      ...(paymentMethod ? { payment_method: paymentMethod } : {}),
+      ...(account ? { account } : {}),
       ...(operatorId ? { operator_id: operatorId } : {}),
       ...(userId ? { user_id: userId } : {}),
       ...(bookingId ? { booking_id: bookingId } : {}), // 👈 NUEVO

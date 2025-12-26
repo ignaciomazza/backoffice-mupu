@@ -34,6 +34,7 @@ model Agency {
   Resources            Resources[]
   Operator             Operator[]
   investments          Investment[]
+  recurringInvestments RecurringInvestment[]
   TextPreset           TextPreset[]
   CommissionRuleSet    CommissionRuleSet[]
   templateConfigs      TemplateConfig[]
@@ -69,6 +70,8 @@ model User {
   CalendarNote             CalendarNote[]
   investmentsAsBeneficiary Investment[]        @relation("InvestmentUser")
   investmentsCreated       Investment[]        @relation("InvestmentCreatedBy")
+  recurringInvestmentsAsBeneficiary RecurringInvestment[] @relation("RecurringInvestmentUser")
+  recurringInvestmentsCreated       RecurringInvestment[] @relation("RecurringInvestmentCreatedBy")
   TextPreset               TextPreset[]
   CommissionRuleSet        CommissionRuleSet[]
   CommissionShare          CommissionShare[]
@@ -264,6 +267,7 @@ model Operator {
   id_agency         Int
   agency            Agency          @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   Investment        Investment[]
+  recurringInvestments RecurringInvestment[]
   creditAccounts    CreditAccount[]
 }
 
@@ -459,12 +463,50 @@ model Investment {
   createdBy        User          @relation("InvestmentCreatedBy", fields: [created_by], references: [id_user])
   booking_id       Int?
   booking          Booking?      @relation("BookingInvestments", fields: [booking_id], references: [id_booking], onDelete: SetNull)
+  recurring_id     Int?
+  recurring        RecurringInvestment? @relation(fields: [recurring_id], references: [id_recurring], onDelete: SetNull)
   creditEntries    CreditEntry[]
 
   @@index([id_agency, category])
   @@index([created_at])
   @@index([paid_at])
   @@index([booking_id])
+  @@index([recurring_id])
+  @@unique([recurring_id, paid_at])
+}
+
+model RecurringInvestment {
+  id_recurring    Int       @id @default(autoincrement())
+  id_agency       Int
+  agency          Agency    @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  category        String
+  description     String
+  amount          Decimal   @db.Decimal(18, 2)
+  currency        String
+  payment_method  String?
+  account         String?
+  base_amount      Decimal? @db.Decimal(18, 2)
+  base_currency    String?
+  counter_amount   Decimal? @db.Decimal(18, 2)
+  counter_currency String?
+  operator_id      Int?
+  operator         Operator? @relation(fields: [operator_id], references: [id_operator])
+  user_id          Int?
+  user             User?    @relation("RecurringInvestmentUser", fields: [user_id], references: [id_user])
+  created_by       Int
+  createdBy        User     @relation("RecurringInvestmentCreatedBy", fields: [created_by], references: [id_user])
+  start_date      DateTime
+  day_of_month    Int
+  interval_months Int       @default(1)
+  last_run        DateTime?
+  active          Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  investments     Investment[]
+
+  @@index([id_agency, active])
+  @@index([start_date])
+  @@index([last_run])
 }
 
 model OperatorDue {
