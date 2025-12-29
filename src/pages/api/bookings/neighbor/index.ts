@@ -1,51 +1,98 @@
 // src/pages/api/bookings/neighbor/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { PrismaClient } from "@prisma/client";
-import jwt from "jsonwebtoken";
+import { jwtVerify } from "jose";
+import type { JWTPayload } from "jose";
+import prisma from "@/lib/prisma";
 
-// ───────────────── Prisma singleton (evita múltiples conexiones en dev)
-const globalForPrisma = global as unknown as { prisma?: PrismaClient };
-const prisma = globalForPrisma.prisma ?? new PrismaClient();
-if (!globalForPrisma.prisma) globalForPrisma.prisma = prisma;
-
-// ───────────────── Tipos de JWT que usamos en el proyecto
-type JWTPayload = {
+type DecodedUser = {
   id_user?: number;
   role?: string;
   id_agency?: number;
-  agencyId?: number;
-  agency?: { id_agency?: number } | null;
+  email?: string;
 };
 
-// ───────────────── Helpers
-function getAgencyIdFromPayload(p: JWTPayload | null): number | null {
-  if (!p) return null;
-  if (typeof p.id_agency === "number") return p.id_agency;
-  if (typeof p.agencyId === "number") return p.agencyId;
-  if (p.agency && typeof p.agency.id_agency === "number")
-    return p.agency.id_agency;
+type TokenPayload = JWTPayload & {
+  id_user?: number;
+  userId?: number;
+  uid?: number;
+  role?: string;
+  id_agency?: number;
+  agencyId?: number;
+  aid?: number;
+  email?: string;
+};
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
+
+function getTokenFromRequest(req: NextApiRequest): string | null {
+  if (req.cookies?.token) return req.cookies.token;
+
+  const auth = req.headers.authorization || "";
+  if (auth.startsWith("Bearer ")) return auth.slice(7);
+
+  const c = req.cookies || {};
+  for (const k of [
+    "session",
+    "auth_token",
+    "access_token",
+    "next-auth.session-token",
+  ]) {
+    if (c[k]) return c[k]!;
+  }
   return null;
 }
 
-function extractToken(req: NextApiRequest): string | null {
-  const authHeader = req.headers.authorization ?? "";
-  if (authHeader.startsWith("Bearer ")) {
-    return authHeader.slice("Bearer ".length).trim() || null;
+async function getUserFromAuth(
+  req: NextApiRequest,
+): Promise<DecodedUser | null> {
+  try {
+    const token = getTokenFromRequest(req);
+    if (!token) return null;
+
+    const { payload } = await jwtVerify(
+      token,
+      new TextEncoder().encode(JWT_SECRET),
+    );
+    const p = payload as TokenPayload;
+
+    const id_user = Number(p.id_user ?? p.userId ?? p.uid) || undefined;
+    const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || undefined;
+    const role = (p.role || "") as string | undefined;
+    const email = p.email;
+
+    if (!id_user && email) {
+      const u = await prisma.user.findUnique({
+        where: { email },
+        select: { id_user: true, id_agency: true, role: true, email: true },
+      });
+      if (u)
+        return {
+          id_user: u.id_user,
+          id_agency: u.id_agency,
+          role: u.role,
+          email: u.email,
+        };
+    }
+
+    if (id_user && !id_agency) {
+      const u = await prisma.user.findUnique({
+        where: { id_user },
+        select: { id_agency: true, role: true, email: true },
+      });
+      if (u)
+        return {
+          id_user,
+          id_agency: u.id_agency,
+          role: role ?? u.role,
+          email: email ?? u.email ?? undefined,
+        };
+    }
+
+    return { id_user, id_agency, role, email };
+  } catch {
+    return null;
   }
-  // Fallback a cookies (mantiene compatibilidad si tu sesión usa cookie)
-  const cookieCandidates = [
-    "token",
-    "authToken",
-    "auth_token",
-    "jwt",
-    "session",
-    "session_token",
-  ] as const;
-  for (const key of cookieCandidates) {
-    const v = req.cookies?.[key];
-    if (v && typeof v === "string" && v.length > 0) return v;
-  }
-  return null;
 }
 
 // ───────────────── Handler
@@ -62,23 +109,9 @@ export default async function handler(
       return res.status(405).json({ error: "Method not allowed" });
     }
 
-    // ── Auth guard (compatible con Authorization y/o cookie)
-    const token = extractToken(req);
-    if (!token) {
-      res.setHeader("x-auth-source", AUTH_SOURCE);
-      res.setHeader("x-auth-reason", "missing-token");
-      return res.status(401).json({ error: "No autorizado (falta token)" });
-    }
-    if (!process.env.JWT_SECRET) {
-      res.setHeader("x-auth-source", AUTH_SOURCE);
-      res.setHeader("x-auth-reason", "jwt-secret-missing");
-      return res.status(500).json({ error: "JWT_SECRET no configurado" });
-    }
-
-    let payload: JWTPayload | null = null;
-    try {
-      payload = jwt.verify(token, process.env.JWT_SECRET) as JWTPayload;
-    } catch {
+    // ── Auth guard (unificado con /api/bookings)
+    const user = await getUserFromAuth(req);
+    if (!user) {
       res.setHeader("x-auth-source", AUTH_SOURCE);
       res.setHeader("x-auth-reason", "invalid-or-expired-token");
       return res.status(401).json({ error: "Token inválido o expirado" });
@@ -105,7 +138,7 @@ export default async function handler(
     }
 
     // ── Autorización por agencia
-    const userAgencyId = getAgencyIdFromPayload(payload);
+    const userAgencyId = user.id_agency;
     if (!userAgencyId || userAgencyId !== current.id_agency) {
       res.setHeader("x-auth-source", AUTH_SOURCE);
       res.setHeader("x-auth-reason", "agency-mismatch");
