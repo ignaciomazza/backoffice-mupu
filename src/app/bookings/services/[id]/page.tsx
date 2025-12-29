@@ -436,6 +436,7 @@ export default function ServicesPage() {
   useEffect(() => {
     const onFocus = () => {
       const cookieRole = readRoleFromCookie(); // puede ser "" si no está
+      if (!cookieRole) return;
       if ((cookieRole || "") !== (role || "")) setRole(cookieRole);
     };
     window.addEventListener("focus", onFocus);

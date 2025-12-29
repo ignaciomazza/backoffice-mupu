@@ -405,7 +405,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   ]);
 
   const canNavigateNeighbors =
-    role === "administrativo" || role === "gerente";
+    role === "administrativo" || role === "gerente" || role === "desarrollador";
 
   useEffect(() => {
     if (!token || !booking?.id_booking || !canNavigateNeighbors) {
