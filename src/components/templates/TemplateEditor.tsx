@@ -170,9 +170,23 @@ function useEnsureBlocksInitialized(
   value: TemplateFormValues,
   onChange: (next: TemplateFormValues) => void,
 ) {
+  const initKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (Array.isArray(value.blocks) && value.blocks.length > 0) return;
+    const cfgBlocks = Array.isArray(cfg.content?.blocks)
+      ? cfg.content?.blocks
+      : [];
+    const cfgKey = `${cfgBlocks.length}:${cfgBlocks
+      .map((b) => b.id)
+      .join("|")}`;
+    if (initKeyRef.current === cfgKey) return;
+    if (Array.isArray(value.blocks) && value.blocks.length > 0) {
+      initKeyRef.current = cfgKey;
+      return;
+    }
     const initial = buildInitialOrderedBlocks(cfg);
+    if (initial.length === 0) return;
+    initKeyRef.current = cfgKey;
     onChange({ ...value, blocks: initial });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfg, value.blocks]);
@@ -878,18 +892,36 @@ const TemplateEditor: React.FC<Props> = ({
   return (
     <section className={cx("space-y-6", className)}>
       {/* Toolbar superior */}
-      <div className="mb-2 rounded-2xl border border-slate-900/10 bg-white/50 p-4 dark:border-white/10 dark:bg-white/10">
+      <div className="mb-2 rounded-3xl border border-slate-900/10 bg-white/70 p-4 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-white/10 dark:bg-white/10">
         <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <h3 className="text-base font-semibold opacity-90">
-            Contenido del documento
-          </h3>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex size-8 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 shadow-sm shadow-emerald-900/10 dark:border-emerald-400/20 dark:text-emerald-300">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                className="size-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M8.25 6.75h12m-12 6h12m-12 6h12M3.75 6.75h.008v.008H3.75V6.75Zm0 6h.008v.008H3.75V12.75Zm0 6h.008v.008H3.75V18.75Z"
+                />
+              </svg>
+            </span>
+            <h3 className="text-base font-semibold opacity-90">
+              Contenido del documento
+            </h3>
+          </div>
 
           <div className="flex flex-wrap items-center gap-3">
             {/* Toggle: desbloquear fijos */}
-            <label className="flex cursor-pointer select-none items-center gap-2 text-sm opacity-90">
+            <label className="flex cursor-pointer select-none items-center gap-2 rounded-full border border-slate-900/10 bg-white/70 px-3 py-1 text-sm shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-white/10">
               <input
                 type="checkbox"
-                className="size-4 accent-sky-600"
+                className="size-4 accent-emerald-600"
                 checked={unlockFixed}
                 onChange={(e) => setUnlockFixed(e.target.checked)}
               />
@@ -899,9 +931,23 @@ const TemplateEditor: React.FC<Props> = ({
             <button
               type="button"
               onClick={saveCurrentAsPreset}
-              className="rounded-full bg-sky-100 px-3 py-1 text-sm text-sky-900 shadow-sm hover:opacity-90 dark:bg-white/10 dark:text-white"
+              className="inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-sm text-amber-700 shadow-sm shadow-amber-900/10 hover:opacity-90 dark:text-amber-300"
               title="Guardar los bloques actuales como preset"
             >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                className="size-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M16.5 3.75h-9A2.25 2.25 0 005.25 6v12a.75.75 0 001.125.65L12 15.75l5.625 2.9A.75.75 0 0018.75 18V6A2.25 2.25 0 0016.5 3.75Z"
+                />
+              </svg>
               Guardar preset
             </button>
           </div>
@@ -947,24 +993,37 @@ const TemplateEditor: React.FC<Props> = ({
               key={t}
               type="button"
               onClick={() => onAddBlock(t)}
-              className="rounded-full bg-sky-100 px-3 py-1 text-xs text-sky-900 hover:opacity-90 dark:bg-white/10 dark:text-white"
+              className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-700 shadow-sm shadow-emerald-900/10 hover:opacity-90 dark:text-emerald-300"
             >
-              + {label}
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                className="size-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 4.5v15m7.5-7.5h-15"
+                />
+              </svg>
+              {label}
             </button>
           ))}
         </div>
 
-        <p className="mt-2 text-xs opacity-70">
-          Editá los bloques <b>directamente</b> en la vista previa. Usá la
-          manija <b>⋮⋮</b> para moverlos. Los bloques <b>fijos</b> se pueden
-          mover, y si activás “Editar bloques fijos”, también
-          editarlos/eliminarlos.
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">
+          Edita los bloques directamente en la vista previa. Arrastra desde el
+          bloque o el boton Mover. Si activas &quot;Editar bloques fijos&quot;
+          tambien puedes editarlos o eliminarlos.
         </p>
       </div>
 
       {/* Lienzo: preview editable */}
       <div
-        className={cx(`col-span-2 h-fit border`, radiusClass)}
+        className={cx("h-fit border", radiusClass)}
         style={{
           backgroundColor: bg,
           color: text,
@@ -1244,4 +1303,9 @@ export type BlocksCanvasProps = {
   onChange: (next: OrderedBlock[]) => void;
   lockedIds: Set<string>;
   options: CanvasOptions;
+  showMeta?: boolean;
+  getLabel?: (block: OrderedBlock, index: number) => string | undefined;
+  getMode?: (block: OrderedBlock) => "fixed" | "form";
+  onToggleMode?: (id: string, next: "fixed" | "form") => void;
+  allowRemoveLocked?: boolean;
 };

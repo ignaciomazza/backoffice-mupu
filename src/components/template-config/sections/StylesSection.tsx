@@ -10,11 +10,11 @@ import { authFetch } from "@/utils/authFetch";
 /** ===== Mini helpers de UI ===== */
 const radio =
   "inline-flex items-center gap-2 rounded-xl border border-slate-900/10 bg-white/60 px-3 py-2 text-sm transition hover:scale-[0.99] dark:border-white/10 dark:bg-white/10";
-const radioActive = "ring-2 ring-sky-400 border-sky-400/60";
+const radioActive = "ring-2 ring-emerald-400 border-emerald-400/60";
 
 /** Check visual para cards activas */
 const SelectedMark: React.FC = () => (
-  <div className="pointer-events-none absolute right-2 top-2 rounded-full bg-sky-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+  <div className="pointer-events-none absolute right-2 top-2 rounded-full border border-emerald-300/60 bg-emerald-500/85 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow-sm">
     Activo
   </div>
 );
@@ -91,7 +91,7 @@ const StylesSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
     active,
   }) => {
     const border = active
-      ? `border-sky-400/50 ring-2 ring-sky-400`
+      ? `border-amber-400/60 ring-2 ring-amber-300`
       : `border-slate-900/10 dark:border-white/10`;
 
     const coverBlock = (
@@ -188,7 +188,7 @@ const StylesSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
         onClick={() => applyPreset(p)}
         className={`relative rounded-xl border p-3 text-left transition hover:scale-[0.99] ${
           active
-            ? "border-sky-400 ring-2 ring-sky-300"
+            ? "border-emerald-400 ring-2 ring-emerald-300"
             : "border-slate-900/10 dark:border-white/10"
         }`}
       >
@@ -242,7 +242,25 @@ const StylesSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
 
   return (
     <section className={section}>
-      <h2 className="mb-3 text-lg font-semibold">Estilos y formato</h2>
+      <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+        <span className="inline-flex size-8 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 shadow-sm shadow-emerald-900/10 dark:border-emerald-400/20 dark:text-emerald-300">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            className="size-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-2.684-2.684L2.25 12l2.846-.813a4.5 4.5 0 0 0 2.684-2.684L9 5.25l.813 2.846a4.5 4.5 0 0 0 2.684 2.684L15.75 12l-2.846.813a4.5 4.5 0 0 0-2.684 2.684ZM18 9.75l.488 1.71a2.25 2.25 0 0 0 1.342 1.342L21.75 13.5l-1.92.698a2.25 2.25 0 0 0-1.342 1.342L18 17.25l-.488-1.71a2.25 2.25 0 0 0-1.342-1.342L14.25 13.5l1.92-.698a2.25 2.25 0 0 0 1.342-1.342L18 9.75Z"
+            />
+          </svg>
+        </span>
+        Estilos y formato
+      </h2>
 
       {/* ======== Presets (sin tipografías) ======== */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

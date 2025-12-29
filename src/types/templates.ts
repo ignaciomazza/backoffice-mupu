@@ -26,6 +26,8 @@ export type Agency = {
   /** Lista de teléfonos adicionales */
   phones?: string[];
   emails?: string[];
+  /** Backward/legacy shape (API devuelve `social`) */
+  social?: AgencySocials;
   socials?: AgencySocials;
 };
 

@@ -38,7 +38,12 @@ export function useAgencyAndUser(token?: string | null) {
         );
         const agJson = (await agRes.json().catch(() => ({}))) as unknown;
         const nextAgency = isObject(agJson) ? (agJson as Agency) : {};
-        if (mounted) setAgency(nextAgency);
+        const normalizedAgency: Agency = {
+          ...nextAgency,
+          socials: nextAgency.socials ?? nextAgency.social,
+          social: nextAgency.social ?? nextAgency.socials,
+        };
+        if (mounted) setAgency(normalizedAgency);
 
         const meRes = await authFetch(
           "/api/user/profile",

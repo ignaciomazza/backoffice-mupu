@@ -51,7 +51,7 @@ function toObj(v: unknown): Config {
 const LOCAL_DEFAULTS: Record<DocType, Config> = {
   confirmation: {
     styles: {
-      colors: { background: "#111111", text: "#FFFFFF", accent: "#9CA3AF" },
+      colors: { background: "#FFFFFF", text: "#111111", accent: "#6B7280" },
       fonts: { heading: "Poppins", body: "Poppins" },
     },
     layout: "layoutA",
@@ -245,7 +245,7 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
   };
 
   return (
-    <section className="mx-auto max-w-6xl text-sky-950 dark:text-white">
+    <section className="mx-auto max-w-6xl text-slate-900 dark:text-white">
       <TemplateConfigHeader
         docType={docType}
         exists={exists}
@@ -266,7 +266,7 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
           <Spinner />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
           {/* Editor */}
           <TemplateConfigForm
             cfg={cfg}
@@ -278,6 +278,8 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
           <TemplateConfigPreview
             cfg={cfg}
             docTypeLabel={docType === "quote" ? "Cotización" : "Confirmación"}
+            editable={!disabled}
+            onChange={onChangeCfg}
           />
         </div>
       )}

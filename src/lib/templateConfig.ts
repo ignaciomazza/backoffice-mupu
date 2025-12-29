@@ -62,7 +62,7 @@ export function getLocalDefaults(docType: DocType): TemplateConfig {
     styles: {
       colors:
         docType === "confirmation"
-          ? { background: "#111111", text: "#FFFFFF", accent: "#9CA3AF" }
+          ? { background: "#FFFFFF", text: "#111111", accent: "#6B7280" }
           : { background: "#FFFFFF", text: "#111111", accent: "#6B7280" },
       fonts: { heading: "Poppins", body: "Poppins" },
       ui: {
@@ -237,6 +237,7 @@ export function mergeConfigWithFormValues(
   }
 
   // ---- Agency priorizada con selección del usuario
+  const baseSocials = agency.socials ?? agency.social ?? {};
   const resolvedAgency: Agency = {
     ...agency,
     website: form?.contact?.website ?? agency.website,
@@ -244,11 +245,11 @@ export function mergeConfigWithFormValues(
     phones: prioritizeSelected(agency.phones, form?.contact?.phone),
     emails: prioritizeSelected(agency.emails, form?.contact?.email),
     socials: {
-      ...(agency.socials ?? {}),
-      instagram: form?.contact?.instagram ?? agency.socials?.instagram,
-      facebook: form?.contact?.facebook ?? agency.socials?.facebook,
-      twitter: form?.contact?.twitter ?? agency.socials?.twitter,
-      tiktok: form?.contact?.tiktok ?? agency.socials?.tiktok,
+      ...baseSocials,
+      instagram: form?.contact?.instagram ?? baseSocials.instagram,
+      facebook: form?.contact?.facebook ?? baseSocials.facebook,
+      twitter: form?.contact?.twitter ?? baseSocials.twitter,
+      tiktok: form?.contact?.tiktok ?? baseSocials.tiktok,
     },
   };
 

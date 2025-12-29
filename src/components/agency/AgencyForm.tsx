@@ -3,6 +3,13 @@
 
 import * as React from "react";
 
+export type AgencySocialInput = {
+  instagram?: string | null;
+  facebook?: string | null;
+  twitter?: string | null;
+  tiktok?: string | null;
+};
+
 export type AgencyDTO = {
   id_agency: number;
   name: string;
@@ -14,6 +21,7 @@ export type AgencyDTO = {
   website?: string | null;
   foundation_date?: string | null; // ISO o YYYY-MM-DD
   logo_url?: string | null;
+  social?: AgencySocialInput | null;
 };
 
 export type AgencyUpdateInput = {
@@ -26,6 +34,7 @@ export type AgencyUpdateInput = {
   website?: string | null;
   foundation_date?: string | null; // YYYY-MM-DD o null
   logo_url?: string | null;
+  social?: AgencySocialInput | null;
 };
 
 interface AgencyFormProps {
@@ -94,6 +103,12 @@ export default function AgencyForm({
     website: initial?.website ?? "",
     foundation_date: toYMD(initial?.foundation_date ?? null),
     logo_url: initial?.logo_url ?? "",
+    social: {
+      instagram: initial?.social?.instagram ?? "",
+      facebook: initial?.social?.facebook ?? "",
+      twitter: initial?.social?.twitter ?? "",
+      tiktok: initial?.social?.tiktok ?? "",
+    },
   });
 
   const [errors, setErrors] = React.useState<Errors>({});
@@ -110,6 +125,12 @@ export default function AgencyForm({
       website: initial.website ?? "",
       foundation_date: toYMD(initial.foundation_date ?? null),
       logo_url: initial.logo_url ?? "",
+      social: {
+        instagram: initial.social?.instagram ?? "",
+        facebook: initial.social?.facebook ?? "",
+        twitter: initial.social?.twitter ?? "",
+        tiktok: initial.social?.tiktok ?? "",
+      },
     });
   }, [initial]);
 
@@ -126,6 +147,16 @@ export default function AgencyForm({
       }
       setValues((prev) => ({ ...prev, [field]: v }));
       if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }));
+    };
+
+  const setSocialField =
+    (field: keyof AgencySocialInput) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const v = e.target.value;
+      setValues((prev) => ({
+        ...prev,
+        social: { ...(prev.social ?? {}), [field]: v },
+      }));
     };
 
   function validate(current: AgencyUpdateInput): Errors {
@@ -160,7 +191,16 @@ export default function AgencyForm({
         ? values.foundation_date
         : null,
       logo_url: values.logo_url?.trim() || null,
+      social: {
+        instagram: values.social?.instagram?.trim() || undefined,
+        facebook: values.social?.facebook?.trim() || undefined,
+        twitter: values.social?.twitter?.trim() || undefined,
+        tiktok: values.social?.tiktok?.trim() || undefined,
+      },
     };
+
+    const hasSocial = Object.values(cleaned.social ?? {}).some(Boolean);
+    if (!hasSocial) cleaned.social = null;
 
     const v = validate(cleaned);
     setErrors(v);
@@ -329,6 +369,61 @@ export default function AgencyForm({
             {errors.website}
           </p>
         )}
+      </div>
+
+      {/* Redes sociales */}
+      <div className="space-y-1 md:col-span-2">
+        <p className="ml-1 block text-sm">Redes sociales</p>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <label className="text-xs">
+            Instagram
+            <input
+              name="instagram"
+              type="text"
+              value={values.social?.instagram ?? ""}
+              onChange={setSocialField("instagram")}
+              className="mt-1 w-full rounded-2xl border border-sky-950/10 bg-white/50 px-3 py-2 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              placeholder="@miagencia"
+              disabled={isSaving}
+            />
+          </label>
+          <label className="text-xs">
+            Facebook
+            <input
+              name="facebook"
+              type="text"
+              value={values.social?.facebook ?? ""}
+              onChange={setSocialField("facebook")}
+              className="mt-1 w-full rounded-2xl border border-sky-950/10 bg-white/50 px-3 py-2 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              placeholder="facebook.com/miagencia"
+              disabled={isSaving}
+            />
+          </label>
+          <label className="text-xs">
+            Twitter
+            <input
+              name="twitter"
+              type="text"
+              value={values.social?.twitter ?? ""}
+              onChange={setSocialField("twitter")}
+              className="mt-1 w-full rounded-2xl border border-sky-950/10 bg-white/50 px-3 py-2 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              placeholder="@miagencia"
+              disabled={isSaving}
+            />
+          </label>
+          <label className="text-xs">
+            TikTok
+            <input
+              name="tiktok"
+              type="text"
+              value={values.social?.tiktok ?? ""}
+              onChange={setSocialField("tiktok")}
+              className="mt-1 w-full rounded-2xl border border-sky-950/10 bg-white/50 px-3 py-2 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+              placeholder="@miagencia"
+              disabled={isSaving}
+            />
+          </label>
+        </div>
       </div>
 
       {/* Fundación */}

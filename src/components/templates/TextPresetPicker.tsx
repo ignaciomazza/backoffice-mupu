@@ -246,7 +246,7 @@ export default function TextPresetPicker({
 
   const Item = ({ p }: { p: TextPreset }) => (
     <div
-      className={`group relative rounded-2xl border border-white/10 bg-white/10 p-3 text-left transition-colors hover:bg-white/20 dark:text-white ${
+      className={`group relative rounded-2xl border border-slate-900/10 bg-white/70 p-3 text-left shadow-sm shadow-slate-900/10 transition-colors hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white dark:hover:bg-white/20 ${
         view === "grid" ? "" : "flex items-center justify-between gap-3"
       }`}
       title={p.title}
@@ -280,7 +280,7 @@ export default function TextPresetPicker({
         <button
           type="button"
           onClick={() => handleUse(p)}
-          className="rounded-full px-2 py-1 text-xs opacity-80 hover:bg-white/20"
+          className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 shadow-sm shadow-emerald-900/10 hover:opacity-90 dark:border-emerald-400/20 dark:text-emerald-300"
           title="Usar"
         >
           Usar
@@ -288,15 +288,29 @@ export default function TextPresetPicker({
         <button
           type="button"
           onClick={() => askDelete(p)}
-          className="rounded-full px-2 py-1 text-xs text-red-600 opacity-80 hover:bg-red-500/10 dark:text-red-400"
+          className="inline-flex items-center gap-1 rounded-full border border-red-500/20 bg-red-500/10 px-2 py-1 text-xs text-red-600 shadow-sm shadow-red-900/10 hover:opacity-90 dark:border-red-400/20 dark:text-red-300"
           title="Eliminar"
         >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            className="size-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+            />
+          </svg>
           Eliminar
         </button>
         <button
           type="button"
           onClick={() => togglePin(p.id_preset)}
-          className="rounded-full px-2 py-1 text-xs opacity-80 hover:bg-white/20"
+          className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-xs text-amber-700 shadow-sm shadow-amber-900/10 hover:opacity-90 dark:border-amber-400/20 dark:text-amber-300"
           title={
             pinned.includes(p.id_preset) ? "Quitar favorito" : "Marcar favorito"
           }
@@ -319,7 +333,7 @@ export default function TextPresetPicker({
         </p>
         <div className="flex items-center gap-2">
           <input
-            className="w-56 rounded-2xl border border-white/10 bg-white/10 p-2 px-3 text-sm outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:text-white"
+            className="w-56 rounded-2xl border border-slate-900/10 bg-white/70 p-2 px-3 text-sm shadow-sm shadow-slate-900/10 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
             placeholder="Buscar…"
             value={q}
             onChange={onSearchChange}
@@ -327,7 +341,7 @@ export default function TextPresetPicker({
           <button
             type="button"
             onClick={toggleView}
-            className="rounded-full bg-white/10 px-3 py-1 text-xs opacity-80 hover:bg-white/20"
+            className="rounded-full border border-slate-900/10 bg-white/70 px-3 py-1 text-xs text-slate-700 shadow-sm shadow-slate-900/10 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-slate-200 dark:hover:bg-white/20"
             title={view === "compact" ? "Ver en grilla" : "Ver compacto"}
           >
             {view === "compact" ? "Grilla" : "Compacto"}
@@ -337,11 +351,11 @@ export default function TextPresetPicker({
 
       {/* list */}
       {loading ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/10 p-3">
+        <div className="flex items-center gap-2 rounded-2xl border border-slate-900/10 bg-white/70 p-3 shadow-sm shadow-slate-900/10 dark:border-white/10 dark:bg-white/10">
           <Spinner /> <span className="text-sm opacity-80">Cargando…</span>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-3 text-sm opacity-80">
+        <div className="rounded-2xl border border-dashed border-slate-900/10 bg-white/60 p-3 text-sm opacity-80 shadow-sm shadow-slate-900/10 dark:border-white/10 dark:bg-white/10">
           No hay presets para este tipo de documento.
         </div>
       ) : view === "grid" ? (
@@ -364,7 +378,7 @@ export default function TextPresetPicker({
           <button
             type="button"
             onClick={() => setShowAll((v) => !v)}
-            className="rounded-full bg-white/10 px-3 py-1 text-xs opacity-80 hover:bg-white/20"
+            className="rounded-full border border-slate-900/10 bg-white/70 px-3 py-1 text-xs text-slate-700 shadow-sm shadow-slate-900/10 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-slate-200 dark:hover:bg-white/20"
           >
             {showAll ? "Ver menos" : `Ver todos (${filtered.length})`}
           </button>

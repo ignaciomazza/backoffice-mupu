@@ -5,7 +5,7 @@ export type CoverSavedItem = { name: string; url: string };
 
 export type PdfLayout = "layoutA" | "layoutB" | "layoutC";
 
-/** Preset de estilo (colores + tipografías opcional) */
+/** Preset de estilo (colores) */
 export type StylePreset = {
   id: string;
   label: string;
@@ -15,21 +15,21 @@ export type StylePreset = {
 
 export const STYLE_PRESETS: StylePreset[] = [
   {
-    id: "light",
-    label: "Claro",
+    id: "paper",
+    label: "Blanco",
     colors: { background: "#FFFFFF", text: "#111111", accent: "#6B7280" },
     fonts: { heading: "Poppins", body: "Poppins" },
   },
   {
-    id: "dark",
-    label: "Oscuro",
-    colors: { background: "#111111", text: "#FFFFFF", accent: "#9CA3AF" },
+    id: "soft",
+    label: "Gris suave",
+    colors: { background: "#F8FAFC", text: "#0F172A", accent: "#94A3B8" },
     fonts: { heading: "Poppins", body: "Poppins" },
   },
   {
-    id: "mono",
-    label: "Monocromo",
-    colors: { background: "#F3F4F6", text: "#111111", accent: "#374151" },
+    id: "ink",
+    label: "Tinta",
+    colors: { background: "#0F172A", text: "#F8FAFC", accent: "#9CA3AF" },
     fonts: { heading: "Poppins", body: "Poppins" },
   },
 ];
@@ -37,7 +37,7 @@ export const STYLE_PRESETS: StylePreset[] = [
 export const DEFAULT_CFG: Config = {
   layout: "layoutA" as PdfLayout,
   styles: {
-    presetId: "light", // id de STYLE_PRESETS
+    presetId: "paper", // id de STYLE_PRESETS
     colors: { background: "#FFFFFF", text: "#111111", accent: "#6B7280" },
     fonts: { heading: "Poppins", body: "Poppins" },
     note: "",

@@ -5,6 +5,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
+import BlocksCanvas from "@/components/templates/BlocksCanvas";
+import type { OrderedBlock, BlockFormValue } from "@/types/templates";
 
 /* =============================================================================
  * Tipos base + helpers
@@ -24,10 +26,36 @@ function getAt<T>(obj: AnyObj, path: string[], fallback: T): T {
   }
   return (cur as T) ?? fallback;
 }
+function setAt(obj: AnyObj, path: string[], value: unknown): AnyObj {
+  const next: AnyObj = { ...obj };
+  let cur: AnyObj = next;
+  for (let i = 0; i < path.length - 1; i += 1) {
+    const k = path[i];
+    const v = cur[k];
+    if (!isObject(v)) cur[k] = {};
+    cur = cur[k] as AnyObj;
+  }
+  cur[path[path.length - 1]] = value;
+  return next;
+}
 const asStringArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
 const cx = (...classes: Array<string | false | null | undefined>) =>
   classes.filter(Boolean).join(" ");
+
+function normalizeKey(label: string, fallback: string) {
+  const s =
+    (label || "")
+      .trim()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "") || "";
+  return s || fallback;
+}
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(
@@ -143,6 +171,16 @@ type ContentBlock =
   | TwoColumnsBlock
   | ThreeColumnsBlock;
 
+const BLOCK_LABELS: Record<BlockType, string> = {
+  heading: "Titulo",
+  subtitle: "Subtitulo",
+  paragraph: "Parrafo",
+  list: "Lista",
+  keyValue: "Clave/Valor",
+  twoColumns: "Dos columnas",
+  threeColumns: "Tres columnas",
+};
+
 function isBlock(v: unknown): v is ContentBlock {
   if (!isObject(v)) return false;
   const t = (v as AnyObj)["type"];
@@ -155,6 +193,222 @@ function isBlock(v: unknown): v is ContentBlock {
     t === "twoColumns" ||
     t === "threeColumns"
   );
+}
+
+function buildAutoLabels(
+  blocks: Array<Pick<ContentBlock, "id" | "type">>,
+): Map<string, string> {
+  const counts: Record<BlockType, number> = {
+    heading: 0,
+    subtitle: 0,
+    paragraph: 0,
+    list: 0,
+    keyValue: 0,
+    twoColumns: 0,
+    threeColumns: 0,
+  };
+  const map = new Map<string, string>();
+  blocks.forEach((b) => {
+    counts[b.type] += 1;
+    map.set(b.id, `${BLOCK_LABELS[b.type]} ${counts[b.type]}`);
+  });
+  return map;
+}
+
+function resolveFieldKey(b: ContentBlock, label: string): string {
+  return b.fieldKey || normalizeKey(label, `${b.type}_${b.id.slice(-4)}`);
+}
+
+type BuilderBlock = OrderedBlock & {
+  label?: string;
+  fieldKey?: string;
+  mupuStyle?: MupuStyle;
+};
+
+function blockToValue(b: ContentBlock): BlockFormValue {
+  switch (b.type) {
+    case "heading":
+      return { type: "heading", text: b.text ?? "", level: b.level ?? 1 };
+    case "subtitle":
+      return { type: "subtitle", text: b.text ?? "" };
+    case "paragraph":
+      return { type: "paragraph", text: b.text ?? "" };
+    case "list":
+      return { type: "list", items: Array.isArray(b.items) ? b.items : [] };
+    case "keyValue":
+      return {
+        type: "keyValue",
+        pairs: Array.isArray(b.pairs) ? b.pairs : [],
+      };
+    case "twoColumns":
+      return { type: "twoColumns", left: b.left ?? "", right: b.right ?? "" };
+    case "threeColumns":
+      return {
+        type: "threeColumns",
+        left: b.left ?? "",
+        center: b.center ?? "",
+        right: b.right ?? "",
+      };
+  }
+}
+
+function blockToPlaceholder(
+  b: ContentBlock,
+  fieldKey?: string,
+): BlockFormValue {
+  const placeholder = `{${fieldKey || b.fieldKey || "campo"}}`;
+  switch (b.type) {
+    case "heading":
+      return { type: "heading", text: placeholder, level: b.level ?? 1 };
+    case "subtitle":
+      return { type: "subtitle", text: placeholder };
+    case "paragraph":
+      return { type: "paragraph", text: placeholder };
+    case "list":
+      return { type: "list", items: [placeholder] };
+    case "keyValue":
+      return { type: "keyValue", pairs: [{ key: placeholder, value: placeholder }] };
+    case "twoColumns":
+      return { type: "twoColumns", left: placeholder, right: placeholder };
+    case "threeColumns":
+      return {
+        type: "threeColumns",
+        left: placeholder,
+        center: placeholder,
+        right: placeholder,
+      };
+  }
+}
+
+function toOrderedBlock(
+  b: ContentBlock,
+  label: string,
+  fieldKey: string,
+): BuilderBlock {
+  return {
+    id: b.id,
+    origin: b.mode === "form" ? "form" : "fixed",
+    type: b.type,
+    label,
+    fieldKey,
+    mupuStyle: b.mupuStyle,
+    value: b.mode === "form" ? blockToPlaceholder(b, fieldKey) : blockToValue(b),
+  };
+}
+
+function applyOrderedBlocks(
+  next: BuilderBlock[],
+  current: ContentBlock[],
+): ContentBlock[] {
+  const byId = new Map<string, ContentBlock>();
+  current.forEach((b) => byId.set(b.id, b));
+  const counts: Record<BlockType, number> = {
+    heading: 0,
+    subtitle: 0,
+    paragraph: 0,
+    list: 0,
+    keyValue: 0,
+    twoColumns: 0,
+    threeColumns: 0,
+  };
+
+  return next.map((b) => {
+    const prev = byId.get(b.id);
+    const mode: BlockMode = b.origin === "form" ? "form" : "fixed";
+    counts[b.type] += 1;
+    const label = `${BLOCK_LABELS[b.type]} ${counts[b.type]}`;
+    const fallbackKey = normalizeKey(label, `${b.type}_${b.id.slice(-4)}`);
+    const fieldKey = prev?.fieldKey ?? b.fieldKey ?? fallbackKey;
+
+    const base: BaseBlock = {
+      id: b.id,
+      type: b.type,
+      mode,
+      label,
+      fieldKey,
+      mupuStyle: b.mupuStyle ?? prev?.mupuStyle,
+    };
+
+    const val = (b.value ?? {}) as Partial<BlockFormValue>;
+    const useValue = mode === "fixed";
+
+    switch (b.type) {
+      case "heading":
+        return {
+          ...base,
+          type: "heading",
+          text: useValue
+            ? (val as { text?: string }).text ?? (prev as HeadingBlock | undefined)?.text ?? ""
+            : (prev as HeadingBlock | undefined)?.text ?? "",
+          level: (val as { level?: 1 | 2 | 3 }).level ?? (prev as HeadingBlock | undefined)?.level ?? 1,
+        };
+      case "subtitle":
+        return {
+          ...base,
+          type: "subtitle",
+          text: useValue
+            ? (val as { text?: string }).text ?? (prev as SubtitleBlock | undefined)?.text ?? ""
+            : (prev as SubtitleBlock | undefined)?.text ?? "",
+        };
+      case "paragraph":
+        return {
+          ...base,
+          type: "paragraph",
+          text: useValue
+            ? (val as { text?: string }).text ?? (prev as ParagraphBlock | undefined)?.text ?? ""
+            : (prev as ParagraphBlock | undefined)?.text ?? "",
+        };
+      case "list": {
+        const items =
+          useValue
+            ? (val as { items?: string[] }).items ?? (prev as ListBlock | undefined)?.items ?? []
+            : (prev as ListBlock | undefined)?.items ?? [];
+        return {
+          ...base,
+          type: "list",
+          items: Array.isArray(items) ? items : [],
+        };
+      }
+      case "keyValue": {
+        const pairs =
+          useValue
+            ? (val as { pairs?: { key: string; value: string }[] }).pairs ??
+              (prev as KeyValueBlock | undefined)?.pairs ??
+              []
+            : (prev as KeyValueBlock | undefined)?.pairs ?? [];
+        return {
+          ...base,
+          type: "keyValue",
+          pairs: Array.isArray(pairs) ? pairs : [],
+        };
+      }
+      case "twoColumns":
+        return {
+          ...base,
+          type: "twoColumns",
+          left: useValue
+            ? (val as { left?: string }).left ?? (prev as TwoColumnsBlock | undefined)?.left ?? ""
+            : (prev as TwoColumnsBlock | undefined)?.left ?? "",
+          right: useValue
+            ? (val as { right?: string }).right ?? (prev as TwoColumnsBlock | undefined)?.right ?? ""
+            : (prev as TwoColumnsBlock | undefined)?.right ?? "",
+        };
+      case "threeColumns":
+        return {
+          ...base,
+          type: "threeColumns",
+          left: useValue
+            ? (val as { left?: string }).left ?? (prev as ThreeColumnsBlock | undefined)?.left ?? ""
+            : (prev as ThreeColumnsBlock | undefined)?.left ?? "",
+          center: useValue
+            ? (val as { center?: string }).center ?? (prev as ThreeColumnsBlock | undefined)?.center ?? ""
+            : (prev as ThreeColumnsBlock | undefined)?.center ?? "",
+          right: useValue
+            ? (val as { right?: string }).right ?? (prev as ThreeColumnsBlock | undefined)?.right ?? ""
+            : (prev as ThreeColumnsBlock | undefined)?.right ?? "",
+        };
+    }
+  });
 }
 
 /* =============================================================================
@@ -418,22 +672,30 @@ const KeyValueRow: React.FC<{
  * Componente principal
  * ========================================================================== */
 
-type Props = { cfg: Config; docTypeLabel?: string };
+type Props = {
+  cfg: Config;
+  docTypeLabel?: string;
+  editable?: boolean;
+  onChange?: (next: Config) => void;
+};
 
 const TemplateConfigPreview: React.FC<Props> = ({
   cfg,
   docTypeLabel = "Documento",
+  editable = false,
+  onChange,
 }) => {
   const { token } = useAuth();
   const { agency, user, loading } = useAgencyAndUser(token);
+  const canEditContent = editable && typeof onChange === "function";
 
   // Layout actual
   const layout = getAt<string>(cfg, ["layout"], "layoutA");
 
   // Colores base + acento (SIEMPRE desde config)
-  const bg = getAt<string>(cfg, ["styles", "colors", "background"], "#111827");
-  const text = getAt<string>(cfg, ["styles", "colors", "text"], "#ffffff");
-  const accent = getAt<string>(cfg, ["styles", "colors", "accent"], "#22C55E");
+  const bg = getAt<string>(cfg, ["styles", "colors", "background"], "#ffffff");
+  const text = getAt<string>(cfg, ["styles", "colors", "text"], "#111111");
+  const accent = getAt<string>(cfg, ["styles", "colors", "accent"], "#6B7280");
 
   // Tipografías globales: ignoramos cfg.styles.fonts y forzamos por agencia
   const isMupuAgency =
@@ -504,7 +766,7 @@ const TemplateConfigPreview: React.FC<Props> = ({
     if (contactItems.includes("email") && normalized.email)
       items.push({ label: "Mail", value: normalized.email });
 
-    // (Si en el futuro permitís redes en el backend, ya queda armado)
+    // Redes sociales (si están cargadas en la agencia)
     if (contactItems.includes("instagram") && normalized.socials?.instagram)
       items.push({ label: "Instagram", value: normalized.socials.instagram });
     if (contactItems.includes("facebook") && normalized.socials?.facebook)
@@ -525,6 +787,53 @@ const TemplateConfigPreview: React.FC<Props> = ({
       ) as ContentBlock[],
     [cfg],
   );
+
+  const autoLabels = useMemo(() => buildAutoLabels(blocks), [blocks]);
+
+  const orderedBlocks = useMemo<BuilderBlock[]>(
+    () =>
+      blocks.map((b) => {
+        const label = autoLabels.get(b.id) ?? BLOCK_LABELS[b.type];
+        const fieldKey = resolveFieldKey(b, label);
+        return toOrderedBlock(b, label, fieldKey);
+      }),
+    [autoLabels, blocks],
+  );
+
+  const lockedIds = useMemo(
+    () => new Set(blocks.filter((b) => b.mode === "form").map((b) => b.id)),
+    [blocks],
+  );
+
+  const handleCanvasChange = (next: OrderedBlock[]) => {
+    if (!onChange) return;
+    const nextBlocks = applyOrderedBlocks(next as BuilderBlock[], blocks);
+    onChange(setAt(cfg, ["content", "blocks"], nextBlocks));
+  };
+
+  const handleToggleMode = (id: string, nextMode: BlockMode) => {
+    if (!onChange) return;
+    const current = blocks.find((b) => b.id === id);
+    if (!current) return;
+    const label = autoLabels.get(current.id) ?? BLOCK_LABELS[current.type];
+    const fieldKey = resolveFieldKey(current, label);
+    const origin: BuilderBlock["origin"] =
+      nextMode === "form" ? "form" : "fixed";
+    const next: BuilderBlock[] = orderedBlocks.map((b) =>
+      b.id === id
+        ? {
+            ...b,
+            origin,
+            value:
+              nextMode === "fixed"
+                ? blockToValue(current)
+                : blockToPlaceholder(current, fieldKey),
+          }
+        : b,
+    );
+    const nextBlocks = applyOrderedBlocks(next, blocks);
+    onChange(setAt(cfg, ["content", "blocks"], nextBlocks));
+  };
 
   // Derivados de agencia/usuario
   const agencyName = agency.name || "Nombre de la agencia";
@@ -660,6 +969,52 @@ const TemplateConfigPreview: React.FC<Props> = ({
     const note = getAt<string>(cfg, ["styles", "note"], "");
     const notesEnabled = (note || "").length > 0;
 
+    if (canEditContent) {
+      return (
+        <div className={cx(padX, "pb-6")}>
+          <div className={cx("mx-auto", contentMaxW, "w-full")}>
+            {notesEnabled && (
+              <div
+                className={cx("text-sm", innerRadiusClass, "p-3")}
+                style={{ border: panelBorder, backgroundColor: panelBgSoft }}
+              >
+                {note}
+              </div>
+            )}
+
+            <div className={cx("mt-4", gapBlocks)}>
+              {orderedBlocks.length === 0 ? (
+                <p className="text-sm opacity-70">
+                  No hay secciones aún. Agregá un bloque para empezar.
+                </p>
+              ) : (
+                <BlocksCanvas
+                  blocks={orderedBlocks}
+                  onChange={handleCanvasChange}
+                  lockedIds={lockedIds}
+                  allowRemoveLocked
+                  showMeta
+                  getLabel={(b) => autoLabels.get(b.id)}
+                  getMode={(b) => (b.origin === "form" ? "form" : "fixed")}
+                  onToggleMode={handleToggleMode}
+                  options={{
+                    dividerColor,
+                    panelBgStrong,
+                    innerRadiusClass,
+                    gapGridClass: gapGrid,
+                    listSpaceClass: listSpace,
+                    accentColor: accent,
+                    headingFont,
+                    headingWeight,
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className={cx(padX, "pb-6")}>
         <div className={cx("mx-auto", contentMaxW, "w-full")}>
@@ -678,10 +1033,12 @@ const TemplateConfigPreview: React.FC<Props> = ({
               const applyMs = shouldApplyMupu(b);
               const roleStyle = (role?: BlockRole) =>
                 applyMs ? resolveMupuTextStyle(ms, role) : undefined;
+              const label = autoLabels.get(b.id) ?? BLOCK_LABELS[b.type];
+              const fieldKey = resolveFieldKey(b, label);
 
               const placeholder =
                 b.mode === "form" ? (
-                  <span className="opacity-70">{`{${b.fieldKey || "campo"}}`}</span>
+                  <span className="opacity-70">{`{${fieldKey}}`}</span>
                 ) : null;
 
               const topDivider = dividers && index > 0 && (

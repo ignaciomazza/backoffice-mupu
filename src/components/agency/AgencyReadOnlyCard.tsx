@@ -20,6 +20,14 @@ function formatDDMMYYYY(dateLike?: string | null): string {
 }
 
 export default function AgencyReadOnlyCard({ agency, onEdit }: Props) {
+  const social = agency.social ?? {};
+  const socialItems = [
+    { label: "Instagram", value: social.instagram },
+    { label: "Facebook", value: social.facebook },
+    { label: "Twitter", value: social.twitter },
+    { label: "TikTok", value: social.tiktok },
+  ].filter((item) => item.value && item.value.trim().length > 0);
+
   return (
     <div className="space-y-4 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
       {/* Header */}
@@ -104,6 +112,24 @@ export default function AgencyReadOnlyCard({ agency, onEdit }: Props) {
             Dirección
           </p>
           <p className="font-medium">{agency.address || "—"}</p>
+        </div>
+
+        <div className="md:col-span-2">
+          <p className="text-xs font-light uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+            Redes sociales
+          </p>
+          {socialItems.length > 0 ? (
+            <div className="mt-1 grid grid-cols-1 gap-1 text-sm md:grid-cols-2">
+              {socialItems.map((item) => (
+                <div key={item.label} className="flex gap-2">
+                  <span className="font-medium">{item.label}:</span>
+                  <span className="break-all">{item.value}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="font-medium">—</p>
+          )}
         </div>
 
         <div>

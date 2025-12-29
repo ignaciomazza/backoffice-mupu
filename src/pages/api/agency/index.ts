@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
-import type { Agency as AgencyModel } from "@prisma/client";
+import { Prisma, type Agency as AgencyModel } from "@prisma/client";
 
 /* ==== JWT / Auth helpers ==== */
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -136,6 +136,15 @@ const emailOptional = trimToUndefined.refine(
   { message: "Email inválido", path: [] },
 );
 
+const zSocial = z
+  .object({
+    instagram: trimToUndefined.optional(),
+    facebook: trimToUndefined.optional(),
+    twitter: trimToUndefined.optional(),
+    tiktok: trimToUndefined.optional(),
+  })
+  .partial();
+
 const AgencyBaseSchema = z.object({
   name: z
     .string()
@@ -154,6 +163,7 @@ const AgencyBaseSchema = z.object({
   phone: trimToUndefined.optional(),
   email: emailOptional.optional(),
   website: urlOptional.optional(),
+  social: zSocial.optional().nullable(),
   foundation_date: z
     .union([
       z
@@ -182,6 +192,17 @@ function sanitizeAgencyForResponse(a: AgencyModel | null) {
       keyUploaded: Boolean(afip_key_base64 && String(afip_key_base64).length),
     },
   };
+}
+
+type SocialInput = z.infer<typeof zSocial> | null | undefined;
+function normalizeSocial(input: SocialInput) {
+  if (!input || typeof input !== "object") return null;
+  const cleaned: Record<string, string> = {};
+  if (input.instagram) cleaned.instagram = input.instagram;
+  if (input.facebook) cleaned.facebook = input.facebook;
+  if (input.twitter) cleaned.twitter = input.twitter;
+  if (input.tiktok) cleaned.tiktok = input.tiktok;
+  return Object.keys(cleaned).length ? cleaned : null;
 }
 
 function errorName(e: unknown) {
@@ -241,9 +262,12 @@ async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
       phone,
       email,
       website,
+      social,
       foundation_date,
       logo_url,
     } = parsed;
+
+    const socialData = normalizeSocial(social);
 
     const created = await prisma.agency.create({
       data: {
@@ -254,6 +278,7 @@ async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
         phone: phone ?? null,
         email: email ?? null,
         website: website ?? null,
+        social: socialData ?? Prisma.DbNull,
         foundation_date: foundation_date
           ? toLocalDate(
               foundation_date instanceof Date
@@ -296,9 +321,12 @@ async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
       phone,
       email,
       website,
+      social,
       foundation_date,
       logo_url,
     } = parsed;
+
+    const socialData = normalizeSocial(social);
 
     const updated = await prisma.agency.update({
       where: { id_agency: auth.id_agency },
@@ -310,6 +338,7 @@ async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
         phone: phone ?? null,
         email: email ?? null,
         website: website ?? null,
+        social: socialData ?? Prisma.DbNull,
         foundation_date: foundation_date
           ? toLocalDate(
               foundation_date instanceof Date

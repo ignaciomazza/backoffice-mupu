@@ -106,7 +106,30 @@ const PaymentSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
   return (
     <section className={section}>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Opciones de pago</h2>
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <span className="inline-flex size-8 items-center justify-center rounded-2xl border border-amber-500/20 bg-amber-500/10 text-amber-700 shadow-sm shadow-amber-900/10 dark:border-amber-400/20 dark:text-amber-300">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              className="size-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3.75 6.75h16.5a1.5 1.5 0 011.5 1.5v7.5a1.5 1.5 0 01-1.5 1.5H3.75a1.5 1.5 0 01-1.5-1.5v-7.5a1.5 1.5 0 011.5-1.5z"
+              />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M15 12h3.75"
+              />
+            </svg>
+          </span>
+          Opciones de pago
+        </h2>
         <div className="flex items-center gap-2">
           <button
             onClick={() => selectForPreview(null)}
@@ -137,12 +160,12 @@ const PaymentSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
                 key={idx}
                 className={`relative rounded-xl border p-3 dark:border-white/10 dark:bg-white/5 ${
                   active
-                    ? "border-sky-400/60 ring-2 ring-sky-400"
+                    ? "border-emerald-400/60 ring-2 ring-emerald-300"
                     : "border-slate-900/10 bg-white/40"
                 }`}
               >
                 {active && (
-                  <div className="pointer-events-none absolute right-2 top-2 rounded-full bg-sky-500 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                  <div className="pointer-events-none absolute right-2 top-2 rounded-full border border-amber-400/50 bg-amber-500/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow-sm">
                     Vista previa
                   </div>
                 )}
@@ -188,7 +211,7 @@ const PaymentSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                          d="M6 18 18 6M6 6l12 12"
+                          d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
                         />
                       </svg>
                     </button>
@@ -200,11 +223,11 @@ const PaymentSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
         </div>
       )}
 
-      {/* ===== Estilo de tipografía/color para Mupu ===== */}
+      {/* ===== Estilo de color para Mupu ===== */}
       {isMupuAgency && (
-        <details className="mt-4 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3">
-          <summary className="cursor-pointer select-none text-sm font-medium text-sky-800 dark:text-sky-300">
-            Mupu — Estilo de texto de la opción seleccionada
+        <details className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+          <summary className="cursor-pointer select-none text-sm font-medium text-emerald-800 dark:text-emerald-300">
+            Mupu — Color de texto de la opción seleccionada
           </summary>
 
           <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">

@@ -588,7 +588,7 @@ const TemplatePdfDownload: React.FC<TemplatePdfDownloadProps> = (props) => {
       type="button"
       className={
         className ??
-        "mt-4 rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+        "mt-4 rounded-full border border-amber-500/20 bg-amber-500/10 px-6 py-2 text-amber-700 shadow-sm shadow-amber-900/10 transition-transform hover:scale-95 active:scale-90 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-300"
       }
       onClick={handleDownload}
       disabled={busy}

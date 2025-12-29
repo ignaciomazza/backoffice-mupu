@@ -23,7 +23,7 @@ export default function Page() {
   if (!isValid) {
     return (
       <ProtectedRoute>
-        <section className="mx-auto max-w-3xl p-6 text-sky-950 dark:text-white">
+        <section className="mx-auto max-w-3xl p-6 text-slate-900 dark:text-white">
           <h1 className="mb-2 text-2xl font-semibold">Configurar plantilla</h1>
           <p className="opacity-80">
             El tipo de documento &quot;<code>{raw || "(vacío)"}</code>&quot; no
@@ -33,7 +33,7 @@ export default function Page() {
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <Link
               href="/template-config/quote"
-              className="rounded-2xl border border-sky-950/10 bg-white/50 p-4 transition hover:scale-[0.99] dark:border-white/10 dark:bg-white/10"
+              className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm shadow-slate-900/5 transition hover:scale-[0.99] dark:border-white/10 dark:bg-white/5"
             >
               <div className="text-lg font-medium">Cotización</div>
               <div className="text-sm opacity-70">
@@ -43,7 +43,7 @@ export default function Page() {
 
             <Link
               href="/template-config/confirmation"
-              className="rounded-2xl border border-sky-950/10 bg-white/50 p-4 transition hover:scale-[0.99] dark:border-white/10 dark:bg-white/10"
+              className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm shadow-slate-900/5 transition hover:scale-[0.99] dark:border-white/10 dark:bg-white/5"
             >
               <div className="text-lg font-medium">Confirmación</div>
               <div className="text-sm opacity-70">

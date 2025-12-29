@@ -387,7 +387,7 @@ const CFG_DEFAULTS: Record<string, Prisma.InputJsonObject> = {
   confirmation: {
     layout: "layoutA",
     styles: {
-      colors: { background: "#111827", text: "#ffffff", accent: "#22C55E" },
+      colors: { background: "#ffffff", text: "#111111", accent: "#6B7280" },
       fonts: { heading: "Poppins", body: "Poppins" },
       ui: {
         radius: "xl",
@@ -415,7 +415,7 @@ const CFG_DEFAULTS: Record<string, Prisma.InputJsonObject> = {
   quote: {
     layout: "layoutA",
     styles: {
-      colors: { background: "#111827", text: "#ffffff", accent: "#22C55E" },
+      colors: { background: "#ffffff", text: "#111111", accent: "#6B7280" },
       fonts: { heading: "Poppins", body: "Poppins" },
       ui: {
         radius: "xl",

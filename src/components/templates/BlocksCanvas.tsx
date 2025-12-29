@@ -4,10 +4,12 @@
 import React, {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   forwardRef,
 } from "react";
+import { Reorder, useDragControls } from "framer-motion";
 import type { OrderedBlock, BlockFormValue } from "@/types/templates";
 import type { BlocksCanvasProps, CanvasOptions } from "./TemplateEditor";
 
@@ -293,7 +295,7 @@ const EditableText = forwardRef<HTMLDivElement, EditableProps>(
     const wsStyle = wsFor(!!multiline);
 
     return (
-      <div className="focus-within:ring-current/20 relative -mx-1 block w-full rounded-lg px-1 ring-0 transition focus-within:ring-2">
+      <div className="relative -mx-1 block w-full rounded-lg px-1 transition">
         {showGhost && placeholder ? (
           <div
             className={cx(
@@ -333,114 +335,286 @@ EditableText.displayName = "EditableText";
  * Block wrapper (drag & actions)
  * ========================================================================== */
 
-type BlockShellProps = {
-  children: React.ReactNode;
-  idx: number;
-  onDragMove: (from: number, to: number) => void;
-  onRemove?: () => void;
-  canEdit: boolean;
+type BlockItemProps = {
+  block: OrderedBlock;
+  label?: string;
+  mode: "fixed" | "form";
   canRemove: boolean;
-  accentColor: string;
-  dividerColor: string;
+  canEdit: boolean;
+  onRemove?: () => void;
+  onToggleMode?: (id: string, next: "fixed" | "form") => void;
+  options: CanvasOptions;
+  showMeta: boolean;
+  children: React.ReactNode;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onDragMove: (y: number) => void;
+  isDraggingAny: boolean;
+  isDraggingSelf: boolean;
+  itemRef?: React.Ref<HTMLDivElement>;
 };
 
-const BlockShell: React.FC<BlockShellProps> = ({
-  children,
-  idx,
-  onDragMove,
-  onRemove,
-  canEdit,
+const BlockItem: React.FC<BlockItemProps> = ({
+  block,
+  label,
+  mode,
   canRemove,
-  accentColor,
-  dividerColor,
+  canEdit,
+  onRemove,
+  onToggleMode,
+  options,
+  showMeta,
+  children,
+  onDragStart,
+  onDragEnd,
+  onDragMove,
+  isDraggingAny,
+  isDraggingSelf,
+  itemRef,
 }) => {
-  const [over, setOver] = useState<"none" | "top" | "bottom">("none");
-
-  const handleDragStart: React.DragEventHandler<HTMLSpanElement> = (e) => {
-    e.dataTransfer.setData("text/plain", String(idx));
-    const img = document.createElement("canvas");
-    img.width = img.height = 1;
-    e.dataTransfer.setDragImage(img, 0, 0);
+  const controls = useDragControls();
+  const showLabel = Boolean(label);
+  const showToggle = Boolean(onToggleMode);
+  const isInteractiveTarget = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return false;
+    return Boolean(
+      target.closest(
+        'input, textarea, select, button, a, [contenteditable="true"]',
+      ),
+    );
   };
-
-  const handleDragOver: React.DragEventHandler<HTMLDivElement> = (e) => {
-    e.preventDefault();
-    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    setOver(y < rect.height / 2 ? "top" : "bottom");
-  };
-
-  const clearOver = () => setOver("none");
-
-  const handleDrop: React.DragEventHandler<HTMLDivElement> = (e) => {
-    e.preventDefault();
-    const from = Number(e.dataTransfer.getData("text/plain"));
-    const to = idx + (over === "bottom" ? 1 : 0);
-    clearOver();
-    if (!Number.isNaN(from)) onDragMove(from, to);
+  const getClientY = (event: MouseEvent | TouchEvent | PointerEvent): number => {
+    if ("touches" in event && event.touches[0]) {
+      return event.touches[0].clientY;
+    }
+    if ("changedTouches" in event && event.changedTouches[0]) {
+      return event.changedTouches[0].clientY;
+    }
+    return (event as MouseEvent | PointerEvent).clientY ?? 0;
   };
 
   return (
-    <div
-      className="group relative"
-      onDragOver={handleDragOver}
-      onDragLeave={clearOver}
-      onDrop={handleDrop}
+    <Reorder.Item
+      value={block.id}
+      ref={itemRef}
+      dragListener={false}
+      dragControls={controls}
+      dragElastic={0.18}
+      dragMomentum={false}
+      layout="position"
+      animate={{
+        opacity: isDraggingAny && !isDraggingSelf ? 0.85 : 1,
+        scale: isDraggingSelf ? 1.015 : 1,
+        rotate: isDraggingSelf ? 0.2 : 0,
+        boxShadow: isDraggingSelf
+          ? "0 18px 36px rgba(0,0,0,0.16)"
+          : "0 0 0 rgba(0,0,0,0)",
+      }}
+      transition={{
+        type: "spring",
+        stiffness: 360,
+        damping: 32,
+        mass: 0.8,
+      }}
+      className="group"
+      style={{
+        touchAction: isDraggingAny ? "none" : "auto",
+        zIndex: isDraggingSelf ? 20 : "auto",
+      }}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDrag={(e, info) => {
+        const clientY = getClientY(e);
+        onDragMove(Number.isFinite(clientY) ? clientY : info.point.y);
+      }}
     >
       <div
-        className="pointer-events-none absolute inset-x-0 top-[-3px] h-[3px] opacity-0 transition-opacity"
-        style={{
-          backgroundColor: accentColor,
-          opacity: over === "top" ? 0.9 : 0,
+        className="relative"
+        onPointerDown={(e) => {
+          if (e.button !== 0 || isInteractiveTarget(e.target)) return;
+          e.preventDefault();
+          controls.start(e);
         }}
-      />
-      <div
-        className="pointer-events-none absolute inset-x-0 bottom-[-3px] h-[3px] opacity-0 transition-opacity"
-        style={{
-          backgroundColor: accentColor,
-          opacity: over === "bottom" ? 0.9 : 0,
-        }}
-      />
-
-      <div className="absolute -right-2 -top-2 z-10 hidden items-center gap-1 rounded-full bg-black/30 p-1 text-white backdrop-blur-sm group-focus-within:flex group-hover:flex">
-        <span
-          className="cursor-grab rounded-full px-2 py-1 text-xs opacity-90"
-          title="Arrastrar para mover"
-          draggable
-          onDragStart={handleDragStart}
-        >
-          ⋮⋮
-        </span>
-        {canRemove ? (
-          <button
-            type="button"
-            onClick={onRemove}
-            className="rounded-full bg-red-600/80 px-2 py-1 text-xs hover:bg-red-600"
-            title="Quitar bloque"
-          >
-            Eliminar
-          </button>
-        ) : (
-          <span
-            className="rounded-full bg-white/20 px-2 py-1 text-[10px] uppercase tracking-wide opacity-80"
-            title={
-              canEdit
-                ? "Bloque fijo: no se puede eliminar"
-                : "Bloque fijo: no editable"
-            }
-          >
-            fijo
-          </span>
-        )}
-      </div>
-
-      <div
-        className="rounded-xl px-3 py-2 transition-colors hover:bg-white/5"
-        style={{ border: `1px solid ${dividerColor}` }}
       >
-        {children}
+        {!showMeta && (
+          <div className="absolute -right-2 -top-2 z-10 hidden items-center gap-1 rounded-full bg-black/30 p-1 text-white backdrop-blur-sm group-focus-within:flex group-hover:flex">
+            <button
+              type="button"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                controls.start(e);
+              }}
+              className="rounded-full px-2 py-1 text-xs opacity-90"
+              title="Arrastrar para mover"
+              aria-label="Arrastrar para mover"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                className="size-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5"
+                />
+              </svg>
+            </button>
+            {canRemove ? (
+              <button
+                type="button"
+                onClick={onRemove}
+                className="inline-flex items-center gap-1 rounded-full bg-red-600/80 px-2 py-1 text-xs text-white hover:bg-red-600"
+                title="Quitar bloque"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  className="size-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                  />
+                </svg>
+                Quitar
+              </button>
+            ) : (
+              <span
+                className="rounded-full bg-white/20 px-2 py-1 text-[10px] uppercase tracking-wide opacity-80"
+                title={
+                  canEdit
+                    ? "Bloque fijo: no se puede eliminar"
+                    : "Bloque fijo: no editable"
+                }
+              >
+                fijo
+              </span>
+            )}
+          </div>
+        )}
+
+        <div
+          className="rounded-xl px-3 py-2 transition-colors hover:bg-white/5"
+          style={{ border: `1px solid ${options.dividerColor}` }}
+        >
+          {showMeta && (
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  controls.start(e);
+                }}
+                className="inline-flex cursor-grab items-center gap-1 rounded-full bg-slate-900/5 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-900/10 active:cursor-grabbing dark:bg-white/10 dark:text-slate-200"
+                title="Arrastrar para mover"
+                aria-label="Arrastrar para mover"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  className="size-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5"
+                  />
+                </svg>
+                Mover
+              </button>
+
+              {showLabel && (
+                <span className="rounded-full bg-slate-900/5 px-2 py-0.5 text-[11px] text-slate-700 dark:bg-white/10 dark:text-slate-200">
+                  {label}
+                </span>
+              )}
+
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                {showToggle && onToggleMode && (
+                  <div className="inline-flex items-center rounded-full border border-slate-200/70 bg-white/70 p-0.5 text-[11px] text-slate-600 shadow-sm dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => onToggleMode(block.id, "fixed")}
+                      className={cx(
+                        "rounded-full px-2 py-0.5 transition",
+                        mode === "fixed"
+                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                          : "opacity-70 hover:opacity-100",
+                      )}
+                      aria-pressed={mode === "fixed"}
+                    >
+                      Fijo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onToggleMode(block.id, "form")}
+                      className={cx(
+                        "rounded-full px-2 py-0.5 transition",
+                        mode === "form"
+                          ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                          : "opacity-70 hover:opacity-100",
+                      )}
+                      aria-pressed={mode === "form"}
+                    >
+                      Formulario
+                    </button>
+                  </div>
+                )}
+
+                {canRemove ? (
+                  <button
+                    type="button"
+                    onClick={onRemove}
+                    className="inline-flex items-center gap-1 rounded-full bg-red-600/90 px-2 py-1 text-[11px] text-white hover:bg-red-600"
+                    title="Quitar bloque"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      className="size-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                      />
+                    </svg>
+                    Quitar
+                  </button>
+                ) : (
+                  <span
+                    className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide opacity-80"
+                    title={
+                      canEdit
+                        ? "Bloque fijo: no se puede eliminar"
+                        : "Bloque fijo: no editable"
+                    }
+                  >
+                    fijo
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {children}
+        </div>
       </div>
-    </div>
+    </Reorder.Item>
   );
 };
 
@@ -587,7 +761,7 @@ function ListEditor({
   };
 
   return (
-    <ul className={cx("list-inside list-disc", options.listSpaceClass)}>
+    <ul className={cx("list-disc pl-5", options.listSpaceClass)}>
       {items.map((it, i) => (
         <li key={i}>
           <div className="flex items-start gap-2">
@@ -622,10 +796,24 @@ function ListEditor({
                   ↓
                 </button>
                 <button
-                  className="rounded-full bg-red-600/80 px-2 py-1 text-xs text-white hover:bg-red-600"
+                  className="inline-flex items-center gap-1 rounded-full bg-red-600/80 px-2 py-1 text-xs text-white hover:bg-red-600"
                   onClick={() => delAt(i)}
                   title="Quitar ítem"
                 >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    className="size-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                    />
+                  </svg>
                   Quitar
                 </button>
               </div>
@@ -638,7 +826,7 @@ function ListEditor({
           <div className="mt-1 flex items-center gap-2">
             <button
               type="button"
-              className="rounded-full bg-sky-100 px-2 py-1 text-xs text-sky-900 hover:opacity-90 dark:bg-white/10 dark:text-white"
+              className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 shadow-sm shadow-emerald-900/10 hover:opacity-90 dark:border-emerald-400/20 dark:text-emerald-300"
               onClick={addEnd}
               title="Agregar ítem"
             >
@@ -769,10 +957,24 @@ function KeyValueEditor({
                 + Fila
               </button>
               <button
-                className="rounded-full bg-red-600/80 px-2 py-1 text-xs text-white hover:bg-red-600"
+                className="inline-flex items-center gap-1 rounded-full bg-red-600/80 px-2 py-1 text-xs text-white hover:bg-red-600"
                 onClick={() => delAt(i)}
                 title="Quitar fila"
               >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  className="size-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                  />
+                </svg>
                 Quitar
               </button>
             </div>
@@ -782,7 +984,7 @@ function KeyValueEditor({
       {!readOnly && (
         <div className="flex items-center gap-2">
           <button
-            className="w-max rounded-full bg-sky-100 px-3 py-1 text-xs text-sky-900 hover:opacity-90 dark:bg-white/10 dark:text-white"
+            className="inline-flex w-max items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-700 shadow-sm shadow-emerald-900/10 hover:opacity-90 dark:border-emerald-400/20 dark:text-emerald-300"
             onClick={addEnd}
             title="Agregar fila"
           >
@@ -917,26 +1119,196 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
   onChange,
   lockedIds,
   options,
+  showMeta = false,
+  getLabel,
+  getMode,
+  onToggleMode,
+  allowRemoveLocked = false,
 }) => {
-  const move = useCallback(
-    (from: number, to: number) => {
-      if (from === to || from < 0 || from >= blocks.length) return;
-      const safeTo = Math.max(0, Math.min(blocks.length, to));
-      const arr = [...blocks];
-      const [it] = arr.splice(from, 1);
-      arr.splice(safeTo > from ? safeTo - 1 : safeTo, 0, it);
-      onChange(arr);
+  const order = useMemo(() => blocks.map((b) => b.id), [blocks]);
+  const [dragOrder, setDragOrder] = useState(order);
+  const [isDragging, setIsDragging] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropIndicatorY, setDropIndicatorY] = useState<number | null>(null);
+  const dragOrderRef = useRef<string[]>(order);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const itemRefs = useRef(new Map<string, HTMLDivElement | null>());
+  const pointerYRef = useRef<number | null>(null);
+  const scrollRafRef = useRef<number | null>(null);
+
+  const setItemRef = useCallback(
+    (id: string) => (el: HTMLDivElement | null) => {
+      if (el) itemRefs.current.set(id, el);
+      else itemRefs.current.delete(id);
+    },
+    [],
+  );
+
+  const handleReorder = useCallback((nextIds: string[]) => {
+    dragOrderRef.current = nextIds;
+    setDragOrder(nextIds);
+  }, []);
+
+  useEffect(() => {
+    if (isDragging) return;
+    const current = dragOrderRef.current;
+    const isSame =
+      current.length === order.length &&
+      current.every((id, idx) => id === order[idx]);
+    if (isSame) return;
+    setDragOrder(order);
+    dragOrderRef.current = order;
+  }, [isDragging, order]);
+
+  useEffect(() => {
+    if (!isDragging) {
+      setDropIndicatorY(null);
+      pointerYRef.current = null;
+    }
+  }, [isDragging]);
+
+  useEffect(() => {
+    if (!isDragging && draggingId) {
+      setDraggingId(null);
+    }
+  }, [draggingId, isDragging]);
+
+  const orderedBlocks = useMemo(() => {
+    const byId = new Map(blocks.map((b) => [b.id, b]));
+    return dragOrder
+      .map((id) => byId.get(id))
+      .filter(Boolean) as OrderedBlock[];
+  }, [blocks, dragOrder]);
+
+  const commitReorder = useCallback(
+    (nextIds: string[]) => {
+      const byId = new Map(blocks.map((b) => [b.id, b]));
+      const nextBlocks = nextIds
+        .map((id) => byId.get(id))
+        .filter(Boolean) as OrderedBlock[];
+      const isSame =
+        nextBlocks.length === blocks.length &&
+        nextBlocks.every((b, i) => b.id === blocks[i].id);
+      if (!isSame) onChange(nextBlocks);
     },
     [blocks, onChange],
   );
 
+  const updateDropIndicator = useCallback((pointerY: number) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const ids = dragOrderRef.current;
+    if (ids.length === 0) return;
+
+    const containerRect = container.getBoundingClientRect();
+    let nextY = 0;
+
+    for (let i = 0; i < ids.length; i += 1) {
+      const el = itemRefs.current.get(ids[i]);
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      const midpoint = rect.top + rect.height / 2;
+      if (pointerY < midpoint) {
+        nextY = rect.top - containerRect.top;
+        setDropIndicatorY(nextY);
+        return;
+      }
+      if (i === ids.length - 1) {
+        nextY = rect.bottom - containerRect.top;
+        setDropIndicatorY(nextY);
+        return;
+      }
+    }
+  }, []);
+
+  const handleDragMove = useCallback(
+    (pointerY: number) => {
+      pointerYRef.current = pointerY;
+      updateDropIndicator(pointerY);
+    },
+    [updateDropIndicator],
+  );
+
+  const startAutoScroll = useCallback(() => {
+    if (scrollRafRef.current !== null) return;
+    const step = () => {
+      if (!isDragging) {
+        scrollRafRef.current = null;
+        return;
+      }
+      const pointerY = pointerYRef.current;
+      if (pointerY == null) {
+        scrollRafRef.current = requestAnimationFrame(step);
+        return;
+      }
+      const margin = 96;
+      const maxSpeed = 18;
+      let speed = 0;
+      if (pointerY < margin) {
+        speed = -Math.min(maxSpeed, (margin - pointerY) / 4);
+      } else if (pointerY > window.innerHeight - margin) {
+        speed = Math.min(
+          maxSpeed,
+          (pointerY - (window.innerHeight - margin)) / 4,
+        );
+      }
+      if (speed !== 0) {
+        window.scrollBy({ top: speed, behavior: "auto" });
+      }
+      updateDropIndicator(pointerY);
+      scrollRafRef.current = requestAnimationFrame(step);
+    };
+    scrollRafRef.current = requestAnimationFrame(step);
+  }, [isDragging, updateDropIndicator]);
+
+  const stopAutoScroll = useCallback(() => {
+    if (scrollRafRef.current !== null) {
+      cancelAnimationFrame(scrollRafRef.current);
+      scrollRafRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isDragging) {
+      startAutoScroll();
+      document.body.style.userSelect = "none";
+    } else {
+      stopAutoScroll();
+      document.body.style.userSelect = "";
+    }
+  }, [isDragging, startAutoScroll, stopAutoScroll]);
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleStop = () => {
+      setIsDragging(false);
+      setDraggingId(null);
+      pointerYRef.current = null;
+      setDropIndicatorY(null);
+      stopAutoScroll();
+      commitReorder(dragOrderRef.current);
+    };
+    window.addEventListener("pointerup", handleStop, { passive: true });
+    window.addEventListener("pointercancel", handleStop, { passive: true });
+    window.addEventListener("mouseup", handleStop, { passive: true });
+    window.addEventListener("touchend", handleStop, { passive: true });
+    window.addEventListener("blur", handleStop);
+    return () => {
+      window.removeEventListener("pointerup", handleStop);
+      window.removeEventListener("pointercancel", handleStop);
+      window.removeEventListener("mouseup", handleStop);
+      window.removeEventListener("touchend", handleStop);
+      window.removeEventListener("blur", handleStop);
+    };
+  }, [commitReorder, isDragging, stopAutoScroll]);
+
   const remove = useCallback(
     (id: string) => {
       const b = blocks.find((x) => x.id === id);
-      if (!b || lockedIds.has(id)) return;
+      if (!b || (lockedIds.has(id) && !allowRemoveLocked)) return;
       onChange(blocks.filter((x) => x.id !== id));
     },
-    [blocks, lockedIds, onChange],
+    [allowRemoveLocked, blocks, lockedIds, onChange],
   );
 
   const patchBlock = useCallback(
@@ -949,85 +1321,129 @@ const BlocksCanvas: React.FC<BlocksCanvasProps> = ({
     [blocks, onChange],
   );
 
-  return (
-    <div className="space-y-3">
-      {blocks.map((b, idx) => {
-        const readOnly = lockedIds.has(b.id);
-        const canRemove = !readOnly;
+  const resolveMode = (b: OrderedBlock): "fixed" | "form" =>
+    getMode ? getMode(b) : b.origin === "form" ? "form" : "fixed";
 
-        return (
-          <BlockShell
-            key={b.id}
-            idx={idx}
-            onDragMove={move}
-            onRemove={() => remove(b.id)}
-            canEdit={!readOnly}
-            canRemove={canRemove}
-            accentColor={options.accentColor}
-            dividerColor={options.dividerColor}
-          >
-            {b.type === "heading" && (
-              <HeadingEditor
-                b={b}
-                onPatch={(p) => patchBlock(b.id, p)}
-                readOnly={readOnly}
-                options={options}
-              />
-            )}
-            {b.type === "subtitle" && (
-              <SubtitleEditor
-                b={b}
-                onPatch={(p) => patchBlock(b.id, p)}
-                readOnly={readOnly}
-              />
-            )}
-            {b.type === "paragraph" && (
-              <ParagraphEditor
-                b={b}
-                onPatch={(p) => patchBlock(b.id, p)}
-                readOnly={readOnly}
-              />
-            )}
-            {b.type === "list" && (
-              <ListEditor
-                b={b}
-                onPatch={(p) => patchBlock(b.id, p)}
-                options={options}
-                readOnly={readOnly}
-              />
-            )}
-            {b.type === "keyValue" && (
-              <KeyValueEditor
-                b={b}
-                onPatch={(p) => patchBlock(b.id, p)}
-                readOnly={readOnly}
-                panelBg={options.panelBgStrong}
-                innerRadiusClass={options.innerRadiusClass}
-              />
-            )}
-            {b.type === "twoColumns" && (
-              <TwoColsEditor
-                b={b}
-                onPatch={(p) => patchBlock(b.id, p)}
-                readOnly={readOnly}
-                panelBg={options.panelBgStrong}
-                innerRadiusClass={options.innerRadiusClass}
-                options={options}
-              />
-            )}
-            {b.type === "threeColumns" && (
-              <ThreeColsEditor
-                b={b}
-                onPatch={(p) => patchBlock(b.id, p)}
-                readOnly={readOnly}
-                panelBg={options.panelBgStrong}
-                innerRadiusClass={options.innerRadiusClass}
-                options={options}
-              />
-            )}
-          </BlockShell>
-        );
-      })}
+  return (
+    <div
+      className="relative"
+      style={{ overflowAnchor: "none" }}
+      ref={containerRef}
+    >
+      {isDragging && dropIndicatorY !== null && (
+        <div
+          className="pointer-events-none absolute inset-x-2 z-10 h-[2px] rounded-full"
+          style={{
+            top: dropIndicatorY,
+            backgroundColor: options.accentColor,
+            opacity: 0.9,
+          }}
+        />
+      )}
+      <Reorder.Group
+        axis="y"
+        values={dragOrder}
+        onReorder={handleReorder}
+        className="space-y-3"
+      >
+        {orderedBlocks.map((b, idx) => {
+          const readOnly = lockedIds.has(b.id);
+          const canRemove = !readOnly || allowRemoveLocked;
+          const label = getLabel ? getLabel(b, idx) : b.label;
+          const mode = resolveMode(b);
+
+          return (
+            <BlockItem
+              key={b.id}
+              block={b}
+              label={label}
+              mode={mode}
+              onRemove={() => remove(b.id)}
+              canEdit={!readOnly}
+              canRemove={canRemove}
+              onToggleMode={onToggleMode}
+              options={options}
+              showMeta={showMeta}
+              onDragStart={() => {
+                setIsDragging(true);
+                setDraggingId(b.id);
+              }}
+              onDragEnd={() => {
+                setIsDragging(false);
+                setDraggingId(null);
+                pointerYRef.current = null;
+                setDropIndicatorY(null);
+                stopAutoScroll();
+                commitReorder(dragOrderRef.current);
+              }}
+              onDragMove={handleDragMove}
+              isDraggingAny={isDragging}
+              isDraggingSelf={draggingId === b.id}
+              itemRef={setItemRef(b.id)}
+            >
+              {b.type === "heading" && (
+                <HeadingEditor
+                  b={b}
+                  onPatch={(p) => patchBlock(b.id, p)}
+                  readOnly={readOnly}
+                  options={options}
+                />
+              )}
+              {b.type === "subtitle" && (
+                <SubtitleEditor
+                  b={b}
+                  onPatch={(p) => patchBlock(b.id, p)}
+                  readOnly={readOnly}
+                />
+              )}
+              {b.type === "paragraph" && (
+                <ParagraphEditor
+                  b={b}
+                  onPatch={(p) => patchBlock(b.id, p)}
+                  readOnly={readOnly}
+                />
+              )}
+              {b.type === "list" && (
+                <ListEditor
+                  b={b}
+                  onPatch={(p) => patchBlock(b.id, p)}
+                  options={options}
+                  readOnly={readOnly}
+                />
+              )}
+              {b.type === "keyValue" && (
+                <KeyValueEditor
+                  b={b}
+                  onPatch={(p) => patchBlock(b.id, p)}
+                  readOnly={readOnly}
+                  panelBg={options.panelBgStrong}
+                  innerRadiusClass={options.innerRadiusClass}
+                />
+              )}
+              {b.type === "twoColumns" && (
+                <TwoColsEditor
+                  b={b}
+                  onPatch={(p) => patchBlock(b.id, p)}
+                  readOnly={readOnly}
+                  panelBg={options.panelBgStrong}
+                  innerRadiusClass={options.innerRadiusClass}
+                  options={options}
+                />
+              )}
+              {b.type === "threeColumns" && (
+                <ThreeColsEditor
+                  b={b}
+                  onPatch={(p) => patchBlock(b.id, p)}
+                  readOnly={readOnly}
+                  panelBg={options.panelBgStrong}
+                  innerRadiusClass={options.innerRadiusClass}
+                  options={options}
+                />
+              )}
+            </BlockItem>
+          );
+        })}
+      </Reorder.Group>
     </div>
   );
 };

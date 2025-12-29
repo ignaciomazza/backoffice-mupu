@@ -47,7 +47,7 @@ function Card({
   return (
     <section
       className={cx(
-        "mb-6 h-fit rounded-2xl border border-slate-900/10 bg-white/50 p-4 dark:border-white/10 dark:bg-white/10",
+        "mb-6 h-fit rounded-3xl border border-slate-900/10 bg-white/70 p-4 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-white/10 dark:bg-white/10",
         className,
       )}
     >
@@ -60,17 +60,40 @@ function SectionHeader({
   title,
   subtitle,
   right,
+  icon,
+  tone = "amber",
 }: {
   title: string;
   subtitle?: string;
   right?: React.ReactNode;
+  icon?: React.ReactNode;
+  tone?: "amber" | "emerald";
 }) {
+  const toneClass =
+    tone === "emerald"
+      ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/20 dark:text-emerald-300"
+      : "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:border-amber-400/20 dark:text-amber-300";
+  const shadowClass =
+    tone === "emerald" ? "shadow-emerald-900/10" : "shadow-amber-900/10";
   return (
     <div className="flex items-start justify-between gap-3 p-4 pb-2">
       <div>
-        <h3 className="text-base font-semibold tracking-wide opacity-95">
-          {title}
-        </h3>
+        <div className="flex items-center gap-2">
+          {icon && (
+            <span
+              className={cx(
+                "inline-flex size-8 items-center justify-center rounded-2xl border shadow-sm",
+                shadowClass,
+                toneClass,
+              )}
+            >
+              {icon}
+            </span>
+          )}
+          <h3 className="text-base font-semibold tracking-wide opacity-95">
+            {title}
+          </h3>
+        </div>
         {subtitle && (
           <p className="mt-0.5 text-xs leading-relaxed opacity-70">
             {subtitle}
@@ -87,20 +110,24 @@ function RadioBadge({ active }: { active: boolean }) {
     <span
       aria-hidden
       className={cx(
-        "pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs",
+        "pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs shadow-sm",
         active
-          ? "bg-sky-500/90 text-white"
-          : "bg-white/10 text-white/80 opacity-0",
+          ? "border-emerald-400/60 bg-emerald-500/85 text-white"
+          : "border-white/10 bg-white/10 text-white/80 opacity-0",
       )}
     >
       <svg
-        viewBox="0 0 20 20"
-        className={cx("size-3.5", active ? "opacity-100" : "opacity-0")}
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        className={cx("size-4", active ? "opacity-100" : "opacity-0")}
         fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
       >
         <path
-          d="M8.5 13.5l-3-3 1.4-1.4 1.6 1.6 4.6-4.6L14.5 7l-6 6.5z"
-          fill="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M9 12.75l2.25 2.25L15 11.25"
         />
       </svg>
       Seleccionado
@@ -115,6 +142,7 @@ function OptionTile({
   title,
   icon,
   role,
+  tone = "emerald",
 }: {
   active?: boolean;
   onClick?: () => void;
@@ -122,7 +150,12 @@ function OptionTile({
   title?: string;
   icon?: React.ReactNode;
   role?: "radio";
+  tone?: "amber" | "emerald";
 }) {
+  const activeClass =
+    tone === "amber"
+      ? "border-amber-400/60 ring-2 ring-amber-200/70"
+      : "border-emerald-400/60 ring-2 ring-emerald-200/70";
   return (
     <button
       type="button"
@@ -131,15 +164,13 @@ function OptionTile({
       role={role}
       aria-pressed={!!active}
       className={cx(
-        `relative rounded-xl border p-3 text-left transition hover:scale-[0.99] ${
-          active
-            ? "border-sky-400 ring-2 ring-sky-300"
-            : "border-slate-900/10 dark:border-white/10"
+        `relative rounded-2xl border bg-white/70 p-3 text-left shadow-sm shadow-slate-900/5 transition hover:scale-[0.99] dark:border-white/10 dark:bg-white/10 ${
+          active ? activeClass : "border-slate-900/10"
         }`,
       )}
     >
       {icon && (
-        <div className="mb-2 inline-flex size-8 items-center justify-center rounded-xl bg-white/10 text-white/90">
+        <div className="mb-2 inline-flex size-8 items-center justify-center rounded-2xl border border-slate-900/10 bg-white/80 text-slate-500 shadow-sm dark:border-white/10 dark:bg-white/10 dark:text-slate-300">
           {icon}
         </div>
       )}
@@ -153,7 +184,7 @@ function SkeletonLine({ className }: { className?: string }) {
   return (
     <div
       className={cx(
-        "h-3 w-full animate-pulse rounded-full bg-white/10",
+        "h-3 w-full animate-pulse rounded-full bg-slate-900/10 dark:bg-white/10",
         className,
       )}
     />
@@ -265,11 +296,28 @@ export default function TemplateConfigForm({
         <SectionHeader
           title="Portada"
           subtitle="Elegí una imagen de portada definida por el gerente. La proporción se adapta automáticamente."
+          tone="amber"
+          icon={
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              className="size-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"
+              />
+            </svg>
+          }
         />
 
         {coverOptions.length === 0 ? (
           <div className="px-4 pb-4">
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm opacity-80">
+            <div className="rounded-2xl border border-slate-900/10 bg-white/70 p-4 text-sm text-slate-600 shadow-sm shadow-slate-900/10 dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
               No hay imágenes configuradas para portada.
             </div>
           </div>
@@ -288,6 +336,7 @@ export default function TemplateConfigForm({
                   onClick={() => setCoverUrl(url)}
                   title={name || url}
                   role="radio"
+                  tone="amber"
                 >
                   <div className="relative overflow-hidden rounded-xl">
                     {/* Ratio 16/9 */}
@@ -319,12 +368,32 @@ export default function TemplateConfigForm({
         <SectionHeader
           title="Contacto a mostrar"
           subtitle="Elegí si mostrar el teléfono institucional de la agencia o el de un vendedor."
+          tone="emerald"
+          icon={
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              className="size-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z"
+              />
+            </svg>
+          }
         />
 
         {loading ? (
           <div className="grid grid-cols-1 gap-2 px-4 pb-4 md:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="rounded-2xl border border-white/10 p-3">
+              <div
+                key={i}
+                className="rounded-2xl border border-slate-900/10 bg-white/60 p-3 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-white/10"
+              >
                 <SkeletonLine className="mb-2 h-4 w-24" />
                 <SkeletonLine />
               </div>
@@ -332,7 +401,7 @@ export default function TemplateConfigForm({
           </div>
         ) : phoneOptions.length === 0 ? (
           <div className="px-4 pb-4">
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm opacity-80">
+            <div className="rounded-2xl border border-slate-900/10 bg-white/70 p-4 text-sm text-slate-600 shadow-sm shadow-slate-900/10 dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
               La agencia no tiene teléfonos cargados.
             </div>
           </div>
@@ -351,13 +420,21 @@ export default function TemplateConfigForm({
                   onClick={() => setContactPhone(opt.value)}
                   title={opt.value}
                   role="radio"
+                  tone="emerald"
                   icon={
                     <svg
+                      xmlns="http://www.w3.org/2000/svg"
                       viewBox="0 0 24 24"
-                      className="size-4 opacity-80"
-                      fill="currentColor"
+                      className="size-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
                     >
-                      <path d="M6.6 10.8a15.8 15.8 0 006.6 6.6l2.2-2.2a1 1 0 011.1-.24c1.2.48 2.5.74 3.8.74a1 1 0 011 1v3.5a1 1 0 01-1 1C10.4 22 2 13.6 2 3a1 1 0 011-1h3.5a1 1 0 011 1c0 1.3.26 2.6.74 3.8a1 1 0 01-.24 1.1L6.6 10.8z" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z"
+                      />
                     </svg>
                   }
                 >
@@ -383,11 +460,28 @@ export default function TemplateConfigForm({
         <SectionHeader
           title="Opciones de pago"
           subtitle="Seleccioná la leyenda de pago disponible para este documento."
+          tone="amber"
+          icon={
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              className="size-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z"
+              />
+            </svg>
+          }
         />
 
         {paymentOptions.length === 0 ? (
           <div className="px-4 pb-4">
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm opacity-80">
+            <div className="rounded-2xl border border-slate-900/10 bg-white/70 p-4 text-sm text-slate-600 shadow-sm shadow-slate-900/10 dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
               No hay opciones de pago cargadas.
             </div>
           </div>
@@ -407,13 +501,21 @@ export default function TemplateConfigForm({
                     onClick={() => setPaymentIndex(idx)}
                     title={p}
                     role="radio"
+                    tone="amber"
                     icon={
                       <svg
+                        xmlns="http://www.w3.org/2000/svg"
                         viewBox="0 0 24 24"
-                        className="size-4 opacity-80"
-                        fill="currentColor"
+                        className="size-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={1.5}
                       >
-                        <path d="M2 7a3 3 0 013-3h14a3 3 0 013 3v1H2V7zm20 4H2v6a3 3 0 003 3h14a3 3 0 003-3v-6zm-6 3h4v2h-4v-2z" />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z"
+                        />
                       </svg>
                     }
                   >
@@ -426,7 +528,7 @@ export default function TemplateConfigForm({
             </div>
 
             {typeof paymentIdx === "number" && paymentOptions[paymentIdx] && (
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-sm opacity-90">
+              <div className="rounded-2xl border border-slate-900/10 bg-white/70 p-3 text-sm text-slate-700 shadow-sm shadow-slate-900/10 dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
                 {paymentOptions[paymentIdx]}
               </div>
             )}
