@@ -176,6 +176,96 @@ function submitResultFromReceipt(receipt: Receipt): SubmitResult {
   };
 }
 
+const STATUS_PILL_BASE =
+  "rounded-full border px-3 py-1 text-xs font-medium shadow-sm shadow-sky-950/10";
+
+const STATUS_PILL_PALETTE: Record<string, string> = {
+  pendiente:
+    "border-amber-500/35 bg-amber-500/15 text-amber-900 dark:border-amber-400/35 dark:bg-amber-500/15 dark:text-amber-200",
+  pago: "border-emerald-500/35 bg-emerald-500/15 text-emerald-900 dark:border-emerald-400/35 dark:bg-emerald-500/15 dark:text-emerald-200",
+  facturado:
+    "border-sky-500/35 bg-sky-500/15 text-sky-900 dark:border-sky-400/35 dark:bg-sky-500/15 dark:text-sky-200",
+  abierta:
+    "border-sky-400/30 bg-sky-400/10 text-sky-900 dark:border-sky-300/30 dark:bg-sky-400/10 dark:text-sky-200",
+  bloqueada:
+    "border-slate-400/35 bg-slate-300/20 text-slate-900 dark:border-slate-300/35 dark:bg-slate-400/15 dark:text-slate-200",
+  cancelada:
+    "border-rose-500/35 bg-rose-500/15 text-rose-900 dark:border-rose-400/35 dark:bg-rose-500/15 dark:text-rose-200",
+  default:
+    "border-white/20 bg-white/20 text-sky-950 dark:border-white/15 dark:bg-white/10 dark:text-white",
+};
+
+function getStatusPillClasses(value?: string): string {
+  const key = (value || "").toLowerCase();
+  return `${STATUS_PILL_BASE} ${
+    STATUS_PILL_PALETTE[key] || STATUS_PILL_PALETTE.default
+  }`;
+}
+
+function formatStatusLabel(value?: string): string {
+  if (!value) return "—";
+  const trimmed = String(value).trim();
+  if (!trimmed) return "—";
+  const lower = trimmed.toLowerCase();
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+function getBookingStatusIcon(status?: string) {
+  const key = (status || "").toLowerCase();
+  if (key === "bloqueada") {
+    return (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.7}
+        stroke="currentColor"
+        className="size-4"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+        />
+      </svg>
+    );
+  }
+  if (key === "cancelada") {
+    return (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.7}
+        stroke="currentColor"
+        className="size-4"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636"
+        />
+      </svg>
+    );
+  }
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={1.7}
+      stroke="currentColor"
+      className="size-4"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.5 10.5V6.75a4.5 4.5 0 1 1 9 0v3.75M3.75 21.75h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H3.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+      />
+    </svg>
+  );
+}
+
 /* =========================================================
  * Componente
  * ========================================================= */
@@ -237,6 +327,11 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     useState<number>(0.024);
   const [agencyTransferFeeReady, setAgencyTransferFeeReady] =
     useState<boolean>(false);
+  const [neighborIds, setNeighborIds] = useState<{
+    prevId: number | null;
+    nextId: number | null;
+  }>({ prevId: null, nextId: null });
+  const [neighborLoading, setNeighborLoading] = useState(false);
 
   const fetchTransferFee = useCallback(
     async (signal?: AbortSignal) => {
@@ -308,6 +403,59 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     selectedOperatorStatus,
     selectedBookingStatus,
   ]);
+
+  const canNavigateNeighbors =
+    role === "administrativo" || role === "gerente";
+
+  useEffect(() => {
+    if (!token || !booking?.id_booking || !canNavigateNeighbors) {
+      if (mountedRef.current) {
+        setNeighborIds({ prevId: null, nextId: null });
+        setNeighborLoading(false);
+      }
+      return;
+    }
+
+    const ac = new AbortController();
+    const bookingId = booking.id_booking;
+    setNeighborLoading(true);
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          `/api/bookings/neighbor?bookingId=${bookingId}`,
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+        if (!res.ok) {
+          if (mountedRef.current) {
+            setNeighborIds({ prevId: null, nextId: null });
+          }
+          return;
+        }
+        const data: unknown = await res.json();
+        const prevId =
+          typeof (data as { prevId?: unknown })?.prevId === "number"
+            ? (data as { prevId: number }).prevId
+            : null;
+        const nextId =
+          typeof (data as { nextId?: unknown })?.nextId === "number"
+            ? (data as { nextId: number }).nextId
+            : null;
+
+        if (mountedRef.current) setNeighborIds({ prevId, nextId });
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return;
+        if (mountedRef.current) {
+          setNeighborIds({ prevId: null, nextId: null });
+        }
+      } finally {
+        if (mountedRef.current) setNeighborLoading(false);
+      }
+    })();
+
+    return () => ac.abort();
+  }, [token, booking?.id_booking, canNavigateNeighbors]);
 
   /* ================= Observaciones administración ================= */
   const [isEditingInvObs, setIsEditingInvObs] = useState(false);
@@ -699,6 +847,11 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   const [paymentsReloadKey, setPaymentsReloadKey] = useState(0);
 
   /* ================= UI variants ================= */
+  const neighborBtnBase =
+    "group relative inline-flex h-10 items-center justify-center rounded-2xl px-3 text-xs font-medium text-sky-950 transition-colors hover:bg-white/60 dark:text-white dark:hover:bg-white/10 sm:text-sm";
+  const neighborBtnDisabled =
+    "cursor-not-allowed opacity-50 hover:bg-transparent dark:hover:bg-transparent";
+
   const obsVariants = {
     hidden: { opacity: 0, scale: 0.9 },
     visible: { opacity: 1, scale: 1 },
@@ -747,6 +900,8 @@ export default function ServicesContainer(props: ServicesContainerProps) {
 
   const canAdminLike =
     role === "administrativo" || role === "gerente" || role === "desarrollador";
+  const prevDisabled = neighborLoading || !neighborIds.prevId;
+  const nextDisabled = neighborLoading || !neighborIds.nextId;
 
   return (
     <motion.div>
@@ -791,7 +946,76 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 </h1>
               </div>
 
-              <div className="w-24" />
+              <div className="flex items-center gap-2">
+                {canNavigateNeighbors ? (
+                  <>
+                    <button
+                      type="button"
+                      className={`${neighborBtnBase} ${prevDisabled ? neighborBtnDisabled : ""}`}
+                      title="Reserva anterior"
+                      aria-label="Reserva anterior"
+                      disabled={prevDisabled}
+                      onClick={() => {
+                        if (neighborIds.prevId) {
+                          router.push(
+                            `/bookings/services/${neighborIds.prevId}`,
+                          );
+                        }
+                      }}
+                    >
+                      <span className="absolute inset-0 rounded-2xl ring-0 ring-sky-900/5 transition group-hover:ring-2 dark:ring-white/5" />
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="mr-1 size-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={1.6}
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
+                        />
+                      </svg>
+                      <span>Anterior</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`${neighborBtnBase} ${nextDisabled ? neighborBtnDisabled : ""}`}
+                      title="Reserva siguiente"
+                      aria-label="Reserva siguiente"
+                      disabled={nextDisabled}
+                      onClick={() => {
+                        if (neighborIds.nextId) {
+                          router.push(
+                            `/bookings/services/${neighborIds.nextId}`,
+                          );
+                        }
+                      }}
+                    >
+                      <span className="absolute inset-0 rounded-2xl ring-0 ring-sky-900/5 transition group-hover:ring-2 dark:ring-white/5" />
+                      <span>Siguiente</span>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="ml-1 size-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={1.6}
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"
+                        />
+                      </svg>
+                    </button>
+                  </>
+                ) : (
+                  <div className="w-24" />
+                )}
+              </div>
             </div>
           </div>
 
@@ -808,17 +1032,37 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full border border-white/5 bg-white/30 px-3 py-1 text-xs font-medium shadow-sm shadow-sky-950/10 dark:bg-white/5">
-                    Cliente:{" "}
-                    <b className="ml-1 font-medium">
-                      {booking.clientStatus || "-"}
-                    </b>
+                  <span
+                    className={getStatusPillClasses(booking.clientStatus)}
+                    title={`Cliente: ${formatStatusLabel(
+                      booking.clientStatus,
+                    )}`}
+                  >
+                    Cliente:
+                    <span className="ml-1 font-semibold">
+                      {formatStatusLabel(booking.clientStatus)}
+                    </span>
                   </span>
-                  <span className="rounded-full border border-white/5 bg-white/30 px-3 py-1 text-xs font-medium shadow-sm shadow-sky-950/10 dark:bg-white/5">
-                    Operador:{" "}
-                    <b className="ml-1 font-medium">
-                      {cap(booking.operatorStatus) || "-"}
-                    </b>
+                  <span
+                    className={getStatusPillClasses(booking.operatorStatus)}
+                    title={`Operador: ${formatStatusLabel(
+                      booking.operatorStatus,
+                    )}`}
+                  >
+                    Operador:
+                    <span className="ml-1 font-semibold">
+                      {formatStatusLabel(booking.operatorStatus)}
+                    </span>
+                  </span>
+                  <span
+                    className={`${getStatusPillClasses(booking.status)} inline-flex items-center justify-center px-2`}
+                    title={`Reserva: ${formatStatusLabel(booking.status)}`}
+                    aria-label={`Reserva: ${formatStatusLabel(booking.status)}`}
+                  >
+                    {getBookingStatusIcon(booking.status)}
+                    <span className="sr-only">
+                      {`Reserva: ${formatStatusLabel(booking.status)}`}
+                    </span>
                   </span>
                 </div>
               </div>
