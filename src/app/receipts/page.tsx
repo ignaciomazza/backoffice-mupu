@@ -141,6 +141,8 @@ type BookingServiceItem = {
   sale_currency?: string | null;
   sale_price?: number | string | null;
   card_interest?: number | string | null;
+  taxableCardInterest?: number | string | null;
+  vatOnCardInterest?: number | string | null;
 };
 
 /* ================= Page ================= */
@@ -766,6 +768,14 @@ export default function ReceiptsPage() {
           typeof s?.card_interest === "number"
             ? s.card_interest
             : Number(s?.card_interest ?? 0);
+        const cardBase =
+          typeof s?.taxableCardInterest === "number"
+            ? s.taxableCardInterest
+            : Number(s?.taxableCardInterest ?? 0);
+        const cardVat =
+          typeof s?.vatOnCardInterest === "number"
+            ? s.vatOnCardInterest
+            : Number(s?.vatOnCardInterest ?? 0);
         return {
           id_service: Number.isFinite(id) ? id : 0,
           description:
@@ -776,6 +786,10 @@ export default function ReceiptsPage() {
           sale_price: sale > 0 ? sale : undefined,
           card_interest:
             Number.isFinite(cardInt) && cardInt > 0 ? cardInt : undefined,
+          taxableCardInterest:
+            Number.isFinite(cardBase) && cardBase > 0 ? cardBase : undefined,
+          vatOnCardInterest:
+            Number.isFinite(cardVat) && cardVat > 0 ? cardVat : undefined,
           type: s?.type ?? undefined,
           destination: s?.destination ?? s?.destino ?? undefined,
         };

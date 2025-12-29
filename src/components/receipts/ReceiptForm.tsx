@@ -28,6 +28,7 @@ import type {
 } from "@/types/receipts";
 
 import {
+  asArray,
   parseAmountInput,
   resolveReceiptIdFrom,
 } from "@/utils/receipts/receiptForm";
@@ -81,6 +82,16 @@ type PaymentDraft = {
 
   // ✅ cuenta crédito (CreditAccount)
   credit_account_id: number | null;
+};
+
+type ReceiptForDebt = {
+  amount?: number | string | null;
+  amount_currency?: string | null;
+  base_amount?: number | string | null;
+  base_currency?: string | null;
+  payment_fee_amount?: number | string | null;
+  payment_fee_currency?: string | null;
+  serviceIds?: number[] | null;
 };
 
 const uid = () => `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -682,7 +693,13 @@ export default function ReceiptForm({
   }, [paymentsTotalNum, feeAmount, suggestions, currencyOverride]);
 
   /* ===== Detalle de pago para PDF ===== */
-  const [paymentDescription, setPaymentDescription] = useState("");
+  const [paymentDescription, setPaymentDescriptionState] = useState("");
+  const [paymentDescriptionDirty, setPaymentDescriptionDirty] = useState(false);
+
+  const handlePaymentDescriptionChange = useCallback((v: string) => {
+    setPaymentDescriptionState(v);
+    setPaymentDescriptionDirty(true);
+  }, []);
 
   const filteredAccounts = useMemo(() => {
     return filterAccountsByCurrency({
@@ -810,11 +827,225 @@ export default function ReceiptForm({
     creditMethodId,
   ]);
 
+  /* ===== Conversión (opcional) ===== */
+  const [baseAmount, setBaseAmount] = useState("");
+  const [baseCurrency, setBaseCurrency] = useState("");
+  const [counterAmount, setCounterAmount] = useState("");
+  const [counterCurrency, setCounterCurrency] = useState("");
+
+  const toNum = useCallback((v: number | string | null | undefined) => {
+    const n = typeof v === "number" ? v : Number(v ?? NaN);
+    return Number.isFinite(n) ? n : 0;
+  }, []);
+
+  const normalizeCurrencyCode = useCallback((raw: string | null | undefined) => {
+    const s = (raw || "").trim().toUpperCase();
+    if (!s) return "ARS";
+    const map: Record<string, string> = {
+      U$D: "USD",
+      U$S: "USD",
+      US$: "USD",
+      USD$: "USD",
+      AR$: "ARS",
+      $: "ARS",
+    };
+    return map[s] || s;
+  }, []);
+
+  const formatDebtLabel = useCallback((value: number, currency: string) => {
+    const safe = Number.isFinite(value) ? value : 0;
+    const num = new Intl.NumberFormat("es-AR", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(safe);
+    return currency === "ARS" ? `$ ${num}` : `${num} ${currency}`;
+  }, []);
+
+  const [bookingReceipts, setBookingReceipts] = useState<ReceiptForDebt[]>([]);
+  const [bookingReceiptsLoaded, setBookingReceiptsLoaded] = useState(false);
+
   useEffect(() => {
-    if (!paymentDescription.trim() && paymentSummary.trim()) {
-      setPaymentDescription(paymentSummary);
+    if (!token || !selectedBookingId || mode !== "booking") {
+      setBookingReceipts([]);
+      setBookingReceiptsLoaded(false);
+      return;
     }
-  }, [paymentSummary, paymentDescription]);
+
+    const ac = new AbortController();
+    let alive = true;
+    setBookingReceiptsLoaded(false);
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          `/api/receipts?bookingId=${selectedBookingId}`,
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+        if (!res.ok) throw new Error("fetch failed");
+        const json = await safeJson<unknown>(res);
+        const list = asArray<ReceiptForDebt>(json);
+        if (alive) setBookingReceipts(list);
+      } catch {
+        if (alive) setBookingReceipts([]);
+      } finally {
+        if (alive) setBookingReceiptsLoaded(true);
+      }
+    })();
+
+    return () => {
+      alive = false;
+      ac.abort();
+    };
+  }, [token, selectedBookingId, mode]);
+
+  const relevantReceipts = useMemo(() => {
+    if (!bookingReceipts.length || !selectedServiceIds.length) return [];
+    const svcSet = new Set(selectedServiceIds);
+    return bookingReceipts.filter((r) => {
+      const ids = Array.isArray(r.serviceIds) ? r.serviceIds : [];
+      if (!ids.length) return true;
+      return ids.some((id) => svcSet.has(id));
+    });
+  }, [bookingReceipts, selectedServiceIds]);
+
+  const salesByCurrency = useMemo(() => {
+    return selectedServices.reduce<Record<string, number>>((acc, s) => {
+      const cur = normalizeCurrencyCode(s.currency || "ARS");
+      const sale = toNum(s.sale_price);
+      const split =
+        toNum(s.taxableCardInterest) + toNum(s.vatOnCardInterest);
+      const interest = split > 0 ? split : toNum(s.card_interest);
+      const total = sale + interest;
+      if (total) acc[cur] = (acc[cur] || 0) + total;
+      return acc;
+    }, {});
+  }, [selectedServices, normalizeCurrencyCode, toNum]);
+
+  const paidByCurrency = useMemo(() => {
+    return relevantReceipts.reduce<Record<string, number>>((acc, r) => {
+      const baseCur = r.base_currency
+        ? normalizeCurrencyCode(String(r.base_currency))
+        : null;
+      const baseVal = toNum(r.base_amount ?? 0);
+
+      const amountCur = r.amount_currency
+        ? normalizeCurrencyCode(String(r.amount_currency))
+        : null;
+
+      const feeCurRaw = r.payment_fee_currency;
+      const feeCur =
+        feeCurRaw && String(feeCurRaw).trim() !== ""
+          ? normalizeCurrencyCode(String(feeCurRaw))
+          : amountCur ?? baseCur;
+      const amountVal = toNum(r.amount ?? 0);
+      const feeVal = toNum(r.payment_fee_amount ?? 0);
+
+      if (baseCur) {
+        const val = baseVal + (feeCur === baseCur ? feeVal : 0);
+        if (val) acc[baseCur] = (acc[baseCur] || 0) + val;
+      } else if (amountCur) {
+        const val = amountVal + (feeCur === amountCur ? feeVal : 0);
+        if (val) acc[amountCur] = (acc[amountCur] || 0) + val;
+      } else if (feeCur) {
+        const val = feeVal;
+        if (val) acc[feeCur] = (acc[feeCur] || 0) + val;
+      }
+
+      return acc;
+    }, {});
+  }, [relevantReceipts, normalizeCurrencyCode, toNum]);
+
+  const currentPaidByCurrency = useMemo(() => {
+    const acc: Record<string, number> = {};
+    const feeVal = parseAmountInput(feeAmount) ?? 0;
+    const amountVal = paymentsTotalNum;
+    const amountCur = effectiveCurrency
+      ? normalizeCurrencyCode(effectiveCurrency)
+      : null;
+
+    const baseVal = parseAmountInput(baseAmount);
+    const baseCur = baseCurrency
+      ? normalizeCurrencyCode(baseCurrency)
+      : null;
+
+    if (baseCur && baseVal != null && baseVal > 0) {
+      const val = baseVal + (amountCur === baseCur ? feeVal : 0);
+      if (val) acc[baseCur] = (acc[baseCur] || 0) + val;
+    } else if (amountCur && amountVal > 0) {
+      const val = amountVal + (feeVal > 0 ? feeVal : 0);
+      if (val) acc[amountCur] = (acc[amountCur] || 0) + val;
+    } else if (amountCur && feeVal > 0) {
+      acc[amountCur] = (acc[amountCur] || 0) + feeVal;
+    }
+
+    return acc;
+  }, [
+    feeAmount,
+    paymentsTotalNum,
+    effectiveCurrency,
+    baseAmount,
+    baseCurrency,
+    normalizeCurrencyCode,
+  ]);
+
+  const debtByCurrency = useMemo(() => {
+    const acc: Record<string, number> = {};
+    const currencies = new Set([
+      ...Object.keys(salesByCurrency),
+      ...Object.keys(paidByCurrency),
+      ...Object.keys(currentPaidByCurrency),
+    ]);
+    currencies.forEach((cur) => {
+      const sale = salesByCurrency[cur] || 0;
+      const paid = (paidByCurrency[cur] || 0) + (currentPaidByCurrency[cur] || 0);
+      acc[cur] = sale - paid;
+    });
+    return acc;
+  }, [salesByCurrency, paidByCurrency, currentPaidByCurrency]);
+
+  const debtSuffix = useMemo(() => {
+    if (!selectedServiceIds.length || !bookingReceiptsLoaded) return "";
+    const parts = Object.entries(debtByCurrency)
+      .filter(([, v]) => v > 0.01)
+      .map(([cur, v]) => formatDebtLabel(v, cur));
+    if (!Object.keys(debtByCurrency).length) return "";
+    if (!parts.length) return "-NO ADEUDA SALDO-";
+    return `-ADEUDA ${parts.join(" y ")}`;
+  }, [
+    selectedServiceIds,
+    bookingReceiptsLoaded,
+    debtByCurrency,
+    formatDebtLabel,
+  ]);
+
+  const paymentDescriptionAuto = useMemo(() => {
+    if (!paymentSummary.trim()) return "";
+    const hasBookingContext = !!selectedBookingId && selectedServiceIds.length > 0;
+    if (hasBookingContext && !bookingReceiptsLoaded) return paymentSummary;
+    const suffix = hasBookingContext ? debtSuffix.trim() : "";
+    return suffix ? `${paymentSummary} ${suffix}` : paymentSummary;
+  }, [
+    paymentSummary,
+    selectedBookingId,
+    selectedServiceIds,
+    bookingReceiptsLoaded,
+    debtSuffix,
+  ]);
+
+  useEffect(() => {
+    setPaymentDescriptionState("");
+    setPaymentDescriptionDirty(false);
+  }, [selectedBookingId, mode]);
+
+  useEffect(() => {
+    if (paymentDescriptionDirty) return;
+    if (paymentDescriptionAuto.trim()) {
+      setPaymentDescriptionState(paymentDescriptionAuto);
+    } else if (!paymentSummary.trim()) {
+      setPaymentDescriptionState("");
+    }
+  }, [paymentDescriptionAuto, paymentSummary, paymentDescriptionDirty]);
 
   /* ===== Clientes ===== */
   const [clientsCount, setClientsCount] = useState(
@@ -850,12 +1081,6 @@ export default function ReceiptForm({
   /* ===== Importe en palabras (PDF) ===== */
   const [amountWords, setAmountWords] = useState("");
   const [amountWordsISO, setAmountWordsISO] = useState("");
-
-  /* ===== Conversión (opcional) ===== */
-  const [baseAmount, setBaseAmount] = useState("");
-  const [baseCurrency, setBaseCurrency] = useState("");
-  const [counterAmount, setCounterAmount] = useState("");
-  const [counterCurrency, setCounterCurrency] = useState("");
 
   useEffect(() => {
     if (!lockedCurrency) return;
@@ -1366,7 +1591,7 @@ export default function ReceiptForm({
                     loadingCreditAccountsByOperator
                   }
                   paymentDescription={paymentDescription}
-                  setPaymentDescription={setPaymentDescription}
+                  setPaymentDescription={handlePaymentDescriptionChange}
                   concept={concept}
                   setConcept={setConcept}
                   baseAmount={baseAmount}

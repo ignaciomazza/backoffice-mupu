@@ -29,7 +29,7 @@ export interface ReceiptPdfData {
   amount: number;
   amountString: string;
 
-  /** Texto legacy (no lo usamos como “método”, lo dejamos por compat) */
+  /** Detalle libre para el PDF (método de pago / notas) */
   currency: string;
 
   /** ISO del monto total (ARS/USD) */
@@ -264,6 +264,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
   concept,
   amount,
   amountString,
+  currency,
   amount_currency,
   paymentFeeAmount,
   payments,
@@ -303,6 +304,9 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
     : amount_currency;
   const showCounter = hasCounter && !hideAltValues;
   const showPaymentAmounts = !hideAltValues;
+  const paymentDetail = (currency || "").trim();
+  const showPaymentDetail =
+    paymentDetail.length > 0 && !/^[A-Z]{3}$/.test(paymentDetail);
 
   return (
     <Document>
@@ -428,6 +432,14 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
               ) : (
                 <Text style={styles.infoText}>-</Text>
               )}
+              {fee > 0 ? (
+                <Text style={styles.payMeta}>
+                  Costo financiero: {safeFmtCurrency(fee, amount_currency)}
+                </Text>
+              ) : null}
+              {showPaymentDetail ? (
+                <Text style={styles.payMeta}>Detalle: {paymentDetail}</Text>
+              ) : null}
             </View>
           </View>
         </View>

@@ -45,6 +45,8 @@ type ReceiptForBalance = {
   base_currency?: CurrencyCode | null;
   counter_amount?: number | string | null;
   counter_currency?: CurrencyCode | null;
+  payment_fee_amount?: number | string | null;
+  payment_fee_currency?: CurrencyCode | string | null;
 };
 
 interface Booking {
@@ -191,6 +193,11 @@ const toNum = (v: number | string | null | undefined) => {
     typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : NaN;
   return Number.isFinite(n) ? n : 0;
 };
+const normCurrency = (raw: string | null | undefined): CurrencyCode => {
+  const s = (raw || "").trim().toUpperCase();
+  if (s === "USD" || s === "U$D" || s === "U$S" || s === "US$") return "USD";
+  return "ARS";
+};
 
 const TAKE = 120;
 
@@ -331,8 +338,11 @@ export default function BalancesPage() {
     (services: Booking["services"], withInterest: boolean) => {
       return services.reduce<Record<CurrencyCode, number>>(
         (acc, s) => {
-          const extra = withInterest ? toNum(s.card_interest ?? 0) : 0;
-          const cur = s.currency;
+          const cur = normCurrency(s.currency);
+          const split =
+            toNum(s.taxableCardInterest) + toNum(s.vatOnCardInterest);
+          const interest = split > 0 ? split : toNum(s.card_interest ?? 0);
+          const extra = withInterest ? interest : 0;
           acc[cur] = (acc[cur] || 0) + toNum(s.sale_price) + extra;
           return acc;
         },
@@ -345,14 +355,33 @@ export default function BalancesPage() {
   const sumReceiptsByCurrency = useCallback((receipts: Booking["Receipt"]) => {
     return receipts.reduce<Record<CurrencyCode, number>>(
       (acc, r) => {
-        if (r.base_currency && r.base_amount != null) {
-          const cur = r.base_currency;
-          const val = toNum(r.base_amount);
-          acc[cur] = (acc[cur] || 0) + val;
-        } else if (r.amount_currency) {
-          const cur = r.amount_currency;
-          const val = toNum(r.amount);
-          acc[cur] = (acc[cur] || 0) + val;
+        const baseCur = r.base_currency
+          ? normCurrency(r.base_currency)
+          : null;
+        const baseVal = toNum(r.base_amount ?? 0);
+
+        const amountCur = r.amount_currency
+          ? normCurrency(r.amount_currency)
+          : null;
+
+        const feeCurRaw = r.payment_fee_currency;
+        const feeCur =
+          feeCurRaw && String(feeCurRaw).trim() !== ""
+            ? normCurrency(feeCurRaw)
+            : amountCur ?? baseCur;
+
+        const amountVal = toNum(r.amount ?? 0);
+        const feeVal = toNum(r.payment_fee_amount ?? 0);
+
+        if (baseCur) {
+          const val = baseVal + (feeCur === baseCur ? feeVal : 0);
+          if (val) acc[baseCur] = (acc[baseCur] || 0) + val;
+        } else if (amountCur) {
+          const val = amountVal + (feeCur === amountCur ? feeVal : 0);
+          if (val) acc[amountCur] = (acc[amountCur] || 0) + val;
+        } else if (feeCur) {
+          const val = feeVal;
+          if (val) acc[feeCur] = (acc[feeCur] || 0) + val;
         }
         return acc;
       },
@@ -412,9 +441,10 @@ export default function BalancesPage() {
       const saleNoInt = sumByCurrency(b.services, false);
       const saleWithInt = sumByCurrency(b.services, true);
       const paid = sumReceiptsByCurrency(b.Receipt);
+      const saleForDebt = calcMode === "manual" ? saleNoInt : saleWithInt;
       const debt: Record<CurrencyCode, number> = {
-        ARS: (saleWithInt.ARS || 0) - (paid.ARS || 0),
-        USD: (saleWithInt.USD || 0) - (paid.USD || 0),
+        ARS: (saleForDebt.ARS || 0) - (paid.ARS || 0),
+        USD: (saleForDebt.USD || 0) - (paid.USD || 0),
       };
 
       const saleLabel = [
@@ -461,7 +491,14 @@ export default function BalancesPage() {
         _taxByCurrency: taxByCurrency,
       };
     },
-    [fmtARS, fmtUSD, sumByCurrency, sumReceiptsByCurrency, sumTaxesByCurrency],
+    [
+      fmtARS,
+      fmtUSD,
+      sumByCurrency,
+      sumReceiptsByCurrency,
+      sumTaxesByCurrency,
+      calcMode,
+    ],
   );
 
   /* ---------- Normalizados/derivados para la tabla ---------- */

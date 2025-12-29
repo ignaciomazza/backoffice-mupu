@@ -16,6 +16,8 @@ export type ServiceLite = {
   currency: string; // "ARS" | "USD" | ...
   sale_price?: number; // sugerencia importe base
   card_interest?: number; // sugerencia costo financiero
+  taxableCardInterest?: number;
+  vatOnCardInterest?: number;
   type?: string;
   destination?: string;
 };
