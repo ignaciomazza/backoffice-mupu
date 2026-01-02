@@ -8,6 +8,9 @@ import ReceiptDocument, {
   ReceiptPdfData,
   ReceiptPdfPaymentLine,
 } from "@/services/receipts/ReceiptDocument";
+import ReceiptStandaloneDocument, {
+  ReceiptStandalonePdfData,
+} from "@/services/receipts/ReceiptStandaloneDocument";
 
 type PdfPaymentRaw = {
   amount: number;
@@ -306,6 +309,27 @@ export default async function handler(
     | (typeof receiptTyped.agency & AgencyExtras)
     | null;
 
+  const agencyInfo = {
+    name: ag?.name ?? "-",
+    legalName: ag?.legal_name ?? ag?.name ?? "-",
+    taxId: ag?.tax_id ?? "-",
+    address: ag?.address ?? "-",
+    logoBase64,
+    logoMime,
+  };
+
+  const recipients = recipientsArr.map((c) => ({
+    firstName: c.first_name,
+    lastName: c.last_name,
+    dni: c.dni_number ?? "-",
+    address: c.address ?? "-",
+    locality: c.locality ?? "-",
+    companyName: c.company_name ?? undefined,
+  }));
+
+  const hasBooking = !!receipt.booking?.id_booking;
+
+  // 6) Armar datos para el PDF
   const data: ReceiptPdfData = {
     receiptNumber: receipt.receipt_number,
     issueDate: receipt.issue_date ?? new Date(),
@@ -364,27 +388,42 @@ export default async function handler(
             address: "-",
             locality: "-",
           },
-      agency: {
-        name: ag?.name ?? "-",
-        legalName: ag?.legal_name ?? ag?.name ?? "-", // ✅ string siempre
-        taxId: ag?.tax_id ?? "-", // ✅ string siempre
-        address: ag?.address ?? "-",
-        logoBase64,
-        logoMime,
-      },
+      agency: agencyInfo,
     },
 
-    recipients: recipientsArr.map((c) => ({
-      firstName: c.first_name,
-      lastName: c.last_name,
-      dni: c.dni_number ?? "-",
-      address: c.address ?? "-",
-      locality: c.locality ?? "-",
-    })),
+    recipients,
+  };
+
+  const standalone: ReceiptStandalonePdfData = {
+    receiptNumber: receipt.receipt_number,
+    issueDate: receipt.issue_date ?? new Date(),
+    concept: receipt.concept,
+    amount: Number(receipt.amount),
+    amountString: receipt.amount_string,
+    amountCurrency: receipt.amount_currency,
+    paymentDescription: receipt.currency || receipt.amount_currency,
+    paymentFeeAmount: receiptTyped.payment_fee_amount
+      ? toNum(receiptTyped.payment_fee_amount, 0)
+      : 0,
+    payments,
+    base_amount:
+      receiptTyped.base_amount != null
+        ? toNum(receiptTyped.base_amount, 0)
+        : null,
+    base_currency: receiptTyped.base_currency ?? null,
+    counter_amount:
+      receiptTyped.counter_amount != null
+        ? toNum(receiptTyped.counter_amount, 0)
+        : null,
+    counter_currency: receiptTyped.counter_currency ?? null,
+    agency: agencyInfo,
+    recipients,
   };
 
   // 7) Render
-  const stream = await renderToStream(<ReceiptDocument {...data} />);
+  const stream = hasBooking
+    ? await renderToStream(<ReceiptDocument {...data} />)
+    : await renderToStream(<ReceiptStandaloneDocument {...standalone} />);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename=recibo_${id}.pdf`);
   stream.pipe(res);

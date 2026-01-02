@@ -168,11 +168,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: 10,
-    borderRadius: 6,
-    marginBottom: 12,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f8fafc",
   },
-  logo: { height: 30 },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  logo: { height: 30, width: 120, objectFit: "contain" },
+  agencyName: { fontSize: 10, fontWeight: "bold", color: "#0f172a" },
+  agencyMeta: { fontSize: 8.5, color: "#64748b" },
   headerRight: {
     alignItems: "flex-end",
     gap: 2,
@@ -181,9 +187,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "bold",
     textTransform: "uppercase",
-    color: "#555",
+    color: "#0f172a",
   },
-  docSub: { fontSize: 9, color: "#555" },
+  docSub: { fontSize: 9, color: "#64748b" },
 
   sectionTitle: {
     fontSize: 12,
@@ -203,12 +209,23 @@ const styles = StyleSheet.create({
   col: { width: "48%" },
 
   infoBox: {
-    backgroundColor: "#fafafa",
+    backgroundColor: "#f8fafc",
     padding: 8,
     borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
   infoLabel: { fontWeight: "bold", color: "#555", marginBottom: 2 },
   infoText: { fontSize: 9.5 },
+  amountBox: {
+    padding: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#cbd5f5",
+    backgroundColor: "#eef2ff",
+  },
+  amountValue: { fontSize: 14, fontWeight: "bold", color: "#0f172a" },
+  amountMeta: { fontSize: 8.5, color: "#64748b", marginTop: 2 },
 
   table: {
     width: "100%",
@@ -313,15 +330,22 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
       <Page size="A4" style={styles.page}>
         {/* Cabecera */}
         <View style={styles.headerBand}>
-          {logoSrc ? (
-            // eslint-disable-next-line jsx-a11y/alt-text
-            <Image style={styles.logo} src={logoSrc} />
-          ) : (
-            <View style={{ height: 30, width: 90 }} />
-          )}
+          <View style={styles.headerLeft}>
+            {logoSrc ? (
+              // eslint-disable-next-line jsx-a11y/alt-text
+              <Image style={styles.logo} src={logoSrc} />
+            ) : (
+              <View style={{ height: 30, width: 90 }} />
+            )}
+            <View>
+              <Text style={styles.agencyName}>{agency.name}</Text>
+              <Text style={styles.agencyMeta}>{agency.legalName}</Text>
+              <Text style={styles.agencyMeta}>CUIT {agency.taxId}</Text>
+            </View>
+          </View>
           <View style={styles.headerRight}>
-            <Text style={styles.docTitle}>Recibo</Text>
-            <Text style={styles.docSub}>N° {receiptNumber}</Text>
+            <Text style={styles.docTitle}>Recibo de pago</Text>
+            <Text style={styles.docSub}>Nro {receiptNumber}</Text>
             <Text style={styles.docSub}>{fmtDate(new Date(issueDate))}</Text>
           </View>
         </View>
@@ -372,46 +396,30 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
           ))}
         </View>
 
-        {/* Concepto / Total */}
+        <Text style={styles.sectionTitle}>Resumen de pago</Text>
         <View style={styles.twoCols}>
           <View style={styles.col}>
-            <View style={styles.infoBox}>
-              <Text style={styles.infoLabel}>En concepto de</Text>
-              <Text style={styles.infoText}>{concept}</Text>
-            </View>
-          </View>
-          <View style={styles.col}>
-            <View style={styles.infoBox}>
+            <View style={styles.amountBox}>
               <Text style={styles.infoLabel}>
-                {hasBase ? "Importe" : "Total recibido"}
+                {hasBase ? "Importe aplicado" : "Total cobrado"}
               </Text>
-              <Text style={styles.infoText}>
+              <Text style={styles.amountValue}>
                 {safeFmtCurrency(
                   hasBase ? displayAmount : clientTotal,
                   hasBase ? displayCurrency : amount_currency,
                 )}
               </Text>
               {showCounter ? (
-                <Text style={styles.payMeta}>
+                <Text style={styles.amountMeta}>
                   Contravalor: {safeFmtCurrency(counterAmount, counterCurrency)}
                 </Text>
               ) : null}
               {!hasBase && fee > 0 ? (
-                <Text style={styles.payMeta}>
+                <Text style={styles.amountMeta}>
                   Incluye {safeFmtCurrency(amount, amount_currency)} acreditados
                   + costo financiero {safeFmtCurrency(fee, amount_currency)}
                 </Text>
               ) : null}
-            </View>
-          </View>
-        </View>
-
-        {/* Monto en letras / Pagos */}
-        <View style={styles.twoCols}>
-          <View style={styles.col}>
-            <View style={styles.infoBox}>
-              <Text style={styles.infoLabel}>Monto en letras</Text>
-              <Text style={styles.infoText}>{amountString}</Text>
             </View>
           </View>
           <View style={styles.col}>
@@ -440,6 +448,21 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
               {showPaymentDetail ? (
                 <Text style={styles.payMeta}>Detalle: {paymentDetail}</Text>
               ) : null}
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.twoCols}>
+          <View style={styles.col}>
+            <View style={styles.infoBox}>
+              <Text style={styles.infoLabel}>En concepto de</Text>
+              <Text style={styles.infoText}>{concept}</Text>
+            </View>
+          </View>
+          <View style={styles.col}>
+            <View style={styles.infoBox}>
+              <Text style={styles.infoLabel}>Monto en letras</Text>
+              <Text style={styles.infoText}>{amountString}</Text>
             </View>
           </View>
         </View>

@@ -112,10 +112,19 @@ export interface ReceiptFormProps {
   initialServiceIds?: number[];
   initialConcept?: string;
   initialAmount?: number;
+  initialAmountWords?: string;
+  initialAmountWordsCurrency?: CurrencyCode;
+  initialPaymentDescription?: string;
+  initialFeeAmount?: number;
+  initialBaseAmount?: number | string | null;
+  initialBaseCurrency?: CurrencyCode | string | null;
+  initialCounterAmount?: number | string | null;
+  initialCounterCurrency?: CurrencyCode | string | null;
   initialCurrency?: CurrencyCode;
   initialPaymentMethodId?: number | null;
   initialFinanceAccountId?: number | null;
   initialClientIds?: number[];
+  initialPayments?: ReceiptPaymentLine[];
 
   onSubmit: (payload: ReceiptPayload) => Promise<SubmitResult> | SubmitResult;
   onCancel?: () => void;
@@ -152,10 +161,19 @@ export default function ReceiptForm({
   initialServiceIds = [],
   initialConcept = "",
   initialAmount,
+  initialAmountWords = "",
+  initialAmountWordsCurrency,
+  initialPaymentDescription = "",
+  initialFeeAmount,
+  initialBaseAmount = null,
+  initialBaseCurrency = null,
+  initialCounterAmount = null,
+  initialCounterCurrency = null,
   initialCurrency,
   initialPaymentMethodId = null,
   initialFinanceAccountId = null,
   initialClientIds = [],
+  initialPayments = [],
   onSubmit,
   onCancel,
   enableAttachAction = false,
@@ -297,7 +315,9 @@ export default function ReceiptForm({
   const [amountReceived, setAmountReceived] = useState<string>(
     initialAmount != null ? String(initialAmount) : "",
   );
-  const [feeAmount, setFeeAmount] = useState<string>("");
+  const [feeAmount, setFeeAmount] = useState<string>(
+    initialFeeAmount != null ? String(initialFeeAmount) : "",
+  );
 
   const [freeCurrency, setFreeCurrency] = useState<CurrencyCode>(
     initialCurrency || "ARS",
@@ -349,16 +369,30 @@ export default function ReceiptForm({
   }, [selectedServices]);
 
   /* ===== Payments (múltiples líneas) ===== */
-  const [paymentLines, setPaymentLines] = useState<PaymentDraft[]>(() => [
-    {
-      key: uid(),
-      amount: initialAmount != null ? String(initialAmount) : "",
-      payment_method_id: initialPaymentMethodId ?? null,
-      account_id: initialFinanceAccountId ?? null,
-      operator_id: null,
-      credit_account_id: null,
-    },
-  ]);
+  const [paymentLines, setPaymentLines] = useState<PaymentDraft[]>(() => {
+    if (Array.isArray(initialPayments) && initialPayments.length > 0) {
+      return initialPayments.map((p) => ({
+        key: uid(),
+        amount: p.amount != null ? String(p.amount) : "",
+        payment_method_id:
+          p.payment_method_id != null ? Number(p.payment_method_id) : null,
+        account_id: p.account_id ?? null,
+        operator_id: p.operator_id ?? null,
+        credit_account_id: p.credit_account_id ?? null,
+      }));
+    }
+
+    return [
+      {
+        key: uid(),
+        amount: initialAmount != null ? String(initialAmount) : "",
+        payment_method_id: initialPaymentMethodId ?? null,
+        account_id: initialFinanceAccountId ?? null,
+        operator_id: null,
+        credit_account_id: null,
+      },
+    ];
+  });
 
   const paymentsTotalNum = useMemo(() => {
     return paymentLines.reduce(
@@ -693,8 +727,12 @@ export default function ReceiptForm({
   }, [paymentsTotalNum, feeAmount, suggestions, currencyOverride]);
 
   /* ===== Detalle de pago para PDF ===== */
-  const [paymentDescription, setPaymentDescriptionState] = useState("");
-  const [paymentDescriptionDirty, setPaymentDescriptionDirty] = useState(false);
+  const [paymentDescription, setPaymentDescriptionState] = useState(
+    initialPaymentDescription,
+  );
+  const [paymentDescriptionDirty, setPaymentDescriptionDirty] = useState(
+    Boolean(initialPaymentDescription),
+  );
 
   const handlePaymentDescriptionChange = useCallback((v: string) => {
     setPaymentDescriptionState(v);
@@ -828,10 +866,18 @@ export default function ReceiptForm({
   ]);
 
   /* ===== Conversión (opcional) ===== */
-  const [baseAmount, setBaseAmount] = useState("");
-  const [baseCurrency, setBaseCurrency] = useState("");
-  const [counterAmount, setCounterAmount] = useState("");
-  const [counterCurrency, setCounterCurrency] = useState("");
+  const [baseAmount, setBaseAmount] = useState(
+    initialBaseAmount != null ? String(initialBaseAmount) : "",
+  );
+  const [baseCurrency, setBaseCurrency] = useState(
+    initialBaseCurrency ? String(initialBaseCurrency) : "",
+  );
+  const [counterAmount, setCounterAmount] = useState(
+    initialCounterAmount != null ? String(initialCounterAmount) : "",
+  );
+  const [counterCurrency, setCounterCurrency] = useState(
+    initialCounterCurrency ? String(initialCounterCurrency) : "",
+  );
 
   const toNum = useCallback((v: number | string | null | undefined) => {
     const n = typeof v === "number" ? v : Number(v ?? NaN);
@@ -1034,9 +1080,10 @@ export default function ReceiptForm({
   ]);
 
   useEffect(() => {
+    if (editingReceiptId) return;
     setPaymentDescriptionState("");
     setPaymentDescriptionDirty(false);
-  }, [selectedBookingId, mode]);
+  }, [selectedBookingId, mode, editingReceiptId]);
 
   useEffect(() => {
     if (paymentDescriptionDirty) return;
@@ -1079,8 +1126,10 @@ export default function ReceiptForm({
     clientIds.filter((_, i) => i !== idx).filter(Boolean) as number[];
 
   /* ===== Importe en palabras (PDF) ===== */
-  const [amountWords, setAmountWords] = useState("");
-  const [amountWordsISO, setAmountWordsISO] = useState("");
+  const [amountWords, setAmountWords] = useState(initialAmountWords);
+  const [amountWordsISO, setAmountWordsISO] = useState(
+    initialAmountWordsCurrency ? String(initialAmountWordsCurrency) : "",
+  );
 
   useEffect(() => {
     if (!lockedCurrency) return;
@@ -1265,15 +1314,17 @@ export default function ReceiptForm({
         const isCredit = pmId === Number(creditMethodId);
         return {
           amount: parseAmountInput(l.amount) ?? 0,
-          payment_method_id: pmId,
+          payment_method_id:
+            l.payment_method_id == null ? null : Number(l.payment_method_id),
           account_id: isCredit ? null : l.account_id ?? null,
           operator_id: l.operator_id ?? null,
           credit_account_id: l.credit_account_id ?? null,
         };
       })
       .filter((p) => {
-        const isCredit = p.payment_method_id === Number(creditMethodId);
-        return p.amount > 0 && (p.payment_method_id > 0 || isCredit);
+        const pmId = Number(p.payment_method_id ?? NaN);
+        const isCredit = pmId === Number(creditMethodId);
+        return p.amount > 0 && (pmId > 0 || isCredit);
       });
 
     let finalAmount = normalizedPayments.reduce((acc, p) => acc + p.amount, 0);
@@ -1363,7 +1414,7 @@ export default function ReceiptForm({
         (normalizedPayments.length > 1 ? "Múltiples" : undefined),
       account: singleAccountName,
 
-      payment_method_id: primaryPayment?.payment_method_id,
+      payment_method_id: primaryPayment?.payment_method_id ?? undefined,
       account_id: primaryPayment?.account_id ?? undefined,
 
       payments: normalizedPayments,
@@ -1380,6 +1431,12 @@ export default function ReceiptForm({
     try {
       const submitRes = await Promise.resolve(onSubmit(apiBody));
       const rid = await resolveReceiptIdFrom(submitRes);
+
+      if (editingReceiptId) {
+        toast.success("Recibo actualizado correctamente.");
+        setVisible(false);
+        return;
+      }
 
       if (!rid) {
         toast.success("Recibo creado (sin ID detectable para movimientos).");

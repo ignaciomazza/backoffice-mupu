@@ -390,6 +390,13 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         : req.query.maxAmount,
     );
 
+    const associationParamRaw = Array.isArray(req.query.association)
+      ? req.query.association[0]
+      : req.query.association;
+    const association = String(associationParamRaw || "")
+      .trim()
+      .toLowerCase();
+
     const verificationStatusRaw = Array.isArray(req.query.verification_status)
       ? req.query.verification_status[0]
       : Array.isArray(req.query.verificationStatus)
@@ -492,6 +499,16 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       whereAND.push({ amount: amountRange });
     }
 
+    if (association === "linked" || association === "associated") {
+      whereAND.push({ bookingId_booking: { not: null } });
+    } else if (
+      association === "unlinked" ||
+      association === "unassociated" ||
+      association === "none"
+    ) {
+      whereAND.push({ bookingId_booking: null });
+    }
+
     if (verificationStatus && verificationStatus !== "ALL") {
       if (["PENDING", "VERIFIED"].includes(verificationStatus)) {
         whereAND.push({ verification_status: verificationStatus });
@@ -511,6 +528,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         receipt_number: true,
         issue_date: true,
         amount: true,
+        amount_string: true,
         amount_currency: true,
         payment_fee_amount: true,
         verification_status: true,

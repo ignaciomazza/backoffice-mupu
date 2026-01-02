@@ -34,6 +34,20 @@ type ReceiptPaymentOut = {
   account_text?: string;
 };
 
+type ReceiptPaymentLineIn = {
+  amount: unknown;
+  payment_method_id: unknown;
+  account_id?: unknown;
+  operator_id?: unknown;
+};
+
+type ReceiptPaymentLineNormalized = {
+  amount: number;
+  payment_method_id: number;
+  account_id?: number;
+  operator_id?: number;
+};
+
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
@@ -47,6 +61,26 @@ const CREDIT_DOC_SIGN: Record<string, number> = {
 const normDocType = (s?: string | null) => (s || "").trim().toLowerCase();
 const creditSignForDoc = (dt?: string | null) =>
   CREDIT_DOC_SIGN[normDocType(dt)] ?? 1;
+
+const toDec = (v: unknown) =>
+  v === undefined || v === null || v === ""
+    ? undefined
+    : new Prisma.Decimal(typeof v === "number" ? v : String(v));
+
+const toNum = (v: unknown): number => {
+  const n = typeof v === "number" ? v : Number(v ?? NaN);
+  return n;
+};
+
+const toOptionalId = (v: unknown): number | undefined => {
+  const n = typeof v === "number" ? v : Number(v ?? NaN);
+  if (!Number.isFinite(n)) return undefined;
+  const i = Math.trunc(n);
+  return i > 0 ? i : undefined;
+};
+
+const isNonEmptyString = (s: unknown): s is string =>
+  typeof s === "string" && s.trim().length > 0;
 
 function getTokenFromRequest(req: NextApiRequest): string | null {
   if (req.cookies?.token) return req.cookies.token;
@@ -244,6 +278,22 @@ type PatchBody = {
   booking?: { id_booking?: number };
   serviceIds?: number[];
   clientIds?: number[];
+
+  concept?: string;
+  currency?: string;
+  amountString?: string;
+  amountCurrency?: string;
+  amount?: number | string;
+  payments?: ReceiptPaymentLineIn[];
+  payment_fee_amount?: number | string;
+  payment_method?: string;
+  account?: string;
+  payment_method_id?: number;
+  account_id?: number;
+  base_amount?: number | string;
+  base_currency?: string;
+  counter_amount?: number | string;
+  counter_currency?: string;
 };
 
 export default async function handler(
@@ -321,61 +371,217 @@ export default async function handler(
       const body = (req.body || {}) as PatchBody;
       const bookingId = Number(body.booking?.id_booking);
       const serviceIds = Array.isArray(body.serviceIds) ? body.serviceIds : [];
+      const isAttach = Number.isFinite(bookingId) || serviceIds.length > 0;
 
-      if (!Number.isFinite(bookingId) || bookingId <= 0)
-        return res.status(400).json({ error: "id_booking inválido" });
-      if (serviceIds.length === 0)
-        return res
-          .status(400)
-          .json({ error: "serviceIds debe contener al menos un ID" });
+      if (isAttach) {
+        if (!Number.isFinite(bookingId) || bookingId <= 0)
+          return res.status(400).json({ error: "id_booking inválido" });
+        if (serviceIds.length === 0)
+          return res
+            .status(400)
+            .json({ error: "serviceIds debe contener al menos un ID" });
 
-      await ensureBookingInAgency(bookingId, authAgencyId);
+        await ensureBookingInAgency(bookingId, authAgencyId);
 
-      const svcs = await prisma.service.findMany({
-        where: { id_service: { in: serviceIds }, booking_id: bookingId },
-        select: { id_service: true },
+        const svcs = await prisma.service.findMany({
+          where: { id_service: { in: serviceIds }, booking_id: bookingId },
+          select: { id_service: true },
+        });
+        const ok = new Set(svcs.map((s) => s.id_service));
+        const bad = serviceIds.filter((sid) => !ok.has(sid));
+        if (bad.length)
+          return res
+            .status(400)
+            .json({ error: "Algún servicio no pertenece a la reserva" });
+
+        let nextClientIds: number[] | undefined = undefined;
+        if (Array.isArray(body.clientIds)) {
+          if (body.clientIds.length) {
+            const bk = await prisma.booking.findUnique({
+              where: { id_booking: bookingId },
+              select: {
+                titular_id: true,
+                clients: { select: { id_client: true } },
+              },
+            });
+            const allowed = new Set<number>([
+              bk!.titular_id,
+              ...bk!.clients.map((c) => c.id_client),
+            ]);
+            const invalid = body.clientIds.filter((cid) => !allowed.has(cid));
+            if (invalid.length)
+              return res
+                .status(400)
+                .json({ error: "Algún cliente no pertenece a la reserva" });
+            nextClientIds = body.clientIds;
+          } else {
+            nextClientIds = [];
+          }
+        }
+
+        const updated = await prisma.receipt.update({
+          where: { id_receipt: id },
+          data: {
+            booking: { connect: { id_booking: bookingId } },
+            agency: { disconnect: true },
+            serviceIds,
+            ...(nextClientIds !== undefined ? { clientIds: nextClientIds } : {}),
+          },
+          include: { payments: true },
+        });
+
+        return res.status(200).json({
+          receipt: {
+            ...updated,
+            payments: normalizePaymentsFromReceipt(updated),
+          },
+        });
+      }
+
+      const existing = await prisma.receipt.findUnique({
+        where: { id_receipt: id },
+        select: { id_receipt: true, bookingId_booking: true },
       });
-      const ok = new Set(svcs.map((s) => s.id_service));
-      const bad = serviceIds.filter((sid) => !ok.has(sid));
-      if (bad.length)
-        return res
-          .status(400)
-          .json({ error: "Algún servicio no pertenece a la reserva" });
 
-      let nextClientIds: number[] | undefined = undefined;
-      if (Array.isArray(body.clientIds)) {
-        if (body.clientIds.length) {
-          const bk = await prisma.booking.findUnique({
-            where: { id_booking: bookingId },
-            select: {
-              titular_id: true,
-              clients: { select: { id_client: true } },
-            },
+      if (!existing)
+        return res.status(404).json({ error: "Recibo no encontrado" });
+      if (existing.bookingId_booking)
+        return res.status(400).json({
+          error: "Solo se pueden editar recibos sin reserva asociada.",
+        });
+
+      const {
+        concept,
+        currency,
+        amountString,
+        amountCurrency,
+        amount,
+        payments,
+        payment_fee_amount,
+        payment_method,
+        account,
+        payment_method_id,
+        account_id,
+        base_amount,
+        base_currency,
+        counter_amount,
+        counter_currency,
+        clientIds,
+      } = body;
+
+      const amountCurrencyISO = (amountCurrency || "").toUpperCase();
+      const baseCurrencyISO = base_currency
+        ? base_currency.toUpperCase()
+        : undefined;
+      const counterCurrencyISO = counter_currency
+        ? counter_currency.toUpperCase()
+        : undefined;
+
+      if (!isNonEmptyString(concept)) {
+        return res.status(400).json({ error: "concept es requerido" });
+      }
+      if (!isNonEmptyString(amountString)) {
+        return res.status(400).json({ error: "amountString es requerido" });
+      }
+      if (!isNonEmptyString(amountCurrencyISO)) {
+        return res.status(400).json({
+          error: "amountCurrency es requerido (ISO)",
+        });
+      }
+
+      const hasPayments = Array.isArray(payments) && payments.length > 0;
+      let normalizedPayments: ReceiptPaymentLineNormalized[] = [];
+
+      if (hasPayments) {
+        normalizedPayments = (payments || []).map((p) => ({
+          amount: toNum(p.amount),
+          payment_method_id: Number(p.payment_method_id),
+          account_id: toOptionalId(p.account_id),
+          operator_id: toOptionalId(p.operator_id),
+        }));
+
+        const invalid = normalizedPayments.find(
+          (p) =>
+            !Number.isFinite(p.amount) ||
+            p.amount <= 0 ||
+            !Number.isFinite(p.payment_method_id) ||
+            p.payment_method_id <= 0,
+        );
+
+        if (invalid) {
+          return res.status(400).json({
+            error:
+              "payments inválido: cada línea debe tener amount > 0 y payment_method_id válido",
           });
-          const allowed = new Set<number>([
-            bk!.titular_id,
-            ...bk!.clients.map((c) => c.id_client),
-          ]);
-          const invalid = body.clientIds.filter((cid) => !allowed.has(cid));
-          if (invalid.length)
-            return res
-              .status(400)
-              .json({ error: "Algún cliente no pertenece a la reserva" });
-          nextClientIds = body.clientIds;
-        } else {
-          nextClientIds = [];
         }
       }
 
-      const updated = await prisma.receipt.update({
-        where: { id_receipt: id },
-        data: {
-          booking: { connect: { id_booking: bookingId } },
-          agency: { disconnect: true },
-          serviceIds,
-          ...(nextClientIds !== undefined ? { clientIds: nextClientIds } : {}),
-        },
-        include: { payments: true },
+      const legacyAmountNum = toNum(amount);
+      const amountNum = hasPayments
+        ? normalizedPayments.reduce((acc, p) => acc + Number(p.amount), 0)
+        : legacyAmountNum;
+
+      if (!Number.isFinite(amountNum) || amountNum <= 0) {
+        return res.status(400).json({ error: "amount numérico inválido" });
+      }
+
+      const legacyPmId = hasPayments
+        ? normalizedPayments[0]?.payment_method_id
+        : Number.isFinite(Number(payment_method_id)) &&
+            Number(payment_method_id) > 0
+          ? Number(payment_method_id)
+          : undefined;
+
+      const legacyAccId = hasPayments
+        ? normalizedPayments[0]?.account_id
+        : Number.isFinite(Number(account_id)) && Number(account_id) > 0
+          ? Number(account_id)
+          : undefined;
+
+      const updateData: Prisma.ReceiptUpdateInput = {
+        concept: concept.trim(),
+        amount: amountNum,
+        amount_string: amountString.trim(),
+        amount_currency: amountCurrencyISO,
+        currency: isNonEmptyString(currency) ? currency : amountCurrencyISO,
+
+        ...(isNonEmptyString(payment_method) ? { payment_method } : {}),
+        ...(isNonEmptyString(account) ? { account } : {}),
+
+        ...(legacyPmId ? { payment_method_id: legacyPmId } : {}),
+        ...(legacyAccId ? { account_id: legacyAccId ?? undefined } : {}),
+
+        ...(toDec(base_amount) ? { base_amount: toDec(base_amount) } : {}),
+        ...(baseCurrencyISO ? { base_currency: baseCurrencyISO } : {}),
+        ...(toDec(counter_amount)
+          ? { counter_amount: toDec(counter_amount) }
+          : {}),
+        ...(counterCurrencyISO ? { counter_currency: counterCurrencyISO } : {}),
+        ...(toDec(payment_fee_amount)
+          ? { payment_fee_amount: toDec(payment_fee_amount) }
+          : {}),
+
+        ...(Array.isArray(clientIds) ? { clientIds } : {}),
+      };
+
+      const updated = await prisma.$transaction(async (tx) => {
+        if (hasPayments) {
+          await tx.receiptPayment.deleteMany({ where: { receipt_id: id } });
+          await tx.receiptPayment.createMany({
+            data: normalizedPayments.map((p) => ({
+              receipt_id: id,
+              amount: new Prisma.Decimal(Number(p.amount)),
+              payment_method_id: Number(p.payment_method_id),
+              account_id: p.account_id ? Number(p.account_id) : null,
+            })),
+          });
+        }
+
+        return tx.receipt.update({
+          where: { id_receipt: id },
+          data: updateData,
+          include: { payments: true },
+        });
       });
 
       return res.status(200).json({

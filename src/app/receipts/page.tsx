@@ -12,7 +12,11 @@ import { authFetch } from "@/utils/authFetch";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
 import { useRouter } from "next/navigation";
-import type { BookingOption, ServiceLite } from "@/types/receipts";
+import type {
+  BookingOption,
+  ServiceLite,
+  ReceiptPaymentLine,
+} from "@/types/receipts";
 
 /* ================= Helpers módulo (evita deps en useMemo) ================= */
 const norm = (s: string) =>
@@ -33,6 +37,29 @@ const uniqSorted = (arr: string[]) => {
   return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, "es"));
 };
 
+const toNum = (x: unknown) => {
+  const n =
+    typeof x === "string" ? parseFloat(x) : typeof x === "number" ? x : NaN;
+  return Number.isFinite(n) ? (n as number) : 0;
+};
+
+const slugify = (s: string) =>
+  (s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+const formatMonthLabel = (d: Date) =>
+  new Intl.DateTimeFormat("es-AR", {
+    month: "long",
+    year: "numeric",
+  }).format(d);
+
+const capitalize = (s: string) =>
+  s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+
 /* ================= Estilos compartidos ================= */
 const GLASS =
   "rounded-3xl border border-white/30 bg-white/10 backdrop-blur shadow-lg shadow-sky-900/10 dark:bg-white/10 dark:border-white/5";
@@ -42,11 +69,23 @@ const CHIP =
   "inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs shadow-sm";
 const BADGE =
   "inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px] font-medium border border-white/10 bg-white/10";
+const SEGMENTED =
+  "flex items-center rounded-2xl border border-white/10 bg-white/60 shadow-sm shadow-sky-950/10 backdrop-blur dark:bg-white/10";
+const ACTION_BTN =
+  "inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-2 text-xs shadow-sm transition hover:bg-white/20 disabled:opacity-50 dark:bg-white/10";
+const ACTION_ICON_BTN =
+  "inline-flex items-center justify-center rounded-full border border-white/10 bg-white/10 p-2 text-sky-950 shadow-sm transition hover:bg-white/20 disabled:opacity-50 dark:text-white";
 const STATUS_BADGE: Record<string, string> = {
   PENDING:
     "border-amber-200 bg-amber-100 text-amber-900 dark:border-amber-800/40 dark:bg-amber-900/30 dark:text-amber-100",
   VERIFIED:
     "border-emerald-200 bg-emerald-100 text-emerald-900 dark:border-emerald-800/40 dark:bg-emerald-900/30 dark:text-emerald-100",
+};
+const ASSOCIATION_BADGE = {
+  linked:
+    "border-emerald-200 bg-emerald-100 text-emerald-900 dark:border-emerald-800/40 dark:bg-emerald-900/30 dark:text-emerald-100",
+  unlinked:
+    "border-rose-200 bg-rose-100 text-rose-900 dark:border-rose-800/40 dark:bg-rose-900/30 dark:text-rose-100",
 };
 
 /* ================= Tipos de API ================= */
@@ -56,11 +95,14 @@ type ReceiptRow = {
   issue_date: string | null;
   /** Importe recibido por la agencia (neto) */
   amount: number;
+  amount_string: string;
   amount_currency: "ARS" | "USD" | string;
   concept: string;
   currency?: string | null; // descripción (legado: “detalle método”)
   payment_method?: string | null; // nombre método
   account?: string | null; // nombre cuenta
+  payment_method_id?: number | null;
+  account_id?: number | null;
 
   base_amount?: string | number | null;
   base_currency?: "ARS" | "USD" | string | null;
@@ -70,6 +112,14 @@ type ReceiptRow = {
   /** Costo financiero del medio de pago (tarjeta/billetera/banco…) */
   payment_fee_amount?: string | number | null;
   payment_fee_currency?: "ARS" | "USD" | string | null;
+
+  payments?: {
+    amount: number;
+    payment_method_id: number | null;
+    account_id: number | null;
+    payment_method_text?: string;
+    account_text?: string;
+  }[];
 
   verification_status?: string | null;
 
@@ -183,6 +233,12 @@ export default function ReceiptsPage() {
   const [maxAmount, setMaxAmount] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("issue_date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [associationFilter, setAssociationFilter] = useState<
+    "all" | "linked" | "unlinked"
+  >("all");
+  const [viewMode, setViewMode] = useState<"cards" | "table" | "monthly">(
+    "cards",
+  );
 
   /* ---------- Data / paginado ---------- */
   const TAKE = 24;
@@ -190,6 +246,10 @@ export default function ReceiptsPage() {
   const [cursor, setCursor] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [pageInit, setPageInit] = useState(false);
+  const [loadingPdfId, setLoadingPdfId] = useState<number | null>(null);
+  const [loadingDeleteId, setLoadingDeleteId] = useState<number | null>(null);
+  const [editingReceipt, setEditingReceipt] = useState<ReceiptRow | null>(null);
+  const [formVisible, setFormVisible] = useState(false);
 
   /* ---------- Config financiera (para opciones de filtros) ---------- */
   const [finance, setFinance] = useState<FinancePickBundle | null>(null);
@@ -288,12 +348,6 @@ export default function ReceiptsPage() {
       })}`;
     }
   }, []);
-
-  const toNum = (x: unknown) => {
-    const n =
-      typeof x === "string" ? parseFloat(x) : typeof x === "number" ? x : NaN;
-    return Number.isFinite(n) ? (n as number) : 0;
-  };
 
   /** Normaliza un recibo para UI/CSV (reutilizado en página y export) */
   const normalizeReceipt = useCallback(
@@ -478,6 +532,51 @@ export default function ReceiptsPage() {
     return rows;
   }, [normalized, sortKey, sortDir]);
 
+  const associationCounters = useMemo(() => {
+    const total = normalized.length;
+    const linked = normalized.filter((r) => !!r.booking?.id_booking).length;
+    return {
+      total,
+      linked,
+      unlinked: total - linked,
+    };
+  }, [normalized]);
+
+  const groupedByMonth = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        key: string;
+        label: string;
+        items: NormalizedReceipt[];
+        totals: Record<string, number>;
+      }
+    >();
+
+    for (const r of displayRows) {
+      const d = r.issue_date ? new Date(r.issue_date) : new Date(0);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const existing = map.get(key);
+      const currency = String(r._displayCurrency || r.amount_currency).toUpperCase();
+      if (!existing) {
+        map.set(key, {
+          key,
+          label: formatMonthLabel(d),
+          items: [r],
+          totals: { [currency]: r._displayAmount || 0 },
+        });
+      } else {
+        existing.items.push(r);
+        existing.totals[currency] =
+          (existing.totals[currency] || 0) + (r._displayAmount || 0);
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) =>
+      b.key.localeCompare(a.key),
+    );
+  }, [displayRows]);
+
   /* ---------- KPIs ---------- */
   const kpis = useMemo(() => {
     const count = normalized.length;
@@ -508,6 +607,8 @@ export default function ReceiptsPage() {
       if (to) qs.append("to", to);
       if (minAmount.trim()) qs.append("minAmount", minAmount.trim());
       if (maxAmount.trim()) qs.append("maxAmount", maxAmount.trim());
+      if (associationFilter !== "all")
+        qs.append("association", associationFilter);
 
       qs.append("take", String(TAKE));
       if (withCursor !== undefined && withCursor !== null) {
@@ -528,6 +629,7 @@ export default function ReceiptsPage() {
       to,
       minAmount,
       maxAmount,
+      associationFilter,
     ],
   );
 
@@ -571,6 +673,11 @@ export default function ReceiptsPage() {
     if (data.length === 0 && !loading) fetchPage(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!pageInit) return;
+    refreshList();
+  }, [associationFilter, pageInit, refreshList]);
 
   /* ---------- CSV (scan multipágina) ---------- */
   const downloadCSV = async () => {
@@ -661,6 +768,7 @@ export default function ReceiptsPage() {
     setTo("");
     setMinAmount("");
     setMaxAmount("");
+    setAssociationFilter("all");
   };
 
   const setQuickRange = (preset: "last7" | "thisMonth") => {
@@ -963,19 +1071,261 @@ export default function ReceiptsPage() {
     }
   };
 
+  const buildInitialPayments = useCallback(
+    (row: ReceiptRow): ReceiptPaymentLine[] => {
+      if (Array.isArray(row.payments) && row.payments.length > 0) {
+        return row.payments.map((p) => ({
+          amount: toNum(p.amount),
+          payment_method_id:
+            p.payment_method_id != null ? p.payment_method_id : null,
+          account_id: p.account_id ?? null,
+          operator_id: null,
+          credit_account_id: null,
+        }));
+      }
+
+      const pmId = Number(row.payment_method_id ?? NaN);
+      const accId = Number(row.account_id ?? NaN);
+      const hasPm = Number.isFinite(pmId) && pmId > 0;
+      const hasAcc = Number.isFinite(accId) && accId > 0;
+
+      if (hasPm || hasAcc) {
+        return [
+          {
+            amount: toNum(row.amount),
+            payment_method_id: hasPm ? pmId : null,
+            account_id: hasAcc ? accId : null,
+            operator_id: null,
+            credit_account_id: null,
+          },
+        ];
+      }
+
+      return [];
+    },
+    [],
+  );
+
+  const startEditReceipt = (row: ReceiptRow) => {
+    setEditingReceipt(row);
+    setFormVisible(true);
+  };
+
+  const cancelEditReceipt = () => {
+    setEditingReceipt(null);
+    setFormVisible(false);
+  };
+
+  const downloadReceiptPdf = async (row: ReceiptRow) => {
+    if (!token) {
+      toast.error("Sesión expirada. Volvé a iniciar sesión.");
+      return;
+    }
+    if (loadingPdfId) return;
+
+    setLoadingPdfId(row.id_receipt);
+    try {
+      const res = await authFetch(
+        `/api/receipts/${row.id_receipt}/pdf`,
+        { headers: { Accept: "application/pdf" } },
+        token,
+      );
+      if (!res.ok) throw new Error();
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const fileBase = `Recibo_${row.receipt_number || row.id_receipt}`;
+      a.href = url;
+      a.download = `${slugify(fileBase)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success("PDF descargado exitosamente.");
+    } catch {
+      toast.error("No se pudo descargar el PDF.");
+    } finally {
+      setLoadingPdfId(null);
+    }
+  };
+
+  const deleteReceipt = async (row: ReceiptRow) => {
+    if (!token) {
+      toast.error("Sesión expirada. Volvé a iniciar sesión.");
+      return;
+    }
+    if (!confirm("¿Seguro querés eliminar este recibo?")) return;
+
+    setLoadingDeleteId(row.id_receipt);
+    try {
+      const res = await authFetch(
+        `/api/receipts/${row.id_receipt}`,
+        { method: "DELETE" },
+        token,
+      );
+      if (!res.ok && res.status !== 204) throw new Error();
+      setData((prev) => prev.filter((r) => r.id_receipt !== row.id_receipt));
+      if (editingReceipt?.id_receipt === row.id_receipt) {
+        cancelEditReceipt();
+      }
+      toast.success("Recibo eliminado.");
+    } catch {
+      toast.error("No se pudo eliminar el recibo.");
+    } finally {
+      setLoadingDeleteId(null);
+    }
+  };
+
+  const renderReceiptActions = (
+    r: NormalizedReceipt,
+    variant: "full" | "compact" = "full",
+  ) => {
+    const isUnlinked = !r.booking?.id_booking;
+    const canAttach =
+      !r.booking?.id_booking ||
+      (Array.isArray(r.serviceIds) && r.serviceIds.length === 0);
+    const canEdit = isUnlinked;
+    const canDelete = isUnlinked;
+    const canDownload = isUnlinked;
+    const btnClass = variant === "compact" ? ACTION_ICON_BTN : ACTION_BTN;
+    const iconClass = variant === "compact" ? "size-4" : "size-4";
+    const tonePdf =
+      "text-emerald-700 hover:text-emerald-800 dark:text-emerald-200";
+    const toneEdit =
+      "text-amber-700 hover:text-amber-800 dark:text-amber-200";
+    const toneDelete = "text-rose-700 hover:text-rose-800 dark:text-rose-200";
+    const toneAttach =
+      "text-sky-700 hover:text-sky-800 dark:text-sky-200";
+
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {canDownload && (
+          <button
+            className={`${btnClass} ${tonePdf}`}
+            onClick={() => downloadReceiptPdf(r)}
+            disabled={loadingPdfId === r.id_receipt}
+            title="Descargar PDF"
+            aria-label="Descargar PDF"
+          >
+            {loadingPdfId === r.id_receipt ? (
+              <Spinner />
+            ) : (
+              <>
+                <IconDocumentArrowDown className={iconClass} />
+                {variant === "full" && "PDF"}
+              </>
+            )}
+          </button>
+        )}
+        {canEdit && (
+          <button
+            className={`${btnClass} ${toneEdit}`}
+            onClick={() => startEditReceipt(r)}
+            title="Editar recibo"
+            aria-label="Editar recibo"
+          >
+            <IconPencilSquare className={iconClass} />
+            {variant === "full" && "Editar"}
+          </button>
+        )}
+        {canDelete && (
+          <button
+            className={`${btnClass} ${toneDelete}`}
+            onClick={() => deleteReceipt(r)}
+            disabled={loadingDeleteId === r.id_receipt}
+            title="Eliminar recibo"
+            aria-label="Eliminar recibo"
+          >
+            {loadingDeleteId === r.id_receipt ? (
+              <Spinner />
+            ) : (
+              <>
+                <IconTrash className={iconClass} />
+                {variant === "full" && "Eliminar"}
+              </>
+            )}
+          </button>
+        )}
+        {canAttach && (
+          <button
+            className={`${btnClass} ${toneAttach}`}
+            onClick={() => openAttachDialog(r)}
+            title="Asociar a reserva / Sumar servicios"
+            aria-label="Asociar recibo"
+            disabled={attaching}
+          >
+            <IconLink className={iconClass} />
+            {variant === "full" && "Asociar"}
+          </button>
+        )}
+      </div>
+    );
+  };
+
   /* ================= UI ================= */
   return (
     <ProtectedRoute>
       <section className="text-sky-950 dark:text-white">
         {/* Form + KPIs */}
         <ReceiptForm
+          key={editingReceipt?.id_receipt ?? "new"}
           token={token || null}
           allowAgency={true}
+          editingReceiptId={editingReceipt?.id_receipt ?? null}
+          isFormVisible={formVisible}
+          setIsFormVisible={setFormVisible}
+          initialConcept={editingReceipt?.concept ?? ""}
+          initialAmount={editingReceipt ? toNum(editingReceipt.amount) : undefined}
+          initialCurrency={editingReceipt?.amount_currency ?? undefined}
+          initialAmountWords={editingReceipt?.amount_string ?? ""}
+          initialAmountWordsCurrency={
+            editingReceipt?.base_currency || editingReceipt?.amount_currency
+          }
+          initialPaymentDescription={editingReceipt?.currency ?? ""}
+          initialFeeAmount={
+            editingReceipt?.payment_fee_amount != null
+              ? toNum(editingReceipt.payment_fee_amount)
+              : undefined
+          }
+          initialBaseAmount={editingReceipt?.base_amount ?? null}
+          initialBaseCurrency={editingReceipt?.base_currency ?? null}
+          initialCounterAmount={editingReceipt?.counter_amount ?? null}
+          initialCounterCurrency={editingReceipt?.counter_currency ?? null}
+          initialClientIds={editingReceipt?.clientIds ?? []}
+          initialPayments={
+            editingReceipt ? buildInitialPayments(editingReceipt) : []
+          }
           // NO habilitamos attach dentro del form en esta page
           // enableAttachAction={false}
           searchBookings={searchBookings}
           loadServicesForBooking={loadServicesForBooking}
           onSubmit={async (payload) => {
+            if (editingReceipt?.id_receipt) {
+              const res = await authFetch(
+                `/api/receipts/${editingReceipt.id_receipt}`,
+                { method: "PATCH", body: JSON.stringify(payload) },
+                token || undefined,
+              );
+
+              const json = await res.json().catch(() => null);
+
+              if (!res.ok) {
+                let msg = "No se pudo actualizar el recibo.";
+                if (
+                  typeof (json as { error?: string } | null)?.error === "string"
+                ) {
+                  msg = (json as { error: string }).error;
+                }
+                throw new Error(msg);
+              }
+
+              refreshList();
+              setEditingReceipt(null);
+              router.refresh();
+              return json;
+            }
+
             const res = await authFetch(
               "/api/receipts",
               {
@@ -998,6 +1348,7 @@ export default function ReceiptsPage() {
             router.refresh();
             return json;
           }}
+          onCancel={editingReceipt ? cancelEditReceipt : undefined}
         />
 
         <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -1036,6 +1387,56 @@ export default function ReceiptsPage() {
           >
             {filtersOpen ? "Ocultar filtros" : "Mostrar filtros"}
           </button>
+
+          <div className={SEGMENTED}>
+            {[
+              { key: "all", label: "Todos", badge: associationCounters.total },
+              {
+                key: "linked",
+                label: "Asociados",
+                badge: associationCounters.linked,
+              },
+              {
+                key: "unlinked",
+                label: "Sin reserva",
+                badge: associationCounters.unlinked,
+              },
+            ].map((opt) => {
+              const active =
+                associationFilter === (opt.key as typeof associationFilter);
+              const badgeTone =
+                opt.key === "linked"
+                  ? "border-emerald-200/70 bg-emerald-100/70 text-emerald-900 dark:border-emerald-700/50 dark:bg-emerald-900/30 dark:text-emerald-100"
+                  : opt.key === "unlinked"
+                    ? "border-rose-200/70 bg-rose-100/70 text-rose-900 dark:border-rose-700/50 dark:bg-rose-900/30 dark:text-rose-100"
+                    : "border-amber-200/70 bg-amber-100/70 text-amber-900 dark:border-amber-700/50 dark:bg-amber-900/30 dark:text-amber-100";
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() =>
+                    setAssociationFilter(
+                      opt.key as "all" | "linked" | "unlinked",
+                    )
+                  }
+                  className={[
+                    "flex items-center gap-2 rounded-2xl px-4 py-2 text-sm transition-colors",
+                    active
+                      ? "bg-sky-500/15 text-sky-700 dark:text-sky-200"
+                      : "text-sky-950/80 hover:bg-white/60 dark:text-white/80",
+                  ].join(" ")}
+                  title={`Mostrar ${opt.label.toLowerCase()}`}
+                >
+                  <span>{opt.label}</span>
+                  <span
+                    className={`rounded-full border px-2 text-xs ${badgeTone}`}
+                  >
+                    {opt.badge}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
 
           {/* Orden */}
           <div className={`${CHIP} gap-2`}>
@@ -1216,6 +1617,46 @@ export default function ReceiptsPage() {
           </div>
         )}
 
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1 rounded-2xl border border-white/10 bg-white/60 p-1 shadow-sm shadow-sky-950/10 dark:bg-white/10">
+            {[
+              { key: "cards", label: "Tarjetas", Icon: IconSquares2X2 },
+              { key: "table", label: "Tabla", Icon: IconTableCells },
+              { key: "monthly", label: "Mensual", Icon: IconCalendarDays },
+            ].map((opt) => {
+              const active = viewMode === (opt.key as typeof viewMode);
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() =>
+                    setViewMode(opt.key as "cards" | "table" | "monthly")
+                  }
+                  className={[
+                    "flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition-colors",
+                    active
+                      ? "bg-sky-500/15 text-sky-700 dark:text-sky-200"
+                      : "text-sky-950/80 hover:bg-white/60 dark:text-white/80",
+                  ].join(" ")}
+                >
+                  <opt.Icon className="size-4" />
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-xs text-sky-950/70 dark:text-white/70">
+            Vista actual:{" "}
+            <b className="text-emerald-700 dark:text-emerald-200">
+              {viewMode === "cards"
+                ? "Tarjetas"
+                : viewMode === "table"
+                  ? "Tabla"
+                  : "Mensual"}
+            </b>
+          </div>
+        </div>
+
         {/* LISTA */}
         {loading && displayRows.length === 0 ? (
           <div className="flex min-h-[40vh] items-center justify-center">
@@ -1224,167 +1665,374 @@ export default function ReceiptsPage() {
         ) : displayRows.length === 0 && pageInit ? (
           <div className={`${GLASS} p-6 text-center`}>No hay resultados.</div>
         ) : (
-          <div className="space-y-3">
-            {displayRows.map((r) => {
-              const servicesCount = r.serviceIds?.length ?? 0;
-              const clientsCount = r.clientIds?.length ?? 0;
-              const cur = String(
-                r._displayCurrency || r.amount_currency,
-              ).toUpperCase();
-              const status = String(
-                r.verification_status || "PENDING",
-              ).toUpperCase();
-              const statusLabel =
-                status === "VERIFIED" ? "Verificado" : "Pendiente";
-              const statusClass = STATUS_BADGE[status] ?? STATUS_BADGE.PENDING;
+          <div className="space-y-4">
+            {viewMode === "table" ? (
+              <div className="overflow-x-auto rounded-3xl border border-white/10 bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur">
+                <table className="w-full min-w-[1100px] text-left text-sm">
+                  <thead className="bg-white/60 text-sky-950 dark:bg-white/10 dark:text-white">
+                    <tr>
+                      <th className="px-4 py-3">Fecha</th>
+                      <th className="px-4 py-3">Recibo</th>
+                      <th className="px-4 py-3">Reserva</th>
+                      <th className="px-4 py-3">Cliente</th>
+                      <th className="px-4 py-3">Concepto</th>
+                      <th className="px-4 py-3">Importe</th>
+                      <th className="px-4 py-3">Método</th>
+                      <th className="px-4 py-3">Estado</th>
+                      <th className="px-4 py-3 text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayRows.map((r) => {
+                      const status = String(
+                        r.verification_status || "PENDING",
+                      ).toUpperCase();
+                      const statusLabel =
+                        status === "VERIFIED" ? "Verificado" : "Pendiente";
+                      const statusClass =
+                        STATUS_BADGE[status] ?? STATUS_BADGE.PENDING;
+                      const isUnlinked = !r.booking?.id_booking;
+                      const associationLabel = isUnlinked
+                        ? "Sin reserva"
+                        : "Asociado";
+                      const associationClass = isUnlinked
+                        ? ASSOCIATION_BADGE.unlinked
+                        : ASSOCIATION_BADGE.linked;
+                      const methodLabel =
+                        r.payment_method || r.currency || "—";
 
-              const canAttach =
-                !r.booking?.id_booking ||
-                (Array.isArray(r.serviceIds) && r.serviceIds.length === 0);
-
-              return (
-                <article
-                  key={r.id_receipt}
-                  className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
-                >
-                  {/* Encabezado */}
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm opacity-70">
-                        #{r.receipt_number}
-                      </span>
-                      <button
-                        className={BADGE}
-                        onClick={() => {
-                          if (
-                            typeof navigator !== "undefined" &&
-                            navigator.clipboard
-                          ) {
-                            navigator.clipboard
-                              .writeText(r.receipt_number)
-                              .then(
-                                () => toast.success("N° de recibo copiado"),
-                                () => toast.error("No se pudo copiar"),
-                              );
-                          }
-                        }}
-                        title="Copiar N° recibo"
-                      >
-                        Copiar
-                      </button>
-                      <span className={BADGE}>{r._dateLabel}</span>
-                      <span className={`${BADGE} ${statusClass}`}>
-                        {statusLabel}
-                      </span>
-                      <span className={BADGE}>{cur}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex flex-col items-end text-right">
-                        {/* Valor aplicado */}
-                        <div className="text-base font-semibold">
-                          {r._amountLabel}
-                        </div>
-                        {(r._clientTotalLabel !== "—" ||
-                          r._feeLabel !== "—") && (
-                          <div className="mt-0.5 text-[11px] opacity-75">
-                            {r._clientTotalLabel !== "—" && (
-                              <>
-                                Cliente pagó: <b>{r._clientTotalLabel}</b>
-                              </>
+                      return (
+                        <tr
+                          key={r.id_receipt}
+                          className="border-t border-white/10"
+                        >
+                          <td className="px-4 py-3 text-xs opacity-70">
+                            {r._dateLabel}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold">
+                                #{r.receipt_number}
+                              </span>
+                              <button
+                                className={BADGE}
+                                onClick={() => {
+                                  if (
+                                    typeof navigator !== "undefined" &&
+                                    navigator.clipboard
+                                  ) {
+                                    navigator.clipboard
+                                      .writeText(r.receipt_number)
+                                      .then(
+                                        () =>
+                                          toast.success("N° de recibo copiado"),
+                                        () => toast.error("No se pudo copiar"),
+                                      );
+                                  }
+                                }}
+                                title="Copiar N° recibo"
+                              >
+                                Copiar
+                              </button>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            {r.booking?.id_booking ? (
+                              <Link
+                                href={`/bookings/services/${r.booking?.id_booking}`}
+                                target="_blank"
+                                className="underline decoration-transparent hover:decoration-sky-600"
+                              >
+                                {r.booking?.id_booking}
+                              </Link>
+                            ) : (
+                              "—"
                             )}
-                            {r._feeLabel !== "—" && (
-                              <>
-                                {r._clientTotalLabel !== "—" && " · "}
-                                Costo medio: {r._feeLabel}
-                              </>
+                          </td>
+                          <td className="px-4 py-3">{r._titularFull}</td>
+                          <td className="px-4 py-3">
+                            <span className="block max-w-[280px] truncate">
+                              {r.concept || "—"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-semibold">
+                            {r._amountLabel}
+                          </td>
+                          <td className="px-4 py-3">{methodLabel}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className={`${BADGE} ${statusClass}`}>
+                                {statusLabel}
+                              </span>
+                              <span
+                                className={`${BADGE} ${associationClass}`}
+                              >
+                                {associationLabel}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex justify-end">
+                              {renderReceiptActions(r, "compact")}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : viewMode === "monthly" ? (
+              <div className="space-y-4">
+                {groupedByMonth.map((group) => (
+                  <div
+                    key={group.key}
+                    className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
+                  >
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-semibold capitalize">
+                          {capitalize(group.label)}
+                        </span>
+                        <span className="rounded-full border border-amber-200/70 bg-amber-100/70 px-2 py-1 text-xs font-medium text-amber-900 dark:border-amber-700/50 dark:bg-amber-900/30 dark:text-amber-100">
+                          {group.items.length} recibos
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        {Object.entries(group.totals).map(([cur, total]) => (
+                          <span
+                            key={`${group.key}-${cur}`}
+                            className="rounded-full border border-emerald-200/70 bg-emerald-100/70 px-2 py-1 font-medium text-emerald-900 dark:border-emerald-700/50 dark:bg-emerald-900/30 dark:text-emerald-100"
+                          >
+                            {cur}:{" "}
+                            {new Intl.NumberFormat("es-AR", {
+                              style: "currency",
+                              currency: cur,
+                            }).format(total)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {group.items.map((r) => {
+                        const status = String(
+                          r.verification_status || "PENDING",
+                        ).toUpperCase();
+                        const statusLabel =
+                          status === "VERIFIED" ? "Verificado" : "Pendiente";
+                        const statusClass =
+                          STATUS_BADGE[status] ?? STATUS_BADGE.PENDING;
+                        const isUnlinked = !r.booking?.id_booking;
+                        const associationLabel = isUnlinked
+                          ? "Sin reserva"
+                          : "Asociado";
+                        const associationClass = isUnlinked
+                          ? ASSOCIATION_BADGE.unlinked
+                          : ASSOCIATION_BADGE.linked;
+
+                        return (
+                          <div
+                            key={r.id_receipt}
+                            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/20 p-3 dark:bg-white/10"
+                          >
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2 text-sm">
+                                <span className="font-semibold">
+                                  #{r.receipt_number}
+                                </span>
+                                <span className="text-xs opacity-70">
+                                  {r._dateLabel}
+                                </span>
+                                <span className={`${BADGE} ${statusClass}`}>
+                                  {statusLabel}
+                                </span>
+                                <span
+                                  className={`${BADGE} ${associationClass}`}
+                                >
+                                  {associationLabel}
+                                </span>
+                              </div>
+                              <div className="text-sm opacity-80">
+                                {r.concept || "—"}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm font-semibold">
+                                {r._amountLabel}
+                              </span>
+                              {renderReceiptActions(r, "compact")}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {displayRows.map((r) => {
+                  const servicesCount = r.serviceIds?.length ?? 0;
+                  const clientsCount = r.clientIds?.length ?? 0;
+                  const cur = String(
+                    r._displayCurrency || r.amount_currency,
+                  ).toUpperCase();
+                  const status = String(
+                    r.verification_status || "PENDING",
+                  ).toUpperCase();
+                  const statusLabel =
+                    status === "VERIFIED" ? "Verificado" : "Pendiente";
+                  const statusClass =
+                    STATUS_BADGE[status] ?? STATUS_BADGE.PENDING;
+                  const isUnlinked = !r.booking?.id_booking;
+                  const associationLabel = isUnlinked
+                    ? "Sin reserva"
+                    : "Asociado";
+                  const associationClass = isUnlinked
+                    ? ASSOCIATION_BADGE.unlinked
+                    : ASSOCIATION_BADGE.linked;
+
+                  return (
+                    <article
+                      key={r.id_receipt}
+                      className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    >
+                      {/* Encabezado */}
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm opacity-70">
+                            #{r.receipt_number}
+                          </span>
+                          <button
+                            className={BADGE}
+                            onClick={() => {
+                              if (
+                                typeof navigator !== "undefined" &&
+                                navigator.clipboard
+                              ) {
+                                navigator.clipboard
+                                  .writeText(r.receipt_number)
+                                  .then(
+                                    () => toast.success("N° de recibo copiado"),
+                                    () => toast.error("No se pudo copiar"),
+                                  );
+                              }
+                            }}
+                            title="Copiar N° recibo"
+                          >
+                            Copiar
+                          </button>
+                          <span className={BADGE}>{r._dateLabel}</span>
+                          <span className={`${BADGE} ${statusClass}`}>
+                            {statusLabel}
+                          </span>
+                          <span className={`${BADGE} ${associationClass}`}>
+                            {associationLabel}
+                          </span>
+                          <span className={BADGE}>{cur}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex flex-col items-end text-right">
+                            {/* Valor aplicado */}
+                            <div className="text-base font-semibold">
+                              {r._amountLabel}
+                            </div>
+                            {(r._clientTotalLabel !== "—" ||
+                              r._feeLabel !== "—") && (
+                              <div className="mt-0.5 text-[11px] opacity-75">
+                                {r._clientTotalLabel !== "—" && (
+                                  <>
+                                    Cliente pagó:{" "}
+                                    <b>{r._clientTotalLabel}</b>
+                                  </>
+                                )}
+                                {r._feeLabel !== "—" && (
+                                  <>
+                                    {r._clientTotalLabel !== "—" && " · "}
+                                    Costo medio: {r._feeLabel}
+                                  </>
+                                )}
+                              </div>
                             )}
                           </div>
-                        )}
+                          {renderReceiptActions(r, "full")}
+                        </div>
                       </div>
-                      {canAttach && (
-                        <button
-                          className={`${ICON_BTN} ml-2 disabled:opacity-50`}
-                          onClick={() => openAttachDialog(r)}
-                          title="Asociar a reserva / Sumar servicios"
-                          disabled={attaching}
-                        >
-                          Asociar
-                        </button>
-                      )}
-                    </div>
-                  </div>
 
-                  {/* Concepto */}
-                  <div className="mt-1 text-lg opacity-90">
-                    {r.concept || "—"}
-                  </div>
+                      {/* Concepto */}
+                      <div className="mt-1 text-lg opacity-90">
+                        {r.concept || "—"}
+                      </div>
 
-                  {/* Meta principal */}
-                  <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
-                    <span className={CHIP}>
-                      <b>Reserva:</b>
-                      {r.booking?.id_booking ? (
-                        <Link
-                          href={`/bookings/services/${r.booking?.id_booking}`}
-                          target="_blank"
-                          className="underline decoration-transparent hover:decoration-sky-600"
-                        >
-                          {r.booking?.id_booking}
-                        </Link>
-                      ) : (
-                        " —"
-                      )}
-                    </span>
+                      {/* Meta principal */}
+                      <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+                        <span className={CHIP}>
+                          <b>Reserva:</b>
+                          {r.booking?.id_booking ? (
+                            <Link
+                              href={`/bookings/services/${r.booking?.id_booking}`}
+                              target="_blank"
+                              className="underline decoration-transparent hover:decoration-sky-600"
+                            >
+                              {r.booking?.id_booking}
+                            </Link>
+                          ) : (
+                            " —"
+                          )}
+                        </span>
 
-                    <span className={CHIP}>
-                      <b>Vendedor:</b> {r._ownerFull}
-                    </span>
+                        <span className={CHIP}>
+                          <b>Vendedor:</b> {r._ownerFull}
+                        </span>
 
-                    <span className={CHIP}>
-                      <b>Titular:</b> {r._titularFull}
-                    </span>
+                        <span className={CHIP}>
+                          <b>Titular:</b> {r._titularFull}
+                        </span>
 
-                    {(r.payment_method || r.currency) && (
-                      <span className={CHIP}>
-                        <b>Método:</b> {r.payment_method || r.currency}
-                      </span>
-                    )}
+                        {(r.payment_method || r.currency) && (
+                          <span className={CHIP}>
+                            <b>Método:</b> {r.payment_method || r.currency}
+                          </span>
+                        )}
 
-                    {r.account && (
-                      <span className={CHIP}>
-                        <b>Cuenta:</b> {r.account}
-                      </span>
-                    )}
+                        {r.account && (
+                          <span className={CHIP}>
+                            <b>Cuenta:</b> {r.account}
+                          </span>
+                        )}
 
-                    {r._convLabel !== "—" && (
-                      <span className={CHIP}>
-                        <b>Conversión:</b> {r._convLabel}
-                      </span>
-                    )}
+                        {r._convLabel !== "—" && (
+                          <span className={CHIP}>
+                            <b>Conversión:</b> {r._convLabel}
+                          </span>
+                        )}
 
-                    {r._feeLabel !== "—" && (
-                      <span className={CHIP}>
-                        <b>Costo medio:</b> {r._feeLabel}
-                      </span>
-                    )}
+                        {r._feeLabel !== "—" && (
+                          <span className={CHIP}>
+                            <b>Costo medio:</b> {r._feeLabel}
+                          </span>
+                        )}
 
-                    {r._clientTotalLabel !== "—" && (
-                      <span className={CHIP}>
-                        <b>Cobrado al cliente:</b> {r._clientTotalLabel}
-                      </span>
-                    )}
+                        {r._clientTotalLabel !== "—" && (
+                          <span className={CHIP}>
+                            <b>Cobrado al cliente:</b> {r._clientTotalLabel}
+                          </span>
+                        )}
 
-                    <span className={CHIP}>
-                      <b>Servicios:</b> {servicesCount}
-                    </span>
+                        <span className={CHIP}>
+                          <b>Servicios:</b> {servicesCount}
+                        </span>
 
-                    <span className={CHIP}>
-                      <b>Clientes:</b> {clientsCount}
-                    </span>
-                  </div>
-                </article>
-              );
-            })}
+                        <span className={CHIP}>
+                          <b>Clientes:</b> {clientsCount}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Paginado */}
             <div className="flex justify-center">
@@ -1576,5 +2224,140 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
         props.className || ""
       }`}
     />
+  );
+}
+
+type IconProps = React.SVGProps<SVGSVGElement>;
+
+function IconSquares2X2(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden
+      {...props}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3.75 3.75h6.5v6.5h-6.5zM3.75 13.75h6.5v6.5h-6.5zM13.75 3.75h6.5v6.5h-6.5zM13.75 13.75h6.5v6.5h-6.5z"
+      />
+    </svg>
+  );
+}
+
+function IconTableCells(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden
+      {...props}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3.75 6h16.5M3.75 12h16.5M3.75 18h16.5M6 3.75v16.5M12 3.75v16.5M18 3.75v16.5"
+      />
+    </svg>
+  );
+}
+
+function IconCalendarDays(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden
+      {...props}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M8 6.75V4.5M16 6.75V4.5M3.75 9h16.5M4.5 5.25h15a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.75v-12a1.5 1.5 0 0 1 1.5-1.5z"
+      />
+    </svg>
+  );
+}
+
+function IconDocumentArrowDown(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden
+      {...props}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M19.5 14.25v3A2.25 2.25 0 0 1 17.25 19.5H6.75A2.25 2.25 0 0 1 4.5 17.25v-3M9 12.75 12 15.75m0 0 3-3m-3 3V4.5"
+      />
+    </svg>
+  );
+}
+
+function IconPencilSquare(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden
+      {...props}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+      />
+    </svg>
+  );
+}
+
+function IconTrash(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden
+      {...props}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+      />
+    </svg>
+  );
+}
+
+function IconLink(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden
+      {...props}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.19 8.688a4.5 4.5 0 0 1 6.364 6.364l-3 3a4.5 4.5 0 0 1-6.364-6.364m-.53.53a4.5 4.5 0 0 1-6.364-6.364l3-3a4.5 4.5 0 0 1 6.364 6.364"
+      />
+    </svg>
   );
 }

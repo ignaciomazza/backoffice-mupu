@@ -51,7 +51,7 @@ export type FinancePicks = {
 /** ✅ línea de pago (para ReceiptPayment en backend) */
 export type ReceiptPaymentLine = {
   amount: number;
-  payment_method_id: number;
+  payment_method_id: number | null;
   account_id: number | null;
 
   // (para UI / movimiento crédito)
