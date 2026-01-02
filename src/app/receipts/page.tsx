@@ -42,6 +42,12 @@ const CHIP =
   "inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs shadow-sm";
 const BADGE =
   "inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px] font-medium border border-white/10 bg-white/10";
+const STATUS_BADGE: Record<string, string> = {
+  PENDING:
+    "border-amber-200 bg-amber-100 text-amber-900 dark:border-amber-800/40 dark:bg-amber-900/30 dark:text-amber-100",
+  VERIFIED:
+    "border-emerald-200 bg-emerald-100 text-emerald-900 dark:border-emerald-800/40 dark:bg-emerald-900/30 dark:text-emerald-100",
+};
 
 /* ================= Tipos de API ================= */
 type ReceiptRow = {
@@ -64,6 +70,8 @@ type ReceiptRow = {
   /** Costo financiero del medio de pago (tarjeta/billetera/banco…) */
   payment_fee_amount?: string | number | null;
   payment_fee_currency?: "ARS" | "USD" | string | null;
+
+  verification_status?: string | null;
 
   serviceIds?: number[] | null;
   clientIds?: number[] | null;
@@ -968,36 +976,27 @@ export default function ReceiptsPage() {
           searchBookings={searchBookings}
           loadServicesForBooking={loadServicesForBooking}
           onSubmit={async (payload) => {
-            try {
-              const res = await authFetch(
-                "/api/receipts",
-                {
-                  method: "POST",
-                  body: JSON.stringify(payload),
-                },
-                token || undefined,
-              );
+            const res = await authFetch(
+              "/api/receipts",
+              {
+                method: "POST",
+                body: JSON.stringify(payload),
+              },
+              token || undefined,
+            );
 
-              if (!res.ok) {
-                let msg = "No se pudo crear el recibo.";
-                try {
-                  const err = await res.json();
-                  if (typeof err?.error === "string") msg = err.error;
-                } catch {}
-                throw new Error(msg);
-              }
+            const json = await res.json().catch(() => null);
 
-              const json = await res.json().catch(() => null);
-
-              toast.success("Recibo guardado.");
-              refreshList();
-              router.refresh();
-              return json;
-            } catch (e) {
-              toast.error(
-                e instanceof Error ? e.message : "Error al guardar recibo",
-              );
+            if (!res.ok) {
+              let msg = "No se pudo crear el recibo.";
+              if (typeof (json as { error?: string } | null)?.error === "string")
+                msg = (json as { error: string }).error;
+              throw new Error(msg);
             }
+
+            refreshList();
+            router.refresh();
+            return json;
           }}
         />
 
@@ -1232,6 +1231,12 @@ export default function ReceiptsPage() {
               const cur = String(
                 r._displayCurrency || r.amount_currency,
               ).toUpperCase();
+              const status = String(
+                r.verification_status || "PENDING",
+              ).toUpperCase();
+              const statusLabel =
+                status === "VERIFIED" ? "Verificado" : "Pendiente";
+              const statusClass = STATUS_BADGE[status] ?? STATUS_BADGE.PENDING;
 
               const canAttach =
                 !r.booking?.id_booking ||
@@ -1268,6 +1273,9 @@ export default function ReceiptsPage() {
                         Copiar
                       </button>
                       <span className={BADGE}>{r._dateLabel}</span>
+                      <span className={`${BADGE} ${statusClass}`}>
+                        {statusLabel}
+                      </span>
                       <span className={BADGE}>{cur}</span>
                     </div>
                     <div className="flex items-center gap-2">

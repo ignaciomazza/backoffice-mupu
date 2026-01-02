@@ -1460,6 +1460,10 @@ export default function ReceiptForm({
       }
 
       setVisible(false);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "No se pudo crear el recibo.",
+      );
     } finally {
       setSubmitting(false);
     }

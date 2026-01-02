@@ -506,12 +506,30 @@ export default function ServicesPage() {
 
   const handleInvoiceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (invoiceLoading) return;
     if (
       !invoiceFormData.tipoFactura ||
       invoiceFormData.clientIds.length === 0 ||
       invoiceFormData.services.length === 0
     ) {
       toast.error("Completa todos los campos requeridos.");
+      return;
+    }
+    const clientCount = (invoiceFormData.clientIds || []).filter((v) =>
+      String(v || "").trim(),
+    ).length;
+    const serviceCount = invoiceFormData.services.length;
+    const tipoLabel =
+      invoiceFormData.tipoFactura === "1" ? "Factura A" : "Factura B";
+    const dateLabel = invoiceFormData.invoiceDate
+      ? `\nFecha: ${invoiceFormData.invoiceDate}`
+      : "";
+
+    if (
+      !window.confirm(
+        `¿Emitir ${tipoLabel} para ${clientCount} cliente(s) y ${serviceCount} servicio(s)?${dateLabel}`,
+      )
+    ) {
       return;
     }
     const payload = {
@@ -721,6 +739,16 @@ export default function ServicesPage() {
     if (invoices.length) void fetchCreditNotes(invoices);
   };
 
+  const handleInvoiceUpdated = useCallback((updated: Invoice) => {
+    setInvoices((prev) =>
+      prev.map((inv) =>
+        inv.id_invoice === updated.id_invoice
+          ? { ...inv, payloadAfip: updated.payloadAfip }
+          : inv,
+      ),
+    );
+  }, []);
+
   const userRole = (role as Role) || "";
 
   return (
@@ -742,6 +770,7 @@ export default function ServicesPage() {
           onReceiptCreated={handleReceiptCreated}
           onReceiptDeleted={handleReceiptDeleted}
           onCreditNoteCreated={handleCreditNoteCreated}
+          onInvoiceUpdated={handleInvoiceUpdated}
           invoiceFormData={invoiceFormData}
           formData={formData}
           editingServiceId={editingServiceId}

@@ -272,7 +272,6 @@ async function nextReceiptNumberForBooking(bookingId: number) {
 async function nextReceiptNumberForAgency(agencyId: number) {
   const existing = await prisma.receipt.findMany({
     where: {
-      id_agency: agencyId,
       receipt_number: { startsWith: `A${agencyId}-` },
     },
     select: { receipt_number: true },

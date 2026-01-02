@@ -3,7 +3,8 @@
 import { Invoice } from "@/types";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
-import { useMemo, useState } from "react";
+import { authFetch } from "@/utils/authFetch";
+import { useEffect, useMemo, useState } from "react";
 
 /* ======================== Utils ======================== */
 const normCurrency = (curr?: string) => {
@@ -78,10 +79,26 @@ const CurrencyChip: React.FC<{ currency?: string }> = ({ currency }) => (
 /* ======================== Card ======================== */
 interface InvoiceCardProps {
   invoice: Invoice;
+  token?: string | null;
+  onInvoiceUpdated?: (invoice: Invoice) => void;
 }
 
-export default function InvoiceCard({ invoice }: InvoiceCardProps) {
+export default function InvoiceCard({
+  invoice,
+  token,
+  onInvoiceUpdated,
+}: InvoiceCardProps) {
   const [loading, setLoading] = useState(false);
+  const [isEditingDesc, setIsEditingDesc] = useState(false);
+  const [isSavingDesc, setIsSavingDesc] = useState(false);
+  const [desc21Draft, setDesc21Draft] = useState("");
+  const [desc10Draft, setDesc10Draft] = useState("");
+  const [descNonDraft, setDescNonDraft] = useState("");
+  const [localDescriptions, setLocalDescriptions] = useState<{
+    description21?: string[];
+    description10_5?: string[];
+    descriptionNonComputable?: string[];
+  } | null>(null);
 
   type VoucherMinimal = {
     CbteFch: number | string | Date;
@@ -93,6 +110,21 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
   const voucher = invoice.payloadAfip?.voucherData as unknown as
     | VoucherMinimal
     | undefined;
+
+  const payloadDescriptions = (invoice.payloadAfip ?? {}) as {
+    description21?: string[];
+    description10_5?: string[];
+    descriptionNonComputable?: string[];
+  };
+  const activeDescriptions = localDescriptions ?? payloadDescriptions;
+  const currentDesc21 = activeDescriptions.description21?.[0] ?? "";
+  const currentDesc10 = activeDescriptions.description10_5?.[0] ?? "";
+  const currentDescNon =
+    activeDescriptions.descriptionNonComputable?.[0] ?? "";
+
+  useEffect(() => {
+    setLocalDescriptions(null);
+  }, [invoice.id_invoice, invoice.payloadAfip]);
 
   const bases = useMemo(() => {
     const Iva = voucher?.Iva ?? [];
@@ -138,6 +170,80 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
       toast.error("No se pudo descargar la factura.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const startEditDescriptions = () => {
+    setDesc21Draft(currentDesc21);
+    setDesc10Draft(currentDesc10);
+    setDescNonDraft(currentDescNon);
+    setIsEditingDesc(true);
+  };
+
+  const cancelEditDescriptions = () => {
+    setIsEditingDesc(false);
+    setDesc21Draft(currentDesc21);
+    setDesc10Draft(currentDesc10);
+    setDescNonDraft(currentDescNon);
+  };
+
+  const handleSaveDescriptions = async () => {
+    if (!token) {
+      toast.error("Sesión expirada. Volvé a iniciar sesión.");
+      return;
+    }
+    if (isSavingDesc) return;
+
+    setIsSavingDesc(true);
+    try {
+      const res = await authFetch(
+        `/api/invoices/${invoice.id_invoice}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            description21: desc21Draft,
+            description10_5: desc10Draft,
+            descriptionNonComputable: descNonDraft,
+          }),
+        },
+        token,
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(
+          (err as { message?: string })?.message ||
+            "No se pudieron guardar las descripciones.",
+        );
+      }
+      const result = (await res.json()) as {
+        success?: boolean;
+        invoice?: { id_invoice: number; payloadAfip?: unknown };
+        message?: string;
+      };
+      if (!result.success || !result.invoice) {
+        throw new Error(result.message || "No se pudieron guardar.");
+      }
+
+      const updatedPayload = result.invoice.payloadAfip ?? {};
+      setLocalDescriptions(
+        (updatedPayload as {
+          description21?: string[];
+          description10_5?: string[];
+          descriptionNonComputable?: string[];
+        }) ?? null,
+      );
+      onInvoiceUpdated?.({
+        ...invoice,
+        payloadAfip: updatedPayload as Invoice["payloadAfip"],
+      });
+      toast.success("Descripciones actualizadas.");
+      setIsEditingDesc(false);
+    } catch (err: unknown) {
+      toast.error(
+        err instanceof Error ? err.message : "Error al guardar descripciones.",
+      );
+    } finally {
+      setIsSavingDesc(false);
     }
   };
 
@@ -272,6 +378,100 @@ export default function InvoiceCard({ invoice }: InvoiceCardProps) {
           </p>
         </div>
       </div>
+
+      {token && (
+        <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+              Descripciones
+            </p>
+            <button
+              type="button"
+              onClick={
+                isEditingDesc ? cancelEditDescriptions : startEditDescriptions
+              }
+              className="rounded-full border border-white/20 px-3 py-1 text-xs font-medium text-sky-950/80 transition hover:border-sky-200 hover:text-sky-950 dark:border-white/10 dark:text-white/70"
+            >
+              {isEditingDesc ? "Cerrar" : "Editar"}
+            </button>
+          </div>
+
+          {isEditingDesc ? (
+            <div className="mt-3 space-y-3 text-sm">
+              <label className="block">
+                <span className="text-xs font-medium text-sky-950/80 dark:text-white/80">
+                  IVA 21%
+                </span>
+                <input
+                  type="text"
+                  value={desc21Draft}
+                  onChange={(e) => setDesc21Draft(e.target.value)}
+                  placeholder="Ej: Servicio 21%"
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-sky-950/80 dark:text-white/80">
+                  IVA 10,5%
+                </span>
+                <input
+                  type="text"
+                  value={desc10Draft}
+                  onChange={(e) => setDesc10Draft(e.target.value)}
+                  placeholder="Ej: Servicio 10,5%"
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-sky-950/80 dark:text-white/80">
+                  No computable
+                </span>
+                <input
+                  type="text"
+                  value={descNonDraft}
+                  onChange={(e) => setDescNonDraft(e.target.value)}
+                  placeholder="Ej: Cargo no computable"
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
+                />
+              </label>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={cancelEditDescriptions}
+                  className="rounded-full border border-white/20 px-4 py-2 text-xs font-medium text-sky-950/80 transition hover:border-sky-200 hover:text-sky-950 dark:border-white/10 dark:text-white/70"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveDescriptions}
+                  disabled={isSavingDesc}
+                  className={`rounded-full px-4 py-2 text-xs font-medium shadow-sm shadow-sky-950/20 transition ${
+                    isSavingDesc
+                      ? "cursor-not-allowed bg-sky-950/20 text-white/60 dark:bg-white/5 dark:text-white/40"
+                      : "bg-sky-100 text-sky-950 dark:bg-white/10 dark:text-white"
+                  }`}
+                >
+                  {isSavingDesc ? <Spinner /> : "Guardar"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-2 space-y-1 text-xs text-sky-950/70 dark:text-white/70">
+              <p>
+                IVA 21%: {currentDesc21 ? currentDesc21 : "Sin descripción"}
+              </p>
+              <p>
+                IVA 10,5%: {currentDesc10 ? currentDesc10 : "Sin descripción"}
+              </p>
+              <p>
+                No computable:{" "}
+                {currentDescNon ? currentDescNon : "Sin descripción"}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mt-4 flex items-center justify-end">
         <button

@@ -109,6 +109,9 @@ export default function Page() {
     null,
   );
 
+  const bookingFormRef = useRef<HTMLDivElement | null>(null);
+  const pendingEditScrollRef = useRef(false);
+
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
 
@@ -196,6 +199,31 @@ export default function Page() {
     clients_ids: [],
     creation_date: todayYMD(),
   });
+
+  const scrollToBookingForm = useCallback((behavior: ScrollBehavior) => {
+    if (typeof window === "undefined") return;
+    const target = bookingFormRef.current;
+    if (!target) {
+      window.scrollTo({ top: 0, behavior });
+      return;
+    }
+    target.scrollIntoView({ behavior, block: "start" });
+  }, []);
+
+  useEffect(() => {
+    if (!pendingEditScrollRef.current || !isFormVisible) return;
+    if (typeof window === "undefined") return;
+
+    const prefersReduced =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const behavior: ScrollBehavior = prefersReduced ? "auto" : "smooth";
+
+    const raf = window.requestAnimationFrame(() => {
+      scrollToBookingForm(behavior);
+      pendingEditScrollRef.current = false;
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [editingBookingId, isFormVisible, scrollToBookingForm]);
 
   // --- Carga de perfil + filtros ---
   useEffect(() => {
@@ -565,6 +593,7 @@ export default function Page() {
   };
 
   const startEditingBooking = (booking: Booking) => {
+    pendingEditScrollRef.current = true;
     const titularId = booking.titular?.id_client || 0;
     // Acompañantes reales: excluir titular, solo IDs válidos
     const companions = (booking.clients || [])
@@ -675,7 +704,7 @@ export default function Page() {
   return (
     <ProtectedRoute>
       <section className="text-sky-950 dark:text-white">
-        <motion.div layout>
+        <motion.div layout ref={bookingFormRef}>
           <BookingForm
             token={token}
             formData={formData}

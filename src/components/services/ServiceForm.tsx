@@ -60,6 +60,8 @@ type ServiceFormProps = {
   token: string | null;
   /** NUEVO: indica que ya se leyó correctamente la config global de fee */
   transferFeeReady: boolean;
+  /** Permite forzar modo manual aunque la config global esté en auto */
+  canOverrideBillingMode?: boolean;
 };
 
 /* ---------- helpers UI ---------- */
@@ -360,6 +362,7 @@ export default function ServiceForm({
   agencyTransferFeePct,
   token,
   transferFeeReady,
+  canOverrideBillingMode = false,
 }: ServiceFormProps) {
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -388,6 +391,7 @@ export default function ServiceForm({
   const [agencyBillingMode, setAgencyBillingMode] = useState<"auto" | "manual">(
     "auto",
   );
+  const [manualOverride, setManualOverride] = useState(false);
   const [agencyFeePctFromApi, setAgencyFeePctFromApi] = useState<
     number | undefined
   >(undefined);
@@ -497,6 +501,12 @@ export default function ServiceForm({
 
     return () => ac.abort();
   }, [isFormVisible, token]);
+
+  useEffect(() => {
+    if (!isFormVisible || agencyBillingMode === "manual") {
+      setManualOverride(false);
+    }
+  }, [agencyBillingMode, isFormVisible]);
 
   /* ===================================================
    * Fetch de config por TIPO (solo si el form está abierto)
@@ -730,8 +740,10 @@ export default function ServiceForm({
     agencyTransferFeePct,
   ]);
 
-  // ⚙️ Modo de facturación: viene de la API de agencia (DB)
-  const manualMode = agencyBillingMode === "manual";
+  // ⚙️ Modo de facturación: API de agencia + override manual (si aplica)
+  const manualMode =
+    agencyBillingMode === "manual" ||
+    (canOverrideBillingMode && manualOverride);
 
   // Solo bloqueamos si NO hay texto de destino y además el picker dice que no es válido.
   const destinationHasText = useMemo(
@@ -1098,6 +1110,34 @@ export default function ServiceForm({
                 title="Precios"
                 desc="Ingresá los montos en la moneda seleccionada."
               >
+                {canOverrideBillingMode &&
+                  !loadingAgencyCfg &&
+                  agencyBillingMode === "auto" && (
+                    <div className="col-span-full">
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/10 p-3 text-xs">
+                        <div>
+                          <p className="text-sm font-medium">
+                            Desglose de facturación
+                          </p>
+                          <p className="text-[11px] text-sky-950/70 dark:text-white/70">
+                            La agencia está en automático. Podés forzar manual
+                            para este servicio.
+                          </p>
+                        </div>
+                        <label className="inline-flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={manualOverride}
+                            onChange={(e) =>
+                              setManualOverride(e.target.checked)
+                            }
+                            className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
+                          />
+                          Manual
+                        </label>
+                      </div>
+                    </div>
+                  )}
                 <Field
                   id="cost_price"
                   label="Costo"

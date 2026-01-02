@@ -90,6 +90,7 @@ interface ServicesContainerProps {
   onReceiptDeleted?: (id: number) => void;
   onReceiptCreated?: (r: Receipt) => void;
   onCreditNoteCreated?: () => void;
+  onInvoiceUpdated?: (invoice: Invoice) => void;
   invoiceFormData: InvoiceFormData;
   formData: ServiceFormData;
   editingServiceId: number | null;
@@ -282,6 +283,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     onReceiptDeleted,
     onReceiptCreated,
     onCreditNoteCreated,
+    onInvoiceUpdated,
     invoiceFormData,
     formData,
     editingServiceId,
@@ -406,6 +408,10 @@ export default function ServicesContainer(props: ServicesContainerProps) {
 
   const canNavigateNeighbors =
     role === "administrativo" || role === "gerente" || role === "desarrollador";
+  const canOverrideBillingMode =
+    role === "administrativo" ||
+    role === "gerente" ||
+    role === "desarrollador";
 
   useEffect(() => {
     if (!token || !booking?.id_booking || !canNavigateNeighbors) {
@@ -1288,6 +1294,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 onBillingUpdate={onBillingUpdate}
                 agencyTransferFeePct={agencyTransferFeePct}
                 transferFeeReady={agencyTransferFeeReady}
+                canOverrideBillingMode={canOverrideBillingMode}
               />
 
               {services.length > 0 && (
@@ -1497,20 +1504,16 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                           token ?? undefined,
                         );
 
-                        if (!res.ok) {
-                          let msg = "No se pudo crear el recibo.";
-                          const errJson: unknown = await res
-                            .json()
-                            .catch(() => null);
-                          const picked = pickApiMessage(errJson);
-                          if (picked) msg = picked;
-                          toast.error(msg);
-                          return;
-                        }
-
                         const json: unknown = await res
                           .json()
                           .catch(() => null);
+
+                        if (!res.ok) {
+                          let msg = "No se pudo crear el recibo.";
+                          const picked = pickApiMessage(json);
+                          if (picked) msg = picked;
+                          throw new Error(msg);
+                        }
                         const submitResult = isSubmitResultLike(json)
                           ? json
                           : null;
@@ -1525,7 +1528,6 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                             : null);
 
                         if (!raw) {
-                          toast.success("Recibo creado y asociado.");
                           router.refresh();
                           return submitResult;
                         }
@@ -1539,7 +1541,6 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                           ),
                         } as Receipt;
 
-                        toast.success("Recibo creado y asociado.");
                         onReceiptCreated?.(receipt);
                         router.refresh();
                         return (
@@ -1725,7 +1726,11 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                                 : "Nota de crédito"}
                             </span>
                             {item.invoice ? (
-                              <InvoiceCard invoice={item.invoice} />
+                              <InvoiceCard
+                                invoice={item.invoice}
+                                token={token}
+                                onInvoiceUpdated={onInvoiceUpdated}
+                              />
                             ) : item.creditNote ? (
                               <CreditNoteCard creditNote={item.creditNote} />
                             ) : null}

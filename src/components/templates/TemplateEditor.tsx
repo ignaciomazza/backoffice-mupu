@@ -680,7 +680,7 @@ const TemplateEditor: React.FC<Props> = ({
     setFocusSeq((n) => n + 1); // focus al último editable
   };
 
-  // Enfocar último editable tras agregar bloque
+  // Enfocar último editable tras agregar bloque, sin mover el scroll actual
   useEffect(() => {
     if (!focusSeq) return;
     const root = canvasRef.current;
@@ -693,19 +693,24 @@ const TemplateEditor: React.FC<Props> = ({
       if (editables.length === 0) return;
       const el = editables[editables.length - 1];
 
-      el.focus();
+      const scrollTop = window.scrollY;
+      const scrollLeft = window.scrollX;
+      try {
+        el.focus({ preventScroll: true });
+      } catch {
+        el.focus();
+      }
       const sel = window.getSelection?.();
       const range = document.createRange();
       range.selectNodeContents(el);
       range.collapse(false);
       sel?.removeAllRanges();
       sel?.addRange(range);
-
-      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      window.scrollTo({ top: scrollTop, left: scrollLeft, behavior: "auto" });
     });
 
     return () => cancelAnimationFrame(id);
-  }, [blocks.length, focusSeq]);
+  }, [focusSeq]);
 
   // Guardar preset de data (bloques)
   async function saveCurrentAsPreset() {
