@@ -1,7 +1,7 @@
 // src/app/receipts/page.tsx
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
 import { toast, ToastContainer } from "react-toastify";
@@ -250,6 +250,7 @@ export default function ReceiptsPage() {
   const [loadingDeleteId, setLoadingDeleteId] = useState<number | null>(null);
   const [editingReceipt, setEditingReceipt] = useState<ReceiptRow | null>(null);
   const [formVisible, setFormVisible] = useState(false);
+  const lastAssociationFilter = useRef(associationFilter);
 
   /* ---------- Config financiera (para opciones de filtros) ---------- */
   const [finance, setFinance] = useState<FinancePickBundle | null>(null);
@@ -676,6 +677,8 @@ export default function ReceiptsPage() {
 
   useEffect(() => {
     if (!pageInit) return;
+    if (lastAssociationFilter.current === associationFilter) return;
+    lastAssociationFilter.current = associationFilter;
     refreshList();
   }, [associationFilter, pageInit, refreshList]);
 
