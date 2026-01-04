@@ -1715,7 +1715,9 @@ export default function ServicesContainer(props: ServicesContainerProps) {
               {/* PAGOS A OPERADOR */}
               {canAdminLike && services.length > 0 && (
                 <div>
-                  <p className="mb-2 font-medium">Pagos al Operador</p>
+                  <div className="mb-4 mt-8 flex items-center justify-center gap-2">
+                    <p className="text-2xl font-medium">Pagos al Operador</p>
+                  </div>
                   <OperatorPaymentForm
                     token={token}
                     booking={booking!}
@@ -1775,9 +1777,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
 
                         {/* Operador */}
                         <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-                          <p className="mb-2 font-medium">
-                            Vencimiento del Operador ( Opcional )
-                          </p>
+                          <p className="mb-2 font-medium">Operador</p>
                           <div className="flex gap-2">
                             {(["Pendiente", "Pago"] as const).map((st) => (
                               <button
@@ -1861,7 +1861,12 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 (services.length > 0 || operatorDues.length > 0) && (
                   <div className="mb-16">
                     <div className="mb-4 mt-8 flex items-center justify-center gap-2">
-                      <p className="text-2xl font-medium">Operador</p>
+                      <p className="text-2xl font-medium">
+                        Vencimiento del Operador{" "}
+                        <span className="text-xl font-normal tracking-wide opacity-70">
+                          (Opcional)
+                        </span>
+                      </p>
                     </div>
 
                     <OperatorDueForm
@@ -1890,7 +1895,10 @@ export default function ServicesContainer(props: ServicesContainerProps) {
               <div className="mb-16">
                 <div className="mb-4 mt-8 flex items-center justify-center gap-2">
                   <p className="text-2xl font-medium">
-                    Plan de pagos del cliente ( Opcional )
+                    Plan de pagos del cliente{" "}
+                    <span className="text-xl font-normal tracking-wide opacity-70">
+                      (Opcional)
+                    </span>
                   </p>
                 </div>
 
