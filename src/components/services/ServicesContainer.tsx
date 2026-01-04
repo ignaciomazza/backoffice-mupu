@@ -1332,33 +1332,6 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 </div>
               )}
 
-              {/* PAGOS CLIENTE */}
-              <div className="mb-16">
-                <div className="mb-4 mt-8 flex items-center justify-center gap-2">
-                  <p className="text-2xl font-medium">Pagos de Cliente</p>
-                </div>
-
-                {(role === "administrativo" ||
-                  role === "desarrollador" ||
-                  role === "gerente" ||
-                  role === "vendedor") &&
-                  booking && (
-                    <ClientPaymentForm
-                      token={token}
-                      booking={booking}
-                      onCreated={handleClientPaymentCreated}
-                    />
-                  )}
-
-                <ClientPaymentList
-                  payments={clientPayments}
-                  booking={booking!}
-                  role={role}
-                  loading={clientPaymentsLoading}
-                  onPaymentDeleted={handleClientPaymentDeleted}
-                />
-              </div>
-
               {/* RECIBOS */}
               <div className="mb-16">
                 <div className="mb-4 mt-8 flex items-center justify-center gap-2">
@@ -1745,6 +1718,27 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                   </div>
                 )}
 
+              {/* PAGOS A OPERADOR */}
+              {canAdminLike && services.length > 0 && (
+                <div>
+                  <OperatorPaymentForm
+                    token={token}
+                    booking={booking!}
+                    availableServices={services}
+                    operators={operators}
+                    onCreated={() => {
+                      setPaymentsReloadKey((k) => k + 1);
+                      onPaymentCreated?.();
+                    }}
+                  />
+                  <OperatorPaymentList
+                    token={token}
+                    bookingId={booking.id_booking}
+                    reloadKey={paymentsReloadKey}
+                  />
+                </div>
+              )}
+
               {/* ESTADOS RESERVA */}
               {canAdminLike &&
                 (services.length > 0 ||
@@ -1895,26 +1889,33 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                   </div>
                 )}
 
-              {/* PAGOS A OPERADOR */}
-              {canAdminLike && services.length > 0 && (
-                <div>
-                  <OperatorPaymentForm
-                    token={token}
-                    booking={booking!}
-                    availableServices={services}
-                    operators={operators}
-                    onCreated={() => {
-                      setPaymentsReloadKey((k) => k + 1);
-                      onPaymentCreated?.();
-                    }}
-                  />
-                  <OperatorPaymentList
-                    token={token}
-                    bookingId={booking.id_booking}
-                    reloadKey={paymentsReloadKey}
-                  />
+              {/* PAGO AL CLIENTE */}
+              <div className="mb-16">
+                <div className="mb-4 mt-8 flex items-center justify-center gap-2">
+                  <p className="text-2xl font-medium">Pago al cliente</p>
                 </div>
-              )}
+
+                {(role === "administrativo" ||
+                  role === "desarrollador" ||
+                  role === "gerente" ||
+                  role === "vendedor") &&
+                  booking && (
+                    <ClientPaymentForm
+                      token={token}
+                      booking={booking}
+                      onCreated={handleClientPaymentCreated}
+                    />
+                  )}
+
+                <ClientPaymentList
+                  payments={clientPayments}
+                  booking={booking!}
+                  role={role}
+                  loading={clientPaymentsLoading}
+                  onPaymentDeleted={handleClientPaymentDeleted}
+                />
+              </div>
+
             </>
           ) : (
             <div className="flex h-40 items-center justify-center">
