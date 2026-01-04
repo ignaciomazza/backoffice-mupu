@@ -354,7 +354,7 @@ export default function CommissionsConfig() {
       <div className="rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 className="text-base font-semibold">Beneficiarios</h3>
+            <h3 className="text-base font-semibold">Lideres de equipo</h3>
             <p className="text-xs opacity-70">
               Usuarios que cobran parte de la comision del duenio seleccionado.
             </p>
@@ -366,7 +366,7 @@ export default function CommissionsConfig() {
             disabled={!hasOwner}
             className="rounded-full bg-sky-100 px-4 py-2 text-sky-950 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white/10 dark:text-white"
           >
-            Agregar beneficiario
+            Agregar Lider de equipo
           </button>
         </div>
 
@@ -431,8 +431,8 @@ export default function CommissionsConfig() {
                       }
                       disabled={!hasOwner}
                       className="rounded-full bg-red-600 p-2 text-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      aria-label="Eliminar beneficiario"
-                      title="Eliminar beneficiario"
+                      aria-label="Eliminar Lider de equipo"
+                      title="Eliminar Lider de equipo"
                     >
                       <TrashIcon className="size-4" />
                     </button>
@@ -442,7 +442,7 @@ export default function CommissionsConfig() {
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={3} className="p-4 text-center opacity-70">
-                    Sin beneficiarios cargados.
+                    Sin lider de equipo cargados.
                   </td>
                 </tr>
               )}
@@ -463,7 +463,7 @@ export default function CommissionsConfig() {
           <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
             <div className="flex items-center gap-2 text-xs opacity-70">
               <span className="inline-flex size-2 rounded-full bg-sky-400" />
-              Beneficiarios
+              Lideres de equipo
             </div>
             <div className="text-lg font-semibold">{sumShares.toFixed(2)}%</div>
           </div>
@@ -566,7 +566,7 @@ export default function CommissionsConfig() {
                 <tr>
                   <th className="p-2 text-left">Vigente desde</th>
                   <th className="p-2 text-left">% del duenio</th>
-                  <th className="p-2 text-left">Beneficiarios</th>
+                  <th className="p-2 text-left">Lideres de equipo</th>
                   <th className="p-2"></th>
                 </tr>
               </thead>

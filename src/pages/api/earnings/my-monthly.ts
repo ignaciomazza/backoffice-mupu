@@ -59,7 +59,7 @@ export type MyMonthlyItem = {
   month: string; // YYYY-MM (UTC)
   currency: string; // "ARS" | "USD" | ...
   seller: number; // lo que cobro como dueño
-  beneficiary: number; // lo que cobro como beneficiario
+  beneficiary: number; // lo que cobro como Lideres de equipo
   total: number; // seller + beneficiary
 };
 export type MyMonthlyResponse = {

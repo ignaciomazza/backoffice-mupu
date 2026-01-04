@@ -804,7 +804,7 @@ export default function ReceiptForm({
   }, [token]);
 
   const paymentSummary = useMemo(() => {
-    const parts: string[] = [];
+    const lines: { label: string; amount: number }[] = [];
 
     for (const l of paymentLines) {
       const amt = parseAmountInput(l.amount);
@@ -846,12 +846,26 @@ export default function ReceiptForm({
         tail = accName ? ` (${accName})` : "";
       }
 
-      parts.push(
-        `${mName}${tail}: ${amt.toLocaleString("es-AR", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })} ${effectiveCurrency}`,
-      );
+      lines.push({ label: `${mName}${tail}`, amount: amt });
+    }
+
+    if (!lines.length) return "";
+
+    const feeNum = parseAmountInput(feeAmount) ?? 0;
+    const includeFeeInSingle = feeNum > 0 && lines.length === 1;
+    const fmt = (value: number) =>
+      value.toLocaleString("es-AR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+
+    const parts = lines.map((line) => {
+      const total = includeFeeInSingle ? line.amount + feeNum : line.amount;
+      return `${line.label}: ${fmt(total)} ${effectiveCurrency}`;
+    });
+
+    if (feeNum > 0 && !includeFeeInSingle) {
+      parts.push(`Costo financiero: ${fmt(feeNum)} ${effectiveCurrency}`);
     }
 
     return parts.join(" + ");
@@ -863,6 +877,7 @@ export default function ReceiptForm({
     effectiveCurrency,
     creditAccountsByOperator,
     creditMethodId,
+    feeAmount,
   ]);
 
   /* ===== Conversión (opcional) ===== */

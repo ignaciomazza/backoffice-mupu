@@ -10,7 +10,7 @@ interface EarningItem {
   teamId: number;
   teamName: string;
   totalSellerComm: number;
-  totalLeaderComm: number; // <-- todos los beneficiarios distintos del dueño
+  totalLeaderComm: number; // <-- todos los Lideres de equipo distintos del dueño
   totalAgencyShare: number;
   debt: number;
   bookingIds: number[];

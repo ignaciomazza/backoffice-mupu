@@ -43,6 +43,7 @@ model Agency {
   FinancePaymentMethod FinancePaymentMethod[]
   ExpenseCategory      ExpenseCategory[]
   FinanceConfig        FinanceConfig?
+  ClientConfig         ClientConfig?
   Lead                 Lead[]
   Receipt              Receipt[]
   ServiceType          ServiceType[]
@@ -613,6 +614,20 @@ model FinanceConfig {
 
   default_currency_code                 String
   hide_operator_expenses_in_investments Boolean @default(false)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([id_agency])
+}
+
+model ClientConfig {
+  id_config Int    @id @default(autoincrement())
+  id_agency Int    @unique
+  agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  // "all" (todos), "team" (por equipo), "own" (solo propios)
+  visibility_mode String @default("all")
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

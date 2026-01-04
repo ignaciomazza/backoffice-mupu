@@ -281,7 +281,7 @@ export default function CreateReceiptFields(props: {
 
         <Field
           id="fee_amount"
-          label="Costo financiero (retención del medio)"
+          label="Costo financiero (retención del medio. Ej: Intereses de tarjeta)"
           hint="Solo si el medio retiene parte del cobro."
         >
           <input

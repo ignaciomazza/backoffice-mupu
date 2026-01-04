@@ -82,18 +82,28 @@ export default function ContextSection(props: {
           desc="Podés crear un recibo nuevo o asociar uno existente a una reserva/servicios."
         >
           <div className="md:col-span-2">
-            <div className="inline-flex rounded-2xl border border-white/10 p-1">
+            <div className="inline-flex rounded-2xl border border-white/10 bg-white/60 p-1 shadow-sm shadow-sky-950/10 dark:bg-white/10">
               <button
                 type="button"
                 onClick={() => setAction("create")}
-                className={`rounded-xl px-3 py-1 text-sm ${action === "create" ? "bg-white/20" : ""}`}
+                className={[
+                  "rounded-xl px-4 py-2 text-sm font-semibold transition-colors",
+                  action === "create"
+                    ? "bg-sky-500/15 text-sky-700 dark:text-sky-200"
+                    : "text-sky-950/80 hover:bg-white/60 dark:text-white/80",
+                ].join(" ")}
               >
                 Crear nuevo
               </button>
               <button
                 type="button"
                 onClick={() => setAction("attach")}
-                className={`rounded-xl px-3 py-1 text-sm ${action === "attach" ? "bg-white/20" : ""}`}
+                className={[
+                  "rounded-xl px-4 py-2 text-sm font-semibold transition-colors",
+                  action === "attach"
+                    ? "bg-sky-500/15 text-sky-700 dark:text-sky-200"
+                    : "text-sky-950/80 hover:bg-white/60 dark:text-white/80",
+                ].join(" ")}
               >
                 Asociar existente
               </button>

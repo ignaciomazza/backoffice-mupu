@@ -108,7 +108,7 @@ const MoneyTooltip: React.FC<
         <strong>Vendedor:</strong> {formatMoney(Number(seller) || 0, code)}
       </p>
       <p className="text-xs">
-        <strong>Beneficiario:</strong>{" "}
+        <strong>Lider de equipo:</strong>{" "}
         {formatMoney(Number(beneficiary) || 0, code)}
       </p>
       <p className="text-xs">
@@ -252,7 +252,7 @@ export default function MyEarningsPage() {
             <h1 className="text-2xl font-semibold">Mis ganancias (mensual)</h1>
             <p className="text-sm opacity-70">
               Detalle por mes y por moneda. Incluye lo que ganás como vendedor y
-              como beneficiario.
+              como Lider de equipo.
             </p>
           </div>
 
@@ -326,13 +326,13 @@ export default function MyEarningsPage() {
               >
                 <p className="text-end font-light tracking-wide">{code}</p>
                 <div>
-                  <p className="font-medium">Como vendedor</p>
+                  <p className="font-medium">Vendedor</p>
                   <p className="font-light tracking-wide">
                     {formatMoney(v.seller, code)}
                   </p>
                 </div>
                 <div>
-                  <p className="font-medium">Como beneficiario</p>
+                  <p className="font-medium">Lider de equipo</p>
                   <p className="font-light tracking-wide">
                     {formatMoney(v.beneficiary, code)}
                   </p>
@@ -398,7 +398,7 @@ export default function MyEarningsPage() {
                   <Bar
                     dataKey="beneficiary"
                     stackId="a"
-                    name="Beneficiario"
+                    name="Lider de equipo"
                     radius={[8, 8, 0, 0]}
                     fill="rgba(2,132,199,0.9)" // sky-600
                   />
@@ -426,7 +426,7 @@ export default function MyEarningsPage() {
                   <tr className="text-sky-700 dark:text-sky-200">
                     <th className="px-4 py-2 font-medium">Mes</th>
                     <th className="px-4 py-2 font-medium">Vendedor</th>
-                    <th className="px-4 py-2 font-medium">Beneficiario</th>
+                    <th className="px-4 py-2 font-medium">Lider de equipo</th>
                     <th className="px-4 py-2 font-medium">Total</th>
                   </tr>
                 </thead>

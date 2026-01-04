@@ -70,7 +70,7 @@ const MoneyTooltip = ({ active, payload }: TooltipProps<number, string>) => {
         );
       })}
       <p className="text-sm">
-        <strong>Deuda:</strong>{" "}
+        <strong>Deuda de sus pax:</strong>{" "}
         {format(
           (payload[0].payload as EarningItem).debt,
           (payload[0].payload as EarningItem).currency,
@@ -272,7 +272,7 @@ export default function EarningsPage() {
                   </p>
                 </div>
                 <div>
-                  <p className="font-medium">Deuda</p>
+                  <p className="font-medium">Deuda de clientes</p>
                   <p className="font-light tracking-wide">
                     {formatCurrency(
                       data.items

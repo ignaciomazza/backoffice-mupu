@@ -151,6 +151,7 @@ export default function SideBar({
       "/receipts": adm,
       "/receipts/verify": adm,
       "/finance/config": adm,
+      "/clients/config": adm,
       "/credits": adm,
       "/cashbox": adm,
       "/insights": insightsRoles,
@@ -198,7 +199,10 @@ export default function SideBar({
         items: [
           { href: "/clients", label: "Clientes" },
           { href: "/client-stats", label: "Estadísticas" },
-        ],
+          hasAccess("/clients/config")
+            ? { href: "/clients/config", label: "Configuración" }
+            : null,
+        ].filter(Boolean) as { href: string; label: string }[],
       },
       {
         id: "reservas",

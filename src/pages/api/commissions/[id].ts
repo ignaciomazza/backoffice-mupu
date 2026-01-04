@@ -130,7 +130,7 @@ export default async function handler(
           .json({ error: "La suma de porcentajes no puede superar 100%" });
       }
 
-      // validar beneficiarios (misma agencia)
+      // validar Lideres de equipo (misma agencia)
       if (normalizedShares.length) {
         const ids = normalizedShares.map((s) => s.beneficiary_user_id);
         const ben = await prisma.user.findMany({
@@ -144,7 +144,7 @@ export default async function handler(
           return res
             .status(400)
             .json({
-              error: "Beneficiarios fuera de la agencia o inexistentes",
+              error: "Lideres de equipo fuera de la agencia o inexistentes",
             });
       }
 

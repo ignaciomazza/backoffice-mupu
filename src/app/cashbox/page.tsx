@@ -730,7 +730,10 @@ export default function CashboxPage() {
                 {/* Saldos globales (deudas) */}
                 <div className="rounded-3xl border border-white/20 bg-white/10 p-5 shadow-md shadow-zinc-900/10 backdrop-blur dark:border-white/10 dark:bg-sky-900/10 dark:shadow-zinc-950/70">
                   <p className="text-xs font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
-                    Saldos globales de deuda
+                    Cuentas Credito{" "}
+                    <span className="font-light lowercase opacity-70">
+                      (General)
+                    </span>
                   </p>
                   <div className="mt-3 grid grid-cols-2 gap-3 text-[11px]">
                     <div className="rounded-2xl bg-white/5 p-3 dark:bg-sky-900/10">
@@ -787,8 +790,7 @@ export default function CashboxPage() {
                     </div>
                   </div>
                   <p className="mt-2 text-[11px] text-zinc-600 dark:text-zinc-400">
-                    Esta foto sale de las cuentas corrientes de clientes y
-                    operadores (CreditAccount).
+                    {`Para ver mas informacion ingresa a la seccion "Creditos".`}
                   </p>
                 </div>
               </section>

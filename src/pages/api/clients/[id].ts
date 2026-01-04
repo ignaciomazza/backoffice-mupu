@@ -126,6 +126,66 @@ const userSelectSafe = {
   email: true,
 } as const;
 
+type VisibilityMode = "all" | "team" | "own";
+
+function normalizeVisibilityMode(v: unknown): VisibilityMode {
+  return v === "team" || v === "own" || v === "all" ? v : "all";
+}
+
+async function getVisibilityMode(authAgencyId: number): Promise<VisibilityMode> {
+  const cfg = await prisma.clientConfig.findFirst({
+    where: { id_agency: authAgencyId },
+    select: { visibility_mode: true },
+  });
+  return normalizeVisibilityMode(cfg?.visibility_mode);
+}
+
+async function getTeamScope(authUserId: number, authAgencyId: number) {
+  const teams = await prisma.salesTeam.findMany({
+    where: {
+      id_agency: authAgencyId,
+      user_teams: { some: { id_user: authUserId } },
+    },
+    include: { user_teams: { select: { id_user: true } } },
+  });
+  const userIds = new Set<number>([authUserId]);
+  teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
+  return { userIds: Array.from(userIds) };
+}
+
+async function getLeaderScope(authUserId: number, authAgencyId: number) {
+  const teams = await prisma.salesTeam.findMany({
+    where: {
+      id_agency: authAgencyId,
+      user_teams: { some: { user: { id_user: authUserId, role: "lider" } } },
+    },
+    include: { user_teams: { select: { id_user: true } } },
+  });
+  const userIds = new Set<number>([authUserId]);
+  teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
+  return { userIds: Array.from(userIds) };
+}
+
+async function canAccessClient(
+  auth: DecodedAuth,
+  clientOwnerId: number,
+): Promise<boolean> {
+  const roleNorm = (auth.role || "").toLowerCase();
+  if (["gerente", "desarrollador"].includes(roleNorm)) return true;
+  if (roleNorm === "lider") {
+    const scope = await getLeaderScope(auth.id_user, auth.id_agency);
+    return scope.userIds.includes(clientOwnerId);
+  }
+  if (roleNorm !== "vendedor") return true;
+
+  const mode = await getVisibilityMode(auth.id_agency);
+  if (mode === "all") return true;
+  if (mode === "own") return clientOwnerId === auth.id_user;
+
+  const scope = await getTeamScope(auth.id_user, auth.id_agency);
+  return scope.userIds.includes(clientOwnerId);
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -158,6 +218,12 @@ export default async function handler(
           .status(403)
           .json({ error: "No autorizado para este cliente" });
       }
+      const canAccess = await canAccessClient(auth, client.id_user);
+      if (!canAccess) {
+        return res
+          .status(403)
+          .json({ error: "No autorizado para este cliente" });
+      }
 
       return res.status(200).json(client);
     } catch (e) {
@@ -177,6 +243,12 @@ export default async function handler(
         return res.status(404).json({ error: "Cliente no encontrado" });
       }
       if (existing.id_agency !== auth.id_agency) {
+        return res
+          .status(403)
+          .json({ error: "No autorizado para este cliente" });
+      }
+      const canAccess = await canAccessClient(auth, existing.id_user);
+      if (!canAccess) {
         return res
           .status(403)
           .json({ error: "No autorizado para este cliente" });
@@ -340,6 +412,7 @@ export default async function handler(
         select: {
           id_client: true,
           id_agency: true,
+          id_user: true,
           bookings: { select: { id_booking: true }, take: 1 },
           titular_bookings: { select: { id_booking: true }, take: 1 },
           invoices: { select: { id_invoice: true }, take: 1 },
@@ -349,6 +422,12 @@ export default async function handler(
         return res.status(404).json({ error: "Cliente no encontrado" });
       }
       if (client.id_agency !== auth.id_agency) {
+        return res
+          .status(403)
+          .json({ error: "No autorizado para este cliente" });
+      }
+      const canAccess = await canAccessClient(auth, client.id_user);
+      if (!canAccess) {
         return res
           .status(403)
           .json({ error: "No autorizado para este cliente" });
