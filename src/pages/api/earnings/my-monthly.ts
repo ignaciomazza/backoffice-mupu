@@ -101,7 +101,12 @@ export default async function handler(
           creation_date: { gte: fromDate, lt: toDateExclusive },
         },
       },
-      include: { booking: { include: { user: true } } },
+      select: {
+        booking_id: true,
+        sale_price: true,
+        currency: true,
+        totalCommissionWithoutVAT: true,
+      },
     });
 
     if (services.length === 0) {
@@ -113,21 +118,29 @@ export default async function handler(
     const bookingCreatedAt = new Map<number, Date>();
     const bookingOwner = new Map<number, { id: number; name: string }>();
 
+    const bookingIds = Array.from(
+      new Set(services.map((svc) => svc.booking_id)),
+    );
+    if (bookingIds.length > 0) {
+      const bookings = await prisma.booking.findMany({
+        where: { id_agency: auth.id_agency, id_booking: { in: bookingIds } },
+        include: { user: true },
+      });
+      for (const b of bookings) {
+        bookingCreatedAt.set(b.id_booking, b.creation_date);
+        bookingOwner.set(b.id_booking, {
+          id: b.user.id_user,
+          name: `${b.user.first_name} ${b.user.last_name}`,
+        });
+      }
+    }
+
     for (const svc of services) {
-      const bid = svc.booking.id_booking;
+      const bid = svc.booking_id;
       const cur = (svc.currency || "ARS").toUpperCase();
       const prev = saleTotalsByBooking.get(bid) || {};
       prev[cur] = (prev[cur] || 0) + (svc.sale_price || 0);
       saleTotalsByBooking.set(bid, prev);
-
-      if (!bookingCreatedAt.has(bid))
-        bookingCreatedAt.set(bid, svc.booking.creation_date);
-      if (!bookingOwner.has(bid)) {
-        bookingOwner.set(bid, {
-          id: svc.booking.user.id_user,
-          name: `${svc.booking.user.first_name} ${svc.booking.user.last_name}`,
-        });
-      }
     }
 
     // 3) Recibos → validar 40% cobrado en la misma moneda
@@ -171,7 +184,7 @@ export default async function handler(
 
     // 4) Reglas de comisión (para dueños)
     const ownerIds = Array.from(
-      new Set(services.map((s) => s.booking.user.id_user)),
+      new Set(Array.from(bookingOwner.values()).map((o) => o.id)),
     );
     const ruleSets = await prisma.commissionRuleSet.findMany({
       where: { id_agency: auth.id_agency, owner_user_id: { in: ownerIds } },
@@ -220,13 +233,15 @@ export default async function handler(
     > = {};
 
     for (const svc of services) {
-      const bid = svc.booking.id_booking;
+      const bid = svc.booking_id;
       const cur = (svc.currency || "ARS").toUpperCase();
       if (!validBookingCurrency.has(`${bid}-${cur}`)) continue;
 
-      const createdAt = bookingCreatedAt.get(bid)!;
+      const createdAt = bookingCreatedAt.get(bid);
+      const owner = bookingOwner.get(bid);
+      if (!createdAt || !owner) continue;
       const month = monthKeyUTC(createdAt);
-      const ownerId = bookingOwner.get(bid)!.id;
+      const ownerId = owner.id;
 
       // base de comisión (mismo criterio que /earnings)
       const fee = (svc.sale_price || 0) * 0.024;

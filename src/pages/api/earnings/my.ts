@@ -99,15 +99,10 @@ function startOfDayUTCFromYmdInTz(ymd: string, timeZone: string): Date {
 type Totals = Record<"ARS" | "USD", number>;
 
 type ServiceLite = {
+  booking_id: number;
   sale_price: number;
   currency: "ARS" | "USD" | string;
   totalCommissionWithoutVAT?: number | null;
-  booking: {
-    id_booking: number;
-    id_agency: number;
-    creation_date: Date;
-    user: { id_user: number; first_name: string; last_name: string };
-  };
 };
 
 type ReceiptLite = {
@@ -168,57 +163,51 @@ export default async function handler(
 
   try {
     // 1) Servicios del rango en MI agencia
-    const servicesRaw = await prisma.service.findMany({
+    const services: ServiceLite[] = await prisma.service.findMany({
       where: {
         booking: {
           id_agency: agencyId,
           creation_date: { gte: fromUTC, lt: toExclusiveUTC },
         },
       },
-      include: { booking: { include: { user: true } } },
-    });
-
-    const services: ServiceLite[] = servicesRaw.map((s) => ({
-      sale_price: s.sale_price as number,
-      currency: (s.currency as string) || "ARS",
-      totalCommissionWithoutVAT:
-        (s as { totalCommissionWithoutVAT?: number | null })
-          .totalCommissionWithoutVAT ?? null,
-      booking: {
-        id_booking: s.booking.id_booking as number,
-        id_agency: s.booking.id_agency as number,
-        creation_date: s.booking.creation_date as Date,
-        user: {
-          id_user: s.booking.user.id_user as number,
-          first_name: String(s.booking.user.first_name ?? ""),
-          last_name: String(s.booking.user.last_name ?? ""),
-        },
+      select: {
+        booking_id: true,
+        sale_price: true,
+        currency: true,
+        totalCommissionWithoutVAT: true,
       },
-    }));
+    });
 
     // 2) Venta total por reserva / moneda
     const saleTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
     const bookingCreatedAt = new Map<number, Date>();
     const bookingOwner = new Map<number, { id: number; name: string }>();
 
+    const bookingIds = Array.from(
+      new Set(services.map((svc) => svc.booking_id)),
+    );
+    if (bookingIds.length > 0) {
+      const bookings = await prisma.booking.findMany({
+        where: { id_agency: agencyId, id_booking: { in: bookingIds } },
+        include: { user: true },
+      });
+      for (const b of bookings) {
+        bookingCreatedAt.set(b.id_booking, b.creation_date);
+        bookingOwner.set(b.id_booking, {
+          id: b.user.id_user,
+          name: `${b.user.first_name} ${b.user.last_name}`,
+        });
+      }
+    }
+
     for (const svc of services) {
-      const bid = svc.booking.id_booking;
+      const bid = svc.booking_id;
       const cur = (svc.currency as "ARS" | "USD") || "ARS";
       const prev = saleTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
       if (cur === "ARS" || cur === "USD") {
         prev[cur] += svc.sale_price;
       }
       saleTotalsByBooking.set(bid, prev);
-
-      if (!bookingCreatedAt.has(bid))
-        bookingCreatedAt.set(bid, svc.booking.creation_date);
-
-      if (!bookingOwner.has(bid)) {
-        bookingOwner.set(bid, {
-          id: svc.booking.user.id_user,
-          name: `${svc.booking.user.first_name} ${svc.booking.user.last_name}`,
-        });
-      }
     }
 
     // 3) Recibos → validación 40%
@@ -272,7 +261,7 @@ export default async function handler(
 
     // 4) Prefetch de reglas por dueño
     const ownerIds = Array.from(
-      new Set(services.map((s) => s.booking.user.id_user)),
+      new Set(Array.from(bookingOwner.values()).map((o) => o.id)),
     );
 
     const rawRuleSets = await prisma.commissionRuleSet.findMany({
@@ -331,7 +320,7 @@ export default async function handler(
     };
 
     for (const svc of services) {
-      const bid = svc.booking.id_booking;
+      const bid = svc.booking_id;
       const cur = (svc.currency as "ARS" | "USD") || "ARS";
       if (cur !== "ARS" && cur !== "USD") continue;
       if (!validBookingCurrency.has(`${bid}-${cur}`)) continue;
@@ -345,8 +334,10 @@ export default async function handler(
         ) || 0;
       const commissionBase = Math.max(dbCommission - fee, 0);
 
-      const ownerId = bookingOwner.get(bid)!.id;
-      const createdAt = bookingCreatedAt.get(bid)!;
+      const owner = bookingOwner.get(bid);
+      const createdAt = bookingCreatedAt.get(bid);
+      if (!owner || !createdAt) continue;
+      const ownerId = owner.id;
       const { ownPct, beneficiaryPctForMe } = resolveRule(
         ownerId,
         createdAt,

@@ -115,29 +115,40 @@ export default async function handler(
           creation_date: { gte: fromDate, lt: toDateExclusive },
         },
       },
-      include: { booking: { include: { user: true } } },
+      select: {
+        booking_id: true,
+        currency: true,
+        sale_price: true,
+        totalCommissionWithoutVAT: true,
+      },
     });
 
-    // 2.1) Dueños (vendedores) de cada booking
+    // 2.1) Dueños (vendedores) de cada booking (siempre desde Booking)
     const bookingOwners = new Map<
       number,
       { userId: number; userName: string; bookingCreatedAt: Date }
     >();
-    services.forEach((svc) => {
-      const b = svc.booking;
-      if (!bookingOwners.has(b.id_booking)) {
+    const bookingIds = Array.from(
+      new Set(services.map((svc) => svc.booking_id)),
+    );
+    if (bookingIds.length > 0) {
+      const bookings = await prisma.booking.findMany({
+        where: { id_agency: auth.id_agency, id_booking: { in: bookingIds } },
+        include: { user: true },
+      });
+      bookings.forEach((b) => {
         bookingOwners.set(b.id_booking, {
           userId: b.user.id_user,
           userName: `${b.user.first_name} ${b.user.last_name}`,
           bookingCreatedAt: b.creation_date,
         });
-      }
-    });
+      });
+    }
 
     // 3) Venta total por reserva/moneda (para deuda y 40%)
     const saleTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
     services.forEach((svc) => {
-      const bid = svc.booking.id_booking;
+      const bid = svc.booking_id;
       const cur = String(svc.currency || "ARS").toUpperCase();
       const prev = saleTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
       if (cur === "ARS" || cur === "USD") {
@@ -246,7 +257,7 @@ export default async function handler(
     // 8) Filtrar servicios válidos por % pago
     const filteredServices = services.filter((svc) =>
       validBookingCurrency.has(
-        `${svc.booking.id_booking}-${svc.currency as "ARS" | "USD"}`,
+        `${svc.booking_id}-${svc.currency as "ARS" | "USD"}`,
       ),
     );
 
@@ -333,13 +344,15 @@ export default async function handler(
     }
 
     for (const svc of filteredServices) {
-      const bid = svc.booking.id_booking;
+      const bid = svc.booking_id;
       const cur = (svc.currency as "ARS" | "USD") || "ARS";
+      const owner = bookingOwners.get(bid);
+      if (!owner) continue;
       const {
         userId: sellerId,
         userName: sellerName,
         bookingCreatedAt,
-      } = bookingOwners.get(bid)!;
+      } = owner;
 
       // base de comisión (con tu ajuste actual)
       const fee = svc.sale_price * 0.024;
