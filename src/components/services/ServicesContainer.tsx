@@ -409,9 +409,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   const canNavigateNeighbors =
     role === "administrativo" || role === "gerente" || role === "desarrollador";
   const canOverrideBillingMode =
-    role === "administrativo" ||
-    role === "gerente" ||
-    role === "desarrollador";
+    role === "administrativo" || role === "gerente" || role === "desarrollador";
 
   useEffect(() => {
     if (!token || !booking?.id_booking || !canNavigateNeighbors) {
@@ -834,9 +832,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       sortKey: toSortKey(cn.issue_date as unknown as string | Date | null),
       creditNote: cn,
     }));
-    return [...invItems, ...creditItems].sort(
-      (a, b) => b.sortKey - a.sortKey,
-    );
+    return [...invItems, ...creditItems].sort((a, b) => b.sortKey - a.sortKey);
   }, [invoices, creditNotes]);
 
   const filteredBillingItems = useMemo(() => {
@@ -1516,9 +1512,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
 
                         onReceiptCreated?.(receipt);
                         router.refresh();
-                        return (
-                          submitResult ?? submitResultFromReceipt(receipt)
-                        );
+                        return submitResult ?? submitResultFromReceipt(receipt);
                       }}
                     />
                   )}
@@ -1721,6 +1715,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
               {/* PAGOS A OPERADOR */}
               {canAdminLike && services.length > 0 && (
                 <div>
+                  <p className="mb-2 font-medium">Pagos al Operador</p>
                   <OperatorPaymentForm
                     token={token}
                     booking={booking!}
@@ -1780,7 +1775,9 @@ export default function ServicesContainer(props: ServicesContainerProps) {
 
                         {/* Operador */}
                         <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-                          <p className="mb-2 font-medium">Operador</p>
+                          <p className="mb-2 font-medium">
+                            Vencimiento del Operador ( Opcional )
+                          </p>
                           <div className="flex gap-2">
                             {(["Pendiente", "Pago"] as const).map((st) => (
                               <button
@@ -1892,7 +1889,9 @@ export default function ServicesContainer(props: ServicesContainerProps) {
               {/* PAGO AL CLIENTE */}
               <div className="mb-16">
                 <div className="mb-4 mt-8 flex items-center justify-center gap-2">
-                  <p className="text-2xl font-medium">Pago al cliente</p>
+                  <p className="text-2xl font-medium">
+                    Plan de pagos del cliente ( Opcional )
+                  </p>
                 </div>
 
                 {(role === "administrativo" ||
@@ -1915,7 +1914,6 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                   onPaymentDeleted={handleClientPaymentDeleted}
                 />
               </div>
-
             </>
           ) : (
             <div className="flex h-40 items-center justify-center">
