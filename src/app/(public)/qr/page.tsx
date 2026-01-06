@@ -38,17 +38,17 @@ const PLAN_DATA: Record<
   basico: {
     label: "Básico",
     base: 20,
-    short: "Facturación, vencimientos, recibos",
+    short: "Clientes, reservas, facturación y recibos",
   },
   medio: {
     label: "Medio",
     base: 40,
-    short: "Calendario, gastos, comisiones",
+    short: "Calendario, templates, gastos e insights",
   },
   pro: {
     label: "Pro",
     base: 50,
-    short: "Admin agencia, asesoría",
+    short: "Asesoramiento, capacitaciones, nuevas funcionalidades",
   },
 };
 

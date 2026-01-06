@@ -67,34 +67,83 @@ const PLAN_FEATURES: Record<
   basico: {
     label: "Básico",
     bullets: [
-      "Facturación",
-      "Vencimientos de pago",
-      "Planes de pago",
-      "Recibos",
-      "Pagos a operadores",
-      "Estadísticas de clientes",
+      "Clientes, reservas y servicios",
+      "Operadores y pagos a operadores",
+      "Facturación AFIP y notas de crédito",
+      "Recibos y planes de pago",
+      "Vencimientos y control de estados",
+      "Usuarios, roles y equipos",
+      "Configuración financiera y de servicios",
     ],
   },
   medio: {
     label: "Medio",
     highlight: true,
     bullets: [
-      "Calendario",
-      "Templates",
-      "Inversión (gastos)",
-      "Planillas",
-      "Ganancias y comisiones",
+      "Calendario y recursos internos",
+      "Templates PDF y documentos listos",
+      "Gastos / inversiones y caja mensual",
+      "Balances por reserva e impuestos",
+      "Ganancias, comisiones e insights",
+      "Estadísticas avanzadas de clientes",
+      "Verificación de recibos y cuentas de crédito",
     ],
   },
   pro: {
     label: "Pro",
     bullets: [
-      "Administración agencia",
-      "Asesoría personalizada",
-      "Más planillas en templates",
+      "Asesoramiento personalizado",
+      "Capacitaciones",
+      "Nuevas funcionalidades a medida",
     ],
   },
 };
+
+const MODULE_GROUPS: {
+  title: string;
+  variant?: "sky" | "amber" | "emerald";
+  items: string[];
+}[] = [
+  {
+    title: "Operativa diaria",
+    variant: "sky",
+    items: [
+      "Clientes",
+      "Reservas",
+      "Servicios",
+      "Operadores",
+      "Calendario",
+      "Recursos internos",
+    ],
+  },
+  {
+    title: "Documentos y finanzas",
+    variant: "emerald",
+    items: [
+      "Facturación AFIP y notas de crédito",
+      "Recibos y planes de pago",
+      "Pagos a operadores",
+      "Gastos / inversiones",
+      "Caja mensual",
+      "Balances por reserva",
+      "Cuentas de crédito",
+      "Templates PDF",
+    ],
+  },
+  {
+    title: "Analítica y control",
+    variant: "amber",
+    items: [
+      "Ganancias y comisiones",
+      "Insights comerciales",
+      "Estadísticas de clientes",
+      "Verificación de recibos",
+      "Usuarios y roles",
+      "Equipos de ventas",
+      "Configuración financiera",
+    ],
+  },
+];
 
 // Costo usuarios extra (4–10 = $5 c/u, 11+ = $10 c/u)
 function calcExtraUsersCost(users: number): number {
@@ -1424,22 +1473,22 @@ export default function LandingClient() {
         <div className="grid grid-cols-1 gap-5 sm:gap-6 md:[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))] lg:gap-7">
           <FeatureCard
             title="Operativa"
-            desc="Reservas y servicios, cotizaciones, confirmaciones, calendario y recursos (pasajeros, salidas, hoteles, cuentas bancarias)."
+            desc="Clientes, reservas y servicios, operadores, calendario y recursos internos."
             icon={<IconCalendar className="size-5" aria-hidden />}
           />
           <FeatureCard
             title="Finanzas"
-            desc="AFIP, facturación clara, recibos, notas de crédito, caja simple y comisiones al día."
+            desc="Facturación AFIP, notas de crédito, recibos, planes de pago, caja y balances por reserva."
             icon={<IconInvoice className="size-5" aria-hidden />}
           />
           <FeatureCard
             title="Control"
-            desc="Visibilidad de todo el equipo (incluida coordinación). Cada rol con lo que tiene que ver, nada más."
+            desc="Usuarios, roles y equipos con visibilidad por persona y coordinación."
             icon={<IconShield className="size-5" aria-hidden />}
           />
           <FeatureCard
             title="Productividad"
-            desc="Templates listos, PDFs prolijos, menos retrabajo. Funciona también desde el celu."
+            desc="Templates PDF, documentos listos para enviar y menos retrabajo. Funciona también desde el celu."
             icon={<IconZap className="size-5" aria-hidden />}
           />
         </div>
@@ -1449,6 +1498,25 @@ export default function LandingClient() {
           <ChartVentasUp />
           <ChartAdminDown />
           <ChartControlEquipo />
+        </div>
+      </Section>
+
+      <Section id="modulos" title="Módulos incluidos" eyebrow="Alcance">
+        <div className="grid grid-cols-1 gap-5 sm:gap-6 md:[grid-template-columns:repeat(auto-fit,minmax(240px,1fr))] lg:gap-7">
+          {MODULE_GROUPS.map((group) => (
+            <Card key={group.title}>
+              <h3 className="text-base font-semibold text-sky-950">
+                {group.title}
+              </h3>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {group.items.map((item) => (
+                  <Chip key={`${group.title}-${item}`} variant={group.variant}>
+                    {item}
+                  </Chip>
+                ))}
+              </div>
+            </Card>
+          ))}
         </div>
       </Section>
 
