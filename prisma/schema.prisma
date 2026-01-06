@@ -44,6 +44,9 @@ model Agency {
   ExpenseCategory      ExpenseCategory[]
   FinanceConfig        FinanceConfig?
   ClientConfig         ClientConfig?
+  billingConfig        AgencyBillingConfig?
+  billingAdjustments   AgencyBillingAdjustment[]
+  billingCharges       AgencyBillingCharge[]
   Lead                 Lead[]
   Receipt              Receipt[]
   ServiceType          ServiceType[]
@@ -633,6 +636,79 @@ model ClientConfig {
   updated_at DateTime @updatedAt
 
   @@index([id_agency])
+}
+
+model AgencyBillingConfig {
+  id_config Int    @id @default(autoincrement())
+  id_agency Int    @unique
+  agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  plan_key      String  @default("basico")
+  billing_users Int     @default(3)
+  user_limit    Int?
+  currency      String  @default("USD")
+  start_date    DateTime?
+  notes         String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([id_agency])
+  @@index([plan_key])
+}
+
+model AgencyBillingAdjustment {
+  id_adjustment Int     @id @default(autoincrement())
+  id_agency     Int
+  agency        Agency  @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  kind     String
+  mode     String
+  value    Decimal @db.Decimal(18, 4)
+  currency String?
+  label    String?
+
+  starts_at DateTime?
+  ends_at   DateTime?
+  active    Boolean  @default(true)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([id_agency, active])
+  @@index([id_agency, kind])
+  @@index([starts_at])
+  @@index([ends_at])
+}
+
+model AgencyBillingCharge {
+  id_charge Int     @id @default(autoincrement())
+  id_agency Int
+  agency    Agency  @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  period_start DateTime?
+  period_end   DateTime?
+  due_date     DateTime?
+  status       String  @default("PENDING")
+
+  base_amount_usd        Decimal @db.Decimal(18, 2)
+  adjustments_total_usd  Decimal @db.Decimal(18, 2) @default(0)
+  total_usd              Decimal @db.Decimal(18, 2)
+
+  paid_amount   Decimal? @db.Decimal(18, 2)
+  paid_currency String?
+  fx_rate       Decimal? @db.Decimal(18, 6)
+  paid_at       DateTime?
+  account       String?
+  payment_method String?
+  notes         String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([id_agency, status])
+  @@index([id_agency, due_date])
+  @@index([id_agency, period_start])
 }
 
 model FinanceCurrency {

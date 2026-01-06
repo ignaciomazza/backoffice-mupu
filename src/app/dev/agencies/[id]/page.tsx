@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
 import UsersAdminCard from "@/components/dev/agencies/UsersAdminCard";
+import BillingAdminCard from "@/components/dev/agencies/BillingAdminCard";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { toast, ToastContainer } from "react-toastify";
@@ -25,6 +26,11 @@ type AgencyDetail = {
   website?: Maybe<string>;
   foundation_date?: Maybe<string | Date>;
   logo_url?: Maybe<string>;
+  counts?: {
+    users: number;
+    clients: number;
+    bookings: number;
+  };
   // el backend podría incluir meta afip (booleans) si quisieras, pero acá pedimos a la ruta específica
 };
 
@@ -48,6 +54,92 @@ function formatDate(value?: string | Date | null) {
   return `${day}/${month}/${year}`;
 }
 
+type SectionKey = "overview" | "logo" | "afip" | "billing" | "users";
+
+function IconButton({
+  title,
+  onClick,
+  className = "",
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      className={`inline-flex items-center justify-center rounded-full border px-3 py-2 text-sky-950 shadow-sm transition-transform hover:scale-95 active:scale-90 dark:text-white ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ArrowLeftIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="size-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
+      />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="size-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z"
+      />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="size-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+      />
+    </svg>
+  );
+}
+
 export default function DevAgencyDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -61,6 +153,8 @@ export default function DevAgencyDetailPage() {
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [agency, setAgency] = useState<AgencyDetail | null>(null);
+  const [activeSection, setActiveSection] =
+    useState<SectionKey>("overview");
 
   // Logo
   const [logoWorking, setLogoWorking] = useState<"upload" | "delete" | null>(
@@ -383,27 +477,56 @@ export default function DevAgencyDetailPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={goBack}
-              className="rounded-full bg-white/0 px-4 py-2 text-sky-950 shadow-sm ring-1 ring-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-white dark:ring-white/10"
+              className="inline-flex items-center gap-2 rounded-full border border-amber-300/40 bg-amber-100/20 px-4 py-2 text-amber-900 shadow-sm shadow-amber-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-amber-200"
             >
+              <ArrowLeftIcon />
               Volver
             </button>
             <h1 className="text-2xl font-semibold">Detalle de agencia</h1>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
+            <IconButton
+              title="Editar agencia"
               onClick={goEdit}
-              className="rounded-full bg-sky-100 px-5 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+              className="border-amber-300/40 bg-amber-100/20 text-amber-900 dark:text-amber-200"
             >
-              Editar
-            </button>
-            <button
+              <PencilIcon />
+            </IconButton>
+            <IconButton
+              title="Eliminar agencia"
               onClick={onDeleteAgency}
-              className="rounded-full bg-red-600/90 px-5 py-2 text-red-50 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+              className="border-red-300/50 bg-red-500/20 text-red-100"
             >
-              Eliminar
-            </button>
+              <TrashIcon />
+            </IconButton>
           </div>
+        </div>
+
+        <div className="mb-4 flex flex-wrap gap-2">
+          {([
+            { key: "overview", label: "Resumen" },
+            { key: "logo", label: "Logo" },
+            { key: "afip", label: "Certificados" },
+            { key: "billing", label: "Facturacion" },
+            { key: "users", label: "Usuarios" },
+          ] as { key: SectionKey; label: string }[]).map((tab) => {
+            const active = activeSection === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveSection(tab.key)}
+                className={`rounded-full border px-4 py-1.5 text-xs shadow-sm transition-transform hover:scale-95 active:scale-90 ${
+                  active
+                    ? "border-emerald-300/50 bg-emerald-100/20 text-emerald-900 dark:text-emerald-200"
+                    : "border-white/10 bg-white/10 text-sky-950/70 hover:border-amber-300/40 hover:bg-amber-100/20 dark:text-white/70"
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
         {forbidden && (
@@ -463,264 +586,287 @@ export default function DevAgencyDetailPage() {
               </div>
             </div>
 
-            {/* Datos */}
-            <div className="mb-6 space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 shadow-md shadow-sky-950/10 backdrop-blur">
-              <p className="font-light">
-                <span className="mr-2 font-semibold dark:font-medium">
-                  Dirección
-                </span>
-                {agency.address?.trim() || "—"}
-              </p>
-              <p className="font-light">
-                <span className="mr-2 font-semibold dark:font-medium">
-                  Teléfono
-                </span>
-                {agency.phone?.trim() || "—"}
-              </p>
-              <p className="font-light">
-                <span className="mr-2 font-semibold dark:font-medium">
-                  Email
-                </span>
-                {agency.email ? (
-                  <a
-                    href={`mailto:${agency.email}`}
-                    className="underline decoration-sky-300/60 underline-offset-4"
-                  >
-                    {agency.email}
-                  </a>
-                ) : (
-                  "—"
-                )}
-              </p>
-              <p className="font-light">
-                <span className="mr-2 font-semibold dark:font-medium">
-                  Sitio Web
-                </span>
-                {agency.website ? (
-                  <a
-                    href={agency.website}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline decoration-sky-300/60 underline-offset-4"
-                  >
-                    {agency.website}
-                  </a>
-                ) : (
-                  "—"
-                )}
-              </p>
-              <p className="font-light">
-                <span className="mr-2 font-semibold dark:font-medium">
-                  Fundación
-                </span>
-                {formatDate(agency.foundation_date)}
-              </p>
-            </div>
+            {activeSection === "overview" && (
+              <div className="space-y-6">
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className="rounded-full border border-emerald-300/40 bg-emerald-100/20 px-3 py-1 text-emerald-900 dark:text-emerald-200">
+                    Usuarios: {agency.counts?.users ?? "—"}
+                  </span>
+                  <span className="rounded-full border border-amber-300/40 bg-amber-100/20 px-3 py-1 text-amber-900 dark:text-amber-200">
+                    Clientes: {agency.counts?.clients ?? "—"}
+                  </span>
+                  <span className="rounded-full border border-amber-300/40 bg-amber-100/20 px-3 py-1 text-amber-900 dark:text-amber-200">
+                    Reservas: {agency.counts?.bookings ?? "—"}
+                  </span>
+                </div>
 
-            {/* Logo card (developer, por id) */}
-            <div className="mb-6 space-y-4 rounded-3xl border border-white/10 bg-white/10 p-6 shadow-md shadow-sky-950/10 backdrop-blur">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-medium">Logo</h3>
-                <span className="text-xs text-sky-950/60 dark:text-white/60">
-                  PNG / JPG / WEBP / SVG – máx 5MB
-                </span>
+                <div className="space-y-3 rounded-3xl border border-amber-300/30 bg-white/10 p-6 shadow-md shadow-sky-950/10 backdrop-blur">
+                  <p className="font-light">
+                    <span className="mr-2 font-semibold dark:font-medium">
+                      Dirección
+                    </span>
+                    {agency.address?.trim() || "—"}
+                  </p>
+                  <p className="font-light">
+                    <span className="mr-2 font-semibold dark:font-medium">
+                      Teléfono
+                    </span>
+                    {agency.phone?.trim() || "—"}
+                  </p>
+                  <p className="font-light">
+                    <span className="mr-2 font-semibold dark:font-medium">
+                      Email
+                    </span>
+                    {agency.email ? (
+                      <a
+                        href={`mailto:${agency.email}`}
+                        className="underline decoration-amber-300/60 underline-offset-4"
+                      >
+                        {agency.email}
+                      </a>
+                    ) : (
+                      "—"
+                    )}
+                  </p>
+                  <p className="font-light">
+                    <span className="mr-2 font-semibold dark:font-medium">
+                      Sitio Web
+                    </span>
+                    {agency.website ? (
+                      <a
+                        href={agency.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline decoration-amber-300/60 underline-offset-4"
+                      >
+                        {agency.website}
+                      </a>
+                    ) : (
+                      "—"
+                    )}
+                  </p>
+                  <p className="font-light">
+                    <span className="mr-2 font-semibold dark:font-medium">
+                      Fundación
+                    </span>
+                    {formatDate(agency.foundation_date)}
+                  </p>
+                </div>
               </div>
+            )}
 
-              <div className="flex items-center gap-4">
-                <div className="size-24 overflow-hidden rounded-2xl border border-white/10 bg-white/40 dark:bg-white/10">
-                  {agency.logo_url ? (
-                    <img
-                      src={agency.logo_url}
-                      alt="Logo de la agencia"
-                      className="size-full object-contain"
+            {activeSection === "logo" && (
+              <div className="mb-6 space-y-4 rounded-3xl border border-emerald-300/30 bg-white/10 p-6 shadow-md shadow-sky-950/10 backdrop-blur">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-medium">Logo</h3>
+                  <span className="text-xs text-sky-950/60 dark:text-white/60">
+                    PNG / JPG / WEBP / SVG – máx 5MB
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <div className="size-24 overflow-hidden rounded-2xl border border-emerald-300/30 bg-white/40 dark:bg-white/10">
+                    {agency.logo_url ? (
+                      <img
+                        src={agency.logo_url}
+                        alt="Logo de la agencia"
+                        className="size-full object-contain"
+                      />
+                    ) : (
+                      <div className="flex size-full items-center justify-center text-xs text-sky-950/60 dark:text-white/60">
+                        Sin logo
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept={ACCEPT}
+                      onChange={onSelectFile}
+                      className="hidden"
                     />
-                  ) : (
-                    <div className="flex size-full items-center justify-center text-xs text-sky-950/60 dark:text-white/60">
-                      Sin logo
+                    <button
+                      type="button"
+                      onClick={onPickFile}
+                      disabled={logoWorking !== null}
+                      className="rounded-full border border-emerald-300/40 bg-emerald-100/20 px-6 py-2 text-emerald-900 shadow-sm shadow-emerald-950/10 transition-transform hover:scale-95 active:scale-90 disabled:opacity-50 dark:text-emerald-200"
+                    >
+                      {logoWorking === "upload"
+                        ? "Subiendo..."
+                        : agency.logo_url
+                          ? "Reemplazar logo"
+                          : "Subir logo"}
+                    </button>
+
+                    {agency.logo_url && (
+                      <button
+                        type="button"
+                        onClick={onDeleteLogo}
+                        disabled={logoWorking !== null}
+                        className="rounded-full bg-red-600/90 px-6 py-2 text-red-50 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-50 dark:bg-red-800"
+                      >
+                        {logoWorking === "delete"
+                          ? "Eliminando..."
+                          : "Eliminar logo"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeSection === "afip" && (
+              <div className="space-y-4 rounded-3xl border border-amber-300/30 bg-white/10 p-6 shadow-md shadow-sky-950/10 backdrop-blur">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-medium">
+                    AFIP – Certificado & Clave
+                  </h3>
+
+                  {!afipLoading && afipStatus && (
+                    <div className="flex gap-2">
+                      <span
+                        className={`rounded-full border px-3 py-1 text-xs ${
+                          afipStatus.certUploaded
+                            ? "border-emerald-300/40 bg-emerald-100/20 text-emerald-900 dark:text-emerald-200"
+                            : "border-amber-300/40 bg-amber-100/20 text-amber-900 dark:text-amber-200"
+                        }`}
+                        title="Estado del Certificado"
+                      >
+                        Cert: {afipStatus.certUploaded ? "Cargado" : "Falta"}
+                      </span>
+                      <span
+                        className={`rounded-full border px-3 py-1 text-xs ${
+                          afipStatus.keyUploaded
+                            ? "border-emerald-300/40 bg-emerald-100/20 text-emerald-900 dark:text-emerald-200"
+                            : "border-amber-300/40 bg-amber-100/20 text-amber-900 dark:text-amber-200"
+                        }`}
+                        title="Estado de la Clave"
+                      >
+                        Key: {afipStatus.keyUploaded ? "Cargada" : "Falta"}
+                      </span>
                     </div>
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept={ACCEPT}
-                    onChange={onSelectFile}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={onPickFile}
-                    disabled={logoWorking !== null}
-                    className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-50 dark:bg-white/10 dark:text-white"
-                  >
-                    {logoWorking === "upload"
-                      ? "Subiendo..."
-                      : agency.logo_url
-                        ? "Reemplazar logo"
-                        : "Subir logo"}
-                  </button>
+                {afipForbidden && (
+                  <p className="text-sm text-sky-950/70 dark:text-white/70">
+                    No tenés permisos para editar estas credenciales.
+                  </p>
+                )}
 
-                  {agency.logo_url && (
-                    <button
-                      type="button"
-                      onClick={onDeleteLogo}
-                      disabled={logoWorking !== null}
-                      className="rounded-full bg-red-600/90 px-6 py-2 text-red-50 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-50 dark:bg-red-800"
-                    >
-                      {logoWorking === "delete"
-                        ? "Eliminando..."
-                        : "Eliminar logo"}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* AFIP – solo pegar texto */}
-            <div className="space-y-4 rounded-3xl border border-white/10 bg-white/10 p-6 shadow-md shadow-sky-950/10 backdrop-blur">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-medium">
-                  AFIP – Certificado & Clave
-                </h3>
-
-                {!afipLoading && afipStatus && (
-                  <div className="flex gap-2">
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs ${
-                        afipStatus.certUploaded
-                          ? "bg-green-600/20 text-green-800 dark:text-green-200"
-                          : "bg-yellow-600/20 text-yellow-800 dark:text-yellow-200"
-                      }`}
-                      title="Estado del Certificado"
-                    >
-                      Cert: {afipStatus.certUploaded ? "Cargado" : "Falta"}
-                    </span>
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs ${
-                        afipStatus.keyUploaded
-                          ? "bg-green-600/20 text-green-800 dark:text-green-200"
-                          : "bg-yellow-600/20 text-yellow-800 dark:text-yellow-200"
-                      }`}
-                      title="Estado de la Clave"
-                    >
-                      Key: {afipStatus.keyUploaded ? "Cargada" : "Falta"}
-                    </span>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="ml-1 block text-sm">
+                      Certificado (.pem/.crt) — pegá el contenido
+                    </label>
+                    <textarea
+                      disabled={afipLoading || afipForbidden}
+                      value={certText}
+                      onChange={(e) => setCertText(e.target.value)}
+                      placeholder="-----BEGIN CERTIFICATE-----\nMIIC...==\n-----END CERTIFICATE-----"
+                      className="min-h-[120px] w-full rounded-2xl border border-sky-950/10 bg-white/50 p-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    />
+                    {afipStatus?.certUploaded && (
+                      <button
+                        type="button"
+                        onClick={() => deleteAfip("cert")}
+                        disabled={
+                          afipLoading || deletingAfip === "cert" || afipForbidden
+                        }
+                        className="rounded-full bg-red-600/90 px-4 py-2 text-red-50 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+                      >
+                        {deletingAfip === "cert"
+                          ? "Eliminando..."
+                          : "Eliminar Cert"}
+                      </button>
+                    )}
                   </div>
-                )}
-              </div>
 
-              {afipForbidden && (
-                <p className="text-sm text-sky-950/70 dark:text-white/70">
-                  No tenés permisos para editar estas credenciales.
-                </p>
-              )}
-
-              <div className="grid gap-2 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="ml-1 block text-sm">
-                    Certificado (.pem/.crt) — pegá el contenido
-                  </label>
-                  <textarea
-                    disabled={afipLoading || afipForbidden}
-                    value={certText}
-                    onChange={(e) => setCertText(e.target.value)}
-                    placeholder="-----BEGIN CERTIFICATE-----\nMIIC...==\n-----END CERTIFICATE-----"
-                    className="min-h-[120px] w-full rounded-2xl border border-sky-950/10 bg-white/50 p-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
-                  />
-                  {afipStatus?.certUploaded && (
-                    <button
-                      type="button"
-                      onClick={() => deleteAfip("cert")}
-                      disabled={
-                        afipLoading || deletingAfip === "cert" || afipForbidden
-                      }
-                      className="rounded-full bg-red-600/90 px-4 py-2 text-red-50 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
-                    >
-                      {deletingAfip === "cert"
-                        ? "Eliminando..."
-                        : "Eliminar Cert"}
-                    </button>
-                  )}
+                  <div className="space-y-2">
+                    <label className="ml-1 block text-sm">
+                      Clave privada (.key/.pem) — pegá el contenido
+                    </label>
+                    <textarea
+                      disabled={afipLoading || afipForbidden}
+                      value={keyText}
+                      onChange={(e) => setKeyText(e.target.value)}
+                      placeholder="-----BEGIN PRIVATE KEY-----\nMIIE...==\n-----END PRIVATE KEY-----"
+                      className="min-h-[120px] w-full rounded-2xl border border-sky-950/10 bg-white/50 p-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    />
+                    {afipStatus?.keyUploaded && (
+                      <button
+                        type="button"
+                        onClick={() => deleteAfip("key")}
+                        disabled={
+                          afipLoading || deletingAfip === "key" || afipForbidden
+                        }
+                        className="rounded-full bg-red-600/90 px-4 py-2 text-red-50 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+                      >
+                        {deletingAfip === "key"
+                          ? "Eliminando..."
+                          : "Eliminar Key"}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="ml-1 block text-sm">
-                    Clave privada (.key/.pem) — pegá el contenido
-                  </label>
-                  <textarea
-                    disabled={afipLoading || afipForbidden}
-                    value={keyText}
-                    onChange={(e) => setKeyText(e.target.value)}
-                    placeholder="-----BEGIN PRIVATE KEY-----\nMIIE...==\n-----END PRIVATE KEY-----"
-                    className="min-h-[120px] w-full rounded-2xl border border-sky-950/10 bg-white/50 p-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
-                  />
-                  {afipStatus?.keyUploaded && (
-                    <button
-                      type="button"
-                      onClick={() => deleteAfip("key")}
-                      disabled={
-                        afipLoading || deletingAfip === "key" || afipForbidden
-                      }
-                      className="rounded-full bg-red-600/90 px-4 py-2 text-red-50 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
-                    >
-                      {deletingAfip === "key"
-                        ? "Eliminando..."
-                        : "Eliminar Key"}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-2 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={saveAfip}
-                  disabled={!canSaveAfip || savingAfip}
-                  className={`rounded-full px-6 py-2 shadow-sm transition-transform hover:scale-95 active:scale-90 ${
-                    canSaveAfip
-                      ? "bg-green-600 text-white shadow-green-900/20"
-                      : "bg-gray-300 text-gray-500 dark:bg-white/10 dark:text-white/40"
-                  }`}
-                >
-                  {savingAfip ? "Guardando..." : "Guardar credenciales"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCertText("");
-                    setKeyText("");
-                  }}
-                  disabled={afipLoading || afipForbidden}
-                  className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
-                >
-                  Limpiar campos
-                </button>
-
-                {(afipStatus?.certUploaded || afipStatus?.keyUploaded) && (
+                <div className="mt-2 flex flex-wrap items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => deleteAfip("both")}
-                    disabled={
-                      afipLoading || deletingAfip === "both" || afipForbidden
-                    }
-                    className="rounded-full bg-red-600/90 px-6 py-2 text-red-50 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+                    onClick={saveAfip}
+                    disabled={!canSaveAfip || savingAfip}
+                    className={`rounded-full px-6 py-2 shadow-sm transition-transform hover:scale-95 active:scale-90 ${
+                      canSaveAfip
+                        ? "border border-emerald-300/40 bg-emerald-100/20 text-emerald-900 dark:text-emerald-200"
+                        : "bg-gray-300 text-gray-500 dark:bg-white/10 dark:text-white/40"
+                    }`}
                   >
-                    {deletingAfip === "both"
-                      ? "Eliminando..."
-                      : "Eliminar Cert & Key"}
+                    {savingAfip ? "Guardando..." : "Guardar credenciales"}
                   </button>
-                )}
-              </div>
 
-              <p className="mt-2 text-xs text-sky-950/70 dark:text-white/60">
-                Las credenciales se almacenan cifradas y nunca se devuelven por
-                la API. Pegá el contenido en texto plano (PEM/CRT/KEY) o base64.
-              </p>
-            </div>
-            {agencyId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCertText("");
+                      setKeyText("");
+                    }}
+                    disabled={afipLoading || afipForbidden}
+                    className="rounded-full border border-amber-300/40 bg-amber-100/20 px-6 py-2 text-amber-900 shadow-sm shadow-amber-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-amber-200"
+                  >
+                    Limpiar campos
+                  </button>
+
+                  {(afipStatus?.certUploaded || afipStatus?.keyUploaded) && (
+                    <button
+                      type="button"
+                      onClick={() => deleteAfip("both")}
+                      disabled={
+                        afipLoading || deletingAfip === "both" || afipForbidden
+                      }
+                      className="rounded-full bg-red-600/90 px-6 py-2 text-red-50 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+                    >
+                      {deletingAfip === "both"
+                        ? "Eliminando..."
+                        : "Eliminar Cert & Key"}
+                    </button>
+                  )}
+                </div>
+
+                <p className="mt-2 text-xs text-sky-950/70 dark:text-white/60">
+                  Las credenciales se almacenan cifradas y nunca se devuelven por
+                  la API. Pegá el contenido en texto plano (PEM/CRT/KEY) o base64.
+                </p>
+              </div>
+            )}
+
+            {activeSection === "billing" && agencyId && (
+              <div className="mt-6">
+                <BillingAdminCard agencyId={agencyId} />
+              </div>
+            )}
+            {activeSection === "users" && agencyId && (
               <div className="mt-6">
                 <UsersAdminCard agencyId={agencyId} />
               </div>

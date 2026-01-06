@@ -25,6 +25,11 @@ type DevAgency = {
   email?: Maybe<string>;
   website?: Maybe<string>;
   foundation_date?: Maybe<string | Date>;
+  counts?: {
+    users: number;
+    clients: number;
+    bookings: number;
+  };
 };
 
 type DevAgencyInput = {
@@ -64,6 +69,95 @@ function toYMD(value?: string | Date | null): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${dd}`;
+}
+
+function IconButton({
+  title,
+  onClick,
+  className = "",
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      className={`inline-flex items-center justify-center rounded-full border px-3 py-2 text-sky-950 shadow-sm transition-transform hover:scale-95 active:scale-90 dark:text-white ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="size-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z"
+      />
+    </svg>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="size-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+      />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="size-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+      />
+    </svg>
+  );
 }
 
 /** Validaciones simples (alineadas con la API) */
@@ -349,12 +443,20 @@ export default function DevAgenciesPage() {
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Agencias (Dev)</h1>
-          <button
-            onClick={openCreate}
-            className="rounded-full bg-sky-100 px-5 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
-          >
-            Nueva agencia
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => router.push("/dev/agencies/stats")}
+              className="rounded-full border border-amber-300/40 bg-amber-100/20 px-5 py-2 text-amber-900 shadow-sm shadow-amber-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-amber-200"
+            >
+              Estadisticas generales
+            </button>
+            <button
+              onClick={openCreate}
+              className="rounded-full border border-emerald-300/40 bg-emerald-100/20 px-5 py-2 text-emerald-900 shadow-sm shadow-emerald-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-emerald-200"
+            >
+              Nueva agencia
+            </button>
+          </div>
         </div>
 
         {forbidden && (
@@ -572,7 +674,7 @@ export default function DevAgenciesPage() {
               {items.map((a) => (
                 <div
                   key={a.id_agency}
-                  className="space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 shadow-md shadow-sky-950/10 backdrop-blur"
+                  className="space-y-3 rounded-3xl border border-emerald-200/30 bg-white/10 p-6 shadow-md shadow-sky-950/10 backdrop-blur"
                 >
                   <div className="min-w-0">
                     <h3 className="truncate text-lg font-semibold">{a.name}</h3>
@@ -582,6 +684,18 @@ export default function DevAgenciesPage() {
                     <p className="text-xs text-sky-950/70 dark:text-white/60">
                       CUIT: <span className="font-medium">{a.tax_id}</span>
                     </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className="rounded-full border border-emerald-300/40 bg-emerald-100/20 px-3 py-1 text-emerald-900 dark:text-emerald-200">
+                      Usuarios: {a.counts?.users ?? "—"}
+                    </span>
+                    <span className="rounded-full border border-amber-300/40 bg-amber-100/20 px-3 py-1 text-amber-900 dark:text-amber-200">
+                      Clientes: {a.counts?.clients ?? "—"}
+                    </span>
+                    <span className="rounded-full border border-amber-300/40 bg-amber-100/20 px-3 py-1 text-amber-900 dark:text-amber-200">
+                      Reservas: {a.counts?.bookings ?? "—"}
+                    </span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-sm">
@@ -612,24 +726,27 @@ export default function DevAgenciesPage() {
                   </div>
 
                   <div className="mt-2 flex flex-wrap justify-end gap-2">
-                    <button
+                    <IconButton
+                      title="Editar agencia"
                       onClick={() => openEdit(a.id_agency)}
-                      className="rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+                      className="border-amber-300/40 bg-amber-100/20 text-amber-900 dark:text-amber-200"
                     >
-                      Editar
-                    </button>
-                    <button
+                      <PencilIcon />
+                    </IconButton>
+                    <IconButton
+                      title="Ver detalle"
                       onClick={() => goDetail(a.id_agency)}
-                      className="rounded-full bg-white/0 px-4 py-2 text-sky-950 shadow-sm ring-1 ring-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-white dark:ring-white/10"
+                      className="border-emerald-300/40 bg-emerald-100/20 text-emerald-900 dark:text-emerald-200"
                     >
-                      Ver
-                    </button>
-                    <button
+                      <EyeIcon />
+                    </IconButton>
+                    <IconButton
+                      title="Eliminar"
                       onClick={() => onDelete(a.id_agency)}
-                      className="rounded-full bg-red-600/90 px-4 py-2 text-red-50 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+                      className="border-red-300/50 bg-red-500/20 text-red-100 dark:text-red-100"
                     >
-                      Eliminar
-                    </button>
+                      <TrashIcon />
+                    </IconButton>
                   </div>
                 </div>
               ))}

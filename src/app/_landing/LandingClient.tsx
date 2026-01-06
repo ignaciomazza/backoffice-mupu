@@ -1228,7 +1228,6 @@ function PricingCalculator() {
   const [users, setUsers] = useState<number>(6);
   const [bspRate, setBspRate] = useState<number | null>(null);
   const [bspDate, setBspDate] = useState<string | null>(null);
-  const [bspSource, setBspSource] = useState<string | null>(null);
   const [bspStatus, setBspStatus] = useState<
     "idle" | "loading" | "ok" | "err"
   >("idle");
@@ -1236,7 +1235,6 @@ function PricingCalculator() {
     ts: number;
     rate: number;
     date: string | null;
-    source: string | null;
   } | null>(null);
 
   const basePrice = PLAN_BASE_PRICES[plan];
@@ -1252,7 +1250,6 @@ function PricingCalculator() {
     if (cached && now - cached.ts < ttlMs) {
       setBspRate(cached.rate);
       setBspDate(cached.date);
-      setBspSource(cached.source);
       setBspStatus("ok");
       return;
     }
@@ -1270,11 +1267,9 @@ function PricingCalculator() {
         if (data?.ok && typeof data.arsPerUsd === "number") {
           const rate = data.arsPerUsd;
           const date = data.date ?? null;
-          const source = data.source ?? null;
           setBspRate(rate);
           setBspDate(date);
-          setBspSource(source);
-          bspCacheRef.current = { ts: Date.now(), rate, date, source };
+          bspCacheRef.current = { ts: Date.now(), rate, date };
           setBspStatus("ok");
         } else {
           setBspStatus("err");
