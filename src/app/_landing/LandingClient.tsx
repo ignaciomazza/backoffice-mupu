@@ -1,7 +1,7 @@
 // src/app/_landing/LandingClient.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Area,
@@ -53,6 +53,14 @@ const hoverPreset = {
  * Pricing logic
  * =========================== */
 type PlanKey = "basico" | "medio" | "pro";
+
+type BspRateResponse = {
+  ok?: boolean;
+  arsPerUsd?: number;
+  date?: string | null;
+  source?: string;
+  error?: string;
+};
 
 const PLAN_BASE_PRICES: Record<PlanKey, number> = {
   basico: 20,
@@ -1218,11 +1226,89 @@ function PriceTierCard({ planKey }: { planKey: PlanKey }) {
 function PricingCalculator() {
   const [plan, setPlan] = useState<PlanKey>("medio");
   const [users, setUsers] = useState<number>(6);
+  const [bspRate, setBspRate] = useState<number | null>(null);
+  const [bspDate, setBspDate] = useState<string | null>(null);
+  const [bspSource, setBspSource] = useState<string | null>(null);
+  const [bspStatus, setBspStatus] = useState<
+    "idle" | "loading" | "ok" | "err"
+  >("idle");
+  const bspCacheRef = useRef<{
+    ts: number;
+    rate: number;
+    date: string | null;
+    source: string | null;
+  } | null>(null);
 
   const basePrice = PLAN_BASE_PRICES[plan];
   const extraUsers = calcExtraUsersCost(users);
   const cloud = calcCloudCost(users);
   const total = basePrice + extraUsers + cloud;
+
+  useEffect(() => {
+    const now = Date.now();
+    const cached = bspCacheRef.current;
+    const ttlMs = 10 * 60 * 1000;
+
+    if (cached && now - cached.ts < ttlMs) {
+      setBspRate(cached.rate);
+      setBspDate(cached.date);
+      setBspSource(cached.source);
+      setBspStatus("ok");
+      return;
+    }
+
+    const ac = new AbortController();
+
+    (async () => {
+      try {
+        setBspStatus("loading");
+        const res = await fetch(`/api/bsp-rate?ts=${now}`, {
+          signal: ac.signal,
+        });
+        if (!res.ok) throw new Error("bsp rate fetch failed");
+        const data = (await res.json()) as BspRateResponse;
+        if (data?.ok && typeof data.arsPerUsd === "number") {
+          const rate = data.arsPerUsd;
+          const date = data.date ?? null;
+          const source = data.source ?? null;
+          setBspRate(rate);
+          setBspDate(date);
+          setBspSource(source);
+          bspCacheRef.current = { ts: Date.now(), rate, date, source };
+          setBspStatus("ok");
+        } else {
+          setBspStatus("err");
+        }
+      } catch (err) {
+        if ((err as { name?: string })?.name !== "AbortError") {
+          setBspStatus("err");
+        }
+      }
+    })();
+
+    return () => ac.abort();
+  }, []);
+
+  const formatBspRate = (value: number) =>
+    new Intl.NumberFormat("es-AR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+
+  const formatBspDate = (value: string | null) => {
+    if (!value) return null;
+    const m = value.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return value;
+    return `${m[3]}/${m[2]}/${m[1]}`;
+  };
+
+  const formatArs = (value: number) =>
+    new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency: "ARS",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(value);
 
   return (
     <motion.div
@@ -1344,6 +1430,30 @@ function PricingCalculator() {
           <div className="text-xl font-semibold tabular-nums text-sky-950">
             USD {total.toFixed(2)}
           </div>
+          {bspStatus === "loading" && (
+            <div className="mt-1 text-[11px] text-sky-950/60">
+              Cargando TC BSP...
+            </div>
+          )}
+          {bspStatus === "ok" && bspRate != null && (
+            <div className="mt-2 rounded-lg border border-white/30 bg-white/60 px-3 py-2 text-left text-sky-950 shadow-inner shadow-sky-950/5">
+              <div className="text-[11px] font-medium text-sky-950/70">
+                Estimacion en ARS
+              </div>
+              <div className="text-base font-semibold tabular-nums text-sky-950">
+                {formatArs(total * bspRate)}
+              </div>
+              <div className="mt-1 text-[10px] text-sky-950/60">
+                TC BSP {formatBspRate(bspRate)}
+                {bspDate ? ` · ${formatBspDate(bspDate)}` : ""}
+              </div>
+            </div>
+          )}
+          {bspStatus === "err" && (
+            <div className="mt-1 text-[11px] text-sky-950/60">
+              TC BSP no disponible.
+            </div>
+          )}
           <div className="text-[11px] text-sky-950/60">
             + IVA según corresponda. Valores estimados en USD.
           </div>
