@@ -147,6 +147,15 @@ function toFiniteNumber(n: unknown, fallback = 0): number {
   return Number.isFinite(num) ? num : fallback;
 }
 
+function toDateOnly(value?: string | null): string {
+  if (!value) return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+  if (raw.includes("T")) return raw.split("T")[0];
+  if (raw.includes(" ")) return raw.split(" ")[0];
+  return raw;
+}
+
 type AnyRecord = Record<string, unknown>;
 
 function isRecord(v: unknown): v is AnyRecord {
@@ -391,6 +400,36 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       setSelectedBookingStatus(booking.status ?? "Abierta");
     }
   }, [booking]);
+
+  useEffect(() => {
+    if (!booking || !isFormVisible || editingServiceId) return;
+    const bookingDeparture = toDateOnly(booking.departure_date);
+    const bookingReturn = toDateOnly(booking.return_date);
+    if (!bookingDeparture && !bookingReturn) return;
+
+    setFormData((prev) => {
+      const nextDeparture = prev.departure_date || bookingDeparture;
+      const nextReturn = prev.return_date || bookingReturn;
+
+      if (
+        nextDeparture === prev.departure_date &&
+        nextReturn === prev.return_date
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        departure_date: nextDeparture,
+        return_date: nextReturn,
+      };
+    });
+  }, [
+    booking,
+    editingServiceId,
+    isFormVisible,
+    setFormData,
+  ]);
 
   const hasChanges = useMemo(() => {
     if (!booking) return false;
