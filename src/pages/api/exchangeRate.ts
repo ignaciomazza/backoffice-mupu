@@ -15,6 +15,23 @@ function toErrorMessage(err: unknown): string {
   return String(err ?? "");
 }
 
+function getAfipErrorDetails(err: unknown): Record<string, unknown> {
+  if (!err || typeof err !== "object") return { message: String(err ?? "") };
+  const anyErr = err as {
+    message?: unknown;
+    response?: { status?: unknown; statusText?: unknown; data?: unknown };
+    status?: unknown;
+    statusText?: unknown;
+    data?: unknown;
+  };
+  return {
+    message: anyErr.message ?? String(err),
+    status: anyErr.response?.status ?? anyErr.status,
+    statusText: anyErr.response?.statusText ?? anyErr.statusText,
+    responseData: anyErr.response?.data ?? anyErr.data,
+  };
+}
+
 function isNoResultsError(message: string): boolean {
   const m = message.toLowerCase();
   return (
@@ -113,7 +130,10 @@ export default async function handler(
     const expected = isExpectedExchangeError(message);
     const status = isAuthError ? 401 : expected ? 200 : 500;
     if (!expected && !isAuthError) {
-      console.error("Error obteniendo la cotización del dólar:", message);
+      console.error(
+        "Error obteniendo la cotización del dólar:",
+        getAfipErrorDetails(error),
+      );
     }
     return res.status(status).json({ success: false, message });
   }

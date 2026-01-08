@@ -10,10 +10,12 @@ import Spinner from "@/components/Spinner";
 import { toast, ToastContainer } from "react-toastify";
 import { motion, AnimatePresence } from "framer-motion";
 import { authFetch } from "@/utils/authFetch";
+import useVantaPerformance from "@/hooks/useVantaPerformance";
 
 export default function LoginPage() {
   const vantaRef = useRef<HTMLDivElement>(null);
   const vantaEffect = useRef<{ destroy(): void } | null>(null);
+  const { mode, monitorFps } = useVantaPerformance();
 
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
@@ -32,30 +34,41 @@ export default function LoginPage() {
   const spinnerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (vantaRef.current && !vantaEffect.current) {
-      const options: VantaOptions = {
-        el: vantaRef.current,
-        THREE,
-        mouseControls: true,
-        touchControls: true,
-        gyroControls: false,
-        minHeight: 200.0,
-        minWidth: 200.0,
-        highlightColor: 0xbae6fd,
-        midtoneColor: 0xffffff,
-        lowlightColor: 0xffffff,
-        baseColor: 0xffffff,
-        blurFactor: 0.9,
-        speed: 2.7,
-        zoom: 0.3,
-      };
-      vantaEffect.current = initVantaFog(options);
+    if (mode === "off") {
+      vantaEffect.current?.destroy();
+      vantaEffect.current = null;
+      return;
     }
+
+    if (!vantaRef.current) return;
+
+    const options: VantaOptions = {
+      el: vantaRef.current,
+      THREE,
+      mouseControls: mode === "full",
+      touchControls: mode === "full",
+      gyroControls: false,
+      minHeight: 200.0,
+      minWidth: 200.0,
+      highlightColor: 0xbae6fd,
+      midtoneColor: 0xffffff,
+      lowlightColor: 0xffffff,
+      baseColor: 0xffffff,
+      blurFactor: mode === "full" ? 0.9 : 0.6,
+      speed: mode === "full" ? 2.7 : 1.2,
+      zoom: mode === "full" ? 0.3 : 0.2,
+    };
+
+    vantaEffect.current?.destroy();
+    vantaEffect.current = initVantaFog(options);
+    const stopMonitor = monitorFps();
+
     return () => {
+      stopMonitor?.();
       vantaEffect.current?.destroy();
       vantaEffect.current = null;
     };
-  }, []);
+  }, [mode, monitorFps]);
 
   // Limpieza del timeout si el componente se desmonta
   useEffect(() => {
@@ -185,7 +198,7 @@ export default function LoginPage() {
       {/* 2) Contenedor Vanta + overlay de ruido */}
       <motion.div
         ref={vantaRef}
-        className="fixed inset-0 flex items-center justify-center overflow-hidden"
+        className="fixed inset-0 flex items-center justify-center overflow-hidden bg-[radial-gradient(70%_60%_at_50%_0%,#e0f2fe_0%,#ffffff_60%)] dark:bg-[radial-gradient(70%_60%_at_50%_0%,#0b1120_0%,#020617_60%)]"
       >
         <div
           className="pointer-events-none absolute inset-0 z-10"

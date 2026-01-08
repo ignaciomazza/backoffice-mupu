@@ -142,6 +142,7 @@ export async function createInvoices(
     m === "ARS" ? "PES" : m === "USD" ? "DOL" : m;
 
   const invoicesResult: InvoiceWithItems[] = [];
+  const errorMessages = new Set<string>();
 
   for (const m in grouped) {
     const svcs = grouped[m];
@@ -151,12 +152,22 @@ export async function createInvoices(
       const client = await prisma.client.findUnique({
         where: { id_client: cid },
       });
-      if (!client) continue;
+      if (!client) {
+        errorMessages.add("No se encontró el cliente seleccionado.");
+        continue;
+      }
 
       const isFactB = tipoFactura === 6;
       const docNumber = isFactB ? client.dni_number : client.tax_id;
       const docType = isFactB ? 96 : 80;
-      if (!docNumber) continue;
+      if (!docNumber) {
+        errorMessages.add(
+          isFactB
+            ? "Falta DNI del cliente para emitir Factura B."
+            : "Falta CUIT del cliente para emitir Factura A.",
+        );
+        continue;
+      }
 
       const resp = await createVoucherService(
         req,
@@ -168,7 +179,12 @@ export async function createInvoices(
         exchangeRate,
         invoiceDate,
       );
-      if (!resp.success || !resp.details) continue;
+      if (!resp.success || !resp.details) {
+        errorMessages.add(
+          resp.message || "No se pudo emitir la factura en AFIP.",
+        );
+        continue;
+      }
 
       const details = resp.details as RawVoucherDetails;
       const payloadAfip: Prisma.JsonObject = {
@@ -239,7 +255,11 @@ export async function createInvoices(
   }
 
   if (!invoicesResult.length) {
-    return { success: false, message: "No se generó ninguna factura." };
+    const firstError = Array.from(errorMessages).find(Boolean);
+    return {
+      success: false,
+      message: firstError || "No se generó ninguna factura.",
+    };
   }
   return { success: true, invoices: invoicesResult };
 }

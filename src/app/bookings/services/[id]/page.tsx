@@ -504,6 +504,110 @@ export default function ServicesPage() {
     setCreditNoteFormData((prev) => ({ ...prev, [key]: value }));
   };
 
+  const getInvoiceErrorToast = (raw?: string): string => {
+    const msg = String(raw ?? "").trim();
+    if (!msg) {
+      return "No se pudo crear la factura. Revisá los datos e intentá de nuevo.";
+    }
+
+    const m = msg.toLowerCase();
+
+    if (m.includes("no autenticado") || m.includes("x-user-id")) {
+      return "Tu sesión expiró. Volvé a iniciar sesión.";
+    }
+    if (m.includes("token")) {
+      return "Tu sesión expiró. Volvé a iniciar sesión.";
+    }
+    if (m.includes("agencia asociada")) {
+      return "Tu usuario no tiene agencia asignada. Contactá a un administrador.";
+    }
+    if (m.includes("agencia no encontrada")) {
+      return "No se encontró la agencia. Contactá a un administrador.";
+    }
+    if (m.includes("reserva no pertenece")) {
+      return "La reserva no pertenece a tu agencia.";
+    }
+    if (m.includes("reserva no encontrada")) {
+      return "No se encontró la reserva.";
+    }
+    if (m.includes("falta cuit") || m.includes("cuit inválido")) {
+      return "Error en el CUIT. Revisá el CUIT del cliente o de la agencia.";
+    }
+    if (m.includes("cuit invalido") || m.includes("tax_id")) {
+      return "Error en el CUIT. Revisá el CUIT del cliente o de la agencia.";
+    }
+    if (m.includes("falta dni")) {
+      return "Falta DNI del cliente. Revisá el documento para Factura B.";
+    }
+    if (m.includes("docnro") || m.includes("documento")) {
+      return "Documento del cliente inválido. Revisá DNI/CUIT.";
+    }
+    if (
+      m.includes("cert") ||
+      m.includes("key") ||
+      m.includes("afip_secret_key") ||
+      m.includes("formato cifrado")
+    ) {
+      return "Credenciales AFIP inválidas o faltantes. Revisá certificado y clave.";
+    }
+    if (
+      m.includes("fecha de factura") ||
+      m.includes("formato de fecha") ||
+      m.includes("yyyy-mm-dd")
+    ) {
+      return "Fecha de factura inválida. Debe estar dentro de los 8 días.";
+    }
+    if (
+      m.includes("fchserv") ||
+      m.includes("fecha de servicio") ||
+      m.includes("servicio desde") ||
+      m.includes("servicio hasta")
+    ) {
+      return "Fecha de servicio inválida. Revisá las fechas de los servicios.";
+    }
+    if (
+      m.includes("iva") ||
+      m.includes("impuesto") ||
+      m.includes("tributo") ||
+      m.includes("alicuota")
+    ) {
+      return "Error en impuestos/IVA de los servicios. Revisá los importes.";
+    }
+    if (
+      m.includes("cotización") ||
+      m.includes("cotizacion") ||
+      m.includes("exchangeRate".toLowerCase()) ||
+      m.includes("moncotiz")
+    ) {
+      return "Cotización inválida. Revisá la moneda y el tipo de cambio.";
+    }
+    if (
+      m.includes("afip no disponible") ||
+      m.includes("internal server error") ||
+      m.includes("invalid xml") ||
+      m.includes("request failed")
+    ) {
+      return "AFIP no respondió correctamente. Intentá más tarde.";
+    }
+    if (m.includes("cae")) {
+      return "AFIP no otorgó CAE. Intentá nuevamente más tarde.";
+    }
+    if (m.includes("debe haber al menos un servicio")) {
+      return "Seleccioná al menos un servicio.";
+    }
+    if (m.includes("debe haber al menos un cliente")) {
+      return "Seleccioná al menos un cliente.";
+    }
+    if (m.includes("tipoFactura".toLowerCase())) {
+      return "Tipo de factura inválido. Elegí Factura A o B.";
+    }
+    if (m.includes("no se generó ninguna factura")) {
+      return "No se pudo generar la factura. Revisá CUIT/DNI del cliente y los servicios.";
+    }
+
+    return msg;
+  };
+
   const handleInvoiceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (invoiceLoading) return;
@@ -554,10 +658,14 @@ export default function ServicesPage() {
         token || undefined,
       );
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(
-          (error as { message?: string }).message || "Error al crear factura.",
-        );
+        const raw = await res.text();
+        let message = raw;
+        try {
+          message = (JSON.parse(raw) as { message?: string }).message || raw;
+        } catch {
+          // mantener raw
+        }
+        throw new Error(getInvoiceErrorToast(message));
       }
       const result = await res.json();
       if ((result as { success?: boolean }).success) {
@@ -568,11 +676,12 @@ export default function ServicesPage() {
         toast.success("Factura creada exitosamente!");
       } else {
         toast.error(
-          (result as { message?: string }).message || "Error al crear factura.",
+          getInvoiceErrorToast((result as { message?: string }).message),
         );
       }
     } catch (err: unknown) {
-      toast.error((err as Error).message || "Error servidor.");
+      const msg = err instanceof Error ? err.message : "Error servidor.";
+      toast.error(getInvoiceErrorToast(msg));
     } finally {
       setInvoiceLoading(false);
     }

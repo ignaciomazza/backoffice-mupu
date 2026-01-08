@@ -1,8 +1,9 @@
 // src/components/VantaBackground.tsx
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import initVantaFog, { VantaOptions } from "vanta/dist/vanta.fog.min";
+import useVantaPerformance from "@/hooks/useVantaPerformance";
 
 // Tipado manual del efecto Vanta
 type VantaEffect = { destroy: () => void };
@@ -11,18 +12,22 @@ export default function VantaBackground() {
   const vantaRef = useRef<HTMLDivElement>(null);
   const vantaEffect = useRef<VantaEffect | null>(null);
   const [currentTheme, setCurrentTheme] = useState<"light" | "dark">("light");
+  const { mode, monitorFps } = useVantaPerformance();
 
-  const getOptions = (theme: "light" | "dark"): VantaOptions => ({
+  const getOptions = (
+    theme: "light" | "dark",
+    quality: "full" | "lite",
+  ): VantaOptions => ({
     el: vantaRef.current!,
     THREE,
-    mouseControls: true,
-    touchControls: true,
+    mouseControls: quality === "full",
+    touchControls: quality === "full",
     gyroControls: false,
     minHeight: 200.0,
     minWidth: 200.0,
-    blurFactor: 0.9,
-    speed: 0.5,
-    zoom: 0.3,
+    blurFactor: quality === "full" ? 0.9 : 0.6,
+    speed: quality === "full" ? 0.5 : 0.25,
+    zoom: quality === "full" ? 0.3 : 0.2,
     ...(theme === "light"
       ? {
           baseColor: 0xffffff,
@@ -38,51 +43,54 @@ export default function VantaBackground() {
         }),
   });
 
-  const initEffect = useCallback((theme: "light" | "dark") => {
-    if (vantaEffect.current) vantaEffect.current.destroy();
-    if (vantaRef.current) {
-      vantaEffect.current = initVantaFog(getOptions(theme));
-    }
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const syncTheme = () => {
+      const isDark = document.documentElement.classList.contains("dark");
+      setCurrentTheme(isDark ? "dark" : "light");
+    };
+
+    syncTheme();
+
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
-    if (typeof document !== "undefined") {
-      const isDark = document.documentElement.classList.contains("dark");
-      const theme = isDark ? "dark" : "light";
-      setCurrentTheme(theme);
-      initEffect(theme);
+    if (mode === "off") {
+      vantaEffect.current?.destroy();
+      vantaEffect.current = null;
+      return;
     }
 
-    const observer = new MutationObserver(() => {
-      if (typeof document !== "undefined") {
-        const isDarkNow = document.documentElement.classList.contains("dark");
-        const newTheme: "light" | "dark" = isDarkNow ? "dark" : "light";
-        if (newTheme !== currentTheme) {
-          setCurrentTheme(newTheme);
-          initEffect(newTheme);
-        }
-      }
-    });
+    if (!vantaRef.current) return;
 
-    if (typeof document !== "undefined") {
-      observer.observe(document.documentElement, {
-        attributes: true,
-        attributeFilter: ["class"],
-      });
-    }
+    vantaEffect.current?.destroy();
+    vantaEffect.current = initVantaFog(getOptions(currentTheme, mode));
+    const stopMonitor = monitorFps();
 
     return () => {
-      observer.disconnect();
+      stopMonitor?.();
       vantaEffect.current?.destroy();
+      vantaEffect.current = null;
     };
-  }, [currentTheme, initEffect]);
+  }, [currentTheme, mode, monitorFps]);
+
+  const fallbackClass =
+    currentTheme === "dark"
+      ? "bg-[radial-gradient(70%_60%_at_50%_0%,#0b1120_0%,#020617_60%)]"
+      : "bg-[radial-gradient(70%_60%_at_50%_0%,#e0f2fe_0%,#ffffff_60%)]";
 
   return (
     <div
       ref={vantaRef}
-      className={`fixed left-0 top-0 -z-10 min-h-screen w-full transition-colors duration-500 ${
-        currentTheme === "dark" ? "bg-sky-950" : "bg-white"
-      }`}
+      className={`fixed left-0 top-0 -z-10 min-h-screen w-full transition-colors duration-500 ${fallbackClass}`}
     />
   );
 }

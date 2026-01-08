@@ -27,6 +27,23 @@ type ServerStatus = { AppServer: string; DbServer: string; AuthServer: string };
 type SalesPoint = { Nro: number };
 type LastInfo = { CbteFch?: string | number } | null;
 
+function getAfipErrorDetails(err: unknown): Record<string, unknown> {
+  if (!err || typeof err !== "object") return { message: String(err ?? "") };
+  const anyErr = err as {
+    message?: unknown;
+    response?: { status?: unknown; statusText?: unknown; data?: unknown };
+    status?: unknown;
+    statusText?: unknown;
+    data?: unknown;
+  };
+  return {
+    message: anyErr.message ?? String(err),
+    status: anyErr.response?.status ?? anyErr.status,
+    statusText: anyErr.response?.statusText ?? anyErr.statusText,
+    responseData: anyErr.response?.data ?? anyErr.data,
+  };
+}
+
 // /** -------------- Helpers de contexto (AFIP + CUIT) -------------- */
 // function parseCUIT(raw?: string | null): number {
 //   const digits = (raw ?? "").replace(/\D/g, "");
@@ -343,7 +360,7 @@ export async function createVoucherService(
       qrBase64,
     };
   } catch (err) {
-    console.error("[createVoucherService] Error", err);
+    console.error("[createVoucherService] Error", getAfipErrorDetails(err));
     return { success: false, message: (err as Error).message };
   }
 }
