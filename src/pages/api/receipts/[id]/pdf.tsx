@@ -35,6 +35,7 @@ type AgencyExtras = {
   logo_url?: string | null;
   slug?: string | null;
   logo_filename?: string | null;
+  use_agency_numbers?: boolean | null;
 
   // 👇 campos que venías leyendo con (ag as any)
   legal_name?: string | null;
@@ -175,6 +176,12 @@ export default async function handler(
   const agency = (receipt.booking?.agency ?? receipt.agency) as
     | (typeof receipt.agency & AgencyExtras)
     | null;
+
+  const useAgencyNumbers = agency?.use_agency_numbers !== false;
+  const receiptDisplayNumber =
+    useAgencyNumbers && receipt.agency_receipt_id != null
+      ? String(receipt.agency_receipt_id)
+      : receipt.receipt_number;
 
   // 2) Logo multi-agencia
   let logoBase64: string | undefined;
@@ -328,10 +335,14 @@ export default async function handler(
   }));
 
   const hasBooking = !!receipt.booking?.id_booking;
+  const safeReceiptLabel = receiptDisplayNumber.replace(
+    /[^a-zA-Z0-9_-]+/g,
+    "_",
+  );
 
   // 6) Armar datos para el PDF
   const data: ReceiptPdfData = {
-    receiptNumber: receipt.receipt_number,
+    receiptNumber: receiptDisplayNumber,
     issueDate: receipt.issue_date ?? new Date(),
     concept: receipt.concept,
     amount: Number(receipt.amount),
@@ -395,7 +406,7 @@ export default async function handler(
   };
 
   const standalone: ReceiptStandalonePdfData = {
-    receiptNumber: receipt.receipt_number,
+    receiptNumber: receiptDisplayNumber,
     issueDate: receipt.issue_date ?? new Date(),
     concept: receipt.concept,
     amount: Number(receipt.amount),
@@ -425,6 +436,9 @@ export default async function handler(
     ? await renderToStream(<ReceiptDocument {...data} />)
     : await renderToStream(<ReceiptStandaloneDocument {...standalone} />);
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename=recibo_${id}.pdf`);
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename=recibo_${safeReceiptLabel || id}.pdf`,
+  );
   stream.pipe(res);
 }

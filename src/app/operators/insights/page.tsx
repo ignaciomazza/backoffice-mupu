@@ -140,6 +140,7 @@ type OperatorInsightsResponse = {
     }[];
     receipts: {
       id_receipt: number;
+      agency_receipt_id?: number | null;
       issue_date: string;
       concept: string;
       amount: number;
@@ -320,6 +321,21 @@ export default function OperatorInsightsPage() {
 
   const [data, setData] = useState<OperatorInsightsResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [useAgencyNumbers, setUseAgencyNumbers] = useState(true);
+
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const res = await authFetch("/api/agency", { cache: "no-store" }, token);
+        if (!res.ok) return;
+        const payload = (await res.json()) as { use_agency_numbers?: boolean };
+        setUseAgencyNumbers(payload.use_agency_numbers !== false);
+      } catch {
+        // mantener default
+      }
+    })();
+  }, [token]);
 
   const operatorName = useMemo(() => {
     if (data?.operator?.name) return data.operator.name;
@@ -400,6 +416,16 @@ export default function OperatorInsightsPage() {
     typeof selectedOperatorId === "number"
       ? `N° ${selectedOperatorId}`
       : "";
+
+  const getReceiptDisplayNumber = useCallback(
+    (item: { agency_receipt_id?: number | null; id_receipt: number }) => {
+      if (useAgencyNumbers && item.agency_receipt_id != null) {
+        return String(item.agency_receipt_id);
+      }
+      return String(item.id_receipt);
+    },
+    [useAgencyNumbers],
+  );
   const sharedBookings = useMemo(() => {
     if (!data?.lists.bookings) return 0;
     return data.lists.bookings.filter((b) => b.shared_operators.length > 0)
@@ -1295,7 +1321,9 @@ export default function OperatorInsightsPage() {
                               className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
                             >
                               <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                                <span>Recibo N° {item.id_receipt}</span>
+                                <span>
+                                  Recibo N° {getReceiptDisplayNumber(item)}
+                                </span>
                                 <span>{formatDate(item.issue_date)}</span>
                               </div>
                               <div className="mt-1 font-medium">

@@ -435,6 +435,7 @@ export default async function handler(
         amount_currency: true,
         base_amount: true,
         base_currency: true,
+        agency_receipt_id: true,
         bookingId_booking: true,
         booking: { select: { agency_booking_id: true } },
       },
@@ -764,6 +765,7 @@ export default async function handler(
       );
       return {
         id_receipt: rec.id_receipt,
+        agency_receipt_id: rec.agency_receipt_id ?? null,
         issue_date: rec.issue_date.toISOString(),
         concept: rec.concept,
         amount: val,

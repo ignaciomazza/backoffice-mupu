@@ -155,6 +155,10 @@ export default function ReceiptCard({
     useAgencyNumbers && receipt.agency_receipt_id != null
       ? String(receipt.agency_receipt_id)
       : receipt.receipt_number;
+  const receiptFileLabel = receiptDisplayNumber.replace(
+    /[^a-zA-Z0-9_-]+/g,
+    "_",
+  );
 
   const displayAmount = hasBase ? receipt.base_amount : receipt.amount;
   const displayCurrency = hasBase
@@ -202,7 +206,7 @@ export default function ReceiptCard({
         `${booking.titular?.first_name || ""} ${booking.titular?.last_name || ""}`.trim() ||
         `Reserva_${booking.id_booking}`;
       a.href = url;
-      a.download = `Recibo_${slugify(rawName)}_${booking.id_booking}.pdf`;
+      a.download = `Recibo_${slugify(rawName)}_${receiptFileLabel}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();

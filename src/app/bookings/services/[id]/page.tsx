@@ -107,6 +107,8 @@ function coerceReceipt(r: unknown): Receipt {
   return {
     ...base,
     id_receipt: Number.isFinite(id) ? id : 0,
+    agency_receipt_id:
+      obj.agency_receipt_id != null ? Number(obj.agency_receipt_id) : undefined,
     receipt_number: String(obj.receipt_number ?? obj.number ?? ""),
     issue_date: rawIssue as Receipt["issue_date"],
     amount: Number.isFinite(amount) ? amount : 0,
