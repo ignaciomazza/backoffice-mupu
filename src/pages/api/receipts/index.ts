@@ -2,6 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify, JWTPayload } from "jose";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 
 /* ======================================================
  * Tipos
@@ -443,7 +444,13 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
           { amount_string: { contains: q, mode: "insensitive" } },
           { receipt_number: { contains: q, mode: "insensitive" } },
           ...(Number.isFinite(maybeNum)
-            ? [{ booking: { id_booking: maybeNum } }]
+            ? [{ agency_receipt_id: maybeNum }]
+            : []),
+          ...(Number.isFinite(maybeNum)
+            ? [
+                { booking: { id_booking: maybeNum } },
+                { booking: { agency_booking_id: maybeNum } },
+              ]
             : []),
         ],
       });
@@ -525,6 +532,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       take,
       select: {
         id_receipt: true,
+        agency_receipt_id: true,
         receipt_number: true,
         issue_date: true,
         amount: true,
@@ -564,6 +572,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         booking: {
           select: {
             id_booking: true,
+            agency_booking_id: true,
             user: {
               select: { id_user: true, first_name: true, last_name: true },
             },
@@ -805,14 +814,25 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         ? { payment_fee_amount: toDec(payment_fee_amount) }
         : {}),
 
+      agency: { connect: { id_agency: authAgencyId } },
       ...(hasBooking
         ? { booking: { connect: { id_booking: bookingId } } }
-        : { agency: { connect: { id_agency: authAgencyId } } }),
+        : {}),
     };
 
     // ---- Crear recibo + payments en transacción
     const createdReceipt = await prisma.$transaction(async (tx) => {
-      const created = await tx.receipt.create({ data });
+      const agencyReceiptId = await getNextAgencyCounter(
+        tx,
+        authAgencyId,
+        "receipt",
+      );
+      const created = await tx.receipt.create({
+        data: {
+          ...data,
+          agency_receipt_id: agencyReceiptId,
+        },
+      });
 
       if (hasPayments) {
         await tx.receiptPayment.createMany({

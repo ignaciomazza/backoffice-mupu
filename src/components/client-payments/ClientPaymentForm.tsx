@@ -457,7 +457,7 @@ export default function ClientPaymentForm({
                 {isFormVisible ? "Plan de pagos" : "Cargar plan de pagos"}
               </p>
               <p className="text-xs opacity-70">
-                Reserva #{booking.id_booking}
+                Reserva N° {booking.agency_booking_id ?? booking.id_booking}
               </p>
             </div>
           </div>

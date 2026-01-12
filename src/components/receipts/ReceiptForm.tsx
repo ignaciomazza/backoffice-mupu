@@ -277,6 +277,12 @@ export default function ReceiptForm({
     [services, selectedServiceIds],
   );
 
+  const selectedBookingDisplayId = useMemo(() => {
+    if (!selectedBookingId) return null;
+    const opt = bookingOptions.find((b) => b.id_booking === selectedBookingId);
+    return opt?.agency_booking_id ?? selectedBookingId;
+  }, [bookingOptions, selectedBookingId]);
+
   const lockedCurrency = useMemo(() => {
     if (!selectedServices.length) return null;
     return selectedServices[0].currency;
@@ -510,7 +516,10 @@ export default function ReceiptForm({
 
             return {
               id_credit_account: id,
-              name: rawName && rawName.trim().length > 0 ? rawName : `Cuenta #${id}`,
+              name:
+                rawName && rawName.trim().length > 0
+                  ? rawName
+                  : `Cuenta N° ${id}`,
               currency:
                 typeof x["currency"] === "string"
                   ? String(x["currency"])
@@ -1567,7 +1576,7 @@ export default function ReceiptForm({
         editingReceiptId={editingReceiptId}
         action={action}
         mode={mode}
-        selectedBookingId={selectedBookingId}
+        selectedBookingDisplayId={selectedBookingDisplayId}
         selectedServiceCount={selectedServiceIds.length}
         effectiveCurrency={effectiveCurrency}
         lockedCurrency={lockedCurrency}

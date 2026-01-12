@@ -214,6 +214,7 @@ async function createCreditEntryForInvestment(
   userId: number,
   inv: {
     id_investment: number;
+    agency_investment_id?: number | null;
     operator_id: number;
     currency: string;
     amount: Prisma.Decimal | number; // <- acepta Decimal o number
@@ -236,12 +237,14 @@ async function createCreditEntryForInvestment(
 
   const amountAbs = Math.abs(rawAmount);
 
+  const displayId = inv.agency_investment_id ?? inv.id_investment;
+
   const entry = await tx.creditEntry.create({
     data: {
       id_agency: agencyId,
       account_id,
       created_by: userId,
-      concept: inv.description || `Gasto Operador #${inv.id_investment}`,
+      concept: inv.description || `Gasto Operador N° ${displayId}`,
       amount: new Prisma.Decimal(amountAbs), // siempre positivo
       currency: inv.currency,
       doc_type: "investment", // aplica signo negativo al balance
@@ -502,6 +505,7 @@ export default async function handler(
             auth.id_user,
             {
               id_investment: after.id_investment,
+              agency_investment_id: after.agency_investment_id,
               operator_id: after.operator_id,
               currency: after.currency,
               amount: after.amount,

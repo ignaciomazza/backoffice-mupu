@@ -100,6 +100,7 @@ type OperatorInsightsResponse = {
   lists: {
     bookings: {
       id_booking: number;
+      agency_booking_id?: number | null;
       details: string | null;
       departure_date: string | null;
       return_date: string | null;
@@ -118,6 +119,7 @@ type OperatorInsightsResponse = {
       operator_debt: MoneyMap;
       unreceipted_services: {
         id_service: number;
+        agency_service_id?: number | null;
         description: string;
         sale_price: number;
         cost_price: number;
@@ -131,7 +133,9 @@ type OperatorInsightsResponse = {
       amount: number;
       currency: string;
       booking_id: number;
+      booking_agency_id?: number | null;
       service_id: number;
+      service_agency_id?: number | null;
       concept: string;
     }[];
     receipts: {
@@ -141,22 +145,27 @@ type OperatorInsightsResponse = {
       amount: number;
       currency: string;
       booking_id: number | null;
+      booking_agency_id?: number | null;
     }[];
     investments: {
       id_investment: number;
+      agency_investment_id?: number | null;
       created_at: string;
       description: string;
       amount: number;
       currency: string;
       booking_id: number | null;
+      booking_agency_id?: number | null;
     }[];
     investmentsUnlinked: {
       id_investment: number;
+      agency_investment_id?: number | null;
       created_at: string;
       description: string;
       amount: number;
       currency: string;
       booking_id: number | null;
+      booking_agency_id?: number | null;
     }[];
   };
 };
@@ -388,7 +397,9 @@ export default function OperatorInsightsPage() {
 
   const operatorTitle = operatorName || "Panel de operadores";
   const operatorMeta =
-    typeof selectedOperatorId === "number" ? `#${selectedOperatorId}` : "";
+    typeof selectedOperatorId === "number"
+      ? `N° ${selectedOperatorId}`
+      : "";
   const sharedBookings = useMemo(() => {
     if (!data?.lists.bookings) return 0;
     return data.lists.bookings.filter((b) => b.shared_operators.length > 0)
@@ -889,7 +900,7 @@ export default function OperatorInsightsPage() {
                       {data.lists.bookings.map((booking) => {
                         const sharedCount = booking.shared_operators.length;
                         const sharedNames = booking.shared_operators
-                          .map((op) => op.name || `Operador #${op.id_operator}`)
+                          .map((op) => op.name || `Operador N° ${op.id_operator}`)
                           .join(", ");
                         const titularName = formatName(
                           booking.titular?.first_name,
@@ -903,7 +914,9 @@ export default function OperatorInsightsPage() {
                             <div className="flex flex-wrap items-start justify-between gap-4">
                               <div className="space-y-1">
                                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                  Reserva #{booking.id_booking}
+                                  Reserva N°{" "}
+                                  {booking.agency_booking_id ??
+                                    booking.id_booking}
                                 </div>
                                 <div className="text-lg font-semibold">
                                   {booking.details || "Sin detalle"}
@@ -967,7 +980,11 @@ export default function OperatorInsightsPage() {
                                       className="rounded-2xl border border-white/10 bg-white/70 p-3 shadow-sm dark:bg-slate-900/50"
                                     >
                                       <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                                        <span>Servicio #{svc.id_service}</span>
+                                        <span>
+                                          Servicio N° 
+                                          {svc.agency_service_id ??
+                                            svc.id_service}
+                                        </span>
                                         <StatusPill
                                           label={svc.currency}
                                           tone="amber"
@@ -1026,7 +1043,7 @@ export default function OperatorInsightsPage() {
                       {data.lists.bookings.map((booking) => {
                         const sharedCount = booking.shared_operators.length;
                         const sharedNames = booking.shared_operators
-                          .map((op) => op.name || `Operador #${op.id_operator}`)
+                          .map((op) => op.name || `Operador N° ${op.id_operator}`)
                           .join(", ");
                         const titularName = formatName(
                           booking.titular?.first_name,
@@ -1040,7 +1057,9 @@ export default function OperatorInsightsPage() {
                             <div className="flex flex-wrap items-start justify-between gap-4">
                               <div className="space-y-1">
                                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                  Reserva #{booking.id_booking}
+                                  Reserva N°{" "}
+                                  {booking.agency_booking_id ??
+                                    booking.id_booking}
                                 </div>
                                 <div className="text-lg font-semibold">
                                   {booking.details || "Sin detalle"}
@@ -1143,12 +1162,15 @@ export default function OperatorInsightsPage() {
                             />
                           </div>
                           <div className="mt-1 font-medium">
-                            {due.concept || `Servicio #${due.service_id}`}
+                            {due.concept ||
+                              `Servicio N° ${
+                                due.service_agency_id ?? due.service_id
+                              }`}
                           </div>
                           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
                             <span>
-                              Reserva {due.booking_id} · Servicio{" "}
-                              {due.service_id}
+                              Reserva {due.booking_agency_id ?? due.booking_id} ·{" "}
+                              Servicio {due.service_agency_id ?? due.service_id}
                             </span>
                             <span className="flex items-center gap-2">
                               <StatusPill label={due.currency} tone="sky" />
@@ -1273,7 +1295,7 @@ export default function OperatorInsightsPage() {
                               className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
                             >
                               <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                                <span>Recibo #{item.id_receipt}</span>
+                                <span>Recibo N° {item.id_receipt}</span>
                                 <span>{formatDate(item.issue_date)}</span>
                               </div>
                               <div className="mt-1 font-medium">
@@ -1282,7 +1304,10 @@ export default function OperatorInsightsPage() {
                               <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
                                 <span>
                                   {item.booking_id
-                                    ? `Reserva ${item.booking_id}`
+                                    ? `Reserva ${
+                                        item.booking_agency_id ??
+                                        item.booking_id
+                                      }`
                                     : "Sin reserva"}
                                 </span>
                                 <span className="flex items-center gap-2">
@@ -1323,7 +1348,11 @@ export default function OperatorInsightsPage() {
                               className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
                             >
                               <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                                <span>Pago #{item.id_investment}</span>
+                                <span>
+                                  Pago N° 
+                                  {item.agency_investment_id ??
+                                    item.id_investment}
+                                </span>
                                 <span>{formatDate(item.created_at)}</span>
                               </div>
                               <div className="mt-1 font-medium">
@@ -1368,7 +1397,11 @@ export default function OperatorInsightsPage() {
                                 className="rounded-2xl border border-white/10 bg-white/60 p-3 text-slate-800 shadow-sm dark:bg-slate-900/60 dark:text-slate-100"
                               >
                                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                                  <span>Pago #{item.id_investment}</span>
+                                  <span>
+                                    Pago N° 
+                                    {item.agency_investment_id ??
+                                      item.id_investment}
+                                  </span>
                                   <span>{formatDate(item.created_at)}</span>
                                 </div>
                                 <div className="mt-1 font-medium">

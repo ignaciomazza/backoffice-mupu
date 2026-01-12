@@ -35,6 +35,7 @@ type UserLite = {
 
 type Booking = {
   id_booking: number;
+  agency_booking_id?: number | null;
   clientStatus: string;
   departure_date?: string | null;
   return_date?: string | null;
@@ -567,36 +568,40 @@ export default function DashboardShortcuts() {
             <p className="text-sm opacity-70">Sin deudas visibles 🎉</p>
           ) : (
             <ul className="space-y-2">
-              {debts.map((d) => (
-                <li
-                  key={d.booking.id_booking}
-                  className="flex items-center justify-between"
-                >
-                  <Link
-                    href={`/bookings/services/${d.booking.id_booking}`}
-                    className="truncate underline decoration-transparent hover:decoration-sky-600"
-                    title={`#${d.booking.id_booking} – ${title(d.booking)}`}
+              {debts.map((d) => {
+                const bookingNumber =
+                  d.booking.agency_booking_id ?? d.booking.id_booking;
+                return (
+                  <li
+                    key={d.booking.id_booking}
+                    className="flex items-center justify-between"
                   >
-                    #{d.booking.id_booking} — {title(d.booking)}
-                  </Link>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {d.debtARS > 0 && (
-                      <span
-                        className={`${chip} border bg-white/20 text-sky-900 dark:text-white`}
-                      >
-                        ARS <strong>{fmt(d.debtARS, "ARS")}</strong>
-                      </span>
-                    )}
-                    {d.debtUSD > 0 && (
-                      <span
-                        className={`${chip} border bg-white/20 text-sky-900 dark:text-white`}
-                      >
-                        USD <strong>{fmt(d.debtUSD, "USD")}</strong>
-                      </span>
-                    )}
-                  </div>
-                </li>
-              ))}
+                    <Link
+                      href={`/bookings/services/${d.booking.id_booking}`}
+                      className="truncate underline decoration-transparent hover:decoration-sky-600"
+                      title={`N° ${bookingNumber} – ${title(d.booking)}`}
+                    >
+                    N° {bookingNumber} — {title(d.booking)}
+                    </Link>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {d.debtARS > 0 && (
+                        <span
+                          className={`${chip} border bg-white/20 text-sky-900 dark:text-white`}
+                        >
+                          ARS <strong>{fmt(d.debtARS, "ARS")}</strong>
+                        </span>
+                      )}
+                      {d.debtUSD > 0 && (
+                        <span
+                          className={`${chip} border bg-white/20 text-sky-900 dark:text-white`}
+                        >
+                          USD <strong>{fmt(d.debtUSD, "USD")}</strong>
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </motion.div>
@@ -657,16 +662,19 @@ export default function DashboardShortcuts() {
             <p className="text-sm opacity-70">No hay reservas pendientes.</p>
           ) : (
             <ul className="space-y-1 text-sm">
-              {pendingBookings.map((b) => (
+              {pendingBookings.map((b) => {
+                const bookingNumber = b.agency_booking_id ?? b.id_booking;
+                return (
                 <li key={b.id_booking}>
                   <Link
                     href={`/bookings/services/${b.id_booking}`}
                     className="underline decoration-transparent hover:decoration-sky-600"
                   >
-                    #{b.id_booking} — {title(b)}
+                    N° {bookingNumber} — {title(b)}
                   </Link>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </motion.div>
@@ -740,6 +748,7 @@ export default function DashboardShortcuts() {
             <ul className="space-y-2 text-sm">
               {travelWeek.map((b) => {
                 const dep = humanDate(b.departure_date);
+                const bookingNumber = b.agency_booking_id ?? b.id_booking;
                 return (
                   <li
                     key={b.id_booking}
@@ -749,7 +758,7 @@ export default function DashboardShortcuts() {
                       href={`/bookings/services/${b.id_booking}`}
                       className="truncate underline decoration-transparent hover:decoration-sky-600"
                     >
-                      #{b.id_booking} — {title(b)}
+                      N° {bookingNumber} — {title(b)}
                     </Link>
                     <span className="rounded-full bg-sky-600/10 px-2.5 py-0.5 text-[11px]">
                       {dep}

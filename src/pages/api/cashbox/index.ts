@@ -487,6 +487,7 @@ async function getMonthlyMovements(
       booking: {
         select: {
           id_booking: true,
+          agency_booking_id: true,
           details: true,
           titular: {
             select: {
@@ -513,7 +514,7 @@ async function getMonthlyMovements(
       : null;
 
     const bookingLabel = booking
-      ? `#${booking.id_booking} • ${booking.details}`.trim()
+      ? `N° ${booking.agency_booking_id ?? booking.id_booking} • ${booking.details}`.trim()
       : null;
 
     const hasCounter =
@@ -586,6 +587,7 @@ async function getMonthlyMovements(
       booking: {
         select: {
           id_booking: true,
+          agency_booking_id: true,
           details: true,
         },
       },
@@ -596,7 +598,7 @@ async function getMonthlyMovements(
     const date = inv.paid_at ?? inv.created_at;
     const operatorName = inv.operator?.name ?? null;
     const bookingLabel = inv.booking
-      ? `#${inv.booking.id_booking} • ${inv.booking.details}`
+      ? `N° ${inv.booking.agency_booking_id ?? inv.booking.id_booking} • ${inv.booking.details}`
       : null;
 
     const descriptionParts = [inv.category, inv.description].filter(Boolean);
@@ -645,6 +647,7 @@ async function getMonthlyMovements(
       booking: {
         select: {
           id_booking: true,
+          agency_booking_id: true,
           details: true,
         },
       },
@@ -653,7 +656,9 @@ async function getMonthlyMovements(
 
   const clientPaymentMovements: CashboxMovement[] = clientPayments.map((cp) => {
     const clientName = `${cp.client.first_name} ${cp.client.last_name}`;
-    const bookingLabel = `#${cp.booking.id_booking} • ${cp.booking.details}`;
+    const bookingLabel = `N° ${
+      cp.booking.agency_booking_id ?? cp.booking.id_booking
+    } • ${cp.booking.details}`;
 
     return {
       id: `client_payment:${cp.id_payment}`,
@@ -688,6 +693,7 @@ async function getMonthlyMovements(
       booking: {
         select: {
           id_booking: true,
+          agency_booking_id: true,
           details: true,
         },
       },
@@ -706,7 +712,9 @@ async function getMonthlyMovements(
 
   const operatorDueMovements: CashboxMovement[] = operatorDues.map((od) => {
     const operatorName = od.service.operator?.name ?? null;
-    const bookingLabel = `#${od.booking.id_booking} • ${od.booking.details}`;
+    const bookingLabel = `N° ${
+      od.booking.agency_booking_id ?? od.booking.id_booking
+    } • ${od.booking.details}`;
 
     const descriptionParts = [od.concept, od.service.description].filter(
       Boolean,

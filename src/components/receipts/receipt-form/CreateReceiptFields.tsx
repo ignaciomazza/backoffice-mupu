@@ -706,7 +706,7 @@ export default function CreateReceiptFields(props: {
               id="concept"
               value={concept}
               onChange={(e) => setConcept(e.target.value)}
-              placeholder="Ej.: Pago parcial reserva #1024"
+              placeholder="Ej.: Pago parcial reserva N° 1024"
               className={inputBase}
             />
           </Field>

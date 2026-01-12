@@ -51,6 +51,7 @@ type ReceiptForBalance = {
 
 interface Booking {
   id_booking: number;
+  agency_booking_id?: number | null;
   clientStatus: string;
   operatorStatus: string;
   status?: string;
@@ -516,7 +517,7 @@ export default function BalancesPage() {
       const name =
         b.user?.first_name || b.user?.last_name
           ? `${b.user?.first_name || ""} ${b.user?.last_name || ""}`.trim()
-          : `#${id}`;
+          : `N° ${id}`;
       map.set(id, name);
     }
     return Array.from(map.entries()).sort((a, b) =>
@@ -569,7 +570,7 @@ export default function BalancesPage() {
     const map = new Map<number, string>();
     ownerCatalog.forEach((u) => {
       const label = `${u.first_name || ""} ${u.last_name || ""}`.trim();
-      map.set(u.id_user, label || `#${u.id_user}`);
+      map.set(u.id_user, label || `N° ${u.id_user}`);
     });
     ownersFromData.forEach(([id, name]) => {
       if (!map.has(id)) map.set(id, name);
@@ -724,8 +725,8 @@ export default function BalancesPage() {
 
       switch (sortKey) {
         case "id_booking":
-          va = a.id_booking;
-          vb = b.id_booking;
+          va = a.agency_booking_id ?? a.id_booking;
+          vb = b.agency_booking_id ?? b.id_booking;
           break;
         case "titular":
           va = a._titularFull || "";
@@ -962,7 +963,7 @@ export default function BalancesPage() {
     let raw = "";
     switch (col) {
       case "id_booking":
-        raw = String(b.id_booking);
+        raw = String(b.agency_booking_id ?? b.id_booking);
         break;
       case "titular":
         raw = b._titularFull || "";
@@ -1087,7 +1088,7 @@ export default function BalancesPage() {
         ownerLabelMap.get(ownerId) ||
         (isVendor && currentUserId === ownerId
           ? "Mis reservas"
-          : `#${ownerId}`);
+          : `N° ${ownerId}`);
       chips.push({ key: "owner", label: `Vendedor: ${label}` });
     }
     if (clientStatusArr.length)
@@ -1441,7 +1442,9 @@ export default function BalancesPage() {
                 >
                   {visibleCols.map((col) => {
                     switch (col.key) {
-                      case "id_booking":
+                      case "id_booking": {
+                        const bookingNumber =
+                          b.agency_booking_id ?? b.id_booking;
                         return (
                           <td
                             key={col.key}
@@ -1452,10 +1455,11 @@ export default function BalancesPage() {
                               target="_blank"
                               className="underline decoration-transparent hover:decoration-sky-600"
                             >
-                              {b.id_booking}
+                              {bookingNumber}
                             </Link>
                           </td>
                         );
+                      }
                       case "titular":
                         return (
                           <td

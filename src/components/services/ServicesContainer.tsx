@@ -983,7 +983,9 @@ export default function ServicesContainer(props: ServicesContainerProps) {
               {/* Título */}
               <div className="flex flex-1 items-center justify-center">
                 <h1 className="truncate text-center text-xl font-semibold text-sky-950 dark:text-white md:text-2xl">
-                  {booking ? `Reserva N° ${booking.id_booking}` : "Reserva"}
+                  {booking
+                    ? `Reserva N° ${booking.agency_booking_id ?? booking.id_booking}`
+                    : "Reserva"}
                 </h1>
               </div>
 
@@ -1066,7 +1068,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <span className="rounded-full bg-white/40 px-3 py-1 text-sm font-medium tracking-wide dark:bg-white/10">
-                    N° {booking.id_booking}
+                    N° {booking.agency_booking_id ?? booking.id_booking}
                   </span>
                   <span className="text-sm font-light opacity-80">
                     {formatDate(booking.creation_date)}
@@ -1128,7 +1130,8 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                   <p className="mt-1 text-sm font-light">
                     {cap(booking.titular.first_name)}{" "}
                     {cap(booking.titular.last_name)} —{" "}
-                    {booking.titular.id_client}
+                    {booking.titular.agency_client_id ??
+                      booking.titular.id_client}
                   </p>
                 </div>
 

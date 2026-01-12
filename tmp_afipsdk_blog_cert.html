@@ -1,0 +1,419 @@
+<!DOCTYPE html><html lang="es" class="scroll-smooth dark"> <head><!-- Global Metadata --><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="shortcut icon" sizes="16x16" href="/favicon.png"><link rel="shortcut icon" sizes="32x32" href="/faviconx32.png"><link rel="sitemap" href="/sitemap-index.xml"><!-- Font preloads --><link rel="preload" href="/fonts/calsans-semibold.woff2" as="font" type="font/woff2" crossorigin><!-- Canonical URL --><link rel="canonical" href="https://afipsdk.com/blog/crear-certificado-para-usar-web-services-de-afip-via-api/"><!-- Primary Meta Tags --><title>Crear certificado para usar web services de ARCA via API - Afip SDK</title><meta name="title" content="Crear certificado para usar web services de ARCA via API - Afip SDK"><meta name="description" content="Con pocas líneas de código"><!-- Open Graph / Facebook --><meta property="og:type" content="website"><meta property="og:url" content="https://afipsdk.com/blog/crear-certificado-para-usar-web-services-de-afip-via-api/"><meta property="og:title" content="Crear certificado para usar web services de ARCA via API"><meta property="og:description" content="Con pocas líneas de código"><meta property="og:image" content="https://afipsdk.com/og.png"><!-- Twitter --><meta property="twitter:card" content="summary_large_image"><meta property="twitter:url" content="https://afipsdk.com/blog/crear-certificado-para-usar-web-services-de-afip-via-api/"><meta property="twitter:title" content="Crear certificado para usar web services de ARCA via API"><meta property="twitter:description" content="Con pocas líneas de código"><meta property="twitter:image" content="https://afipsdk.com/og.png"><!-- Dark mode with prevent flickering flash between navigations --><script>
+const setDarkMode = () => {
+  // const theme = (() => {
+  //   if (
+  //     typeof localStorage !== "undefined" &&
+  //     localStorage.getItem("theme")
+  //   ) {
+  //     return localStorage.getItem("theme");
+  //   }
+  //   if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+  //     return "dark";
+  //   }
+  //   return "light";
+  // })();
+  const theme = 'dark';
+
+  if (theme === "light") {
+    document.documentElement.classList.remove("dark");
+  } else {
+    document.documentElement.classList.add("dark");
+  }
+  window.localStorage.setItem("theme", theme);
+};
+
+setDarkMode();
+document.addEventListener("astro:after-swap", setDarkMode);
+</script><!-- Google tag (gtag.js) --><script type="text/javascript" async src="https://www.googletagmanager.com/gtag/js?id=G-GHNJM0PE77"></script><script type="text/javascript">
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-GHNJM0PE77');
+</script><meta name="astro-view-transitions-enabled" content="true"><meta name="astro-view-transitions-fallback" content="animate"><style>@keyframes astroFadeInOut{0%{opacity:1}to{opacity:0}}@keyframes astroFadeIn{0%{opacity:0;mix-blend-mode:plus-lighter}to{opacity:1;mix-blend-mode:plus-lighter}}@keyframes astroFadeOut{0%{opacity:1;mix-blend-mode:plus-lighter}to{opacity:0;mix-blend-mode:plus-lighter}}@keyframes astroSlideFromRight{0%{transform:translate(100%)}}@keyframes astroSlideFromLeft{0%{transform:translate(-100%)}}@keyframes astroSlideToRight{to{transform:translate(100%)}}@keyframes astroSlideToLeft{to{transform:translate(-100%)}}@media (prefers-reduced-motion){::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}[data-astro-transition-scope]{animation:none!important}}
+</style>
+<link rel="stylesheet" href="/_astro/introduction.Ck8vRwqa.css"><script type="module" src="/_astro/hoisted.WONxKOw9.js"></script><style>[data-astro-transition-scope="astro-ks7i2azy-1"] { view-transition-name: astro-ks7i2azy-1; }@layer astro { ::view-transition-old(astro-ks7i2azy-1) { 
+	animation-duration: 90ms, 220ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1), cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both, both;
+	animation-name: astroFadeOut, astroSlideToLeft; }::view-transition-new(astro-ks7i2azy-1) { 
+	animation-duration: 210ms, 220ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1), cubic-bezier(0.76, 0, 0.24, 1);
+	animation-delay: 30ms;
+	animation-fill-mode: both, both;
+	animation-name: astroFadeIn, astroSlideFromRight; }[data-astro-transition=back]::view-transition-old(astro-ks7i2azy-1) { 
+	animation-name: astroFadeOut, astroSlideToRight; }[data-astro-transition=back]::view-transition-new(astro-ks7i2azy-1) { 
+	animation-name: astroFadeIn, astroSlideFromLeft; } }[data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-ks7i2azy-1"],
+			[data-astro-transition-fallback="old"][data-astro-transition-scope="astro-ks7i2azy-1"] { 
+	animation-duration: 90ms, 220ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1), cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both, both;
+	animation-name: astroFadeOut, astroSlideToLeft; }[data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-ks7i2azy-1"],
+			[data-astro-transition-fallback="new"][data-astro-transition-scope="astro-ks7i2azy-1"] { 
+	animation-duration: 210ms, 220ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1), cubic-bezier(0.76, 0, 0.24, 1);
+	animation-delay: 30ms;
+	animation-fill-mode: both, both;
+	animation-name: astroFadeIn, astroSlideFromRight; }[data-astro-transition=back][data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-ks7i2azy-1"],
+			[data-astro-transition=back][data-astro-transition-fallback="old"][data-astro-transition-scope="astro-ks7i2azy-1"] { 
+	animation-name: astroFadeOut, astroSlideToRight; }[data-astro-transition=back][data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-ks7i2azy-1"],
+			[data-astro-transition=back][data-astro-transition-fallback="new"][data-astro-transition-scope="astro-ks7i2azy-1"] { 
+	animation-name: astroFadeIn, astroSlideFromLeft; }</style><style>[data-astro-transition-scope="astro-4rjw2hgd-2"] { view-transition-name: title-crear-certificado-para-usar-web-services-de-afip-via-api; }@layer astro { ::view-transition-old(title-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }::view-transition-new(title-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }[data-astro-transition=back]::view-transition-old(title-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition=back]::view-transition-new(title-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; } }[data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-4rjw2hgd-2"],
+			[data-astro-transition-fallback="old"][data-astro-transition-scope="astro-4rjw2hgd-2"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-4rjw2hgd-2"],
+			[data-astro-transition-fallback="new"][data-astro-transition-scope="astro-4rjw2hgd-2"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }[data-astro-transition=back][data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-4rjw2hgd-2"],
+			[data-astro-transition=back][data-astro-transition-fallback="old"][data-astro-transition-scope="astro-4rjw2hgd-2"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition=back][data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-4rjw2hgd-2"],
+			[data-astro-transition=back][data-astro-transition-fallback="new"][data-astro-transition-scope="astro-4rjw2hgd-2"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }</style><style>[data-astro-transition-scope="astro-yb6lxq45-3"] { view-transition-name: avatar-crear-certificado-para-usar-web-services-de-afip-via-api; }@layer astro { ::view-transition-old(avatar-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }::view-transition-new(avatar-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }[data-astro-transition=back]::view-transition-old(avatar-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition=back]::view-transition-new(avatar-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; } }[data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-yb6lxq45-3"],
+			[data-astro-transition-fallback="old"][data-astro-transition-scope="astro-yb6lxq45-3"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-yb6lxq45-3"],
+			[data-astro-transition-fallback="new"][data-astro-transition-scope="astro-yb6lxq45-3"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }[data-astro-transition=back][data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-yb6lxq45-3"],
+			[data-astro-transition=back][data-astro-transition-fallback="old"][data-astro-transition-scope="astro-yb6lxq45-3"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition=back][data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-yb6lxq45-3"],
+			[data-astro-transition=back][data-astro-transition-fallback="new"][data-astro-transition-scope="astro-yb6lxq45-3"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }</style><style>[data-astro-transition-scope="astro-6thymzzw-4"] { view-transition-name: name-crear-certificado-para-usar-web-services-de-afip-via-api; }@layer astro { ::view-transition-old(name-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }::view-transition-new(name-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }[data-astro-transition=back]::view-transition-old(name-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition=back]::view-transition-new(name-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; } }[data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-6thymzzw-4"],
+			[data-astro-transition-fallback="old"][data-astro-transition-scope="astro-6thymzzw-4"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-6thymzzw-4"],
+			[data-astro-transition-fallback="new"][data-astro-transition-scope="astro-6thymzzw-4"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }[data-astro-transition=back][data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-6thymzzw-4"],
+			[data-astro-transition=back][data-astro-transition-fallback="old"][data-astro-transition-scope="astro-6thymzzw-4"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition=back][data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-6thymzzw-4"],
+			[data-astro-transition=back][data-astro-transition-fallback="new"][data-astro-transition-scope="astro-6thymzzw-4"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }</style><style>[data-astro-transition-scope="astro-xi7nm7zc-5"] { view-transition-name: date-crear-certificado-para-usar-web-services-de-afip-via-api; }@layer astro { ::view-transition-old(date-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }::view-transition-new(date-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }[data-astro-transition=back]::view-transition-old(date-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition=back]::view-transition-new(date-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; } }[data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-xi7nm7zc-5"],
+			[data-astro-transition-fallback="old"][data-astro-transition-scope="astro-xi7nm7zc-5"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-xi7nm7zc-5"],
+			[data-astro-transition-fallback="new"][data-astro-transition-scope="astro-xi7nm7zc-5"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }[data-astro-transition=back][data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-xi7nm7zc-5"],
+			[data-astro-transition=back][data-astro-transition-fallback="old"][data-astro-transition-scope="astro-xi7nm7zc-5"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition=back][data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-xi7nm7zc-5"],
+			[data-astro-transition=back][data-astro-transition-fallback="new"][data-astro-transition-scope="astro-xi7nm7zc-5"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }</style><style>[data-astro-transition-scope="astro-nadgy776-6"] { view-transition-name: badge-cat-crear-certificado-para-usar-web-services-de-afip-via-api; }@layer astro { ::view-transition-old(badge-cat-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }::view-transition-new(badge-cat-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }[data-astro-transition=back]::view-transition-old(badge-cat-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition=back]::view-transition-new(badge-cat-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; } }[data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-nadgy776-6"],
+			[data-astro-transition-fallback="old"][data-astro-transition-scope="astro-nadgy776-6"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-nadgy776-6"],
+			[data-astro-transition-fallback="new"][data-astro-transition-scope="astro-nadgy776-6"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }[data-astro-transition=back][data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-nadgy776-6"],
+			[data-astro-transition=back][data-astro-transition-fallback="old"][data-astro-transition-scope="astro-nadgy776-6"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition=back][data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-nadgy776-6"],
+			[data-astro-transition=back][data-astro-transition-fallback="new"][data-astro-transition-scope="astro-nadgy776-6"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }</style><style>[data-astro-transition-scope="astro-qmwqsxdy-7"] { view-transition-name: img-crear-certificado-para-usar-web-services-de-afip-via-api; }@layer astro { ::view-transition-old(img-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }::view-transition-new(img-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }[data-astro-transition=back]::view-transition-old(img-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition=back]::view-transition-new(img-crear-certificado-para-usar-web-services-de-afip-via-api) { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; } }[data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-qmwqsxdy-7"],
+			[data-astro-transition-fallback="old"][data-astro-transition-scope="astro-qmwqsxdy-7"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-qmwqsxdy-7"],
+			[data-astro-transition-fallback="new"][data-astro-transition-scope="astro-qmwqsxdy-7"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }[data-astro-transition=back][data-astro-transition-fallback="old"] [data-astro-transition-scope="astro-qmwqsxdy-7"],
+			[data-astro-transition=back][data-astro-transition-fallback="old"][data-astro-transition-scope="astro-qmwqsxdy-7"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeOut; }[data-astro-transition=back][data-astro-transition-fallback="new"] [data-astro-transition-scope="astro-qmwqsxdy-7"],
+			[data-astro-transition=back][data-astro-transition-fallback="new"][data-astro-transition-scope="astro-qmwqsxdy-7"] { 
+	animation-duration: 180ms;
+	animation-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+	animation-fill-mode: both;
+	animation-name: astroFadeIn; }</style></head> <body class="flex flex-col min-h-screen">  <div class="w-full overflow-hidden bg-gradient-to-r from-indigo-500 via-purple-600 to-purple-700 text-white" style="height: auto; opacity: 1;"> <div class="mx-auto flex max-w-7xl items-center justify-center px-4 py-1.5"> <div class="flex flex-grow items-center justify-center gap-2 text-center"> <span class="hidden text-sm  tracking-[-0.02rem] text-white sm:block">Solución a problemas con la nueva Resolución General ARCA N° 5.616/2024.</span> <span class="block text-sm  tracking-[-0.02rem] text-white sm:hidden">Resolución N° 5.616/2024.</span> <a class="group flex items-center gap-1 text-sm font-medium tracking-[-0.02rem] text-white underline hover:text-white/80 transition-all duration-150" href="/blog/factura-electronica-solucion-a-error-10242/">Más información</a> </div> </div> </div> <header class="flex items-center h-16 md:h-18 z-50 top-0 bg-background"> <div class="relative container flex items-center justify-between w-full"> <div class="flex items-center gap-6 md:gap-8 lg:gap-10"> <a href="/" class="hidden items-center space-x-2 md:flex"> <svg width="1em" height="1em" viewBox="0 0 387 387" class="size-8" data-icon="logo">  <symbol id="ai:local:logo"><g fill="currentColor"><path d="M42.195 84.438C92.613 65.428 142.954 46.163 193.32 27c49.753 18.804 99.53 37.583 149.18 56.695-52.032 18.42-103.859 37.352-155.84 55.9-3.279 1.666-6.533-.384-9.582-1.46-44.91-18.01-89.973-35.662-134.883-53.697ZM0 135.522c7.455-13.296 14.628-26.721 22.314-39.863 49.368 20.264 99.145 39.479 148.616 59.436-7.532 12.476-13.655 25.747-21.341 38.121C99.991 173.361 49.88 154.736 0 135.522Zm197.497 19.445c55.49-20.316 111.288-39.863 166.805-60.18 7.685 13.476 15.064 27.131 22.698 40.658-53.415 20.342-106.677 40.99-160.042 61.383-9.914-13.885-19.342-28.13-29.461-41.861Z"/><path d="M24.902 166.418c40.324 15.269 80.725 30.282 121.049 45.5 6.098 2.664 14.501 1.665 18.523-4.048 5.252-7.225 9.94-14.808 15.32-21.93.025 57.515.051 115.029 0 172.518-51.75-19.393-103.296-39.274-154.892-59.026 0-44.346-.026-88.667 0-133.014ZM220.4 217.144c42.425-16.319 84.67-33.151 126.839-50.111.256 43.988-.025 87.976.154 131.963-51.417 20.393-103.219 39.864-154.687 60.103.025-59.974-.077-119.974.051-179.948 9.377 12.553 17.011 26.464 27.643 37.993Z"/></g></symbol><use xlink:href="#ai:local:logo"></use>  </svg> <span class="hidden font-bold sm:inline-block"> Afip SDK </span> </a> <style>astro-island,astro-slot,astro-static-slot{display:contents}</style><script>(()=>{var e=async t=>{await(await t())()};(self.Astro||(self.Astro={})).load=e;window.dispatchEvent(new Event("astro:load"));})();;(()=>{var A=Object.defineProperty;var g=(i,o,a)=>o in i?A(i,o,{enumerable:!0,configurable:!0,writable:!0,value:a}):i[o]=a;var d=(i,o,a)=>g(i,typeof o!="symbol"?o+"":o,a);{let i={0:t=>m(t),1:t=>a(t),2:t=>new RegExp(t),3:t=>new Date(t),4:t=>new Map(a(t)),5:t=>new Set(a(t)),6:t=>BigInt(t),7:t=>new URL(t),8:t=>new Uint8Array(t),9:t=>new Uint16Array(t),10:t=>new Uint32Array(t),11:t=>1/0*t},o=t=>{let[l,e]=t;return l in i?i[l](e):void 0},a=t=>t.map(o),m=t=>typeof t!="object"||t===null?t:Object.fromEntries(Object.entries(t).map(([l,e])=>[l,o(e)]));class y extends HTMLElement{constructor(){super(...arguments);d(this,"Component");d(this,"hydrator");d(this,"hydrate",async()=>{var b;if(!this.hydrator||!this.isConnected)return;let e=(b=this.parentElement)==null?void 0:b.closest("astro-island[ssr]");if(e){e.addEventListener("astro:hydrate",this.hydrate,{once:!0});return}let c=this.querySelectorAll("astro-slot"),n={},h=this.querySelectorAll("template[data-astro-template]");for(let r of h){let s=r.closest(this.tagName);s!=null&&s.isSameNode(this)&&(n[r.getAttribute("data-astro-template")||"default"]=r.innerHTML,r.remove())}for(let r of c){let s=r.closest(this.tagName);s!=null&&s.isSameNode(this)&&(n[r.getAttribute("name")||"default"]=r.innerHTML)}let p;try{p=this.hasAttribute("props")?m(JSON.parse(this.getAttribute("props"))):{}}catch(r){let s=this.getAttribute("component-url")||"<unknown>",v=this.getAttribute("component-export");throw v&&(s+=` (export ${v})`),console.error(`[hydrate] Error parsing props for component ${s}`,this.getAttribute("props"),r),r}let u;await this.hydrator(this)(this.Component,p,n,{client:this.getAttribute("client")}),this.removeAttribute("ssr"),this.dispatchEvent(new CustomEvent("astro:hydrate"))});d(this,"unmount",()=>{this.isConnected||this.dispatchEvent(new CustomEvent("astro:unmount"))})}disconnectedCallback(){document.removeEventListener("astro:after-swap",this.unmount),document.addEventListener("astro:after-swap",this.unmount,{once:!0})}connectedCallback(){if(!this.hasAttribute("await-children")||document.readyState==="interactive"||document.readyState==="complete")this.childrenConnectedCallback();else{let e=()=>{document.removeEventListener("DOMContentLoaded",e),c.disconnect(),this.childrenConnectedCallback()},c=new MutationObserver(()=>{var n;((n=this.lastChild)==null?void 0:n.nodeType)===Node.COMMENT_NODE&&this.lastChild.nodeValue==="astro:end"&&(this.lastChild.remove(),e())});c.observe(this,{childList:!0}),document.addEventListener("DOMContentLoaded",e)}}async childrenConnectedCallback(){let e=this.getAttribute("before-hydration-url");e&&await import(e),this.start()}async start(){let e=JSON.parse(this.getAttribute("opts")),c=this.getAttribute("client");if(Astro[c]===void 0){window.addEventListener(`astro:${c}`,()=>this.start(),{once:!0});return}try{await Astro[c](async()=>{let n=this.getAttribute("renderer-url"),[h,{default:p}]=await Promise.all([import(this.getAttribute("component-url")),n?import(n):()=>()=>{}]),u=this.getAttribute("component-export")||"default";if(!u.includes("."))this.Component=h[u];else{this.Component=h;for(let f of u.split("."))this.Component=this.Component[f]}return this.hydrator=p,this.hydrate},e,this)}catch(n){console.error(`[astro-island] Error hydrating ${this.getAttribute("component-url")}`,n)}}attributeChangedCallback(){this.hydrate()}}d(y,"observedAttributes",["props"]),customElements.get("astro-island")||customElements.define("astro-island",y)}})();</script><astro-island uid="1sVDkm" prefix="r2" component-url="/_astro/sheet-mobile-nav.pl2B3M9K.js" component-export="SheetMobileNav" renderer-url="/_astro/client.BbZ85sfl.js" props="{&quot;mainNavItems&quot;:[1,[]],&quot;sidebarNavItems&quot;:[1,[[0,{&quot;title&quot;:[0,&quot;Recursos&quot;],&quot;items&quot;:[1,[[0,{&quot;title&quot;:[0,&quot;Blog&quot;],&quot;href&quot;:[0,&quot;/blog&quot;],&quot;description&quot;:[0,&quot;&quot;],&quot;image&quot;:[0,&quot;&quot;]}],[0,{&quot;title&quot;:[0,&quot;Docs de web services&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com&quot;],&quot;description&quot;:[0,&quot;&quot;],&quot;image&quot;:[0,&quot;&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;Docs de automatizaciones&quot;],&quot;href&quot;:[0,&quot;/docs/automations/introduction&quot;]}],[0,{&quot;title&quot;:[0,&quot;Referencia de API&quot;],&quot;href&quot;:[0,&quot;/docs/api-reference/introduction&quot;]}],[0,{&quot;title&quot;:[0,&quot;Comunidad&quot;],&quot;href&quot;:[0,&quot;https://discord.gg/A6TuHEyAZm&quot;],&quot;description&quot;:[0,&quot;&quot;],&quot;image&quot;:[0,&quot;&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;Precio&quot;],&quot;href&quot;:[0,&quot;/pricing&quot;],&quot;description&quot;:[0,&quot;&quot;],&quot;image&quot;:[0,&quot;&quot;]}],[0,{&quot;title&quot;:[0,&quot;Status page&quot;],&quot;href&quot;:[0,&quot;https://status.afipsdk.com&quot;],&quot;description&quot;:[0,&quot;&quot;],&quot;image&quot;:[0,&quot;&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;Contacto&quot;],&quot;href&quot;:[0,&quot;/contact&quot;],&quot;description&quot;:[0,&quot;&quot;],&quot;image&quot;:[0,&quot;&quot;]}],[0,{&quot;title&quot;:[0,&quot;Login&quot;],&quot;href&quot;:[0,&quot;https://app.afipsdk.com&quot;],&quot;description&quot;:[0,&quot;&quot;],&quot;image&quot;:[0,&quot;&quot;]}],[0,{&quot;title&quot;:[0,&quot;Github&quot;],&quot;href&quot;:[0,&quot;https://github.com/afipsdk&quot;],&quot;description&quot;:[0,&quot;&quot;],&quot;image&quot;:[0,&quot;&quot;],&quot;external&quot;:[0,true]}]]]}],[0,{&quot;title&quot;:[0,&quot;Integraciones&quot;],&quot;items&quot;:[1,[[0,{&quot;title&quot;:[0,&quot;API&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/api&quot;],&quot;icon&quot;:[0,&quot;/images/icons/api.svg&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/api.png&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;PHP&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/php&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/php.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/php.svg&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;Javascript&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/node.js&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/node.js.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/js.svg&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;Python&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/python&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/python.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/python.svg&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;Ruby&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/ruby&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/ruby.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/ruby.svg&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;Java&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/java&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/java.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/java.svg&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;.NET&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/dotnet&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/dotnet.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/dotnet.png&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;Flutter&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/flutter&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/flutter.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/flutter.svg&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;Golang&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/go&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/go.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/go.svg&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;VFP&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/vfp&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/vfp.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/vfp.png&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;VB6&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/vb6&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/vb6.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/vb6.png&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;n8n&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/n8n&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/n8n.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/n8n.png&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;Make&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/make&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/make.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/make.png&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;Bubble&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/bubble&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/bubble.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/bubble.png&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;Zapier&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/zapier&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/zapier.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/zapier.svg&quot;],&quot;external&quot;:[0,true]}],[0,{&quot;title&quot;:[0,&quot;Pipedream&quot;],&quot;href&quot;:[0,&quot;https://docs.afipsdk.com/integracion/pipedream&quot;],&quot;cover&quot;:[0,&quot;/images/integrations/pipedream.png&quot;],&quot;icon&quot;:[0,&quot;/images/icons/pipedream.png&quot;],&quot;external&quot;:[0,true]}]]]}],[0,{&quot;title&quot;:[0,&quot;Industrias&quot;],&quot;items&quot;:[1,[[0,{&quot;title&quot;:[0,&quot;E-commerce&quot;],&quot;href&quot;:[0,&quot;/industries/e-commerce&quot;]}],[0,{&quot;title&quot;:[0,&quot;Software Factory&quot;],&quot;href&quot;:[0,&quot;/industries/software-factory&quot;]}],[0,{&quot;title&quot;:[0,&quot;Fintech&quot;],&quot;href&quot;:[0,&quot;/industries/fintech&quot;]}],[0,{&quot;title&quot;:[0,&quot;Internacionales&quot;],&quot;href&quot;:[0,&quot;/industries/international&quot;]}],[0,{&quot;title&quot;:[0,&quot;Gastronomía&quot;],&quot;href&quot;:[0,&quot;/industries/gastronomy&quot;]}],[0,{&quot;title&quot;:[0,&quot;Administración Pública&quot;],&quot;href&quot;:[0,&quot;/industries/public-administration&quot;]}]]]}]]],&quot;slot&quot;:[0,&quot;mobile-nav-header&quot;]}" ssr="" client="load" opts="{&quot;name&quot;:&quot;SheetMobileNav&quot;,&quot;value&quot;:true}" await-children=""><button class="inline-flex items-center justify-center rounded-md whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-secondary text-secondary-foreground hover:bg-secondary/80 mr-2 h-8 px-1.5 md:hidden" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="radix-:r2R0:" data-state="closed"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 20 20" aria-hidden="true" height="20px" width="20px" xmlns="http://www.w3.org/2000/svg" class="size-5"><path fill-rule="evenodd" d="M3 7a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 13a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd" stroke="currentColor" fill="currentColor" stroke-width="0px"></path></svg><span class="sr-only">Toggle Menu</span></button><!--astro:end--></astro-island> <div class="hidden md:flex"> <astro-island uid="Z1zNRn5" prefix="r1" component-url="/_astro/main-navigation-menu.C-Ikkh7f.js" component-export="MainNavigationMenu" renderer-url="/_astro/client.BbZ85sfl.js" props="{&quot;slot&quot;:[0,&quot;left-header&quot;]}" ssr="" client="load" opts="{&quot;name&quot;:&quot;MainNavigationMenu&quot;,&quot;value&quot;:true}" await-children=""><nav aria-label="Main" data-orientation="horizontal" dir="ltr" class="relative z-10 flex max-w-max flex-1 items-center justify-center ml-4"><div style="position:relative"><ul data-orientation="horizontal" class="group flex flex-1 list-none items-center justify-center space-x-1" dir="ltr"><li><button id="radix-:r1R0:-trigger-radix-:r1Rb:" data-state="closed" aria-expanded="false" aria-controls="radix-:r1R0:-content-radix-:r1Rb:" class="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 data-[active]:bg-accent/50 data-[state=open]:bg-accent/50 group" data-radix-collection-item="">Recursos<!-- --> <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down relative top-[1px] ml-1 size-3 transition duration-200 group-data-[state=open]:rotate-180" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></li><li><button id="radix-:r1R0:-trigger-radix-:r1Rj:" data-state="closed" aria-expanded="false" aria-controls="radix-:r1R0:-content-radix-:r1Rj:" class="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 data-[active]:bg-accent/50 data-[state=open]:bg-accent/50 group" data-radix-collection-item="">Industrias<!-- --> <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down relative top-[1px] ml-1 size-3 transition duration-200 group-data-[state=open]:rotate-180" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></li><li><button id="radix-:r1R0:-trigger-radix-:r1Rr:" data-state="closed" aria-expanded="false" aria-controls="radix-:r1R0:-content-radix-:r1Rr:" class="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 data-[active]:bg-accent/50 data-[state=open]:bg-accent/50 group" data-radix-collection-item="">Integraciones<!-- --> <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down relative top-[1px] ml-1 size-3 transition duration-200 group-data-[state=open]:rotate-180" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></li><li></li></ul></div><div class="absolute left-0 top-full flex justify-center"></div></nav><!--astro:end--></astro-island><div class="flex items-center gap-x-4"> <a href="/pricing" class="inline-flex items-center justify-center rounded-md whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 px-3">
+Precio
+</a> </div> </div> </div> <!-- logo mobile center --> <div class="absolute top-1/2 left-1/2 -translate-x-4 -translate-y-4 md:hidden"> <a href="/" aria-label="Afip SDK"> <svg width="1em" height="1em" viewBox="0 0 387 387" class="size-8" data-icon="logo">  <use xlink:href="#ai:local:logo"></use>  </svg> </a> </div> <div class="flex items-center gap-x-4"> <a href="/contact" class="items-center justify-center rounded-md whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 px-3 hidden md:flex">
+Contacto
+</a> <a href="https://app.afipsdk.com" class="items-center justify-center rounded-md whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 px-3 hidden md:flex">
+Login
+</a> <a href="https://github.com/afipsdk" target="_blank" rel="noreferrer" aria-label="github"> <svg width="0.97em" height="1em" viewBox="0 0 496 512" class="size-[22px]" data-icon="github">  <symbol id="ai:local:github"><path fill="currentColor" d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></symbol><use xlink:href="#ai:local:github"></use>  </svg> </a> </div> </div> </header> <main class="">  <div class="relative container max-w-[840px] py-10"> <a href="/blog/" class="items-center justify-center rounded-md whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2 absolute left-[-200px] top-10 hidden xl:inline-flex text-muted-foreground" data-astro-transition-scope="astro-ks7i2azy-1"> <svg width="1em" height="1em" viewBox="0 0 24 24" class="mr-2 size-4" data-icon="lucide:chevron-left">  <symbol id="ai:lucide:chevron-left"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m15 18l-6-6l6-6"/></symbol><use xlink:href="#ai:lucide:chevron-left"></use>  </svg>  Atras
+</a> <article class="prose dark:prose-invert max-w-none"> <h1 class="font-heading text-5xl my-4" data-astro-transition-scope="astro-4rjw2hgd-2"> Crear certificado para usar web services de ARCA via API </h1> <p>Con pocas líneas de código</p> <div class="flex items-center justify-between"> <div class="flex"> <div class="flex"> <a href="https://www.linkedin.com/in/ivanalejandromunoz/" target="_blank" rel="noopener noreferrer" class="mr-[20px] rounded-[50px]" data-astro-transition-scope="astro-yb6lxq45-3"> <img src="/images/blog/ivan.jpg" alt="avatar" class="w-[50px] h-[50px] m-[0px] rounded-[50px]"> </a> </div> <div class="flex flex-col"> <a href="https://www.linkedin.com/in/ivanalejandromunoz/" target="_blank" rel="noopener noreferrer" class="font-medium text-muted-foreground no-underline hover:underline" data-astro-transition-scope="astro-6thymzzw-4">
+Ivan Muñoz
+</a> <span class="text-muted-foreground capitalize text-xs font-thin" data-astro-transition-scope="astro-xi7nm7zc-5"> ago 24, 2024 <span>- Ultima edicion oct 24, 2025</span> </span> </div> </div> <div class="flex flex-col gap-2 items-end"> <a href="/blog/category/API" data-astro-transition-scope="astro-nadgy776-6"> <div class="inline-flex items-center border px-2.5 py-0.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-primary text-primary-foreground hover:bg-primary/80 rounded-md">API</div> </a> <astro-island uid="Z2niwrY" prefix="r0" component-url="/_astro/llms-button.CQcvHqKv.js" component-export="LLMsButton" renderer-url="/_astro/client.BbZ85sfl.js" props="{&quot;link&quot;:[0,&quot;https://afipsdk.com/blog/crear-certificado-para-usar-web-services-de-afip-via-api.md&quot;],&quot;md&quot;:[0,&quot;--- title: Crear certificado para usar web services de ARCA via API description: Con pocas líneas de código category: [API] pubDate: ago 24, 2024 cover: /images/blog/api-create-cert.png ---\n\n# Crear certificado para usar web services de ARCA via API\n\n\nPodemos usar Afip SDK para crear certificados de manera automática, ya que hacerlo de forma manual no solo es difícil, sino que también puede generar errores humanos.\n\n## Requisitos previos\nPara poder usar las automatizaciones, primero necesitarás:\n\n- [Obtener un access_token de Afip SDK](https://app.afipsdk.com/)\n\n## 1. Creamos el certificado\n\nAhora vamos a ejecutar la automatización para [crear el certificado de desarrollo](/docs/automations/create-cert-dev/api/), lo primero que debemos hacer es ejecutar una solicitud **POST** al endpoint\n\n```bash\nhttps://app.afipsdk.com/api/v1/automations\n```\n\nCon los parametros\n\n| Nombre        | Tipo   | Valor                                                                                                                                                                  |\n| ------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |\n| `cuit`      | string | CUIT al cual le queremos generar el certificado                                                                                                                        |\n| `username`    | string | Usuario para ingresar a ARCA. Para la mayoría es el mismo CUIT, pero al administrar una sociedad el CUIT con el que se ingresa es el del administrador de la sociedad. |\n| `password`    | string | Contraseña para ingresar a ARCA.                                                                                                                                       |\n| `alias`       | string | Alias para el certificado (Nombre para reconocerlo en ARCA), un alias puede tener muchos certificados, si estas renovando un certificado podes utilizar el mismo alias |\n\nY el header con el access_token\n```bash\nAuthorization: Bearer TU_ACCESS_TOKEN_AQUI\n```\n\n**Ejemplo**\n\n```json\n{\n    \&quot;automation\&quot;: \&quot;create-cert-dev\&quot;,\n    \&quot;params\&quot;: {\n        \&quot;cuit\&quot;: \&quot;20111111112\&quot;,\n        \&quot;username\&quot;: \&quot;20111111112\&quot;,\n        \&quot;password\&quot;: \&quot;contraseña#segura?\&quot;,\n        \&quot;alias\&quot;: \&quot;afipsdk\&quot;\n    }\n}\n```\nAl crear el certificado nos devolverá un `id` y su `status`\n\n**Response**\n\n```json\n{\n    \&quot;status\&quot;: \&quot;in_process\&quot;,\n    \&quot;id\&quot;: \&quot;0d1e71e0-8882-4b14-b7f8-c5d716261760\&quot;\n}\n```\n\n## 2. Obtener el resultado\n\nUna vez creada la automatización, esta va a comenzar a ejecutarse. Para obtener el resultado final debés realizar una llamada **GET** al endpoint:\n\n```bash\nhttps://app.afipsdk.com/api/v1/automations/:id\n```\n\n`id` Es el ID de la automatización previamente creada.\n\nY el header con el access_token\n```bash\nAuthorization: Bearer TU_ACCESS_TOKEN_AQUI\n```\n\nLa automatización va a devolver `{ \&quot;status\&quot;: \&quot;in_process\&quot; }` hasta que se complete. Te recomendamos chequear el resultado cada 5 segundos hasta que deje de estar `in_process`.\n\n&lt;mark style=\&quot;color:green;\&quot;&gt;`STATUS`&lt;/mark&gt; `200`\n\n```json\n{\n    \&quot;status\&quot;: \&quot;complete\&quot;,\n    \&quot;data\&quot;: {\n        \&quot;cert\&quot;: \&quot;-----BEGIN CERTIFICATE-----\\nMIIDRzC...\&quot;,\n        \&quot;key\&quot;: \&quot;-----BEGIN RSA PRIVATE KEY-----\\r\\nMIIEowIBAAKCA...\&quot;\n    }\n}\n```\n\n&lt;mark style=\&quot;color:red;\&quot;&gt;`STATUS`&lt;/mark&gt; `400`\n\n```json\n{\n    \&quot;status\&quot;: \&quot;error\&quot;,\n    \&quot;data\&quot;: {\n        \&quot;message\&quot;:\&quot;Número de CUIL/CUIT incorrecto\&quot;\n    }\n}\n```\n\nYa tenemos nuestro certificado y key para acceder a los web services de ARCA. \n\nAhora para poder acceder a un web service primero debemos [Autorizar uso de web services de ARCA via API](/blog/autorizar-uso-de-web-services-de-afip-via-api/).\n\n---\n\nAnte cualquier duda o pregunta al respecto, pueden resolverla rápidamente dentro de la [Comunidad Afip SDK](https://discord.gg/A6TuHEyAZm). Además, puedes unirte para estar al tanto de las novedades y problemas técnicos al usar los servicios de ARCA.\n\n&quot;]}" ssr="" client="load" opts="{&quot;name&quot;:&quot;LLMsButton&quot;,&quot;value&quot;:true}" await-children=""><div class="md:flex hidden"><a class="items-center justify-center rounded-md whitespace-nowrap font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-7 px-2 text-xs rounded-r-none flex gap-2 border-r-0 no-underline" href="https://chatgpt.com/?hints=search&amp;prompt=Lee%20https%3A%2F%2Fafipsdk.com%2Fblog%2Fcrear-certificado-para-usar-web-services-de-afip-via-api.md%20para%20que%20pueda%20hacer%20preguntas%20al%20respecto." target="_blank"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" class="size-3 fill-current"><title>ChatGPT</title><path d="m297.06 130.97c7.26-21.79 4.76-45.66-6.85-65.48-17.46-30.4-52.56-46.04-86.84-38.68-15.25-17.18-37.16-26.95-60.13-26.81-35.04-.08-66.13 22.48-76.91 55.82-22.51 4.61-41.94 18.7-53.31 38.67-17.59 30.32-13.58 68.54 9.92 94.54-7.26 21.79-4.76 45.66 6.85 65.48 17.46 30.4 52.56 46.04 86.84 38.68 15.24 17.18 37.16 26.95 60.13 26.8 35.06.09 66.16-22.49 76.94-55.86 22.51-4.61 41.94-18.7 53.31-38.67 17.57-30.32 13.55-68.51-9.94-94.51zm-120.28 168.11c-14.03.02-27.62-4.89-38.39-13.88.49-.26 1.34-.73 1.89-1.07l63.72-36.8c3.26-1.85 5.26-5.32 5.24-9.07v-89.83l26.93 15.55c.29.14.48.42.52.74v74.39c-.04 33.08-26.83 59.9-59.91 59.97zm-128.84-55.03c-7.03-12.14-9.56-26.37-7.15-40.18.47.28 1.3.79 1.89 1.13l63.72 36.8c3.23 1.89 7.23 1.89 10.47 0l77.79-44.92v31.1c.02.32-.13.63-.38.83l-64.41 37.19c-28.69 16.52-65.33 6.7-81.92-21.95zm-16.77-139.09c7-12.16 18.05-21.46 31.21-26.29 0 .55-.03 1.52-.03 2.2v73.61c-.02 3.74 1.98 7.21 5.23 9.06l77.79 44.91-26.93 15.55c-.27.18-.61.21-.91.08l-64.42-37.22c-28.63-16.58-38.45-53.21-21.95-81.89zm221.26 51.49-77.79-44.92 26.93-15.54c.27-.18.61-.21.91-.08l64.42 37.19c28.68 16.57 38.51 53.26 21.94 81.94-7.01 12.14-18.05 21.44-31.2 26.28v-75.81c.03-3.74-1.96-7.2-5.2-9.06zm26.8-40.34c-.47-.29-1.3-.79-1.89-1.13l-63.72-36.8c-3.23-1.89-7.23-1.89-10.47 0l-77.79 44.92v-31.1c-.02-.32.13-.63.38-.83l64.41-37.16c28.69-16.55 65.37-6.7 81.91 22 6.99 12.12 9.52 26.31 7.15 40.1zm-168.51 55.43-26.94-15.55c-.29-.14-.48-.42-.52-.74v-74.39c.02-33.12 26.89-59.96 60.01-59.94 14.01 0 27.57 4.92 38.34 13.88-.49.26-1.33.73-1.89 1.07l-63.72 36.8c-3.26 1.85-5.26 5.31-5.24 9.06l-.04 89.79zm14.63-31.54 34.65-20.01 34.65 20v40.01l-34.65 20-34.65-20z"></path></svg><span><span class="middle">Abrir en ChatGTP</span> <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right size-4 inline align-top"><path d="M7 7h10v10"></path><path d="M7 17 17 7"></path></svg></span></a><button class="inline-flex items-center justify-center rounded-md whitespace-nowrap font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-7 px-2 text-xs rounded-l-none" type="button" id="radix-:r0R2:" aria-haspopup="menu" aria-expanded="false" data-state="closed"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down size-4"><path d="m6 9 6 6 6-6"></path></svg></button></div><!--astro:end--></astro-island> </div> </div> <hr class="my-6"> <img src="/images/blog/api-create-cert.png" class="rounded-xl overflow-hidden my-6" alt="Crear certificado para usar web services de ARCA via API" data-astro-transition-scope="astro-qmwqsxdy-7" width="840" height="420" loading="lazy" decoding="async">  <p>Podemos usar Afip SDK para crear certificados de manera automática, ya que hacerlo de forma manual no solo es difícil, sino que también puede generar errores humanos.</p>
+<h2 id="requisitos-previos">Requisitos previos</h2>
+<p>Para poder usar las automatizaciones, primero necesitarás:</p>
+<ul>
+<li><a href="https://app.afipsdk.com/">Obtener un access_token de Afip SDK</a></li>
+</ul>
+<h2 id="1-creamos-el-certificado">1. Creamos el certificado</h2>
+<p>Ahora vamos a ejecutar la automatización para <a href="/docs/automations/create-cert-dev/api/">crear el certificado de desarrollo</a>, lo primero que debemos hacer es ejecutar una solicitud <strong>POST</strong> al endpoint</p>
+<pre class="astro-code monokai" style="background-color:#272822;color:#F8F8F2; overflow-x: auto;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#A6E22E">https://app.afipsdk.com/api/v1/automations</span></span>
+<span class="line"></span></code><button class="copy" onclick="
+            navigator.clipboard.writeText(this.previousSibling.innerText);
+            this.classList.add(&#x27;copied&#x27;);
+            setTimeout(() => this.classList.remove(&#x27;copied&#x27;), 1500)
+          "><span class="ready"></span><span class="success"></span></button></pre>
+<p>Con los parametros</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Nombre</th><th>Tipo</th><th>Valor</th></tr></thead><tbody><tr><td><code>cuit</code></td><td>string</td><td>CUIT al cual le queremos generar el certificado</td></tr><tr><td><code>username</code></td><td>string</td><td>Usuario para ingresar a ARCA. Para la mayoría es el mismo CUIT, pero al administrar una sociedad el CUIT con el que se ingresa es el del administrador de la sociedad.</td></tr><tr><td><code>password</code></td><td>string</td><td>Contraseña para ingresar a ARCA.</td></tr><tr><td><code>alias</code></td><td>string</td><td>Alias para el certificado (Nombre para reconocerlo en ARCA), un alias puede tener muchos certificados, si estas renovando un certificado podes utilizar el mismo alias</td></tr></tbody></table>
+<p>Y el header con el access_token</p>
+<pre class="astro-code monokai" style="background-color:#272822;color:#F8F8F2; overflow-x: auto;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#A6E22E">Authorization:</span><span style="color:#E6DB74"> Bearer</span><span style="color:#E6DB74"> TU_ACCESS_TOKEN_AQUI</span></span>
+<span class="line"></span></code><button class="copy" onclick="
+            navigator.clipboard.writeText(this.previousSibling.innerText);
+            this.classList.add(&#x27;copied&#x27;);
+            setTimeout(() => this.classList.remove(&#x27;copied&#x27;), 1500)
+          "><span class="ready"></span><span class="success"></span></button></pre>
+<p><strong>Ejemplo</strong></p>
+<pre class="astro-code monokai" style="background-color:#272822;color:#F8F8F2; overflow-x: auto;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#F8F8F2">{</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">    "automation"</span><span style="color:#F8F8F2">: </span><span style="color:#CFCFC2">"create-cert-dev"</span><span style="color:#F8F8F2">,</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">    "params"</span><span style="color:#F8F8F2">: {</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">        "cuit"</span><span style="color:#F8F8F2">: </span><span style="color:#CFCFC2">"20111111112"</span><span style="color:#F8F8F2">,</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">        "username"</span><span style="color:#F8F8F2">: </span><span style="color:#CFCFC2">"20111111112"</span><span style="color:#F8F8F2">,</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">        "password"</span><span style="color:#F8F8F2">: </span><span style="color:#CFCFC2">"contraseña#segura?"</span><span style="color:#F8F8F2">,</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">        "alias"</span><span style="color:#F8F8F2">: </span><span style="color:#CFCFC2">"afipsdk"</span></span>
+<span class="line"><span style="color:#F8F8F2">    }</span></span>
+<span class="line"><span style="color:#F8F8F2">}</span></span>
+<span class="line"></span></code><button class="copy" onclick="
+            navigator.clipboard.writeText(this.previousSibling.innerText);
+            this.classList.add(&#x27;copied&#x27;);
+            setTimeout(() => this.classList.remove(&#x27;copied&#x27;), 1500)
+          "><span class="ready"></span><span class="success"></span></button></pre>
+<p>Al crear el certificado nos devolverá un <code>id</code> y su <code>status</code></p>
+<p><strong>Response</strong></p>
+<pre class="astro-code monokai" style="background-color:#272822;color:#F8F8F2; overflow-x: auto;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#F8F8F2">{</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">    "status"</span><span style="color:#F8F8F2">: </span><span style="color:#CFCFC2">"in_process"</span><span style="color:#F8F8F2">,</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">    "id"</span><span style="color:#F8F8F2">: </span><span style="color:#CFCFC2">"0d1e71e0-8882-4b14-b7f8-c5d716261760"</span></span>
+<span class="line"><span style="color:#F8F8F2">}</span></span>
+<span class="line"></span></code><button class="copy" onclick="
+            navigator.clipboard.writeText(this.previousSibling.innerText);
+            this.classList.add(&#x27;copied&#x27;);
+            setTimeout(() => this.classList.remove(&#x27;copied&#x27;), 1500)
+          "><span class="ready"></span><span class="success"></span></button></pre>
+<h2 id="2-obtener-el-resultado">2. Obtener el resultado</h2>
+<p>Una vez creada la automatización, esta va a comenzar a ejecutarse. Para obtener el resultado final debés realizar una llamada <strong>GET</strong> al endpoint:</p>
+<pre class="astro-code monokai" style="background-color:#272822;color:#F8F8F2; overflow-x: auto;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#A6E22E">https://app.afipsdk.com/api/v1/automations/:id</span></span>
+<span class="line"></span></code><button class="copy" onclick="
+            navigator.clipboard.writeText(this.previousSibling.innerText);
+            this.classList.add(&#x27;copied&#x27;);
+            setTimeout(() => this.classList.remove(&#x27;copied&#x27;), 1500)
+          "><span class="ready"></span><span class="success"></span></button></pre>
+<p><code>id</code> Es el ID de la automatización previamente creada.</p>
+<p>Y el header con el access_token</p>
+<pre class="astro-code monokai" style="background-color:#272822;color:#F8F8F2; overflow-x: auto;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#A6E22E">Authorization:</span><span style="color:#E6DB74"> Bearer</span><span style="color:#E6DB74"> TU_ACCESS_TOKEN_AQUI</span></span>
+<span class="line"></span></code><button class="copy" onclick="
+            navigator.clipboard.writeText(this.previousSibling.innerText);
+            this.classList.add(&#x27;copied&#x27;);
+            setTimeout(() => this.classList.remove(&#x27;copied&#x27;), 1500)
+          "><span class="ready"></span><span class="success"></span></button></pre>
+<p>La automatización va a devolver <code>{ "status": "in_process" }</code> hasta que se complete. Te recomendamos chequear el resultado cada 5 segundos hasta que deje de estar <code>in_process</code>.</p>
+<p><mark style="color:green;"><code>STATUS</code></mark> <code>200</code></p>
+<pre class="astro-code monokai" style="background-color:#272822;color:#F8F8F2; overflow-x: auto;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#F8F8F2">{</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">    "status"</span><span style="color:#F8F8F2">: </span><span style="color:#CFCFC2">"complete"</span><span style="color:#F8F8F2">,</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">    "data"</span><span style="color:#F8F8F2">: {</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">        "cert"</span><span style="color:#F8F8F2">: </span><span style="color:#CFCFC2">"-----BEGIN CERTIFICATE-----</span><span style="color:#AE81FF">\n</span><span style="color:#CFCFC2">MIIDRzC..."</span><span style="color:#F8F8F2">,</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">        "key"</span><span style="color:#F8F8F2">: </span><span style="color:#CFCFC2">"-----BEGIN RSA PRIVATE KEY-----</span><span style="color:#AE81FF">\r\n</span><span style="color:#CFCFC2">MIIEowIBAAKCA..."</span></span>
+<span class="line"><span style="color:#F8F8F2">    }</span></span>
+<span class="line"><span style="color:#F8F8F2">}</span></span>
+<span class="line"></span></code><button class="copy" onclick="
+            navigator.clipboard.writeText(this.previousSibling.innerText);
+            this.classList.add(&#x27;copied&#x27;);
+            setTimeout(() => this.classList.remove(&#x27;copied&#x27;), 1500)
+          "><span class="ready"></span><span class="success"></span></button></pre>
+<p><mark style="color:red;"><code>STATUS</code></mark> <code>400</code></p>
+<pre class="astro-code monokai" style="background-color:#272822;color:#F8F8F2; overflow-x: auto;" tabindex="0" data-language="json"><code><span class="line"><span style="color:#F8F8F2">{</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">    "status"</span><span style="color:#F8F8F2">: </span><span style="color:#CFCFC2">"error"</span><span style="color:#F8F8F2">,</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">    "data"</span><span style="color:#F8F8F2">: {</span></span>
+<span class="line"><span style="color:#66D9EF;font-style:italic">        "message"</span><span style="color:#F8F8F2">:</span><span style="color:#CFCFC2">"Número de CUIL/CUIT incorrecto"</span></span>
+<span class="line"><span style="color:#F8F8F2">    }</span></span>
+<span class="line"><span style="color:#F8F8F2">}</span></span>
+<span class="line"></span></code><button class="copy" onclick="
+            navigator.clipboard.writeText(this.previousSibling.innerText);
+            this.classList.add(&#x27;copied&#x27;);
+            setTimeout(() => this.classList.remove(&#x27;copied&#x27;), 1500)
+          "><span class="ready"></span><span class="success"></span></button></pre>
+<p>Ya tenemos nuestro certificado y key para acceder a los web services de ARCA.</p>
+<p>Ahora para poder acceder a un web service primero debemos <a href="/blog/autorizar-uso-de-web-services-de-afip-via-api/">Autorizar uso de web services de ARCA via API</a>.</p>
+<hr>
+<p>Ante cualquier duda o pregunta al respecto, pueden resolverla rápidamente dentro de la <a href="https://discord.gg/A6TuHEyAZm">Comunidad Afip SDK</a>. Además, puedes unirte para estar al tanto de las novedades y problemas técnicos al usar los servicios de ARCA.</p>  </article> </div> <section class="px-5 py-4 md:py-8 lg:py-10 bg-[#15181d]"> <div class="mx-auto grid justify-center gap-4"> <div class="flex flex-col items-center gap-5 text-center w-full"> <h1 class="font-heading text-4xl font-bold sm:text-5xl md:text-6xl lg:text-6xl !leading-[1.1] text-balance">
+Conéctate a ARCA <span class="text-gradient_indigo-purple">hoy mismo</span> </h1> <p class="max-w-[42rem] leading-normal text-muted-foreground sm:text-xl sm:leading-8 text-balance">
+Evitá la complejidad de ARCA. Con Afip SDK 
+          integrás tu sistema en minutos y te enfocás 
+          en hacer crecer tu negocio.
+</p> <div class="flex items-center gap-x-2" slot="right-header"> <a href="https://github.com/afipsdk/afip.py" target="_blank" rel="noreferrer" aria-label="python sdk"> <img class="w-[40px] h-[40px]" src="/images/icons/python.svg" alt="python"> </a> <a href="https://github.com/afipsdk/afip.js" target="_blank" rel="noreferrer" aria-label="js sdk"> <img class="w-[40px] h-[40px]" src="/images/icons/js.svg" alt="js"> </a> <a href="https://github.com/afipsdk/afip.php" target="_blank" rel="noreferrer" aria-label="php sdk"> <img class="w-[40px] h-[40px]" src="/images/icons/php.svg" alt="php"> </a> <a href="https://github.com/afipsdk/afip.rb" target="_blank" rel="noreferrer" aria-label="ruby sdk"> <img class="w-[40px] h-[40px]" src="/images/icons/ruby.svg" alt="ruby"> </a> <a href="https://docs.afipsdk.com" target="_blank" rel="noreferrer" aria-label="api docs"> <img class="w-[46px] h-[20px]" src="/images/icons/api.svg" alt="api"> </a> </div> <div class="flex items-center space-y-4 flex-col lg:flex-row lg:space-x-4 lg:space-y-0"> <a href="https://docs.afipsdk.com" target="_blank" rel="noreferrer" aria-label="documentacion" class="w-fit inline-flex items-center justify-center rounded-md whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-11 px-8">
+Comenzar gratis
+</a><a href="https://discord.gg/A6TuHEyAZm" target="_blank" rel="noreferrer" aria-label="documentacion" class="w-fit inline-flex items-center justify-center rounded-md whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-secondary text-secondary-foreground hover:bg-secondary/80 h-11 px-8"> <svg class="h-[20px]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512" fill="currentColor"><path fill="currentColor" d="M524.5 69.8a1.5 1.5 0 0 0 -.8-.7A485.1 485.1 0 0 0 404.1 32a1.8 1.8 0 0 0 -1.9 .9 337.5 337.5 0 0 0 -14.9 30.6 447.8 447.8 0 0 0 -134.4 0 309.5 309.5 0 0 0 -15.1-30.6 1.9 1.9 0 0 0 -1.9-.9A483.7 483.7 0 0 0 116.1 69.1a1.7 1.7 0 0 0 -.8 .7C39.1 183.7 18.2 294.7 28.4 404.4a2 2 0 0 0 .8 1.4A487.7 487.7 0 0 0 176 479.9a1.9 1.9 0 0 0 2.1-.7A348.2 348.2 0 0 0 208.1 430.4a1.9 1.9 0 0 0 -1-2.6 321.2 321.2 0 0 1 -45.9-21.9 1.9 1.9 0 0 1 -.2-3.1c3.1-2.3 6.2-4.7 9.1-7.1a1.8 1.8 0 0 1 1.9-.3c96.2 43.9 200.4 43.9 295.5 0a1.8 1.8 0 0 1 1.9 .2c2.9 2.4 6 4.9 9.1 7.2a1.9 1.9 0 0 1 -.2 3.1 301.4 301.4 0 0 1 -45.9 21.8 1.9 1.9 0 0 0 -1 2.6 391.1 391.1 0 0 0 30 48.8 1.9 1.9 0 0 0 2.1 .7A486 486 0 0 0 610.7 405.7a1.9 1.9 0 0 0 .8-1.4C623.7 277.6 590.9 167.5 524.5 69.8zM222.5 337.6c-29 0-52.8-26.6-52.8-59.2S193.1 219.1 222.5 219.1c29.7 0 53.3 26.8 52.8 59.2C275.3 311 251.9 337.6 222.5 337.6zm195.4 0c-29 0-52.8-26.6-52.8-59.2S388.4 219.1 417.9 219.1c29.7 0 53.3 26.8 52.8 59.2C470.7 311 447.5 337.6 417.9 337.6z"></path></svg>
+&nbsp;Comunidad Afip SDK
+</a> </div> </div> </div> </section>  </main> <section class="pt-32 pb-10 border-t"> <div class="container"> <footer> <div class="grid grid-cols-2 gap-8 lg:grid-cols-6"> <div class="col-span-2 mb-8 lg:mb-0"> <a href="/" aria-label="Afip SDK homepage" class="mb-4 inline-block"> <svg width="1em" height="1em" viewBox="0 0 387 387" class="size-8 inline align-middle mr-2" data-icon="logo">  <use xlink:href="#ai:local:logo"></use>  </svg> <span class="font-bold align-middle">Afip SDK</span> </a> <p class="text-muted-foreground">Conectate a ARCA hoy mismo.</p> <p class="text-xs text-muted-foreground mt-4">afipsdk.com es un sitio comercial, sin relación alguna con sitios u organismos oficiales.</p> <iframe title="Service status" class="flex mt-4" src="https://status.afipsdk.com/badge?theme=dark" width="250" height="30" frameborder="0" scrolling="no" style="color-scheme: normal"></iframe> </div> <div> <p class="mb-4 font-bold">Recursos</p> <ul class="space-y-4 text-muted-foreground"> <li class="font-medium"> <a href="/blog" class="hover:text-primary" target="_self">Blog</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com" class="hover:text-primary" target="_blank">Docs de web services</a> </li><li class="font-medium"> <a href="/docs/automations/introduction" class="hover:text-primary" target="_self">Docs de automatizaciones</a> </li><li class="font-medium"> <a href="/docs/api-reference/introduction" class="hover:text-primary" target="_self">Referencia de API</a> </li><li class="font-medium"> <a href="https://discord.gg/A6TuHEyAZm" class="hover:text-primary" target="_blank">Comunidad</a> </li><li class="font-medium"> <a href="/pricing" class="hover:text-primary" target="_self">Precio</a> </li><li class="font-medium"> <a href="https://status.afipsdk.com" class="hover:text-primary" target="_blank">Status page</a> </li><li class="font-medium"> <a href="/contact" class="hover:text-primary" target="_self">Contacto</a> </li><li class="font-medium"> <a href="https://app.afipsdk.com" class="hover:text-primary" target="_self">Login</a> </li><li class="font-medium"> <a href="https://github.com/afipsdk" class="hover:text-primary" target="_blank">Github</a> </li> </ul> </div><div> <p class="mb-4 font-bold">Integraciones</p> <ul class="space-y-4 text-muted-foreground"> <li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/api" class="hover:text-primary" target="_blank">API</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/php" class="hover:text-primary" target="_blank">PHP</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/node.js" class="hover:text-primary" target="_blank">Javascript</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/python" class="hover:text-primary" target="_blank">Python</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/ruby" class="hover:text-primary" target="_blank">Ruby</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/java" class="hover:text-primary" target="_blank">Java</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/dotnet" class="hover:text-primary" target="_blank">.NET</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/flutter" class="hover:text-primary" target="_blank">Flutter</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/go" class="hover:text-primary" target="_blank">Golang</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/vfp" class="hover:text-primary" target="_blank">VFP</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/vb6" class="hover:text-primary" target="_blank">VB6</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/n8n" class="hover:text-primary" target="_blank">n8n</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/make" class="hover:text-primary" target="_blank">Make</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/bubble" class="hover:text-primary" target="_blank">Bubble</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/zapier" class="hover:text-primary" target="_blank">Zapier</a> </li><li class="font-medium"> <a href="https://docs.afipsdk.com/integracion/pipedream" class="hover:text-primary" target="_blank">Pipedream</a> </li> </ul> </div><div> <p class="mb-4 font-bold">Industrias</p> <ul class="space-y-4 text-muted-foreground"> <li class="font-medium"> <a href="/industries/e-commerce" class="hover:text-primary" target="_self">E-commerce</a> </li><li class="font-medium"> <a href="/industries/software-factory" class="hover:text-primary" target="_self">Software Factory</a> </li><li class="font-medium"> <a href="/industries/fintech" class="hover:text-primary" target="_self">Fintech</a> </li><li class="font-medium"> <a href="/industries/international" class="hover:text-primary" target="_self">Internacionales</a> </li><li class="font-medium"> <a href="/industries/gastronomy" class="hover:text-primary" target="_self">Gastronomía</a> </li><li class="font-medium"> <a href="/industries/public-administration" class="hover:text-primary" target="_self">Administración Pública</a> </li> </ul> </div> </div> <div class="mt-24 flex flex-col justify-between gap-4 border-t pt-8 text-sm font-medium text-muted-foreground md:flex-row md:items-center"> <p>© 2025 DUI LLC, Todos los derechos reservados.</p> <ul class="flex gap-4"> <li class="underline hover:text-primary"> <a href="/terms-and-conditions">Términos y Condiciones</a> </li> <li class="underline hover:text-primary"> <a href="/privacy-policy">Política de Privacidad</a> </li> <li class="underline hover:text-primary"> <a href="https://storyset.com/work">Illustrations by Storyset</a> </li> </ul> </div> </footer> </div> </section>   <script>(()=>{var e=async t=>{await(await t())()};(self.Astro||(self.Astro={})).only=e;window.dispatchEvent(new Event("astro:only"));})();</script><astro-island uid="Z16ouxW" component-url="/_astro/_astro-entry_sonner.Cl6HrGPx.js" component-export="Toaster" renderer-url="/_astro/client.BbZ85sfl.js" props="{&quot;richColors&quot;:[0,true]}" ssr="" client="only" opts="{&quot;name&quot;:&quot;Toaster&quot;,&quot;value&quot;:&quot;react&quot;}"></astro-island> </body></html>

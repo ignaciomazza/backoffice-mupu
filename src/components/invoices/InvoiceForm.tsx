@@ -591,11 +591,14 @@ export default function InvoiceForm({
                               ? "border-sky-300/40 bg-sky-100 text-sky-950 shadow-sm dark:bg-white/10 dark:text-white"
                               : "border-white/10 bg-white/10 hover:bg-white/20 dark:border-white/10 dark:bg-white/10"
                           }`}
-                          title={`Servicio N° ${svc.id_service}`}
+                          title={`Servicio N° ${
+                            svc.agency_service_id ?? svc.id_service
+                          }`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="text-sm font-medium">
-                              #{svc.id_service} · {svc.type}
+                              N° {svc.agency_service_id ?? svc.id_service} ·{" "}
+                              {svc.type}
                               {svc.destination ? ` · ${svc.destination}` : ""}
                             </div>
                             {isActive && (
@@ -627,7 +630,7 @@ export default function InvoiceForm({
                   <div className="ml-1 mt-2 text-xs text-sky-950/70 dark:text-white/70">
                     Seleccionados:{" "}
                     {selectedServices
-                      .map((s) => `N° ${s.id_service}`)
+                      .map((s) => `N° ${s.agency_service_id ?? s.id_service}`)
                       .join(", ")}
                   </div>
                 ) : availableServices.length > 0 ? (
@@ -650,7 +653,7 @@ export default function InvoiceForm({
                       className="rounded-2xl border border-white/10 bg-white/5 p-3"
                     >
                       <div className="text-sm font-medium text-sky-950 dark:text-white">
-                        Servicio #{svc.id_service}
+                        Servicio N° {svc.agency_service_id ?? svc.id_service}
                       </div>
                       <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                         {(svc?.vatOnCommission21 ?? 0) > 0 && (

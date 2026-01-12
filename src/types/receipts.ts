@@ -5,13 +5,15 @@ export type CurrencyCode = string;
 /** Opción de reserva para buscadores/autocomplete */
 export type BookingOption = {
   id_booking: number;
-  label: string; // ej: "#1024 • Juan Pérez"
+  agency_booking_id?: number | null;
+  label: string; // ej: "N° 1024 • Juan Pérez"
   subtitle?: string; // ej: "Europa 2025"
 };
 
 /** Servicio “liviano” para selección dentro de un recibo */
 export type ServiceLite = {
   id_service: number;
+  agency_service_id?: number | null;
   description?: string;
   currency: string; // "ARS" | "USD" | ...
   sale_price?: number; // sugerencia importe base
@@ -93,7 +95,7 @@ export type ReceiptPayload = {
 /** Opción para “asociar recibo existente” */
 export type AttachableReceiptOption = {
   id_receipt: number;
-  label: string; // "#000123 • U$D 500 • 12/10/2025"
+  label: string; // "N° 000123 • U$D 500 • 12/10/2025"
   subtitle?: string;
   alreadyLinked?: boolean;
 };

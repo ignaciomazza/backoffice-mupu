@@ -23,6 +23,7 @@ export default function ClientCard({
   deleteClient,
 }: ClientCardProps) {
   const isExpanded = expandedClientId === client.id_client;
+  const clientNumber = client.agency_client_id ?? client.id_client;
 
   const handleEdit = (client: Client) => {
     startEditingClient(client);
@@ -38,7 +39,7 @@ export default function ClientCard({
       <header className="mb-4 flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            N° {client.id_client}
+            N° {clientNumber}
           </p>
         </div>
       </header>

@@ -142,7 +142,8 @@ export default function ContextSection(props: {
           <>
             {forcedBookingMode ? (
               <div className="rounded-xl border border-white/10 bg-white/10 p-3 text-sm md:col-span-2">
-                ID de reserva: <span className="font-semibold">#{bookingId}</span>{" "}
+                ID de reserva:{" "}
+                <span className="font-semibold">N° {bookingId}</span>{" "}
                 <span className="ml-2 rounded-full bg-white/30 px-2 py-0.5 text-xs">
                   bloqueado
                 </span>
@@ -234,8 +235,10 @@ export default function ContextSection(props: {
                           />
                           <div className="flex-1">
                             <div className="text-sm font-medium">
-                              #{svc.id_service}{" "}
-                              {svc.type ? `· ${svc.type}` : svc.description || "Servicio"}
+                              N° {svc.agency_service_id ?? svc.id_service}{" "}
+                              {svc.type
+                                ? `· ${svc.type}`
+                                : svc.description || "Servicio"}
                               {svc.destination ? ` · ${svc.destination}` : ""}
                             </div>
                             <div className="text-xs text-sky-950/70 dark:text-white/70">

@@ -10,6 +10,16 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum AgencyCounterKey {
+  booking
+  client
+  service
+  receipt
+  client_payment
+  investment
+  operator_due
+}
+
 model Agency {
   id_agency            Int                    @id @default(autoincrement())
   name                 String
@@ -26,7 +36,10 @@ model Agency {
   afip_cert_base64     String?
   afip_key_base64      String?
   transfer_fee_pct     Decimal?               @db.Decimal(9, 6)
+  use_agency_numbers   Boolean                @default(true)
   creation_date        DateTime               @default(now())
+  arcaConfig           AgencyArcaConfig?
+  arcaConnectionJobs   ArcaConnectionJob[]
   users                User[]
   bookings             Booking[]
   Client               Client[]
@@ -49,10 +62,63 @@ model Agency {
   billingCharges       AgencyBillingCharge[]
   Lead                 Lead[]
   Receipt              Receipt[]
+  services             Service[]
+  operatorDues         OperatorDue[]
+  clientPayments       ClientPayment[]
   ServiceType          ServiceType[]
   ServiceCalcConfig    ServiceCalcConfig?
   creditAccounts       CreditAccount[]
   creditEntries        CreditEntry[]
+  agencyCounters       AgencyCounter[]
+}
+
+model AgencyCounter {
+  id_counter Int              @id @default(autoincrement())
+  id_agency  Int
+  key        AgencyCounterKey
+  next_value Int
+  created_at DateTime         @default(now())
+  updated_at DateTime         @updatedAt
+  agency     Agency           @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  @@unique([id_agency, key])
+  @@index([id_agency])
+}
+
+model AgencyArcaConfig {
+  id                 Int      @id @default(autoincrement())
+  agencyId           Int      @unique
+  agency             Agency   @relation(fields: [agencyId], references: [id_agency], onDelete: Cascade)
+  taxIdRepresentado  String
+  taxIdLogin         String
+  alias              String
+  certEncrypted      String?
+  keyEncrypted       String?
+  authorizedServices String[] @default([])
+  status             String   @default("pending")
+  lastError          String?
+  lastOkAt           DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model ArcaConnectionJob {
+  id                   Int      @id @default(autoincrement())
+  agencyId             Int
+  agency               Agency   @relation(fields: [agencyId], references: [id_agency], onDelete: Cascade)
+  action               String   @default("connect")
+  status               String   @default("pending")
+  step                 String   @default("create_cert")
+  services             String[] @default([])
+  currentServiceIndex  Int      @default(0)
+  longJobId            String?
+  taxIdRepresentado    String
+  taxIdLogin           String
+  alias                String
+  lastError            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  completedAt          DateTime?
 }
 
 // User: renombramos las colecciones para que reflejen la intención
@@ -89,6 +155,7 @@ model User {
 
 model Client {
   id_client              Int             @id @default(autoincrement())
+  agency_client_id       Int?
   first_name             String
   last_name              String
   phone                  String
@@ -116,10 +183,13 @@ model Client {
   invoices               Invoice[]       @relation("ClientInvoices")
   ClientPayment          ClientPayment[]
   creditAccounts         CreditAccount[]
+
+  @@unique([id_agency, agency_client_id], name: "agency_client_id_unique")
 }
 
 model Booking {
   id_booking          Int             @id @default(autoincrement())
+  agency_booking_id   Int?
   clientStatus        String          @map("client_status")
   operatorStatus      String          @map("operator_status")
   status              String
@@ -147,10 +217,12 @@ model Booking {
   creditEntries       CreditEntry[]
 
   @@index([id_agency, id_booking], name: "agency_booking_idx")
+  @@unique([id_agency, agency_booking_id], name: "agency_booking_id_unique")
 }
 
 model Service {
   id_service                Int                  @id @default(autoincrement())
+  agency_service_id         Int?
   type                      String
   description               String
   note                      String?
@@ -185,10 +257,15 @@ model Service {
   created_at                DateTime             @default(now())
   booking_id                Int
   booking                   Booking              @relation(fields: [booking_id], references: [id_booking], onDelete: Cascade)
+  id_agency                 Int
+  agency                    Agency               @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   id_operator               Int
   operator                  Operator             @relation(fields: [id_operator], references: [id_operator], onDelete: Cascade)
   InvoiceItem               InvoiceItem[]
   OperatorDue               OperatorDue[]
+
+  @@index([id_agency])
+  @@unique([id_agency, agency_service_id], name: "agency_service_id_unique")
 }
 
 // ===================== NUEVO =====================
@@ -366,6 +443,7 @@ model UserTeam {
 
 model Receipt {
   id_receipt     Int      @id @default(autoincrement())
+  agency_receipt_id Int?
   receipt_number String   @unique
   issue_date     DateTime @default(now())
 
@@ -409,6 +487,7 @@ model Receipt {
   @@index([id_agency])
   @@index([verification_status])
   @@index([verified_by])
+  @@unique([id_agency, agency_receipt_id], name: "agency_receipt_id_unique")
 }
 
 model ReceiptPayment {
@@ -445,6 +524,7 @@ model CalendarNote {
 
 model Investment {
   id_investment    Int           @id @default(autoincrement())
+  agency_investment_id Int?
   id_agency        Int
   agency           Agency        @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   category         String
@@ -477,6 +557,7 @@ model Investment {
   @@index([booking_id])
   @@index([recurring_id])
   @@unique([recurring_id, paid_at])
+  @@unique([id_agency, agency_investment_id], name: "agency_investment_id_unique")
 }
 
 model RecurringInvestment {
@@ -515,9 +596,12 @@ model RecurringInvestment {
 
 model OperatorDue {
   id_due        Int           @id @default(autoincrement())
+  agency_operator_due_id Int?
   created_at    DateTime      @default(now())
   booking_id    Int
   booking       Booking       @relation(fields: [booking_id], references: [id_booking], onDelete: Cascade)
+  id_agency     Int
+  agency        Agency        @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   service_id    Int
   service       Service       @relation(fields: [service_id], references: [id_service], onDelete: Cascade)
   due_date      DateTime
@@ -530,13 +614,18 @@ model OperatorDue {
   @@index([booking_id])
   @@index([service_id])
   @@index([due_date])
+  @@index([id_agency])
+  @@unique([id_agency, agency_operator_due_id], name: "agency_operator_due_id_unique")
 }
 
 model ClientPayment {
   id_payment Int      @id @default(autoincrement())
+  agency_client_payment_id Int?
   created_at DateTime @default(now())
   booking_id Int
   booking    Booking  @relation(fields: [booking_id], references: [id_booking], onDelete: Cascade)
+  id_agency  Int
+  agency     Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   client_id  Int
   client     Client   @relation(fields: [client_id], references: [id_client])
   amount     Decimal  @db.Decimal(18, 2)
@@ -545,6 +634,8 @@ model ClientPayment {
 
   @@index([booking_id])
   @@index([client_id])
+  @@index([id_agency])
+  @@unique([id_agency, agency_client_payment_id], name: "agency_client_payment_id_unique")
 }
 
 model TemplateConfig {

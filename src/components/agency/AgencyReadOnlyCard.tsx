@@ -140,6 +140,17 @@ export default function AgencyReadOnlyCard({ agency, onEdit }: Props) {
             {formatDDMMYYYY(agency.foundation_date)}
           </p>
         </div>
+
+        <div>
+          <p className="text-xs font-light uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+            Numeración
+          </p>
+          <p className="font-medium">
+            {agency.use_agency_numbers === false
+              ? "General del sistema"
+              : "Por agencia"}
+          </p>
+        </div>
       </div>
     </div>
   );

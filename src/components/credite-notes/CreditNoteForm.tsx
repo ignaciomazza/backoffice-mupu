@@ -277,7 +277,8 @@ export default function CreditNoteForm({
     if (selectedInvoice) {
       pills.push(
         <span key="invoice" className={`${pillBase} ${pillNeutral}`}>
-          Factura #{selectedInvoice.invoice_number || selectedInvoice.id_invoice}
+          Factura N°{" "}
+          {selectedInvoice.invoice_number || selectedInvoice.id_invoice}
         </span>,
       );
     }
@@ -438,7 +439,7 @@ export default function CreditNoteForm({
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="text-sm font-medium">
-                              #{inv.invoice_number || inv.id_invoice} ·{" "}
+                              N° {inv.invoice_number || inv.id_invoice} ·{" "}
                               {inv.recipient || "Sin destinatario"}
                             </div>
                             {active && (

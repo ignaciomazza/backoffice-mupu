@@ -207,7 +207,7 @@ export default function BookingForm({
   const totalPax = formData.pax_count;
   const hasTitular = isValidId(formData.titular_id);
   const titularPill = hasTitular
-    ? `Titular #${formData.titular_id}`
+    ? `Titular N° ${formData.titular_id}`
     : "Sin titular";
   const hasDeparture = !!formData.departure_date;
   const hasReturn = !!formData.return_date;

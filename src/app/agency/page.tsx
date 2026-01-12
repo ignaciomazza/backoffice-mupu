@@ -16,7 +16,7 @@ import AgencyForm, {
 } from "@/components/agency/AgencyForm";
 import AgencyReadOnlyCard from "@/components/agency/AgencyReadOnlyCard";
 import AgencyLogoCard from "@/components/agency/AgencyLogoCard";
-import AgencyAfipCard from "@/components/agency/AgencyAfipCard";
+import AgencyArcaCard from "@/components/agency/AgencyArcaCard";
 
 type AgencyDTO = AgencyDTOForm;
 
@@ -156,8 +156,7 @@ export default function AgencyPage() {
               <div ref={logoRef}>
                 <AgencyLogoCard />
               </div>
-              <AgencyAfipCard />
-
+              <AgencyArcaCard />
             </div>
           </>
         ) : (

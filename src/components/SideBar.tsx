@@ -135,6 +135,7 @@ export default function SideBar({
       "/operators": ["desarrollador", "administrativo", "gerente"],
       "/operators/insights": ["desarrollador", "administrativo", "gerente"],
       "/agency": devMgr,
+      "/arca": devMgr,
       "/teams": devMgr,
       "/invoices": adm,
       "/bookings/config": adm,
@@ -268,6 +269,7 @@ export default function SideBar({
         title: "Agencia",
         items: [
           hasAccess("/agency") ? { href: "/agency", label: "Agencia" } : null,
+          hasAccess("/arca") ? { href: "/arca", label: "Conectar ARCA" } : null,
           hasAccess("/operators")
             ? { href: "/operators", label: "Operadores" }
             : null,

@@ -128,18 +128,23 @@ export default function ClientPaymentCard({
     const fromPayment = payment?.client;
     if (fromPayment) {
       const full = `${fromPayment.first_name ?? ""} ${fromPayment.last_name ?? ""}`.trim();
-      if (full) return `${full} · N° ${fromPayment.id_client}`;
+      const num = fromPayment.agency_client_id ?? fromPayment.id_client;
+      if (full) return `${full} · N° ${num}`;
     }
     if (!payment?.client_id) return "—";
     const tid = booking.titular?.id_client;
+    const tnum =
+      booking.titular?.agency_client_id ?? booking.titular?.id_client ?? tid;
     if (payment.client_id === tid) {
-      return `${booking.titular.first_name} ${booking.titular.last_name} · N° ${tid}`;
+      return `${booking.titular.first_name} ${booking.titular.last_name} · N° ${tnum}`;
     }
     const found = booking.clients?.find(
       (c) => c.id_client === payment.client_id,
     );
     return found
-      ? `${found.first_name} ${found.last_name} · N° ${found.id_client}`
+      ? `${found.first_name} ${found.last_name} · N° ${
+          found.agency_client_id ?? found.id_client
+        }`
       : `N° ${payment.client_id}`;
   }, [
     payment?.client,
@@ -209,12 +214,15 @@ export default function ClientPaymentCard({
     }
   };
 
+  const paymentNumber =
+    payment.agency_client_payment_id ?? payment.id_payment;
+
   return (
     <div className="h-fit space-y-4 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur-sm dark:text-white">
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-wide text-sky-950/60 dark:text-white/60">
-            Pago N° {payment.id_payment}
+            Pago N° {paymentNumber}
           </p>
           <p className="mt-2 text-2xl font-semibold">
             {fmtMoney(payment.amount, payment.currency)}

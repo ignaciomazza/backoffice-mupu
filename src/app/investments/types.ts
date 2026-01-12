@@ -1,5 +1,6 @@
 export type Investment = {
   id_investment: number;
+  agency_investment_id?: number | null;
   id_agency: number;
   category: string;
   description: string;
@@ -13,6 +14,7 @@ export type Investment = {
   operator?: { id_operator: number; name: string } | null;
   createdBy?: { id_user: number; first_name: string; last_name: string } | null;
   booking_id?: number | null;
+  booking?: { id_booking: number; agency_booking_id?: number | null } | null;
   recurring_id?: number | null;
   payment_method?: string | null;
   account?: string | null;

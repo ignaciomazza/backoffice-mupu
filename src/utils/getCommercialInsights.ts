@@ -238,7 +238,7 @@ export function buildCommercialInsights(
         id_client: row.clientId,
         name:
           row.clientName ??
-          (row.clientId != null ? `Cliente #${row.clientId}` : "Sin cliente"),
+          (row.clientId != null ? `Cliente N° ${row.clientId}` : "Sin cliente"),
         reservations: 0,
         passengers: 0,
         totalAmount: {},

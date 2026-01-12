@@ -392,6 +392,7 @@ export default async function handler(
       },
       select: {
         id_service: true,
+        agency_service_id: true,
         booking_id: true,
         currency: true,
         sale_price: true,
@@ -435,6 +436,7 @@ export default async function handler(
         base_amount: true,
         base_currency: true,
         bookingId_booking: true,
+        booking: { select: { agency_booking_id: true } },
       },
       orderBy: { issue_date: "desc" },
     });
@@ -495,6 +497,7 @@ export default async function handler(
           },
           select: {
             id_booking: true,
+            agency_booking_id: true,
             details: true,
             creation_date: true,
             departure_date: true,
@@ -509,6 +512,7 @@ export default async function handler(
             services: {
               select: {
                 id_service: true,
+                agency_service_id: true,
                 id_operator: true,
                 description: true,
                 cost_price: true,
@@ -654,6 +658,7 @@ export default async function handler(
       },
       select: {
         id_investment: true,
+        agency_investment_id: true,
         created_at: true,
         description: true,
         amount: true,
@@ -661,6 +666,7 @@ export default async function handler(
         base_amount: true,
         base_currency: true,
         booking_id: true,
+        booking: { select: { agency_booking_id: true } },
       },
       orderBy: { created_at: "desc" },
     });
@@ -674,6 +680,7 @@ export default async function handler(
       },
       select: {
         id_investment: true,
+        agency_investment_id: true,
         created_at: true,
         description: true,
         amount: true,
@@ -681,6 +688,7 @@ export default async function handler(
         base_amount: true,
         base_currency: true,
         booking_id: true,
+        booking: { select: { agency_booking_id: true } },
       },
       orderBy: { created_at: "desc" },
     });
@@ -704,6 +712,8 @@ export default async function handler(
         booking_id: true,
         service_id: true,
         concept: true,
+        booking: { select: { agency_booking_id: true } },
+        service: { select: { agency_service_id: true } },
       },
       orderBy: { due_date: "asc" },
     });
@@ -759,6 +769,7 @@ export default async function handler(
         amount: val,
         currency: cur,
         booking_id: rec.bookingId_booking ?? null,
+        booking_agency_id: rec.booking?.agency_booking_id ?? null,
       };
     });
 
@@ -771,11 +782,13 @@ export default async function handler(
       );
       return {
         id_investment: inv.id_investment,
+        agency_investment_id: inv.agency_investment_id ?? null,
         created_at: inv.created_at.toISOString(),
         description: inv.description,
         amount: val,
         currency: cur,
         booking_id: inv.booking_id ?? null,
+        booking_agency_id: inv.booking?.agency_booking_id ?? null,
       };
     });
 
@@ -790,11 +803,13 @@ export default async function handler(
         );
         return {
           id_investment: inv.id_investment,
+          agency_investment_id: inv.agency_investment_id ?? null,
           created_at: inv.created_at.toISOString(),
           description: inv.description,
           amount: val,
           currency: cur,
           booking_id: inv.booking_id ?? null,
+          booking_agency_id: inv.booking?.agency_booking_id ?? null,
         };
       });
 
@@ -833,7 +848,9 @@ export default async function handler(
             amount: Number(due.amount) || 0,
             currency: String(due.currency || "ARS").toUpperCase(),
             booking_id: due.booking_id,
+            booking_agency_id: due.booking?.agency_booking_id ?? null,
             service_id: due.service_id,
+            service_agency_id: due.service?.agency_service_id ?? null,
             concept: due.concept,
           })),
           receipts: recentReceipts,

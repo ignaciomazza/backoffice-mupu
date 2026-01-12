@@ -42,7 +42,7 @@ export default function AttachReceiptSection(props: {
           id="receipt_search"
           value={receiptQuery}
           onChange={(e) => setReceiptQuery(e.target.value)}
-          placeholder='Ej.: "#123", "USD 500", "ARS 1200000"...'
+          placeholder='Ej.: "N° 123", "USD 500", "ARS 1200000"...'
           className={inputBase}
         />
       </Field>

@@ -220,23 +220,26 @@ export default function ClientPicker({
           role="listbox"
           className="mt-2 w-full appearance-none rounded-2xl border border-sky-950/10 p-2 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
         >
-          {results.map((c) => (
-            <li
-              key={c.id_client}
-              role="option"
-              aria-selected={selected?.id_client === c.id_client}
-              className="cursor-pointer rounded-xl px-3 py-2 hover:bg-white/30 dark:hover:bg-white/10"
-              onClick={() => pick(c)}
-            >
-              <div className="flex justify-between">
-                <span className="font-medium">
-                  {c.first_name} {c.last_name}
-                </span>
-                <span className="opacity-70">N° {c.id_client}</span>
-              </div>
-              <div className="text-xs opacity-80">{compactIdentity(c)}</div>
-            </li>
-          ))}
+          {results.map((c) => {
+            const clientNumber = c.agency_client_id ?? c.id_client;
+            return (
+              <li
+                key={c.id_client}
+                role="option"
+                aria-selected={selected?.id_client === c.id_client}
+                className="cursor-pointer rounded-xl px-3 py-2 hover:bg-white/30 dark:hover:bg-white/10"
+                onClick={() => pick(c)}
+              >
+                <div className="flex justify-between">
+                  <span className="font-medium">
+                    {c.first_name} {c.last_name}
+                  </span>
+                  <span className="opacity-70">N° {clientNumber}</span>
+                </div>
+                <div className="text-xs opacity-80">{compactIdentity(c)}</div>
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -247,7 +250,9 @@ export default function ClientPicker({
             <span className="font-semibold">
               {selected.first_name} {selected.last_name}
             </span>
-            <span className="opacity-70">N° {selected.id_client}</span>
+            <span className="opacity-70">
+              N° {selected.agency_client_id ?? selected.id_client}
+            </span>
           </div>
           <div className="mt-1 text-xs opacity-80">
             {fullIdentity(selected)}
@@ -259,7 +264,8 @@ export default function ClientPicker({
 }
 
 function displayClient(c: Client) {
-  return `${c.first_name ?? ""} ${c.last_name ?? ""} — N° ${c.id_client}`;
+  const clientNumber = c.agency_client_id ?? c.id_client;
+  return `${c.first_name ?? ""} ${c.last_name ?? ""} — N° ${clientNumber}`;
 }
 
 function compactIdentity(c: Client) {

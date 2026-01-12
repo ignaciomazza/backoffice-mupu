@@ -34,6 +34,7 @@ export interface Agency {
   website?: string;
   foundation_date?: string;
   logo_url?: string;
+  use_agency_numbers?: boolean;
   creation_date: string;
   users?: User[];
   bookings?: Booking[];
@@ -58,6 +59,7 @@ export interface User {
 
 export interface Client {
   id_client: number;
+  agency_client_id?: number | null;
   first_name: string;
   last_name: string;
   phone: string;
@@ -84,6 +86,7 @@ export interface Client {
 
 export interface Booking {
   id_booking: number;
+  agency_booking_id?: number | null;
   clientStatus: string;
   operatorStatus: string;
   status: string;
@@ -124,6 +127,7 @@ export interface BookingFormData {
 
 export interface Service {
   id_service: number;
+  agency_service_id?: number | null;
   type: string;
   description: string;
   sale_price: number;
@@ -154,6 +158,7 @@ export interface Service {
   departure_date: string;
   return_date: string;
   booking_id: number;
+  id_agency?: number;
   id_operator: number;
   created_at: string;
 }
@@ -204,6 +209,7 @@ export interface Invoice {
 
 export interface Receipt {
   id_receipt: number;
+  agency_receipt_id?: number | null;
   receipt_number: string;
   issue_date: string;
   amount: number;
@@ -264,6 +270,7 @@ export interface UserProfile {
 
 export interface OperatorDue {
   id_due: number;
+  agency_operator_due_id?: number | null;
   created_at: string;
   booking_id: number;
   booking?: Booking;
@@ -278,6 +285,7 @@ export interface OperatorDue {
 
 export interface ClientPayment {
   id_payment: number;
+  agency_client_payment_id?: number | null;
   created_at: string;
   booking_id: number;
   booking?: Booking;

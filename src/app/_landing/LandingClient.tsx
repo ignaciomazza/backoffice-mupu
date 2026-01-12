@@ -779,55 +779,55 @@ function ChartControlEquipo() {
  * =========================== */
 const VIDEOS: TutorialVideo[] = [
   {
-    title: "Ofistur #1: Presentación, Login y Dashboard",
+    title: "Ofistur N° 1: Presentación, Login y Dashboard",
     desc: "Conocé Ofistur desde cero: landing, inicio de sesión y el panel que centraliza todo en 2 clics. Ideal si venís de un “sistema prehistórico” y querés ver métricas, alertas y accesos rápidos hechos por y para agencias de viaje. Más información.",
     videoUrl: "https://youtu.be/p3Lzg1y2D7Y",
   },
   {
-    title: "Ofistur #2: Clientes — Alta, Edición, Baja y KPIs rápidos",
+    title: "Ofistur N° 2: Clientes — Alta, Edición, Baja y KPIs rápidos",
     desc: "Cargá, editá y eliminá clientes sin vueltas. Vemos fichas, búsquedas, segmentación y estadísticas clave (deuda, historial, valor). Todo listo para cotizar y confirmar más rápido. Más información.",
     videoUrl: "https://youtu.be/-Ps3wLSCVDg",
   },
   {
-    title: "Ofistur #3: Reservas — Flujo básico y primer vistazo a Servicios",
+    title: "Ofistur N° 3: Reservas — Flujo básico y primer vistazo a Servicios",
     desc: "Creá tu primera reserva, editála, eliminála y conectála con el titular. Además, te muestro la primera pantalla de Servicios para entender cómo se arma cada viaje paso a paso. Más información.",
     videoUrl: "https://youtu.be/uhR4D87JbWo",
   },
   {
-    title: "Ofistur #4: Servicios — CRUD completo y resumen con estadísticas",
+    title: "Ofistur N° 4: Servicios — CRUD completo y resumen con estadísticas",
     desc: "Alta/edición/baja de servicios dentro de la reserva y un tablero de resumen con importes, comisiones e impuestos automáticos. Visualizá en 2 clics el estado global de cada viaje. Más información.",
     videoUrl: "https://youtu.be/UNYCNBVi528",
   },
   {
     title:
-      "Ofistur #5: Servicios a fondo — Planes de pago, Recibos y Operadores",
+      "Ofistur N° 5: Servicios a fondo — Planes de pago, Recibos y Operadores",
     desc: "Definí planes de pago, emití recibos, gestioná vencimientos y registrá pagos al operador. Controlá el estado de la reserva y evitá olvidos con avisos claros para el equipo. Más información.",
     videoUrl: "https://youtu.be/uK4dy_c-n2c",
   },
   {
-    title: "Ofistur #6: Facturas y Notas de Crédito — Flujo y Estadísticas",
+    title: "Ofistur N° 6: Facturas y Notas de Crédito — Flujo y Estadísticas",
     desc: "Emití facturas y notas de crédito, vinculalas a servicios y seguí su impacto en la rentabilidad. Cerramos con un tablero de métricas de facturación para decisiones en tiempo real. Más información.",
     videoUrl: "https://youtu.be/QWPOFHY7za4",
   },
   {
-    title: "Ofistur #7: Finanzas — Gastos, Saldos, Ganancias y Configuración",
+    title: "Ofistur N° 7: Finanzas — Gastos, Saldos, Ganancias y Configuración",
     desc: "Inversiones (gastos), pagos al operador, recibos, saldos de reservas y cálculo automático de comisiones (vendedor/líder/agencia). Además, configuración de monedas, cuentas, métodos y categorías. Más información.",
     videoUrl: "https://youtu.be/XQWpJ1J4JcE",
   },
   {
     title:
-      "Ofistur #8: Recursos del Equipo — Notas, Calendario y Templates PDF",
+      "Ofistur N° 8: Recursos del Equipo — Notas, Calendario y Templates PDF",
     desc: "Organizá al equipo con anotaciones colaborativas, calendario de clientes y plantillas listas para cotización y confirmación en PDF. Centralizá comunicación y documentación en un solo lugar. Más información.",
     videoUrl: "https://youtu.be/xJFyNUfTDjc",
   },
   {
     title:
-      "Ofistur #9: Agencia — Identidad, AFIP, Operadores, Usuarios y Roles",
+      "Ofistur N° 9: Agencia — Identidad, AFIP, Operadores, Usuarios y Roles",
     desc: "Ajustá datos de la agencia (logo, certificados AFIP, Costos bancarios), gestioná Operadores, Usuarios y Equipos de ventas, y administrá roles y contraseñas con control fino de permisos. Más información.",
     videoUrl: "https://youtu.be/3hXinQcW1ck",
   },
   {
-    title: "Ofistur #10: Cierre del Tutorial",
+    title: "Ofistur N° 10: Cierre del Tutorial",
     desc: "Pedí una demo, migrá a Ofistur y trabajá desde Mac/Windows/iOS/Android. Todo centralizado y en 2 clics. Más información.",
     videoUrl: "https://youtu.be/7RmdJWiiEIQ",
   },

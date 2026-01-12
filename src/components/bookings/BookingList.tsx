@@ -147,13 +147,14 @@ function BookingListRow({
   const returnDate = formatDate(booking.return_date);
   const creationDate = formatDate(booking.creation_date);
   const paxCount = Math.max(1, booking.pax_count);
+  const bookingNumber = booking.agency_booking_id ?? booking.id_booking;
 
   return (
     <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sky-950 shadow-sm shadow-sky-950/10 backdrop-blur dark:bg-white/5 dark:text-white">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-900/80 dark:text-sky-100/80">
-            N°{booking.id_booking}
+            N°{bookingNumber}
           </span>
           <p className="text-base font-semibold text-sky-950 dark:text-white">
             {booking.details.toUpperCase() || "Sin detalle"}

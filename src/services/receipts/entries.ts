@@ -32,7 +32,7 @@ export async function createCreditEntryForReceipt(args: {
 
     currency: (args.currency || "ARS").toUpperCase(),
     amount: Math.abs(Number(args.amount || 0)),
-    concept: args.concept || `Recibo #${args.receiptId}`,
+    concept: args.concept || `Recibo N° ${args.receiptId}`,
     doc_type: "receipt",
     receipt_id: args.receiptId,
     booking_id: args.bookingId ?? undefined,
@@ -71,7 +71,7 @@ export async function createFinanceEntryForReceipt(args: {
     account_id: Number(args.accountId),
     currency: (args.currency || "ARS").toUpperCase(),
     amount: Math.abs(Number(args.amount)),
-    concept: args.concept || `Recibo #${args.receiptId}`,
+    concept: args.concept || `Recibo N° ${args.receiptId}`,
     doc_type: "receipt",
     receipt_id: args.receiptId,
     booking_id: args.bookingId ?? undefined,

@@ -92,6 +92,7 @@ export default function ServiceCard({
   agencyTransferFeePct,
 }: ServiceCardProps) {
   const isExpanded = expandedServiceId === service.id_service;
+  const serviceNumber = service.agency_service_id ?? service.id_service;
   const { token } = useAuth();
 
   /* ====== leer modo (auto/manual) desde API — SOLO al expandir ====== */
@@ -237,7 +238,7 @@ export default function ServiceCard({
               )}
             </button>
             <p className="text-xs opacity-70">
-              N° {service.id_service} •{" "}
+              N° {serviceNumber} •{" "}
               {service.created_at
                 ? new Date(service.created_at).toLocaleDateString("es-AR")
                 : "–"}

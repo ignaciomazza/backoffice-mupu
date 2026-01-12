@@ -492,12 +492,16 @@ export default function OperatorPaymentForm({
 
     // descripción
     if (selectedServices.length > 0) {
-      const ids = selectedServices.map((s) => `N° ${s.id_service}`).join(", ");
+      const ids = selectedServices
+        .map((s) => `N° ${s.agency_service_id ?? s.id_service}`)
+        .join(", ");
       const opName =
         operators.find((o) => o.id_operator === operatorIdFromSelection)
           ?.name || "Operador";
       setDescription(
-        `Pago a operador ${opName} | Reserva N° ${booking.id_booking} | Servicios ${ids}`,
+        `Pago a operador ${opName} | Reserva N° ${
+          booking.agency_booking_id ?? booking.id_booking
+        } | Servicios ${ids}`,
       );
     } else {
       setDescription("");
@@ -508,6 +512,7 @@ export default function OperatorPaymentForm({
     lockedSvcCurrency,
     suggestedAmount,
     operators,
+    booking.agency_booking_id,
     booking.id_booking,
     currencyOptions,
   ]);
@@ -907,7 +912,7 @@ export default function OperatorPaymentForm({
         operator_id: Number(inv.operator_id),
         currency: (inv.currency || "").toUpperCase(),
         amount: Math.abs(Number(inv.amount || 0)),
-        concept: inv.description || `Gasto Operador #${inv.id_investment}`,
+        concept: inv.description || `Gasto Operador N° ${inv.id_investment}`,
         doc_type: "investment",
         investment_id: inv.id_investment,
         value_date: inv.paid_at ? inv.paid_at.slice(0, 10) : undefined,
@@ -996,10 +1001,14 @@ export default function OperatorPaymentForm({
     }
 
     try {
-      const ids = selectedServices.map((s) => s.id_service).join(", ");
+      const ids = selectedServices
+        .map((s) => s.agency_service_id ?? s.id_service)
+        .join(", ");
       const desc =
         description.trim() ||
-        `Pago a operador | Reserva N° ${booking.id_booking} | Servicios ${ids}`;
+        `Pago a operador | Reserva N° ${
+          booking.agency_booking_id ?? booking.id_booking
+        } | Servicios ${ids}`;
 
       const payload: Record<string, unknown> = {
         category,
@@ -1098,7 +1107,7 @@ export default function OperatorPaymentForm({
     if (operatorId) {
       pills.push(
         <span key="op" className={`${pillBase} ${pillNeutral}`}>
-          Operador #{operatorId}
+          Operador N° {operatorId}
         </span>,
       );
     }
@@ -1202,7 +1211,7 @@ export default function OperatorPaymentForm({
                 {visible ? "Pago a Operador" : "Cargar Pago a Operador"}
               </p>
               <p className="text-xs opacity-70">
-                Reserva #{booking.id_booking}
+                Reserva N° {booking.agency_booking_id ?? booking.id_booking}
               </p>
             </div>
           </div>
@@ -1274,7 +1283,8 @@ export default function OperatorPaymentForm({
                             />
                             <div className="flex-1">
                               <div className="text-sm font-medium">
-                                #{svc.id_service} · {svc.type}
+                                N° {svc.agency_service_id ?? svc.id_service} ·{" "}
+                                {svc.type}
                                 {svc.destination ? ` · ${svc.destination}` : ""}
                               </div>
                               <div className="text-xs text-sky-950/70 dark:text-white/70">
@@ -1306,7 +1316,7 @@ export default function OperatorPaymentForm({
                     </span>
                     {operatorIdFromSelection != null && (
                       <span className={`${pillBase} ${pillNeutral}`}>
-                        Operador sugerido: #{operatorIdFromSelection}
+                        Operador sugerido: N° {operatorIdFromSelection}
                       </span>
                     )}
                   </div>

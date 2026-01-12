@@ -320,7 +320,7 @@ export default function Page() {
         operator_id: Number(inv.operator_id),
         currency: (inv.currency || "").toUpperCase(),
         amount: Math.abs(Number(inv.amount || 0)), // la API aplica el signo por doc_type
-        concept: inv.description || `Gasto Operador #${inv.id_investment}`,
+        concept: inv.description || `Gasto Operador N° ${inv.id_investment}`,
         doc_type: "investment",
         investment_id: inv.id_investment,
         value_date: inv.paid_at ? inv.paid_at.slice(0, 10) : undefined,
@@ -1320,7 +1320,7 @@ export default function Page() {
     if (editingId) {
       pills.push(
         <span key="edit" className={`${pillBase} ${pillOk}`}>
-          Editando #{editingId}
+          Editando N° {editingId}
         </span>,
       );
     }

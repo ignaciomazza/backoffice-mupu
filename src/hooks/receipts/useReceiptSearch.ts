@@ -92,7 +92,7 @@ export function useReceiptSearch(args: {
               already = !!bid && bid > 0;
             }
 
-            const label = `#${numberStr} • ${cur} ${amt.toLocaleString(
+            const label = `N° ${numberStr} • ${cur} ${amt.toLocaleString(
               "es-AR",
               {
                 minimumFractionDigits: 2,
@@ -115,7 +115,9 @@ export function useReceiptSearch(args: {
       setReceiptOptions([]);
       return;
     }
-    const q = receiptQuery.trim().replace(/^#/, "");
+    const q = receiptQuery
+      .trim()
+      .replace(/^(#|n[°º]?\s*)/i, "");
     if (!q) {
       setReceiptOptions([]);
       return;

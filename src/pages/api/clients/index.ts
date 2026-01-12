@@ -1,6 +1,7 @@
 // src/pages/api/clients/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 
@@ -297,7 +298,10 @@ export default async function handler(
       if (q) {
         const or: Prisma.ClientWhereInput[] = [];
         const qNum = Number(q);
-        if (!isNaN(qNum)) or.push({ id_client: qNum });
+        if (!isNaN(qNum)) {
+          or.push({ id_client: qNum });
+          or.push({ agency_client_id: qNum });
+        }
 
         const qLike = q;
         or.push({ first_name: { contains: qLike, mode: "insensitive" } });
@@ -417,27 +421,36 @@ export default async function handler(
           .json({ error: "Esa información ya pertenece a un cliente." });
       }
 
-      const created = await prisma.client.create({
-        data: {
-          first_name,
-          last_name,
-          phone: c.phone,
-          address: c.address || null,
-          postal_code: c.postal_code || null,
-          locality: c.locality || null,
-          company_name: c.company_name || null,
-          tax_id: c.tax_id ? String(c.tax_id).trim() : null,
-          commercial_address: c.commercial_address || null,
-          dni_number: dni || null,
-          passport_number: pass || null,
-          birth_date: birth,
-          nationality: c.nationality,
-          gender: c.gender,
-          email: String(c.email ?? "").trim() || null,
-          id_user: usedUserId,
-          id_agency: auth.id_agency, // SIEMPRE desde el token
-        },
-        include: { user: { select: userSelectSafe } },
+      const created = await prisma.$transaction(async (tx) => {
+        const agencyClientId = await getNextAgencyCounter(
+          tx,
+          auth.id_agency,
+          "client",
+        );
+
+        return tx.client.create({
+          data: {
+            agency_client_id: agencyClientId,
+            first_name,
+            last_name,
+            phone: c.phone,
+            address: c.address || null,
+            postal_code: c.postal_code || null,
+            locality: c.locality || null,
+            company_name: c.company_name || null,
+            tax_id: c.tax_id ? String(c.tax_id).trim() : null,
+            commercial_address: c.commercial_address || null,
+            dni_number: dni || null,
+            passport_number: pass || null,
+            birth_date: birth,
+            nationality: c.nationality,
+            gender: c.gender,
+            email: String(c.email ?? "").trim() || null,
+            id_user: usedUserId,
+            id_agency: auth.id_agency, // SIEMPRE desde el token
+          },
+          include: { user: { select: userSelectSafe } },
+        });
       });
 
       return res.status(201).json(created);

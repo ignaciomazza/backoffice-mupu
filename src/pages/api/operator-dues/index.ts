@@ -1,6 +1,7 @@
 // src/pages/api/operator-dues/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify, JWTPayload } from "jose";
 
 /** ===== Roles ===== */
@@ -246,16 +247,26 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
 
     // crear
-    const created = await prisma.operatorDue.create({
-      data: {
-        booking_id: bId,
-        service_id: sId,
-        due_date: parsedDue,
-        concept: concept.trim(),
-        status: status.trim(),
-        amount: decAmount,
-        currency: currency.trim().toUpperCase(),
-      },
+    const created = await prisma.$transaction(async (tx) => {
+      const agencyDueId = await getNextAgencyCounter(
+        tx,
+        authAgencyId,
+        "operator_due",
+      );
+
+      return tx.operatorDue.create({
+        data: {
+          agency_operator_due_id: agencyDueId,
+          id_agency: authAgencyId,
+          booking_id: bId,
+          service_id: sId,
+          due_date: parsedDue,
+          concept: concept.trim(),
+          status: status.trim(),
+          amount: decAmount,
+          currency: currency.trim().toUpperCase(),
+        },
+      });
     });
 
     return res.status(201).json({ due: created, success: true });

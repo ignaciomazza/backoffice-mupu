@@ -12,6 +12,7 @@ export type UserLite = {
 
 export type InvestmentItem = {
   id_investment: number;
+  agency_investment_id?: number | null;
   category: string;
   description: string;
   amount: number;
@@ -21,6 +22,7 @@ export type InvestmentItem = {
   operator_id?: number | null;
   user_id?: number | null;
   booking_id?: number | null;
+  booking?: { id_booking: number; agency_booking_id?: number | null } | null;
   operator?: OperatorLite | null;
   user?: UserLite | null;
   createdBy?: UserLite | null;
@@ -63,6 +65,7 @@ function OperatorPaymentCard({ item }: Props) {
     () => fmtMoney(item.amount, item.currency),
     [item.amount, item.currency],
   );
+  const bookingNumber = item.booking?.agency_booking_id ?? item.booking_id;
 
   const hasBase =
     item.base_amount !== null &&
@@ -83,10 +86,12 @@ function OperatorPaymentCard({ item }: Props) {
         <div className="flex items-center gap-2">
           {item.booking_id ? (
             <span className="text-xs opacity-70">
-              Reserva #{item.booking_id}
+              Reserva N° {bookingNumber}
             </span>
           ) : null}
-          <span className="text-sm opacity-70">#{item.id_investment}</span>
+          <span className="text-sm opacity-70">
+            N° {item.agency_investment_id ?? item.id_investment}
+          </span>
         </div>
       </div>
 

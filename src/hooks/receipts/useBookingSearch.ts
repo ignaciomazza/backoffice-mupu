@@ -62,6 +62,10 @@ export function useBookingSearch(args: {
             const idNum = toNumberSafe(rawId);
             if (!idNum || idNum <= 0) return null;
 
+            const rawAgencyId = getUnknown(br, "agency_booking_id");
+            const agencyId = toNumberSafe(rawAgencyId);
+            const displayId = agencyId || idNum;
+
             const titularObj = getUnknown(br, "titular");
             let titular = "";
 
@@ -74,11 +78,18 @@ export function useBookingSearch(args: {
               titular = getStr(br, "titular_name") ?? "";
             }
 
-            const label = `#${idNum}${titular ? ` • ${titular}` : ""}`.trim();
+            const label = `N° ${displayId}${
+              titular ? ` • ${titular}` : ""
+            }`.trim();
             const subtitle =
               getStr(br, "details") ?? getStr(br, "title") ?? undefined;
 
-            return { id_booking: idNum, label, subtitle };
+            return {
+              id_booking: idNum,
+              agency_booking_id: agencyId ?? undefined,
+              label,
+              subtitle,
+            };
           })
           .filter((x): x is BookingOption => x !== null);
       } catch {
@@ -94,7 +105,9 @@ export function useBookingSearch(args: {
     }
     if (!effectiveSearch) return;
 
-    const raw = bookingQuery.trim().replace(/^#/, "");
+    const raw = bookingQuery
+      .trim()
+      .replace(/^(#|n[°º]?\s*)/i, "");
     if (raw.length < 2) {
       setOptions([]);
       return;

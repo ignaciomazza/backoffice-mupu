@@ -1242,7 +1242,7 @@ export default function CreditsPage() {
                                             <span
                                               className={pillClasses("zinc")}
                                             >
-                                              Entry #{m.id_entry}
+                                              Entry N° {m.id_entry}
                                             </span>
 
                                             {m.createdBy?.first_name ||

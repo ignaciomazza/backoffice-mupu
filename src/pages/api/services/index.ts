@@ -1,6 +1,7 @@
 // src/pages/api/services/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { Prisma } from "@prisma/client";
 
 export default async function handler(
@@ -80,6 +81,7 @@ export default async function handler(
 
     const bookingExists = await prisma.booking.findUnique({
       where: { id_booking: Number(booking_id) },
+      select: { id_booking: true, id_agency: true },
     });
     if (!bookingExists) {
       return res.status(404).json({ error: "Reserva no encontrada." });
@@ -93,41 +95,51 @@ export default async function handler(
     }
 
     try {
-      const service = await prisma.service.create({
-        data: {
-          type,
-          description: description || null,
-          sale_price,
-          cost_price,
-          destination: destination || "",
-          reference: reference || "",
-          tax_21: tax_21 || null,
-          tax_105: tax_105 || null,
-          exempt: exempt || null,
-          other_taxes: other_taxes || null,
-          currency,
-          departure_date: parsedDepartureDate,
-          return_date: parsedReturnDate,
-          booking: { connect: { id_booking: Number(booking_id) } },
-          operator: { connect: { id_operator: Number(id_operator) } },
-          nonComputable: nonComputable || null,
-          taxableBase21: taxableBase21 || null,
-          taxableBase10_5: taxableBase10_5 || null,
-          commissionExempt: commissionExempt || null,
-          commission21: commission21 || null,
-          commission10_5: commission10_5 || null,
-          vatOnCommission21: vatOnCommission21 || null,
-          vatOnCommission10_5: vatOnCommission10_5 || null,
-          totalCommissionWithoutVAT: totalCommissionWithoutVAT || null,
-          impIVA: impIVA || null,
-          card_interest: card_interest || null,
-          card_interest_21: card_interest_21 || null,
-          taxableCardInterest: taxableCardInterest || null,
-          vatOnCardInterest: vatOnCardInterest || null,
-          transfer_fee_pct: transfer_fee_pct ?? null,
-          transfer_fee_amount: transfer_fee_amount ?? null,
-        },
-        include: { booking: true, operator: true },
+      const service = await prisma.$transaction(async (tx) => {
+        const agencyServiceId = await getNextAgencyCounter(
+          tx,
+          bookingExists.id_agency,
+          "service",
+        );
+
+        return tx.service.create({
+          data: {
+            agency_service_id: agencyServiceId,
+            type,
+            description: description || null,
+            sale_price,
+            cost_price,
+            destination: destination || "",
+            reference: reference || "",
+            tax_21: tax_21 || null,
+            tax_105: tax_105 || null,
+            exempt: exempt || null,
+            other_taxes: other_taxes || null,
+            currency,
+            departure_date: parsedDepartureDate,
+            return_date: parsedReturnDate,
+            booking: { connect: { id_booking: Number(booking_id) } },
+            agency: { connect: { id_agency: bookingExists.id_agency } },
+            operator: { connect: { id_operator: Number(id_operator) } },
+            nonComputable: nonComputable || null,
+            taxableBase21: taxableBase21 || null,
+            taxableBase10_5: taxableBase10_5 || null,
+            commissionExempt: commissionExempt || null,
+            commission21: commission21 || null,
+            commission10_5: commission10_5 || null,
+            vatOnCommission21: vatOnCommission21 || null,
+            vatOnCommission10_5: vatOnCommission10_5 || null,
+            totalCommissionWithoutVAT: totalCommissionWithoutVAT || null,
+            impIVA: impIVA || null,
+            card_interest: card_interest || null,
+            card_interest_21: card_interest_21 || null,
+            taxableCardInterest: taxableCardInterest || null,
+            vatOnCardInterest: vatOnCardInterest || null,
+            transfer_fee_pct: transfer_fee_pct ?? null,
+            transfer_fee_amount: transfer_fee_amount ?? null,
+          },
+          include: { booking: true, operator: true },
+        });
       });
 
       return res.status(201).json(service);

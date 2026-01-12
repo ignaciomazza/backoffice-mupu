@@ -1,6 +1,7 @@
 // src/pages/api/bookings/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 
@@ -222,6 +223,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       const qNum = Number(q);
       if (!isNaN(qNum)) {
         or.push({ id_booking: qNum });
+        or.push({ agency_booking_id: qNum });
         or.push({ titular: { id_client: qNum } });
         or.push({ clients: { some: { id_client: qNum } } });
       }
@@ -570,26 +572,35 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const booking = await prisma.booking.create({
-      data: {
-        clientStatus,
-        operatorStatus,
-        status,
-        details,
-        invoice_type,
-        invoice_observation,
-        observation,
-        departure_date: parsedDeparture,
-        return_date: parsedReturn,
-        // pax_count siempre consistente con acompañantes reales
-        pax_count: 1 + companions.length,
-        ...(parsedCreationDate ? { creation_date: parsedCreationDate } : {}),
-        titular: { connect: { id_client: Number(titular_id) } },
-        user: { connect: { id_user: usedUserId } },
-        agency: { connect: { id_agency: authAgencyId } }, // <- SIEMPRE del token
-        clients: { connect: companions.map((id) => ({ id_client: id })) },
-      },
-      include: { titular: true, user: true, agency: true, clients: true },
+    const booking = await prisma.$transaction(async (tx) => {
+      const agencyBookingId = await getNextAgencyCounter(
+        tx,
+        authAgencyId,
+        "booking",
+      );
+
+      return tx.booking.create({
+        data: {
+          agency_booking_id: agencyBookingId,
+          clientStatus,
+          operatorStatus,
+          status,
+          details,
+          invoice_type,
+          invoice_observation,
+          observation,
+          departure_date: parsedDeparture,
+          return_date: parsedReturn,
+          // pax_count siempre consistente con acompañantes reales
+          pax_count: 1 + companions.length,
+          ...(parsedCreationDate ? { creation_date: parsedCreationDate } : {}),
+          titular: { connect: { id_client: Number(titular_id) } },
+          user: { connect: { id_user: usedUserId } },
+          agency: { connect: { id_agency: authAgencyId } }, // <- SIEMPRE del token
+          clients: { connect: companions.map((id) => ({ id_client: id })) },
+        },
+        include: { titular: true, user: true, agency: true, clients: true },
+      });
     });
 
     return res.status(201).json(booking);

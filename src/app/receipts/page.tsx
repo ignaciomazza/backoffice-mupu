@@ -91,6 +91,7 @@ const ASSOCIATION_BADGE = {
 /* ================= Tipos de API ================= */
 type ReceiptRow = {
   id_receipt: number;
+  agency_receipt_id?: number | null;
   receipt_number: string;
   issue_date: string | null;
   /** Importe recibido por la agencia (neto) */
@@ -127,6 +128,7 @@ type ReceiptRow = {
   clientIds?: number[] | null;
   booking?: {
     id_booking: number;
+    agency_booking_id?: number | null;
     user?: {
       id_user: number;
       first_name: string | null;
@@ -165,6 +167,7 @@ type FinancePickBundle = {
 /* ============ Normalizado para UI/CSV ============ */
 type NormalizedReceipt = ReceiptRow & {
   _dateLabel: string;
+  _displayReceiptNumber: string;
   _amountLabel: string; // Valor aplicado (base si existe)
   _displayAmount: number;
   _displayCurrency: string;
@@ -180,6 +183,7 @@ type SortKey = "issue_date" | "receipt_number" | "amount" | "owner";
 /* ===== Tipos auxiliares p/ búsquedas ===== */
 type BookingSearchItem = {
   id_booking?: number | string | null;
+  agency_booking_id?: number | string | null;
   id?: number | string | null;
   titular?: { first_name?: string | null; last_name?: string | null } | null;
   titular_name?: string | null;
@@ -190,6 +194,7 @@ type BookingSearchItem = {
 
 type BookingServiceItem = {
   id_service?: number | string | null;
+  agency_service_id?: number | string | null;
   id?: number | string | null;
   description?: string | null;
   type?: string | null;
@@ -219,6 +224,21 @@ export default function ReceiptsPage() {
     "desarrollador",
     "lider",
   ].includes(role);
+
+  const [useAgencyNumbers, setUseAgencyNumbers] = useState(true);
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const res = await authFetch("/api/agency", { cache: "no-store" }, token);
+        if (!res.ok) return;
+        const data = (await res.json()) as { use_agency_numbers?: boolean };
+        setUseAgencyNumbers(data.use_agency_numbers !== false);
+      } catch {
+        // mantener default
+      }
+    })();
+  }, [token]);
 
   /* ---------- Filtros ---------- */
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -305,7 +325,8 @@ export default function ReceiptsPage() {
       const u = r.booking?.user;
       if (!u?.id_user) continue;
       const name =
-        `${u.first_name || ""} ${u.last_name || ""}`.trim() || `#${u.id_user}`;
+        `${u.first_name || ""} ${u.last_name || ""}`.trim() ||
+        `N° ${u.id_user}`;
       map.set(u.id_user, name);
     }
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
@@ -321,7 +342,8 @@ export default function ReceiptsPage() {
     const base = primary.map((u) => ({
       id: u.id_user,
       name:
-        `${u.first_name || ""} ${u.last_name || ""}`.trim() || `#${u.id_user}`,
+        `${u.first_name || ""} ${u.last_name || ""}`.trim() ||
+        `N° ${u.id_user}`,
     }));
 
     const seen = new Set(base.map((o) => o.id));
@@ -350,12 +372,23 @@ export default function ReceiptsPage() {
     }
   }, []);
 
+  const getReceiptDisplayNumber = useCallback(
+    (r: Pick<ReceiptRow, "agency_receipt_id" | "receipt_number">) => {
+      if (useAgencyNumbers && r.agency_receipt_id != null) {
+        return String(r.agency_receipt_id);
+      }
+      return r.receipt_number;
+    },
+    [useAgencyNumbers],
+  );
+
   /** Normaliza un recibo para UI/CSV (reutilizado en página y export) */
   const normalizeReceipt = useCallback(
     (r: ReceiptRow): NormalizedReceipt => {
       const dateLabel = r.issue_date
         ? new Date(r.issue_date).toLocaleDateString("es-AR")
         : "—";
+      const displayReceiptNumber = getReceiptDisplayNumber(r);
 
       const hasBase = r.base_amount != null && r.base_currency;
       const displayAmount = hasBase ? toNum(r.base_amount) : toNum(r.amount);
@@ -417,6 +450,7 @@ export default function ReceiptsPage() {
       return {
         ...r,
         _dateLabel: dateLabel,
+        _displayReceiptNumber: displayReceiptNumber,
         _amountLabel: amountLabel,
         _displayAmount: displayAmount,
         _displayCurrency: (displayCurrency || "ARS").toUpperCase(),
@@ -427,7 +461,7 @@ export default function ReceiptsPage() {
         _clientTotalLabel: clientTotalLabel,
       };
     },
-    [fmtMoney],
+    [fmtMoney, getReceiptDisplayNumber],
   );
 
   /* ---------- Forzar owner para vendedor ---------- */
@@ -512,8 +546,8 @@ export default function ReceiptsPage() {
           vb = b.issue_date ? new Date(b.issue_date).getTime() : 0;
           break;
         case "receipt_number":
-          va = a.receipt_number || "";
-          vb = b.receipt_number || "";
+          va = a._displayReceiptNumber || "";
+          vb = b._displayReceiptNumber || "";
           break;
         case "amount":
           va = a._displayAmount || 0;
@@ -722,7 +756,7 @@ export default function ReceiptsPage() {
         for (const r of pageNorm) {
           const cells = [
             r._dateLabel,
-            r.receipt_number,
+            r._displayReceiptNumber,
             String(r.booking?.id_booking ?? ""),
             r._titularFull,
             r._ownerFull,
@@ -795,7 +829,9 @@ export default function ReceiptsPage() {
 
   /* ---------- Buscar reservas/servicios (compartido con Form y Diálogo) ---------- */
   const searchBookings = async (qText: string): Promise<BookingOption[]> => {
-    const term = String(qText).trim().replace(/^#/, "");
+    const term = String(qText)
+      .trim()
+      .replace(/^(#|n[°º]?\s*)/i, "");
     const out: BookingOption[] = [];
     const byId = /^\d+$/.test(term);
 
@@ -804,15 +840,25 @@ export default function ReceiptsPage() {
       const id = typeof rawId === "number" ? rawId : Number(rawId);
       if (!Number.isFinite(id) || id <= 0) return null;
 
+      const rawAgencyId = b?.agency_booking_id;
+      const agencyId =
+        typeof rawAgencyId === "number" ? rawAgencyId : Number(rawAgencyId);
+      const displayId = Number.isFinite(agencyId) ? agencyId : id;
+
       const titular =
         b?.titular?.first_name || b?.titular?.last_name
           ? `${b.titular?.first_name ?? ""} ${b.titular?.last_name ?? ""}`.trim()
           : (b?.titular_name ?? "");
 
-      const label = `#${id}${titular ? ` • ${titular}` : ""}`;
+      const label = `N° ${displayId}${titular ? ` • ${titular}` : ""}`;
       const subtitle = (b?.details ?? b?.title ?? b?.subtitle ?? "") as string;
 
-      return { id_booking: id, label, subtitle };
+      return {
+        id_booking: id,
+        agency_booking_id: Number.isFinite(agencyId) ? agencyId : undefined,
+        label,
+        subtitle,
+      };
     };
 
     try {
@@ -876,6 +922,13 @@ export default function ReceiptsPage() {
       (arr || []).map((s) => {
         const rawId = s?.id_service ?? s?.id ?? 0;
         const id = typeof rawId === "number" ? rawId : Number(rawId);
+        const rawAgencyId = s?.agency_service_id;
+        const agencyId =
+          rawAgencyId == null
+            ? Number.NaN
+            : typeof rawAgencyId === "number"
+              ? rawAgencyId
+              : Number(rawAgencyId);
         const currency = String(
           s?.currency ?? s?.sale_currency ?? "ARS",
         ).toUpperCase();
@@ -897,6 +950,7 @@ export default function ReceiptsPage() {
             : Number(s?.vatOnCardInterest ?? 0);
         return {
           id_service: Number.isFinite(id) ? id : 0,
+          agency_service_id: Number.isFinite(agencyId) ? agencyId : undefined,
           description:
             s?.description ??
             s?.type ??
@@ -987,7 +1041,9 @@ export default function ReceiptsPage() {
   useEffect(() => {
     if (!attachOpen) return;
     if (attachTarget?.booking?.id_booking) return; // booking bloqueada si ya tiene
-    const term = attachBookingQuery.trim().replace(/^#/, "");
+    const term = attachBookingQuery
+      .trim()
+      .replace(/^(#|n[°º]?\s*)/i, "");
     if (!term) {
       setAttachBookingOpts([]);
       return;
@@ -1138,7 +1194,7 @@ export default function ReceiptsPage() {
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
-      const fileBase = `Recibo_${row.receipt_number || row.id_receipt}`;
+      const fileBase = `Recibo_${getReceiptDisplayNumber(row) || row.id_receipt}`;
       a.href = url;
       a.download = `${slugify(fileBase)}.pdf`;
       document.body.appendChild(a);
@@ -1477,7 +1533,7 @@ export default function ReceiptsPage() {
                 <Input
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
-                  placeholder="N° recibo, concepto, 'UN MILLON...', #reserva..."
+                  placeholder="N° recibo, concepto, 'UN MILLON...', N° reserva..."
                 />
               </div>
 
@@ -1715,7 +1771,7 @@ export default function ReceiptsPage() {
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
                               <span className="font-semibold">
-                                #{r.receipt_number}
+                              N° {getReceiptDisplayNumber(r)}
                               </span>
                               <button
                                 className={BADGE}
@@ -1725,7 +1781,7 @@ export default function ReceiptsPage() {
                                     navigator.clipboard
                                   ) {
                                     navigator.clipboard
-                                      .writeText(r.receipt_number)
+                                      .writeText(getReceiptDisplayNumber(r))
                                       .then(
                                         () =>
                                           toast.success("N° de recibo copiado"),
@@ -1842,7 +1898,7 @@ export default function ReceiptsPage() {
                             <div>
                               <div className="flex flex-wrap items-center gap-2 text-sm">
                                 <span className="font-semibold">
-                                  #{r.receipt_number}
+                                  N° {getReceiptDisplayNumber(r)}
                                 </span>
                                 <span className="text-xs opacity-70">
                                   {r._dateLabel}
@@ -1905,7 +1961,7 @@ export default function ReceiptsPage() {
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
                           <span className="text-sm opacity-70">
-                            #{r.receipt_number}
+                            N° {getReceiptDisplayNumber(r)}
                           </span>
                           <button
                             className={BADGE}
@@ -1915,7 +1971,7 @@ export default function ReceiptsPage() {
                                 navigator.clipboard
                               ) {
                                 navigator.clipboard
-                                  .writeText(r.receipt_number)
+                                  .writeText(getReceiptDisplayNumber(r))
                                   .then(
                                     () => toast.success("N° de recibo copiado"),
                                     () => toast.error("No se pudo copiar"),
@@ -2067,7 +2123,10 @@ export default function ReceiptsPage() {
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-semibold">
-                    Asociar recibo #{attachTarget?.receipt_number}
+                    Asociar recibo N°{" "}
+                    {attachTarget
+                      ? getReceiptDisplayNumber(attachTarget)
+                      : ""}
                   </h3>
                   <p className="text-xs opacity-70">
                     Elegí una reserva y marcá los servicios a vincular.
@@ -2086,7 +2145,9 @@ export default function ReceiptsPage() {
                 <div className="mb-3 text-sm">
                   Reserva:{" "}
                   <span className="rounded-full bg-white/10 px-2 py-1">
-                    #{attachTarget.booking.id_booking} (bloqueada)
+                    N° {attachTarget.booking.agency_booking_id ??
+                      attachTarget.booking.id_booking}{" "}
+                    (bloqueada)
                   </span>
                 </div>
               ) : (
@@ -2170,7 +2231,7 @@ export default function ReceiptsPage() {
                             />
                             <div className="flex-1">
                               <div className="text-sm font-medium">
-                                #{svc.id_service} ·{" "}
+                                N° {svc.agency_service_id ?? svc.id_service} ·{" "}
                                 {svc.type || svc.description || "Servicio"}
                                 {svc.destination ? ` · ${svc.destination}` : ""}
                               </div>

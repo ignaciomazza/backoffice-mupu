@@ -145,12 +145,12 @@ const paymentLabel = (p: ReceiptPdfPaymentLine) => {
     (isVirtualCredit
       ? CREDIT_METHOD_LABEL
       : p.payment_method_id
-        ? `Método #${p.payment_method_id}`
+        ? `Método N° ${p.payment_method_id}`
         : "Método");
 
   const acc =
     (p.accountName && p.accountName.trim()) ||
-    (p.account_id ? `Cuenta #${p.account_id}` : "");
+    (p.account_id ? `Cuenta N° ${p.account_id}` : "");
 
   return acc ? `${pm} (${acc})` : pm;
 };

@@ -15,7 +15,7 @@ export default function ReceiptHeader(props: {
   action: Action;
   mode: Mode;
 
-  selectedBookingId: number | null;
+  selectedBookingDisplayId: number | null;
   selectedServiceCount: number;
   effectiveCurrency: string;
   lockedCurrency: string | null;
@@ -26,7 +26,7 @@ export default function ReceiptHeader(props: {
     editingReceiptId,
     action,
     mode,
-    selectedBookingId,
+    selectedBookingDisplayId,
     selectedServiceCount,
     effectiveCurrency,
     lockedCurrency,
@@ -98,9 +98,9 @@ export default function ReceiptHeader(props: {
             {mode === "booking" ? "Con reserva" : "Agencia"}
           </span>
 
-          {mode === "booking" && selectedBookingId && (
+          {mode === "booking" && selectedBookingDisplayId && (
             <span className={`${pillBase} ${pillNeutral}`}>
-              Reserva #{selectedBookingId}
+              Reserva N° {selectedBookingDisplayId}
             </span>
           )}
 

@@ -1,6 +1,7 @@
 // src/pages/api/client-payments/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify, JWTPayload } from "jose";
 
 // ========= Tipos =========
@@ -324,8 +325,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const created = await prisma.$transaction(async (tx) => {
       const items = [];
       for (let i = 0; i < n; i++) {
+        const agencyPaymentId = await getNextAgencyCounter(
+          tx,
+          authAgencyId,
+          "client_payment",
+        );
         const it = await tx.clientPayment.create({
           data: {
+            agency_client_payment_id: agencyPaymentId,
+            id_agency: authAgencyId,
             booking_id: bId,
             client_id: cId,
             amount: perInstallmentDecimals[i], // Decimal(18,2)

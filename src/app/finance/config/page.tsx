@@ -1067,7 +1067,7 @@ function FinanceConfigPageInner() {
                         className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur"
                       >
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                          <div className={`${BADGE}`}>#{c.id_currency}</div>
+                          <div className={`${BADGE}`}>N° {c.id_currency}</div>
                           <div className="truncate">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-semibold">
@@ -1191,7 +1191,7 @@ function FinanceConfigPageInner() {
                           className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur"
                         >
                           <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <div className={`${BADGE}`}>#{a.id_account}</div>
+                            <div className={`${BADGE}`}>N° {a.id_account}</div>
                             <div className="truncate">
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-semibold">
@@ -1277,7 +1277,7 @@ function FinanceConfigPageInner() {
                         className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur"
                       >
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                          <div className={`${BADGE}`}>#{m.id_method}</div>
+                          <div className={`${BADGE}`}>N° {m.id_method}</div>
                           <div className="truncate">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-semibold">
@@ -1381,7 +1381,7 @@ function FinanceConfigPageInner() {
                         className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur"
                       >
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                          <div className={`${BADGE}`}>#{c.id_category}</div>
+                          <div className={`${BADGE}`}>N° {c.id_category}</div>
                           <div className="truncate">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-semibold">

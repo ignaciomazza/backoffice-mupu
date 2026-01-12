@@ -606,7 +606,7 @@ export default function CommissionsConfig() {
                                 <li key={`${rs.id_rule_set}-${i}`}>
                                   {u
                                     ? `${u.first_name} ${u.last_name} (${Number(s.percent).toFixed(2)}%)`
-                                    : `#${s.beneficiary_user_id} (${Number(s.percent).toFixed(2)}%)`}
+                                    : `N° ${s.beneficiary_user_id} (${Number(s.percent).toFixed(2)}%)`}
                                 </li>
                               );
                             })}

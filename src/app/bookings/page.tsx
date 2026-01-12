@@ -273,7 +273,7 @@ export default function Page() {
             : allTeams;
         setTeamsList(allowed);
 
-        // 2) Usuarios visibles (para asignar creador). Por ahora: vendedor/lider/gerente.
+        // 2) Usuarios visibles (para asignar creador). Todos los de la agencia.
         if (FILTROS.includes(roleLower as FilterRole)) {
           const usersRes = await authFetch(
             "/api/users",
@@ -282,11 +282,7 @@ export default function Page() {
           );
           if (usersRes.ok) {
             const users = (await usersRes.json()) as User[];
-            setTeamMembers(
-              users.filter((u) =>
-                ["vendedor", "lider", "gerente"].includes(u.role),
-              ),
-            );
+            setTeamMembers(users);
           }
         }
 

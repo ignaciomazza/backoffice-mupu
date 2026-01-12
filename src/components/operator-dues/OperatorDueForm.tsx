@@ -128,8 +128,10 @@ export default function OperatorDueForm({
         "Vencimiento pago a operador",
         selectedService.type ? `· ${selectedService.type}` : "",
         selectedService.destination ? `· ${selectedService.destination}` : "",
-        `· Servicio N° ${selectedService.id_service}`,
-        `· Reserva N° ${booking.id_booking}`,
+        `· Servicio N° ${
+          selectedService.agency_service_id ?? selectedService.id_service
+        }`,
+        `· Reserva N° ${booking.agency_booking_id ?? booking.id_booking}`,
       ].filter(Boolean);
       setConcept(parts.join(" "));
     }
@@ -173,7 +175,8 @@ export default function OperatorDueForm({
           key="service"
           className="rounded-full bg-white/30 px-3 py-1 text-xs font-medium dark:bg-white/10"
         >
-          Servicio #{selectedService.id_service}
+          Servicio N°{" "}
+          {selectedService.agency_service_id ?? selectedService.id_service}
         </span>,
       );
     }
@@ -330,7 +333,9 @@ export default function OperatorDueForm({
               <p className="text-lg font-semibold">
                 {isFormVisible ? "Vencimientos de operador" : "Cargar vencimiento"}
               </p>
-              <p className="text-xs opacity-70">Reserva #{booking.id_booking}</p>
+              <p className="text-xs opacity-70">
+                Reserva N° {booking.agency_booking_id ?? booking.id_booking}
+              </p>
             </div>
           </div>
           <div className="hidden items-center gap-2 md:flex">{headerPills}</div>
@@ -371,11 +376,14 @@ export default function OperatorDueForm({
                               ? "border-sky-200/60 bg-sky-100 text-sky-950 dark:bg-white/10 dark:text-white"
                               : "border-white/10 bg-white/40 hover:bg-white/60 dark:bg-white/10"
                           }`}
-                          title={`Servicio N° ${svc.id_service}`}
+                          title={`Servicio N° ${
+                            svc.agency_service_id ?? svc.id_service
+                          }`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="text-sm font-medium">
-                              #{svc.id_service} · {svc.type}
+                              N° {svc.agency_service_id ?? svc.id_service} ·{" "}
+                              {svc.type}
                               {svc.destination ? ` · ${svc.destination}` : ""}
                             </div>
                             {isActive && (
@@ -401,7 +409,9 @@ export default function OperatorDueForm({
                 )}
                 {selectedService && (
                   <div className="ml-1 mt-2 text-xs text-sky-950/70 dark:text-white/70">
-                    Seleccionado: N° {selectedService.id_service}
+                    Seleccionado: N°{" "}
+                    {selectedService.agency_service_id ??
+                      selectedService.id_service}
                   </div>
                 )}
               </div>

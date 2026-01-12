@@ -182,7 +182,7 @@ export function validateOrderedBlocks(blocks: OrderedBlock[]): string[] {
   const errs: string[] = [];
   const ids = new Set<string>();
   blocks.forEach((b, i) => {
-    if (!b.id) errs.push(`Bloque #${i} sin id`);
+    if (!b.id) errs.push(`Bloque N° ${i} sin id`);
     if (b.id && ids.has(b.id)) errs.push(`Bloque duplicado: ${b.id}`);
     if (b.id) ids.add(b.id);
     if (!isValidBlockType(b.type))

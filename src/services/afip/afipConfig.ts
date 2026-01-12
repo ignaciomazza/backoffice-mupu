@@ -4,6 +4,7 @@ import type { NextApiRequest } from "next";
 import prisma from "@/lib/prisma";
 import crypto from "crypto";
 import { jwtVerify, type JWTPayload } from "jose";
+import { decryptSecret } from "@/lib/arcaSecrets";
 
 /** ------------------------------------------------------------------------
  *  Tipos mínimos para usar el SDK sin "any"
@@ -109,12 +110,13 @@ function buildAfip(opts: {
   CUIT: number;
   cert: string;
   key: string;
+  production?: boolean;
 }): AfipClient {
   return new Afip({
     CUIT: opts.CUIT,
     cert: opts.cert,
     key: opts.key,
-    production: process.env.AFIP_ENV === "production",
+    production: opts.production ?? process.env.AFIP_ENV === "production",
     access_token: process.env.ACCESS_TOKEN,
   });
 }
@@ -128,9 +130,39 @@ export function invalidateAfipCache(agencyId: number): void {
 /** ------------------------------------------------------------------------
  *  Materiales por agencia (DB -> desencriptar)
  *  --------------------------------------------------------------------- */
-async function loadAgencyMaterials(
+type AfipMaterials = {
+  CUIT: number;
+  cert: string;
+  key: string;
+  production?: boolean;
+};
+
+async function loadArcaMaterials(
   agencyId: number,
-): Promise<{ CUIT: number; cert: string; key: string }> {
+): Promise<AfipMaterials | null> {
+  const cfg = await prisma.agencyArcaConfig.findUnique({
+    where: { agencyId },
+    select: {
+      taxIdRepresentado: true,
+      certEncrypted: true,
+      keyEncrypted: true,
+    },
+  });
+  if (!cfg?.certEncrypted || !cfg?.keyEncrypted) return null;
+
+  const CUIT = parseCUIT(cfg.taxIdRepresentado);
+  if (!CUIT) throw new Error("CUIT inválido o faltante en ARCA");
+
+  const cert = decryptSecret(cfg.certEncrypted);
+  const key = decryptSecret(cfg.keyEncrypted);
+
+  return { CUIT, cert, key, production: true };
+}
+
+async function loadAgencyMaterials(agencyId: number): Promise<AfipMaterials> {
+  const arca = await loadArcaMaterials(agencyId);
+  if (arca) return arca;
+
   const a = await prisma.agency.findUnique({
     where: { id_agency: agencyId },
     select: { tax_id: true, afip_cert_base64: true, afip_key_base64: true },
@@ -245,6 +277,20 @@ export async function getAfipFromRequest(
 /** ------------------------------------------------------------------------
  *  CUIT real de la agencia (para QR, auditoría, etc.)
  *  --------------------------------------------------------------------- */
+async function resolveArcaCUIT(agencyId: number): Promise<number | null> {
+  const cfg = await prisma.agencyArcaConfig.findUnique({
+    where: { agencyId },
+    select: {
+      taxIdRepresentado: true,
+      certEncrypted: true,
+      keyEncrypted: true,
+    },
+  });
+  if (!cfg?.certEncrypted || !cfg?.keyEncrypted) return null;
+  const cuit = parseCUIT(cfg.taxIdRepresentado);
+  return cuit || null;
+}
+
 export async function getAgencyCUITFromRequest(
   req: NextApiRequest,
 ): Promise<number> {
@@ -265,6 +311,9 @@ export async function getAgencyCUITFromRequest(
     throw new Error("El usuario no tiene agencia asociada.");
   }
 
+  const arcaCuit = await resolveArcaCUIT(agencyId);
+  if (arcaCuit) return arcaCuit;
+
   const agency = await prisma.agency.findUnique({
     where: { id_agency: agencyId },
     select: { tax_id: true },
@@ -282,6 +331,9 @@ export async function getAgencyCUITFromRequest(
 export async function getAgencyCUITForAgency(
   agencyId: number,
 ): Promise<number> {
+  const arcaCuit = await resolveArcaCUIT(agencyId);
+  if (arcaCuit) return arcaCuit;
+
   const a = await prisma.agency.findUnique({
     where: { id_agency: agencyId },
     select: { tax_id: true },

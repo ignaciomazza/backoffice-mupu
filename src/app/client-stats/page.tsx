@@ -33,6 +33,7 @@ type UserLite = {
 
 type ClientItem = {
   id_client: number;
+  agency_client_id?: number | null;
   first_name: string;
   last_name: string;
   phone: string;
@@ -98,7 +99,7 @@ function valueFor(
           href={`/clients/${c.id_client}`}
           className="underline decoration-transparent hover:decoration-sky-600"
         >
-          {c.id_client}
+          {c.agency_client_id ?? c.id_client}
         </Link>
       );
     case "full_name":
@@ -365,7 +366,7 @@ export default function ClientStatsPage() {
     ): string | number => {
       switch (sortKey) {
         case "id_client":
-          return c.id_client;
+          return c.agency_client_id ?? c.id_client;
         case "registration_date":
           return new Date(c.registration_date).getTime() || 0;
         case "age":
@@ -465,8 +466,8 @@ export default function ClientStatsPage() {
       const name =
         c.user?.first_name || c.user?.last_name
           ? `${c.user?.first_name || ""} ${c.user?.last_name || ""}`.trim()
-          : c._owner || `#${id}`;
-      if (id) map.set(id, name || `#${id}`);
+          : c._owner || `N° ${id}`;
+      if (id) map.set(id, name || `N° ${id}`);
     }
     return Array.from(map.entries()).sort((a, b) =>
       a[1].localeCompare(b[1], "es"),

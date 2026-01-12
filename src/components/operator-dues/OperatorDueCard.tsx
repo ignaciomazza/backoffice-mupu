@@ -156,11 +156,17 @@ export default function OperatorDueCard({
   );
 
   const serviceLabel = useMemo(() => {
-    const parts = [`#${due.service_id}`];
+    const serviceNumber = service?.agency_service_id ?? due.service_id;
+    const parts = [`N° ${serviceNumber}`];
     if (service?.type) parts.push(service.type);
     if (service?.destination) parts.push(service.destination);
     return `Servicio ${parts.join(" · ")}`;
-  }, [due.service_id, service?.type, service?.destination]);
+  }, [
+    due.service_id,
+    service?.agency_service_id,
+    service?.type,
+    service?.destination,
+  ]);
 
   const operatorIndex = useMemo(() => {
     const map = new Map<number, string>();
@@ -179,7 +185,7 @@ export default function OperatorDueCard({
     }
     const operatorId = getServiceOperatorId(service);
     if (typeof operatorId !== "number") return "Operador";
-    return operatorIndex.get(operatorId) ?? `Operador #${operatorId}`;
+    return operatorIndex.get(operatorId) ?? `Operador N° ${operatorId}`;
   }, [service, operatorIndex]);
 
   const statusMeta = useMemo(

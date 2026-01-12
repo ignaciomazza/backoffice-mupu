@@ -114,7 +114,9 @@ export default function ReceiptCard({
   const getClientName = useCallback(
     (id: number): string => {
       if (booking.titular?.id_client === id) {
-        return `${booking.titular.first_name} ${booking.titular.last_name} · N°${booking.titular.id_client}`;
+        const titularNumber =
+          booking.titular.agency_client_id ?? booking.titular.id_client;
+        return `${booking.titular.first_name} ${booking.titular.last_name} · N°${titularNumber}`;
       }
       const found = booking.clients?.find((c) => c.id_client === id);
       return found
@@ -128,7 +130,9 @@ export default function ReceiptCard({
     return receipt.clientIds?.length
       ? receipt.clientIds.map(getClientName).join(", ")
       : booking.titular
-        ? `${booking.titular.first_name} ${booking.titular.last_name} · N°${booking.titular.id_client}`
+      ? `${booking.titular.first_name} ${booking.titular.last_name} · N°${
+          booking.titular.agency_client_id ?? booking.titular.id_client
+        }`
         : "—";
   }, [receipt.clientIds, getClientName, booking.titular]);
 
@@ -145,6 +149,12 @@ export default function ReceiptCard({
     receipt.payment_fee_amount !== null &&
     receipt.payment_fee_amount !== undefined &&
     toNumber(receipt.payment_fee_amount) !== 0;
+
+  const useAgencyNumbers = booking.agency?.use_agency_numbers !== false;
+  const receiptDisplayNumber =
+    useAgencyNumbers && receipt.agency_receipt_id != null
+      ? String(receipt.agency_receipt_id)
+      : receipt.receipt_number;
 
   const displayAmount = hasBase ? receipt.base_amount : receipt.amount;
   const displayCurrency = hasBase
@@ -246,7 +256,7 @@ export default function ReceiptCard({
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm text-sky-950/70 dark:text-white/70">
               Recibo{" "}
-              <span className="font-medium">N°{receipt.receipt_number}</span>
+              <span className="font-medium">N° {receiptDisplayNumber}</span>
             </p>
             {receipt.payment_method ? (
               <Chip tone="brand" title="Método de pago">

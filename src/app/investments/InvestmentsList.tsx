@@ -68,6 +68,7 @@ function InvestmentCard({
   onEdit: (it: Investment) => void;
   formatDate: (s?: string | null) => string;
 }) {
+  const bookingNumber = item.booking?.agency_booking_id ?? item.booking_id;
   return (
     <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
       <div className="flex items-center justify-between gap-3">
@@ -80,7 +81,9 @@ function InvestmentCard({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <div className="text-sm opacity-70">#{item.id_investment}</div>
+          <div className="text-sm opacity-70">
+            N° {item.agency_investment_id ?? item.id_investment}
+          </div>
           <button
             type="button"
             onClick={() => onEdit(item)}
@@ -169,12 +172,12 @@ function InvestmentCard({
         )}
         {item.booking_id && (
           <span className="flex w-fit items-center gap-2">
-            <b>Reserva N° </b> {item.booking_id}
+            <b>Reserva N° </b> {bookingNumber}
             <Link
               href={`/bookings/services/${item.booking_id}`}
               target="_blank"
               className="rounded-full bg-sky-100 p-2 text-sky-900 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-              aria-label={`Abrir reserva ${item.booking_id} en nueva pestaña`}
+              aria-label={`Abrir reserva ${bookingNumber} en nueva pestaña`}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -570,7 +573,7 @@ export default function InvestmentsList({
                             )}
                           </div>
                           <div className="text-[11px] opacity-60">
-                            N°{it.id_investment}
+                            N° {it.agency_investment_id ?? it.id_investment}
                           </div>
                         </td>
                         <td className="px-4 py-3">{it.description}</td>

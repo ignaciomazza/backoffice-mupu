@@ -1,6 +1,7 @@
 // src/pages/api/investments/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 
@@ -170,6 +171,7 @@ async function createCreditEntryForInvestment(
   userId: number,
   inv: {
     id_investment: number;
+    agency_investment_id?: number | null;
     operator_id: number;
     currency: string;
     amount: Prisma.Decimal | number;
@@ -191,12 +193,14 @@ async function createCreditEntryForInvestment(
 
   const amountAbs = Math.abs(rawAmount);
 
+  const displayId = inv.agency_investment_id ?? inv.id_investment;
+
   const entry = await tx.creditEntry.create({
     data: {
       id_agency: agencyId,
       account_id,
       created_by: userId,
-      concept: inv.description || `Gasto Operador #${inv.id_investment}`,
+      concept: inv.description || `Gasto Operador N° ${displayId}`,
       amount: new Prisma.Decimal(amountAbs),
       currency: inv.currency,
       doc_type: "investment",
@@ -300,8 +304,14 @@ async function ensureRecurringInvestments(auth: DecodedAuth) {
 
       if (!exists) {
         await prisma.$transaction(async (tx) => {
+          const agencyInvestmentId = await getNextAgencyCounter(
+            tx,
+            auth.id_agency,
+            "investment",
+          );
           const created = await tx.investment.create({
             data: {
+              agency_investment_id: agencyInvestmentId,
               id_agency: auth.id_agency,
               recurring_id: rule.id_recurring,
               category: rule.category,
@@ -325,6 +335,7 @@ async function ensureRecurringInvestments(auth: DecodedAuth) {
             },
             select: {
               id_investment: true,
+              agency_investment_id: true,
               operator_id: true,
               currency: true,
               amount: true,
@@ -349,6 +360,7 @@ async function ensureRecurringInvestments(auth: DecodedAuth) {
                 rule.created_by,
                 {
                   id_investment: created.id_investment,
+                  agency_investment_id: created.agency_investment_id,
                   operator_id: created.operator_id,
                   currency: created.currency,
                   amount: created.amount,
@@ -526,7 +538,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       const qNum = Number(q);
       const or: Prisma.InvestmentWhereInput[] = [
         ...(Number.isFinite(qNum) ? [{ id_investment: qNum }] : []),
+        ...(Number.isFinite(qNum) ? [{ agency_investment_id: qNum }] : []),
         ...(Number.isFinite(qNum) ? [{ booking_id: qNum }] : []), // 👈 búsqueda por N° de reserva
+        ...(Number.isFinite(qNum)
+          ? [{ booking: { agency_booking_id: qNum } }]
+          : []),
         { description: { contains: q, mode: "insensitive" } },
         { category: { contains: q, mode: "insensitive" } },
         { currency: { contains: q, mode: "insensitive" } },
@@ -551,7 +567,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         createdBy: {
           select: { id_user: true, first_name: true, last_name: true },
         },
-        booking: { select: { id_booking: true } }, // 👈 devuelve la reserva asociada (si existe)
+        booking: { select: { id_booking: true, agency_booking_id: true } }, // 👈 devuelve la reserva asociada (si existe)
       },
       orderBy: { id_investment: "desc" },
       take: take + 1,
@@ -647,35 +663,44 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       bookingIdToSave = bkg.id_booking;
     }
 
-    const created = await prisma.investment.create({
-      data: {
-        id_agency: auth.id_agency,
-        category,
-        description,
-        amount,
-        currency,
-        paid_at: paid_at ?? null,
-        operator_id: operator_id ?? null,
-        user_id: user_id ?? null,
-        created_by: auth.id_user,
-        booking_id: bookingIdToSave,
+    const created = await prisma.$transaction(async (tx) => {
+      const agencyInvestmentId = await getNextAgencyCounter(
+        tx,
+        auth.id_agency,
+        "investment",
+      );
 
-        // 👇 NUEVO: guardar método de pago / cuenta si vienen
-        ...(payment_method ? { payment_method } : {}),
-        ...(account ? { account } : {}),
+      return tx.investment.create({
+        data: {
+          agency_investment_id: agencyInvestmentId,
+          id_agency: auth.id_agency,
+          category,
+          description,
+          amount,
+          currency,
+          paid_at: paid_at ?? null,
+          operator_id: operator_id ?? null,
+          user_id: user_id ?? null,
+          created_by: auth.id_user,
+          booking_id: bookingIdToSave,
 
-        // 👇 NUEVO: guardar conversión si vienen
-        ...(base_amount ? { base_amount } : {}),
-        ...(base_currency ? { base_currency } : {}),
-        ...(counter_amount ? { counter_amount } : {}),
-        ...(counter_currency ? { counter_currency } : {}),
-      },
-      include: {
-        user: true,
-        operator: true,
-        createdBy: true,
-        booking: { select: { id_booking: true } },
-      },
+          // 👇 NUEVO: guardar método de pago / cuenta si vienen
+          ...(payment_method ? { payment_method } : {}),
+          ...(account ? { account } : {}),
+
+          // 👇 NUEVO: guardar conversión si vienen
+          ...(base_amount ? { base_amount } : {}),
+          ...(base_currency ? { base_currency } : {}),
+          ...(counter_amount ? { counter_amount } : {}),
+          ...(counter_currency ? { counter_currency } : {}),
+        },
+        include: {
+          user: true,
+          operator: true,
+          createdBy: true,
+          booking: { select: { id_booking: true } },
+        },
+      });
     });
 
     return res.status(201).json(created);
