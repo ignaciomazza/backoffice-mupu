@@ -1,0 +1,92 @@
+-- RenameIndex
+ALTER INDEX "agency_billing_adjustment_id_unique" RENAME TO "AgencyBillingAdjustment_id_agency_agency_billing_adjustment_key";
+
+-- RenameIndex
+ALTER INDEX "agency_billing_charge_id_unique" RENAME TO "AgencyBillingCharge_id_agency_agency_billing_charge_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_billing_config_id_unique" RENAME TO "AgencyBillingConfig_id_agency_agency_billing_config_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_booking_id_unique" RENAME TO "Booking_id_agency_agency_booking_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_client_id_unique" RENAME TO "Client_id_agency_agency_client_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_client_config_id_unique" RENAME TO "ClientConfig_id_agency_agency_client_config_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_client_payment_id_unique" RENAME TO "ClientPayment_id_agency_agency_client_payment_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_commission_rule_set_id_unique" RENAME TO "CommissionRuleSet_id_agency_agency_commission_rule_set_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_credit_account_id_unique" RENAME TO "CreditAccount_id_agency_agency_credit_account_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_credit_entry_id_unique" RENAME TO "CreditEntry_id_agency_agency_credit_entry_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_credit_note_id_unique" RENAME TO "CreditNote_id_agency_agency_credit_note_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_expense_category_id_unique" RENAME TO "ExpenseCategory_id_agency_agency_expense_category_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_finance_account_id_unique" RENAME TO "FinanceAccount_id_agency_agency_finance_account_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_finance_config_id_unique" RENAME TO "FinanceConfig_id_agency_agency_finance_config_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_finance_currency_id_unique" RENAME TO "FinanceCurrency_id_agency_agency_finance_currency_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_finance_payment_method_id_unique" RENAME TO "FinancePaymentMethod_id_agency_agency_finance_payment_metho_key";
+
+-- RenameIndex
+ALTER INDEX "agency_investment_id_unique" RENAME TO "Investment_id_agency_agency_investment_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_invoice_id_unique" RENAME TO "Invoice_id_agency_agency_invoice_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_lead_id_unique" RENAME TO "Lead_id_agency_agency_lead_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_operator_id_unique" RENAME TO "Operator_id_agency_agency_operator_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_operator_due_id_unique" RENAME TO "OperatorDue_id_agency_agency_operator_due_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_receipt_id_unique" RENAME TO "Receipt_id_agency_agency_receipt_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_recurring_investment_id_unique" RENAME TO "RecurringInvestment_id_agency_agency_recurring_investment_i_key";
+
+-- RenameIndex
+ALTER INDEX "agency_resource_id_unique" RENAME TO "Resources_id_agency_agency_resource_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_sales_team_id_unique" RENAME TO "SalesTeam_id_agency_agency_sales_team_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_service_id_unique" RENAME TO "Service_id_agency_agency_service_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_service_calc_config_id_unique" RENAME TO "ServiceCalcConfig_id_agency_agency_service_calc_config_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_service_type_id_unique" RENAME TO "ServiceType_id_agency_agency_service_type_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_template_config_id_unique" RENAME TO "TemplateConfig_id_agency_agency_template_config_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_text_preset_id_unique" RENAME TO "TextPreset_id_agency_agency_text_preset_id_key";
+
+-- RenameIndex
+ALTER INDEX "agency_user_id_unique" RENAME TO "User_id_agency_agency_user_id_key";

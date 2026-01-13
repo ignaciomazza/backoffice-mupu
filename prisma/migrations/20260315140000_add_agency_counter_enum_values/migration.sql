@@ -1,0 +1,21 @@
+-- Expand AgencyCounterKey enum for agency-scoped counters
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'user';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'operator';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'sales_team';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'resource';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'recurring_investment';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'template_config';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'text_preset';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'commission_rule_set';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'finance_config';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'client_config';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'agency_billing_config';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'agency_billing_adjustment';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'agency_billing_charge';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'finance_currency';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'finance_account';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'finance_payment_method';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'expense_category';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'service_type';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'service_calc_config';
+ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'lead';

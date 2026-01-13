@@ -60,6 +60,7 @@ model Agency {
   afip_cert_base64     String?
   afip_key_base64      String?
   transfer_fee_pct     Decimal?               @db.Decimal(9, 6)
+  use_agency_numbers   Boolean                @default(true)
   creation_date        DateTime               @default(now())
   arcaConfig           AgencyArcaConfig?
   arcaConnectionJobs   ArcaConnectionJob[]
