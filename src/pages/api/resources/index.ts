@@ -43,13 +43,17 @@ export default async function handler(
   }
 
   if (req.method === "POST") {
-    const { title, id_agency } = req.body;
+    const { title, id_agency, description } = req.body;
+    const cleanTitle = typeof title === "string" ? title.trim() : "";
 
-    if (!title || typeof id_agency !== "number") {
+    if (!cleanTitle || typeof id_agency !== "number" || !Number.isFinite(id_agency)) {
       return res
         .status(400)
         .json({ error: "Title y id_agency son obligatorios." });
     }
+
+    const cleanDescription =
+      typeof description === "string" ? description.trim() : null;
 
     try {
       const newResource = await prisma.$transaction(async (tx) => {
@@ -60,13 +64,22 @@ export default async function handler(
         );
         return tx.resources.create({
           data: {
-            title,
+            title: cleanTitle,
+            description: cleanDescription || null,
             id_agency,
             agency_resource_id: agencyResourceId,
           },
         });
       });
-      return res.status(201).json(newResource);
+      const payload = {
+        ...newResource,
+        public_id: encodePublicId({
+          t: "resource",
+          a: newResource.id_agency,
+          i: newResource.agency_resource_id,
+        }),
+      };
+      return res.status(201).json(payload);
     } catch (error) {
       console.error(
         "Error creating resource:",
