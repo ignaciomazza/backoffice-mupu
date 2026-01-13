@@ -233,7 +233,7 @@ export default function BookingCard({
           </div>
 
           <Link
-            href={`/bookings/services/${booking.id_booking}`}
+            href={`/bookings/services/${booking.public_id ?? booking.id_booking}`}
             className={`${ACTION_BUTTON} mt-6 flex w-full items-center justify-center gap-2 px-4 py-2 text-sm font-semibold`}
           >
             <svg

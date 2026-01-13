@@ -144,9 +144,12 @@ export default function InvoiceCard({
   const onDownload = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/invoices/${invoice.id_invoice}/pdf`, {
-        headers: { Accept: "application/pdf" },
-      });
+      const res = await fetch(
+        `/api/invoices/${invoice.public_id ?? invoice.id_invoice}/pdf`,
+        {
+          headers: { Accept: "application/pdf" },
+        },
+      );
       if (!res.ok) throw new Error();
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -197,7 +200,7 @@ export default function InvoiceCard({
     setIsSavingDesc(true);
     try {
       const res = await authFetch(
-        `/api/invoices/${invoice.id_invoice}`,
+        `/api/invoices/${invoice.public_id ?? invoice.id_invoice}`,
         {
           method: "PATCH",
           body: JSON.stringify({

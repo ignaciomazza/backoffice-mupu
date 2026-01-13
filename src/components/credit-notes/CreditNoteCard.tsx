@@ -110,7 +110,7 @@ export default function CreditNoteCard({ creditNote }: CreditNoteCardProps) {
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/credit-notes/${creditNote.id_credit_note}/pdf`,
+        `/api/credit-notes/${creditNote.public_id ?? creditNote.id_credit_note}/pdf`,
         { headers: { Accept: "application/pdf" } },
       );
       if (!res.ok) throw new Error();

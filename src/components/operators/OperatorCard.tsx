@@ -21,6 +21,8 @@ export default function OperatorCard({
   deleteOperator,
 }: OperatorCardProps) {
   const isExpanded = expandedOperatorId === operator.id_operator;
+  const operatorNumber =
+    operator.agency_operator_id ?? operator.id_operator;
 
   const handleEdit = (operator: Operator) => {
     startEditingOperator(operator);
@@ -36,7 +38,7 @@ export default function OperatorCard({
       layoutId={`operator-${operator.id_operator}`}
       className="h-fit space-y-3 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
-      <p className="text-end text-xl font-light">{operator.id_operator}</p>
+      <p className="text-end text-xl font-light">{operatorNumber}</p>
       <p className="font-semibold dark:font-medium">
         Nombre
         <span className="ml-2 font-light">{operator.name}</span>

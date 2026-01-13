@@ -18,6 +18,30 @@ enum AgencyCounterKey {
   client_payment
   investment
   operator_due
+  user
+  operator
+  sales_team
+  resource
+  recurring_investment
+  template_config
+  text_preset
+  commission_rule_set
+  finance_config
+  client_config
+  agency_billing_config
+  agency_billing_adjustment
+  agency_billing_charge
+  finance_currency
+  finance_account
+  finance_payment_method
+  expense_category
+  service_type
+  service_calc_config
+  lead
+  credit_account
+  credit_entry
+  invoice
+  credit_note
 }
 
 model Agency {
@@ -36,7 +60,6 @@ model Agency {
   afip_cert_base64     String?
   afip_key_base64      String?
   transfer_fee_pct     Decimal?               @db.Decimal(9, 6)
-  use_agency_numbers   Boolean                @default(true)
   creation_date        DateTime               @default(now())
   arcaConfig           AgencyArcaConfig?
   arcaConnectionJobs   ArcaConnectionJob[]
@@ -62,6 +85,8 @@ model Agency {
   billingCharges       AgencyBillingCharge[]
   Lead                 Lead[]
   Receipt              Receipt[]
+  invoices             Invoice[]
+  creditNotes          CreditNote[]
   services             Service[]
   operatorDues         OperatorDue[]
   clientPayments       ClientPayment[]
@@ -124,6 +149,7 @@ model ArcaConnectionJob {
 // User: renombramos las colecciones para que reflejen la intención
 model User {
   id_user       Int      @id @default(autoincrement())
+  agency_user_id Int
   email         String   @unique
   password      String
   role          String
@@ -151,6 +177,8 @@ model User {
   serviceDestinationsAdded ServiceDestination[] @relation("ServiceDestinationAddedBy")
   creditEntries            CreditEntry[]
   verifiedReceipts         Receipt[]            @relation("ReceiptVerifiedBy")
+
+  @@unique([id_agency, agency_user_id], name: "agency_user_id_unique")
 }
 
 model Client {
@@ -329,6 +357,7 @@ model ServiceDestination {
 
 model Operator {
   id_operator       Int             @id @default(autoincrement())
+  agency_operator_id Int
   name              String
   email             String?
   phone             String?
@@ -350,10 +379,13 @@ model Operator {
   Investment        Investment[]
   recurringInvestments RecurringInvestment[]
   creditAccounts    CreditAccount[]
+
+  @@unique([id_agency, agency_operator_id], name: "agency_operator_id_unique")
 }
 
 model Invoice {
   id_invoice        Int           @id @default(autoincrement())
+  agency_invoice_id Int
   invoice_number    String        @unique
   issue_date        DateTime      @default(now())
   total_amount      Float
@@ -363,12 +395,17 @@ model Invoice {
   recipient         String
   facturaHtml       String?
   payloadAfip       Json?
+  id_agency         Int
+  agency            Agency        @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   bookingId_booking Int
   booking           Booking       @relation("BookingInvoices", fields: [bookingId_booking], references: [id_booking])
   client_id         Int
   client            Client        @relation("ClientInvoices", fields: [client_id], references: [id_client])
   credit_notes      CreditNote[]
   InvoiceItem       InvoiceItem[]
+
+  @@index([id_agency])
+  @@unique([id_agency, agency_invoice_id], name: "agency_invoice_id_unique")
 }
 
 model InvoiceItem {
@@ -393,6 +430,7 @@ model InvoiceItem {
 
 model CreditNote {
   id_credit_note Int              @id @default(autoincrement())
+  agency_credit_note_id Int
   credit_number  String           @unique
   issue_date     DateTime         @default(now())
   total_amount   Float
@@ -401,9 +439,14 @@ model CreditNote {
   type           String
   recipient      String
   payloadAfip    Json?
+  id_agency      Int
+  agency         Agency           @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   invoiceId      Int
   invoice        Invoice          @relation(fields: [invoiceId], references: [id_invoice])
   items          CreditNoteItem[]
+
+  @@index([id_agency])
+  @@unique([id_agency, agency_credit_note_id], name: "agency_credit_note_id_unique")
 }
 
 model CreditNoteItem {
@@ -427,10 +470,13 @@ model CreditNoteItem {
 
 model SalesTeam {
   id_team    Int        @id @default(autoincrement())
+  agency_sales_team_id Int
   name       String
   user_teams UserTeam[]
   id_agency  Int
   agency     Agency     @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  @@unique([id_agency, agency_sales_team_id], name: "agency_sales_team_id_unique")
 }
 
 model UserTeam {
@@ -505,11 +551,14 @@ model ReceiptPayment {
 
 model Resources {
   id_resource Int      @id @default(autoincrement())
+  agency_resource_id Int
   createdAt   DateTime @default(now())
   title       String
   description String?
   id_agency   Int
   agency      Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  @@unique([id_agency, agency_resource_id], name: "agency_resource_id_unique")
 }
 
 model CalendarNote {
@@ -562,6 +611,7 @@ model Investment {
 
 model RecurringInvestment {
   id_recurring    Int       @id @default(autoincrement())
+  agency_recurring_investment_id Int
   id_agency       Int
   agency          Agency    @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   category        String
@@ -592,6 +642,7 @@ model RecurringInvestment {
   @@index([id_agency, active])
   @@index([start_date])
   @@index([last_run])
+  @@unique([id_agency, agency_recurring_investment_id], name: "agency_recurring_investment_id_unique")
 }
 
 model OperatorDue {
@@ -640,6 +691,7 @@ model ClientPayment {
 
 model TemplateConfig {
   id_template Int      @id @default(autoincrement())
+  agency_template_config_id Int
   id_agency   Int
   agency      Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   doc_type    String
@@ -648,11 +700,13 @@ model TemplateConfig {
   updated_at  DateTime @updatedAt
 
   @@unique([id_agency, doc_type])
+  @@unique([id_agency, agency_template_config_id], name: "agency_template_config_id_unique")
   @@index([id_agency])
 }
 
 model TextPreset {
   id_preset Int    @id @default(autoincrement())
+  agency_text_preset_id Int
   title     String // nombre visible de la idea/maqueta
   content   String // el texto a insertar (quote.dateRange o confirmation.servicesText)
   doc_type  String // "quote" | "confirmation"
@@ -668,11 +722,13 @@ model TextPreset {
   updated_at DateTime @updatedAt
 
   @@unique([id_user, doc_type, title])
+  @@unique([id_agency, agency_text_preset_id], name: "agency_text_preset_id_unique")
   @@index([id_user, doc_type, created_at])
 }
 
 model CommissionRuleSet {
   id_rule_set Int    @id @default(autoincrement())
+  agency_commission_rule_set_id Int
   id_agency   Int
   agency      Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -686,6 +742,7 @@ model CommissionRuleSet {
   shares CommissionShare[]
 
   @@index([id_agency, owner_user_id, valid_from])
+  @@unique([id_agency, agency_commission_rule_set_id], name: "agency_commission_rule_set_id_unique")
 }
 
 model CommissionShare {
@@ -703,6 +760,7 @@ model CommissionShare {
 
 model FinanceConfig {
   id_config Int    @id @default(autoincrement())
+  agency_finance_config_id Int
   id_agency Int    @unique
   agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -713,10 +771,12 @@ model FinanceConfig {
   updated_at DateTime @updatedAt
 
   @@index([id_agency])
+  @@unique([id_agency, agency_finance_config_id], name: "agency_finance_config_id_unique")
 }
 
 model ClientConfig {
   id_config Int    @id @default(autoincrement())
+  agency_client_config_id Int
   id_agency Int    @unique
   agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -727,10 +787,12 @@ model ClientConfig {
   updated_at DateTime @updatedAt
 
   @@index([id_agency])
+  @@unique([id_agency, agency_client_config_id], name: "agency_client_config_id_unique")
 }
 
 model AgencyBillingConfig {
   id_config Int    @id @default(autoincrement())
+  agency_billing_config_id Int
   id_agency Int    @unique
   agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -746,10 +808,12 @@ model AgencyBillingConfig {
 
   @@index([id_agency])
   @@index([plan_key])
+  @@unique([id_agency, agency_billing_config_id], name: "agency_billing_config_id_unique")
 }
 
 model AgencyBillingAdjustment {
   id_adjustment Int     @id @default(autoincrement())
+  agency_billing_adjustment_id Int
   id_agency     Int
   agency        Agency  @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -770,10 +834,12 @@ model AgencyBillingAdjustment {
   @@index([id_agency, kind])
   @@index([starts_at])
   @@index([ends_at])
+  @@unique([id_agency, agency_billing_adjustment_id], name: "agency_billing_adjustment_id_unique")
 }
 
 model AgencyBillingCharge {
   id_charge Int     @id @default(autoincrement())
+  agency_billing_charge_id Int
   id_agency Int
   agency    Agency  @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -800,10 +866,12 @@ model AgencyBillingCharge {
   @@index([id_agency, status])
   @@index([id_agency, due_date])
   @@index([id_agency, period_start])
+  @@unique([id_agency, agency_billing_charge_id], name: "agency_billing_charge_id_unique")
 }
 
 model FinanceCurrency {
   id_currency Int    @id @default(autoincrement())
+  agency_finance_currency_id Int
   id_agency   Int
   agency      Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -821,11 +889,13 @@ model FinanceCurrency {
   updated_at DateTime @updatedAt
 
   @@unique([id_agency, code])
+  @@unique([id_agency, agency_finance_currency_id], name: "agency_finance_currency_id_unique")
   @@index([id_agency, enabled])
 }
 
 model FinanceAccount {
   id_account Int    @id @default(autoincrement())
+  agency_finance_account_id Int
   id_agency  Int
   agency     Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -843,11 +913,13 @@ model FinanceAccount {
   updated_at DateTime @updatedAt
 
   @@unique([id_agency, name])
+  @@unique([id_agency, agency_finance_account_id], name: "agency_finance_account_id_unique")
   @@index([id_agency, enabled])
 }
 
 model FinancePaymentMethod {
   id_method Int    @id @default(autoincrement())
+  agency_finance_payment_method_id Int
   id_agency Int
   agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -864,11 +936,13 @@ model FinancePaymentMethod {
 
   @@unique([id_agency, code])
   @@unique([id_agency, name])
+  @@unique([id_agency, agency_finance_payment_method_id], name: "agency_finance_payment_method_id_unique")
   @@index([id_agency, enabled])
 }
 
 model ExpenseCategory {
   id_category Int    @id @default(autoincrement())
+  agency_expense_category_id Int
   id_agency   Int
   agency      Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -885,11 +959,13 @@ model ExpenseCategory {
   updated_at DateTime @updatedAt
 
   @@unique([id_agency, name])
+  @@unique([id_agency, agency_expense_category_id], name: "agency_expense_category_id_unique")
   @@index([id_agency, enabled])
 }
 
 model ServiceType {
   id_service_type Int    @id @default(autoincrement())
+  agency_service_type_id Int
   id_agency       Int
   agency          Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -902,11 +978,13 @@ model ServiceType {
 
   @@unique([id_agency, code])
   @@unique([id_agency, name])
+  @@unique([id_agency, agency_service_type_id], name: "agency_service_type_id_unique")
   @@index([id_agency, enabled])
 }
 
 model ServiceCalcConfig {
   id_config Int    @id @default(autoincrement())
+  agency_service_calc_config_id Int
   id_agency Int    @unique
   agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -917,6 +995,7 @@ model ServiceCalcConfig {
   updated_at DateTime @updatedAt
 
   @@index([id_agency])
+  @@unique([id_agency, agency_service_calc_config_id], name: "agency_service_calc_config_id_unique")
 }
 
 // ===========================
@@ -925,6 +1004,7 @@ model ServiceCalcConfig {
 
 model Lead {
   id_lead Int @id @default(autoincrement())
+  agency_lead_id Int?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -949,10 +1029,12 @@ model Lead {
   @@index([status])
   @@index([created_at])
   @@index([email])
+  @@unique([id_agency, agency_lead_id], name: "agency_lead_id_unique")
 }
 
 model CreditAccount {
   id_credit_account Int    @id @default(autoincrement())
+  agency_credit_account_id Int
   id_agency         Int
   agency            Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -974,10 +1056,12 @@ model CreditAccount {
   @@index([operator_id])
   @@index([client_id])
   @@index([currency])
+  @@unique([id_agency, agency_credit_account_id], name: "agency_credit_account_id_unique")
 }
 
 model CreditEntry {
   id_entry  Int    @id @default(autoincrement())
+  agency_credit_entry_id Int
   id_agency Int
   agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
@@ -1014,4 +1098,5 @@ model CreditEntry {
   @@index([receipt_id])
   @@index([investment_id])
   @@index([operator_due_id])
+  @@unique([id_agency, agency_credit_entry_id], name: "agency_credit_entry_id_unique")
 }

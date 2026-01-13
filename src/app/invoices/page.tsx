@@ -12,12 +12,15 @@ import { authFetch } from "@/utils/authFetch";
 
 interface Invoice {
   id_invoice: number;
+  public_id?: string | null;
   invoice_number: string;
   total_amount: number;
   currency: string; // "ARS" | "USD" | "PES" (normalizamos abajo)
   type: string; // "Factura A" | "Factura B" | ...
   booking: {
     id_booking: number;
+    agency_booking_id?: number | null;
+    public_id?: string | null;
     titular: {
       first_name: string;
       last_name: string;
@@ -62,6 +65,7 @@ interface InvoiceRow extends Invoice {
 
 interface RawCreditNote {
   id_credit_note: number;
+  public_id?: string | null;
   credit_number: string;
   total_amount: number;
   currency: string; // "ARS" | "USD" | "PES"
@@ -200,6 +204,7 @@ export default function InvoicesPage() {
         ...inv,
         currency: inv.currency === "PES" ? "ARS" : inv.currency,
         isCredit: false,
+        public_id: inv.public_id ?? null,
         client_id: inv.client_id ?? 0,
         recipient: inv.recipient,
         address: inv.client?.address,
@@ -210,6 +215,7 @@ export default function InvoicesPage() {
       // 2) Notas de crédito
       const crs: InvoiceRow[] = creditArr.map((cr) => ({
         id_invoice: cr.id_credit_note,
+        public_id: cr.public_id ?? null,
         invoice_number: cr.credit_number,
         total_amount: cr.total_amount,
         currency: cr.currency === "PES" ? "ARS" : cr.currency,
@@ -406,6 +412,8 @@ export default function InvoicesPage() {
                 <tbody>
                   {data.map((inv) => {
                     const { iva } = getTaxBreakdown(inv);
+                    const bookingNumber =
+                      inv.booking.agency_booking_id ?? inv.booking.id_booking;
                     return (
                       <tr key={inv.id_invoice} className="text-center">
                         <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">
@@ -419,11 +427,11 @@ export default function InvoicesPage() {
                         </td>
                         <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">
                           <Link
-                            href={`/bookings/services/${inv.booking.id_booking}`}
+                            href={`/bookings/services/${inv.booking.public_id ?? inv.booking.id_booking}`}
                             target={"blank"}
                             className="m-auto flex w-fit items-center gap-1 text-sky-950/70 transition-colors hover:text-sky-950 dark:text-white/70 dark:hover:text-white"
                           >
-                            {inv.booking.id_booking}
+                            {bookingNumber}
                             <svg
                               xmlns="http://www.w3.org/2000/svg"
                               fill="none"
@@ -460,8 +468,8 @@ export default function InvoicesPage() {
                             <Link
                               href={
                                 inv.isCredit
-                                  ? `/api/credit-notes/${inv.id_invoice}/pdf`
-                                  : `/api/invoices/${inv.id_invoice}/pdf`
+                                  ? `/api/credit-notes/${inv.public_id ?? inv.id_invoice}/pdf`
+                                  : `/api/invoices/${inv.public_id ?? inv.id_invoice}/pdf`
                               }
                               target="_blank"
                               className="w-fit rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-md shadow-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"

@@ -1,10 +1,14 @@
 // src/services/creditNotes.ts
 import type { NextApiRequest } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { Prisma, type CreditNote, type CreditNoteItem } from "@prisma/client";
 import { createCreditNoteVoucher } from "@/services/afip/creditNoteService";
 
-export type CreditNoteWithItems = CreditNote & { items: CreditNoteItem[] };
+export type CreditNoteWithItems = CreditNote & {
+  items: CreditNoteItem[];
+  public_id?: string | null;
+};
 
 interface CreditNoteRequest {
   invoiceId: number;
@@ -192,8 +196,15 @@ export async function createCreditNote(
 
   // 9) Guardar NC + ítems en DB (transacción)
   const { note, items } = await prisma.$transaction(async (tx) => {
+    const agencyCreditNoteId = await getNextAgencyCounter(
+      tx,
+      orig.id_agency,
+      "credit_note",
+    );
     const note = await tx.creditNote.create({
       data: {
+        agency_credit_note_id: agencyCreditNoteId,
+        id_agency: orig.id_agency,
         credit_number: String(det.CbteDesde as number),
         issue_date: new Date(),
         total_amount: Number(det.ImpTotal || 0),

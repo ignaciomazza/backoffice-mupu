@@ -274,7 +274,7 @@ function BookingListRow({
 
           <div className="flex flex-wrap gap-2">
             <Link
-              href={`/bookings/services/${booking.id_booking}`}
+              href={`/bookings/services/${booking.public_id ?? booking.id_booking}`}
               className={`${ACTION_BUTTON} flex gap-1 px-4 py-2 text-sm font-semibold`}
             >
               Reserva

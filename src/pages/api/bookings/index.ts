@@ -2,6 +2,7 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
+import { encodePublicId } from "@/lib/publicIds";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 
@@ -425,7 +426,15 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         return sum + (Number.isFinite(val) ? val : 0);
       }, 0);
       const debt = totalSale - totalReceipts;
-      return { ...b, totalSale, totalCommission, debt };
+      const public_id =
+        b.agency_booking_id != null
+          ? encodePublicId({
+              t: "booking",
+              a: b.id_agency,
+              i: b.agency_booking_id,
+            })
+          : null;
+      return { ...b, totalSale, totalCommission, debt, public_id };
     });
 
     return res.status(200).json({ items: enhanced, nextCursor });
@@ -603,7 +612,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       });
     });
 
-    return res.status(201).json(booking);
+    const public_id =
+      booking.agency_booking_id != null
+        ? encodePublicId({
+            t: "booking",
+            a: booking.id_agency,
+            i: booking.agency_booking_id,
+          })
+        : null;
+    return res.status(201).json({ ...booking, public_id });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[bookings][POST]", message);

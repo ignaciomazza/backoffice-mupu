@@ -20,7 +20,7 @@ import { InvoiceFormData } from "@/components/invoices/InvoiceForm";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
-import { CreditNoteFormData } from "@/components/credite-notes/CreditNoteForm";
+import { CreditNoteFormData } from "@/components/credit-notes/CreditNoteForm";
 import { authFetch } from "@/utils/authFetch";
 import Spinner from "@/components/Spinner";
 
@@ -211,7 +211,7 @@ export default function ServicesPage() {
   /* ============================ LOADERS ============================ */
 
   const fetchServices = useCallback(
-    async (bookingId: string, signal?: AbortSignal) => {
+    async (bookingId: number, signal?: AbortSignal) => {
       if (!token) return [];
       const res = await authFetch(
         `/api/services?bookingId=${bookingId}`,
@@ -230,7 +230,7 @@ export default function ServicesPage() {
   );
 
   const fetchInvoices = useCallback(
-    async (bookingId: string, signal?: AbortSignal) => {
+    async (bookingId: number, signal?: AbortSignal) => {
       if (!token) return [];
       const res = await authFetch(
         `/api/invoices?bookingId=${bookingId}`,
@@ -255,12 +255,12 @@ export default function ServicesPage() {
   );
 
   const fetchReceipts = useCallback(
-    async (bookingId: string, signal?: AbortSignal) => {
+    async (bookingId: number, signal?: AbortSignal) => {
       if (!token) return [];
 
       // 👇 si tu endpoint nuevo es paginado, pedimos un take grande para reservas
       const qs = new URLSearchParams();
-      qs.set("bookingId", bookingId);
+      qs.set("bookingId", String(bookingId));
       qs.set("take", "200");
 
       const res = await authFetch(
@@ -356,14 +356,14 @@ export default function ServicesPage() {
         setBooking(bk);
 
         // 2) Services
-        await fetchServices(id, ac.signal);
+        await fetchServices(bk.id_booking, ac.signal);
 
         // 3) Invoices → Credit notes
-        const invs = await fetchInvoices(id, ac.signal);
+        const invs = await fetchInvoices(bk.id_booking, ac.signal);
         await fetchCreditNotes(invs, ac.signal);
 
         // 4) Receipts
-        await fetchReceipts(id, ac.signal);
+        await fetchReceipts(bk.id_booking, ac.signal);
 
         // 5) Operators por agencia
         if (bk?.agency?.id_agency) {
@@ -448,7 +448,7 @@ export default function ServicesPage() {
   /* ============================ HANDLERS ============================ */
 
   const handleReceiptCreated = () => {
-    if (id) void fetchReceipts(id);
+    if (booking?.id_booking) void fetchReceipts(booking.id_booking);
   };
 
   const handleReceiptDeleted = (id_receipt: number) => {
@@ -638,8 +638,12 @@ export default function ServicesPage() {
     ) {
       return;
     }
+    if (!booking?.id_booking) {
+      toast.error("No se pudo identificar la reserva.");
+      return;
+    }
     const payload = {
-      bookingId: Number(id),
+      bookingId: booking.id_booking,
       services: invoiceFormData.services.map((s) => Number(s)),
       clientIds: invoiceFormData.clientIds.map((c) => Number(c)),
       tipoFactura: parseInt(invoiceFormData.tipoFactura, 10),
@@ -747,7 +751,7 @@ export default function ServicesPage() {
 
   const handleSubmitService = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.type || !id) {
+    if (!formData.type || !booking?.id_booking) {
       toast.error("Completa los campos obligatorios.");
       return;
     }
@@ -758,7 +762,7 @@ export default function ServicesPage() {
 
       const payload = {
         ...formData,
-        booking_id: Number(id),
+        booking_id: booking.id_booking,
         ...billingData,
         transfer_fee_pct: billingData.transferFeePct,
         transfer_fee_amount: billingData.transferFeeAmount,
@@ -779,7 +783,7 @@ export default function ServicesPage() {
         );
       }
 
-      await fetchServices(id);
+      await fetchServices(booking.id_booking);
       toast.success(
         editingServiceId ? "Servicio actualizado!" : "Servicio agregado!",
       );

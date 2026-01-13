@@ -1,6 +1,7 @@
 // src/pages/api/service-calc-config/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify, type JWTPayload } from "jose";
 import type { Prisma, PrismaClient } from "@prisma/client";
 
@@ -137,6 +138,12 @@ type ServiceCalcConfigLike = {
   findUnique: (
     args: Prisma.ServiceCalcConfigFindUniqueArgs,
   ) => Promise<Partial<ServiceCalcConfigRow> | null>;
+  update: (
+    args: Prisma.ServiceCalcConfigUpdateArgs,
+  ) => Promise<ServiceCalcConfigRow>;
+  create: (
+    args: Prisma.ServiceCalcConfigCreateArgs,
+  ) => Promise<ServiceCalcConfigRow>;
   upsert: (
     args: Prisma.ServiceCalcConfigUpsertArgs,
   ) => Promise<ServiceCalcConfigRow>;
@@ -270,14 +277,29 @@ export default async function handler(
           const { serviceCalcConfig: scc, agency: ag } = requireDelegates(tx);
 
           if (mode !== undefined) {
-            await scc.upsert({
+            const existing = await scc.findUnique({
               where: { id_agency: auth.id_agency },
-              update: { billing_breakdown_mode: mode },
-              create: {
-                id_agency: auth.id_agency,
-                billing_breakdown_mode: mode,
-              },
+              select: { id_config: true },
             });
+            if (existing) {
+              await scc.update({
+                where: { id_agency: auth.id_agency },
+                data: { billing_breakdown_mode: mode },
+              });
+            } else {
+              const agencyCalcId = await getNextAgencyCounter(
+                tx,
+                auth.id_agency,
+                "service_calc_config",
+              );
+              await scc.create({
+                data: {
+                  id_agency: auth.id_agency,
+                  agency_service_calc_config_id: agencyCalcId,
+                  billing_breakdown_mode: mode,
+                },
+              });
+            }
           }
           if (pct !== undefined) {
             await ag.update({

@@ -6,6 +6,7 @@ import Link from "next/link";
 
 interface Resource {
   id_resource: number;
+  public_id?: string | null;
   title: string;
   description: string | null;
   createdAt: string;
@@ -87,7 +88,7 @@ export default function ResourceCard({
 
       {isExpanded && (
         <Link
-          href={`/resources/${resource.id_resource}`}
+          href={`/resources/${resource.public_id ?? resource.id_resource}`}
           className="mt-6 flex w-full justify-end gap-1 rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
         >
           Ver detalle

@@ -1,6 +1,7 @@
 // src/pages/api/dev/agencies/[id]/billing/adjustments/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
 
@@ -149,18 +150,26 @@ async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
     return res.status(400).json({ error: "Valor invalido" });
   }
 
-  const created = await prisma.agencyBillingAdjustment.create({
-    data: {
+  const created = await prisma.$transaction(async (tx) => {
+    const agencyAdjustmentId = await getNextAgencyCounter(
+      tx,
       id_agency,
-      kind: parsed.kind,
-      mode: parsed.mode,
-      value,
-      currency: parsed.currency ?? null,
-      label: parsed.label ?? null,
-      starts_at: toDate(parsed.starts_at),
-      ends_at: toDate(parsed.ends_at),
-      active: parsed.active ?? true,
-    },
+      "agency_billing_adjustment",
+    );
+    return tx.agencyBillingAdjustment.create({
+      data: {
+        id_agency,
+        agency_billing_adjustment_id: agencyAdjustmentId,
+        kind: parsed.kind,
+        mode: parsed.mode,
+        value,
+        currency: parsed.currency ?? null,
+        label: parsed.label ?? null,
+        starts_at: toDate(parsed.starts_at),
+        ends_at: toDate(parsed.ends_at),
+        active: parsed.active ?? true,
+      },
+    });
   });
 
   return res.status(201).json({ ...created, value: Number(created.value) });

@@ -1,6 +1,7 @@
 // src/pages/api/credit/entry/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 
@@ -354,15 +355,23 @@ export default async function handler(
         if (acct) {
           accountId = acct.id_credit_account;
         } else {
-          const created = await prisma.creditAccount.create({
-            data: {
-              id_agency: auth.id_agency,
-              client_id: hasClient ? client_id! : null,
-              operator_id: hasOperator ? operator_id! : null,
-              currency,
-              balance: new Prisma.Decimal(0),
-              enabled: true,
-            },
+          const created = await prisma.$transaction(async (tx) => {
+            const agencyAccountId = await getNextAgencyCounter(
+              tx,
+              auth.id_agency,
+              "credit_account",
+            );
+            return tx.creditAccount.create({
+              data: {
+                id_agency: auth.id_agency,
+                agency_credit_account_id: agencyAccountId,
+                client_id: hasClient ? client_id! : null,
+                operator_id: hasOperator ? operator_id! : null,
+                currency,
+                balance: new Prisma.Decimal(0),
+                enabled: true,
+              },
+            });
           });
           accountId = created.id_credit_account;
         }
@@ -398,9 +407,15 @@ export default async function handler(
         const delta = decimalDelta(amountAbs, doc_type); // +/- según doc_type
         const next = fresh.balance.add(delta);
 
+        const agencyEntryId = await getNextAgencyCounter(
+          tx,
+          auth.id_agency,
+          "credit_entry",
+        );
         const entry = await tx.creditEntry.create({
           data: {
             id_agency: auth.id_agency,
+            agency_credit_entry_id: agencyEntryId,
             account_id: account.id_credit_account,
             created_by: auth.id_user,
             concept,

@@ -14,7 +14,6 @@ export type AgencyDTO = {
   website?: Maybe<string>;
   foundation_date?: Maybe<string | Date>;
   logo_url?: Maybe<string>;
-  use_agency_numbers?: boolean | null;
 };
 
 interface AgencyViewProps {

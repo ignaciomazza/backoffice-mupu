@@ -1,6 +1,7 @@
 // src/pages/api/dev/agencies/[id]/billing/charges/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
 
@@ -185,24 +186,32 @@ async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
   const adjustments = Number(parsed.adjustments_total_usd ?? 0);
   const total = base + adjustments;
 
-  const created = await prisma.agencyBillingCharge.create({
-    data: {
+  const created = await prisma.$transaction(async (tx) => {
+    const agencyChargeId = await getNextAgencyCounter(
+      tx,
       id_agency,
-      period_start: toDate(parsed.period_start),
-      period_end: toDate(parsed.period_end),
-      due_date: toDate(parsed.due_date),
-      status: parsed.status || "PENDING",
-      base_amount_usd: base,
-      adjustments_total_usd: adjustments,
-      total_usd: total,
-      paid_amount: parsed.paid_amount ?? null,
-      paid_currency: parsed.paid_currency ?? null,
-      fx_rate: parsed.fx_rate ?? null,
-      paid_at: toDate(parsed.paid_at),
-      account: parsed.account ?? null,
-      payment_method: parsed.payment_method ?? null,
-      notes: parsed.notes ?? null,
-    },
+      "agency_billing_charge",
+    );
+    return tx.agencyBillingCharge.create({
+      data: {
+        id_agency,
+        agency_billing_charge_id: agencyChargeId,
+        period_start: toDate(parsed.period_start),
+        period_end: toDate(parsed.period_end),
+        due_date: toDate(parsed.due_date),
+        status: parsed.status || "PENDING",
+        base_amount_usd: base,
+        adjustments_total_usd: adjustments,
+        total_usd: total,
+        paid_amount: parsed.paid_amount ?? null,
+        paid_currency: parsed.paid_currency ?? null,
+        fx_rate: parsed.fx_rate ?? null,
+        paid_at: toDate(parsed.paid_at),
+        account: parsed.account ?? null,
+        payment_method: parsed.payment_method ?? null,
+        notes: parsed.notes ?? null,
+      },
+    });
   });
 
   return res.status(201).json({

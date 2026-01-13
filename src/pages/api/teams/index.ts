@@ -2,6 +2,7 @@
 
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 
 export default async function handler(
   req: NextApiRequest,
@@ -67,19 +68,27 @@ export default async function handler(
       }
 
       // 2) Creamos el equipo para la agencia indicada
-      const newTeam = await prisma.salesTeam.create({
-        data: {
-          name,
-          id_agency, // lo toma directamente del body
-          user_teams: {
-            create: userIds.map((userId: number) => ({
-              user: { connect: { id_user: userId } },
-            })),
+      const newTeam = await prisma.$transaction(async (tx) => {
+        const agencyTeamId = await getNextAgencyCounter(
+          tx,
+          id_agency,
+          "sales_team",
+        );
+        return tx.salesTeam.create({
+          data: {
+            name,
+            id_agency, // lo toma directamente del body
+            agency_sales_team_id: agencyTeamId,
+            user_teams: {
+              create: userIds.map((userId: number) => ({
+                user: { connect: { id_user: userId } },
+              })),
+            },
           },
-        },
-        include: {
-          user_teams: { include: { user: true } },
-        },
+          include: {
+            user_teams: { include: { user: true } },
+          },
+        });
       });
 
       return res.status(201).json(newTeam);

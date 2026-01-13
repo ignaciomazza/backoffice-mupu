@@ -150,9 +150,8 @@ export default function ReceiptCard({
     receipt.payment_fee_amount !== undefined &&
     toNumber(receipt.payment_fee_amount) !== 0;
 
-  const useAgencyNumbers = booking.agency?.use_agency_numbers !== false;
   const receiptDisplayNumber =
-    useAgencyNumbers && receipt.agency_receipt_id != null
+    receipt.agency_receipt_id != null
       ? String(receipt.agency_receipt_id)
       : receipt.receipt_number;
   const receiptFileLabel = receiptDisplayNumber.replace(
@@ -192,7 +191,7 @@ export default function ReceiptCard({
     setLoadingPDF(true);
     try {
       const res = await authFetch(
-        `/api/receipts/${receipt.id_receipt}/pdf`,
+        `/api/receipts/${receipt.public_id ?? receipt.id_receipt}/pdf`,
         { headers: { Accept: "application/pdf" } },
         token,
       );
@@ -229,7 +228,7 @@ export default function ReceiptCard({
     setLoadingDelete(true);
     try {
       const res = await authFetch(
-        `/api/receipts/${receipt.id_receipt}`,
+        `/api/receipts/${receipt.public_id ?? receipt.id_receipt}`,
         { method: "DELETE" },
         token,
       );

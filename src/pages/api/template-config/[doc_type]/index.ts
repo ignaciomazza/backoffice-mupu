@@ -2,6 +2,7 @@
 
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify, type JWTPayload } from "jose";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -519,6 +520,7 @@ async function handleUpsert(req: NextApiRequest, res: NextApiResponse) {
         .status(403)
         .json({ error: "No autorizado para editar templates" });
     }
+    const agencyId = auth.id_agency;
 
     const doc_type = Array.isArray(req.query.doc_type)
       ? req.query.doc_type[0]
@@ -537,7 +539,7 @@ async function handleUpsert(req: NextApiRequest, res: NextApiResponse) {
     // obtener actual
     const current = await prisma.templateConfig.findUnique({
       where: {
-        id_agency_doc_type: { id_agency: auth.id_agency, doc_type: docType },
+        id_agency_doc_type: { id_agency: agencyId, doc_type: docType },
       },
       select: { config: true },
     });
@@ -549,16 +551,28 @@ async function handleUpsert(req: NextApiRequest, res: NextApiResponse) {
       nextConfig = incoming;
     }
 
-    const saved = await prisma.templateConfig.upsert({
-      where: {
-        id_agency_doc_type: { id_agency: auth.id_agency, doc_type: docType },
-      },
-      create: {
-        id_agency: auth.id_agency,
-        doc_type: docType,
-        config: nextConfig,
-      },
-      update: { config: nextConfig },
+    const saved = await prisma.$transaction(async (tx) => {
+      if (current) {
+        return tx.templateConfig.update({
+          where: {
+            id_agency_doc_type: { id_agency: agencyId, doc_type: docType },
+          },
+          data: { config: nextConfig },
+        });
+      }
+      const agencyTemplateId = await getNextAgencyCounter(
+        tx,
+        agencyId,
+        "template_config",
+      );
+      return tx.templateConfig.create({
+        data: {
+          id_agency: agencyId,
+          agency_template_config_id: agencyTemplateId,
+          doc_type: docType,
+          config: nextConfig,
+        },
+      });
     });
 
     return res.status(200).json({

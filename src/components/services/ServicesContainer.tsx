@@ -18,8 +18,8 @@ import ReceiptForm from "@/components/receipts/ReceiptForm";
 import ReceiptList from "@/components/receipts/ReceiptList";
 import CreditNoteForm, {
   type CreditNoteFormData,
-} from "@/components/credite-notes/CreditNoteForm";
-import CreditNoteCard from "@/components/credite-notes/CreditNoteCard";
+} from "@/components/credit-notes/CreditNoteForm";
+import CreditNoteCard from "@/components/credit-notes/CreditNoteCard";
 import OperatorPaymentForm from "@/components/investments/OperatorPaymentForm";
 import OperatorPaymentList from "@/components/investments/OperatorPaymentList";
 import ClientPaymentForm from "@/components/client-payments/ClientPaymentForm";
@@ -339,8 +339,8 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   const [agencyTransferFeeReady, setAgencyTransferFeeReady] =
     useState<boolean>(false);
   const [neighborIds, setNeighborIds] = useState<{
-    prevId: number | null;
-    nextId: number | null;
+    prevId: string | number | null;
+    nextId: string | number | null;
   }>({ prevId: null, nextId: null });
   const [neighborLoading, setNeighborLoading] = useState(false);
 
@@ -460,7 +460,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     }
 
     const ac = new AbortController();
-    const bookingId = booking.id_booking;
+    const bookingId = booking.public_id ?? booking.id_booking;
     setNeighborLoading(true);
 
     (async () => {
@@ -477,13 +477,15 @@ export default function ServicesContainer(props: ServicesContainerProps) {
           return;
         }
         const data: unknown = await res.json();
+        const prevRaw = (data as { prevId?: unknown })?.prevId;
+        const nextRaw = (data as { nextId?: unknown })?.nextId;
         const prevId =
-          typeof (data as { prevId?: unknown })?.prevId === "number"
-            ? (data as { prevId: number }).prevId
+          typeof prevRaw === "string" || typeof prevRaw === "number"
+            ? prevRaw
             : null;
         const nextId =
-          typeof (data as { nextId?: unknown })?.nextId === "number"
-            ? (data as { nextId: number }).nextId
+          typeof nextRaw === "string" || typeof nextRaw === "number"
+            ? nextRaw
             : null;
 
         if (mountedRef.current) setNeighborIds({ prevId, nextId });
@@ -498,7 +500,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     })();
 
     return () => ac.abort();
-  }, [token, booking?.id_booking, canNavigateNeighbors]);
+  }, [token, booking?.id_booking, booking?.public_id, canNavigateNeighbors]);
 
   /* ================= Observaciones administración ================= */
   const [isEditingInvObs, setIsEditingInvObs] = useState(false);

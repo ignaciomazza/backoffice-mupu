@@ -1,6 +1,7 @@
 // src/pages/api/leads/[id].ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
 import bcrypt from "bcrypt";
@@ -242,10 +243,20 @@ export default async function handler(
             .json({ error: "Ya existe un usuario con ese email en otra agencia" });
         }
         // si ya existe en la misma agencia, lo reutilizamos
-        const updatedLead = await prisma.lead.update({
-          where: { id_lead: idNum },
-          data: { id_agency: agencyId, status: "CLOSED", contacted_at: lead.contacted_at ?? new Date() },
-          select: { id_lead: true, id_agency: true, status: true },
+        const updatedLead = await prisma.$transaction(async (tx) => {
+          const agencyLeadId =
+            lead.agency_lead_id ??
+            (await getNextAgencyCounter(tx, agencyId, "lead"));
+          return tx.lead.update({
+            where: { id_lead: idNum },
+            data: {
+              id_agency: agencyId,
+              agency_lead_id: agencyLeadId,
+              status: "CLOSED",
+              contacted_at: lead.contacted_at ?? new Date(),
+            },
+            select: { id_lead: true, id_agency: true, status: true },
+          });
         });
         return res.status(200).json({
           ok: true,
@@ -265,27 +276,37 @@ export default async function handler(
         // si falla el hash por alguna razón, guardamos la plain (no ideal, pero evita romper)
       }
 
-      const newUser = await prisma.user.create({
-        data: {
-          email: userEmail,
-          password: hashed,
-          role: (body.user_role ?? "gerente"),
-          position: lead.role?.trim() || null,
-          first_name: first,
-          last_name: last,
-          id_agency: agencyId,
-        },
-        select: { id_user: true },
+      const newUser = await prisma.$transaction(async (tx) => {
+        const agencyUserId = await getNextAgencyCounter(tx, agencyId, "user");
+        return tx.user.create({
+          data: {
+            email: userEmail,
+            password: hashed,
+            role: body.user_role ?? "gerente",
+            position: lead.role?.trim() || null,
+            first_name: first,
+            last_name: last,
+            id_agency: agencyId,
+            agency_user_id: agencyUserId,
+          },
+          select: { id_user: true },
+        });
       });
 
       // 4) Actualizar lead con vínculo
-      await prisma.lead.update({
-        where: { id_lead: idNum },
-        data: {
-          id_agency: agencyId,
-          status: "CLOSED",
-          contacted_at: lead.contacted_at ?? new Date(),
-        },
+      await prisma.$transaction(async (tx) => {
+        const agencyLeadId =
+          lead.agency_lead_id ??
+          (await getNextAgencyCounter(tx, agencyId, "lead"));
+        await tx.lead.update({
+          where: { id_lead: idNum },
+          data: {
+            id_agency: agencyId,
+            agency_lead_id: agencyLeadId,
+            status: "CLOSED",
+            contacted_at: lead.contacted_at ?? new Date(),
+          },
+        });
       });
 
       res.status(200).json({

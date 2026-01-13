@@ -4,6 +4,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
+import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { jwtVerify, type JWTPayload } from "jose";
 
 /* ================= JWT SECRET (igual que invoices/index) ================= */
@@ -111,14 +112,28 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  const id = parseInt(req.query.id as string, 10);
-  if (isNaN(id)) {
+  const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+  if (!rawId) {
+    return res.status(400).json({ success: false, message: "ID inválido" });
+  }
+  const rawIdStr = String(rawId);
+  const parsedId = Number(rawIdStr);
+  const decoded =
+    Number.isFinite(parsedId) && parsedId > 0
+      ? null
+      : decodePublicId(rawIdStr);
+  if (decoded && decoded.t !== "invoice") {
+    return res.status(400).json({ success: false, message: "ID inválido" });
+  }
+  if (!decoded && (!Number.isFinite(parsedId) || parsedId <= 0)) {
     return res.status(400).json({ success: false, message: "ID inválido" });
   }
 
   if (req.method === "GET") {
-    const invoice = await prisma.invoice.findUnique({
-      where: { id_invoice: id },
+    const invoice = await prisma.invoice.findFirst({
+      where: decoded
+        ? { id_agency: decoded.a, agency_invoice_id: decoded.i }
+        : { id_invoice: parsedId },
       include: {
         booking: {
           include: { titular: true, agency: true },
@@ -132,7 +147,18 @@ export default async function handler(
         .json({ success: false, message: "Factura no encontrada" });
     }
 
-    return res.status(200).json({ success: true, invoice });
+    const public_id =
+      invoice.agency_invoice_id != null
+        ? encodePublicId({
+            t: "invoice",
+            a: invoice.id_agency,
+            i: invoice.agency_invoice_id,
+          })
+        : null;
+    return res.status(200).json({
+      success: true,
+      invoice: { ...invoice, public_id },
+    });
   }
 
   if (req.method === "PATCH") {
@@ -176,10 +202,20 @@ export default async function handler(
       });
     }
 
-    const invoice = await prisma.invoice.findUnique({
-      where: { id_invoice: id },
+    if (decoded && decoded.a !== auth.id_agency) {
+      return res.status(404).json({
+        success: false,
+        message: "Factura no encontrada",
+      });
+    }
+
+    const invoice = await prisma.invoice.findFirst({
+      where: decoded
+        ? { id_agency: auth.id_agency, agency_invoice_id: decoded.i }
+        : { id_invoice: parsedId },
       select: {
         id_invoice: true,
+        id_agency: true,
         payloadAfip: true,
         booking: { select: { id_agency: true } },
       },
@@ -223,7 +259,7 @@ export default async function handler(
     };
 
     const updated = await prisma.invoice.update({
-      where: { id_invoice: id },
+      where: { id_invoice: invoice.id_invoice },
       data: { payloadAfip: nextPayload },
       select: { id_invoice: true, payloadAfip: true },
     });

@@ -5,7 +5,7 @@ import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 
 type ServiceWithOperator = Service & {
-  operator?: { id_operator: number; name?: string };
+  operator?: { id_operator: number; agency_operator_id?: number | null; name?: string };
 };
 
 function hasEmbeddedOperator(
@@ -169,10 +169,13 @@ export default function OperatorDueCard({
   ]);
 
   const operatorIndex = useMemo(() => {
-    const map = new Map<number, string>();
+    const map = new Map<number, { name?: string; displayId: number }>();
     for (const op of operators || []) {
       if (op && typeof op.id_operator === "number") {
-        map.set(op.id_operator, op.name);
+        map.set(op.id_operator, {
+          name: op.name,
+          displayId: op.agency_operator_id ?? op.id_operator,
+        });
       }
     }
     return map;
@@ -185,7 +188,9 @@ export default function OperatorDueCard({
     }
     const operatorId = getServiceOperatorId(service);
     if (typeof operatorId !== "number") return "Operador";
-    return operatorIndex.get(operatorId) ?? `Operador N° ${operatorId}`;
+    const entry = operatorIndex.get(operatorId);
+    if (entry?.name?.trim()) return entry.name;
+    return `Operador N° ${entry?.displayId ?? operatorId}`;
   }, [service, operatorIndex]);
 
   const statusMeta = useMemo(

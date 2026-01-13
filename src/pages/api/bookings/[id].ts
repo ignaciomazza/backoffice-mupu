@@ -1,6 +1,7 @@
 // src/pages/api/bookings/[id].ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 
@@ -144,8 +145,13 @@ export default async function handler(
   if (!id || Array.isArray(id)) {
     return res.status(400).json({ error: "N° de reserva inválido." });
   }
-  const bookingId = Number(id);
-  if (!Number.isFinite(bookingId) || bookingId <= 0) {
+  const rawId = String(id);
+  const bookingId = Number(rawId);
+  const decoded =
+    Number.isFinite(bookingId) && bookingId > 0
+      ? null
+      : decodePublicId(rawId);
+  if (decoded && decoded.t !== "booking") {
     return res.status(400).json({ error: "N° de reserva inválido." });
   }
 
@@ -161,8 +167,14 @@ export default async function handler(
   }
 
   // Traer la reserva para validar alcance/agencia
-  const existing = await prisma.booking.findUnique({
-    where: { id_booking: bookingId },
+  if (decoded && decoded.a !== authAgencyId) {
+    return res.status(404).json({ error: "Reserva no encontrada." });
+  }
+
+  const existing = await prisma.booking.findFirst({
+    where: decoded
+      ? { id_agency: authAgencyId, agency_booking_id: decoded.i }
+      : { id_booking: bookingId },
     include: { user: true },
   });
   if (!existing) {
@@ -188,7 +200,7 @@ export default async function handler(
 
     try {
       const booking = await prisma.booking.findUnique({
-        where: { id_booking: bookingId },
+        where: { id_booking: existing.id_booking },
         include: {
           titular: true,
           user: true,
@@ -199,7 +211,22 @@ export default async function handler(
           Receipt: true,
         },
       });
-      return res.status(200).json(booking);
+      const public_id =
+        booking?.agency_booking_id != null
+          ? encodePublicId({
+              t: "booking",
+              a: booking.id_agency,
+              i: booking.agency_booking_id,
+            })
+          : null;
+      return res.status(200).json(
+        booking
+          ? {
+              ...booking,
+              public_id,
+            }
+          : booking,
+      );
     } catch (error) {
       console.error(
         "[bookings][GET by id] Error:",
@@ -361,7 +388,7 @@ export default async function handler(
       const nextPax = 1 + companions.length;
 
       const booking = await prisma.booking.update({
-        where: { id_booking: bookingId },
+        where: { id_booking: existing.id_booking },
         data: {
           clientStatus,
           operatorStatus,
@@ -420,7 +447,7 @@ export default async function handler(
     }
 
     try {
-      await prisma.booking.delete({ where: { id_booking: bookingId } });
+      await prisma.booking.delete({ where: { id_booking: existing.id_booking } });
       return res.status(200).json({ message: "Reserva eliminada con éxito." });
     } catch (error) {
       console.error(

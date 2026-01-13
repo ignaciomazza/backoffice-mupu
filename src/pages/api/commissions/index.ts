@@ -1,6 +1,7 @@
 // src/pages/api/commissions/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { Prisma } from "@prisma/client"; // 👈 importa Prisma para usar Decimal
 import { jwtVerify, type JWTPayload } from "jose";
 
@@ -184,20 +185,28 @@ export default async function handler(
           .json({ error: "La suma de porcentajes no puede superar 100%" });
       }
 
-      const created = await prisma.commissionRuleSet.create({
-        data: {
-          id_agency: auth.id_agency,
-          owner_user_id,
-          own_pct: new Prisma.Decimal(own), // 👈 usar Prisma.Decimal
-          valid_from: valid_from ? new Date(valid_from) : undefined,
-          shares: {
-            create: normalizedShares.map((s) => ({
-              beneficiary_user_id: s.beneficiary_user_id,
-              percent: new Prisma.Decimal(s.percent), // 👈 usar Prisma.Decimal
-            })),
+      const created = await prisma.$transaction(async (tx) => {
+        const agencyRuleSetId = await getNextAgencyCounter(
+          tx,
+          auth.id_agency,
+          "commission_rule_set",
+        );
+        return tx.commissionRuleSet.create({
+          data: {
+            id_agency: auth.id_agency,
+            agency_commission_rule_set_id: agencyRuleSetId,
+            owner_user_id,
+            own_pct: new Prisma.Decimal(own), // 👈 usar Prisma.Decimal
+            valid_from: valid_from ? new Date(valid_from) : undefined,
+            shares: {
+              create: normalizedShares.map((s) => ({
+                beneficiary_user_id: s.beneficiary_user_id,
+                percent: new Prisma.Decimal(s.percent), // 👈 usar Prisma.Decimal
+              })),
+            },
           },
-        },
-        include: { shares: true },
+          include: { shares: true },
+        });
       });
 
       return res.status(201).json(created);

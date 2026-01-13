@@ -25,7 +25,11 @@ type MoneyMap = Record<string, number>;
 type DateMode = "creation" | "travel";
 
 type OperatorInsightsResponse = {
-  operator: { id_operator: number; name: string | null };
+  operator: {
+    id_operator: number;
+    agency_operator_id?: number | null;
+    name: string | null;
+  };
   range: { from: string; to: string; mode: DateMode };
   counts: {
     services: number;
@@ -62,7 +66,11 @@ type OperatorInsightsResponse = {
         first_name: string;
         last_name: string;
       } | null;
-      shared_operators: { id_operator: number; name: string | null }[];
+      shared_operators: {
+        id_operator: number;
+        agency_operator_id?: number | null;
+        name: string | null;
+      }[];
       debt: MoneyMap;
       sale_with_interest: MoneyMap;
       paid: MoneyMap;
@@ -372,7 +380,7 @@ export default async function handler(
 
   const operator = await prisma.operator.findFirst({
     where: { id_operator: operatorId, id_agency: auth.id_agency },
-    select: { id_operator: true, name: true },
+    select: { id_operator: true, agency_operator_id: true, name: true },
   });
   if (!operator) {
     return res.status(404).json({ error: "Operador no encontrado" });
@@ -523,7 +531,11 @@ export default async function handler(
                 taxableCardInterest: true,
                 vatOnCardInterest: true,
                 operator: {
-                  select: { id_operator: true, name: true },
+                  select: {
+                    id_operator: true,
+                    agency_operator_id: true,
+                    name: true,
+                  },
                 },
               },
             },
@@ -569,10 +581,16 @@ export default async function handler(
       const paid = sumPaid(relevantReceipts);
       const debt = subtractMoneyMaps(saleWithInterest, paid);
 
-      const otherOperators = new Map<number, string | null>();
+      const otherOperators = new Map<
+        number,
+        { name: string | null; agency_operator_id?: number | null }
+      >();
       booking.services.forEach((svc) => {
         if (svc.id_operator !== operatorId && svc.operator) {
-          otherOperators.set(svc.operator.id_operator, svc.operator.name ?? null);
+          otherOperators.set(svc.operator.id_operator, {
+            name: svc.operator.name ?? null,
+            agency_operator_id: svc.operator.agency_operator_id ?? null,
+          });
         }
       });
 
@@ -618,7 +636,11 @@ export default async function handler(
               }
             : null,
           shared_operators: Array.from(otherOperators.entries()).map(
-            ([id_operator, name]) => ({ id_operator, name }),
+            ([id_operator, meta]) => ({
+              id_operator,
+              agency_operator_id: meta.agency_operator_id ?? null,
+              name: meta.name,
+            }),
           ),
         debt,
         sale_with_interest: saleWithInterest,

@@ -2,6 +2,7 @@
 
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 
@@ -109,20 +110,28 @@ export default async function handler(
 
     if (existingUser) {
       // Registramos el lead igual, pero sin crear usuario ni agencia
-      await prisma.lead.create({
-        data: {
-          full_name: name,
-          agency_name: agency,
-          role,
-          team_size: size ?? null,
-          location: location ?? null,
-          email,
-          whatsapp: whatsapp ?? null,
-          message: message ?? null,
-          status: "PENDING",
-          source: "qr-existing",
-          id_agency: existingUser.id_agency,
-        },
+      await prisma.$transaction(async (tx) => {
+        const agencyLeadId = await getNextAgencyCounter(
+          tx,
+          existingUser.id_agency,
+          "lead",
+        );
+        await tx.lead.create({
+          data: {
+            full_name: name,
+            agency_name: agency,
+            role,
+            team_size: size ?? null,
+            location: location ?? null,
+            email,
+            whatsapp: whatsapp ?? null,
+            message: message ?? null,
+            status: "PENDING",
+            source: "qr-existing",
+            id_agency: existingUser.id_agency,
+            agency_lead_id: agencyLeadId,
+          },
+        });
       });
 
       return res.status(200).json({
@@ -158,35 +167,51 @@ export default async function handler(
       // (no ideal, pero evita romper el flujo de alta en esta etapa de captación)
     }
 
-    const userRecord = await prisma.user.create({
-      data: {
-        email,
-        password: hashedPassword,
-        first_name: first,
-        last_name: last,
-        position: role,
-        role: "gerente",
-        id_agency: agencyRecord.id_agency,
-      },
-      select: { id_user: true },
+    const userRecord = await prisma.$transaction(async (tx) => {
+      const agencyUserId = await getNextAgencyCounter(
+        tx,
+        agencyRecord.id_agency,
+        "user",
+      );
+      return tx.user.create({
+        data: {
+          email,
+          password: hashedPassword,
+          first_name: first,
+          last_name: last,
+          position: role,
+          role: "gerente",
+          id_agency: agencyRecord.id_agency,
+          agency_user_id: agencyUserId,
+        },
+        select: { id_user: true },
+      });
     });
 
     // 4) Crear lead vinculado a la agencia
-    const leadRecord = await prisma.lead.create({
-      data: {
-        full_name: name,
-        agency_name: agency,
-        role,
-        team_size: size ?? null,
-        location: location ?? null,
-        email,
-        whatsapp: whatsapp ?? null,
-        message: message ?? null,
-        status: "CLOSED",
-        source: "qr-autosignup",
-        id_agency: agencyRecord.id_agency,
-      },
-      select: { id_lead: true },
+    const leadRecord = await prisma.$transaction(async (tx) => {
+      const agencyLeadId = await getNextAgencyCounter(
+        tx,
+        agencyRecord.id_agency,
+        "lead",
+      );
+      return tx.lead.create({
+        data: {
+          full_name: name,
+          agency_name: agency,
+          role,
+          team_size: size ?? null,
+          location: location ?? null,
+          email,
+          whatsapp: whatsapp ?? null,
+          message: message ?? null,
+          status: "CLOSED",
+          source: "qr-autosignup",
+          id_agency: agencyRecord.id_agency,
+          agency_lead_id: agencyLeadId,
+        },
+        select: { id_lead: true },
+      });
     });
 
     // 5) Devolver credenciales para mostrar en pantalla (sin mail)

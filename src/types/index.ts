@@ -34,7 +34,6 @@ export interface Agency {
   website?: string;
   foundation_date?: string;
   logo_url?: string;
-  use_agency_numbers?: boolean;
   creation_date: string;
   users?: User[];
   bookings?: Booking[];
@@ -42,6 +41,7 @@ export interface Agency {
 
 export interface User {
   id_user: number;
+  agency_user_id?: number | null;
   email: string;
   password?: string;
   first_name: string;
@@ -87,6 +87,7 @@ export interface Client {
 export interface Booking {
   id_booking: number;
   agency_booking_id?: number | null;
+  public_id?: string | null;
   clientStatus: string;
   operatorStatus: string;
   status: string;
@@ -165,6 +166,7 @@ export interface Service {
 
 export interface Operator {
   id_operator: number;
+  agency_operator_id?: number | null;
   name: string;
   email: string;
   phone: string;
@@ -188,6 +190,9 @@ export interface Operator {
 
 export interface Invoice {
   id_invoice: number;
+  agency_invoice_id?: number | null;
+  public_id?: string | null;
+  id_agency: number;
   invoice_number: string;
   issue_date: string;
   total_amount: number;
@@ -210,6 +215,7 @@ export interface Invoice {
 export interface Receipt {
   id_receipt: number;
   agency_receipt_id?: number | null;
+  public_id?: string | null;
   receipt_number: string;
   issue_date: string;
   amount: number;
@@ -239,6 +245,7 @@ export interface Receipt {
 
 export interface SalesTeam {
   id_team: number;
+  agency_sales_team_id?: number | null;
   name: string;
   user_teams: UserTeam[];
   id_agency: number;

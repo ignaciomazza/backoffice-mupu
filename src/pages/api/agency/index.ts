@@ -175,7 +175,6 @@ const AgencyBaseSchema = z.object({
     ])
     .optional(),
   logo_url: urlOptional.optional(),
-  use_agency_numbers: z.boolean().optional(),
 });
 
 const AgencyCreateSchema = AgencyBaseSchema.strict();
@@ -266,7 +265,6 @@ async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
       social,
       foundation_date,
       logo_url,
-      use_agency_numbers,
     } = parsed;
 
     const socialData = normalizeSocial(social);
@@ -289,10 +287,6 @@ async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
             )
           : undefined,
         logo_url: logo_url ?? null,
-        use_agency_numbers:
-          typeof use_agency_numbers === "boolean"
-            ? use_agency_numbers
-            : undefined,
       },
     });
 
@@ -330,7 +324,6 @@ async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
       social,
       foundation_date,
       logo_url,
-      use_agency_numbers,
     } = parsed;
 
     const socialData = normalizeSocial(social);
@@ -354,10 +347,6 @@ async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
             )
           : undefined,
         logo_url: logo_url ?? null,
-        use_agency_numbers:
-          typeof use_agency_numbers === "boolean"
-            ? use_agency_numbers
-            : undefined,
       },
     });
 

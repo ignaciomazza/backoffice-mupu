@@ -1,5 +1,6 @@
 // src/services/invoices.ts
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import type { NextApiRequest } from "next";
 import { createVoucherService } from "@/services/afip/createVoucherService";
 import type { Invoice, InvoiceItem, Prisma } from "@prisma/client";
@@ -205,8 +206,15 @@ export async function createInvoices(
       };
 
       const created = await prisma.$transaction(async (tx) => {
+        const agencyInvoiceId = await getNextAgencyCounter(
+          tx,
+          booking.id_agency,
+          "invoice",
+        );
         const inv = await tx.invoice.create({
           data: {
+            agency_invoice_id: agencyInvoiceId,
+            id_agency: booking.id_agency,
             invoice_number: details.CbteDesde!.toString(),
             issue_date: new Date(),
             total_amount: details.ImpTotal as number,

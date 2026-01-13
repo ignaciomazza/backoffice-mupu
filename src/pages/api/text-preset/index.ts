@@ -1,6 +1,7 @@
 // src/pages/api/text-preset/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 
@@ -200,15 +201,23 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
-    const created = await prisma.textPreset.create({
-      data: {
-        title,
-        content: content ?? "", // permitimos vacío si solo usan data
-        data, // NEW
-        doc_type,
-        id_user: auth.id_user,
-        id_agency: auth.id_agency,
-      },
+    const created = await prisma.$transaction(async (tx) => {
+      const agencyPresetId = await getNextAgencyCounter(
+        tx,
+        auth.id_agency,
+        "text_preset",
+      );
+      return tx.textPreset.create({
+        data: {
+          title,
+          content: content ?? "", // permitimos vacío si solo usan data
+          data, // NEW
+          doc_type,
+          id_user: auth.id_user,
+          id_agency: auth.id_agency,
+          agency_text_preset_id: agencyPresetId,
+        },
+      });
     });
 
     return res.status(201).json(created);

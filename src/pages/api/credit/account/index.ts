@@ -1,6 +1,7 @@
 // src/pages/api/credit/account/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 
@@ -238,15 +239,23 @@ export default async function handler(
       });
       if (existing) return res.status(200).json(existing);
 
-      const created = await prisma.creditAccount.create({
-        data: {
-          id_agency: auth.id_agency,
-          client_id: client_id ?? null,
-          operator_id: operator_id ?? null,
-          currency,
-          balance: new Prisma.Decimal(initialBalanceNumber),
-          enabled,
-        },
+      const created = await prisma.$transaction(async (tx) => {
+        const agencyAccountId = await getNextAgencyCounter(
+          tx,
+          auth.id_agency,
+          "credit_account",
+        );
+        return tx.creditAccount.create({
+          data: {
+            id_agency: auth.id_agency,
+            agency_credit_account_id: agencyAccountId,
+            client_id: client_id ?? null,
+            operator_id: operator_id ?? null,
+            currency,
+            balance: new Prisma.Decimal(initialBalanceNumber),
+            enabled,
+          },
+        });
       });
 
       return res.status(201).json(created);

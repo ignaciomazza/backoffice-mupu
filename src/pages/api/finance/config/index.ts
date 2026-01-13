@@ -2,6 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { jwtVerify, type JWTPayload } from "jose";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { z } from "zod";
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -110,19 +111,36 @@ export default async function handler(
       const { default_currency_code, hide_operator_expenses_in_investments } =
         parsed.data;
 
-      await prisma.financeConfig.upsert({
-        where: { id_agency },
-        create: {
+      await prisma.$transaction(async (tx) => {
+        const existing = await tx.financeConfig.findUnique({
+          where: { id_agency },
+          select: { id_config: true },
+        });
+        if (existing) {
+          await tx.financeConfig.update({
+            where: { id_agency },
+            data: {
+              default_currency_code,
+              hide_operator_expenses_in_investments:
+                !!hide_operator_expenses_in_investments,
+            },
+          });
+          return;
+        }
+        const agencyConfigId = await getNextAgencyCounter(
+          tx,
           id_agency,
-          default_currency_code,
-          hide_operator_expenses_in_investments:
-            !!hide_operator_expenses_in_investments,
-        },
-        update: {
-          default_currency_code,
-          hide_operator_expenses_in_investments:
-            !!hide_operator_expenses_in_investments,
-        },
+          "finance_config",
+        );
+        await tx.financeConfig.create({
+          data: {
+            id_agency,
+            agency_finance_config_id: agencyConfigId,
+            default_currency_code,
+            hide_operator_expenses_in_investments:
+              !!hide_operator_expenses_in_investments,
+          },
+        });
       });
 
       return res.status(200).json({ ok: true });

@@ -1,6 +1,7 @@
 // src/pages/api/dev/agencies/[id]/users/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import bcrypt from "bcrypt";
 import { jwtVerify, type JWTPayload } from "jose";
 
@@ -86,6 +87,7 @@ function parseAgencyId(param: unknown): number {
 
 const userSafeSelect = {
   id_user: true,
+  agency_user_id: true,
   email: true,
   first_name: true,
   last_name: true,
@@ -224,17 +226,22 @@ async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
 
     const hashed = await bcrypt.hash(password, 10);
 
-    const created = await prisma.user.create({
-      data: {
-        email,
-        password: hashed,
-        first_name,
-        last_name,
-        position: position ?? null,
-        role: newRole,
-        id_agency, // la del path
-      },
-      select: userSafeSelect,
+    const created = await prisma.$transaction(async (tx) => {
+      const agencyUserId = await getNextAgencyCounter(tx, id_agency, "user");
+
+      return tx.user.create({
+        data: {
+          email,
+          password: hashed,
+          first_name,
+          last_name,
+          position: position ?? null,
+          role: newRole,
+          id_agency, // la del path
+          agency_user_id: agencyUserId,
+        },
+        select: userSafeSelect,
+      });
     });
 
     return res.status(201).json(created);

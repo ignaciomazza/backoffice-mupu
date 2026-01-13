@@ -108,9 +108,8 @@ const fmtDate = (iso?: string | null) => {
 
 const getReceiptDisplayNumber = (
   receipt: Pick<ReceiptIncome, "agency_receipt_id" | "receipt_number">,
-  useAgencyNumbers: boolean,
 ) => {
-  if (useAgencyNumbers && receipt.agency_receipt_id != null) {
+  if (receipt.agency_receipt_id != null) {
     return String(receipt.agency_receipt_id);
   }
   return receipt.receipt_number;
@@ -118,21 +117,6 @@ const getReceiptDisplayNumber = (
 
 export default function ReceiptVerifyPage() {
   const { token } = useAuth() as { token?: string | null };
-
-  const [useAgencyNumbers, setUseAgencyNumbers] = useState(true);
-  useEffect(() => {
-    if (!token) return;
-    (async () => {
-      try {
-        const res = await authFetch("/api/agency", { cache: "no-store" }, token);
-        if (!res.ok) return;
-        const data = (await res.json()) as { use_agency_numbers?: boolean };
-        setUseAgencyNumbers(data.use_agency_numbers !== false);
-      } catch {
-        // mantener default
-      }
-    })();
-  }, [token]);
 
   const [data, setData] = useState<ReceiptIncome[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
@@ -435,7 +419,7 @@ export default function ReceiptVerifyPage() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2 text-xs text-sky-950/70 dark:text-white/70">
                       <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-sky-950 dark:text-white">
-                        N° {getReceiptDisplayNumber(receipt, useAgencyNumbers)}
+                        N° {getReceiptDisplayNumber(receipt)}
                       </span>
                       <span>Fecha: {fmtDate(receipt.issue_date)}</span>
                       <span>

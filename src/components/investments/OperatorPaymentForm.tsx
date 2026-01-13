@@ -450,6 +450,15 @@ export default function OperatorPaymentForm({
 
   const [loading, setLoading] = useState(false);
 
+  const getOperatorDisplayId = useCallback(
+    (id?: number | null) => {
+      if (!id) return id ?? null;
+      const found = operators.find((o) => o.id_operator === id);
+      return found?.agency_operator_id ?? id;
+    },
+    [operators],
+  );
+
   // Estado verificación/creación de cuenta de crédito
   const [creditAccStatus, setCreditAccStatus] =
     useState<CreditAccStatus>("idle");
@@ -1107,7 +1116,7 @@ export default function OperatorPaymentForm({
     if (operatorId) {
       pills.push(
         <span key="op" className={`${pillBase} ${pillNeutral}`}>
-          Operador N° {operatorId}
+          Operador N° {getOperatorDisplayId(operatorId)}
         </span>,
       );
     }

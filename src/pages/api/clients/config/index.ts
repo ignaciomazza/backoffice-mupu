@@ -2,6 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { jwtVerify, type JWTPayload } from "jose";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { z } from "zod";
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -117,10 +118,30 @@ export default async function handler(
 
       const { visibility_mode } = parsed.data;
 
-      await prisma.clientConfig.upsert({
-        where: { id_agency: auth.id_agency },
-        create: { id_agency: auth.id_agency, visibility_mode },
-        update: { visibility_mode },
+      await prisma.$transaction(async (tx) => {
+        const existing = await tx.clientConfig.findUnique({
+          where: { id_agency: auth.id_agency },
+          select: { id_config: true },
+        });
+        if (existing) {
+          await tx.clientConfig.update({
+            where: { id_agency: auth.id_agency },
+            data: { visibility_mode },
+          });
+          return;
+        }
+        const agencyConfigId = await getNextAgencyCounter(
+          tx,
+          auth.id_agency,
+          "client_config",
+        );
+        await tx.clientConfig.create({
+          data: {
+            id_agency: auth.id_agency,
+            agency_client_config_id: agencyConfigId,
+            visibility_mode,
+          },
+        });
       });
 
       return res.status(200).json({ ok: true });

@@ -174,7 +174,7 @@ function InvestmentCard({
           <span className="flex w-fit items-center gap-2">
             <b>Reserva N° </b> {bookingNumber}
             <Link
-              href={`/bookings/services/${item.booking_id}`}
+              href={`/bookings/services/${item.booking?.public_id ?? item.booking_id}`}
               target="_blank"
               className="rounded-full bg-sky-100 p-2 text-sky-900 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
               aria-label={`Abrir reserva ${bookingNumber} en nueva pestaña`}

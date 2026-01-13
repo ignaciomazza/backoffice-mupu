@@ -36,6 +36,7 @@ type UserLite = {
 type Booking = {
   id_booking: number;
   agency_booking_id?: number | null;
+  public_id?: string | null;
   clientStatus: string;
   departure_date?: string | null;
   return_date?: string | null;
@@ -577,11 +578,11 @@ export default function DashboardShortcuts() {
                     className="flex items-center justify-between"
                   >
                     <Link
-                      href={`/bookings/services/${d.booking.id_booking}`}
+                      href={`/bookings/services/${d.booking.public_id ?? d.booking.id_booking}`}
                       className="truncate underline decoration-transparent hover:decoration-sky-600"
                       title={`N° ${bookingNumber} – ${title(d.booking)}`}
                     >
-                    N° {bookingNumber} — {title(d.booking)}
+                      N° {bookingNumber} — {title(d.booking)}
                     </Link>
                     <div className="flex flex-wrap items-center gap-2">
                       {d.debtARS > 0 && (
@@ -665,14 +666,14 @@ export default function DashboardShortcuts() {
               {pendingBookings.map((b) => {
                 const bookingNumber = b.agency_booking_id ?? b.id_booking;
                 return (
-                <li key={b.id_booking}>
-                  <Link
-                    href={`/bookings/services/${b.id_booking}`}
-                    className="underline decoration-transparent hover:decoration-sky-600"
-                  >
-                    N° {bookingNumber} — {title(b)}
-                  </Link>
-                </li>
+                  <li key={b.id_booking}>
+                    <Link
+                      href={`/bookings/services/${b.public_id ?? b.id_booking}`}
+                      className="underline decoration-transparent hover:decoration-sky-600"
+                    >
+                      N° {bookingNumber} — {title(b)}
+                    </Link>
+                  </li>
                 );
               })}
             </ul>
@@ -755,7 +756,7 @@ export default function DashboardShortcuts() {
                     className="flex items-center justify-between"
                   >
                     <Link
-                      href={`/bookings/services/${b.id_booking}`}
+                      href={`/bookings/services/${b.public_id ?? b.id_booking}`}
                       className="truncate underline decoration-transparent hover:decoration-sky-600"
                     >
                       N° {bookingNumber} — {title(b)}

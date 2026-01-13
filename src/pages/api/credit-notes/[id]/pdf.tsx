@@ -6,6 +6,7 @@ import { renderToStream } from "@react-pdf/renderer";
 import CreditNoteDocument, {
   VoucherData,
 } from "@/services/credit-notes/CreditNoteDocument";
+import { decodePublicId } from "@/lib/publicIds";
 
 /** ===== Helper: traer logo por URL pública (Spaces/S3) a base64 + MIME ===== */
 async function fetchLogoFromUrl(
@@ -52,8 +53,22 @@ export default async function handler(
     return;
   }
 
-  const id = Number(req.query.id);
-  if (Number.isNaN(id)) {
+  const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+  if (!rawId) {
+    res.status(400).end("ID inválido");
+    return;
+  }
+  const rawIdStr = String(rawId);
+  const parsedId = Number(rawIdStr);
+  const decoded =
+    Number.isFinite(parsedId) && parsedId > 0
+      ? null
+      : decodePublicId(rawIdStr);
+  if (decoded && decoded.t !== "credit_note") {
+    res.status(400).end("ID inválido");
+    return;
+  }
+  if (!decoded && (!Number.isFinite(parsedId) || parsedId <= 0)) {
     res.status(400).end("ID inválido");
     return;
   }
@@ -61,8 +76,10 @@ export default async function handler(
   // 1) Obtener nota de crédito con sus relaciones
   let creditNote;
   try {
-    creditNote = await prisma.creditNote.findUnique({
-      where: { id_credit_note: id },
+    creditNote = await prisma.creditNote.findFirst({
+      where: decoded
+        ? { id_agency: decoded.a, agency_credit_note_id: decoded.i }
+        : { id_credit_note: parsedId },
       include: {
         invoice: {
           include: {
@@ -75,7 +92,7 @@ export default async function handler(
       },
     });
   } catch (dbErr) {
-    console.error("💥 Error al consultar Prisma para id", id, dbErr);
+    console.error("💥 Error al consultar Prisma para id", rawIdStr, dbErr);
     res.status(500).end("Error interno de base de datos");
     return;
   }

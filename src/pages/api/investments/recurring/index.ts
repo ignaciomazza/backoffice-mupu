@@ -1,6 +1,7 @@
 // src/pages/api/investments/recurring/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 
@@ -228,32 +229,42 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     const active = typeof b.active === "boolean" ? b.active : true;
 
-    const created = await prisma.recurringInvestment.create({
-      data: {
-        id_agency: auth.id_agency,
-        category,
-        description,
-        amount,
-        currency,
-        start_date,
-        day_of_month,
-        interval_months,
-        active,
-        operator_id: operator_id ?? null,
-        user_id: user_id ?? null,
-        created_by: auth.id_user,
-        ...(payment_method ? { payment_method } : {}),
-        ...(account ? { account } : {}),
-        ...(base_amount ? { base_amount } : {}),
-        ...(base_currency ? { base_currency } : {}),
-        ...(counter_amount ? { counter_amount } : {}),
-        ...(counter_currency ? { counter_currency } : {}),
-      },
-      include: {
-        user: { select: { id_user: true, first_name: true, last_name: true } },
-        operator: { select: { id_operator: true, name: true } },
-        createdBy: { select: { id_user: true, first_name: true, last_name: true } },
-      },
+    const created = await prisma.$transaction(async (tx) => {
+      const agencyRecurringId = await getNextAgencyCounter(
+        tx,
+        auth.id_agency,
+        "recurring_investment",
+      );
+      return tx.recurringInvestment.create({
+        data: {
+          id_agency: auth.id_agency,
+          agency_recurring_investment_id: agencyRecurringId,
+          category,
+          description,
+          amount,
+          currency,
+          start_date,
+          day_of_month,
+          interval_months,
+          active,
+          operator_id: operator_id ?? null,
+          user_id: user_id ?? null,
+          created_by: auth.id_user,
+          ...(payment_method ? { payment_method } : {}),
+          ...(account ? { account } : {}),
+          ...(base_amount ? { base_amount } : {}),
+          ...(base_currency ? { base_currency } : {}),
+          ...(counter_amount ? { counter_amount } : {}),
+          ...(counter_currency ? { counter_currency } : {}),
+        },
+        include: {
+          user: { select: { id_user: true, first_name: true, last_name: true } },
+          operator: { select: { id_operator: true, name: true } },
+          createdBy: {
+            select: { id_user: true, first_name: true, last_name: true },
+          },
+        },
+      });
     });
 
     return res.status(201).json(created);

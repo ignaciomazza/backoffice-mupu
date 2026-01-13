@@ -2,6 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { jwtVerify, type JWTPayload } from "jose";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { z } from "zod";
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -77,8 +78,19 @@ export default async function handler(
     if (!parsed.success)
       return res.status(400).json({ error: parsed.error.message });
 
-    const created = await prisma.financePaymentMethod.create({
-      data: { ...parsed.data, id_agency },
+    const created = await prisma.$transaction(async (tx) => {
+      const agencyMethodId = await getNextAgencyCounter(
+        tx,
+        id_agency,
+        "finance_payment_method",
+      );
+      return tx.financePaymentMethod.create({
+        data: {
+          ...parsed.data,
+          id_agency,
+          agency_finance_payment_method_id: agencyMethodId,
+        },
+      });
     });
     return res.status(201).json(created);
   }

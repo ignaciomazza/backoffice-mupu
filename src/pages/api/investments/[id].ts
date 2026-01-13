@@ -1,6 +1,8 @@
 // src/pages/api/investments/[id].ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { encodePublicId } from "@/lib/publicIds";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify, type JWTPayload } from "jose";
 
 /** ===== Auth helpers (unificado con otros endpoints) ===== */
@@ -194,9 +196,15 @@ async function findOrCreateOperatorCreditAccount(
   });
   if (existing) return existing.id_credit_account;
 
+  const agencyAccountId = await getNextAgencyCounter(
+    tx,
+    agencyId,
+    "credit_account",
+  );
   const created = await tx.creditAccount.create({
     data: {
       id_agency: agencyId,
+      agency_credit_account_id: agencyAccountId,
       operator_id: operatorId,
       client_id: null,
       currency,
@@ -239,9 +247,15 @@ async function createCreditEntryForInvestment(
 
   const displayId = inv.agency_investment_id ?? inv.id_investment;
 
+  const agencyEntryId = await getNextAgencyCounter(
+    tx,
+    agencyId,
+    "credit_entry",
+  );
   const entry = await tx.creditEntry.create({
     data: {
       id_agency: agencyId,
+      agency_credit_entry_id: agencyEntryId,
       account_id,
       created_by: userId,
       concept: inv.description || `Gasto Operador N° ${displayId}`,
@@ -299,7 +313,9 @@ function getInvestmentFull(id_investment: number, id_agency: number) {
       createdBy: {
         select: { id_user: true, first_name: true, last_name: true },
       },
-      booking: { select: { id_booking: true } }, // incluir reserva asociada
+      booking: {
+        select: { id_booking: true, agency_booking_id: true },
+      }, // incluir reserva asociada
     },
   });
 }
@@ -321,7 +337,23 @@ export default async function handler(
       const inv = await getInvestmentFull(id, auth.id_agency);
       if (!inv)
         return res.status(404).json({ error: "Inversión no encontrada" });
-      return res.status(200).json(inv);
+      const payload = {
+        ...inv,
+        booking: inv.booking
+          ? {
+              ...inv.booking,
+              public_id:
+                inv.booking.agency_booking_id != null
+                  ? encodePublicId({
+                      t: "booking",
+                      a: inv.id_agency,
+                      i: inv.booking.agency_booking_id,
+                    })
+                  : null,
+            }
+          : null,
+      };
+      return res.status(200).json(payload);
     } catch (e) {
       console.error("[investments/:id][GET]", e);
       return res.status(500).json({ error: "Error al obtener la inversión" });

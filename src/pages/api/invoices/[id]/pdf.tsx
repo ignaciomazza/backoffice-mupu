@@ -7,6 +7,7 @@ import { renderToStream } from "@react-pdf/renderer";
 import InvoiceDocument, {
   VoucherData,
 } from "@/services/invoices/InvoiceDocument";
+import { decodePublicId } from "@/lib/publicIds";
 
 /** ===== Tipos del payload guardado en la factura ===== */
 interface PayloadAfip {
@@ -71,8 +72,20 @@ export default async function handler(
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const id = parseInt(req.query.id as string, 10);
-  if (Number.isNaN(id)) {
+  const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+  if (!rawId) {
+    return res.status(400).end("ID inválido");
+  }
+  const rawIdStr = String(rawId);
+  const parsedId = Number(rawIdStr);
+  const decoded =
+    Number.isFinite(parsedId) && parsedId > 0
+      ? null
+      : decodePublicId(rawIdStr);
+  if (decoded && decoded.t !== "invoice") {
+    return res.status(400).end("ID inválido");
+  }
+  if (!decoded && (!Number.isFinite(parsedId) || parsedId <= 0)) {
     return res.status(400).end("ID inválido");
   }
 
@@ -80,8 +93,10 @@ export default async function handler(
   let invoice: InvoiceWithRelations | null = null;
 
   try {
-    invoice = await prisma.invoice.findUnique({
-      where: { id_invoice: id },
+    invoice = await prisma.invoice.findFirst({
+      where: decoded
+        ? { id_agency: decoded.a, agency_invoice_id: decoded.i }
+        : { id_invoice: parsedId },
       include: {
         booking: {
           include: {
@@ -239,9 +254,10 @@ export default async function handler(
     );
 
     res.setHeader("Content-Type", "application/pdf");
+    const filenameId = invoice.agency_invoice_id ?? invoice.id_invoice;
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=factura_${id}.pdf`,
+      `attachment; filename=factura_${filenameId}.pdf`,
     );
     stream.pipe(res);
   } catch (err) {

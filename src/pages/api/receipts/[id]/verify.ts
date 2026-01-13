@@ -1,6 +1,7 @@
 // src/pages/api/receipts/[id]/verify.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { decodePublicId } from "@/lib/publicIds";
 import { jwtVerify, JWTPayload } from "jose";
 
 type TokenPayload = JWTPayload & {
@@ -121,8 +122,20 @@ export default async function handler(
     return res.status(403).json({ error: "No autorizado" });
   }
 
-  const id = Number(Array.isArray(req.query.id) ? req.query.id[0] : req.query.id);
-  if (!Number.isFinite(id) || id <= 0) {
+  const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+  if (!rawId) {
+    return res.status(400).json({ error: "ID invalido" });
+  }
+  const rawIdStr = String(rawId);
+  const parsedId = Number(rawIdStr);
+  const decoded =
+    Number.isFinite(parsedId) && parsedId > 0
+      ? null
+      : decodePublicId(rawIdStr);
+  if (decoded && decoded.t !== "receipt") {
+    return res.status(400).json({ error: "ID invalido" });
+  }
+  if (!decoded && (!Number.isFinite(parsedId) || parsedId <= 0)) {
     return res.status(400).json({ error: "ID invalido" });
   }
 
@@ -134,13 +147,18 @@ export default async function handler(
   }
 
   const receipt = await prisma.receipt.findFirst({
-    where: {
-      id_receipt: id,
-      OR: [
-        { id_agency: authAgencyId },
-        { booking: { id_agency: authAgencyId } },
-      ],
-    },
+    where: decoded
+      ? {
+          id_agency: authAgencyId,
+          agency_receipt_id: decoded.i,
+        }
+      : {
+          id_receipt: parsedId,
+          OR: [
+            { id_agency: authAgencyId },
+            { booking: { id_agency: authAgencyId } },
+          ],
+        },
     select: { id_receipt: true },
   });
 
@@ -162,7 +180,7 @@ export default async function handler(
         };
 
   const updated = await prisma.receipt.update({
-    where: { id_receipt: id },
+    where: { id_receipt: receipt.id_receipt },
     data: nextData,
     select: {
       id_receipt: true,

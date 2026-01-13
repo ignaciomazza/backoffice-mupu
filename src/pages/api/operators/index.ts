@@ -2,6 +2,7 @@
 
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 
 export default async function handler(
   req: NextApiRequest,
@@ -75,22 +76,30 @@ export default async function handler(
         });
       }
 
-      const newOperator = await prisma.operator.create({
-        data: {
-          name,
-          email,
-          phone,
-          website,
-          address,
-          postal_code,
-          city,
-          state,
-          country,
-          vat_status,
-          legal_name,
-          tax_id,
+      const newOperator = await prisma.$transaction(async (tx) => {
+        const agencyOperatorId = await getNextAgencyCounter(
+          tx,
           id_agency,
-        },
+          "operator",
+        );
+        return tx.operator.create({
+          data: {
+            name,
+            email,
+            phone,
+            website,
+            address,
+            postal_code,
+            city,
+            state,
+            country,
+            vat_status,
+            legal_name,
+            tax_id,
+            id_agency,
+            agency_operator_id: agencyOperatorId,
+          },
+        });
       });
       return res.status(201).json(newOperator);
     } catch (error) {

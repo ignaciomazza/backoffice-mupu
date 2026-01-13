@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify, JWTPayload } from "jose";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
+import { encodePublicId } from "@/lib/publicIds";
 
 /* ======================================================
  * Tipos
@@ -317,6 +318,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
       const normalized = receipts.map((r) => ({
         ...r,
+        public_id:
+          r.agency_receipt_id != null
+            ? encodePublicId({
+                t: "receipt",
+                a: r.id_agency ?? authAgencyId,
+                i: r.agency_receipt_id,
+              })
+            : null,
         payments: normalizePaymentsFromReceipt(r),
       }));
 
@@ -588,10 +597,32 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       },
     });
 
-    const normalized = items.map((r) => ({
-      ...r,
-      payments: normalizePaymentsFromReceipt(r),
-    }));
+    const normalized = items.map((r) => {
+      const public_id =
+        r.agency_receipt_id != null
+          ? encodePublicId({
+              t: "receipt",
+              a: r.agency?.id_agency ?? authAgencyId,
+              i: r.agency_receipt_id,
+            })
+          : null;
+      const bookingPublicId =
+        r.booking?.agency_booking_id != null
+          ? encodePublicId({
+              t: "booking",
+              a: authAgencyId,
+              i: r.booking.agency_booking_id,
+            })
+          : null;
+      return {
+        ...r,
+        public_id,
+        booking: r.booking
+          ? { ...r.booking, public_id: bookingPublicId }
+          : r.booking,
+        payments: normalizePaymentsFromReceipt(r),
+      };
+    });
 
     const nextCursor =
       items.length === take
@@ -859,10 +890,23 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       include: { payments: true },
     });
 
+    const createdPublicId =
+      createdReceipt.agency_receipt_id != null
+        ? encodePublicId({
+            t: "receipt",
+            a: authAgencyId,
+            i: createdReceipt.agency_receipt_id,
+          })
+        : null;
+
     return res.status(201).json({
       receipt: full
-        ? { ...full, payments: normalizePaymentsFromReceipt(full) }
-        : createdReceipt,
+        ? {
+            ...full,
+            public_id: createdPublicId,
+            payments: normalizePaymentsFromReceipt(full),
+          }
+        : { ...createdReceipt, public_id: createdPublicId },
     });
   } catch (error: unknown) {
     // eslint-disable-next-line no-console

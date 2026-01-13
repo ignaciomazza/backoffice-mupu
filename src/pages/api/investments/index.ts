@@ -1,6 +1,7 @@
 // src/pages/api/investments/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { encodePublicId } from "@/lib/publicIds";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
@@ -151,9 +152,15 @@ async function findOrCreateOperatorCreditAccount(
   });
   if (existing) return existing.id_credit_account;
 
+  const agencyAccountId = await getNextAgencyCounter(
+    tx,
+    agencyId,
+    "credit_account",
+  );
   const created = await tx.creditAccount.create({
     data: {
       id_agency: agencyId,
+      agency_credit_account_id: agencyAccountId,
       operator_id: operatorId,
       client_id: null,
       currency,
@@ -195,9 +202,15 @@ async function createCreditEntryForInvestment(
 
   const displayId = inv.agency_investment_id ?? inv.id_investment;
 
+  const agencyEntryId = await getNextAgencyCounter(
+    tx,
+    agencyId,
+    "credit_entry",
+  );
   const entry = await tx.creditEntry.create({
     data: {
       id_agency: agencyId,
+      agency_credit_entry_id: agencyEntryId,
       account_id,
       created_by: userId,
       concept: inv.description || `Gasto Operador N° ${displayId}`,
@@ -576,9 +589,25 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     const hasMore = items.length > take;
     const sliced = hasMore ? items.slice(0, take) : items;
+    const normalized = sliced.map((item) => ({
+      ...item,
+      booking: item.booking
+        ? {
+            ...item.booking,
+            public_id:
+              item.booking.agency_booking_id != null
+                ? encodePublicId({
+                    t: "booking",
+                    a: item.id_agency,
+                    i: item.booking.agency_booking_id,
+                  })
+                : null,
+          }
+        : null,
+    }));
     const nextCursor = hasMore ? sliced[sliced.length - 1].id_investment : null;
 
-    return res.status(200).json({ items: sliced, nextCursor });
+    return res.status(200).json({ items: normalized, nextCursor });
   } catch (e: unknown) {
     console.error("[investments][GET]", e);
     return res

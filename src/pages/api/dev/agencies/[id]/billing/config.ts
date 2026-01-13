@@ -1,6 +1,7 @@
 // src/pages/api/dev/agencies/[id]/billing/config.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
 import { isPlanKey, normalizeUsersCount } from "@/lib/billing/pricing";
@@ -169,10 +170,25 @@ async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
     notes: parsed.notes?.trim() || null,
   };
 
-  const saved = await prisma.agencyBillingConfig.upsert({
-    where: { id_agency },
-    update: data,
-    create: { id_agency, ...data },
+  const saved = await prisma.$transaction(async (tx) => {
+    const existing = await tx.agencyBillingConfig.findUnique({
+      where: { id_agency },
+      select: { id_config: true },
+    });
+    if (existing) {
+      return tx.agencyBillingConfig.update({
+        where: { id_agency },
+        data,
+      });
+    }
+    const agencyConfigId = await getNextAgencyCounter(
+      tx,
+      id_agency,
+      "agency_billing_config",
+    );
+    return tx.agencyBillingConfig.create({
+      data: { id_agency, agency_billing_config_id: agencyConfigId, ...data },
+    });
   });
 
   return res.status(200).json(saved);

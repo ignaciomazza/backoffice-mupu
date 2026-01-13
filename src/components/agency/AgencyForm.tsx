@@ -22,7 +22,6 @@ export type AgencyDTO = {
   foundation_date?: string | null; // ISO o YYYY-MM-DD
   logo_url?: string | null;
   social?: AgencySocialInput | null;
-  use_agency_numbers?: boolean | null;
 };
 
 export type AgencyUpdateInput = {
@@ -36,7 +35,6 @@ export type AgencyUpdateInput = {
   foundation_date?: string | null; // YYYY-MM-DD o null
   logo_url?: string | null;
   social?: AgencySocialInput | null;
-  use_agency_numbers?: boolean | null;
 };
 
 interface AgencyFormProps {
@@ -111,7 +109,6 @@ export default function AgencyForm({
       twitter: initial?.social?.twitter ?? "",
       tiktok: initial?.social?.tiktok ?? "",
     },
-    use_agency_numbers: initial?.use_agency_numbers ?? true,
   });
 
   const [errors, setErrors] = React.useState<Errors>({});
@@ -134,7 +131,6 @@ export default function AgencyForm({
         twitter: initial.social?.twitter ?? "",
         tiktok: initial.social?.tiktok ?? "",
       },
-      use_agency_numbers: initial?.use_agency_numbers ?? true,
     });
   }, [initial]);
 
@@ -162,11 +158,6 @@ export default function AgencyForm({
         social: { ...(prev.social ?? {}), [field]: v },
       }));
     };
-  const setUseAgencyNumbers = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const checked = e.target.checked;
-    setValues((prev) => ({ ...prev, use_agency_numbers: checked }));
-  };
-
   function validate(current: AgencyUpdateInput): Errors {
     const e: Errors = {};
     if (!current.name.trim()) e.name = "Obligatorio";
@@ -205,7 +196,6 @@ export default function AgencyForm({
         twitter: values.social?.twitter?.trim() || undefined,
         tiktok: values.social?.tiktok?.trim() || undefined,
       },
-      use_agency_numbers: Boolean(values.use_agency_numbers),
     };
 
     const hasSocial = Object.values(cleaned.social ?? {}).some(Boolean);
@@ -453,24 +443,6 @@ export default function AgencyForm({
             {errors.foundation_date}
           </p>
         )}
-      </div>
-
-      {/* Numeración */}
-      <div className="space-y-1 md:col-span-2">
-        <label className="flex items-center gap-3 text-sm">
-          <input
-            name="use_agency_numbers"
-            type="checkbox"
-            checked={Boolean(values.use_agency_numbers)}
-            onChange={setUseAgencyNumbers}
-            disabled={isSaving}
-            className="size-4 rounded border border-sky-950/20 bg-white/70 accent-sky-600 dark:border-white/20 dark:bg-white/10"
-          />
-          Usar numeración interna por agencia
-        </label>
-        <p className="text-xs text-sky-950/70 dark:text-white/70">
-          Si está desactivado, se mantiene la numeración general del sistema.
-        </p>
       </div>
 
       {/* Acciones */}

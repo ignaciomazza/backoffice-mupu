@@ -52,6 +52,7 @@ type ReceiptForBalance = {
 interface Booking {
   id_booking: number;
   agency_booking_id?: number | null;
+  public_id?: string | null;
   clientStatus: string;
   operatorStatus: string;
   status?: string;
@@ -1451,7 +1452,7 @@ export default function BalancesPage() {
                             className={`px-4 ${rowPad} text-center`}
                           >
                             <Link
-                              href={`/bookings/services/${b.id_booking}`}
+                              href={`/bookings/services/${b.public_id ?? b.id_booking}`}
                               target="_blank"
                               className="underline decoration-transparent hover:decoration-sky-600"
                             >

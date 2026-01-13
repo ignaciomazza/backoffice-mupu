@@ -72,7 +72,11 @@ const PILL_TONE: Record<StatTone, string> = {
 };
 
 type OperatorInsightsResponse = {
-  operator: { id_operator: number; name: string | null };
+  operator: {
+    id_operator: number;
+    agency_operator_id?: number | null;
+    name: string | null;
+  };
   range: { from: string; to: string; mode: DateMode };
   counts: {
     services: number;
@@ -110,7 +114,11 @@ type OperatorInsightsResponse = {
         first_name: string;
         last_name: string;
       } | null;
-      shared_operators: { id_operator: number; name: string | null }[];
+      shared_operators: {
+        id_operator: number;
+        agency_operator_id?: number | null;
+        name: string | null;
+      }[];
       debt: MoneyMap;
       sale_with_interest: MoneyMap;
       paid: MoneyMap;
@@ -321,21 +329,6 @@ export default function OperatorInsightsPage() {
 
   const [data, setData] = useState<OperatorInsightsResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [useAgencyNumbers, setUseAgencyNumbers] = useState(true);
-
-  useEffect(() => {
-    if (!token) return;
-    (async () => {
-      try {
-        const res = await authFetch("/api/agency", { cache: "no-store" }, token);
-        if (!res.ok) return;
-        const payload = (await res.json()) as { use_agency_numbers?: boolean };
-        setUseAgencyNumbers(payload.use_agency_numbers !== false);
-      } catch {
-        // mantener default
-      }
-    })();
-  }, [token]);
 
   const operatorName = useMemo(() => {
     if (data?.operator?.name) return data.operator.name;
@@ -343,6 +336,15 @@ export default function OperatorInsightsPage() {
     const found = operators.find((op) => op.id_operator === selectedOperatorId);
     return found?.name || "";
   }, [data?.operator?.name, operators, selectedOperatorId]);
+
+  const operatorNumber = useMemo(() => {
+    if (data?.operator?.agency_operator_id != null) {
+      return data.operator.agency_operator_id;
+    }
+    if (typeof selectedOperatorId !== "number") return null;
+    const found = operators.find((op) => op.id_operator === selectedOperatorId);
+    return found?.agency_operator_id ?? selectedOperatorId;
+  }, [data?.operator?.agency_operator_id, operators, selectedOperatorId]);
 
   useEffect(() => {
     if (selectedOperatorId) return;
@@ -413,18 +415,18 @@ export default function OperatorInsightsPage() {
 
   const operatorTitle = operatorName || "Panel de operadores";
   const operatorMeta =
-    typeof selectedOperatorId === "number"
-      ? `N° ${selectedOperatorId}`
+    typeof selectedOperatorId === "number" && operatorNumber != null
+      ? `N° ${operatorNumber}`
       : "";
 
   const getReceiptDisplayNumber = useCallback(
     (item: { agency_receipt_id?: number | null; id_receipt: number }) => {
-      if (useAgencyNumbers && item.agency_receipt_id != null) {
+      if (item.agency_receipt_id != null) {
         return String(item.agency_receipt_id);
       }
       return String(item.id_receipt);
     },
-    [useAgencyNumbers],
+    [],
   );
   const sharedBookings = useMemo(() => {
     if (!data?.lists.bookings) return 0;
@@ -616,7 +618,8 @@ export default function OperatorInsightsPage() {
                       ) : null}
                       {operators.map((op) => (
                         <option key={op.id_operator} value={op.id_operator}>
-                          {op.name || `Operador ${op.id_operator}`}
+                          {op.name ||
+                            `Operador ${op.agency_operator_id ?? op.id_operator}`}
                         </option>
                       ))}
                     </select>
@@ -926,7 +929,13 @@ export default function OperatorInsightsPage() {
                       {data.lists.bookings.map((booking) => {
                         const sharedCount = booking.shared_operators.length;
                         const sharedNames = booking.shared_operators
-                          .map((op) => op.name || `Operador N° ${op.id_operator}`)
+                          .map(
+                            (op) =>
+                              op.name ||
+                              `Operador N° ${
+                                op.agency_operator_id ?? op.id_operator
+                              }`,
+                          )
                           .join(", ");
                         const titularName = formatName(
                           booking.titular?.first_name,
@@ -1069,7 +1078,13 @@ export default function OperatorInsightsPage() {
                       {data.lists.bookings.map((booking) => {
                         const sharedCount = booking.shared_operators.length;
                         const sharedNames = booking.shared_operators
-                          .map((op) => op.name || `Operador N° ${op.id_operator}`)
+                          .map(
+                            (op) =>
+                              op.name ||
+                              `Operador N° ${
+                                op.agency_operator_id ?? op.id_operator
+                              }`,
+                          )
                           .join(", ");
                         const titularName = formatName(
                           booking.titular?.first_name,

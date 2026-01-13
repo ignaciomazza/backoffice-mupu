@@ -1,6 +1,7 @@
 // src/pages/api/service-types/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify, type JWTPayload } from "jose";
 import type { Prisma, PrismaClient } from "@prisma/client";
 
@@ -243,21 +244,31 @@ export default async function handler(
             .json({ error: "code demasiado largo (máx 60)" });
         }
 
-        const created = await serviceType.create({
-          data: {
-            id_agency: auth.id_agency,
-            name: rawName,
-            code: slugify(rawCode),
-            enabled: Boolean(rawEnabled),
-          },
-          select: {
-            id_service_type: true,
-            code: true,
-            name: true,
-            enabled: true,
-            created_at: true,
-            updated_at: true,
-          },
+        const created = await prisma.$transaction(async (tx) => {
+          const agencyServiceTypeId = await getNextAgencyCounter(
+            tx,
+            auth.id_agency,
+            "service_type",
+          );
+          const delegate = requireServiceTypeDelegate(tx);
+          return delegate.create({
+            data: {
+              id_agency: auth.id_agency,
+              agency_service_type_id: agencyServiceTypeId,
+              name: rawName,
+              code: slugify(rawCode),
+              enabled: Boolean(rawEnabled),
+            },
+            select: {
+              id_service_type: true,
+              agency_service_type_id: true,
+              code: true,
+              name: true,
+              enabled: true,
+              created_at: true,
+              updated_at: true,
+            },
+          });
         });
 
         return res.status(201).json(created as ServiceTypeDTO);

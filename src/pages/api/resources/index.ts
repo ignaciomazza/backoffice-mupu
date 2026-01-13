@@ -2,6 +2,8 @@
 
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
+import { encodePublicId } from "@/lib/publicIds";
 
 export default async function handler(
   req: NextApiRequest,
@@ -22,7 +24,15 @@ export default async function handler(
         where: { id_agency: agencyId },
         orderBy: { createdAt: "desc" },
       });
-      return res.status(200).json(resources);
+      const payload = resources.map((resource) => ({
+        ...resource,
+        public_id: encodePublicId({
+          t: "resource",
+          a: resource.id_agency,
+          i: resource.agency_resource_id,
+        }),
+      }));
+      return res.status(200).json(payload);
     } catch (error) {
       console.error(
         "Error fetching resources:",
@@ -42,11 +52,19 @@ export default async function handler(
     }
 
     try {
-      const newResource = await prisma.resources.create({
-        data: {
-          title,
+      const newResource = await prisma.$transaction(async (tx) => {
+        const agencyResourceId = await getNextAgencyCounter(
+          tx,
           id_agency,
-        },
+          "resource",
+        );
+        return tx.resources.create({
+          data: {
+            title,
+            id_agency,
+            agency_resource_id: agencyResourceId,
+          },
+        });
       });
       return res.status(201).json(newResource);
     } catch (error) {

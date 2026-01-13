@@ -1,6 +1,7 @@
 // src/pages/api/receipts/[id].ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { Prisma } from "@prisma/client";
 import { jwtVerify, JWTPayload } from "jose";
 
@@ -301,16 +302,39 @@ export default async function handler(
   res: NextApiResponse,
 ) {
   const rawId = req.query.id;
-  if (!rawId || Array.isArray(rawId) || isNaN(Number(rawId))) {
+  if (!rawId || Array.isArray(rawId)) {
     return res.status(400).json({ error: "ID inválido" });
   }
-  const id = Number(rawId);
+  const rawIdStr = String(rawId);
+  const parsedId = Number(rawIdStr);
+  const decoded =
+    Number.isFinite(parsedId) && parsedId > 0
+      ? null
+      : decodePublicId(rawIdStr);
+  if (decoded && decoded.t !== "receipt") {
+    return res.status(400).json({ error: "ID inválido" });
+  }
+  if (!decoded && (!Number.isFinite(parsedId) || parsedId <= 0)) {
+    return res.status(400).json({ error: "ID inválido" });
+  }
 
   const authUser = await getUserFromAuth(req);
   const authUserId = authUser?.id_user;
   const authAgencyId = authUser?.id_agency;
   if (!authUserId || !authAgencyId) {
     return res.status(401).json({ error: "No autenticado" });
+  }
+
+  const id = decoded
+    ? (
+        await prisma.receipt.findFirst({
+          where: { id_agency: authAgencyId, agency_receipt_id: decoded.i },
+          select: { id_receipt: true },
+        })
+      )?.id_receipt
+    : parsedId;
+  if (!id) {
+    return res.status(404).json({ error: "Recibo no encontrado" });
   }
 
   if (req.method === "GET") {
@@ -323,9 +347,19 @@ export default async function handler(
       if (!receipt)
         return res.status(404).json({ error: "Recibo no encontrado" });
 
+      const public_id =
+        receipt.agency_receipt_id != null && receipt.id_agency != null
+          ? encodePublicId({
+              t: "receipt",
+              a: receipt.id_agency,
+              i: receipt.agency_receipt_id,
+            })
+          : null;
+
       return res.status(200).json({
         receipt: {
           ...receipt,
+          public_id,
           payments: normalizePaymentsFromReceipt(receipt),
         },
       });

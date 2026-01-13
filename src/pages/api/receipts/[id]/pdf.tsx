@@ -11,6 +11,7 @@ import ReceiptDocument, {
 import ReceiptStandaloneDocument, {
   ReceiptStandalonePdfData,
 } from "@/services/receipts/ReceiptStandaloneDocument";
+import { decodePublicId } from "@/lib/publicIds";
 
 type PdfPaymentRaw = {
   amount: number;
@@ -35,7 +36,6 @@ type AgencyExtras = {
   logo_url?: string | null;
   slug?: string | null;
   logo_filename?: string | null;
-  use_agency_numbers?: boolean | null;
 
   // 👇 campos que venías leyendo con (ag as any)
   legal_name?: string | null;
@@ -155,12 +155,26 @@ export default async function handler(
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
-  const id = parseInt(req.query.id as string, 10);
-  if (Number.isNaN(id)) return res.status(400).end("ID inválido");
+  const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+  if (!rawId) return res.status(400).end("ID inválido");
+  const rawIdStr = String(rawId);
+  const parsedId = Number(rawIdStr);
+  const decoded =
+    Number.isFinite(parsedId) && parsedId > 0
+      ? null
+      : decodePublicId(rawIdStr);
+  if (decoded && decoded.t !== "receipt") {
+    return res.status(400).end("ID inválido");
+  }
+  if (!decoded && (!Number.isFinite(parsedId) || parsedId <= 0)) {
+    return res.status(400).end("ID inválido");
+  }
 
   // 1) Recibo + relaciones
-  const receipt = await prisma.receipt.findUnique({
-    where: { id_receipt: id },
+  const receipt = await prisma.receipt.findFirst({
+    where: decoded
+      ? { id_agency: decoded.a, agency_receipt_id: decoded.i }
+      : { id_receipt: parsedId },
     include: {
       payments: true,
       booking: {
@@ -177,9 +191,8 @@ export default async function handler(
     | (typeof receipt.agency & AgencyExtras)
     | null;
 
-  const useAgencyNumbers = agency?.use_agency_numbers !== false;
   const receiptDisplayNumber =
-    useAgencyNumbers && receipt.agency_receipt_id != null
+    receipt.agency_receipt_id != null
       ? String(receipt.agency_receipt_id)
       : receipt.receipt_number;
 
@@ -438,7 +451,7 @@ export default async function handler(
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader(
     "Content-Disposition",
-    `attachment; filename=recibo_${safeReceiptLabel || id}.pdf`,
+    `attachment; filename=recibo_${safeReceiptLabel || receipt.id_receipt}.pdf`,
   );
   stream.pipe(res);
 }

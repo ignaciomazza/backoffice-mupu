@@ -2,6 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
+import { encodePublicId } from "@/lib/publicIds";
 
 /** ====== Auth local al endpoint (sin helpers externos) ====== */
 type TokenPayload = JWTPayload & {
@@ -163,11 +164,21 @@ export default async function handler(
       include: { titular: true },
     });
 
-    const bookingEvents = bookings.map((b) => ({
-      id: `b-${b.id_booking}`,
-      title: `${b.titular.first_name} ${b.titular.last_name}: ${b.details}`,
-      start: b.departure_date,
-    }));
+    const bookingEvents = bookings.map((b) => {
+      const publicId =
+        b.agency_booking_id != null
+          ? encodePublicId({
+              t: "booking",
+              a: b.id_agency,
+              i: b.agency_booking_id,
+            })
+          : null;
+      return {
+        id: `b-${publicId ?? b.id_booking}`,
+        title: `${b.titular.first_name} ${b.titular.last_name}: ${b.details}`,
+        start: b.departure_date,
+      };
+    });
 
     // Notas de la misma agencia (se une por el creador)
     const notes = await prisma.calendarNote.findMany({

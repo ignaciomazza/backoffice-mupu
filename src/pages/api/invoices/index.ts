@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { listInvoices, createInvoices } from "@/services/invoices";
+import { encodePublicId } from "@/lib/publicIds";
 import { jwtVerify, type JWTPayload } from "jose";
 
 /* ================= JWT SECRET (igual que bookings) ================= */
@@ -189,7 +190,24 @@ export default async function handler(
             ],
           },
           include: {
-            booking: { include: { titular: true } },
+            booking: {
+              select: {
+                id_booking: true,
+                agency_booking_id: true,
+                id_agency: true,
+                titular: {
+                  select: {
+                    first_name: true,
+                    last_name: true,
+                    company_name: true,
+                    address: true,
+                    locality: true,
+                    postal_code: true,
+                    commercial_address: true,
+                  },
+                },
+              },
+            },
             client: {
               select: {
                 first_name: true,
@@ -201,8 +219,32 @@ export default async function handler(
             },
           },
         });
+        const normalized = invoices.map((inv) => ({
+          ...inv,
+          public_id:
+            inv.agency_invoice_id != null
+              ? encodePublicId({
+                  t: "invoice",
+                  a: inv.id_agency,
+                  i: inv.agency_invoice_id,
+                })
+              : null,
+          booking: inv.booking
+            ? {
+                ...inv.booking,
+                public_id:
+                  inv.booking.agency_booking_id != null
+                    ? encodePublicId({
+                        t: "booking",
+                        a: inv.booking.id_agency,
+                        i: inv.booking.agency_booking_id,
+                      })
+                    : null,
+              }
+            : inv.booking,
+        }));
 
-        return res.status(200).json({ success: true, invoices });
+        return res.status(200).json({ success: true, invoices: normalized });
       }
 
       // por bookingId
@@ -230,7 +272,18 @@ export default async function handler(
       }
 
       const invoices = await listInvoices(bookingId);
-      return res.status(200).json({ success: true, invoices });
+      const normalized = invoices.map((inv) => ({
+        ...inv,
+        public_id:
+          inv.agency_invoice_id != null
+            ? encodePublicId({
+                t: "invoice",
+                a: inv.id_agency,
+                i: inv.agency_invoice_id,
+              })
+            : null,
+      }));
+      return res.status(200).json({ success: true, invoices: normalized });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error interno";
       console.error("[invoices][GET]", msg);
@@ -256,7 +309,18 @@ export default async function handler(
           .status(400)
           .json({ success: false, message: result.message });
       }
-      return res.status(201).json({ success: true, invoices: result.invoices });
+      const invoices = (result.invoices ?? []).map((inv) => ({
+        ...inv,
+        public_id:
+          inv.agency_invoice_id != null
+            ? encodePublicId({
+                t: "invoice",
+                a: inv.id_agency,
+                i: inv.agency_invoice_id,
+              })
+            : null,
+      }));
+      return res.status(201).json({ success: true, invoices });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error interno";
       console.error("[invoices][POST]", msg);

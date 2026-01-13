@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 
@@ -226,9 +227,15 @@ export default async function handler(
         : "adjust_down";
       const amountAbs = diff.abs().toDecimalPlaces(2);
 
+      const agencyEntryId = await getNextAgencyCounter(
+        tx,
+        auth.id_agency,
+        "credit_entry",
+      );
       const entry = await tx.creditEntry.create({
         data: {
           id_agency: auth.id_agency,
+          agency_credit_entry_id: agencyEntryId,
           account_id: accountId,
           created_by: auth.id_user,
           concept: `Ajuste manual: ${reason}`,

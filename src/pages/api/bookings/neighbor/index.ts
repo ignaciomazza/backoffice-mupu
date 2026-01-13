@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 import prisma from "@/lib/prisma";
+import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 
 type DecodedUser = {
   id_user?: number;
@@ -124,14 +125,32 @@ export default async function handler(
         : req.query.bookingId) ??
       (Array.isArray(req.query.id) ? req.query.id[0] : req.query.id);
 
-    const bookingId = Number(bookingIdParamRaw);
-    if (!Number.isFinite(bookingId) || bookingId <= 0) {
+    const rawId = bookingIdParamRaw ? String(bookingIdParamRaw) : "";
+    const bookingId = Number(rawId);
+    const decoded =
+      Number.isFinite(bookingId) && bookingId > 0
+        ? null
+        : decodePublicId(rawId);
+    if (decoded && decoded.t !== "booking") {
+      return res.status(400).json({ error: "bookingId inválido" });
+    }
+    if (!decoded && (!Number.isFinite(bookingId) || bookingId <= 0)) {
       return res.status(400).json({ error: "bookingId inválido" });
     }
 
-    const current = await prisma.booking.findUnique({
-      where: { id_booking: bookingId },
-      select: { id_booking: true, id_agency: true },
+    if (decoded && decoded.a !== user.id_agency) {
+      return res.status(404).json({ error: "Reserva no encontrada" });
+    }
+
+    const current = await prisma.booking.findFirst({
+      where: decoded
+        ? { id_agency: user.id_agency, agency_booking_id: decoded.i }
+        : { id_booking: bookingId },
+      select: {
+        id_booking: true,
+        id_agency: true,
+        agency_booking_id: true,
+      },
     });
     if (!current) {
       return res.status(404).json({ error: "Reserva no encontrada" });
@@ -146,27 +165,59 @@ export default async function handler(
     }
 
     // ── Vecinos dentro de la misma agencia
+    const orderingField = current.agency_booking_id
+      ? "agency_booking_id"
+      : "id_booking";
+
     const prev = await prisma.booking.findFirst({
       where: {
         id_agency: current.id_agency,
-        id_booking: { lt: current.id_booking },
+        [orderingField]: {
+          lt:
+            orderingField === "agency_booking_id"
+              ? current.agency_booking_id ?? current.id_booking
+              : current.id_booking,
+        },
       },
-      select: { id_booking: true },
-      orderBy: { id_booking: "desc" },
+      select: { id_booking: true, agency_booking_id: true },
+      orderBy: { [orderingField]: "desc" },
     });
 
     const next = await prisma.booking.findFirst({
       where: {
         id_agency: current.id_agency,
-        id_booking: { gt: current.id_booking },
+        [orderingField]: {
+          gt:
+            orderingField === "agency_booking_id"
+              ? current.agency_booking_id ?? current.id_booking
+              : current.id_booking,
+        },
       },
-      select: { id_booking: true },
-      orderBy: { id_booking: "asc" },
+      select: { id_booking: true, agency_booking_id: true },
+      orderBy: { [orderingField]: "asc" },
     });
 
+    const prevId =
+      prev?.agency_booking_id != null
+        ? encodePublicId({
+            t: "booking",
+            a: current.id_agency,
+            i: prev.agency_booking_id,
+          })
+        : prev?.id_booking ?? null;
+
+    const nextId =
+      next?.agency_booking_id != null
+        ? encodePublicId({
+            t: "booking",
+            a: current.id_agency,
+            i: next.agency_booking_id,
+          })
+        : next?.id_booking ?? null;
+
     return res.status(200).json({
-      prevId: prev?.id_booking ?? null,
-      nextId: next?.id_booking ?? null,
+      prevId,
+      nextId,
     });
   } catch (e) {
     // eslint-disable-next-line no-console

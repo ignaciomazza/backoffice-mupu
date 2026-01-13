@@ -4,7 +4,11 @@
 import { useEffect, useState } from "react";
 import { authFetch } from "@/utils/authFetch";
 
-export type OperatorLite = { id_operator: number; name: string };
+export type OperatorLite = {
+  id_operator: number;
+  agency_operator_id?: number | null;
+  name: string;
+};
 
 async function safeJson<T>(res: Response): Promise<T | null> {
   try {

@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { listCreditNotes, createCreditNote } from "@/services/creditNotes";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 import { jwtVerify, type JWTPayload } from "jose";
+import { encodePublicId } from "@/lib/publicIds";
 
 /* ================= JWT SECRET (igual que bookings/invoices) ================= */
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -194,7 +195,39 @@ export default async function handler(
           },
         });
 
-        return res.status(200).json({ success: true, creditNotes });
+        const normalized = creditNotes.map((note) => {
+          const booking = note.invoice?.booking;
+          const bookingPublicId =
+            booking?.agency_booking_id != null
+              ? encodePublicId({
+                  t: "booking",
+                  a: booking.id_agency,
+                  i: booking.agency_booking_id,
+                })
+              : null;
+
+          return {
+            ...note,
+            public_id:
+              note.agency_credit_note_id != null
+                ? encodePublicId({
+                    t: "credit_note",
+                    a: note.id_agency,
+                    i: note.agency_credit_note_id,
+                  })
+                : null,
+            invoice: note.invoice
+              ? {
+                  ...note.invoice,
+                  booking: booking
+                    ? { ...booking, public_id: bookingPublicId }
+                    : booking,
+                }
+              : note.invoice,
+          };
+        });
+
+        return res.status(200).json({ success: true, creditNotes: normalized });
       }
 
       // por invoiceId
@@ -226,7 +259,18 @@ export default async function handler(
 
       const creditNotes: CreditNoteWithItems[] =
         await listCreditNotes(invoiceId);
-      return res.status(200).json({ success: true, creditNotes });
+      const normalized = creditNotes.map((note) => ({
+        ...note,
+        public_id:
+          note.agency_credit_note_id != null
+            ? encodePublicId({
+                t: "credit_note",
+                a: note.id_agency,
+                i: note.agency_credit_note_id,
+              })
+            : null,
+      }));
+      return res.status(200).json({ success: true, creditNotes: normalized });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error interno";
       console.error("[credit-notes][GET]", msg);
@@ -284,9 +328,19 @@ export default async function handler(
           .status(400)
           .json({ success: false, message: result.message });
       }
+      const public_id =
+        result.creditNote?.agency_credit_note_id != null
+          ? encodePublicId({
+              t: "credit_note",
+              a: result.creditNote.id_agency,
+              i: result.creditNote.agency_credit_note_id,
+            })
+          : null;
       return res.status(201).json({
         success: true,
-        creditNote: result.creditNote,
+        creditNote: result.creditNote
+          ? { ...result.creditNote, public_id }
+          : result.creditNote,
         items: result.items,
       });
     } catch (e) {

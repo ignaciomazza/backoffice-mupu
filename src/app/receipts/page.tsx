@@ -92,6 +92,7 @@ const ASSOCIATION_BADGE = {
 type ReceiptRow = {
   id_receipt: number;
   agency_receipt_id?: number | null;
+  public_id?: string | null;
   receipt_number: string;
   issue_date: string | null;
   /** Importe recibido por la agencia (neto) */
@@ -129,6 +130,7 @@ type ReceiptRow = {
   booking?: {
     id_booking: number;
     agency_booking_id?: number | null;
+    public_id?: string | null;
     user?: {
       id_user: number;
       first_name: string | null;
@@ -224,21 +226,6 @@ export default function ReceiptsPage() {
     "desarrollador",
     "lider",
   ].includes(role);
-
-  const [useAgencyNumbers, setUseAgencyNumbers] = useState(true);
-  useEffect(() => {
-    if (!token) return;
-    (async () => {
-      try {
-        const res = await authFetch("/api/agency", { cache: "no-store" }, token);
-        if (!res.ok) return;
-        const data = (await res.json()) as { use_agency_numbers?: boolean };
-        setUseAgencyNumbers(data.use_agency_numbers !== false);
-      } catch {
-        // mantener default
-      }
-    })();
-  }, [token]);
 
   /* ---------- Filtros ---------- */
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -374,12 +361,12 @@ export default function ReceiptsPage() {
 
   const getReceiptDisplayNumber = useCallback(
     (r: Pick<ReceiptRow, "agency_receipt_id" | "receipt_number">) => {
-      if (useAgencyNumbers && r.agency_receipt_id != null) {
+      if (r.agency_receipt_id != null) {
         return String(r.agency_receipt_id);
       }
       return r.receipt_number;
     },
-    [useAgencyNumbers],
+    [],
   );
 
   /** Normaliza un recibo para UI/CSV (reutilizado en página y export) */
@@ -1089,7 +1076,7 @@ export default function ReceiptsPage() {
 
   const doAttach = async () => {
     if (!token || !attachTarget || attaching) return;
-    const targetId = attachTarget.id_receipt;
+    const targetId = attachTarget.public_id ?? attachTarget.id_receipt;
     const bId = attachTarget.booking?.id_booking || attachBookingId;
     if (!bId) return toast.error("Elegí una reserva para asociar el recibo.");
     if (!attachSelectedServiceIds.length)
@@ -1185,7 +1172,7 @@ export default function ReceiptsPage() {
     setLoadingPdfId(row.id_receipt);
     try {
       const res = await authFetch(
-        `/api/receipts/${row.id_receipt}/pdf`,
+        `/api/receipts/${row.public_id ?? row.id_receipt}/pdf`,
         { headers: { Accept: "application/pdf" } },
         token,
       );
@@ -1219,7 +1206,7 @@ export default function ReceiptsPage() {
     setLoadingDeleteId(row.id_receipt);
     try {
       const res = await authFetch(
-        `/api/receipts/${row.id_receipt}`,
+        `/api/receipts/${row.public_id ?? row.id_receipt}`,
         { method: "DELETE" },
         token,
       );
@@ -1362,7 +1349,7 @@ export default function ReceiptsPage() {
           onSubmit={async (payload) => {
             if (editingReceipt?.id_receipt) {
               const res = await authFetch(
-                `/api/receipts/${editingReceipt.id_receipt}`,
+                `/api/receipts/${editingReceipt.public_id ?? editingReceipt.id_receipt}`,
                 { method: "PATCH", body: JSON.stringify(payload) },
                 token || undefined,
               );
@@ -1798,11 +1785,12 @@ export default function ReceiptsPage() {
                           <td className="px-4 py-3">
                             {r.booking?.id_booking ? (
                               <Link
-                                href={`/bookings/services/${r.booking?.id_booking}`}
+                                href={`/bookings/services/${r.booking?.public_id ?? r.booking?.id_booking}`}
                                 target="_blank"
                                 className="underline decoration-transparent hover:decoration-sky-600"
                               >
-                                {r.booking?.id_booking}
+                                {r.booking?.agency_booking_id ??
+                                  r.booking?.id_booking}
                               </Link>
                             ) : (
                               "—"
@@ -2030,11 +2018,12 @@ export default function ReceiptsPage() {
                           <b>Reserva:</b>
                           {r.booking?.id_booking ? (
                             <Link
-                              href={`/bookings/services/${r.booking?.id_booking}`}
+                              href={`/bookings/services/${r.booking?.public_id ?? r.booking?.id_booking}`}
                               target="_blank"
                               className="underline decoration-transparent hover:decoration-sky-600"
                             >
-                              {r.booking?.id_booking}
+                              {r.booking?.agency_booking_id ??
+                                r.booking?.id_booking}
                             </Link>
                           ) : (
                             " —"
