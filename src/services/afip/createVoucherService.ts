@@ -8,6 +8,10 @@ import {
 } from "@/services/afip/afipConfig";
 import qrcode from "qrcode";
 import { Prisma } from "@prisma/client";
+import {
+  computeManualTotals,
+  type ManualTotalsInput,
+} from "@/services/afip/manualTotals";
 
 /** ---------------- Tipos ---------------- */
 interface VoucherResponse {
@@ -145,93 +149,113 @@ export async function createVoucherService(
   currency: string,
   exchangeRateManual?: number,
   invoiceDate?: string,
+  manualTotals?: ManualTotalsInput,
 ): Promise<VoucherResponse> {
   try {
     // 1) Resolver AFIP según la agencia del usuario + CUIT real de esa agencia
     const afipClient = await getAfipFromRequest(req);
     const agencyCUIT = await getAgencyCUITFromRequest(req);
 
-    // 2) Totales
-    const saleTotal = serviceDetails.reduce((sum, s) => sum + s.sale_price, 0);
-    const interestBase = serviceDetails.reduce(
-      (sum, s) => sum + (s.taxableCardInterest ?? 0),
-      0,
-    );
-    const interestVat = serviceDetails.reduce(
-      (sum, s) => sum + (s.vatOnCardInterest ?? 0),
-      0,
-    );
-    const adjustedTotal = parseFloat(
-      (saleTotal + interestBase + interestVat).toFixed(2),
-    );
+    let adjustedTotal = 0;
+    let totalIVA = 0;
+    let neto = 0;
+    let mergedIvaEntries: IVAEntry[] = [];
 
-    // 3) IVA
-    const base21 = serviceDetails.reduce(
-      (sum, s) => sum + s.taxableBase21 + s.commission21,
-      0,
-    );
-    const imp21 = serviceDetails.reduce(
-      (sum, s) => sum + s.tax_21 + s.vatOnCommission21,
-      0,
-    );
-    const base10_5 = serviceDetails.reduce(
-      (sum, s) => sum + (s.taxableBase10_5 ?? 0) + (s.commission10_5 ?? 0),
-      0,
-    );
-    const imp10_5 = serviceDetails.reduce(
-      (sum, s) => sum + (s.tax_105 ?? 0) + (s.vatOnCommission10_5 ?? 0),
-      0,
-    );
+    if (manualTotals) {
+      const manual = computeManualTotals(manualTotals);
+      if (!manual.ok) {
+        return { success: false, message: manual.error };
+      }
+      adjustedTotal = manual.result.impTotal;
+      totalIVA = manual.result.impIVA;
+      neto = manual.result.impNeto;
+      mergedIvaEntries = manual.result.ivaEntries;
+    } else {
+      // 2) Totales
+      const saleTotal = serviceDetails.reduce(
+        (sum, s) => sum + s.sale_price,
+        0,
+      );
+      const interestBase = serviceDetails.reduce(
+        (sum, s) => sum + (s.taxableCardInterest ?? 0),
+        0,
+      );
+      const interestVat = serviceDetails.reduce(
+        (sum, s) => sum + (s.vatOnCardInterest ?? 0),
+        0,
+      );
+      adjustedTotal = parseFloat(
+        (saleTotal + interestBase + interestVat).toFixed(2),
+      );
 
-    const ivaEntries: IVAEntry[] = [];
-    if (base21 || imp21)
-      ivaEntries.push({
-        Id: 5,
-        BaseImp: +base21.toFixed(2),
-        Importe: +imp21.toFixed(2),
-      });
-    if (base10_5 || imp10_5)
-      ivaEntries.push({
-        Id: 4,
-        BaseImp: +base10_5.toFixed(2),
-        Importe: +imp10_5.toFixed(2),
-      });
-    if (interestBase || interestVat)
-      ivaEntries.push({
-        Id: 5,
-        BaseImp: +interestBase.toFixed(2),
-        Importe: +interestVat.toFixed(2),
-      });
+      // 3) IVA
+      const base21 = serviceDetails.reduce(
+        (sum, s) => sum + s.taxableBase21 + s.commission21,
+        0,
+      );
+      const imp21 = serviceDetails.reduce(
+        (sum, s) => sum + s.tax_21 + s.vatOnCommission21,
+        0,
+      );
+      const base10_5 = serviceDetails.reduce(
+        (sum, s) => sum + (s.taxableBase10_5 ?? 0) + (s.commission10_5 ?? 0),
+        0,
+      );
+      const imp10_5 = serviceDetails.reduce(
+        (sum, s) => sum + (s.tax_105 ?? 0) + (s.vatOnCommission10_5 ?? 0),
+        0,
+      );
 
-    const mergedIvaEntries: IVAEntry[] = Object.values(
-      ivaEntries.reduce(
-        (acc, cur) => {
-          if (!acc[cur.Id]) acc[cur.Id] = { ...cur };
-          else {
-            acc[cur.Id].BaseImp += cur.BaseImp;
-            acc[cur.Id].Importe += cur.Importe;
-          }
-          return acc;
-        },
-        {} as Record<number, IVAEntry>,
-      ),
-    ).map((e) => ({
-      Id: e.Id,
-      BaseImp: parseFloat(e.BaseImp.toFixed(2)),
-      Importe: parseFloat(e.Importe.toFixed(2)),
-    }));
+      const ivaEntries: IVAEntry[] = [];
+      if (base21 || imp21)
+        ivaEntries.push({
+          Id: 5,
+          BaseImp: +base21.toFixed(2),
+          Importe: +imp21.toFixed(2),
+        });
+      if (base10_5 || imp10_5)
+        ivaEntries.push({
+          Id: 4,
+          BaseImp: +base10_5.toFixed(2),
+          Importe: +imp10_5.toFixed(2),
+        });
+      if (interestBase || interestVat)
+        ivaEntries.push({
+          Id: 5,
+          BaseImp: +interestBase.toFixed(2),
+          Importe: +interestVat.toFixed(2),
+        });
 
-    const totalIVA = parseFloat(
-      mergedIvaEntries.reduce((sum, e) => sum + e.Importe, 0).toFixed(2),
-    );
-    const neto = parseFloat((adjustedTotal - totalIVA).toFixed(2));
-    const totalBase = mergedIvaEntries.reduce((sum, e) => sum + e.BaseImp, 0);
-    if (Math.abs(neto - totalBase) > 0.01) {
-      mergedIvaEntries.push({
-        Id: 3,
-        BaseImp: parseFloat((neto - totalBase).toFixed(2)),
-        Importe: 0,
-      });
+      mergedIvaEntries = Object.values(
+        ivaEntries.reduce(
+          (acc, cur) => {
+            if (!acc[cur.Id]) acc[cur.Id] = { ...cur };
+            else {
+              acc[cur.Id].BaseImp += cur.BaseImp;
+              acc[cur.Id].Importe += cur.Importe;
+            }
+            return acc;
+          },
+          {} as Record<number, IVAEntry>,
+        ),
+      ).map((e) => ({
+        Id: e.Id,
+        BaseImp: parseFloat(e.BaseImp.toFixed(2)),
+        Importe: parseFloat(e.Importe.toFixed(2)),
+      }));
+
+      totalIVA = parseFloat(
+        mergedIvaEntries.reduce((sum, e) => sum + e.Importe, 0).toFixed(2),
+      );
+      neto = parseFloat((adjustedTotal - totalIVA).toFixed(2));
+      const totalBase = mergedIvaEntries.reduce((sum, e) => sum + e.BaseImp, 0);
+      if (Math.abs(neto - totalBase) > 0.01) {
+        mergedIvaEntries.push({
+          Id: 3,
+          BaseImp: parseFloat((neto - totalBase).toFixed(2)),
+          Importe: 0,
+        });
+      }
     }
 
     // 4) Estado AFIP / pto. de venta / numeración

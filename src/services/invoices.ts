@@ -3,6 +3,10 @@ import prisma from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import type { NextApiRequest } from "next";
 import { createVoucherService } from "@/services/afip/createVoucherService";
+import {
+  splitManualTotalsByClient,
+  type ManualTotalsInput,
+} from "@/services/afip/manualTotals";
 import type { Invoice, InvoiceItem, Prisma } from "@prisma/client";
 
 export type InvoiceWithItems = Invoice & { InvoiceItem: InvoiceItem[] };
@@ -48,6 +52,7 @@ interface InvoiceRequestBody {
   description10_5?: string[];
   descriptionNonComputable?: string[];
   invoiceDate?: string;
+  manualTotals?: ManualTotalsInput;
 }
 
 interface CreateResult {
@@ -70,6 +75,7 @@ export async function createInvoices(
     description10_5 = [],
     descriptionNonComputable = [],
     invoiceDate,
+    manualTotals,
   } = data;
 
   const booking = await prisma.booking.findUnique({
@@ -142,14 +148,27 @@ export async function createInvoices(
   const mapCurrency = (m: string) =>
     m === "ARS" ? "PES" : m === "USD" ? "DOL" : m;
 
+  if (manualTotals && Object.keys(grouped).length > 1) {
+    return {
+      success: false,
+      message:
+        "Importes manuales solo disponibles cuando todos los servicios están en la misma moneda.",
+    };
+  }
+
   const invoicesResult: InvoiceWithItems[] = [];
   const errorMessages = new Set<string>();
+
+  const manualTotalsByClient = manualTotals
+    ? splitManualTotalsByClient(manualTotals, numClients)
+    : undefined;
 
   for (const m in grouped) {
     const svcs = grouped[m];
     const afipCurrency = mapCurrency(m);
 
-    for (const cid of clientIds) {
+    for (let idx = 0; idx < clientIds.length; idx += 1) {
+      const cid = clientIds[idx];
       const client = await prisma.client.findUnique({
         where: { id_client: cid },
       });
@@ -179,6 +198,7 @@ export async function createInvoices(
         afipCurrency,
         exchangeRate,
         invoiceDate,
+        manualTotalsByClient ? manualTotalsByClient[idx] : undefined,
       );
       if (!resp.success || !resp.details) {
         errorMessages.add(
@@ -198,6 +218,9 @@ export async function createInvoices(
         description21,
         description10_5,
         descriptionNonComputable,
+        ...(manualTotalsByClient
+          ? { manualTotals: manualTotalsByClient[idx] }
+          : {}),
         serviceDates: svcs.map((s) => ({
           id_service: s.id_service,
           from: s.departure_date.toISOString().slice(0, 10),

@@ -4,6 +4,10 @@ import prisma from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { Prisma, type CreditNote, type CreditNoteItem } from "@prisma/client";
 import { createCreditNoteVoucher } from "@/services/afip/creditNoteService";
+import {
+  computeManualTotals,
+  type ManualTotalsInput,
+} from "@/services/afip/manualTotals";
 
 export type CreditNoteWithItems = CreditNote & {
   items: CreditNoteItem[];
@@ -15,6 +19,7 @@ interface CreditNoteRequest {
   tipoNota: 3 | 8; // 3 = Nota de Crédito A, 8 = Nota de Crédito B
   exchangeRate?: number;
   invoiceDate?: string; // YYYY-MM-DD
+  manualTotals?: ManualTotalsInput;
 }
 
 interface CreateCreditNoteResult {
@@ -31,6 +36,7 @@ interface InvoicePayload extends Prisma.JsonObject {
   description21?: string[];
   description10_5?: string[];
   descriptionNonComputable?: string[];
+  manualTotals?: ManualTotalsInput;
 }
 
 /** Lista todas las NC de una factura */
@@ -54,7 +60,7 @@ export async function createCreditNote(
   req: NextApiRequest,
   data: CreditNoteRequest,
 ): Promise<CreateCreditNoteResult> {
-  const { invoiceId, tipoNota, exchangeRate, invoiceDate } = data;
+  const { invoiceId, tipoNota, exchangeRate, invoiceDate, manualTotals } = data;
 
   // 1) Obtener factura original (con items y cliente)
   const orig = await prisma.invoice.findUnique({
@@ -74,6 +80,7 @@ export async function createCreditNote(
 
   // 2) Extraer datos guardados en el payload
   const payload = orig.payloadAfip as InvoicePayload;
+  const storedManualTotals = payload.manualTotals;
 
   // En facturas nuevas, guardamos voucherData adentro; en otras puede estar plano.
   const voucherData = (payload.voucherData || payload) as Prisma.JsonObject;
@@ -107,10 +114,23 @@ export async function createCreditNote(
 
   // 5) Reconstruir el desglose de IVA desde la factura original
   //    voucherData.Iva es un array de { Id, BaseImp, Importe }
-  const ivaLines =
+  let ivaLines =
     (voucherData.Iva as
       | Array<{ Id: number; BaseImp: number; Importe: number }>
       | undefined) || [];
+
+  if (manualTotals) {
+    const manual = computeManualTotals(manualTotals);
+    if (!manual.ok) {
+      return { success: false, message: manual.error };
+    }
+    ivaLines = manual.result.ivaEntries;
+  } else if (storedManualTotals) {
+    const manual = computeManualTotals(storedManualTotals);
+    if (manual.ok) {
+      ivaLines = manual.result.ivaEntries;
+    }
+  }
 
   type AfipServiceDetail = {
     sale_price: number;

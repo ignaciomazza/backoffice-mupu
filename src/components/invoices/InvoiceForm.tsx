@@ -7,6 +7,7 @@ import { Client, Service } from "@/types";
 import ClientPicker from "@/components/clients/ClientPicker";
 import { authFetch } from "@/utils/authFetch";
 import { toast } from "react-toastify";
+import { computeManualTotals } from "@/services/afip/manualTotals";
 
 const Section = ({
   title,
@@ -75,6 +76,13 @@ export type InvoiceFormData = {
   description10_5: string[];
   descriptionNonComputable: string[];
   invoiceDate?: string;
+  manualTotalsEnabled: boolean;
+  manualTotal: string;
+  manualBase21: string;
+  manualIva21: string;
+  manualBase10_5: string;
+  manualIva10_5: string;
+  manualExempt: string;
 };
 
 interface InvoiceFormProps {
@@ -373,6 +381,95 @@ export default function InvoiceForm({
     [selectedServices],
   );
 
+  const selectedCurrencies = useMemo(() => {
+    const set = new Set<string>();
+    selectedServices.forEach((svc) => {
+      const cur = String(svc.currency || "ARS").toUpperCase();
+      set.add(cur);
+    });
+    return set;
+  }, [selectedServices]);
+
+  const hasMultipleCurrencies = selectedCurrencies.size > 1;
+  const manualEnabled = formData.manualTotalsEnabled;
+  const manualToggleDisabled = hasMultipleCurrencies;
+
+  useEffect(() => {
+    if (manualEnabled && manualToggleDisabled) {
+      updateFormData("manualTotalsEnabled", false);
+    }
+  }, [manualEnabled, manualToggleDisabled, updateFormData]);
+
+  const parseManualValue = (value?: string) => {
+    if (!value) return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const num = Number(trimmed.replace(",", "."));
+    return Number.isFinite(num) ? num : undefined;
+  };
+
+  const manualTotalsDraft = useMemo(
+    () => ({
+      total: parseManualValue(formData.manualTotal),
+      base21: parseManualValue(formData.manualBase21),
+      iva21: parseManualValue(formData.manualIva21),
+      base10_5: parseManualValue(formData.manualBase10_5),
+      iva10_5: parseManualValue(formData.manualIva10_5),
+      exempt: parseManualValue(formData.manualExempt),
+    }),
+    [
+      formData.manualTotal,
+      formData.manualBase21,
+      formData.manualIva21,
+      formData.manualBase10_5,
+      formData.manualIva10_5,
+      formData.manualExempt,
+    ],
+  );
+
+  const manualInputTouched = useMemo(
+    () => Object.values(manualTotalsDraft).some((v) => typeof v === "number"),
+    [manualTotalsDraft],
+  );
+
+  const manualValidationError = useMemo(() => {
+    if (!manualEnabled || !manualInputTouched) return null;
+    const validation = computeManualTotals(manualTotalsDraft);
+    return validation.ok ? null : validation.error;
+  }, [manualEnabled, manualInputTouched, manualTotalsDraft]);
+
+  const manualPreview = useMemo(() => {
+    const base21 = manualTotalsDraft.base21 ?? 0;
+    const iva21 = manualTotalsDraft.iva21 ?? 0;
+    const base10 = manualTotalsDraft.base10_5 ?? 0;
+    const iva10 = manualTotalsDraft.iva10_5 ?? 0;
+    const exempt = manualTotalsDraft.exempt ?? 0;
+    const totalInput = manualTotalsDraft.total ?? 0;
+
+    const ivaSum = Number((iva21 + iva10).toFixed(2));
+    const baseSum = Number((base21 + base10 + exempt).toFixed(2));
+    const totalFromParts = Number((baseSum + ivaSum).toFixed(2));
+    const total = totalInput > 0 ? totalInput : totalFromParts;
+    const neto = Number((total - ivaSum).toFixed(2));
+
+    return {
+      total,
+      ivaSum,
+      neto,
+    };
+  }, [manualTotalsDraft]);
+
+  const manualCurrency = selectedServices[0]?.currency || "ARS";
+  const manualFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: manualCurrency === "PES" ? "ARS" : manualCurrency,
+        minimumFractionDigits: 2,
+      }),
+    [manualCurrency],
+  );
+
   return (
     <motion.div
       layout
@@ -494,6 +591,12 @@ export default function InvoiceForm({
                 );
                 return;
               }
+              if (manualEnabled && hasMultipleCurrencies) {
+                toast.error(
+                  "Los importes manuales solo se permiten con una única moneda.",
+                );
+                return;
+              }
               handleSubmit(e);
             }}
             className="space-y-5 px-4 pb-6 pt-4 md:px-6"
@@ -564,6 +667,12 @@ export default function InvoiceForm({
                   </div>
                 ))}
               </div>
+              {selectedClientsCount > 1 && (
+                <div className="text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
+                  Se emite una factura por cliente y se prorratea en partes
+                  iguales.
+                </div>
+              )}
             </Section>
 
             <Section
@@ -639,6 +748,172 @@ export default function InvoiceForm({
                   </div>
                 ) : null}
               </div>
+            </Section>
+
+            <Section
+              title="Importes manuales"
+              desc="Opcional: sobrescribe el desglose automático de los servicios."
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3 md:col-span-2">
+                <div className="text-sm font-medium">
+                  Usar importes manuales
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateFormData("manualTotalsEnabled", !manualEnabled)
+                  }
+                  disabled={manualToggleDisabled}
+                  className={`rounded-full border px-4 py-1 text-xs font-medium transition ${
+                    manualToggleDisabled
+                      ? "cursor-not-allowed border-white/20 bg-white/10 text-sky-950/40 dark:text-white/40"
+                      : manualEnabled
+                        ? "border-sky-300/50 bg-sky-100 text-sky-950"
+                        : "border-white/20 bg-white/10 text-sky-950/70 dark:text-white/70"
+                  }`}
+                >
+                  {manualEnabled ? "Activado" : "Desactivado"}
+                </button>
+              </div>
+
+              {manualEnabled && (
+                <>
+                  <Field
+                    id="manualTotal"
+                    label="Importe total (opcional)"
+                    hint="Si lo dejás vacío, se calcula con los campos de abajo. Si solo completás el total, se toma como exento."
+                  >
+                    <input
+                      id="manualTotal"
+                      name="manualTotal"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.manualTotal}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                      className={inputBase}
+                    />
+                  </Field>
+
+                  <Field id="manualBase21" label="Base gravada 21%">
+                    <input
+                      id="manualBase21"
+                      name="manualBase21"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.manualBase21}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                      className={inputBase}
+                    />
+                  </Field>
+
+                  <Field id="manualIva21" label="IVA 21%">
+                    <input
+                      id="manualIva21"
+                      name="manualIva21"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.manualIva21}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                      className={inputBase}
+                    />
+                  </Field>
+
+                  <Field id="manualBase10_5" label="Base gravada 10,5%">
+                    <input
+                      id="manualBase10_5"
+                      name="manualBase10_5"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.manualBase10_5}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                      className={inputBase}
+                    />
+                  </Field>
+
+                  <Field id="manualIva10_5" label="IVA 10,5%">
+                    <input
+                      id="manualIva10_5"
+                      name="manualIva10_5"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.manualIva10_5}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                      className={inputBase}
+                    />
+                  </Field>
+
+                  <Field id="manualExempt" label="Exento / No computable">
+                    <input
+                      id="manualExempt"
+                      name="manualExempt"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.manualExempt}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                      className={inputBase}
+                    />
+                  </Field>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span>Total manual</span>
+                      <span className="font-medium text-sky-950 dark:text-white">
+                        {manualFormatter.format(manualPreview.total)}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                      <span>Neto</span>
+                      <span>{manualFormatter.format(manualPreview.neto)}</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                      <span>IVA</span>
+                      <span>
+                        {manualFormatter.format(manualPreview.ivaSum)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {selectedClientsCount > 1 && (
+                    <div className="text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
+                      Se emite una factura por cliente y se prorratea en partes
+                      iguales. Si querés importes distintos, emití facturas por
+                      separado.
+                    </div>
+                  )}
+
+                  {manualValidationError && (
+                    <div className="text-xs text-rose-700 dark:text-rose-200 md:col-span-2">
+                      {manualValidationError}
+                    </div>
+                  )}
+
+                  {hasMultipleCurrencies && (
+                    <div className="text-xs text-amber-700 dark:text-amber-200 md:col-span-2">
+                      Seleccioná servicios en una sola moneda para usar importes
+                      manuales.
+                    </div>
+                  )}
+                </>
+              )}
+
+              {manualToggleDisabled && (
+                <div className="text-xs text-amber-700 dark:text-amber-200 md:col-span-2">
+                  El modo manual solo está disponible cuando todos los servicios
+                  están en la misma moneda.
+                </div>
+              )}
             </Section>
 
             {hasDescriptionFields && (

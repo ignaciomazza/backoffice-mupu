@@ -143,6 +143,16 @@ const bodySchema = z.object({
   description21: z.array(z.string()).optional(),
   description10_5: z.array(z.string()).optional(),
   descriptionNonComputable: z.array(z.string()).optional(),
+  manualTotals: z
+    .object({
+      total: z.number().nonnegative().optional(),
+      base21: z.number().nonnegative().optional(),
+      iva21: z.number().nonnegative().optional(),
+      base10_5: z.number().nonnegative().optional(),
+      iva10_5: z.number().nonnegative().optional(),
+      exempt: z.number().nonnegative().optional(),
+    })
+    .optional(),
   invoiceDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)")

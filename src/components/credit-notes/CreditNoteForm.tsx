@@ -6,6 +6,7 @@ import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
 import type { Invoice } from "@/types";
 import { toast } from "react-toastify";
+import { computeManualTotals } from "@/services/afip/manualTotals";
 
 const Section = ({
   title,
@@ -60,7 +61,8 @@ const Field = ({
 
 const pillBase = "rounded-full px-3 py-1 text-xs font-medium transition-colors";
 const pillNeutral = "bg-white/30 dark:bg-white/10";
-const pillOk = "bg-rose-100 text-rose-900 dark:bg-rose-500/15 dark:text-rose-100";
+const pillOk =
+  "bg-rose-100 text-rose-900 dark:bg-rose-500/15 dark:text-rose-100";
 
 const inputBase =
   "w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10 dark:text-white";
@@ -70,6 +72,13 @@ export type CreditNoteFormData = {
   tipoNota: string;
   exchangeRate?: string;
   invoiceDate?: string;
+  manualTotalsEnabled: boolean;
+  manualTotal: string;
+  manualBase21: string;
+  manualIva21: string;
+  manualBase10_5: string;
+  manualIva10_5: string;
+  manualExempt: string;
 };
 
 interface CreditNoteFormProps {
@@ -264,6 +273,67 @@ export default function CreditNoteForm({
       : formData.tipoNota === "8"
         ? "Nota B"
         : "";
+
+  const manualEnabled = formData.manualTotalsEnabled;
+
+  const parseManualValue = (value?: string) => {
+    if (!value) return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const num = Number(trimmed.replace(",", "."));
+    return Number.isFinite(num) ? num : undefined;
+  };
+
+  const manualTotalsDraft = useMemo(
+    () => ({
+      total: parseManualValue(formData.manualTotal),
+      base21: parseManualValue(formData.manualBase21),
+      iva21: parseManualValue(formData.manualIva21),
+      base10_5: parseManualValue(formData.manualBase10_5),
+      iva10_5: parseManualValue(formData.manualIva10_5),
+      exempt: parseManualValue(formData.manualExempt),
+    }),
+    [
+      formData.manualTotal,
+      formData.manualBase21,
+      formData.manualIva21,
+      formData.manualBase10_5,
+      formData.manualIva10_5,
+      formData.manualExempt,
+    ],
+  );
+
+  const manualInputTouched = useMemo(
+    () => Object.values(manualTotalsDraft).some((v) => typeof v === "number"),
+    [manualTotalsDraft],
+  );
+
+  const manualValidationError = useMemo(() => {
+    if (!manualEnabled || !manualInputTouched) return null;
+    const validation = computeManualTotals(manualTotalsDraft);
+    return validation.ok ? null : validation.error;
+  }, [manualEnabled, manualInputTouched, manualTotalsDraft]);
+
+  const manualPreview = useMemo(() => {
+    const base21 = manualTotalsDraft.base21 ?? 0;
+    const iva21 = manualTotalsDraft.iva21 ?? 0;
+    const base10 = manualTotalsDraft.base10_5 ?? 0;
+    const iva10 = manualTotalsDraft.iva10_5 ?? 0;
+    const exempt = manualTotalsDraft.exempt ?? 0;
+    const totalInput = manualTotalsDraft.total ?? 0;
+
+    const ivaSum = Number((iva21 + iva10).toFixed(2));
+    const baseSum = Number((base21 + base10 + exempt).toFixed(2));
+    const totalFromParts = Number((baseSum + ivaSum).toFixed(2));
+    const total = totalInput > 0 ? totalInput : totalFromParts;
+    const neto = Number((total - ivaSum).toFixed(2));
+
+    return {
+      total,
+      ivaSum,
+      neto,
+    };
+  }, [manualTotalsDraft]);
 
   const headerPills = useMemo(() => {
     const pills: JSX.Element[] = [];
@@ -525,13 +595,174 @@ export default function CreditNoteForm({
             </Section>
 
             <Section
+              title="Importes manuales"
+              desc="Opcional: sobrescribe el desglose tomado de la factura."
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3 md:col-span-2">
+                <div className="text-sm font-medium">
+                  Usar importes manuales
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateFormData("manualTotalsEnabled", !manualEnabled)
+                  }
+                  className={`rounded-full border px-4 py-1 text-xs font-medium transition ${
+                    manualEnabled
+                      ? "border-rose-300/70 bg-rose-100 text-rose-900"
+                      : "border-white/20 bg-white/10 text-sky-950/70 dark:text-white/70"
+                  }`}
+                  disabled={!selectedInvoiceId}
+                >
+                  {manualEnabled ? "Activado" : "Desactivado"}
+                </button>
+              </div>
+
+              <div className="text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
+                Por defecto se usa el desglose de la factura seleccionada.
+                Activá manual si necesitás una nota parcial.
+              </div>
+
+              {manualEnabled && (
+                <>
+                  <Field
+                    id="manualTotal"
+                    label="Importe total (opcional)"
+                    hint="Si lo dejás vacío, se calcula con los campos de abajo. Si solo completás el total, se toma como exento."
+                  >
+                    <input
+                      id="manualTotal"
+                      name="manualTotal"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.manualTotal}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                      className={inputBase}
+                      disabled={!selectedInvoiceId}
+                    />
+                  </Field>
+
+                  <Field id="manualBase21" label="Base gravada 21%">
+                    <input
+                      id="manualBase21"
+                      name="manualBase21"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.manualBase21}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                      className={inputBase}
+                      disabled={!selectedInvoiceId}
+                    />
+                  </Field>
+
+                  <Field id="manualIva21" label="IVA 21%">
+                    <input
+                      id="manualIva21"
+                      name="manualIva21"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.manualIva21}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                      className={inputBase}
+                      disabled={!selectedInvoiceId}
+                    />
+                  </Field>
+
+                  <Field id="manualBase10_5" label="Base gravada 10,5%">
+                    <input
+                      id="manualBase10_5"
+                      name="manualBase10_5"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.manualBase10_5}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                      className={inputBase}
+                      disabled={!selectedInvoiceId}
+                    />
+                  </Field>
+
+                  <Field id="manualIva10_5" label="IVA 10,5%">
+                    <input
+                      id="manualIva10_5"
+                      name="manualIva10_5"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.manualIva10_5}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                      className={inputBase}
+                      disabled={!selectedInvoiceId}
+                    />
+                  </Field>
+
+                  <Field id="manualExempt" label="Exento / No computable">
+                    <input
+                      id="manualExempt"
+                      name="manualExempt"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.manualExempt}
+                      onChange={handleChange}
+                      placeholder="0.00"
+                      className={inputBase}
+                      disabled={!selectedInvoiceId}
+                    />
+                  </Field>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span>Total manual</span>
+                      <span className="font-medium text-sky-950 dark:text-white">
+                        {fmtMoney(
+                          manualPreview.total,
+                          selectedInvoice?.currency,
+                        )}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                      <span>Neto</span>
+                      <span>
+                        {fmtMoney(
+                          manualPreview.neto,
+                          selectedInvoice?.currency,
+                        )}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                      <span>IVA</span>
+                      <span>
+                        {fmtMoney(
+                          manualPreview.ivaSum,
+                          selectedInvoice?.currency,
+                        )}
+                      </span>
+                    </div>
+                  </div>
+
+                  {manualValidationError && (
+                    <div className="text-xs text-rose-700 dark:text-rose-200 md:col-span-2">
+                      {manualValidationError}
+                    </div>
+                  )}
+                </>
+              )}
+            </Section>
+
+            <Section
               title="Cotización"
               desc="Completá solo si la nota está en USD."
             >
-              <Field
-                id="exchangeRate"
-                label="Cotización del dólar (opcional)"
-              >
+              <Field id="exchangeRate" label="Cotización del dólar (opcional)">
                 <input
                   id="exchangeRate"
                   type="text"

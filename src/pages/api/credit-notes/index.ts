@@ -135,6 +135,16 @@ const bodySchema = z.object({
     .refine((n) => n == null || (typeof n === "number" && n > 0), {
       message: "exchangeRate debe ser un número positivo",
     }),
+  manualTotals: z
+    .object({
+      total: z.number().nonnegative().optional(),
+      base21: z.number().nonnegative().optional(),
+      iva21: z.number().nonnegative().optional(),
+      base10_5: z.number().nonnegative().optional(),
+      iva10_5: z.number().nonnegative().optional(),
+      exempt: z.number().nonnegative().optional(),
+    })
+    .optional(),
   invoiceDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)")
@@ -313,7 +323,8 @@ export default async function handler(
           });
       }
 
-      const { invoiceId, tipoNota, exchangeRate, invoiceDate } = parsedB.data;
+      const { invoiceId, tipoNota, exchangeRate, invoiceDate, manualTotals } =
+        parsedB.data;
 
       // Pasamos el req para inicializar AFIP con la agencia correcta
       const result = await createCreditNote(req, {
@@ -321,6 +332,7 @@ export default async function handler(
         tipoNota: tipoNota as 3 | 8,
         exchangeRate,
         invoiceDate,
+        manualTotals,
       });
 
       if (!result.success) {

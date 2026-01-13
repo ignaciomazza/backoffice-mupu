@@ -23,6 +23,10 @@ import type { CreditNoteWithItems } from "@/services/creditNotes";
 import { CreditNoteFormData } from "@/components/credit-notes/CreditNoteForm";
 import { authFetch } from "@/utils/authFetch";
 import Spinner from "@/components/Spinner";
+import {
+  computeManualTotals,
+  type ManualTotalsInput,
+} from "@/services/afip/manualTotals";
 
 // ===== Cookies utils =====
 type Role =
@@ -139,6 +143,13 @@ export default function ServicesPage() {
     description10_5: [],
     descriptionNonComputable: [],
     invoiceDate: "",
+    manualTotalsEnabled: false,
+    manualTotal: "",
+    manualBase21: "",
+    manualIva21: "",
+    manualBase10_5: "",
+    manualIva10_5: "",
+    manualExempt: "",
   });
 
   const [formData, setFormData] = useState<ServiceFormData>({
@@ -183,6 +194,13 @@ export default function ServicesPage() {
       tipoNota: "",
       exchangeRate: "",
       invoiceDate: "",
+      manualTotalsEnabled: false,
+      manualTotal: "",
+      manualBase21: "",
+      manualIva21: "",
+      manualBase10_5: "",
+      manualIva10_5: "",
+      manualExempt: "",
     });
 
   const [isBillingFormVisible, setIsBillingFormVisible] = useState(false);
@@ -506,6 +524,50 @@ export default function ServicesPage() {
     setCreditNoteFormData((prev) => ({ ...prev, [key]: value }));
   };
 
+  const parseManualAmount = (value?: string) => {
+    if (value == null) return undefined;
+    const trimmed = String(value).trim();
+    if (!trimmed) return undefined;
+    const num = Number(trimmed.replace(",", "."));
+    return Number.isFinite(num) ? num : undefined;
+  };
+
+  const buildManualTotals = (data: {
+    manualTotalsEnabled: boolean;
+    manualTotal: string;
+    manualBase21: string;
+    manualIva21: string;
+    manualBase10_5: string;
+    manualIva10_5: string;
+    manualExempt: string;
+  }): { manualTotals?: ManualTotalsInput; error?: string } => {
+    if (!data.manualTotalsEnabled) return { manualTotals: undefined };
+
+    const manualTotals: ManualTotalsInput = {
+      total: parseManualAmount(data.manualTotal),
+      base21: parseManualAmount(data.manualBase21),
+      iva21: parseManualAmount(data.manualIva21),
+      base10_5: parseManualAmount(data.manualBase10_5),
+      iva10_5: parseManualAmount(data.manualIva10_5),
+      exempt: parseManualAmount(data.manualExempt),
+    };
+
+    const hasManualValues = Object.values(manualTotals).some(
+      (v) => typeof v === "number",
+    );
+
+    if (!hasManualValues) {
+      return { error: "Completá al menos un importe manual." };
+    }
+
+    const validation = computeManualTotals(manualTotals);
+    if (!validation.ok) {
+      return { error: validation.error };
+    }
+
+    return { manualTotals };
+  };
+
   const getInvoiceErrorToast = (raw?: string): string => {
     const msg = String(raw ?? "").trim();
     if (!msg) {
@@ -514,6 +576,9 @@ export default function ServicesPage() {
 
     const m = msg.toLowerCase();
 
+    if (m.includes("importes manuales")) {
+      return msg;
+    }
     if (m.includes("no autenticado") || m.includes("x-user-id")) {
       return "Tu sesión expiró. Volvé a iniciar sesión.";
     }
@@ -642,6 +707,12 @@ export default function ServicesPage() {
       toast.error("No se pudo identificar la reserva.");
       return;
     }
+    const manualBuild = buildManualTotals(invoiceFormData);
+    if (manualBuild.error) {
+      toast.error(manualBuild.error);
+      return;
+    }
+
     const payload = {
       bookingId: booking.id_booking,
       services: invoiceFormData.services.map((s) => Number(s)),
@@ -654,6 +725,7 @@ export default function ServicesPage() {
       description10_5: invoiceFormData.description10_5,
       descriptionNonComputable: invoiceFormData.descriptionNonComputable,
       invoiceDate: invoiceFormData.invoiceDate,
+      manualTotals: manualBuild.manualTotals,
     };
 
     setInvoiceLoading(true);
@@ -700,6 +772,12 @@ export default function ServicesPage() {
       return;
     }
 
+    const manualBuild = buildManualTotals(creditNoteFormData);
+    if (manualBuild.error) {
+      toast.error(manualBuild.error);
+      return;
+    }
+
     const payload = {
       invoiceId: Number(creditNoteFormData.invoiceId),
       tipoNota: parseInt(creditNoteFormData.tipoNota, 10),
@@ -707,6 +785,7 @@ export default function ServicesPage() {
         ? parseFloat(creditNoteFormData.exchangeRate)
         : undefined,
       invoiceDate: creditNoteFormData.invoiceDate || undefined,
+      manualTotals: manualBuild.manualTotals,
     };
 
     setIsCreditNoteSubmitting(true);
@@ -732,6 +811,13 @@ export default function ServicesPage() {
           tipoNota: "",
           exchangeRate: "",
           invoiceDate: "",
+          manualTotalsEnabled: false,
+          manualTotal: "",
+          manualBase21: "",
+          manualIva21: "",
+          manualBase10_5: "",
+          manualIva10_5: "",
+          manualExempt: "",
         });
         setIsBillingFormVisible(false);
       } else {
