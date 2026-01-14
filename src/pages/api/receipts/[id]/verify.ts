@@ -3,6 +3,12 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { decodePublicId } from "@/lib/publicIds";
 import { jwtVerify, JWTPayload } from "jose";
+import {
+  normalizeReceiptVerificationRules,
+  pickReceiptVerificationRule,
+  receiptMatchesRule,
+  ruleHasRestrictions,
+} from "@/utils/receiptVerification";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -159,11 +165,36 @@ export default async function handler(
             { booking: { id_agency: authAgencyId } },
           ],
         },
-    select: { id_receipt: true },
+    select: {
+      id_receipt: true,
+      payment_method_id: true,
+      account_id: true,
+      payments: {
+        select: { payment_method_id: true, account_id: true },
+      },
+    },
   });
 
   if (!receipt) {
     return res.status(404).json({ error: "Recibo no encontrado" });
+  }
+
+  const config = await prisma.financeConfig.findFirst({
+    where: { id_agency: authAgencyId },
+    select: { receipt_verification_rules: true },
+  });
+  const rules = normalizeReceiptVerificationRules(
+    config?.receipt_verification_rules,
+  );
+  const rule = pickReceiptVerificationRule(rules, authUserId);
+
+  if (rule && ruleHasRestrictions(rule)) {
+    const allowed = receiptMatchesRule(rule, receipt);
+    if (!allowed) {
+      return res.status(403).json({
+        error: "No autorizado para verificar este recibo",
+      });
+    }
   }
 
   const nextData =

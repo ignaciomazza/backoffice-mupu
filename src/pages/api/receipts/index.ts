@@ -4,6 +4,11 @@ import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify, JWTPayload } from "jose";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { encodePublicId } from "@/lib/publicIds";
+import {
+  normalizeReceiptVerificationRules,
+  pickReceiptVerificationRule,
+  ruleHasRestrictions,
+} from "@/utils/receiptVerification";
 
 /* ======================================================
  * Tipos
@@ -417,6 +422,23 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       .trim()
       .toUpperCase();
 
+    const verificationScopeRaw = Array.isArray(req.query.verification_scope)
+      ? req.query.verification_scope[0]
+      : Array.isArray(req.query.verify_scope)
+        ? req.query.verify_scope[0]
+        : Array.isArray(req.query.verificationScope)
+          ? req.query.verificationScope[0]
+          : req.query.verification_scope ??
+            req.query.verify_scope ??
+            req.query.verificationScope ??
+            "";
+
+    const verificationScope = ["1", "true", "yes", "on"].includes(
+      String(verificationScopeRaw || "")
+        .trim()
+        .toLowerCase(),
+    );
+
     const take = Math.max(
       1,
       Math.min(
@@ -528,6 +550,49 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     if (verificationStatus && verificationStatus !== "ALL") {
       if (["PENDING", "VERIFIED"].includes(verificationStatus)) {
         whereAND.push({ verification_status: verificationStatus });
+      }
+    }
+
+    if (verificationScope) {
+      const config = await prisma.financeConfig.findFirst({
+        where: { id_agency: authAgencyId },
+        select: { receipt_verification_rules: true },
+      });
+      const rules = normalizeReceiptVerificationRules(
+        config?.receipt_verification_rules,
+      );
+      const rule = pickReceiptVerificationRule(rules, authUserId);
+
+      if (rule && ruleHasRestrictions(rule)) {
+        if (rule.payment_method_ids.length > 0) {
+          whereAND.push({
+            OR: [
+              { payment_method_id: { in: rule.payment_method_ids } },
+              {
+                payments: {
+                  some: {
+                    payment_method_id: { in: rule.payment_method_ids },
+                  },
+                },
+              },
+            ],
+          });
+        }
+
+        if (rule.account_ids.length > 0) {
+          whereAND.push({
+            OR: [
+              { account_id: { in: rule.account_ids } },
+              {
+                payments: {
+                  some: {
+                    account_id: { in: rule.account_ids },
+                  },
+                },
+              },
+            ],
+          });
+        }
       }
     }
 

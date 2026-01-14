@@ -767,6 +767,7 @@ model FinanceConfig {
 
   default_currency_code                 String
   hide_operator_expenses_in_investments Boolean @default(false)
+  receipt_verification_rules            Json?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

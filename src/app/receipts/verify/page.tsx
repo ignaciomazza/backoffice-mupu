@@ -7,6 +7,10 @@ import Spinner from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
+import {
+  normalizeReceiptVerificationRules,
+  type ReceiptVerificationRule,
+} from "@/utils/receiptVerification";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Link from "next/link";
@@ -127,9 +131,13 @@ export default function ReceiptVerifyPage() {
   const [statusFilter, setStatusFilter] = useState<
     "PENDING" | "VERIFIED" | "ALL"
   >("PENDING");
+  const [methodFilter, setMethodFilter] = useState("ALL");
+  const [accountFilter, setAccountFilter] = useState("ALL");
   const [updatingId, setUpdatingId] = useState<number | null>(null);
 
   const [finance, setFinance] = useState<FinancePickBundle | null>(null);
+  const [verificationRule, setVerificationRule] =
+    useState<ReceiptVerificationRule | null>(null);
   useEffect(() => {
     if (!token) return;
     (async () => {
@@ -153,6 +161,29 @@ export default function ReceiptVerifyPage() {
     })();
   }, [token]);
 
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/finance/verification-rules",
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) throw new Error();
+        const payload = (await res.json()) as { rules?: unknown };
+        const rules = normalizeReceiptVerificationRules(payload?.rules);
+        if (alive) setVerificationRule(rules[0] ?? null);
+      } catch {
+        if (alive) setVerificationRule(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+
   const accountMap = useMemo(() => {
     const map = new Map<number, string>();
     for (const acc of finance?.accounts || []) {
@@ -170,6 +201,43 @@ export default function ReceiptVerifyPage() {
     }
     return map;
   }, [finance?.paymentMethods]);
+
+  const allowedMethodIds = useMemo(
+    () => verificationRule?.payment_method_ids ?? [],
+    [verificationRule],
+  );
+  const allowedAccountIds = useMemo(
+    () => verificationRule?.account_ids ?? [],
+    [verificationRule],
+  );
+
+  const methodOptions = useMemo(() => {
+    const list = (finance?.paymentMethods || []).filter((m) => m.enabled);
+    if (allowedMethodIds.length === 0) return list;
+    return list.filter((m) => allowedMethodIds.includes(m.id_method));
+  }, [finance?.paymentMethods, allowedMethodIds]);
+
+  const accountOptions = useMemo(() => {
+    const list = (finance?.accounts || []).filter((a) => a.enabled);
+    if (allowedAccountIds.length === 0) return list;
+    return list.filter((a) => allowedAccountIds.includes(a.id_account));
+  }, [finance?.accounts, allowedAccountIds]);
+
+  useEffect(() => {
+    if (methodFilter === "ALL") return;
+    const id = Number(methodFilter);
+    if (!methodOptions.some((m) => m.id_method === id)) {
+      setMethodFilter("ALL");
+    }
+  }, [methodFilter, methodOptions]);
+
+  useEffect(() => {
+    if (accountFilter === "ALL") return;
+    const id = Number(accountFilter);
+    if (!accountOptions.some((a) => a.id_account === id)) {
+      setAccountFilter("ALL");
+    }
+  }, [accountFilter, accountOptions]);
 
   const fetchReceipts = useCallback(
     async ({
@@ -192,6 +260,11 @@ export default function ReceiptVerifyPage() {
         if (!reset && cursorOverride) qs.set("cursor", String(cursorOverride));
         if (q) qs.set("q", q);
         if (statusFilter) qs.set("verification_status", statusFilter);
+        qs.set("verification_scope", "1");
+        if (methodFilter !== "ALL")
+          qs.set("payment_method_id", methodFilter);
+        if (accountFilter !== "ALL")
+          qs.set("account_id", accountFilter);
 
         const res = await authFetch(
           `/api/receipts?${qs.toString()}`,
@@ -216,7 +289,7 @@ export default function ReceiptVerifyPage() {
         }
       }
     },
-    [token, q, statusFilter],
+    [token, q, statusFilter, methodFilter, accountFilter],
   );
 
   useEffect(() => {
@@ -229,6 +302,8 @@ export default function ReceiptVerifyPage() {
     setQInput("");
     setQ("");
     setStatusFilter("PENDING");
+    setMethodFilter("ALL");
+    setAccountFilter("ALL");
   };
 
   const statusLabel =
@@ -335,6 +410,33 @@ export default function ReceiptVerifyPage() {
               <option value="PENDING">Pendientes</option>
               <option value="VERIFIED">Verificados</option>
               <option value="ALL">Todos</option>
+            </select>
+            <select
+              className="h-9 rounded-full border border-white/20 bg-white/10 px-3 text-xs shadow-sm outline-none"
+              value={methodFilter}
+              onChange={(e) => setMethodFilter(e.target.value)}
+            >
+              <option value="ALL">Métodos (todos)</option>
+              {methodOptions.map((method) => (
+                <option key={method.id_method} value={String(method.id_method)}>
+                  {method.name}
+                </option>
+              ))}
+            </select>
+            <select
+              className="h-9 rounded-full border border-white/20 bg-white/10 px-3 text-xs shadow-sm outline-none"
+              value={accountFilter}
+              onChange={(e) => setAccountFilter(e.target.value)}
+            >
+              <option value="ALL">Cuentas (todas)</option>
+              {accountOptions.map((account) => (
+                <option
+                  key={account.id_account}
+                  value={String(account.id_account)}
+                >
+                  {account.name}
+                </option>
+              ))}
             </select>
             <button
               onClick={applySearch}

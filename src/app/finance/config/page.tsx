@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
 import CommissionsConfig from "@/components/finance/CommissionsConfig";
+import ReceiptVerificationConfig from "@/components/finance/ReceiptVerificationConfig";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "@/context/AuthContext";
@@ -175,6 +176,7 @@ const TAB_KEYS = [
   "currencies",
   "accounts",
   "methods",
+  "verification",
   "categories",
   "commissions",
 ] as const;
@@ -185,6 +187,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "currencies", label: "Monedas" },
   { key: "accounts", label: "Cuentas" },
   { key: "methods", label: "Métodos" },
+  { key: "verification", label: "Verificación" },
   { key: "categories", label: "Categorías" },
   { key: "commissions", label: "Comisiones" },
 ];
@@ -1351,6 +1354,14 @@ function FinanceConfigPageInner() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* VERIFICACIÓN */}
+            {active === "verification" && (
+              <ReceiptVerificationConfig
+                accounts={accounts}
+                methods={methods}
+              />
             )}
 
             {/* CATEGORÍAS */}
