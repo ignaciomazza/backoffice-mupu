@@ -7,6 +7,7 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
+import type { BillingAdjustmentConfig } from "@/types";
 
 /* =========================================================
  * Tipos DTO (según las APIs provistas)
@@ -23,6 +24,8 @@ type ServiceTypeDTO = {
 type CalcConfigResponse = {
   billing_breakdown_mode: "auto" | "manual";
   transfer_fee_pct: number; // proporción (0.024 = 2.4%)
+  billing_adjustments: BillingAdjustmentConfig[];
+  use_booking_sale_total: boolean;
 };
 
 type RoleResponse = { role?: string };
@@ -55,6 +58,20 @@ function stringToProportion(input: string): number | null {
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return null;
   return n / 100;
+}
+
+function stringToNumber(input: string): number | null {
+  const raw = input.replace(",", ".").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+function formatNumber(value: number, digits = 2): string {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return "0.00";
+  return v.toFixed(digits);
 }
 
 function clamp(n: number, min: number, max: number) {
@@ -228,6 +245,31 @@ export default function BookingsConfigPage() {
   const [savingCfg, setSavingCfg] = useState(false);
   const [serverMode, setServerMode] = useState<"auto" | "manual">("auto");
   const [serverPctStr, setServerPctStr] = useState<string>("2.40");
+  const [adjustments, setAdjustments] = useState<BillingAdjustmentConfig[]>([]);
+  const [serverAdjustments, setServerAdjustments] = useState<
+    BillingAdjustmentConfig[]
+  >([]);
+  const [useBookingSaleTotal, setUseBookingSaleTotal] = useState(false);
+  const [serverUseBookingSaleTotal, setServerUseBookingSaleTotal] =
+    useState(false);
+  const [adjModalOpen, setAdjModalOpen] = useState(false);
+  const [editingAdj, setEditingAdj] =
+    useState<BillingAdjustmentConfig | null>(null);
+  const [adjForm, setAdjForm] = useState<{
+    label: string;
+    kind: BillingAdjustmentConfig["kind"];
+    basis: BillingAdjustmentConfig["basis"];
+    valueType: BillingAdjustmentConfig["valueType"];
+    valueStr: string;
+    active: boolean;
+  }>({
+    label: "",
+    kind: "cost",
+    basis: "sale",
+    valueType: "percent",
+    valueStr: "",
+    active: true,
+  });
 
   const firstLoadRef = useRef(true);
 
@@ -288,6 +330,13 @@ export default function BookingsConfigPage() {
         const pct = percentToString(data.transfer_fee_pct);
         setPctStr(pct);
         setServerPctStr(pct);
+        const adj = Array.isArray(data.billing_adjustments)
+          ? data.billing_adjustments
+          : [];
+        setAdjustments(adj);
+        setServerAdjustments(adj);
+        setUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
+        setServerUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
       } catch (e) {
         console.error("[bookings/config] calc-config", e);
         toast.error("No se pudo cargar Cálculo & Comisiones");
@@ -520,8 +569,104 @@ export default function BookingsConfigPage() {
   /* =========================================================
    * Actions: Calc Config
    * ========================================================= */
+  const makeAdjustmentId = useCallback(() => {
+    const uuid =
+      typeof globalThis.crypto?.randomUUID === "function"
+        ? globalThis.crypto.randomUUID()
+        : null;
+    if (uuid) return uuid;
+    return `adj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  }, []);
+
+  const openNewAdjustment = useCallback(() => {
+    setEditingAdj(null);
+    setAdjForm({
+      label: "",
+      kind: "cost",
+      basis: "sale",
+      valueType: "percent",
+      valueStr: "",
+      active: true,
+    });
+    setAdjModalOpen(true);
+  }, []);
+
+  const openEditAdjustment = useCallback((adj: BillingAdjustmentConfig) => {
+    setEditingAdj(adj);
+    setAdjForm({
+      label: adj.label,
+      kind: adj.kind,
+      basis: adj.basis,
+      valueType: adj.valueType,
+      valueStr:
+        adj.valueType === "percent"
+          ? percentToString(adj.value)
+          : formatNumber(adj.value, 2),
+      active: adj.active,
+    });
+    setAdjModalOpen(true);
+  }, []);
+
+  const saveAdjustment = useCallback(() => {
+    const label = adjForm.label.trim();
+    if (!label) {
+      toast.error("Ingresá un nombre para el ajuste.");
+      return;
+    }
+    const value =
+      adjForm.valueType === "percent"
+        ? stringToProportion(adjForm.valueStr)
+        : stringToNumber(adjForm.valueStr);
+    if (value == null) {
+      toast.error(
+        adjForm.valueType === "percent"
+          ? "Porcentaje inválido."
+          : "Monto inválido.",
+      );
+      return;
+    }
+
+    const next: BillingAdjustmentConfig = {
+      id: editingAdj?.id ?? makeAdjustmentId(),
+      label,
+      kind: adjForm.kind,
+      basis: adjForm.basis,
+      valueType: adjForm.valueType,
+      value,
+      active: adjForm.active,
+    };
+
+    setAdjustments((prev) => {
+      if (editingAdj) {
+        return prev.map((it) => (it.id === editingAdj.id ? next : it));
+      }
+      return [...prev, next];
+    });
+
+    setAdjModalOpen(false);
+    setEditingAdj(null);
+  }, [adjForm, editingAdj, makeAdjustmentId]);
+
+  const removeAdjustment = useCallback((adj: BillingAdjustmentConfig) => {
+    if (!confirm(`¿Eliminar el ajuste "${adj.label}"?`)) return;
+    setAdjustments((prev) => prev.filter((it) => it.id !== adj.id));
+  }, []);
+
+  const toggleAdjustmentActive = useCallback((adjId: string) => {
+    setAdjustments((prev) =>
+      prev.map((it) =>
+        it.id === adjId ? { ...it, active: !it.active } : it,
+      ),
+    );
+  }, []);
+
+  const adjustmentsDirty =
+    JSON.stringify(adjustments) !== JSON.stringify(serverAdjustments);
   const configDirty =
-    mode !== serverMode || pctStr.trim() !== serverPctStr.trim();
+    mode !== serverMode ||
+    pctStr.trim() !== serverPctStr.trim() ||
+    adjustmentsDirty ||
+    useBookingSaleTotal !== serverUseBookingSaleTotal;
 
   const saveCalcConfig = useCallback(async () => {
     if (!token) return;
@@ -535,6 +680,8 @@ export default function BookingsConfigPage() {
       return;
     }
     body.transfer_fee_pct = p;
+    body.billing_adjustments = adjustments;
+    body.use_booking_sale_total = useBookingSaleTotal;
 
     setSavingCfg(true);
     try {
@@ -561,6 +708,13 @@ export default function BookingsConfigPage() {
       setPctStr(pct);
       setServerMode(data.billing_breakdown_mode);
       setServerPctStr(pct);
+      const adj = Array.isArray(data.billing_adjustments)
+        ? data.billing_adjustments
+        : [];
+      setAdjustments(adj);
+      setServerAdjustments(adj);
+      setUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
+      setServerUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
       toast.success("Configuración guardada");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error al guardar";
@@ -568,7 +722,7 @@ export default function BookingsConfigPage() {
     } finally {
       setSavingCfg(false);
     }
-  }, [mode, pctStr, token]);
+  }, [adjustments, mode, pctStr, token, useBookingSaleTotal]);
 
   /* Ctrl/Cmd+S para guardar config cuando hay cambios */
   useEffect(() => {
@@ -606,6 +760,22 @@ export default function BookingsConfigPage() {
 
   // Para el slider (0% a 10% típico; si querés más alto, subí el max)
   const sliderValue = clamp(Number(pctStr.replace(",", ".")) || 0, 0, 10);
+  const adjKindLabels: Record<BillingAdjustmentConfig["kind"], string> = {
+    cost: "Costo",
+    tax: "Impuesto",
+  };
+  const adjBasisLabels: Record<BillingAdjustmentConfig["basis"], string> = {
+    sale: "Venta",
+    cost: "Costo",
+    margin: "Ganancia",
+  };
+  const adjValueLabels: Record<
+    BillingAdjustmentConfig["valueType"],
+    string
+  > = {
+    percent: "%",
+    fixed: "Monto fijo",
+  };
 
   return (
     <ProtectedRoute>
@@ -839,6 +1009,27 @@ export default function BookingsConfigPage() {
                     </div>
 
                     <div className="mb-4">
+                      <Label>Venta total por reserva</Label>
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/30 p-3 dark:bg-white/10">
+                        <div className="text-sm">
+                          <div className="font-medium">
+                            Usar venta total en lugar de venta por servicio
+                          </div>
+                          <div className="text-xs opacity-70">
+                            Permite cargar costos e impuestos por servicio, y
+                            definir la venta en el detalle de la reserva.
+                          </div>
+                        </div>
+                        <Switch
+                          checked={useBookingSaleTotal}
+                          onChange={setUseBookingSaleTotal}
+                          label={useBookingSaleTotal ? "Activo" : "Inactivo"}
+                          title="Configurar venta total por reserva"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mb-4">
                       <Label>Costos bancarios</Label>
                       <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[1fr,90px]">
                         <div className="rounded-2xl border border-white/10 p-3">
@@ -896,12 +1087,102 @@ export default function BookingsConfigPage() {
                       </p>
                     </div>
 
+                    <div className="mb-4">
+                      <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <Label>Ajustes adicionales</Label>
+                          <p className="text-xs text-sky-950/70 dark:text-white/70">
+                            Se aplican sobre venta, costo o ganancia y se
+                            descuentan de la comisión. Los montos fijos usan la
+                            moneda del servicio.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={openNewAdjustment}
+                          disabled={!canEdit}
+                          className={ICON_BTN}
+                        >
+                          Agregar ajuste
+                        </button>
+                      </div>
+
+                      {adjustments.length === 0 ? (
+                        <p className="text-sm text-sky-950/70 dark:text-white/70">
+                          No hay ajustes configurados.
+                        </p>
+                      ) : (
+                        <ul className="space-y-2">
+                          {adjustments.map((adj) => {
+                            const valueLabel =
+                              adj.valueType === "percent"
+                                ? `${percentToString(adj.value)}%`
+                                : formatNumber(adj.value, 2);
+                            return (
+                              <li
+                                key={adj.id}
+                                className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-semibold">
+                                      {adj.label}
+                                    </span>
+                                    {!adj.active && (
+                                      <span className={BADGE}>Inactivo</span>
+                                    )}
+                                  </div>
+                                  <div className="text-xs opacity-70">
+                                    {adjKindLabels[adj.kind]} · Base{" "}
+                                    {adjBasisLabels[adj.basis]} ·{" "}
+                                    {adjValueLabels[adj.valueType]}{" "}
+                                    {valueLabel}
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      toggleAdjustmentActive(adj.id)
+                                    }
+                                    disabled={!canEdit}
+                                    className={ICON_BTN}
+                                  >
+                                    {adj.active ? "Desactivar" : "Activar"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditAdjustment(adj)}
+                                    disabled={!canEdit}
+                                    className={ICON_BTN}
+                                  >
+                                    Editar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeAdjustment(adj)}
+                                    disabled={!canEdit}
+                                    className={`${ICON_BTN} bg-rose-500/15 text-rose-700 dark:text-rose-300`}
+                                  >
+                                    Eliminar
+                                  </button>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+
                     <div className="flex items-center justify-end gap-2 pt-2">
                       <button
                         type="button"
                         onClick={() => {
                           setMode(serverMode);
                           setPctStr(serverPctStr);
+                          setAdjustments(serverAdjustments);
+                          setUseBookingSaleTotal(serverUseBookingSaleTotal);
                         }}
                         disabled={!configDirty}
                         className="rounded-full bg-white/50 px-4 py-2 text-sky-950 shadow-sm transition hover:scale-[.98] active:scale-95 disabled:opacity-50 dark:bg-white/10 dark:text-white"
@@ -982,6 +1263,128 @@ export default function BookingsConfigPage() {
                 checked={!!typeForm.enabled}
                 onChange={(v) => setTypeForm((f) => ({ ...f, enabled: v }))}
                 label="Habilitado"
+              />
+            </div>
+          </div>
+        </Modal>
+
+        <Modal
+          open={adjModalOpen}
+          onClose={() => setAdjModalOpen(false)}
+          title={editingAdj ? "Editar ajuste" : "Nuevo ajuste"}
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setAdjModalOpen(false)}
+                className={ICON_BTN}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={saveAdjustment}
+                disabled={!canEdit}
+                className={ICON_BTN}
+              >
+                {editingAdj ? "Guardar" : "Agregar"}
+              </button>
+            </>
+          }
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <Label>Nombre</Label>
+              <Input
+                value={adjForm.label}
+                onChange={(e) =>
+                  setAdjForm((f) => ({ ...f, label: e.target.value }))
+                }
+                placeholder="Ej: Impuesto de ganancias"
+                disabled={!canEdit}
+              />
+            </div>
+            <div>
+              <Label>Tipo</Label>
+              <select
+                value={adjForm.kind}
+                onChange={(e) =>
+                  setAdjForm((f) => ({
+                    ...f,
+                    kind: e.target.value as BillingAdjustmentConfig["kind"],
+                  }))
+                }
+                disabled={!canEdit}
+                className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-4 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
+              >
+                <option value="cost">Costo</option>
+                <option value="tax">Impuesto</option>
+              </select>
+            </div>
+            <div>
+              <Label>Base</Label>
+              <select
+                value={adjForm.basis}
+                onChange={(e) =>
+                  setAdjForm((f) => ({
+                    ...f,
+                    basis: e.target.value as BillingAdjustmentConfig["basis"],
+                  }))
+                }
+                disabled={!canEdit}
+                className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-4 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
+              >
+                <option value="sale">Venta</option>
+                <option value="cost">Costo</option>
+                <option value="margin">Ganancia</option>
+              </select>
+            </div>
+            <div>
+              <Label>Modo</Label>
+              <select
+                value={adjForm.valueType}
+                onChange={(e) =>
+                  setAdjForm((f) => ({
+                    ...f,
+                    valueType:
+                      e.target.value as BillingAdjustmentConfig["valueType"],
+                  }))
+                }
+                disabled={!canEdit}
+                className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-4 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
+              >
+                <option value="percent">Porcentaje</option>
+                <option value="fixed">Monto fijo</option>
+              </select>
+            </div>
+            <div>
+              <Label>
+                {adjForm.valueType === "percent" ? "Porcentaje" : "Monto"}
+              </Label>
+              <Input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                value={adjForm.valueStr}
+                onChange={(e) =>
+                  setAdjForm((f) => ({ ...f, valueStr: e.target.value }))
+                }
+                placeholder={adjForm.valueType === "percent" ? "2.40" : "0.00"}
+                disabled={!canEdit}
+                className="text-right"
+              />
+              <p className="mt-1 text-[11px] opacity-60">
+                {adjForm.valueType === "percent"
+                  ? "Se interpreta como porcentaje (ej: 2.40%)."
+                  : "Se aplica como monto fijo por servicio."}
+              </p>
+            </div>
+            <div className="sm:col-span-2">
+              <Switch
+                checked={adjForm.active}
+                onChange={(v) => setAdjForm((f) => ({ ...f, active: v }))}
+                label="Activo"
               />
             </div>
           </div>

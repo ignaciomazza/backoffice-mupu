@@ -338,6 +338,8 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     useState<number>(0.024);
   const [agencyTransferFeeReady, setAgencyTransferFeeReady] =
     useState<boolean>(false);
+  const [useBookingSaleTotal, setUseBookingSaleTotal] =
+    useState<boolean>(false);
   const [neighborIds, setNeighborIds] = useState<{
     prevId: string | number | null;
     nextId: string | number | null;
@@ -357,7 +359,11 @@ export default function ServicesContainer(props: ServicesContainerProps) {
         );
 
         if (res.ok) {
-          const data = (await res.json()) as { transfer_fee_pct?: unknown };
+          const data = (await res.json()) as {
+            transfer_fee_pct?: unknown;
+            use_booking_sale_total?: unknown;
+          };
+          setUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
           const raw = toFiniteNumber(data.transfer_fee_pct, 0.024);
           const safe = Math.min(Math.max(raw, 0), 1); // clamp 0–1
           return safe;
@@ -379,8 +385,10 @@ export default function ServicesContainer(props: ServicesContainerProps) {
           return safe;
         }
 
+        setUseBookingSaleTotal(false);
         return 0.024;
       } catch {
+        setUseBookingSaleTotal(false);
         return 0.024;
       }
     },
@@ -506,10 +514,78 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   const [isEditingInvObs, setIsEditingInvObs] = useState(false);
   const [invObsDraft, setInvObsDraft] = useState(booking?.observation || "");
   const [isSavingInvObs, setIsSavingInvObs] = useState(false);
+  const [saleTotalsDraft, setSaleTotalsDraft] = useState<
+    Record<string, string>
+  >({});
+  const [saleTotalsSaving, setSaleTotalsSaving] = useState(false);
 
   useEffect(() => {
     setInvObsDraft(booking?.observation || "");
   }, [booking?.observation]);
+
+  const normalizeSaleTotals = useCallback((input: unknown) => {
+    if (!input || typeof input !== "object") return {};
+    const obj = input as Record<string, unknown>;
+    const out: Record<string, number> = {};
+    for (const [keyRaw, val] of Object.entries(obj)) {
+      const key = String(keyRaw || "").toUpperCase().trim();
+      if (!key) continue;
+      const n =
+        typeof val === "number"
+          ? val
+          : Number(String(val).replace(",", "."));
+      if (Number.isFinite(n) && n >= 0) out[key] = n;
+    }
+    return out;
+  }, []);
+
+  const bookingSaleTotals = useMemo(
+    () => normalizeSaleTotals(booking?.sale_totals),
+    [booking?.sale_totals, normalizeSaleTotals],
+  );
+
+  const saleTotalCurrencies = useMemo(() => {
+    const set = new Set<string>();
+    for (const svc of services) {
+      const cur = String(svc.currency || "ARS").toUpperCase();
+      if (cur) set.add(cur);
+    }
+    Object.keys(bookingSaleTotals).forEach((cur) => set.add(cur));
+    if (set.size === 0) set.add("ARS");
+    return Array.from(set);
+  }, [services, bookingSaleTotals]);
+
+  useEffect(() => {
+    if (!useBookingSaleTotal) {
+      setSaleTotalsDraft({});
+      return;
+    }
+    const next: Record<string, string> = {};
+    for (const cur of saleTotalCurrencies) {
+      const val = bookingSaleTotals[cur];
+      next[cur] = val != null ? String(val) : "";
+    }
+    setSaleTotalsDraft(next);
+  }, [bookingSaleTotals, saleTotalCurrencies, useBookingSaleTotal]);
+
+  const normalizedSaleTotalsDraft = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const [keyRaw, val] of Object.entries(saleTotalsDraft)) {
+      const key = String(keyRaw || "").toUpperCase().trim();
+      if (!key) continue;
+      const n = Number(String(val).replace(",", "."));
+      if (!Number.isFinite(n) || n < 0) continue;
+      out[key] = n;
+    }
+    return out;
+  }, [saleTotalsDraft]);
+
+  const saleTotalsDirty = useMemo(() => {
+    return (
+      JSON.stringify(bookingSaleTotals) !==
+      JSON.stringify(normalizedSaleTotalsDraft)
+    );
+  }, [bookingSaleTotals, normalizedSaleTotalsDraft]);
 
   /* ================= Pagos de cliente ================= */
   const [clientPayments, setClientPayments] = useState<ClientPayment[]>([]);
@@ -831,6 +907,54 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     }
   };
 
+  const handleSaleTotalsSave = async () => {
+    if (!booking || !token) return;
+    setSaleTotalsSaving(true);
+    try {
+      const res = await authFetch(
+        `/api/bookings/${booking.id_booking}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            clientStatus: booking.clientStatus,
+            operatorStatus: booking.operatorStatus,
+            status: booking.status,
+            details: booking.details,
+            invoice_type: booking.invoice_type,
+            invoice_observation: booking.invoice_observation,
+            observation: booking.observation,
+            titular_id: booking.titular.id_client,
+            id_agency: booking.agency.id_agency,
+            departure_date: booking.departure_date,
+            return_date: booking.return_date,
+            pax_count: booking.pax_count,
+            clients_ids: booking.clients.map((c) => c.id_client),
+            id_user: booking.user.id_user,
+            sale_totals: normalizedSaleTotalsDraft,
+          }),
+        },
+        token ?? undefined,
+      );
+      if (!res.ok) {
+        let msg = "Error al guardar venta total";
+        try {
+          const err = await res.json();
+          if (typeof (err as { error?: unknown })?.error === "string")
+            msg = (err as { error: string }).error;
+        } catch {}
+        throw new Error(msg);
+      }
+      const updated = (await res.json()) as Booking;
+      onBookingUpdated?.(updated);
+      toast.success("Venta total guardada");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error al guardar venta total";
+      toast.error(msg);
+    } finally {
+      setSaleTotalsSaving(false);
+    }
+  };
+
   /* ================= Créditos ================= */
   const handleLocalCreditNoteSubmit = async (e: React.FormEvent) => {
     await handleCreditNoteSubmit(e);
@@ -1137,6 +1261,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                   </p>
                 </div>
 
+
                 <div className="col-span-1 flex items-end gap-4 rounded-2xl border border-white/5 bg-white/20 p-4 shadow-sm shadow-sky-950/10 dark:bg-white/5 md:col-span-2 lg:col-span-1">
                   <div>
                     <p className="text-sm font-semibold">Salida</p>
@@ -1335,6 +1460,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 agencyTransferFeePct={agencyTransferFeePct}
                 transferFeeReady={agencyTransferFeeReady}
                 canOverrideBillingMode={canOverrideBillingMode}
+                useBookingSaleTotal={useBookingSaleTotal}
               />
 
               {services.length > 0 && (
@@ -1368,6 +1494,60 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                     role={role}
                     status={booking.status}
                     agencyTransferFeePct={agencyTransferFeePct}
+                    useBookingSaleTotal={useBookingSaleTotal}
+                    bookingSaleTotals={bookingSaleTotals}
+                    bookingSaleTotalsForm={
+                      useBookingSaleTotal ? (
+                        <div className="mt-8 rounded-3xl border border-emerald-200/40 bg-emerald-100/20 p-4 text-sky-950 shadow-md shadow-emerald-900/10 backdrop-blur dark:border-emerald-300/20 dark:bg-emerald-500/10 dark:text-white">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold">
+                                Venta total por reserva
+                              </p>
+                              <p className="text-xs text-sky-950/70 dark:text-white/70">
+                                Definí el total de venta por moneda.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleSaleTotalsSave}
+                              disabled={!saleTotalsDirty || saleTotalsSaving}
+                              className="rounded-full bg-emerald-200/70 px-4 py-2 text-xs font-medium text-emerald-950 shadow-sm shadow-emerald-900/10 transition active:scale-95 disabled:opacity-50 dark:bg-emerald-400/20 dark:text-emerald-50"
+                            >
+                              {saleTotalsSaving
+                                ? "Guardando..."
+                                : "Guardar venta"}
+                            </button>
+                          </div>
+                          <div className="mt-4 space-y-2 rounded-2xl border border-emerald-200/40 bg-emerald-50/40 p-3 dark:border-emerald-300/20 dark:bg-emerald-500/10">
+                            {saleTotalCurrencies.map((cur) => (
+                              <div
+                                key={cur}
+                                className="flex items-center gap-2"
+                              >
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  step="0.01"
+                                  min="0"
+                                  value={saleTotalsDraft[cur] ?? ""}
+                                  onChange={(e) =>
+                                    setSaleTotalsDraft((prev) => ({
+                                      ...prev,
+                                      [cur]: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full rounded-2xl border border-emerald-200/40 bg-white/70 p-2 px-3 text-sm shadow-sm shadow-emerald-900/10 outline-none placeholder:font-light dark:border-emerald-300/20 dark:bg-white/10 sm:max-w-[160px]"
+                                />
+                                <span className="rounded-full border border-emerald-200/40 bg-emerald-100/60 px-2 py-1 text-xs font-semibold text-emerald-950 dark:border-emerald-300/20 dark:bg-emerald-400/20 dark:text-emerald-100">
+                                  {cur}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null
+                    }
                   />
                 </div>
               )}

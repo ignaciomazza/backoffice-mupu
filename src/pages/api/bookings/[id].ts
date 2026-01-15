@@ -1,6 +1,6 @@
 // src/pages/api/bookings/[id].ts
 import { NextApiRequest, NextApiResponse } from "next";
-import prisma from "@/lib/prisma";
+import prisma, { Prisma } from "@/lib/prisma";
 import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
@@ -119,6 +119,26 @@ function toLocalDate(v: unknown): Date | undefined {
     );
   const d = new Date(v);
   return isNaN(d.getTime()) ? undefined : d;
+}
+
+function normalizeSaleTotals(
+  input: unknown,
+): Record<string, number> | null {
+  if (input == null) return null;
+  if (typeof input !== "object" || Array.isArray(input)) return null;
+  const obj = input as Record<string, unknown>;
+  const out: Record<string, number> = {};
+  for (const [keyRaw, val] of Object.entries(obj)) {
+    const key = String(keyRaw || "").toUpperCase().trim();
+    if (!key) continue;
+    const n =
+      typeof val === "number"
+        ? val
+        : Number(String(val).replace(",", "."));
+    if (!Number.isFinite(n) || n < 0) return null;
+    out[key] = n;
+  }
+  return out;
 }
 
 // equipos que lidera + ids de usuarios alcanzables
@@ -248,6 +268,7 @@ export default async function handler(
       titular_id,
       departure_date,
       return_date,
+      sale_totals,
       // pax_count (se recalcula abajo, no se usa del body)
       clients_ids,
       id_user, // opcional: reasignar creador
@@ -270,6 +291,26 @@ export default async function handler(
         error: "Todos los campos obligatorios deben ser completados.",
       });
     }
+
+    let normalizedSaleTotals:
+      | Record<string, number>
+      | null
+      | undefined = undefined;
+    if (sale_totals !== undefined) {
+      if (sale_totals === null) {
+        normalizedSaleTotals = null;
+      } else {
+        const normalized = normalizeSaleTotals(sale_totals);
+        if (normalized == null) {
+          return res.status(400).json({
+            error: "sale_totals inválido (espera objeto {MONEDA: monto})",
+          });
+        }
+        normalizedSaleTotals = normalized;
+      }
+    }
+    const saleTotalsValue =
+      normalizedSaleTotals === null ? Prisma.DbNull : normalizedSaleTotals;
 
     // vendedor: solo puede editar las propias
     if (role === "vendedor" && existing.id_user !== authUserId) {
@@ -401,6 +442,9 @@ export default async function handler(
           return_date: parsedReturn,
           pax_count: nextPax,
           ...(parsedCreationDate ? { creation_date: parsedCreationDate } : {}),
+          ...(normalizedSaleTotals !== undefined
+            ? { sale_totals: saleTotalsValue }
+            : {}),
           titular: { connect: { id_client: Number(titular_id) } },
           user: { connect: { id_user: usedUserId } },
           // agency: NO se cambia por body; permanece la del token/existing

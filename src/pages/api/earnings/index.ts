@@ -2,6 +2,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
+import { computeBillingAdjustments } from "@/utils/billingAdjustments";
+import type { BillingAdjustmentConfig } from "@/types";
 
 interface EarningItem {
   currency: "ARS" | "USD";
@@ -36,6 +38,24 @@ type TokenPayload = JWTPayload & {
 };
 const JWT_SECRET = process.env.JWT_SECRET!;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
+
+function normalizeSaleTotals(
+  input: unknown,
+): Record<"ARS" | "USD", number> {
+  const out: Record<"ARS" | "USD", number> = { ARS: 0, USD: 0 };
+  if (!input || typeof input !== "object" || Array.isArray(input)) return out;
+  const obj = input as Record<string, unknown>;
+  for (const [keyRaw, val] of Object.entries(obj)) {
+    const key = String(keyRaw || "").toUpperCase();
+    if (key !== "ARS" && key !== "USD") continue;
+    const n =
+      typeof val === "number"
+        ? val
+        : Number(String(val).replace(",", "."));
+    if (Number.isFinite(n) && n >= 0) out[key] = n;
+  }
+  return out;
+}
 
 async function getAuth(
   req: NextApiRequest,
@@ -89,6 +109,21 @@ export default async function handler(
   toDateExclusive.setDate(toDateExclusive.getDate() + 1);
 
   try {
+    const agency = await prisma.agency.findUnique({
+      where: { id_agency: auth.id_agency },
+      select: { transfer_fee_pct: true },
+    });
+    const agencyFeePct =
+      agency?.transfer_fee_pct != null ? Number(agency.transfer_fee_pct) : 0.024;
+    const calcConfig = await prisma.serviceCalcConfig.findUnique({
+      where: { id_agency: auth.id_agency },
+      select: { use_booking_sale_total: true, billing_adjustments: true },
+    });
+    const useBookingSaleTotal = Boolean(calcConfig?.use_booking_sale_total);
+    const billingAdjustments = Array.isArray(calcConfig?.billing_adjustments)
+      ? (calcConfig?.billing_adjustments as BillingAdjustmentConfig[])
+      : [];
+
     // 1) Equipos/usuarios de MI agencia (para etiquetar por equipo)
     const teams = await prisma.salesTeam.findMany({
       where: { id_agency: auth.id_agency },
@@ -119,8 +154,43 @@ export default async function handler(
         booking_id: true,
         currency: true,
         sale_price: true,
+        cost_price: true,
+        other_taxes: true,
         totalCommissionWithoutVAT: true,
+        transfer_fee_amount: true,
+        transfer_fee_pct: true,
+        extra_costs_amount: true,
+        extra_taxes_amount: true,
       },
+    });
+
+    const fallbackSaleTotalsByBooking = new Map<
+      number,
+      { ARS: number; USD: number }
+    >();
+    const costTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
+    const taxTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
+
+    services.forEach((svc) => {
+      const bid = svc.booking_id;
+      const cur = String(svc.currency || "ARS").toUpperCase();
+      if (cur !== "ARS" && cur !== "USD") return;
+      const key = cur as "ARS" | "USD";
+
+      const fallback = fallbackSaleTotalsByBooking.get(bid) || {
+        ARS: 0,
+        USD: 0,
+      };
+      fallback[key] += Number(svc.sale_price) || 0;
+      fallbackSaleTotalsByBooking.set(bid, fallback);
+
+      const costTotals = costTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
+      costTotals[key] += Number(svc.cost_price) || 0;
+      costTotalsByBooking.set(bid, costTotals);
+
+      const taxTotals = taxTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
+      taxTotals[key] += Number(svc.other_taxes) || 0;
+      taxTotalsByBooking.set(bid, taxTotals);
     });
 
     // 2.1) Dueños (vendedores) de cada booking (siempre desde Booking)
@@ -128,13 +198,24 @@ export default async function handler(
       number,
       { userId: number; userName: string; bookingCreatedAt: Date }
     >();
+    let bookings: Array<{
+      id_booking: number;
+      creation_date: Date;
+      sale_totals: unknown | null;
+      user: { id_user: number; first_name: string; last_name: string };
+    }> = [];
     const bookingIds = Array.from(
       new Set(services.map((svc) => svc.booking_id)),
     );
     if (bookingIds.length > 0) {
-      const bookings = await prisma.booking.findMany({
+      bookings = await prisma.booking.findMany({
         where: { id_agency: auth.id_agency, id_booking: { in: bookingIds } },
-        include: { user: true },
+        select: {
+          id_booking: true,
+          creation_date: true,
+          sale_totals: true,
+          user: { select: { id_user: true, first_name: true, last_name: true } },
+        },
       });
       bookings.forEach((b) => {
         bookingOwners.set(b.id_booking, {
@@ -147,16 +228,22 @@ export default async function handler(
 
     // 3) Venta total por reserva/moneda (para deuda y 40%)
     const saleTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
-    services.forEach((svc) => {
-      const bid = svc.booking_id;
-      const cur = String(svc.currency || "ARS").toUpperCase();
-      const prev = saleTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
-      if (cur === "ARS" || cur === "USD") {
-        const k = cur as "ARS" | "USD";
-        prev[k] += Number(svc.sale_price) || 0;
-      }
-      saleTotalsByBooking.set(bid, prev);
-    });
+    if (useBookingSaleTotal) {
+      bookings.forEach((b) => {
+        const normalized = normalizeSaleTotals(b.sale_totals);
+        const fallback =
+          fallbackSaleTotalsByBooking.get(b.id_booking) || { ARS: 0, USD: 0 };
+        const hasValues = normalized.ARS > 0 || normalized.USD > 0;
+        saleTotalsByBooking.set(
+          b.id_booking,
+          hasValues ? normalized : fallback,
+        );
+      });
+    } else {
+      fallbackSaleTotalsByBooking.forEach((totals, bid) => {
+        saleTotalsByBooking.set(bid, totals);
+      });
+    }
 
     // 4) Recibos de esas reservas (misma agencia por FK booking)
     const allReceipts = await prisma.receipt.findMany({
@@ -255,11 +342,13 @@ export default async function handler(
     }
 
     // 8) Filtrar servicios válidos por % pago
-    const filteredServices = services.filter((svc) =>
-      validBookingCurrency.has(
-        `${svc.booking_id}-${svc.currency as "ARS" | "USD"}`,
-      ),
-    );
+    const filteredServices = useBookingSaleTotal
+      ? []
+      : services.filter((svc) =>
+          validBookingCurrency.has(
+            `${svc.booking_id}-${svc.currency as "ARS" | "USD"}`,
+          ),
+        );
 
     // 9) Agregación (una fila por vendedor+moneda, NO por equipo)
     const totals = {
@@ -343,53 +432,133 @@ export default async function handler(
       }
     }
 
-    for (const svc of filteredServices) {
-      const bid = svc.booking_id;
-      const cur = (svc.currency as "ARS" | "USD") || "ARS";
-      const owner = bookingOwners.get(bid);
-      if (!owner) continue;
-      const {
-        userId: sellerId,
-        userName: sellerName,
-        bookingCreatedAt,
-      } = owner;
+    if (useBookingSaleTotal) {
+      const commissionBaseByBooking = new Map<
+        number,
+        { ARS: number; USD: number }
+      >();
 
-      // base de comisión (con tu ajuste actual)
-      const fee = svc.sale_price * 0.024;
-      const dbCommission = svc.totalCommissionWithoutVAT ?? 0;
-      const commissionBase = Math.max(dbCommission - fee, 0);
+      saleTotalsByBooking.forEach((totals, bid) => {
+        const costTotals = costTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
+        const taxTotals = taxTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
+        const baseByCur = { ARS: 0, USD: 0 };
 
-      // regla efectiva por fecha de creación de la reserva
-      const { ownPct, shares } = resolveRule(sellerId, bookingCreatedAt);
+        (["ARS", "USD"] as const).forEach((cur) => {
+          const sale = totals[cur] || 0;
+          const cost = costTotals[cur] || 0;
+          const taxes = taxTotals[cur] || 0;
+          const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
+          const fee =
+            sale * (Number.isFinite(agencyFeePct) ? agencyFeePct : 0.024);
+          const adjustments = computeBillingAdjustments(
+            billingAdjustments,
+            sale,
+            cost,
+          ).total;
+          baseByCur[cur] = Math.max(
+            commissionBeforeFee - fee - adjustments,
+            0,
+          );
+        });
 
-      const sellerComm = commissionBase * (ownPct / 100);
-      const leaderComm = shares.reduce(
-        (sum, s) => sum + commissionBase * (s.pct / 100),
-        0,
-      );
-      const agencyShareAmt = Math.max(
-        0,
-        commissionBase - sellerComm - leaderComm,
-      );
+        commissionBaseByBooking.set(bid, baseByCur);
+      });
 
-      const debtForBooking = debtByBooking.get(bid)![cur];
+      for (const [bid, baseByCur] of commissionBaseByBooking.entries()) {
+        const owner = bookingOwners.get(bid);
+        if (!owner) continue;
+        const {
+          userId: sellerId,
+          userName: sellerName,
+          bookingCreatedAt,
+        } = owner;
 
-      // 🔴 OJO: ahora agregamos UNA sola fila por vendedor+moneda
-      addRow(
-        cur,
-        sellerId,
-        sellerName,
-        sellerComm,
-        leaderComm,
-        agencyShareAmt,
-        debtForBooking,
-        bid,
-      );
+        const { ownPct, shares } = resolveRule(sellerId, bookingCreatedAt);
+
+        (["ARS", "USD"] as const).forEach((cur) => {
+          if (!validBookingCurrency.has(`${bid}-${cur}`)) return;
+          const commissionBase = baseByCur[cur] || 0;
+          const sellerComm = commissionBase * (ownPct / 100);
+          const leaderComm = shares.reduce(
+            (sum, s) => sum + commissionBase * (s.pct / 100),
+            0,
+          );
+          const agencyShareAmt = Math.max(
+            0,
+            commissionBase - sellerComm - leaderComm,
+          );
+          const debtForBooking = debtByBooking.get(bid)?.[cur] ?? 0;
+
+          addRow(
+            cur,
+            sellerId,
+            sellerName,
+            sellerComm,
+            leaderComm,
+            agencyShareAmt,
+            debtForBooking,
+            bid,
+          );
+        });
+      }
+    } else {
+      for (const svc of filteredServices) {
+        const bid = svc.booking_id;
+        const cur = (svc.currency as "ARS" | "USD") || "ARS";
+        const owner = bookingOwners.get(bid);
+        if (!owner) continue;
+        const {
+          userId: sellerId,
+          userName: sellerName,
+          bookingCreatedAt,
+        } = owner;
+
+        // base de comisión (con tu ajuste actual)
+        const sale = Number(svc.sale_price) || 0;
+        const pct =
+          svc.transfer_fee_pct != null
+            ? Number(svc.transfer_fee_pct)
+            : agencyFeePct;
+        const fee =
+          svc.transfer_fee_amount != null
+            ? Number(svc.transfer_fee_amount)
+            : sale * (Number.isFinite(pct) ? pct : 0.024);
+        const dbCommission = Number(svc.totalCommissionWithoutVAT ?? 0);
+        const extraCosts = Number(svc.extra_costs_amount ?? 0);
+        const extraTaxes = Number(svc.extra_taxes_amount ?? 0);
+        const commissionBase = Math.max(
+          dbCommission - fee - extraCosts - extraTaxes,
+          0,
+        );
+
+        // regla efectiva por fecha de creación de la reserva
+        const { ownPct, shares } = resolveRule(sellerId, bookingCreatedAt);
+
+        const sellerComm = commissionBase * (ownPct / 100);
+        const leaderComm = shares.reduce(
+          (sum, s) => sum + commissionBase * (s.pct / 100),
+          0,
+        );
+        const agencyShareAmt = Math.max(
+          0,
+          commissionBase - sellerComm - leaderComm,
+        );
+
+        const debtForBooking = debtByBooking.get(bid)![cur];
+
+        // 🔴 OJO: ahora agregamos UNA sola fila por vendedor+moneda
+        addRow(
+          cur,
+          sellerId,
+          sellerName,
+          sellerComm,
+          leaderComm,
+          agencyShareAmt,
+          debtForBooking,
+          bid,
+        );
+      }
     }
-
-    return res
-      .status(200)
-      .json({ totals, items: Array.from(itemsMap.values()) });
 
     return res
       .status(200)

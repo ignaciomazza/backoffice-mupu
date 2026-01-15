@@ -2,10 +2,16 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { Service, Receipt } from "@/types";
+import type {
+  Service,
+  Receipt,
+  BillingAdjustmentConfig,
+  BillingAdjustmentComputed,
+} from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import Spinner from "@/components/Spinner";
+import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 
 /* ===== Tipos ===== */
 interface Totals {
@@ -26,6 +32,8 @@ interface Totals {
   /** Fallback cuando no viene el desglose de intereses (sin IVA / IVA) */
   cardInterestRaw?: number;
   transferFeesAmount: number;
+  extra_costs_amount: number;
+  extra_taxes_amount: number;
 }
 
 interface SummaryCardProps {
@@ -35,6 +43,8 @@ interface SummaryCardProps {
   /** Datos crudos para calcular deuda y comisión */
   services: Service[];
   receipts: Receipt[];
+  useBookingSaleTotal?: boolean;
+  bookingSaleTotals?: Record<string, number | string> | null;
 }
 
 /** Campos adicionales que pueden venir en Service */
@@ -44,6 +54,9 @@ type ServiceWithCalcs = Service &
     vatOnCardInterest: number;
     card_interest: number;
     totalCommissionWithoutVAT: number;
+    extra_costs_amount: number;
+    extra_taxes_amount: number;
+    extra_adjustments: BillingAdjustmentComputed[] | null;
     currency: "ARS" | "USD" | string;
     sale_price: number;
     booking: {
@@ -66,11 +79,18 @@ type ReceiptWithConversion = Receipt &
     payment_fee_currency: string | null;
   }>;
 
+type AdjustmentLabelTotal = {
+  label: string;
+  amount: number;
+};
+
 /** Config API */
 type CalcConfigResponse = {
   billing_breakdown_mode: "auto" | "manual";
   /** Proporción: 0.024 = 2.4% */
   transfer_fee_pct: number;
+  billing_adjustments?: BillingAdjustmentConfig[];
+  use_booking_sale_total?: boolean;
 };
 
 type EarningsByBookingResponse = {
@@ -177,6 +197,8 @@ export default function SummaryCard({
   fmtCurrency,
   services,
   receipts,
+  useBookingSaleTotal = false,
+  bookingSaleTotals,
 }: SummaryCardProps) {
   const labels: Record<string, string> = {
     ARS: "Pesos",
@@ -188,12 +210,18 @@ export default function SummaryCard({
   /* ====== Config de cálculo y costos bancarios + earnings ====== */
   const [agencyMode, setAgencyMode] = useState<"auto" | "manual">("auto");
   const [transferPct, setTransferPct] = useState<number>(0.024); // fallback 2.4%
+  const [billingAdjustments, setBillingAdjustments] = useState<
+    BillingAdjustmentConfig[]
+  >([]);
+  const [useBookingSaleTotalCfg, setUseBookingSaleTotalCfg] =
+    useState<boolean>(false);
   const [ownerPct, setOwnerPct] = useState<number>(100);
   const [apiCommissionBaseByCurrency, setApiCommissionBaseByCurrency] =
     useState<Record<string, number>>({});
   const [apiSellerEarningsByCurrency, setApiSellerEarningsByCurrency] =
     useState<Record<string, number>>({});
   const [loadingCalc, setLoadingCalc] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const bookingId = useMemo(
     () => pickBookingId(services as ServiceWithCalcs[]),
@@ -254,11 +282,17 @@ export default function SummaryCard({
           );
           const pct = Number(data.transfer_fee_pct);
           setTransferPct(Number.isFinite(pct) ? pct : 0.024);
+          setBillingAdjustments(
+            Array.isArray(data.billing_adjustments) ? data.billing_adjustments : [],
+          );
+          setUseBookingSaleTotalCfg(Boolean(data.use_booking_sale_total));
         }
       } catch {
         if (isActive()) {
           setAgencyMode("auto");
           setTransferPct(0.024);
+          setBillingAdjustments([]);
+          setUseBookingSaleTotalCfg(false);
         }
       }
 
@@ -303,9 +337,10 @@ export default function SummaryCard({
     })();
 
     return () => ac.abort();
-  }, [token, bookingId]);
+  }, [token, bookingId, refreshKey]);
 
-  const manualMode = agencyMode === "manual";
+  const bookingSaleMode = useBookingSaleTotal || useBookingSaleTotalCfg;
+  const manualMode = agencyMode === "manual" || bookingSaleMode;
 
   /** Normaliza totales por moneda (clave) para evitar códigos no-ISO. */
   const totalsNorm = useMemo(() => {
@@ -317,8 +352,41 @@ export default function SummaryCard({
     return acc;
   }, [totalsByCurrency]);
 
+  const bookingSaleTotalsNorm = useMemo(() => {
+    if (!bookingSaleTotals || typeof bookingSaleTotals !== "object") {
+      return {};
+    }
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(bookingSaleTotals)) {
+      const code = normalizeCurrencyCode(k);
+      const n =
+        typeof v === "number"
+          ? v
+          : typeof v === "string"
+            ? Number(v.replace(",", "."))
+            : NaN;
+      if (Number.isFinite(n) && n >= 0) out[code] = n;
+    }
+    return out;
+  }, [bookingSaleTotals]);
+
+  /** Venta base por moneda. */
+  const saleTotalsByCurrency = useMemo(() => {
+    if (bookingSaleMode && Object.keys(bookingSaleTotalsNorm).length > 0) {
+      return bookingSaleTotalsNorm;
+    }
+    return services.reduce<Record<string, number>>((acc, raw) => {
+      const s = raw as ServiceWithCalcs;
+      const cur = normalizeCurrencyCode(s.currency || "ARS");
+      const sale = toNum(s.sale_price);
+      acc[cur] = (acc[cur] || 0) + sale;
+      return acc;
+    }, {});
+  }, [bookingSaleMode, bookingSaleTotalsNorm, services]);
+
   /** Venta con interés por moneda (sale_price + interés). */
   const salesWithInterestByCurrency = useMemo(() => {
+    if (bookingSaleMode) return saleTotalsByCurrency;
     return services.reduce<Record<string, number>>((acc, raw) => {
       const s = raw as ServiceWithCalcs;
       const cur = normalizeCurrencyCode(s.currency || "ARS");
@@ -330,7 +398,7 @@ export default function SummaryCard({
       acc[cur] = (acc[cur] || 0) + sale + interest;
       return acc;
     }, {});
-  }, [services]);
+  }, [bookingSaleMode, saleTotalsByCurrency, services]);
 
   /** Pagos por moneda (considerando también payment_fee_amount). */
   const paidByCurrency = useMemo(() => {
@@ -375,29 +443,148 @@ export default function SummaryCard({
     }, {});
   }, [receipts]);
 
+  const costTotalsByCurrency = useMemo(() => {
+    return services.reduce<Record<string, number>>((acc, raw) => {
+      const s = raw as ServiceWithCalcs;
+      const cur = normalizeCurrencyCode(s.currency || "ARS");
+      const cost = toNum(s.cost_price);
+      acc[cur] = (acc[cur] || 0) + cost;
+      return acc;
+    }, {});
+  }, [services]);
+
+  const taxTotalsByCurrency = useMemo(() => {
+    return services.reduce<Record<string, number>>((acc, raw) => {
+      const s = raw as ServiceWithCalcs;
+      const cur = normalizeCurrencyCode(s.currency || "ARS");
+      const taxes = toNum(s.other_taxes);
+      acc[cur] = (acc[cur] || 0) + taxes;
+      return acc;
+    }, {});
+  }, [services]);
+
+  const bookingAdjustmentsByCurrency = useMemo(() => {
+    if (!bookingSaleMode) return {};
+    const out: Record<
+      string,
+      { totalCosts: number; totalTaxes: number; total: number }
+    > = {};
+    for (const [cur, sale] of Object.entries(saleTotalsByCurrency)) {
+      const cost = costTotalsByCurrency[cur] || 0;
+      const totals = computeBillingAdjustments(billingAdjustments, sale, cost);
+      out[cur] = totals;
+    }
+    return out;
+  }, [
+    bookingSaleMode,
+    billingAdjustments,
+    saleTotalsByCurrency,
+    costTotalsByCurrency,
+  ]);
+
+  const adjustmentsByCurrency = useMemo(() => {
+    const out: Record<string, AdjustmentLabelTotal[]> = {};
+
+    if (bookingSaleMode) {
+      for (const [cur, sale] of Object.entries(saleTotalsByCurrency)) {
+        const cost = costTotalsByCurrency[cur] || 0;
+        const items = computeBillingAdjustments(
+          billingAdjustments,
+          sale,
+          cost,
+        ).items;
+        const totals = new Map<string, number>();
+        items.forEach((item) => {
+          const label = item.label || "Ajuste";
+          totals.set(label, (totals.get(label) || 0) + toNum(item.amount));
+        });
+        out[cur] = Array.from(totals, ([label, amount]) => ({
+          label,
+          amount,
+        }));
+      }
+      return out;
+    }
+
+    services.forEach((raw) => {
+      const s = raw as ServiceWithCalcs;
+      const cur = normalizeCurrencyCode(s.currency || "ARS");
+      const items = Array.isArray(s.extra_adjustments)
+        ? s.extra_adjustments
+        : [];
+      if (!items.length) return;
+
+      const totals = new Map<string, number>(
+        (out[cur] || []).map((it) => [it.label, it.amount]),
+      );
+      items.forEach((item) => {
+        const label = item.label || "Ajuste";
+        totals.set(label, (totals.get(label) || 0) + toNum(item.amount));
+      });
+      out[cur] = Array.from(totals, ([label, amount]) => ({
+        label,
+        amount,
+      }));
+    });
+
+    return out;
+  }, [
+    billingAdjustments,
+    bookingSaleMode,
+    costTotalsByCurrency,
+    saleTotalsByCurrency,
+    services,
+  ]);
+
   /** Unión de monedas presentes. */
   const currencies = useMemo(() => {
     const a = new Set<string>(Object.keys(totalsNorm));
     Object.keys(salesWithInterestByCurrency).forEach((c) => a.add(c));
+    Object.keys(saleTotalsByCurrency).forEach((c) => a.add(c));
     Object.keys(paidByCurrency).forEach((c) => a.add(c));
     return Array.from(a);
-  }, [totalsNorm, salesWithInterestByCurrency, paidByCurrency]);
+  }, [totalsNorm, salesWithInterestByCurrency, saleTotalsByCurrency, paidByCurrency]);
 
   /** ====== cálculo local de comisión base por moneda (fallback) ======
    * commissionBase = max(totalCommissionWithoutVAT - sale_price*transferPct, 0)
    */
   const localCommissionBaseByCurrency = useMemo(() => {
+    if (bookingSaleMode) {
+      const out: Record<string, number> = {};
+      for (const [cur, sale] of Object.entries(saleTotalsByCurrency)) {
+        const cost = costTotalsByCurrency[cur] || 0;
+        const taxes = taxTotalsByCurrency[cur] || 0;
+        const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
+        const fee =
+          sale * (Number.isFinite(transferPct) ? transferPct : 0.024);
+        const adjustments = bookingAdjustmentsByCurrency[cur]?.total || 0;
+        out[cur] = Math.max(commissionBeforeFee - fee - adjustments, 0);
+      }
+      return out;
+    }
+
     return services.reduce<Record<string, number>>((acc, raw) => {
       const s = raw as ServiceWithCalcs;
       const cur = normalizeCurrencyCode(s.currency || "ARS");
       const sale = toNum(s.sale_price);
       const dbCommission = toNum(s.totalCommissionWithoutVAT);
       const fee = sale * (Number.isFinite(transferPct) ? transferPct : 0.024);
-      const base = Math.max(dbCommission - fee, 0);
+      const extraCosts = toNum((s as ServiceWithCalcs).extra_costs_amount);
+      const extraTaxes = toNum((s as ServiceWithCalcs).extra_taxes_amount);
+      const adjustments = extraCosts + extraTaxes;
+      const base = Math.max(dbCommission - fee - adjustments, 0);
       acc[cur] = (acc[cur] || 0) + base;
       return acc;
     }, {});
-  }, [services, transferPct]);
+  }, [
+    bookingAdjustmentsByCurrency,
+    bookingSaleMode,
+    costTotalsByCurrency,
+    saleTotalsByCurrency,
+    services,
+    taxTotalsByCurrency,
+    transferPct,
+  ]);
 
   /** ====== Derivados para UI ====== */
   const commissionBaseFor = (cur: string) =>
@@ -441,6 +628,17 @@ export default function SummaryCard({
         currencies.length > 1 ? "border border-white/10 bg-white/10 p-6" : ""
       } text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white`}
     >
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setRefreshKey((prev) => prev + 1)}
+          disabled={loadingCalc}
+          className="rounded-full border border-white/10 bg-white/20 px-3 py-1 text-xs font-medium shadow-sm shadow-sky-950/10 transition active:scale-95 disabled:opacity-50 dark:bg-white/10"
+          aria-label="Actualizar resumen"
+        >
+          Actualizar
+        </button>
+      </div>
       <div className={`grid ${colsClass} gap-6`}>
         {currencies.map((currency) => {
           const code = normalizeCurrencyCode(currency);
@@ -461,6 +659,8 @@ export default function SummaryCard({
             totalCommissionWithoutVAT: 0,
             transferFeesAmount: 0,
             cardInterestRaw: 0,
+            extra_costs_amount: 0,
+            extra_taxes_amount: 0,
           };
 
           // Intereses de tarjeta (presentación)
@@ -469,10 +669,26 @@ export default function SummaryCard({
           const cardTotal =
             cardSplit > 0 ? cardSplit : (t.cardInterestRaw ?? 0);
 
-          const venta = fmt(t.sale_price, code);
-          const costo = fmt(t.cost_price, code);
-          const margen = fmt(t.sale_price - t.cost_price, code);
-          const feeTransfer = fmt(t.transferFeesAmount, code);
+          const saleValue = bookingSaleMode
+            ? saleTotalsByCurrency[code] || 0
+            : t.sale_price;
+          const costValue = t.cost_price;
+          const venta = fmt(saleValue, code);
+          const costo = fmt(costValue, code);
+          const margen = fmt(saleValue - costValue, code);
+          const feeValue = bookingSaleMode
+            ? saleValue * (Number.isFinite(transferPct) ? transferPct : 0.024)
+            : t.transferFeesAmount;
+          const feeTransfer = fmt(feeValue, code);
+          const extraCosts = bookingSaleMode
+            ? bookingAdjustmentsByCurrency[code]?.totalCosts || 0
+            : t.extra_costs_amount || 0;
+          const extraTaxes = bookingSaleMode
+            ? bookingAdjustmentsByCurrency[code]?.totalTaxes || 0
+            : t.extra_taxes_amount || 0;
+          const extraAdjustmentsTotal = extraCosts + extraTaxes;
+          const showAdjustments = extraAdjustmentsTotal > 0;
+          const adjustmentsForCurrency = adjustmentsByCurrency[code] || [];
 
           // Chip de "Impuestos": en AUTO = IVA calculado; en MANUAL = other_taxes
           const chipImpuestos = manualMode
@@ -485,10 +701,11 @@ export default function SummaryCard({
           // Deuda por moneda
           const salesWI = salesWithInterestByCurrency[code] || 0;
           const paid = paidByCurrency[code] || 0;
-          const ventaParaDeuda = manualMode ? t.sale_price : salesWI;
+          const ventaParaDeuda = manualMode ? saleValue : salesWI;
           const debt = ventaParaDeuda - paid;
 
           // Comisión base + ganancia del vendedor (preferimos API, sino fallback)
+          const netCommission = commissionBaseFor(code);
           const myEarning = sellerEarningFor(code);
 
           return (
@@ -510,6 +727,17 @@ export default function SummaryCard({
                     {chipImpuestos}
                   </Chip>
                   <Chip>Costo transf.: {feeTransfer}</Chip>
+                  {adjustmentsForCurrency.length > 0
+                    ? adjustmentsForCurrency.map((adj) => (
+                        <Chip key={`${code}-${adj.label}`}>
+                          {adj.label}: {fmt(adj.amount, code)}
+                        </Chip>
+                      ))
+                    : showAdjustments && (
+                        <Chip>
+                          Ajustes extra: {fmt(extraAdjustmentsTotal, code)}
+                        </Chip>
+                      )}
                 </div>
               </header>
 
@@ -582,6 +810,19 @@ export default function SummaryCard({
                   </Section>
                 )}
 
+                {showAdjustments && (
+                  <Section title="Ajustes extra">
+                    <Row
+                      label="Costos adicionales"
+                      value={fmt(extraCosts, code)}
+                    />
+                    <Row
+                      label="Impuestos adicionales"
+                      value={fmt(extraTaxes, code)}
+                    />
+                  </Section>
+                )}
+
                 {/* Deuda */}
                 <Section title="Deuda del cliente">
                   <Row
@@ -597,13 +838,10 @@ export default function SummaryCard({
               <footer className="mt-4 flex justify-between rounded-2xl border border-white/5 bg-white/10 p-3">
                 <div>
                   <p className="text-sm opacity-70">
-                    Total Comisión (Sin Impuestos / Costos bancarios)
+                    Total Comisión neta (fee + ajustes)
                   </p>
                   <p className="text-lg font-semibold tabular-nums">
-                    {fmt(
-                      t.totalCommissionWithoutVAT - t.transferFeesAmount,
-                      code,
-                    )}
+                    {fmt(netCommission, code)}
                   </p>
                 </div>
                 <div>

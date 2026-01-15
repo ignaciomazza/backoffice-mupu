@@ -26,6 +26,8 @@ interface Totals {
   /** Fallback cuando no hay desglose de intereses de tarjeta */
   cardInterestRaw?: number;
   transferFeesAmount: number;
+  extra_costs_amount: number;
+  extra_taxes_amount: number;
 }
 
 type ServiceWithCalcs = Service &
@@ -44,6 +46,8 @@ type ServiceWithCalcs = Service &
     card_interest: number;
     transfer_fee_pct: number | null;
     transfer_fee_amount: number | null;
+    extra_costs_amount: number | null;
+    extra_taxes_amount: number | null;
   }>;
 
 type NumericKeys = Extract<keyof Totals, keyof ServiceWithCalcs>;
@@ -66,6 +70,8 @@ const KEYS_TO_SUM: readonly NumericKeys[] = [
   "vatOnCommission21",
   "vatOnCommission10_5",
   "totalCommissionWithoutVAT",
+  "extra_costs_amount",
+  "extra_taxes_amount",
 ];
 
 interface ServiceListProps {
@@ -80,6 +86,9 @@ interface ServiceListProps {
   role: string;
   status: string;
   agencyTransferFeePct: number;
+  useBookingSaleTotal?: boolean;
+  bookingSaleTotals?: Record<string, number>;
+  bookingSaleTotalsForm?: React.ReactNode;
 }
 
 export default function ServiceList({
@@ -92,6 +101,9 @@ export default function ServiceList({
   role,
   status,
   agencyTransferFeePct,
+  useBookingSaleTotal,
+  bookingSaleTotals,
+  bookingSaleTotalsForm,
 }: ServiceListProps) {
   const formatDate = useCallback(
     (dateString?: string) =>
@@ -132,6 +144,8 @@ export default function ServiceList({
       totalCommissionWithoutVAT: 0,
       cardInterestRaw: 0,
       transferFeesAmount: 0,
+      extra_costs_amount: 0,
+      extra_taxes_amount: 0,
     };
 
     return services.reduce<Record<string, Totals>>((acc, s) => {
@@ -191,6 +205,8 @@ export default function ServiceList({
         ))}
       </div>
 
+      {bookingSaleTotalsForm}
+
       <div>
         <div className="mb-4 mt-8 flex justify-center">
           <p className="text-2xl font-medium">Resumen</p>
@@ -200,6 +216,8 @@ export default function ServiceList({
           fmtCurrency={fmtCurrency}
           services={services}
           receipts={receipts}
+          useBookingSaleTotal={useBookingSaleTotal}
+          bookingSaleTotals={bookingSaleTotals}
         />
       </div>
     </div>

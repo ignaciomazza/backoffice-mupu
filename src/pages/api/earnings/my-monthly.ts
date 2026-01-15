@@ -2,6 +2,8 @@
 
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
+import { computeBillingAdjustments } from "@/utils/billingAdjustments";
+import type { BillingAdjustmentConfig } from "@/types";
 import { jwtVerify, type JWTPayload } from "jose";
 
 /* ============ Auth helpers ============ */
@@ -54,6 +56,24 @@ function monthKeyUTC(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+function normalizeSaleTotals(
+  input: unknown,
+): Record<"ARS" | "USD", number> {
+  const out: Record<"ARS" | "USD", number> = { ARS: 0, USD: 0 };
+  if (!input || typeof input !== "object" || Array.isArray(input)) return out;
+  const obj = input as Record<string, unknown>;
+  for (const [keyRaw, val] of Object.entries(obj)) {
+    const key = String(keyRaw || "").toUpperCase();
+    if (key !== "ARS" && key !== "USD") continue;
+    const n =
+      typeof val === "number"
+        ? val
+        : Number(String(val).replace(",", "."));
+    if (Number.isFinite(n) && n >= 0) out[key] = n;
+  }
+  return out;
+}
+
 /* ============ Tipos respuesta ============ */
 export type MyMonthlyItem = {
   month: string; // YYYY-MM (UTC)
@@ -93,6 +113,21 @@ export default async function handler(
   toDateExclusive.setUTCDate(toDateExclusive.getUTCDate() + 1);
 
   try {
+    const agency = await prisma.agency.findUnique({
+      where: { id_agency: auth.id_agency },
+      select: { transfer_fee_pct: true },
+    });
+    const agencyFeePct =
+      agency?.transfer_fee_pct != null ? Number(agency.transfer_fee_pct) : 0.024;
+    const calcConfig = await prisma.serviceCalcConfig.findUnique({
+      where: { id_agency: auth.id_agency },
+      select: { use_booking_sale_total: true, billing_adjustments: true },
+    });
+    const useBookingSaleTotal = Boolean(calcConfig?.use_booking_sale_total);
+    const billingAdjustments = Array.isArray(calcConfig?.billing_adjustments)
+      ? (calcConfig?.billing_adjustments as BillingAdjustmentConfig[])
+      : [];
+
     // 1) Servicios del rango (fecha = creación de la reserva) de MI agencia
     const services = await prisma.service.findMany({
       where: {
@@ -104,8 +139,14 @@ export default async function handler(
       select: {
         booking_id: true,
         sale_price: true,
+        cost_price: true,
+        other_taxes: true,
         currency: true,
         totalCommissionWithoutVAT: true,
+        transfer_fee_amount: true,
+        transfer_fee_pct: true,
+        extra_costs_amount: true,
+        extra_taxes_amount: true,
       },
     });
 
@@ -113,18 +154,57 @@ export default async function handler(
       return res.status(200).json({ items: [], totalsByCurrency: {} });
     }
 
+    const fallbackSaleTotalsByBooking = new Map<
+      number,
+      { ARS: number; USD: number }
+    >();
+    const costTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
+    const taxTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
+
+    for (const svc of services) {
+      const bid = svc.booking_id;
+      const cur = (svc.currency || "ARS").toUpperCase();
+      if (cur !== "ARS" && cur !== "USD") continue;
+
+      const fallback = fallbackSaleTotalsByBooking.get(bid) || {
+        ARS: 0,
+        USD: 0,
+      };
+      fallback[cur] += Number(svc.sale_price) || 0;
+      fallbackSaleTotalsByBooking.set(bid, fallback);
+
+      const costTotals = costTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
+      costTotals[cur] += Number(svc.cost_price) || 0;
+      costTotalsByBooking.set(bid, costTotals);
+
+      const taxTotals = taxTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
+      taxTotals[cur] += Number(svc.other_taxes) || 0;
+      taxTotalsByBooking.set(bid, taxTotals);
+    }
+
     // 2) Venta por reserva/moneda (para deuda y 40%)
-    const saleTotalsByBooking = new Map<number, Record<string, number>>();
+    const saleTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
     const bookingCreatedAt = new Map<number, Date>();
     const bookingOwner = new Map<number, { id: number; name: string }>();
+    let bookings: Array<{
+      id_booking: number;
+      creation_date: Date;
+      sale_totals: unknown | null;
+      user: { id_user: number; first_name: string; last_name: string };
+    }> = [];
 
     const bookingIds = Array.from(
       new Set(services.map((svc) => svc.booking_id)),
     );
     if (bookingIds.length > 0) {
-      const bookings = await prisma.booking.findMany({
+      bookings = await prisma.booking.findMany({
         where: { id_agency: auth.id_agency, id_booking: { in: bookingIds } },
-        include: { user: true },
+        select: {
+          id_booking: true,
+          creation_date: true,
+          sale_totals: true,
+          user: { select: { id_user: true, first_name: true, last_name: true } },
+        },
       });
       for (const b of bookings) {
         bookingCreatedAt.set(b.id_booking, b.creation_date);
@@ -135,12 +215,18 @@ export default async function handler(
       }
     }
 
-    for (const svc of services) {
-      const bid = svc.booking_id;
-      const cur = (svc.currency || "ARS").toUpperCase();
-      const prev = saleTotalsByBooking.get(bid) || {};
-      prev[cur] = (prev[cur] || 0) + (svc.sale_price || 0);
-      saleTotalsByBooking.set(bid, prev);
+    if (useBookingSaleTotal) {
+      bookings.forEach((b) => {
+        const normalized = normalizeSaleTotals(b.sale_totals);
+        const fallback =
+          fallbackSaleTotalsByBooking.get(b.id_booking) || { ARS: 0, USD: 0 };
+        const hasValues = normalized.ARS > 0 || normalized.USD > 0;
+        saleTotalsByBooking.set(b.id_booking, hasValues ? normalized : fallback);
+      });
+    } else {
+      fallbackSaleTotalsByBooking.forEach((totals, bid) => {
+        saleTotalsByBooking.set(bid, totals);
+      });
     }
 
     // 3) Recibos → validar 40% cobrado en la misma moneda
@@ -174,12 +260,12 @@ export default async function handler(
     const validBookingCurrency = new Set<string>();
     saleTotalsByBooking.forEach((totals, bid) => {
       const paid = receiptsMap.get(bid) || {};
-      for (const cur of Object.keys(totals)) {
+      (["ARS", "USD"] as const).forEach((cur) => {
         const t = totals[cur] || 0;
         if (t > 0 && (paid[cur] || 0) / t >= 0.4) {
           validBookingCurrency.add(`${bid}-${cur}`);
         }
-      }
+      });
     });
 
     // 4) Reglas de comisión (para dueños)
@@ -232,57 +318,152 @@ export default async function handler(
       { seller: number; beneficiary: number; total: number }
     > = {};
 
-    for (const svc of services) {
-      const bid = svc.booking_id;
-      const cur = (svc.currency || "ARS").toUpperCase();
-      if (!validBookingCurrency.has(`${bid}-${cur}`)) continue;
+    if (useBookingSaleTotal) {
+      const commissionBaseByBooking = new Map<
+        number,
+        { ARS: number; USD: number }
+      >();
 
-      const createdAt = bookingCreatedAt.get(bid);
-      const owner = bookingOwner.get(bid);
-      if (!createdAt || !owner) continue;
-      const month = monthKeyUTC(createdAt);
-      const ownerId = owner.id;
+      saleTotalsByBooking.forEach((totalsByCur, bid) => {
+        const costTotals = costTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
+        const taxTotals = taxTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
+        const baseByCur = { ARS: 0, USD: 0 };
 
-      // base de comisión (mismo criterio que /earnings)
-      const fee = (svc.sale_price || 0) * 0.024;
-      const dbCommission = svc.totalCommissionWithoutVAT ?? 0;
-      const commissionBase = Math.max(dbCommission - fee, 0);
+        (["ARS", "USD"] as const).forEach((cur) => {
+          const sale = totalsByCur[cur] || 0;
+          const cost = costTotals[cur] || 0;
+          const taxes = taxTotals[cur] || 0;
+          const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
+          const fee =
+            sale * (Number.isFinite(agencyFeePct) ? agencyFeePct : 0.024);
+          const adjustments = computeBillingAdjustments(
+            billingAdjustments,
+            sale,
+            cost,
+          ).total;
+          baseByCur[cur] = Math.max(
+            commissionBeforeFee - fee - adjustments,
+            0,
+          );
+        });
 
-      const { ownPct, beneficiaryPctForMe } = resolveRule(
-        ownerId,
-        createdAt,
-        auth.id_user,
-      );
+        commissionBaseByBooking.set(bid, baseByCur);
+      });
 
-      let sellerAmt = 0;
-      let beneficiaryAmt = 0;
+      for (const [bid, baseByCur] of commissionBaseByBooking.entries()) {
+        const createdAt = bookingCreatedAt.get(bid);
+        const owner = bookingOwner.get(bid);
+        if (!createdAt || !owner) continue;
+        const month = monthKeyUTC(createdAt);
+        const ownerId = owner.id;
 
-      if (ownerId === auth.id_user) {
-        sellerAmt = commissionBase * (ownPct / 100);
+        const { ownPct, beneficiaryPctForMe } = resolveRule(
+          ownerId,
+          createdAt,
+          auth.id_user,
+        );
+
+        (["ARS", "USD"] as const).forEach((cur) => {
+          if (!validBookingCurrency.has(`${bid}-${cur}`)) return;
+          const commissionBase = baseByCur[cur] || 0;
+
+          let sellerAmt = 0;
+          let beneficiaryAmt = 0;
+
+          if (ownerId === auth.id_user) {
+            sellerAmt = commissionBase * (ownPct / 100);
+          }
+          if (beneficiaryPctForMe > 0) {
+            beneficiaryAmt = commissionBase * (beneficiaryPctForMe / 100);
+          }
+
+          const totalAmt = sellerAmt + beneficiaryAmt;
+
+          if (!monthly.has(month)) monthly.set(month, new Map());
+          const byCur = monthly.get(month)!;
+          const slot = byCur.get(cur) || { seller: 0, beneficiary: 0, total: 0 };
+          slot.seller += sellerAmt;
+          slot.beneficiary += beneficiaryAmt;
+          slot.total += totalAmt;
+          byCur.set(cur, slot);
+
+          const t = totalsByCurrency[cur] || {
+            seller: 0,
+            beneficiary: 0,
+            total: 0,
+          };
+          t.seller += sellerAmt;
+          t.beneficiary += beneficiaryAmt;
+          t.total += totalAmt;
+          totalsByCurrency[cur] = t;
+        });
       }
-      if (beneficiaryPctForMe > 0) {
-        beneficiaryAmt = commissionBase * (beneficiaryPctForMe / 100);
+    } else {
+      for (const svc of services) {
+        const bid = svc.booking_id;
+        const cur = (svc.currency || "ARS").toUpperCase();
+        if (!validBookingCurrency.has(`${bid}-${cur}`)) continue;
+
+        const createdAt = bookingCreatedAt.get(bid);
+        const owner = bookingOwner.get(bid);
+        if (!createdAt || !owner) continue;
+        const month = monthKeyUTC(createdAt);
+        const ownerId = owner.id;
+
+        // base de comisión (mismo criterio que /earnings)
+        const sale = Number(svc.sale_price) || 0;
+        const pct =
+          svc.transfer_fee_pct != null
+            ? Number(svc.transfer_fee_pct)
+            : agencyFeePct;
+        const fee =
+          svc.transfer_fee_amount != null
+            ? Number(svc.transfer_fee_amount)
+            : sale * (Number.isFinite(pct) ? pct : 0.024);
+        const dbCommission = Number(svc.totalCommissionWithoutVAT ?? 0);
+        const extraCosts = Number(svc.extra_costs_amount ?? 0);
+        const extraTaxes = Number(svc.extra_taxes_amount ?? 0);
+        const commissionBase = Math.max(
+          dbCommission - fee - extraCosts - extraTaxes,
+          0,
+        );
+
+        const { ownPct, beneficiaryPctForMe } = resolveRule(
+          ownerId,
+          createdAt,
+          auth.id_user,
+        );
+
+        let sellerAmt = 0;
+        let beneficiaryAmt = 0;
+
+        if (ownerId === auth.id_user) {
+          sellerAmt = commissionBase * (ownPct / 100);
+        }
+        if (beneficiaryPctForMe > 0) {
+          beneficiaryAmt = commissionBase * (beneficiaryPctForMe / 100);
+        }
+
+        const totalAmt = sellerAmt + beneficiaryAmt;
+
+        if (!monthly.has(month)) monthly.set(month, new Map());
+        const byCur = monthly.get(month)!;
+        const slot = byCur.get(cur) || { seller: 0, beneficiary: 0, total: 0 };
+        slot.seller += sellerAmt;
+        slot.beneficiary += beneficiaryAmt;
+        slot.total += totalAmt;
+        byCur.set(cur, slot);
+
+        const t = totalsByCurrency[cur] || {
+          seller: 0,
+          beneficiary: 0,
+          total: 0,
+        };
+        t.seller += sellerAmt;
+        t.beneficiary += beneficiaryAmt;
+        t.total += totalAmt;
+        totalsByCurrency[cur] = t;
       }
-
-      const totalAmt = sellerAmt + beneficiaryAmt;
-
-      if (!monthly.has(month)) monthly.set(month, new Map());
-      const byCur = monthly.get(month)!;
-      const slot = byCur.get(cur) || { seller: 0, beneficiary: 0, total: 0 };
-      slot.seller += sellerAmt;
-      slot.beneficiary += beneficiaryAmt;
-      slot.total += totalAmt;
-      byCur.set(cur, slot);
-
-      const t = totalsByCurrency[cur] || {
-        seller: 0,
-        beneficiary: 0,
-        total: 0,
-      };
-      t.seller += sellerAmt;
-      t.beneficiary += beneficiaryAmt;
-      t.total += totalAmt;
-      totalsByCurrency[cur] = t;
     }
 
     // 6) Aplanar para respuesta

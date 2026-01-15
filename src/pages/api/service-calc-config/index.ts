@@ -12,6 +12,8 @@ type ServiceCalcConfigRow = {
   id_config: number;
   id_agency: number;
   billing_breakdown_mode: string; // "auto" | "manual"
+  billing_adjustments: unknown | null;
+  use_booking_sale_total: boolean | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -24,6 +26,8 @@ type AgencyRow = {
 type CalcConfigResponse = {
   billing_breakdown_mode: string; // "auto" | "manual"
   transfer_fee_pct: number; // proporción (0.024 = 2.4%)
+  billing_adjustments: BillingAdjustment[];
+  use_booking_sale_total: boolean;
 };
 
 /* =============================
@@ -131,6 +135,116 @@ function parsePct(input: unknown): number | null {
   return null;
 }
 
+type BillingAdjustment = {
+  id: string;
+  label: string;
+  kind: "cost" | "tax";
+  basis: "sale" | "cost" | "margin";
+  valueType: "percent" | "fixed";
+  value: number;
+  active: boolean;
+};
+
+function makeAdjustmentId() {
+  const uuid =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : null;
+  if (uuid) return uuid;
+  return `adj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function parseNumber(input: unknown): number | null {
+  if (typeof input === "number") {
+    return Number.isFinite(input) && input >= 0 ? input : null;
+  }
+  if (typeof input === "string") {
+    const raw = input.replace(",", ".").trim();
+    if (!raw) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return n;
+  }
+  return null;
+}
+
+function normalizeAdjustment(raw: unknown): BillingAdjustment | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  const label = typeof obj.label === "string" ? obj.label.trim() : "";
+  if (!label) return null;
+
+  const kind = String(obj.kind || "").trim().toLowerCase();
+  if (kind !== "cost" && kind !== "tax") return null;
+
+  const basis = String(obj.basis || "").trim().toLowerCase();
+  if (basis !== "sale" && basis !== "cost" && basis !== "margin") return null;
+
+  const valueTypeRaw =
+    typeof obj.valueType === "string"
+      ? obj.valueType
+      : typeof obj.value_type === "string"
+        ? obj.value_type
+        : "";
+  const valueType = valueTypeRaw.trim().toLowerCase();
+  if (valueType !== "percent" && valueType !== "fixed") return null;
+
+  let value: number | null = null;
+  if (valueType === "percent") {
+    value = parsePct(obj.value);
+  } else {
+    value = parseNumber(obj.value);
+  }
+  if (value == null) return null;
+
+  const active =
+    typeof obj.active === "boolean"
+      ? obj.active
+      : typeof obj.active === "number"
+        ? obj.active === 1
+        : true;
+
+  const id =
+    typeof obj.id === "string" && obj.id.trim()
+      ? obj.id.trim()
+      : makeAdjustmentId();
+
+  return {
+    id,
+    label,
+    kind: kind as BillingAdjustment["kind"],
+    basis: basis as BillingAdjustment["basis"],
+    valueType: valueType as BillingAdjustment["valueType"],
+    value,
+    active,
+  };
+}
+
+function normalizeAdjustments(
+  input: unknown,
+): BillingAdjustment[] | null {
+  if (input == null) return [];
+  if (!Array.isArray(input)) return null;
+  const items: BillingAdjustment[] = [];
+  for (const raw of input) {
+    const norm = normalizeAdjustment(raw);
+    if (!norm) return null;
+    items.push(norm);
+  }
+  return items;
+}
+
+function parseBool(input: unknown): boolean | null {
+  if (typeof input === "boolean") return input;
+  if (typeof input === "number") return input === 1 ? true : input === 0 ? false : null;
+  if (typeof input === "string") {
+    const s = input.trim().toLowerCase();
+    if (["1", "true", "t", "yes", "y"].includes(s)) return true;
+    if (["0", "false", "f", "no", "n"].includes(s)) return false;
+  }
+  return null;
+}
+
 /* ========== Delegates sin any ========== */
 type ClientLike = PrismaClient | Prisma.TransactionClient;
 
@@ -208,7 +322,11 @@ export default async function handler(
         const [cfg, ag] = await Promise.all([
           serviceCalcConfig.findUnique({
             where: { id_agency: auth.id_agency },
-            select: { billing_breakdown_mode: true },
+            select: {
+              billing_breakdown_mode: true,
+              billing_adjustments: true,
+              use_booking_sale_total: true,
+            },
           }),
           agency.findUnique({
             where: { id_agency: auth.id_agency },
@@ -221,6 +339,10 @@ export default async function handler(
             (cfg?.billing_breakdown_mode as string) ?? "auto",
           transfer_fee_pct:
             ag?.transfer_fee_pct != null ? Number(ag.transfer_fee_pct) : 0.024,
+          billing_adjustments: Array.isArray(cfg?.billing_adjustments)
+            ? (cfg?.billing_adjustments as BillingAdjustment[])
+            : [],
+          use_booking_sale_total: Boolean(cfg?.use_booking_sale_total),
         };
         return res.status(200).json(payload);
       } catch (e) {
@@ -243,6 +365,8 @@ export default async function handler(
         const body = (req.body ?? {}) as {
           billing_breakdown_mode?: unknown;
           transfer_fee_pct?: unknown;
+          billing_adjustments?: unknown;
+          use_booking_sale_total?: unknown;
         };
 
         let mode: string | undefined;
@@ -264,27 +388,72 @@ export default async function handler(
           return res.status(400).json({
             error:
               "transfer_fee_pct inválido (acepta proporción 0–1 o porcentaje 0–100)",
+            });
+        }
+
+        const adjustments =
+          body.billing_adjustments !== undefined
+            ? normalizeAdjustments(body.billing_adjustments)
+            : undefined;
+        if (body.billing_adjustments !== undefined && adjustments == null) {
+          return res.status(400).json({
+            error:
+              "billing_adjustments inválido (espera lista con label/kind/basis/valueType/value)",
           });
         }
 
-        if (mode === undefined && pct === undefined) {
+        const useBookingSaleTotal =
+          body.use_booking_sale_total !== undefined
+            ? parseBool(body.use_booking_sale_total)
+            : undefined;
+        if (
+          body.use_booking_sale_total !== undefined &&
+          useBookingSaleTotal == null
+        ) {
+          return res.status(400).json({
+            error: "use_booking_sale_total inválido (booleano esperado)",
+          });
+        }
+
+        if (
+          mode === undefined &&
+          pct === undefined &&
+          adjustments === undefined &&
+          useBookingSaleTotal === undefined
+        ) {
           return res
             .status(400)
             .json({ error: "No hay cambios para aplicar en el payload" });
         }
+        const safeAdjustments =
+          adjustments === null ? undefined : adjustments;
+        const useBookingSaleTotalValue =
+          useBookingSaleTotal === null ? undefined : useBookingSaleTotal;
 
         await prisma.$transaction(async (tx) => {
           const { serviceCalcConfig: scc, agency: ag } = requireDelegates(tx);
 
-          if (mode !== undefined) {
+          if (
+            mode !== undefined ||
+            adjustments !== undefined ||
+            useBookingSaleTotal !== undefined
+          ) {
             const existing = await scc.findUnique({
               where: { id_agency: auth.id_agency },
               select: { id_config: true },
             });
             if (existing) {
+              const data: Prisma.ServiceCalcConfigUpdateInput = {};
+              if (mode !== undefined) data.billing_breakdown_mode = mode;
+              if (safeAdjustments !== undefined) {
+                data.billing_adjustments = safeAdjustments;
+              }
+              if (useBookingSaleTotalValue !== undefined) {
+                data.use_booking_sale_total = useBookingSaleTotalValue;
+              }
               await scc.update({
                 where: { id_agency: auth.id_agency },
-                data: { billing_breakdown_mode: mode },
+                data,
               });
             } else {
               const agencyCalcId = await getNextAgencyCounter(
@@ -292,12 +461,19 @@ export default async function handler(
                 auth.id_agency,
                 "service_calc_config",
               );
+              const data: Prisma.ServiceCalcConfigUncheckedCreateInput = {
+                id_agency: auth.id_agency,
+                agency_service_calc_config_id: agencyCalcId,
+                billing_breakdown_mode: mode ?? "auto",
+              };
+              if (safeAdjustments !== undefined) {
+                data.billing_adjustments = safeAdjustments;
+              }
+              if (useBookingSaleTotalValue !== undefined) {
+                data.use_booking_sale_total = useBookingSaleTotalValue;
+              }
               await scc.create({
-                data: {
-                  id_agency: auth.id_agency,
-                  agency_service_calc_config_id: agencyCalcId,
-                  billing_breakdown_mode: mode,
-                },
+                data,
               });
             }
           }
@@ -312,7 +488,11 @@ export default async function handler(
         const [cfg, ag] = await Promise.all([
           serviceCalcConfig.findUnique({
             where: { id_agency: auth.id_agency },
-            select: { billing_breakdown_mode: true },
+            select: {
+              billing_breakdown_mode: true,
+              billing_adjustments: true,
+              use_booking_sale_total: true,
+            },
           }),
           agency.findUnique({
             where: { id_agency: auth.id_agency },
@@ -325,6 +505,10 @@ export default async function handler(
             (cfg?.billing_breakdown_mode as string) ?? "auto",
           transfer_fee_pct:
             ag?.transfer_fee_pct != null ? Number(ag.transfer_fee_pct) : 0.024,
+          billing_adjustments: Array.isArray(cfg?.billing_adjustments)
+            ? (cfg?.billing_adjustments as BillingAdjustment[])
+            : [],
+          use_booking_sale_total: Boolean(cfg?.use_booking_sale_total),
         };
         return res.status(200).json(payload);
       } catch (e) {

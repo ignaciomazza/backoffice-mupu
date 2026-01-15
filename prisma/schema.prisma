@@ -223,6 +223,7 @@ model Booking {
   operatorStatus      String          @map("operator_status")
   status              String
   details             String
+  sale_totals         Json?
   invoice_type        String
   invoice_observation String?
   observation         String?
@@ -280,6 +281,9 @@ model Service {
   vatOnCardInterest         Float?
   transfer_fee_pct          Decimal?             @db.Decimal(9, 6)
   transfer_fee_amount       Decimal?             @db.Decimal(14, 2)
+  extra_costs_amount        Float?
+  extra_taxes_amount        Float?
+  extra_adjustments         Json?
   departure_date            DateTime
   return_date               DateTime
   ServiceDestination        ServiceDestination[] // ← NUEVO (para includes)
@@ -992,6 +996,8 @@ model ServiceCalcConfig {
 
   // "auto" para usar BillingBreakdown; "manual" para cargar importes simples
   billing_breakdown_mode String @default("auto")
+  billing_adjustments    Json?
+  use_booking_sale_total Boolean @default(false)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

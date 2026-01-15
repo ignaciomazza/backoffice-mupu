@@ -57,6 +57,7 @@ interface Booking {
   operatorStatus: string;
   status?: string;
   creation_date: string;
+  sale_totals?: Record<string, number> | null;
   departure_date?: string | null;
   return_date?: string | null;
   titular: {
@@ -223,6 +224,8 @@ export default function BalancesPage() {
     "lider",
   ].includes(role);
   const [calcMode, setCalcMode] = useState<"auto" | "manual" | null>(null);
+  const [useBookingSaleTotal, setUseBookingSaleTotal] =
+    useState<boolean>(false);
 
   useEffect(() => {
     if (!token) {
@@ -264,6 +267,7 @@ export default function BalancesPage() {
         if (!res.ok) throw new Error("No se pudo cargar Cálculo & Comisiones");
         const data = (await res.json()) as {
           billing_breakdown_mode?: string | null;
+          use_booking_sale_total?: boolean;
         };
         if (controller.signal.aborted) return;
         const mode =
@@ -271,10 +275,12 @@ export default function BalancesPage() {
             ? "manual"
             : "auto";
         setCalcMode(mode);
+        setUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
       } catch (err) {
         if (controller.signal.aborted) return;
         console.error("[balances] calc config", err);
         setCalcMode(null);
+        setUseBookingSaleTotal(false);
         toast.error(
           err instanceof Error
             ? err.message
@@ -334,6 +340,23 @@ export default function BalancesPage() {
         .replace("US$", "U$D"),
     [],
   );
+
+  const normalizeSaleTotals = useCallback((input: Booking["sale_totals"]) => {
+    if (!input || typeof input !== "object") {
+      return { ARS: 0, USD: 0 } as Record<CurrencyCode, number>;
+    }
+    const out: Record<CurrencyCode, number> = { ARS: 0, USD: 0 };
+    for (const [keyRaw, val] of Object.entries(input)) {
+      const key = normCurrency(String(keyRaw || ""));
+      if (key !== "ARS" && key !== "USD") continue;
+      const n =
+        typeof val === "number"
+          ? val
+          : Number(String(val).replace(",", "."));
+      if (Number.isFinite(n) && n >= 0) out[key] = n;
+    }
+    return out;
+  }, []);
 
   /* ---------- Helpers económico-contables ---------- */
   const sumByCurrency = useCallback(
@@ -440,8 +463,12 @@ export default function BalancesPage() {
           ? `${b.user?.first_name || ""} ${b.user?.last_name || ""}`.trim()
           : "";
 
-      const saleNoInt = sumByCurrency(b.services, false);
-      const saleWithInt = sumByCurrency(b.services, true);
+      const saleNoInt = useBookingSaleTotal
+        ? normalizeSaleTotals(b.sale_totals)
+        : sumByCurrency(b.services, false);
+      const saleWithInt = useBookingSaleTotal
+        ? saleNoInt
+        : sumByCurrency(b.services, true);
       const paid = sumReceiptsByCurrency(b.Receipt);
       const saleForDebt = calcMode === "manual" ? saleNoInt : saleWithInt;
       const debt: Record<CurrencyCode, number> = {
@@ -500,6 +527,8 @@ export default function BalancesPage() {
       sumReceiptsByCurrency,
       sumTaxesByCurrency,
       calcMode,
+      normalizeSaleTotals,
+      useBookingSaleTotal,
     ],
   );
 

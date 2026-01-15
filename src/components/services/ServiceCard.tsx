@@ -3,7 +3,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Service } from "@/types";
+import { Service, BillingAdjustmentComputed } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 
@@ -11,6 +11,7 @@ import { authFetch } from "@/utils/authFetch";
 type CalcConfigResponse = {
   billing_breakdown_mode: "auto" | "manual";
   transfer_fee_pct: number;
+  use_booking_sale_total?: boolean;
 };
 
 /** Campos calculados que pueden venir del backend */
@@ -30,6 +31,9 @@ type ServiceCalcs = Partial<{
   card_interest: number;
   transfer_fee_amount: number | null;
   transfer_fee_pct: number | null;
+  extra_costs_amount: number | null;
+  extra_taxes_amount: number | null;
+  extra_adjustments: BillingAdjustmentComputed[] | null;
 }>;
 
 interface ServiceCardProps {
@@ -97,6 +101,7 @@ export default function ServiceCard({
 
   /* ====== leer modo (auto/manual) desde API — SOLO al expandir ====== */
   const [agencyMode, setAgencyMode] = useState<"auto" | "manual">("auto");
+  const [useBookingSaleTotal, setUseBookingSaleTotal] = useState(false);
   const cfgRef = useRef<{ ac: AbortController; id: number } | null>(null);
   const mountedRef = useRef(true);
 
@@ -112,6 +117,7 @@ export default function ServiceCard({
     // Solo buscamos la config si la card está expandida y tenemos token
     if (!isExpanded || !token) {
       setAgencyMode("auto");
+      setUseBookingSaleTotal(false);
       return;
     }
 
@@ -138,16 +144,20 @@ export default function ServiceCard({
           setAgencyMode(
             data.billing_breakdown_mode === "manual" ? "manual" : "auto",
           );
+          setUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
         }
       } catch {
-        if (isActive()) setAgencyMode("auto");
+        if (isActive()) {
+          setAgencyMode("auto");
+          setUseBookingSaleTotal(false);
+        }
       }
     })();
 
     return () => ac.abort();
   }, [isExpanded, token]);
 
-  const manualMode = agencyMode === "manual";
+  const manualMode = agencyMode === "manual" || useBookingSaleTotal;
 
   const fmtMoney = useCallback(
     (v?: number) =>
@@ -168,6 +178,20 @@ export default function ServiceCard({
       ? Number(service.transfer_fee_amount)
       : Number(service.sale_price || 0) *
         (Number.isFinite(feePct) ? feePct : 0);
+
+  const extraCosts = Number(service.extra_costs_amount ?? 0);
+  const extraTaxes = Number(service.extra_taxes_amount ?? 0);
+  const extraAdjustments = Array.isArray(service.extra_adjustments)
+    ? (service.extra_adjustments as BillingAdjustmentComputed[])
+    : [];
+  const extraAdjustmentsTotal = extraCosts + extraTaxes;
+  const netCommission = Math.max(
+    (service.totalCommissionWithoutVAT ?? 0) -
+      (feeAmount ?? 0) -
+      extraAdjustmentsTotal,
+    0,
+  );
+  const showAdjustments = extraAdjustmentsTotal > 0 || extraAdjustments.length > 0;
 
   const canEditOrDelete =
     status === "Abierta" ||
@@ -270,10 +294,8 @@ export default function ServiceCard({
         {!isExpanded && (
           <div className="col-span-2 flex h-full items-center">
             <Stat
-              label="Total Comisión (sin IVA)"
-              value={fmtMoney(
-                (service.totalCommissionWithoutVAT ?? 0) - (feeAmount ?? 0),
-              )}
+              label="Total Comisión neta"
+              value={fmtMoney(netCommission)}
             />
           </div>
         )}
@@ -351,16 +373,34 @@ export default function ServiceCard({
             </Section>
           )}
 
+          {showAdjustments && (
+            <Section title="Ajustes extra">
+              {extraAdjustments.map((adj) => (
+                <Row
+                  key={adj.id}
+                  label={adj.label}
+                  value={fmtMoney(adj.amount)}
+                />
+              ))}
+              <Row
+                label="Costos adicionales"
+                value={fmtMoney(extraCosts)}
+              />
+              <Row
+                label="Impuestos adicionales"
+                value={fmtMoney(extraTaxes)}
+              />
+            </Section>
+          )}
+
           <Section title="Totales">
             <Row
               label={`Costos bancarios · ${(Number(feePct || 0) * 100).toFixed(2)}%`}
               value={fmtMoney(feeAmount)}
             />
             <Row
-              label="Total Comisión (sin IVA)"
-              value={fmtMoney(
-                (service.totalCommissionWithoutVAT ?? 0) - (feeAmount ?? 0),
-              )}
+              label="Total Comisión neta"
+              value={fmtMoney(netCommission)}
             />
           </Section>
 

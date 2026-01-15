@@ -2,6 +2,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
+import { computeBillingAdjustments } from "@/utils/billingAdjustments";
+import type { BillingAdjustmentConfig } from "@/types";
 
 type TokenPayload = JWTPayload & { 
   id_user?: number;
@@ -11,6 +13,24 @@ type TokenPayload = JWTPayload & {
   agencyId?: number;
   aid?: number;
 };
+
+function normalizeSaleTotals(
+  input: unknown,
+): Record<"ARS" | "USD", number> {
+  const out: Record<"ARS" | "USD", number> = { ARS: 0, USD: 0 };
+  if (!input || typeof input !== "object" || Array.isArray(input)) return out;
+  const obj = input as Record<string, unknown>;
+  for (const [keyRaw, val] of Object.entries(obj)) {
+    const key = String(keyRaw || "").toUpperCase();
+    if (key !== "ARS" && key !== "USD") continue;
+    const n =
+      typeof val === "number"
+        ? val
+        : Number(String(val).replace(",", "."));
+    if (Number.isFinite(n) && n >= 0) out[key] = n;
+  }
+  return out;
+}
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
@@ -78,6 +98,21 @@ export default async function handler(
     // ⬇️ usar el id desde la relación incluída
     const ownerId = booking.user.id_user;
 
+    const agency = await prisma.agency.findUnique({
+      where: { id_agency: auth.id_agency },
+      select: { transfer_fee_pct: true },
+    });
+    const agencyFeePct =
+      agency?.transfer_fee_pct != null ? Number(agency.transfer_fee_pct) : 0.024;
+    const calcConfig = await prisma.serviceCalcConfig.findUnique({
+      where: { id_agency: auth.id_agency },
+      select: { use_booking_sale_total: true, billing_adjustments: true },
+    });
+    const useBookingSaleTotal = Boolean(calcConfig?.use_booking_sale_total);
+    const billingAdjustments = Array.isArray(calcConfig?.billing_adjustments)
+      ? (calcConfig?.billing_adjustments as unknown[])
+      : [];
+
     // Servicios de la reserva (para base de comisión)
     const services = await prisma.service.findMany({
       // ⬇️ filtrar por la relación booking
@@ -85,20 +120,87 @@ export default async function handler(
       select: {
         currency: true,
         sale_price: true,
+        cost_price: true,
+        other_taxes: true,
         totalCommissionWithoutVAT: true,
+        transfer_fee_amount: true,
+        transfer_fee_pct: true,
+        extra_costs_amount: true,
+        extra_taxes_amount: true,
       },
     });
 
-    // Base por moneda (mismo cálculo de /api/earnings)
     const commissionBaseByCurrency: Record<"ARS" | "USD", number> = {
       ARS: 0,
       USD: 0,
     };
-    for (const s of services) {
-      const cur = (s.currency as "ARS" | "USD") || "ARS";
-      const fee = s.sale_price * 0.024;
-      const dbCommission = s.totalCommissionWithoutVAT ?? 0;
-      commissionBaseByCurrency[cur] += Math.max(dbCommission - fee, 0);
+
+    if (useBookingSaleTotal) {
+      const saleTotals = normalizeSaleTotals(booking.sale_totals);
+      const fallbackTotals = services.reduce<Record<"ARS" | "USD", number>>(
+        (acc, s) => {
+          const cur = (s.currency as "ARS" | "USD") || "ARS";
+          acc[cur] += Number(s.sale_price) || 0;
+          return acc;
+        },
+        { ARS: 0, USD: 0 },
+      );
+      const totals =
+        saleTotals.ARS || saleTotals.USD ? saleTotals : fallbackTotals;
+
+      const costTotals = services.reduce<Record<"ARS" | "USD", number>>(
+        (acc, s) => {
+          const cur = (s.currency as "ARS" | "USD") || "ARS";
+          acc[cur] += Number(s.cost_price) || 0;
+          return acc;
+        },
+        { ARS: 0, USD: 0 },
+      );
+
+      const taxTotals = services.reduce<Record<"ARS" | "USD", number>>(
+        (acc, s) => {
+          const cur = (s.currency as "ARS" | "USD") || "ARS";
+          acc[cur] += Number(s.other_taxes) || 0;
+          return acc;
+        },
+        { ARS: 0, USD: 0 },
+      );
+
+      (["ARS", "USD"] as const).forEach((cur) => {
+        const sale = totals[cur] || 0;
+        const cost = costTotals[cur] || 0;
+        const taxes = taxTotals[cur] || 0;
+        const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
+        const fee = sale * (Number.isFinite(agencyFeePct) ? agencyFeePct : 0.024);
+        const adjustments = computeBillingAdjustments(
+          billingAdjustments as BillingAdjustmentConfig[],
+          sale,
+          cost,
+        ).total;
+        commissionBaseByCurrency[cur] = Math.max(
+          commissionBeforeFee - fee - adjustments,
+          0,
+        );
+      });
+    } else {
+      // Base por moneda (mismo cálculo de /api/earnings)
+      for (const s of services) {
+        const cur = (s.currency as "ARS" | "USD") || "ARS";
+        const sale = Number(s.sale_price) || 0;
+        const pct =
+          s.transfer_fee_pct != null ? Number(s.transfer_fee_pct) : agencyFeePct;
+        const fee =
+          s.transfer_fee_amount != null
+            ? Number(s.transfer_fee_amount)
+            : sale * (Number.isFinite(pct) ? pct : 0.024);
+        const dbCommission = Number(s.totalCommissionWithoutVAT ?? 0);
+        const extraCosts = Number(s.extra_costs_amount ?? 0);
+        const extraTaxes = Number(s.extra_taxes_amount ?? 0);
+        commissionBaseByCurrency[cur] += Math.max(
+          dbCommission - fee - extraCosts - extraTaxes,
+          0,
+        );
+      }
     }
 
     // Resolver regla efectiva (última con valid_from <= createdAt; null = -∞)

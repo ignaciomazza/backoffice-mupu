@@ -186,6 +186,9 @@ export default function ServicesPage() {
     vatOnCardInterest: 0,
     transferFeeAmount: 0,
     transferFeePct: 0.024,
+    extraCostsAmount: 0,
+    extraTaxesAmount: 0,
+    extraAdjustments: [],
   });
 
   const [creditNoteFormData, setCreditNoteFormData] =
@@ -852,6 +855,9 @@ export default function ServicesPage() {
         ...billingData,
         transfer_fee_pct: billingData.transferFeePct,
         transfer_fee_amount: billingData.transferFeeAmount,
+        extra_costs_amount: billingData.extraCostsAmount,
+        extra_taxes_amount: billingData.extraTaxesAmount,
+        extra_adjustments: billingData.extraAdjustments,
       };
 
       const res = await authFetch(
@@ -909,6 +915,9 @@ export default function ServicesPage() {
         vatOnCardInterest: 0,
         transferFeeAmount: 0,
         transferFeePct: 0.024,
+        extraCostsAmount: 0,
+        extraTaxesAmount: 0,
+        extraAdjustments: [],
       });
     } catch (err: unknown) {
       toast.error((err as Error).message || "Error al guardar servicio.");

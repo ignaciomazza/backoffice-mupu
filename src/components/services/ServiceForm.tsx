@@ -5,15 +5,22 @@ import type React from "react";
 import {
   ChangeEvent,
   FormEvent,
+  useCallback,
   useMemo,
   useState,
   useEffect,
   useRef,
 } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Operator, BillingData } from "@/types";
+import {
+  Operator,
+  BillingData,
+  BillingAdjustmentConfig,
+  BillingAdjustmentComputed,
+} from "@/types";
 import BillingBreakdown from "@/components/BillingBreakdown";
 import BillingBreakdownManual from "@/components/BillingBreakdownManual";
+import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 import DestinationPicker, {
   DestinationOption,
 } from "@/components/DestinationPicker";
@@ -62,6 +69,8 @@ type ServiceFormProps = {
   transferFeeReady: boolean;
   /** Permite forzar modo manual aunque la config global esté en auto */
   canOverrideBillingMode?: boolean;
+  /** Usa venta total por reserva (desactiva venta por servicio) */
+  useBookingSaleTotal?: boolean;
 };
 
 /* ---------- helpers UI ---------- */
@@ -111,6 +120,88 @@ const Field: React.FC<{
   </div>
 );
 
+const AdjustmentsPanel: React.FC<{
+  items: BillingAdjustmentComputed[];
+  totalCosts: number;
+  totalTaxes: number;
+  netCommission: number | null;
+  format: (value: number) => string;
+}> = ({ items, totalCosts, totalTaxes, netCommission, format }) => {
+  if (!items.length) return null;
+  const kindLabels: Record<BillingAdjustmentComputed["kind"], string> = {
+    cost: "Costo",
+    tax: "Impuesto",
+  };
+  const basisLabels: Record<BillingAdjustmentComputed["basis"], string> = {
+    sale: "Venta",
+    cost: "Costo",
+    margin: "Ganancia",
+  };
+
+  return (
+    <div className="mt-6 rounded-2xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-sm shadow-sky-950/10 dark:text-white">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">Ajustes adicionales</h3>
+        <span className="rounded-full bg-white/30 px-2.5 py-1 text-xs font-medium dark:bg-white/10">
+          {items.length} activos
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        {items.map((adj) => {
+          const valueLabel =
+            adj.valueType === "percent"
+              ? `${(adj.value * 100).toFixed(2)}%`
+              : "Monto fijo";
+          return (
+            <div
+              key={adj.id}
+              className="flex items-center justify-between rounded-xl border border-white/5 bg-white/5 px-3 py-2"
+            >
+              <div>
+                <div className="text-sm font-medium">{adj.label}</div>
+                <div className="text-[11px] opacity-70">
+                  {kindLabels[adj.kind]} · Base {basisLabels[adj.basis]} ·{" "}
+                  {valueLabel}
+                </div>
+              </div>
+              <div className="font-medium tabular-nums">
+                {format(adj.amount)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
+        <div className="rounded-xl border border-white/5 bg-white/5 px-3 py-2">
+          <div className="text-xs opacity-70">Costos adicionales</div>
+          <div className="text-sm font-semibold tabular-nums">
+            {format(totalCosts)}
+          </div>
+        </div>
+        <div className="rounded-xl border border-white/5 bg-white/5 px-3 py-2">
+          <div className="text-xs opacity-70">Impuestos adicionales</div>
+          <div className="text-sm font-semibold tabular-nums">
+            {format(totalTaxes)}
+          </div>
+        </div>
+      </div>
+
+      {netCommission != null && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/20 p-3">
+          <div className="text-sm opacity-70">
+            Comisión neta (fee + ajustes)
+          </div>
+          <div className="text-lg font-semibold tabular-nums">
+            {format(netCommission)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* util mínima */
 const uniqSorted = (arr: string[]) =>
   Array.from(new Set(arr.filter(Boolean))).sort((a, b) =>
@@ -156,6 +247,8 @@ type ServiceCalcCfg = {
 type CalcConfigResponse = {
   billing_breakdown_mode: "auto" | "manual";
   transfer_fee_pct: number; // proporción (0.024 = 2.4%)
+  billing_adjustments: BillingAdjustmentConfig[];
+  use_booking_sale_total?: boolean;
 };
 
 /* ---- helpers sin `any` ---- */
@@ -363,6 +456,7 @@ export default function ServiceForm({
   token,
   transferFeeReady,
   canOverrideBillingMode = false,
+  useBookingSaleTotal = false,
 }: ServiceFormProps) {
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -395,6 +489,12 @@ export default function ServiceForm({
   const [agencyFeePctFromApi, setAgencyFeePctFromApi] = useState<
     number | undefined
   >(undefined);
+  const [agencyAdjustments, setAgencyAdjustments] = useState<
+    BillingAdjustmentConfig[]
+  >([]);
+  const [baseBillingData, setBaseBillingData] = useState<BillingData | null>(
+    null,
+  );
 
   /* ========== MONEDAS ========== */
   const [financeCurrencies, setFinanceCurrencies] = useState<
@@ -476,10 +576,14 @@ export default function ServiceForm({
             ? data.transfer_fee_pct
             : undefined,
         );
+        setAgencyAdjustments(
+          Array.isArray(data.billing_adjustments) ? data.billing_adjustments : [],
+        );
       } catch {
         if (isActive()) {
           setAgencyBillingMode("auto");
           setAgencyFeePctFromApi(undefined);
+          setAgencyAdjustments([]);
         }
       } finally {
         if (isActive()) setLoadingAgencyCfg(false);
@@ -623,10 +727,13 @@ export default function ServiceForm({
   };
 
   const hasPrices =
-    Number(formData.sale_price) > 0 && Number(formData.cost_price) > 0;
+    Number(formData.cost_price) > 0 &&
+    (Number(formData.sale_price) > 0 || useBookingSaleTotal);
   const margin = useMemo(
     () =>
-      hasPrices ? Number(formData.sale_price) - Number(formData.cost_price) : 0,
+      hasPrices
+        ? Number(formData.sale_price) - Number(formData.cost_price)
+        : 0,
     [formData.sale_price, formData.cost_price, hasPrices],
   );
 
@@ -709,6 +816,10 @@ export default function ServiceForm({
     }
   };
 
+  const handleBaseBillingUpdate = useCallback((data: BillingData) => {
+    setBaseBillingData(data);
+  }, []);
+
   // Transfer fee efectivo:
   // 1) Config por tipo de servicio
   // 2) Config general de la agencia (service-calc-config)
@@ -742,6 +853,7 @@ export default function ServiceForm({
 
   // ⚙️ Modo de facturación: API de agencia + override manual (si aplica)
   const manualMode =
+    useBookingSaleTotal ||
     agencyBillingMode === "manual" ||
     (canOverrideBillingMode && manualOverride);
 
@@ -754,6 +866,81 @@ export default function ServiceForm({
   const pctToShow = Number.isFinite(effectiveTransferFeePct)
     ? (effectiveTransferFeePct as number)
     : 0;
+  const fallbackBillingData = useMemo<BillingData>(
+    () => ({
+      nonComputable: 0,
+      taxableBase21: 0,
+      taxableBase10_5: 0,
+      commissionExempt: 0,
+      commission21: 0,
+      commission10_5: 0,
+      vatOnCommission21: 0,
+      vatOnCommission10_5: 0,
+      totalCommissionWithoutVAT: 0,
+      impIVA: 0,
+      taxableCardInterest: 0,
+      vatOnCardInterest: 0,
+      transferFeeAmount: 0,
+      transferFeePct: pctToShow,
+    }),
+    [pctToShow],
+  );
+  const isSameBillingData = (a: BillingData | null, b: BillingData) =>
+    !!a &&
+    a.nonComputable === b.nonComputable &&
+    a.taxableBase21 === b.taxableBase21 &&
+    a.taxableBase10_5 === b.taxableBase10_5 &&
+    a.commissionExempt === b.commissionExempt &&
+    a.commission21 === b.commission21 &&
+    a.commission10_5 === b.commission10_5 &&
+    a.vatOnCommission21 === b.vatOnCommission21 &&
+    a.vatOnCommission10_5 === b.vatOnCommission10_5 &&
+    a.totalCommissionWithoutVAT === b.totalCommissionWithoutVAT &&
+    a.impIVA === b.impIVA &&
+    a.taxableCardInterest === b.taxableCardInterest &&
+    a.vatOnCardInterest === b.vatOnCardInterest &&
+    a.transferFeeAmount === b.transferFeeAmount &&
+    a.transferFeePct === b.transferFeePct;
+
+  const adjustmentTotals = useMemo(() => {
+    if (useBookingSaleTotal) {
+      return { items: [], totalCosts: 0, totalTaxes: 0, total: 0 };
+    }
+    return computeBillingAdjustments(
+      agencyAdjustments,
+      Number(formData.sale_price || 0),
+      Number(formData.cost_price || 0),
+    );
+  }, [
+    agencyAdjustments,
+    formData.sale_price,
+    formData.cost_price,
+    useBookingSaleTotal,
+  ]);
+
+  const netCommissionAfterAdjustments = useMemo(() => {
+    if (!baseBillingData) return null;
+    const base = Number(baseBillingData.totalCommissionWithoutVAT || 0);
+    const fee = Number(baseBillingData.transferFeeAmount || 0);
+    const net = base - fee - adjustmentTotals.total;
+    return Math.max(net, 0);
+  }, [adjustmentTotals.total, baseBillingData]);
+
+  useEffect(() => {
+    if (!useBookingSaleTotal || hasPrices) return;
+    if (isSameBillingData(baseBillingData, fallbackBillingData)) return;
+    setBaseBillingData(fallbackBillingData);
+  }, [useBookingSaleTotal, hasPrices, baseBillingData, fallbackBillingData]);
+
+  useEffect(() => {
+    if (!onBillingUpdate || !baseBillingData) return;
+    onBillingUpdate({
+      ...baseBillingData,
+      extraCostsAmount: adjustmentTotals.totalCosts,
+      extraTaxesAmount: adjustmentTotals.totalTaxes,
+      extraAdjustments: adjustmentTotals.items,
+    });
+  }, [adjustmentTotals, baseBillingData, onBillingUpdate]);
 
   // ⚠️ Config todavía cargando (no dejamos enviar)
   const waitingConfig =
@@ -843,7 +1030,7 @@ export default function ServiceForm({
             <span className="rounded-full bg-white/30 px-3 py-1 text-xs font-medium dark:bg-white/10">
               {displayCurrency}
             </span>
-            {hasPrices && (
+            {hasPrices && !useBookingSaleTotal && (
               <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
                 Margen: {formatCurrency(margin)}
               </span>
@@ -1110,9 +1297,18 @@ export default function ServiceForm({
                 title="Precios"
                 desc="Ingresá los montos en la moneda seleccionada."
               >
+                {useBookingSaleTotal && (
+                  <div className="col-span-full">
+                    <div className="rounded-xl border border-amber-200/40 bg-amber-100/30 p-3 text-xs text-amber-900/80 dark:border-amber-200/20 dark:bg-amber-100/10 dark:text-amber-100">
+                      La venta se define a nivel reserva. Los servicios sólo
+                      requieren costos e impuestos.
+                    </div>
+                  </div>
+                )}
                 {canOverrideBillingMode &&
                   !loadingAgencyCfg &&
-                  agencyBillingMode === "auto" && (
+                  agencyBillingMode === "auto" &&
+                  !useBookingSaleTotal && (
                     <div className="col-span-full">
                       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/10 p-3 text-xs">
                         <div>
@@ -1163,7 +1359,16 @@ export default function ServiceForm({
                   </p>
                 </Field>
 
-                <Field id="sale_price" label="Venta" required>
+                <Field
+                  id="sale_price"
+                  label="Venta"
+                  required={!useBookingSaleTotal}
+                  hint={
+                    useBookingSaleTotal
+                      ? "Se toma de la venta total de la reserva."
+                      : undefined
+                  }
+                >
                   <div className="relative">
                     <input
                       id="sale_price"
@@ -1174,7 +1379,8 @@ export default function ServiceForm({
                       placeholder="0,00"
                       step="0.01"
                       min="0"
-                      required
+                      required={!useBookingSaleTotal}
+                      disabled={useBookingSaleTotal}
                       className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                     />
                   </div>
@@ -1333,7 +1539,7 @@ export default function ServiceForm({
                     costo={formData.cost_price}
                     impuestos={formData.other_taxes || 0}
                     moneda={displayCurrency}
-                    onBillingUpdate={onBillingUpdate}
+                    onBillingUpdate={handleBaseBillingUpdate}
                     transferFeePct={pctToShow}
                   />
                 ) : (
@@ -1347,10 +1553,18 @@ export default function ServiceForm({
                     cardInterest={formData.card_interest || 0}
                     cardInterestIva={formData.card_interest_21 || 0}
                     moneda={displayCurrency}
-                    onBillingUpdate={onBillingUpdate}
+                    onBillingUpdate={handleBaseBillingUpdate}
                     transferFeePct={pctToShow}
                   />
                 ))}
+
+              <AdjustmentsPanel
+                items={adjustmentTotals.items}
+                totalCosts={adjustmentTotals.totalCosts}
+                totalTaxes={adjustmentTotals.totalTaxes}
+                netCommission={netCommissionAfterAdjustments}
+                format={formatCurrency}
+              />
 
               {/* ACTION BAR */}
               <div className="sticky bottom-2 z-10 flex justify-end">

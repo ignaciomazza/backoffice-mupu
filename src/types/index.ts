@@ -92,6 +92,7 @@ export interface Booking {
   operatorStatus: string;
   status: string;
   details: string;
+  sale_totals?: Record<string, number> | null;
   invoice_type: "Factura A" | "Factura B" | "Coordinar con administracion";
   observation?: string;
   invoice_observation?: string;
@@ -156,6 +157,9 @@ export interface Service {
   impIVA?: number;
   transfer_fee_pct?: number | null;
   transfer_fee_amount?: number | null;
+  extra_costs_amount?: number | null;
+  extra_taxes_amount?: number | null;
+  extra_adjustments?: BillingAdjustmentComputed[] | null;
   departure_date: string;
   return_date: string;
   booking_id: number;
@@ -318,7 +322,24 @@ export interface BillingData {
   vatOnCardInterest: number;
   transferFeeAmount: number;
   transferFeePct: number;
+  extraCostsAmount?: number;
+  extraTaxesAmount?: number;
+  extraAdjustments?: BillingAdjustmentComputed[];
 }
+
+export type BillingAdjustmentConfig = {
+  id: string;
+  label: string;
+  kind: "cost" | "tax";
+  basis: "sale" | "cost" | "margin";
+  valueType: "percent" | "fixed";
+  value: number;
+  active: boolean;
+};
+
+export type BillingAdjustmentComputed = BillingAdjustmentConfig & {
+  amount: number;
+};
 
 // ===================== Templates: estructuras sugeridas =====================
 
