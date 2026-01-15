@@ -253,8 +253,9 @@ export default function BookingsConfigPage() {
   const [serverUseBookingSaleTotal, setServerUseBookingSaleTotal] =
     useState(false);
   const [adjModalOpen, setAdjModalOpen] = useState(false);
-  const [editingAdj, setEditingAdj] =
-    useState<BillingAdjustmentConfig | null>(null);
+  const [editingAdj, setEditingAdj] = useState<BillingAdjustmentConfig | null>(
+    null,
+  );
   const [adjForm, setAdjForm] = useState<{
     label: string;
     kind: BillingAdjustmentConfig["kind"];
@@ -654,9 +655,7 @@ export default function BookingsConfigPage() {
 
   const toggleAdjustmentActive = useCallback((adjId: string) => {
     setAdjustments((prev) =>
-      prev.map((it) =>
-        it.id === adjId ? { ...it, active: !it.active } : it,
-      ),
+      prev.map((it) => (it.id === adjId ? { ...it, active: !it.active } : it)),
     );
   }, []);
 
@@ -769,10 +768,7 @@ export default function BookingsConfigPage() {
     cost: "Costo",
     margin: "Ganancia",
   };
-  const adjValueLabels: Record<
-    BillingAdjustmentConfig["valueType"],
-    string
-  > = {
+  const adjValueLabels: Record<BillingAdjustmentConfig["valueType"], string> = {
     percent: "%",
     fixed: "Monto fijo",
   };
@@ -1135,8 +1131,7 @@ export default function BookingsConfigPage() {
                                   <div className="text-xs opacity-70">
                                     {adjKindLabels[adj.kind]} · Base{" "}
                                     {adjBasisLabels[adj.basis]} ·{" "}
-                                    {adjValueLabels[adj.valueType]}{" "}
-                                    {valueLabel}
+                                    {adjValueLabels[adj.valueType]} {valueLabel}
                                   </div>
                                 </div>
 
@@ -1214,7 +1209,7 @@ export default function BookingsConfigPage() {
             editingType ? "Editar tipo de servicio" : "Nuevo tipo de servicio"
           }
           footer={
-            <>
+            <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => setTypeModalOpen(false)}
@@ -1230,10 +1225,10 @@ export default function BookingsConfigPage() {
               >
                 {savingType ? "Guardando…" : "Guardar"}
               </button>
-            </>
+            </div>
           }
         >
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 p-2 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <Label>Nombre</Label>
               <Input
@@ -1273,7 +1268,7 @@ export default function BookingsConfigPage() {
           onClose={() => setAdjModalOpen(false)}
           title={editingAdj ? "Editar ajuste" : "Nuevo ajuste"}
           footer={
-            <>
+            <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => setAdjModalOpen(false)}
@@ -1289,10 +1284,10 @@ export default function BookingsConfigPage() {
               >
                 {editingAdj ? "Guardar" : "Agregar"}
               </button>
-            </>
+            </div>
           }
         >
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 p-2 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <Label>Nombre</Label>
               <Input
@@ -1346,8 +1341,8 @@ export default function BookingsConfigPage() {
                 onChange={(e) =>
                   setAdjForm((f) => ({
                     ...f,
-                    valueType:
-                      e.target.value as BillingAdjustmentConfig["valueType"],
+                    valueType: e.target
+                      .value as BillingAdjustmentConfig["valueType"],
                   }))
                 }
                 disabled={!canEdit}
