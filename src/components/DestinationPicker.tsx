@@ -9,6 +9,7 @@ import React, {
   useState,
   KeyboardEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
@@ -121,7 +122,12 @@ export default function DestinationPicker({
 
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+  const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties | null>(
+    null,
+  );
 
   // Normaliza el "value" a lista para simplificar lógica
   const selectedList: DestinationOption[] = useMemo(() => {
@@ -138,17 +144,50 @@ export default function DestinationPicker({
     onValidChange?.(isValid);
   }, [isValid, onValidChange]);
 
+  // Portal target
+  useEffect(() => {
+    if (typeof document !== "undefined") setPortalTarget(document.body);
+  }, []);
+
+  const updatePopoverPosition = useCallback(() => {
+    if (!rootRef.current) return;
+    const rect = rootRef.current.getBoundingClientRect();
+    setPopoverStyle({
+      position: "fixed",
+      top: rect.bottom,
+      left: rect.left,
+      width: rect.width,
+      zIndex: 9999,
+    });
+  }, []);
+
   // Cierra el popover si se hace click afuera
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
-      if (!rootRef.current) return;
-      if (!rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
+      const target = e.target as Node;
+      if (
+        rootRef.current?.contains(target) ||
+        popoverRef.current?.contains(target)
+      ) {
+        return;
       }
+      setOpen(false);
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    updatePopoverPosition();
+    const onScroll = () => updatePopoverPosition();
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [open, updatePopoverPosition]);
 
   // helper simple (sin librerías)
   const normText = (s: string) =>
@@ -403,7 +442,7 @@ export default function DestinationPicker({
   }, [multiple, selectedList, query]);
 
   return (
-    <div ref={rootRef} className={`w-full ${className}`}>
+    <div ref={rootRef} className={`relative w-full ${className}`}>
       <label className="mb-1 block text-sm opacity-80">
         {type === "destination" ? "Destino" : "País"}
       </label>
@@ -526,16 +565,20 @@ export default function DestinationPicker({
       )}
 
       {/* Popover de resultados */}
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.15 }}
-            className="relative z-20"
-          >
-            <div className="absolute mt-2 max-h-[48vh] w-full overflow-auto rounded-2xl border border-white/10 bg-white/95 p-1 shadow-2xl backdrop-blur dark:bg-sky-950/90">
+      {portalTarget &&
+        createPortal(
+          <AnimatePresence>
+            {open && popoverStyle && (
+              <motion.div
+                ref={popoverRef}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.15 }}
+                style={popoverStyle}
+                className="z-[9999]"
+              >
+                <div className="pointer-events-auto mt-2 max-h-[48vh] w-full overflow-auto rounded-2xl border border-white/10 bg-white/95 p-1 shadow-2xl backdrop-blur dark:bg-sky-950/90">
               {/* Estado de búsqueda */}
               {loading && (
                 <div className="flex items-center justify-center p-4">
@@ -638,10 +681,12 @@ export default function DestinationPicker({
                     ))}
                   </ul>
                 ))}
-            </div>
-          </motion.div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          portalTarget,
         )}
-      </AnimatePresence>
     </div>
   );
 }

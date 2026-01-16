@@ -450,6 +450,31 @@ export default function SideBar({
               </svg>
             </Link>
           </li>
+          <li className="w-full transition-transform active:scale-[0.98]">
+            <Link
+              href="/quick-load"
+              className={itemCls(isActive("/quick-load"))}
+              onClick={closeMenu}
+              aria-current={isActive("/quick-load") ? "page" : undefined}
+            >
+              <span className="flex-1">Carga rapida</span>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+                stroke="currentColor"
+                className="size-4 text-sky-950/70 transition-colors group-hover:text-sky-950 dark:text-white/70 dark:group-hover:text-white"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M13.5 3.75 6 13.5h5.25L10.5 20.25 18 10.5h-5.25L13.5 3.75Z"
+                />
+              </svg>
+            </Link>
+          </li>
 
           {/* Secciones */}
           {sections.map((sec) => {

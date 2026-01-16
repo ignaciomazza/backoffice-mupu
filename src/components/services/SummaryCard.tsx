@@ -45,6 +45,7 @@ interface SummaryCardProps {
   receipts: Receipt[];
   useBookingSaleTotal?: boolean;
   bookingSaleTotals?: Record<string, number | string> | null;
+  ownerPctOverride?: number | null;
 }
 
 /** Campos adicionales que pueden venir en Service */
@@ -199,6 +200,7 @@ export default function SummaryCard({
   receipts,
   useBookingSaleTotal = false,
   bookingSaleTotals,
+  ownerPctOverride = null,
 }: SummaryCardProps) {
   const labels: Record<string, string> = {
     ARS: "Pesos",
@@ -590,11 +592,15 @@ export default function SummaryCard({
   const commissionBaseFor = (cur: string) =>
     apiCommissionBaseByCurrency[cur] ?? localCommissionBaseByCurrency[cur] ?? 0;
 
+  const effectiveOwnerPct = Number.isFinite(ownerPctOverride as number)
+    ? Math.min(Math.max(Number(ownerPctOverride), 0), 100)
+    : ownerPct;
+
   const sellerEarningFor = (cur: string) => {
     if (apiSellerEarningsByCurrency[cur] != null)
       return apiSellerEarningsByCurrency[cur];
     const base = commissionBaseFor(cur);
-    return base * ((ownerPct || 0) / 100);
+    return base * ((effectiveOwnerPct || 0) / 100);
   };
 
   const colsClass =
@@ -846,7 +852,8 @@ export default function SummaryCard({
                 </div>
                 <div>
                   <p className="text-sm opacity-70">
-                    Ganancia del vendedor {`(${(ownerPct ?? 100).toFixed(0)}%)`}
+                    Ganancia del vendedor{" "}
+                    {`(${(effectiveOwnerPct ?? 100).toFixed(0)}%)`}
                   </p>
                   <p className="text-end text-lg font-semibold tabular-nums">
                     {fmt(myEarning, code)}
