@@ -16,13 +16,15 @@ type TokenPayload = JWTPayload & {
 
 function normalizeSaleTotals(
   input: unknown,
-): Record<"ARS" | "USD", number> {
-  const out: Record<"ARS" | "USD", number> = { ARS: 0, USD: 0 };
+  allowed?: Set<string>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
   if (!input || typeof input !== "object" || Array.isArray(input)) return out;
   const obj = input as Record<string, unknown>;
   for (const [keyRaw, val] of Object.entries(obj)) {
-    const key = String(keyRaw || "").toUpperCase();
-    if (key !== "ARS" && key !== "USD") continue;
+    const key = String(keyRaw || "").trim().toUpperCase();
+    if (!key) continue;
+    if (allowed && allowed.size > 0 && !allowed.has(key)) continue;
     const n =
       typeof val === "number"
         ? val
@@ -65,8 +67,8 @@ export default async function handler(
   res: NextApiResponse<
     | {
         ownerPct: number;
-        commissionBaseByCurrency: Record<"ARS" | "USD", number>;
-        sellerEarningsByCurrency: Record<"ARS" | "USD", number>;
+        commissionBaseByCurrency: Record<string, number>;
+        sellerEarningsByCurrency: Record<string, number>;
       }
     | { error: string }
   >,
@@ -113,6 +115,19 @@ export default async function handler(
       ? (calcConfig?.billing_adjustments as unknown[])
       : [];
 
+    const currencyRows = await prisma.financeCurrency.findMany({
+      where: { id_agency: auth.id_agency, enabled: true },
+      select: { code: true },
+    });
+    const enabledCurrencies = new Set(
+      currencyRows
+        .map((c) => String(c.code || "").trim().toUpperCase())
+        .filter(Boolean),
+    );
+    const hasCurrencyFilter = enabledCurrencies.size > 0;
+    const isCurrencyAllowed = (cur: string) =>
+      !!cur && (!hasCurrencyFilter || enabledCurrencies.has(cur));
+
     // Servicios de la reserva (para base de comisión)
     const services = await prisma.service.findMany({
       // ⬇️ filtrar por la relación booking
@@ -130,48 +145,45 @@ export default async function handler(
       },
     });
 
-    const commissionBaseByCurrency: Record<"ARS" | "USD", number> = {
-      ARS: 0,
-      USD: 0,
+    const commissionBaseByCurrency: Record<string, number> = {};
+    const inc = (cur: string, amount: number) => {
+      if (!isCurrencyAllowed(cur)) return;
+      commissionBaseByCurrency[cur] = (commissionBaseByCurrency[cur] || 0) + amount;
     };
 
     if (useBookingSaleTotal) {
-      const saleTotals = normalizeSaleTotals(booking.sale_totals);
-      const fallbackTotals = services.reduce<Record<"ARS" | "USD", number>>(
-        (acc, s) => {
-          const cur = (s.currency as "ARS" | "USD") || "ARS";
-          acc[cur] += Number(s.sale_price) || 0;
-          return acc;
-        },
-        { ARS: 0, USD: 0 },
+      const addTo = (acc: Record<string, number>, cur: string, val: number) => {
+        if (!isCurrencyAllowed(cur)) return;
+        acc[cur] = (acc[cur] || 0) + val;
+      };
+
+      const saleTotals = normalizeSaleTotals(
+        booking.sale_totals,
+        hasCurrencyFilter ? enabledCurrencies : undefined,
       );
+      const fallbackTotals: Record<string, number> = {};
+      const costTotals: Record<string, number> = {};
+      const taxTotals: Record<string, number> = {};
+
+      for (const s of services) {
+        const cur = String(s.currency || "").trim().toUpperCase();
+        if (!cur) continue;
+        addTo(fallbackTotals, cur, Number(s.sale_price) || 0);
+        addTo(costTotals, cur, Number(s.cost_price) || 0);
+        addTo(taxTotals, cur, Number(s.other_taxes) || 0);
+      }
+
       const totals =
-        saleTotals.ARS || saleTotals.USD ? saleTotals : fallbackTotals;
+        Object.keys(saleTotals).length > 0 ? saleTotals : fallbackTotals;
 
-      const costTotals = services.reduce<Record<"ARS" | "USD", number>>(
-        (acc, s) => {
-          const cur = (s.currency as "ARS" | "USD") || "ARS";
-          acc[cur] += Number(s.cost_price) || 0;
-          return acc;
-        },
-        { ARS: 0, USD: 0 },
-      );
-
-      const taxTotals = services.reduce<Record<"ARS" | "USD", number>>(
-        (acc, s) => {
-          const cur = (s.currency as "ARS" | "USD") || "ARS";
-          acc[cur] += Number(s.other_taxes) || 0;
-          return acc;
-        },
-        { ARS: 0, USD: 0 },
-      );
-
-      (["ARS", "USD"] as const).forEach((cur) => {
-        const sale = totals[cur] || 0;
-        const cost = costTotals[cur] || 0;
-        const taxes = taxTotals[cur] || 0;
+      for (const [cur, total] of Object.entries(totals)) {
+        if (!isCurrencyAllowed(cur)) continue;
+        const sale = Number(total) || 0;
+        const cost = Number(costTotals[cur] || 0);
+        const taxes = Number(taxTotals[cur] || 0);
         const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
-        const fee = sale * (Number.isFinite(agencyFeePct) ? agencyFeePct : 0.024);
+        const fee =
+          sale * (Number.isFinite(agencyFeePct) ? agencyFeePct : 0.024);
         const adjustments = computeBillingAdjustments(
           billingAdjustments as BillingAdjustmentConfig[],
           sale,
@@ -181,11 +193,13 @@ export default async function handler(
           commissionBeforeFee - fee - adjustments,
           0,
         );
-      });
+      }
     } else {
       // Base por moneda (mismo cálculo de /api/earnings)
       for (const s of services) {
-        const cur = (s.currency as "ARS" | "USD") || "ARS";
+        const cur = String(s.currency || "").trim().toUpperCase();
+        if (!cur) continue;
+        if (!isCurrencyAllowed(cur)) continue;
         const sale = Number(s.sale_price) || 0;
         const pct =
           s.transfer_fee_pct != null ? Number(s.transfer_fee_pct) : agencyFeePct;
@@ -196,9 +210,9 @@ export default async function handler(
         const dbCommission = Number(s.totalCommissionWithoutVAT ?? 0);
         const extraCosts = Number(s.extra_costs_amount ?? 0);
         const extraTaxes = Number(s.extra_taxes_amount ?? 0);
-        commissionBaseByCurrency[cur] += Math.max(
-          dbCommission - fee - extraCosts - extraTaxes,
-          0,
+        inc(
+          cur,
+          Math.max(dbCommission - fee - extraCosts - extraTaxes, 0),
         );
       }
     }
@@ -224,10 +238,10 @@ export default async function handler(
     }
 
     const factor = (ownerPct || 0) / 100;
-    const sellerEarningsByCurrency: Record<"ARS" | "USD", number> = {
-      ARS: commissionBaseByCurrency.ARS * factor,
-      USD: commissionBaseByCurrency.USD * factor,
-    };
+    const sellerEarningsByCurrency: Record<string, number> = {};
+    for (const [cur, base] of Object.entries(commissionBaseByCurrency)) {
+      sellerEarningsByCurrency[cur] = base * factor;
+    }
 
     return res.status(200).json({
       ownerPct,

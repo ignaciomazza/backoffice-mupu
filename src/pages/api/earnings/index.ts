@@ -6,7 +6,7 @@ import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 import type { BillingAdjustmentConfig } from "@/types";
 
 interface EarningItem {
-  currency: "ARS" | "USD";
+  currency: string;
   userId: number; // dueño de la reserva (seller)
   userName: string;
   teamId: number;
@@ -19,9 +19,23 @@ interface EarningItem {
 }
 interface EarningsResponse {
   totals: {
-    sellerComm: Record<"ARS" | "USD", number>;
-    leaderComm: Record<"ARS" | "USD", number>;
-    agencyShare: Record<"ARS" | "USD", number>;
+    sellerComm: Record<string, number>;
+    leaderComm: Record<string, number>;
+    agencyShare: Record<string, number>;
+  };
+  statsByCurrency: Record<
+    string,
+    {
+      saleTotal: number;
+      paidTotal: number;
+      debtTotal: number;
+      commissionTotal: number;
+      paymentRate: number;
+    }
+  >;
+  breakdowns: {
+    byCountry: Record<string, Record<string, number>>;
+    byMethod: Record<string, Record<string, number>>;
   };
   items: EarningItem[];
 }
@@ -39,15 +53,19 @@ type TokenPayload = JWTPayload & {
 const JWT_SECRET = process.env.JWT_SECRET!;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
+const DEFAULT_TZ = "America/Argentina/Buenos_Aires";
+
 function normalizeSaleTotals(
   input: unknown,
-): Record<"ARS" | "USD", number> {
-  const out: Record<"ARS" | "USD", number> = { ARS: 0, USD: 0 };
+  allowed?: Set<string>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
   if (!input || typeof input !== "object" || Array.isArray(input)) return out;
   const obj = input as Record<string, unknown>;
   for (const [keyRaw, val] of Object.entries(obj)) {
-    const key = String(keyRaw || "").toUpperCase();
-    if (key !== "ARS" && key !== "USD") continue;
+    const key = String(keyRaw || "").trim().toUpperCase();
+    if (!key) continue;
+    if (allowed && allowed.size > 0 && !allowed.has(key)) continue;
     const n =
       typeof val === "number"
         ? val
@@ -81,10 +99,68 @@ async function getAuth(
   }
 }
 
-// Helper: "YYYY-MM-DD" -> Date local 00:00
-function ymdToLocalDate(ymd: string): Date {
+function addDaysYMD(ymd: string, days: number): string {
   const [y, m, d] = ymd.split("-").map(Number);
-  return new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
+  const dt = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+/**
+ * Convierte "YYYY-MM-DD" (día local en `timeZone`) al instante UTC de las 00:00:00 locales.
+ * No depende de la tz del servidor y maneja DST.
+ */
+function startOfDayUTCFromYmdInTz(ymd: string, timeZone: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const approx = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0));
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const partsObj = Object.fromEntries(
+    fmt.formatToParts(approx).map((p) => [p.type, p.value]),
+  );
+  const hh = Number(partsObj.hour ?? 0);
+  const mm = Number(partsObj.minute ?? 0);
+  const ss = Number(partsObj.second ?? 0);
+  const deltaMs = ((hh * 60 + mm) * 60 + ss) * 1000;
+  return new Date(approx.getTime() - deltaMs);
+}
+
+function parseCsvParam(input: string | string[] | undefined): string[] | null {
+  if (typeof input === "string") {
+    const items = input
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return items.length ? items : null;
+  }
+  if (Array.isArray(input)) {
+    const items = input.map((s) => String(s).trim()).filter(Boolean);
+    return items.length ? items : null;
+  }
+  return null;
+}
+
+function parsePaidPct(input: string | string[] | undefined): number {
+  const raw =
+    typeof input === "string"
+      ? Number(input)
+      : Array.isArray(input)
+        ? Number(input[0])
+        : NaN;
+  if (!Number.isFinite(raw)) return 0.4;
+  if (raw <= 1) return Math.max(0, raw);
+  return Math.max(0, raw / 100);
 }
 
 export default async function handler(
@@ -99,14 +175,44 @@ export default async function handler(
   const auth = await getAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
 
-  const { from, to } = req.query;
+  const {
+    from,
+    to,
+    dateField,
+    minPaidPct,
+    clientStatus,
+    operatorStatus,
+    paymentMethodId,
+    accountId,
+    teamId,
+  } = req.query;
   if (typeof from !== "string" || typeof to !== "string") {
     return res.status(400).json({ error: "Parámetros from y to requeridos" });
   }
 
-  const fromDate = ymdToLocalDate(from);
-  const toDateExclusive = ymdToLocalDate(to);
-  toDateExclusive.setDate(toDateExclusive.getDate() + 1);
+  const timeZone = DEFAULT_TZ;
+  const fromDate = startOfDayUTCFromYmdInTz(from, timeZone);
+  const toDateExclusive = startOfDayUTCFromYmdInTz(addDaysYMD(to, 1), timeZone);
+  const paidPct = parsePaidPct(minPaidPct);
+  const clientStatusArr = parseCsvParam(clientStatus)?.filter(
+    (s) => s !== "Todas",
+  );
+  const operatorStatusArr = parseCsvParam(operatorStatus)?.filter(
+    (s) => s !== "Todas",
+  );
+  const parsedPaymentMethodId = Number(
+    Array.isArray(paymentMethodId) ? paymentMethodId[0] : paymentMethodId,
+  );
+  const parsedAccountId = Number(
+    Array.isArray(accountId) ? accountId[0] : accountId,
+  );
+  const parsedTeamId = Number(Array.isArray(teamId) ? teamId[0] : teamId);
+  const dateFieldKey =
+    String(dateField || "").toLowerCase() === "departure" ||
+    String(dateField || "").toLowerCase() === "travel" ||
+    String(dateField || "").toLowerCase() === "viaje"
+      ? "departure_date"
+      : "creation_date";
 
   try {
     const agency = await prisma.agency.findUnique({
@@ -123,6 +229,17 @@ export default async function handler(
     const billingAdjustments = Array.isArray(calcConfig?.billing_adjustments)
       ? (calcConfig?.billing_adjustments as BillingAdjustmentConfig[])
       : [];
+
+    const currencyRows = await prisma.financeCurrency.findMany({
+      where: { id_agency: auth.id_agency, enabled: true },
+      select: { code: true },
+    });
+    const enabledCurrencies = new Set(
+      currencyRows
+        .map((c) => String(c.code || "").trim().toUpperCase())
+        .filter(Boolean),
+    );
+    const hasCurrencyFilter = enabledCurrencies.size > 0;
 
     // 1) Equipos/usuarios de MI agencia (para etiquetar por equipo)
     const teams = await prisma.salesTeam.findMany({
@@ -142,12 +259,23 @@ export default async function handler(
       });
     });
 
-    // 2) Servicios del rango (por creación de reserva) SOLO de mi agencia
+    const bookingDateFilter =
+      dateFieldKey === "departure_date"
+        ? { departure_date: { gte: fromDate, lt: toDateExclusive } }
+        : { creation_date: { gte: fromDate, lt: toDateExclusive } };
+
+    // 2) Servicios del rango (por fecha seleccionada en booking) SOLO de mi agencia
     const services = await prisma.service.findMany({
       where: {
         booking: {
           id_agency: auth.id_agency,
-          creation_date: { gte: fromDate, lt: toDateExclusive },
+          ...bookingDateFilter,
+          ...(clientStatusArr?.length
+            ? { clientStatus: { in: clientStatusArr } }
+            : {}),
+          ...(operatorStatusArr?.length
+            ? { operatorStatus: { in: operatorStatusArr } }
+            : {}),
         },
       },
       select: {
@@ -161,36 +289,80 @@ export default async function handler(
         transfer_fee_pct: true,
         extra_costs_amount: true,
         extra_taxes_amount: true,
+        destination: true,
+        ServiceDestination: {
+          select: {
+            destination: {
+              select: { name: true, slug: true, country: true },
+            },
+          },
+        },
       },
     });
 
-    const fallbackSaleTotalsByBooking = new Map<
-      number,
-      { ARS: number; USD: number }
-    >();
-    const costTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
-    const taxTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
+    if (services.length === 0) {
+      return res.status(200).json({
+        totals: { sellerComm: {}, leaderComm: {}, agencyShare: {} },
+        statsByCurrency: {},
+        breakdowns: { byCountry: {}, byMethod: {} },
+        items: [],
+      });
+    }
+
+    const isCurrencyAllowed = (cur: string) =>
+      !!cur && (!hasCurrencyFilter || enabledCurrencies.has(cur));
+    const addByBooking = (
+      map: Map<number, Record<string, number>>,
+      bid: number,
+      cur: string,
+      amount: number,
+    ) => {
+      if (!isCurrencyAllowed(cur)) return;
+      const prev = map.get(bid) || {};
+      prev[cur] = (prev[cur] || 0) + amount;
+      map.set(bid, prev);
+    };
+
+    const fallbackSaleTotalsByBooking = new Map<number, Record<string, number>>();
+    const costTotalsByBooking = new Map<number, Record<string, number>>();
+    const taxTotalsByBooking = new Map<number, Record<string, number>>();
+
+    const bookingCountry = new Map<number, string>();
 
     services.forEach((svc) => {
       const bid = svc.booking_id;
-      const cur = String(svc.currency || "ARS").toUpperCase();
-      if (cur !== "ARS" && cur !== "USD") return;
-      const key = cur as "ARS" | "USD";
+      const cur = String(svc.currency || "").trim().toUpperCase();
+      if (!cur) return;
 
-      const fallback = fallbackSaleTotalsByBooking.get(bid) || {
-        ARS: 0,
-        USD: 0,
-      };
-      fallback[key] += Number(svc.sale_price) || 0;
-      fallbackSaleTotalsByBooking.set(bid, fallback);
+      addByBooking(
+        fallbackSaleTotalsByBooking,
+        bid,
+        cur,
+        Number(svc.sale_price) || 0,
+      );
+      addByBooking(
+        costTotalsByBooking,
+        bid,
+        cur,
+        Number(svc.cost_price) || 0,
+      );
+      addByBooking(
+        taxTotalsByBooking,
+        bid,
+        cur,
+        Number(svc.other_taxes) || 0,
+      );
 
-      const costTotals = costTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
-      costTotals[key] += Number(svc.cost_price) || 0;
-      costTotalsByBooking.set(bid, costTotals);
-
-      const taxTotals = taxTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
-      taxTotals[key] += Number(svc.other_taxes) || 0;
-      taxTotalsByBooking.set(bid, taxTotals);
+      if (!bookingCountry.has(bid)) {
+        const sd = svc.ServiceDestination?.[0];
+        const country = sd?.destination?.country;
+        const label =
+          country?.iso2 ||
+          country?.name ||
+          (svc.destination || "").trim() ||
+          "Sin pais";
+        bookingCountry.set(bid, label);
+      }
     });
 
     // 2.1) Dueños (vendedores) de cada booking (siempre desde Booking)
@@ -226,14 +398,35 @@ export default async function handler(
       });
     }
 
-    // 3) Venta total por reserva/moneda (para deuda y 40%)
-    const saleTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
+    const matchesTeamFilter = (userId: number): boolean => {
+      if (!Number.isFinite(parsedTeamId) || parsedTeamId <= 0) return true;
+      const teamIds = userToMemberTeams.get(userId) || [];
+      return teamIds.includes(parsedTeamId);
+    };
+    const allowedBookingIds = new Set<number>();
+    bookingOwners.forEach((owner, bid) => {
+      if (matchesTeamFilter(owner.userId)) allowedBookingIds.add(bid);
+    });
+
+    if (allowedBookingIds.size === 0) {
+      return res.status(200).json({
+        totals: { sellerComm: {}, leaderComm: {}, agencyShare: {} },
+        statsByCurrency: {},
+        breakdowns: { byCountry: {}, byMethod: {} },
+        items: [],
+      });
+    }
+
+    // 3) Venta total por reserva/moneda (para deuda y % pago)
+    const saleTotalsByBooking = new Map<number, Record<string, number>>();
     if (useBookingSaleTotal) {
       bookings.forEach((b) => {
-        const normalized = normalizeSaleTotals(b.sale_totals);
-        const fallback =
-          fallbackSaleTotalsByBooking.get(b.id_booking) || { ARS: 0, USD: 0 };
-        const hasValues = normalized.ARS > 0 || normalized.USD > 0;
+        const normalized = normalizeSaleTotals(
+          b.sale_totals,
+          hasCurrencyFilter ? enabledCurrencies : undefined,
+        );
+        const fallback = fallbackSaleTotalsByBooking.get(b.id_booking) || {};
+        const hasValues = Object.values(normalized).some((v) => v > 0);
         saleTotalsByBooking.set(
           b.id_booking,
           hasValues ? normalized : fallback,
@@ -246,54 +439,86 @@ export default async function handler(
     }
 
     // 4) Recibos de esas reservas (misma agencia por FK booking)
+    const receiptBookingIds = Array.from(saleTotalsByBooking.keys()).filter(
+      (bid) => allowedBookingIds.has(bid),
+    );
+    const receiptWhere: Record<string, unknown> = {
+      bookingId_booking: { in: receiptBookingIds },
+    };
+    if (Number.isFinite(parsedPaymentMethodId) && parsedPaymentMethodId > 0) {
+      receiptWhere.payment_method_id = parsedPaymentMethodId;
+    }
+    if (Number.isFinite(parsedAccountId) && parsedAccountId > 0) {
+      receiptWhere.account_id = parsedAccountId;
+    }
     const allReceipts = await prisma.receipt.findMany({
-      where: {
-        bookingId_booking: { in: Array.from(saleTotalsByBooking.keys()) },
-      },
+      where: receiptWhere,
       select: {
         bookingId_booking: true,
         amount: true,
         amount_currency: true,
         base_amount: true,
         base_currency: true,
+        payment_method: true,
+        payment_method_id: true,
+        account: true,
+        account_id: true,
       },
     });
 
-    const receiptsMap = new Map<number, { ARS: number; USD: number }>();
+    const receiptsMap = new Map<number, Record<string, number>>();
+    const receiptsByBookingMethod = new Map<
+      number,
+      { methodLabel: string; currency: string; amount: number }[]
+    >();
+
     for (const r of allReceipts) {
       const bid = r.bookingId_booking;
       if (bid == null) continue; // evita TS2345 y casos sin booking
       const useBase = r.base_amount != null && r.base_currency;
       const cur = String(
-        useBase ? r.base_currency : r.amount_currency || "ARS",
-      ).toUpperCase();
-      if (cur !== "ARS" && cur !== "USD") continue;
-      const prev = receiptsMap.get(bid) || { ARS: 0, USD: 0 };
-      const k = cur as "ARS" | "USD";
+        useBase ? r.base_currency : r.amount_currency || "",
+      )
+        .trim()
+        .toUpperCase();
+      if (!isCurrencyAllowed(cur)) continue;
+      const prev = receiptsMap.get(bid) || {};
       const val = Number(useBase ? r.base_amount : r.amount) || 0;
-      prev[k] += val;
+      prev[cur] = (prev[cur] || 0) + val;
       receiptsMap.set(bid, prev);
+
+      const methodLabel =
+        (r.payment_method || "").trim() ||
+        (r.payment_method_id ? `Metodo #${r.payment_method_id}` : "Sin metodo");
+      const list = receiptsByBookingMethod.get(bid) || [];
+      list.push({ methodLabel, currency: cur, amount: val });
+      receiptsByBookingMethod.set(bid, list);
     }
 
-    // 5) Validar 40% cobrado en la misma moneda
+    // 5) Validar % cobrado en la misma moneda
     const validBookingCurrency = new Set<string>();
     saleTotalsByBooking.forEach((totals, bid) => {
-      const paid = receiptsMap.get(bid) || { ARS: 0, USD: 0 };
-      (["ARS", "USD"] as const).forEach((cur) => {
-        if (totals[cur] > 0 && paid[cur] / totals[cur] >= 0.4) {
+      const paid = receiptsMap.get(bid) || {};
+      for (const [cur, total] of Object.entries(totals)) {
+        const t = Number(total) || 0;
+        const p = Number(paid[cur] || 0);
+        if (t > 0 && p / t >= paidPct) {
           validBookingCurrency.add(`${bid}-${cur}`);
         }
-      });
+      }
     });
 
     // 6) Deuda por reserva
-    const debtByBooking = new Map<number, { ARS: number; USD: number }>();
+    const debtByBooking = new Map<number, Record<string, number>>();
     saleTotalsByBooking.forEach((totals, bid) => {
-      const paid = receiptsMap.get(bid) || { ARS: 0, USD: 0 };
-      debtByBooking.set(bid, {
-        ARS: totals.ARS - paid.ARS,
-        USD: totals.USD - paid.USD,
-      });
+      const paid = receiptsMap.get(bid) || {};
+      const debt: Record<string, number> = {};
+      for (const [cur, total] of Object.entries(totals)) {
+        const t = Number(total) || 0;
+        const p = Number(paid[cur] || 0);
+        debt[cur] = t - p;
+      }
+      debtByBooking.set(bid, debt);
     });
 
     // 7) Prefetch de REGLAS por usuario (versión por valid_from <= creation_date)
@@ -346,16 +571,62 @@ export default async function handler(
       ? []
       : services.filter((svc) =>
           validBookingCurrency.has(
-            `${svc.booking_id}-${svc.currency as "ARS" | "USD"}`,
+            `${svc.booking_id}-${String(svc.currency || "")
+              .trim()
+              .toUpperCase()}`,
           ),
         );
 
     // 9) Agregación (una fila por vendedor+moneda, NO por equipo)
     const totals = {
-      sellerComm: { ARS: 0, USD: 0 },
-      leaderComm: { ARS: 0, USD: 0 },
-      agencyShare: { ARS: 0, USD: 0 },
+      sellerComm: {} as Record<string, number>,
+      leaderComm: {} as Record<string, number>,
+      agencyShare: {} as Record<string, number>,
     };
+    const statsByCurrency: EarningsResponse["statsByCurrency"] = {};
+    const byCountry: EarningsResponse["breakdowns"]["byCountry"] = {};
+    const byMethod: EarningsResponse["breakdowns"]["byMethod"] = {};
+    const commissionByBooking = new Map<number, Record<string, number>>();
+
+    const inc = (rec: Record<string, number>, cur: string, amount: number) => {
+      rec[cur] = (rec[cur] || 0) + amount;
+    };
+
+    const ensureStats = (cur: string) => {
+      if (!statsByCurrency[cur]) {
+        statsByCurrency[cur] = {
+          saleTotal: 0,
+          paidTotal: 0,
+          debtTotal: 0,
+          commissionTotal: 0,
+          paymentRate: 0,
+        };
+      }
+    };
+
+    saleTotalsByBooking.forEach((totalsByCur, bid) => {
+      if (!allowedBookingIds.has(bid)) return;
+      const paid = receiptsMap.get(bid) || {};
+      for (const [cur, total] of Object.entries(totalsByCur)) {
+        if (!validBookingCurrency.has(`${bid}-${cur}`)) continue;
+        const sale = Number(total) || 0;
+        const paidAmt = Number(paid[cur] || 0);
+        ensureStats(cur);
+        statsByCurrency[cur].saleTotal += sale;
+        statsByCurrency[cur].paidTotal += paidAmt;
+        statsByCurrency[cur].debtTotal += sale - paidAmt;
+      }
+    });
+
+    receiptsByBookingMethod.forEach((entries, bid) => {
+      if (!allowedBookingIds.has(bid)) return;
+      for (const entry of entries) {
+        if (!validBookingCurrency.has(`${bid}-${entry.currency}`)) continue;
+        const bucket = byMethod[entry.methodLabel] || {};
+        bucket[entry.currency] = (bucket[entry.currency] || 0) + entry.amount;
+        byMethod[entry.methodLabel] = bucket;
+      }
+    });
     const itemsMap = new Map<string, EarningItem>();
 
     // Dado un usuario, armamos info de equipo para mostrar
@@ -389,7 +660,7 @@ export default async function handler(
     }
 
     function addRow(
-      currency: "ARS" | "USD",
+      currency: string,
       userId: number,
       userName: string,
       sellerComm: number,
@@ -398,9 +669,10 @@ export default async function handler(
       debt: number,
       bid: number,
     ) {
-      totals.sellerComm[currency] += sellerComm;
-      totals.leaderComm[currency] += leaderComm;
-      totals.agencyShare[currency] += agencyShare;
+      if (!matchesTeamFilter(userId)) return false;
+      inc(totals.sellerComm, currency, sellerComm);
+      inc(totals.leaderComm, currency, leaderComm);
+      inc(totals.agencyShare, currency, agencyShare);
 
       const key = `${currency}-${userId}`;
       const existing = itemsMap.get(key);
@@ -430,23 +702,21 @@ export default async function handler(
           bookingIds: [bid],
         });
       }
+      return true;
     }
 
     if (useBookingSaleTotal) {
-      const commissionBaseByBooking = new Map<
-        number,
-        { ARS: number; USD: number }
-      >();
+      const commissionBaseByBooking = new Map<number, Record<string, number>>();
 
-      saleTotalsByBooking.forEach((totals, bid) => {
-        const costTotals = costTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
-        const taxTotals = taxTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
-        const baseByCur = { ARS: 0, USD: 0 };
+      saleTotalsByBooking.forEach((totalsByCur, bid) => {
+        const costTotals = costTotalsByBooking.get(bid) || {};
+        const taxTotals = taxTotalsByBooking.get(bid) || {};
+        const baseByCur: Record<string, number> = {};
 
-        (["ARS", "USD"] as const).forEach((cur) => {
-          const sale = totals[cur] || 0;
-          const cost = costTotals[cur] || 0;
-          const taxes = taxTotals[cur] || 0;
+        for (const [cur, total] of Object.entries(totalsByCur)) {
+          const sale = Number(total) || 0;
+          const cost = Number(costTotals[cur] || 0);
+          const taxes = Number(taxTotals[cur] || 0);
           const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
           const fee =
             sale * (Number.isFinite(agencyFeePct) ? agencyFeePct : 0.024);
@@ -459,7 +729,7 @@ export default async function handler(
             commissionBeforeFee - fee - adjustments,
             0,
           );
-        });
+        }
 
         commissionBaseByBooking.set(bid, baseByCur);
       });
@@ -475,9 +745,8 @@ export default async function handler(
 
         const { ownPct, shares } = resolveRule(sellerId, bookingCreatedAt);
 
-        (["ARS", "USD"] as const).forEach((cur) => {
-          if (!validBookingCurrency.has(`${bid}-${cur}`)) return;
-          const commissionBase = baseByCur[cur] || 0;
+        for (const [cur, commissionBase] of Object.entries(baseByCur)) {
+          if (!validBookingCurrency.has(`${bid}-${cur}`)) continue;
           const sellerComm = commissionBase * (ownPct / 100);
           const leaderComm = shares.reduce(
             (sum, s) => sum + commissionBase * (s.pct / 100),
@@ -489,7 +758,7 @@ export default async function handler(
           );
           const debtForBooking = debtByBooking.get(bid)?.[cur] ?? 0;
 
-          addRow(
+          const added = addRow(
             cur,
             sellerId,
             sellerName,
@@ -499,12 +768,18 @@ export default async function handler(
             debtForBooking,
             bid,
           );
-        });
+          if (added) {
+            const bookingComm = commissionByBooking.get(bid) || {};
+            bookingComm[cur] = (bookingComm[cur] || 0) + commissionBase;
+            commissionByBooking.set(bid, bookingComm);
+          }
+        }
       }
     } else {
       for (const svc of filteredServices) {
         const bid = svc.booking_id;
-        const cur = (svc.currency as "ARS" | "USD") || "ARS";
+        const cur = String(svc.currency || "").trim().toUpperCase();
+        if (!cur) continue;
         const owner = bookingOwners.get(bid);
         if (!owner) continue;
         const {
@@ -544,10 +819,10 @@ export default async function handler(
           commissionBase - sellerComm - leaderComm,
         );
 
-        const debtForBooking = debtByBooking.get(bid)![cur];
+        const debtForBooking = debtByBooking.get(bid)?.[cur] ?? 0;
 
         // 🔴 OJO: ahora agregamos UNA sola fila por vendedor+moneda
-        addRow(
+        const added = addRow(
           cur,
           sellerId,
           sellerName,
@@ -557,12 +832,40 @@ export default async function handler(
           debtForBooking,
           bid,
         );
+        if (added) {
+          const bookingComm = commissionByBooking.get(bid) || {};
+          bookingComm[cur] = (bookingComm[cur] || 0) + commissionBase;
+          commissionByBooking.set(bid, bookingComm);
+        }
       }
     }
 
-    return res
-      .status(200)
-      .json({ totals, items: Array.from(itemsMap.values()) });
+    commissionByBooking.forEach((byCur, bid) => {
+      const label = bookingCountry.get(bid) || "Sin pais";
+      const bucket = byCountry[label] || {};
+      for (const [cur, amount] of Object.entries(byCur)) {
+        bucket[cur] = (bucket[cur] || 0) + amount;
+      }
+      byCountry[label] = bucket;
+    });
+
+    Object.keys(statsByCurrency).forEach((cur) => {
+      statsByCurrency[cur].commissionTotal =
+        (totals.sellerComm[cur] || 0) +
+        (totals.leaderComm[cur] || 0) +
+        (totals.agencyShare[cur] || 0);
+      statsByCurrency[cur].paymentRate =
+        statsByCurrency[cur].saleTotal > 0
+          ? statsByCurrency[cur].paidTotal / statsByCurrency[cur].saleTotal
+          : 0;
+    });
+
+    return res.status(200).json({
+      totals,
+      statsByCurrency,
+      breakdowns: { byCountry, byMethod },
+      items: Array.from(itemsMap.values()),
+    });
   } catch (err: unknown) {
     console.error("Error en earnings API:", err);
     return res.status(500).json({ error: "Error obteniendo datos" });

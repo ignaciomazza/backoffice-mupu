@@ -21,6 +21,8 @@ type TokenPayload = JWTPayload & {
 const JWT_SECRET = process.env.JWT_SECRET!;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
+const DEFAULT_TZ = "America/Argentina/Buenos_Aires";
+
 async function getAuth(
   req: NextApiRequest,
 ): Promise<{ id_user: number; id_agency: number } | null> {
@@ -97,15 +99,44 @@ function startOfDayUTCFromYmdInTz(ymd: string, timeZone: string): Date {
   return new Date(approx.getTime() - deltaMs);
 }
 
+function parseCsvParam(input: string | string[] | undefined): string[] | null {
+  if (typeof input === "string") {
+    const items = input
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return items.length ? items : null;
+  }
+  if (Array.isArray(input)) {
+    const items = input.map((s) => String(s).trim()).filter(Boolean);
+    return items.length ? items : null;
+  }
+  return null;
+}
+
+function parsePaidPct(input: string | string[] | undefined): number {
+  const raw =
+    typeof input === "string"
+      ? Number(input)
+      : Array.isArray(input)
+        ? Number(input[0])
+        : NaN;
+  if (!Number.isFinite(raw)) return 0.4;
+  if (raw <= 1) return Math.max(0, raw);
+  return Math.max(0, raw / 100);
+}
+
 function normalizeSaleTotals(
   input: unknown,
-): Record<"ARS" | "USD", number> {
-  const out: Record<"ARS" | "USD", number> = { ARS: 0, USD: 0 };
+  allowed?: Set<string>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
   if (!input || typeof input !== "object" || Array.isArray(input)) return out;
   const obj = input as Record<string, unknown>;
   for (const [keyRaw, val] of Object.entries(obj)) {
-    const key = String(keyRaw || "").toUpperCase();
-    if (key !== "ARS" && key !== "USD") continue;
+    const key = String(keyRaw || "").trim().toUpperCase();
+    if (!key) continue;
+    if (allowed && allowed.size > 0 && !allowed.has(key)) continue;
     const n =
       typeof val === "number"
         ? val
@@ -117,7 +148,7 @@ function normalizeSaleTotals(
 
 /* ======================== Tipos mínimos ======================== */
 
-type Totals = Record<"ARS" | "USD", number>;
+type Totals = Record<string, number>;
 
 type ServiceLite = {
   booking_id: number;
@@ -178,11 +209,39 @@ export default async function handler(
   const currentUserId = auth.id_user;
   const agencyId = auth.id_agency;
 
-  const { from, to, tz } = req.query;
+  const {
+    from,
+    to,
+    dateField,
+    minPaidPct,
+    clientStatus,
+    operatorStatus,
+    paymentMethodId,
+    accountId,
+  } = req.query;
   if (typeof from !== "string" || typeof to !== "string") {
     return res.status(400).json({ error: "Parámetros from y to requeridos" });
   }
-  const timeZone = typeof tz === "string" && tz.trim() ? tz.trim() : "UTC";
+  const timeZone = DEFAULT_TZ;
+  const dateFieldKey =
+    String(dateField || "").toLowerCase() === "departure" ||
+    String(dateField || "").toLowerCase() === "travel" ||
+    String(dateField || "").toLowerCase() === "viaje"
+      ? "departure_date"
+      : "creation_date";
+  const paidPct = parsePaidPct(minPaidPct);
+  const clientStatusArr = parseCsvParam(clientStatus)?.filter(
+    (s) => s !== "Todas",
+  );
+  const operatorStatusArr = parseCsvParam(operatorStatus)?.filter(
+    (s) => s !== "Todas",
+  );
+  const parsedPaymentMethodId = Number(
+    Array.isArray(paymentMethodId) ? paymentMethodId[0] : paymentMethodId,
+  );
+  const parsedAccountId = Number(
+    Array.isArray(accountId) ? accountId[0] : accountId,
+  );
 
   // Rango UTC: [inicio de 'from' en tz, inicio de 'to + 1 día' en tz)
   const fromUTC = startOfDayUTCFromYmdInTz(from, timeZone);
@@ -204,12 +263,34 @@ export default async function handler(
       ? (calcConfig?.billing_adjustments as BillingAdjustmentConfig[])
       : [];
 
+    const currencyRows = await prisma.financeCurrency.findMany({
+      where: { id_agency: agencyId, enabled: true },
+      select: { code: true },
+    });
+    const enabledCurrencies = new Set(
+      currencyRows
+        .map((c) => String(c.code || "").trim().toUpperCase())
+        .filter(Boolean),
+    );
+    const hasCurrencyFilter = enabledCurrencies.size > 0;
+
+    const bookingDateFilter =
+      dateFieldKey === "departure_date"
+        ? { departure_date: { gte: fromUTC, lt: toExclusiveUTC } }
+        : { creation_date: { gte: fromUTC, lt: toExclusiveUTC } };
+
     // 1) Servicios del rango en MI agencia
     const services: ServiceLite[] = await prisma.service.findMany({
       where: {
         booking: {
           id_agency: agencyId,
-          creation_date: { gte: fromUTC, lt: toExclusiveUTC },
+          ...bookingDateFilter,
+          ...(clientStatusArr?.length
+            ? { clientStatus: { in: clientStatusArr } }
+            : {}),
+          ...(operatorStatusArr?.length
+            ? { operatorStatus: { in: operatorStatusArr } }
+            : {}),
         },
       },
       select: {
@@ -226,36 +307,51 @@ export default async function handler(
       },
     });
 
-    const fallbackSaleTotalsByBooking = new Map<
-      number,
-      { ARS: number; USD: number }
-    >();
-    const costTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
-    const taxTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
+    const isCurrencyAllowed = (cur: string) =>
+      !!cur && (!hasCurrencyFilter || enabledCurrencies.has(cur));
+    const addByBooking = (
+      map: Map<number, Record<string, number>>,
+      bid: number,
+      cur: string,
+      amount: number,
+    ) => {
+      if (!isCurrencyAllowed(cur)) return;
+      const prev = map.get(bid) || {};
+      prev[cur] = (prev[cur] || 0) + amount;
+      map.set(bid, prev);
+    };
+
+    const fallbackSaleTotalsByBooking = new Map<number, Record<string, number>>();
+    const costTotalsByBooking = new Map<number, Record<string, number>>();
+    const taxTotalsByBooking = new Map<number, Record<string, number>>();
 
     for (const svc of services) {
       const bid = svc.booking_id;
-      const cur = (svc.currency as "ARS" | "USD") || "ARS";
-      if (cur !== "ARS" && cur !== "USD") continue;
+      const cur = String(svc.currency || "").trim().toUpperCase();
+      if (!cur) continue;
 
-      const fallback = fallbackSaleTotalsByBooking.get(bid) || {
-        ARS: 0,
-        USD: 0,
-      };
-      fallback[cur] += Number(svc.sale_price) || 0;
-      fallbackSaleTotalsByBooking.set(bid, fallback);
-
-      const costTotals = costTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
-      costTotals[cur] += Number(svc.cost_price) || 0;
-      costTotalsByBooking.set(bid, costTotals);
-
-      const taxTotals = taxTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
-      taxTotals[cur] += Number(svc.other_taxes) || 0;
-      taxTotalsByBooking.set(bid, taxTotals);
+      addByBooking(
+        fallbackSaleTotalsByBooking,
+        bid,
+        cur,
+        Number(svc.sale_price) || 0,
+      );
+      addByBooking(
+        costTotalsByBooking,
+        bid,
+        cur,
+        Number(svc.cost_price) || 0,
+      );
+      addByBooking(
+        taxTotalsByBooking,
+        bid,
+        cur,
+        Number(svc.other_taxes) || 0,
+      );
     }
 
     // 2) Venta total por reserva / moneda
-    const saleTotalsByBooking = new Map<number, { ARS: number; USD: number }>();
+    const saleTotalsByBooking = new Map<number, Record<string, number>>();
     const bookingCreatedAt = new Map<number, Date>();
     const bookingOwner = new Map<number, { id: number; name: string }>();
     let bookings: Array<{
@@ -289,10 +385,12 @@ export default async function handler(
 
     if (useBookingSaleTotal) {
       bookings.forEach((b) => {
-        const normalized = normalizeSaleTotals(b.sale_totals);
-        const fallback =
-          fallbackSaleTotalsByBooking.get(b.id_booking) || { ARS: 0, USD: 0 };
-        const hasValues = normalized.ARS > 0 || normalized.USD > 0;
+        const normalized = normalizeSaleTotals(
+          b.sale_totals,
+          hasCurrencyFilter ? enabledCurrencies : undefined,
+        );
+        const fallback = fallbackSaleTotalsByBooking.get(b.id_booking) || {};
+        const hasValues = Object.values(normalized).some((v) => v > 0);
         saleTotalsByBooking.set(b.id_booking, hasValues ? normalized : fallback);
       });
     } else {
@@ -301,12 +399,21 @@ export default async function handler(
       });
     }
 
-    // 3) Recibos → validación 40%
+    // 3) Recibos → validación % pago
     const ids = Array.from(saleTotalsByBooking.keys());
     let allReceiptsRaw: ReceiptLite[] = [];
     if (ids.length > 0) {
+      const receiptWhere: Record<string, unknown> = {
+        bookingId_booking: { in: ids },
+      };
+      if (Number.isFinite(parsedPaymentMethodId) && parsedPaymentMethodId > 0) {
+        receiptWhere.payment_method_id = parsedPaymentMethodId;
+      }
+      if (Number.isFinite(parsedAccountId) && parsedAccountId > 0) {
+        receiptWhere.account_id = parsedAccountId;
+      }
       const r = await prisma.receipt.findMany({
-        where: { bookingId_booking: { in: ids } },
+        where: receiptWhere,
         select: {
           bookingId_booking: true,
           amount: true,
@@ -324,30 +431,31 @@ export default async function handler(
       }));
     }
 
-    const receiptsMap = new Map<number, { ARS: number; USD: number }>();
+    const receiptsMap = new Map<number, Record<string, number>>();
     for (const r of allReceiptsRaw) {
       const useBase = r.base_amount != null && r.base_currency;
       const cur = String(
-        useBase ? r.base_currency : r.amount_currency || "ARS",
-      ).toUpperCase();
-      const prev = receiptsMap.get(r.bookingId_booking) || { ARS: 0, USD: 0 };
-      if (cur === "ARS" || cur === "USD") {
-        const val = Number(useBase ? r.base_amount : r.amount) || 0;
-        prev[cur] += val;
-      }
+        useBase ? r.base_currency : r.amount_currency || "",
+      )
+        .trim()
+        .toUpperCase();
+      if (!isCurrencyAllowed(cur)) continue;
+      const prev = receiptsMap.get(r.bookingId_booking) || {};
+      const val = Number(useBase ? r.base_amount : r.amount) || 0;
+      prev[cur] = (prev[cur] || 0) + val;
       receiptsMap.set(r.bookingId_booking, prev);
     }
 
     const validBookingCurrency = new Set<string>();
-    saleTotalsByBooking.forEach((totals, bid) => {
-      const paid = receiptsMap.get(bid) || { ARS: 0, USD: 0 };
-      (["ARS", "USD"] as const).forEach((cur) => {
-        const total = totals[cur];
-        const p = paid[cur];
-        if (total > 0 && p / total >= 0.4) {
+    saleTotalsByBooking.forEach((totalsByCur, bid) => {
+      const paid = receiptsMap.get(bid) || {};
+      for (const [cur, total] of Object.entries(totalsByCur)) {
+        const t = Number(total) || 0;
+        const p = Number(paid[cur] || 0);
+        if (t > 0 && p / t >= paidPct) {
           validBookingCurrency.add(`${bid}-${cur}`);
         }
-      });
+      }
     });
 
     // 4) Prefetch de reglas por dueño
@@ -405,26 +513,26 @@ export default async function handler(
 
     // 5) Acumulado
     const totals = {
-      seller: { ARS: 0, USD: 0 } as Totals,
-      beneficiary: { ARS: 0, USD: 0 } as Totals,
-      grandTotal: { ARS: 0, USD: 0 } as Totals,
+      seller: {} as Totals,
+      beneficiary: {} as Totals,
+      grandTotal: {} as Totals,
+    };
+    const inc = (rec: Totals, cur: string, amount: number) => {
+      rec[cur] = (rec[cur] || 0) + amount;
     };
 
     if (useBookingSaleTotal) {
-      const commissionBaseByBooking = new Map<
-        number,
-        { ARS: number; USD: number }
-      >();
+      const commissionBaseByBooking = new Map<number, Record<string, number>>();
 
       saleTotalsByBooking.forEach((totalsByCur, bid) => {
-        const costTotals = costTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
-        const taxTotals = taxTotalsByBooking.get(bid) || { ARS: 0, USD: 0 };
-        const baseByCur = { ARS: 0, USD: 0 };
+        const costTotals = costTotalsByBooking.get(bid) || {};
+        const taxTotals = taxTotalsByBooking.get(bid) || {};
+        const baseByCur: Record<string, number> = {};
 
-        (["ARS", "USD"] as const).forEach((cur) => {
-          const sale = totalsByCur[cur] || 0;
-          const cost = costTotals[cur] || 0;
-          const taxes = taxTotals[cur] || 0;
+        for (const [cur, total] of Object.entries(totalsByCur)) {
+          const sale = Number(total) || 0;
+          const cost = Number(costTotals[cur] || 0);
+          const taxes = Number(taxTotals[cur] || 0);
           const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
           const fee =
             sale * (Number.isFinite(agencyFeePct) ? agencyFeePct : 0.024);
@@ -437,7 +545,7 @@ export default async function handler(
             commissionBeforeFee - fee - adjustments,
             0,
           );
-        });
+        }
 
         commissionBaseByBooking.set(bid, baseByCur);
       });
@@ -453,27 +561,26 @@ export default async function handler(
           currentUserId,
         );
 
-        (["ARS", "USD"] as const).forEach((cur) => {
-          if (!validBookingCurrency.has(`${bid}-${cur}`)) return;
-          const commissionBase = baseByCur[cur] || 0;
+        for (const [cur, commissionBase] of Object.entries(baseByCur)) {
+          if (!validBookingCurrency.has(`${bid}-${cur}`)) continue;
 
           if (ownerId === currentUserId) {
             const me = commissionBase * (ownPct / 100);
-            totals.seller[cur] += me;
-            totals.grandTotal[cur] += me;
+            inc(totals.seller, cur, me);
+            inc(totals.grandTotal, cur, me);
           }
           if (beneficiaryPctForMe > 0) {
             const me = commissionBase * (beneficiaryPctForMe / 100);
-            totals.beneficiary[cur] += me;
-            totals.grandTotal[cur] += me;
+            inc(totals.beneficiary, cur, me);
+            inc(totals.grandTotal, cur, me);
           }
-        });
+        }
       }
     } else {
       for (const svc of services) {
         const bid = svc.booking_id;
-        const cur = (svc.currency as "ARS" | "USD") || "ARS";
-        if (cur !== "ARS" && cur !== "USD") continue;
+        const cur = String(svc.currency || "").trim().toUpperCase();
+        if (!cur) continue;
         if (!validBookingCurrency.has(`${bid}-${cur}`)) continue;
 
         // base de comisión (mismo criterio que /api/earnings)
@@ -510,13 +617,13 @@ export default async function handler(
 
         if (ownerId === currentUserId) {
           const me = commissionBase * (ownPct / 100);
-          totals.seller[cur] += me;
-          totals.grandTotal[cur] += me;
+          inc(totals.seller, cur, me);
+          inc(totals.grandTotal, cur, me);
         }
         if (beneficiaryPctForMe > 0) {
           const me = commissionBase * (beneficiaryPctForMe / 100);
-          totals.beneficiary[cur] += me;
-          totals.grandTotal[cur] += me;
+          inc(totals.beneficiary, cur, me);
+          inc(totals.grandTotal, cur, me);
         }
       }
     }

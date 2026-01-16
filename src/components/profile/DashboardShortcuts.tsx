@@ -20,7 +20,7 @@ import {
 
 /* ===================== tipos mínimos ===================== */
 type CurrencyCode = "ARS" | "USD" | (string & {});
-type Totals = Record<"ARS" | "USD", number>;
+type Totals = Record<string, number>;
 type MyEarningsResponse = {
   totals: { seller: Totals; beneficiary: Totals; grandTotal: Totals };
 };
@@ -192,7 +192,7 @@ export default function DashboardShortcuts() {
 
   const { from: monthFrom, to: monthTo } = useMemo(monthRangeLocal, []);
   const { from: weekFrom, to: weekTo } = useMemo(weekRangeLocal, []);
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const timeZone = "America/Argentina/Buenos_Aires";
 
   const [loading, setLoading] = useState(true);
 
@@ -242,8 +242,7 @@ export default function DashboardShortcuts() {
 
       const out: Record<string, number> = {};
       for (const code of curCodes) {
-        const val =
-          code === "ARS" || code === "USD" ? pool[code as "ARS" | "USD"] : 0;
+        const val = pool[code] ?? 0;
         out[code] = Number.isFinite(val) ? Number(val) : 0;
       }
       return out;
@@ -268,30 +267,25 @@ export default function DashboardShortcuts() {
   );
 
   const sumServices = (services: Booking["services"], withInterest: boolean) =>
-    services.reduce<Record<"ARS" | "USD", number>>(
-      (acc, s) => {
-        const extra = withInterest ? (s.card_interest ?? 0) : 0;
-        acc[s.currency] = (acc[s.currency] || 0) + s.sale_price + extra;
-        return acc;
-      },
-      { ARS: 0, USD: 0 },
-    );
+    services.reduce<Record<string, number>>((acc, s) => {
+      const extra = withInterest ? (s.card_interest ?? 0) : 0;
+      const cur = String(s.currency || "").toUpperCase();
+      if (!cur) return acc;
+      acc[cur] = (acc[cur] || 0) + s.sale_price + extra;
+      return acc;
+    }, {});
 
   const sumReceipts = (receipts: Booking["Receipt"]) =>
-    receipts.reduce<Record<"ARS" | "USD", number>>(
-      (acc, r) => {
-        if (r.base_currency && r.base_amount != null) {
-          const cur = String(r.base_currency).toUpperCase();
-          if (cur === "ARS" || cur === "USD") {
-            acc[cur] += toNum(r.base_amount);
-          }
-        } else {
-          acc[r.amount_currency] += toNum(r.amount);
-        }
-        return acc;
-      },
-      { ARS: 0, USD: 0 },
-    );
+    receipts.reduce<Record<string, number>>((acc, r) => {
+      if (r.base_currency && r.base_amount != null) {
+        const cur = String(r.base_currency).toUpperCase();
+        if (cur) acc[cur] = (acc[cur] || 0) + toNum(r.base_amount);
+      } else {
+        const cur = String(r.amount_currency || "").toUpperCase();
+        if (cur) acc[cur] = (acc[cur] || 0) + toNum(r.amount);
+      }
+      return acc;
+    }, {});
 
   /* ------------------- carga inicial ------------------- */
   useEffect(() => {
