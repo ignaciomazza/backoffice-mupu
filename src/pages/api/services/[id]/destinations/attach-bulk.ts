@@ -2,15 +2,42 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { resolveAuth } from "@/lib/auth";
 
 export const config = { api: { bodyParser: { sizeLimit: "4mb" } } };
 
-// ——— Auth stub (cuando integres auth real, resolvé el userId aquí)
-async function getUserIdFromRequest(
-  _req: NextApiRequest,
-): Promise<number | null> {
-  void _req; // evita el warning mientras no integres auth
-  return null;
+type BookingAccessContext = {
+  id_user: number;
+  id_agency: number;
+  role: string;
+};
+
+const ADMIN_ROLES = new Set(["gerente", "administrativo", "desarrollador"]);
+
+async function getLeaderScope(authUserId: number, authAgencyId: number) {
+  const teams = await prisma.salesTeam.findMany({
+    where: {
+      id_agency: authAgencyId,
+      user_teams: { some: { user: { id_user: authUserId, role: "lider" } } },
+    },
+    include: { user_teams: { select: { id_user: true } } },
+  });
+  const userIds = new Set<number>([authUserId]);
+  teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
+  return { userIds: Array.from(userIds) };
+}
+
+async function canAccessBooking(
+  auth: BookingAccessContext,
+  ownerId: number,
+): Promise<boolean> {
+  if (ADMIN_ROLES.has(auth.role)) return true;
+  if (auth.role === "vendedor") return ownerId === auth.id_user;
+  if (auth.role === "lider") {
+    const scope = await getLeaderScope(auth.id_user, auth.id_agency);
+    return scope.userIds.includes(ownerId);
+  }
+  return false;
 }
 
 const ItemRef = z
@@ -43,17 +70,21 @@ export default async function handler(
   }
 
   try {
+    const auth = await resolveAuth(req);
+    if (!auth) return res.status(401).json({ error: "Unauthorized" });
+
     const { replace, items } = Body.parse(req.body);
 
     // valida servicio
-    const service = await prisma.service.findUnique({
-      where: { id_service: serviceId },
-      select: { id_service: true },
+    const service = await prisma.service.findFirst({
+      where: { id_service: serviceId, id_agency: auth.id_agency },
+      select: { id_service: true, booking: { select: { id_user: true } } },
     });
     if (!service)
       return res.status(404).json({ error: "Servicio no encontrado" });
-
-    const userId = await getUserIdFromRequest(req);
+    const allowed = await canAccessBooking(auth, service.booking.id_user);
+    if (!allowed) return res.status(403).json({ error: "No autorizado." });
+    const userId = auth.id_user;
 
     // 1) resolver países
     const isoSet = new Set(

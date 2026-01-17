@@ -1,16 +1,36 @@
 // src/components/ProtectedRoute.tsx
 "use client";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter, usePathname } from "next/navigation";
 import Spinner from "./Spinner";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  FINANCE_SECTIONS,
+  canAccessFinanceSection,
+  normalizeFinanceSectionRules,
+  normalizeRole,
+  type FinanceSectionKey,
+} from "@/utils/permissions";
 
 const DBG =
   typeof window !== "undefined" && process.env.NEXT_PUBLIC_DEBUG_AUTH === "1";
 
 function dlog(...args: unknown[]): void {
   if (DBG) console.log("[AUTH-DEBUG][ProtectedRoute]", ...args);
+}
+
+const FINANCE_ROUTE_MATCHERS = [...FINANCE_SECTIONS]
+  .map((section) => ({ key: section.key, route: section.route }))
+  .sort((a, b) => b.route.length - a.route.length);
+
+function matchFinanceSection(pathname: string): FinanceSectionKey | null {
+  for (const { key, route } of FINANCE_ROUTE_MATCHERS) {
+    if (pathname === route || pathname.startsWith(`${route}/`)) {
+      return key;
+    }
+  }
+  return null;
 }
 
 export default function ProtectedRoute({
@@ -62,6 +82,14 @@ export default function ProtectedRoute({
   }, [loading, token, router, pathname]);
 
   const [role, setRole] = useState<string | null>(null);
+  const financeKey = useMemo(
+    () => matchFinanceSection(pathname),
+    [pathname],
+  );
+  const [financeSections, setFinanceSections] = useState<FinanceSectionKey[]>(
+    [],
+  );
+  const [financeReady, setFinanceReady] = useState(false);
 
   useEffect(() => {
     if (loading || !token) return;
@@ -94,9 +122,9 @@ export default function ProtectedRoute({
         const data = (await res.json().catch(() => ({}))) as {
           role?: string | null;
         };
-        const lower = (data.role ?? "").toLowerCase();
-        setRole(lower || null);
-        dlog("role set", lower || null);
+        const normalized = normalizeRole(data.role);
+        setRole(normalized || null);
+        dlog("role set", normalized || null);
       } catch (error) {
         console.error("[AUTH-DEBUG][ProtectedRoute] fetchRole error:", error);
         setRole(null);
@@ -107,24 +135,85 @@ export default function ProtectedRoute({
   }, [loading, token, router, setToken]);
 
   useEffect(() => {
+    if (!token || !financeKey) return;
+    let alive = true;
+    setFinanceReady(false);
+
+    (async () => {
+      try {
+        const res = await fetch("/api/finance/section-access", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (!res.ok) {
+          if (alive) setFinanceSections([]);
+          return;
+        }
+        const payload = (await res.json()) as { rules?: unknown };
+        const rules = normalizeFinanceSectionRules(payload?.rules);
+        if (alive) setFinanceSections(rules[0]?.sections ?? []);
+      } catch {
+        if (alive) setFinanceSections([]);
+      } finally {
+        if (alive) setFinanceReady(true);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [financeKey, token]);
+
+  useEffect(() => {
     if (loading || !token) return;
 
     if (role) {
+      const normalizedRole = normalizeRole(role);
       let allowedRoles: string[] = [];
       if (/^\/(teams|agency|arca)(\/|$)/.test(pathname)) {
         allowedRoles = ["desarrollador", "gerente"];
-      } else if (/^\/operators(\/|$)/.test(pathname)) {
+      } else if (
+        /^\/operators(\/|$)/.test(pathname) &&
+        !pathname.startsWith("/operators/insights")
+      ) {
         allowedRoles = ["desarrollador", "administrativo", "gerente"];
       }
-      dlog("route guard", { path: pathname, role, allowed: allowedRoles });
-      if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
+      dlog("route guard", {
+        path: pathname,
+        role: normalizedRole,
+        allowed: allowedRoles,
+      });
+      if (allowedRoles.length > 0 && !allowedRoles.includes(normalizedRole)) {
         dlog("role not allowed -> push /profile");
         router.push("/profile");
+        return;
+      }
+
+      if (financeKey) {
+        if (!financeReady) return;
+        const canAccess = canAccessFinanceSection(
+          normalizedRole,
+          financeSections,
+          financeKey,
+        );
+        if (!canAccess) {
+          dlog("finance section not allowed -> push /profile");
+          router.push("/profile");
+        }
       }
     } else {
       dlog("no role yet, waiting…");
     }
-  }, [loading, token, role, pathname, router]);
+  }, [
+    loading,
+    token,
+    role,
+    pathname,
+    router,
+    financeKey,
+    financeReady,
+    financeSections,
+  ]);
 
   const handleModalAccept = () => {
     dlog("inactivity modal: user confirmed -> clear token and /login");

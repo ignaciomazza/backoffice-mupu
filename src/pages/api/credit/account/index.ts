@@ -4,6 +4,8 @@ import prisma, { Prisma } from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
+import { getFinanceSectionGrants } from "@/lib/accessControl";
+import { canAccessFinanceSection } from "@/utils/permissions";
 
 /* ================== Tipos ================== */
 type TokenPayload = JWTPayload & {
@@ -102,6 +104,19 @@ export default async function handler(
   const auth = await getUserFromAuth(req);
   if (!auth?.id_user || !auth.id_agency) {
     return res.status(401).json({ error: "No autenticado o token inválido." });
+  }
+
+  const financeGrants = await getFinanceSectionGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canCredits = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "credits",
+  );
+  if (!canCredits) {
+    return res.status(403).json({ error: "Sin permisos" });
   }
 
   // ===== GET: listar =====

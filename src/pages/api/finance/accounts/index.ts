@@ -1,17 +1,10 @@
 // src/pages/api/finance/accounts/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { jwtVerify, type JWTPayload } from "jose";
 import prisma from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { z } from "zod";
-
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
-type TokenPayload = JWTPayload & {
-  id_agency?: number;
-  agencyId?: number;
-  aid?: number;
-};
+import { resolveAuth } from "@/lib/auth";
+import { getFinancePicksAccess } from "@/lib/accessControl";
 
 const createSchema = z.object({
   name: z.string().trim().min(2),
@@ -22,60 +15,31 @@ const createSchema = z.object({
   enabled: z.boolean().optional().default(true),
 });
 
-function getTokenFromRequest(req: NextApiRequest): string | null {
-  if (req.cookies?.token) return req.cookies.token;
-  const auth = req.headers.authorization || "";
-  if (auth.startsWith("Bearer ")) return auth.slice(7);
-  for (const k of [
-    "session",
-    "auth_token",
-    "access_token",
-    "next-auth.session-token",
-  ]) {
-    const v = (req.cookies || {})[k];
-    if (typeof v === "string" && v) return v;
-  }
-  return null;
-}
-async function resolveAgencyId(req: NextApiRequest): Promise<number | null> {
-  const raw = Array.isArray(req.query.id_agency)
-    ? req.query.id_agency[0]
-    : req.query.id_agency;
-  const n = raw != null ? Number(raw) : NaN;
-  if (Number.isFinite(n) && n > 0) return n;
-  const token = getTokenFromRequest(req);
-  if (!token) return null;
-  try {
-    const { payload } = await jwtVerify(
-      token,
-      new TextEncoder().encode(JWT_SECRET),
-    );
-    const p = payload as TokenPayload;
-    const byToken = Number(p.id_agency ?? p.agencyId ?? p.aid) || 0;
-    return byToken > 0 ? byToken : null;
-  } catch {
-    return null;
-  }
-}
-
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
   res.setHeader("Cache-Control", "no-store");
 
-  const id_agency = await resolveAgencyId(req);
-  if (!id_agency) return res.status(401).json({ error: "Unauthorized" });
+  const auth = await resolveAuth(req);
+  if (!auth) return res.status(401).json({ error: "Unauthorized" });
+  const { canRead, canWrite } = await getFinancePicksAccess(
+    auth.id_agency,
+    auth.id_user,
+    auth.role,
+  );
 
   if (req.method === "GET") {
+    if (!canRead) return res.status(403).json({ error: "Sin permisos" });
     const items = await prisma.financeAccount.findMany({
-      where: { id_agency },
+      where: { id_agency: auth.id_agency },
       orderBy: [{ name: "asc" }],
     });
     return res.status(200).json(items);
   }
 
   if (req.method === "POST") {
+    if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
     const parsed = createSchema.safeParse(body);
     if (!parsed.success)
@@ -84,13 +48,13 @@ export default async function handler(
     const created = await prisma.$transaction(async (tx) => {
       const agencyAccountId = await getNextAgencyCounter(
         tx,
-        id_agency,
+        auth.id_agency,
         "finance_account",
       );
       return tx.financeAccount.create({
         data: {
           ...parsed.data,
-          id_agency,
+          id_agency: auth.id_agency,
           agency_finance_account_id: agencyAccountId,
         },
       });

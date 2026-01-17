@@ -5,6 +5,8 @@ import prisma from "@/lib/prisma";
 import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 import type { BillingAdjustmentConfig } from "@/types";
 import { jwtVerify, type JWTPayload } from "jose";
+import { getFinanceSectionGrants } from "@/lib/accessControl";
+import { canAccessFinanceSection } from "@/utils/permissions";
 
 /* ============ Auth helpers ============ */
 type TokenPayload = JWTPayload & {
@@ -14,6 +16,7 @@ type TokenPayload = JWTPayload & {
   id_agency?: number;
   agencyId?: number;
   aid?: number;
+  role?: string;
 };
 
 const JWT_SECRET = process.env.JWT_SECRET!;
@@ -23,7 +26,7 @@ const DEFAULT_TZ = "America/Argentina/Buenos_Aires";
 
 async function getAuth(
   req: NextApiRequest,
-): Promise<{ id_user: number; id_agency: number } | null> {
+): Promise<{ id_user: number; id_agency: number; role: string } | null> {
   try {
     const cookieTok = req.cookies?.token;
     let token = cookieTok && typeof cookieTok === "string" ? cookieTok : null;
@@ -40,8 +43,9 @@ async function getAuth(
     const p = payload as TokenPayload;
     const id_user = Number(p.id_user ?? p.userId ?? p.uid) || 0;
     const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || 0;
+    const role = String(p.role || "");
     if (!id_user || !id_agency) return null;
-    return { id_user, id_agency };
+    return { id_user, id_agency, role };
   } catch {
     return null;
   }
@@ -173,6 +177,18 @@ export default async function handler(
 
   const auth = await getAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
+  const financeGrants = await getFinanceSectionGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canMyEarnings = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "earnings_my",
+  );
+  if (!canMyEarnings) {
+    return res.status(403).json({ error: "Sin permisos" });
+  }
 
   const {
     from,

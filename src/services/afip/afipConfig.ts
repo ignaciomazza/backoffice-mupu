@@ -190,7 +190,10 @@ type MyJWTPayload = JWTPayload & { userId?: number; id_user?: number };
 async function resolveUserIdFromRequest(
   req: NextApiRequest,
 ): Promise<number | null> {
-  // 0) Header inyectado por middleware (si está, es lo más confiable)
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error("JWT_SECRET no configurado");
+
+  // Header inyectado por middleware: solo se acepta si coincide con el JWT.
   const h = req.headers["x-user-id"];
   const uidFromHeader =
     typeof h === "string"
@@ -198,7 +201,8 @@ async function resolveUserIdFromRequest(
       : Array.isArray(h)
         ? parseInt(h[0] ?? "", 10)
         : NaN;
-  if (Number.isFinite(uidFromHeader) && uidFromHeader > 0) return uidFromHeader;
+  const headerUid =
+    Number.isFinite(uidFromHeader) && uidFromHeader > 0 ? uidFromHeader : null;
 
   // Reunimos candidatos de token y validamos hasta encontrar uno que funcione
   const candidates: string[] = [];
@@ -209,7 +213,7 @@ async function resolveUserIdFromRequest(
 
   // 2) TODAS las ocurrencias de token= en el header Cookie (puede haber host-only y con Domain)
   const rawCookie = req.headers.cookie ?? "";
-  const re = /(?:^|;\s*)token=([^;]+)/g;
+  const re = /(?:^|;\\s*)token=([^;]+)/g;
   for (let m; (m = re.exec(rawCookie)); ) {
     try {
       candidates.push(decodeURIComponent(m[1]));
@@ -225,18 +229,24 @@ async function resolveUserIdFromRequest(
 
   if (candidates.length === 0) return null;
 
-  const secret = process.env.JWT_SECRET || "tu_secreto_seguro";
+  let tokenUid: number | null = null;
   for (const t of candidates) {
     try {
       const { payload } = await jwtVerify(t, new TextEncoder().encode(secret));
       const p = payload as MyJWTPayload;
       const uid = Number(p.userId ?? p.id_user ?? 0) || 0;
-      if (uid > 0) return uid;
+      if (uid > 0) {
+        tokenUid = uid;
+        break;
+      }
     } catch {
       // probar siguiente candidato
     }
   }
-  return null;
+
+  if (!tokenUid) return null;
+  if (headerUid && headerUid !== tokenUid) return null;
+  return tokenUid;
 }
 
 /** ------------------------------------------------------------------------

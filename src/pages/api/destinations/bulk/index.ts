@@ -2,6 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { resolveAuth } from "@/lib/auth";
 
 export const config = { api: { bodyParser: { sizeLimit: "4mb" } } };
 
@@ -33,11 +34,6 @@ const slugify = (s: string) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)+/g, "");
 
-// (stub local; más adelante lo conectás a tu auth real)
-async function getUserIdFromRequest(): Promise<number | null> {
-  return null;
-}
-
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -48,6 +44,13 @@ export default async function handler(
   }
 
   try {
+    const auth = await resolveAuth(req);
+    if (!auth) return res.status(401).json({ error: "Unauthorized" });
+    const canWrite = ["desarrollador", "gerente", "administrativo"].includes(
+      auth.role,
+    );
+    if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
+
     const { upsert, items } = Body.parse(req.body);
 
     // Resolver países por iso2 en un solo query
@@ -64,7 +67,7 @@ export default async function handler(
       : [];
     const byIso = new Map(countries.map((c) => [c.iso2, c.id_country]));
 
-    const userId = await getUserIdFromRequest();
+    const userId = auth.id_user;
 
     // ✅ INTERACTIVE transaction (acepta { timeout })
     const ids = await prisma.$transaction(

@@ -3,12 +3,14 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { decodePublicId } from "@/lib/publicIds";
 import { jwtVerify, JWTPayload } from "jose";
+import { getFinanceSectionGrants } from "@/lib/accessControl";
 import {
   normalizeReceiptVerificationRules,
   pickReceiptVerificationRule,
   receiptMatchesRule,
   ruleHasRestrictions,
 } from "@/utils/receiptVerification";
+import { canAccessFinanceSection } from "@/utils/permissions";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -30,8 +32,6 @@ type DecodedUser = {
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
-
-const ALLOWED_ROLES = new Set(["desarrollador", "gerente", "administrativo"]);
 
 function getTokenFromRequest(req: NextApiRequest): string | null {
   if (req.cookies?.token) return req.cookies.token;
@@ -118,14 +118,23 @@ export default async function handler(
   const authUser = await getUserFromAuth(req);
   const authUserId = authUser?.id_user;
   const authAgencyId = authUser?.id_agency;
-  const role = String(authUser?.role || "").toLowerCase();
+  const role = String(authUser?.role || "");
 
   if (!authUserId || !authAgencyId) {
     return res.status(401).json({ error: "No autenticado" });
   }
 
-  if (!ALLOWED_ROLES.has(role)) {
-    return res.status(403).json({ error: "No autorizado" });
+  const financeGrants = await getFinanceSectionGrants(
+    authAgencyId,
+    authUserId,
+  );
+  const canVerify = canAccessFinanceSection(
+    role,
+    financeGrants,
+    "receipts_verify",
+  );
+  if (!canVerify) {
+    return res.status(403).json({ error: "Sin permisos" });
   }
 
   const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;

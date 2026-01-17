@@ -5,6 +5,8 @@ import prisma from "@/lib/prisma";
 import { listInvoices, createInvoices } from "@/services/invoices";
 import { encodePublicId } from "@/lib/publicIds";
 import { jwtVerify, type JWTPayload } from "jose";
+import { getBookingComponentGrants } from "@/lib/accessControl";
+import { canAccessBookingComponent } from "@/utils/permissions";
 
 /* ================= JWT SECRET (igual que bookings) ================= */
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -180,6 +182,18 @@ export default async function handler(
           .status(401)
           .json({ success: false, message: "No autenticado" });
       }
+      const bookingGrants = await getBookingComponentGrants(
+        auth.id_agency,
+        auth.id_user,
+      );
+      const canBilling = canAccessBookingComponent(
+        auth.role,
+        bookingGrants,
+        "billing",
+      );
+      if (!canBilling) {
+        return res.status(403).json({ success: false, message: "Sin permisos" });
+      }
 
       // rango de fechas opcional
       const fromStr = first(req.query.from as string | string[] | undefined);
@@ -303,6 +317,25 @@ export default async function handler(
 
   /* ---------- POST ---------- */
   if (req.method === "POST") {
+    const auth = await getUserFromAuth(req);
+    if (!auth?.id_user || !auth.id_agency) {
+      return res
+        .status(401)
+        .json({ success: false, message: "No autenticado" });
+    }
+    const bookingGrants = await getBookingComponentGrants(
+      auth.id_agency,
+      auth.id_user,
+    );
+    const canBilling = canAccessBookingComponent(
+      auth.role,
+      bookingGrants,
+      "billing",
+    );
+    if (!canBilling) {
+      return res.status(403).json({ success: false, message: "Sin permisos" });
+    }
+
     const parsedB = bodySchema.safeParse(req.body);
     if (!parsedB.success) {
       return res.status(400).json({

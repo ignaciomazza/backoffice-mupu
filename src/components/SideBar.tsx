@@ -3,6 +3,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FINANCE_SECTIONS,
+  normalizeFinanceSectionRules,
+  type FinanceSectionKey,
+} from "@/utils/permissions";
 
 interface SidebarProps {
   menuOpen: boolean;
@@ -84,6 +89,9 @@ export default function SideBar({
 }: SidebarProps) {
   const [mounted, setMounted] = useState(false);
   const [role, setRole] = useState<Role | "">("");
+  const [financeSections, setFinanceSections] = useState<FinanceSectionKey[]>(
+    [],
+  );
 
   // Para abortar si desmonta mientras pedimos el rol
   const fetchingRef = useRef(false);
@@ -121,6 +129,31 @@ export default function SideBar({
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [refreshRole, role]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/finance/section-access", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (!res.ok) {
+          if (alive) setFinanceSections([]);
+          return;
+        }
+        const payload = (await res.json()) as { rules?: unknown };
+        const rules = normalizeFinanceSectionRules(payload?.rules);
+        if (alive) setFinanceSections(rules[0]?.sections ?? []);
+      } catch {
+        if (alive) setFinanceSections([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [mounted]);
 
   // =========================
   // ACL por ruta (más simple)
@@ -162,13 +195,30 @@ export default function SideBar({
     } as Record<string, Role[]>;
   }, []);
 
+  const financeRouteMap = useMemo(() => {
+    const map = new Map<FinanceSectionKey, string>();
+    FINANCE_SECTIONS.forEach((section) => map.set(section.key, section.route));
+    return map;
+  }, []);
+
+  const extraRoutes = useMemo(() => {
+    const set = new Set<string>();
+    for (const key of financeSections) {
+      const route = financeRouteMap.get(key);
+      if (route) set.add(route);
+    }
+    return set;
+  }, [financeRouteMap, financeSections]);
+
   const hasAccess = useCallback(
     (route: string): boolean => {
       if (!role) return false;
       const allow = routeAccess[route];
-      return allow ? allow.includes(role) : true;
+      if (!allow) return true;
+      if (allow.includes(role)) return true;
+      return extraRoutes.has(route);
     },
-    [role, routeAccess],
+    [extraRoutes, role, routeAccess],
   );
 
   // Activo: exacto o subrutas (e.g., /earnings/my o /bookings/123)

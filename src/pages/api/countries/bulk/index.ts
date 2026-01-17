@@ -2,6 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { z } from "zod";
+import { resolveAuth } from "@/lib/auth";
 
 const CountryItem = z.object({
   name: z.string().min(1),
@@ -32,6 +33,13 @@ export default async function handler(
     return res.status(405).json({ error: "Method not allowed" });
 
   try {
+    const auth = await resolveAuth(req);
+    if (!auth) return res.status(401).json({ error: "Unauthorized" });
+    const canWrite = ["desarrollador", "gerente", "administrativo"].includes(
+      auth.role,
+    );
+    if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
+
     const { upsert, items } = Body.parse(req.body);
 
     const rows = await prisma.$transaction(

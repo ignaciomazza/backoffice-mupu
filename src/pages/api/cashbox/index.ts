@@ -3,6 +3,8 @@ import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
+import { getFinanceSectionGrants } from "@/lib/accessControl";
+import { canAccessFinanceSection } from "@/utils/permissions";
 
 /* =========================================================
  * Tipos de dominio para Cashbox
@@ -835,6 +837,18 @@ export default async function handler(
   try {
     // 1) Auth (unificado con /api/bookings)
     const auth = await getAuth(req);
+    const financeGrants = await getFinanceSectionGrants(
+      auth.id_agency,
+      auth.id_user,
+    );
+    const canCashbox = canAccessFinanceSection(
+      auth.role,
+      financeGrants,
+      "cashbox",
+    );
+    if (!canCashbox) {
+      throw new HttpError(403, "Sin permisos.");
+    }
 
     // 2) Params básicos (año/mes)
     const now = new Date();

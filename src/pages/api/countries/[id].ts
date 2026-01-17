@@ -2,6 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { resolveAuth } from "@/lib/auth";
 
 const UpdateCountry = z.object({
   name: z.string().min(1).optional(),
@@ -19,6 +20,11 @@ export default async function handler(
   if (!Number.isFinite(id) || id <= 0) {
     return res.status(400).json({ error: "Invalid id" });
   }
+  const auth = await resolveAuth(req);
+  if (!auth) return res.status(401).json({ error: "Unauthorized" });
+  const canWrite = ["desarrollador", "gerente", "administrativo"].includes(
+    auth.role,
+  );
 
   if (req.method === "GET") {
     const row = await prisma.country.findUnique({ where: { id_country: id } });
@@ -28,6 +34,7 @@ export default async function handler(
   }
 
   if (req.method === "PUT") {
+    if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
     try {
       const body = UpdateCountry.parse(req.body);
       const row = await prisma.country.update({
@@ -53,8 +60,9 @@ export default async function handler(
   }
 
   if (req.method === "DELETE") {
+    if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
     try {
-      await prisma.destination.delete({ where: { id_destination: id } });
+      await prisma.country.delete({ where: { id_country: id } });
       return res.status(204).end();
     } catch (e: unknown) {
       // ✅ sin any: detectamos error FK de Prisma

@@ -28,6 +28,11 @@ import OperatorDueForm from "@/components/operator-dues/OperatorDueForm";
 import OperatorDueList from "@/components/operator-dues/OperatorDueList";
 
 import { authFetch } from "@/utils/authFetch";
+import {
+  canAccessBookingComponent,
+  normalizeBookingComponentRules,
+  type BookingComponentKey,
+} from "@/utils/permissions";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 import type { ServiceLite, SubmitResult } from "@/types/receipts";
 import type {
@@ -345,6 +350,40 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     nextId: string | number | null;
   }>({ prevId: null, nextId: null });
   const [neighborLoading, setNeighborLoading] = useState(false);
+  const [bookingComponents, setBookingComponents] = useState<
+    BookingComponentKey[]
+  >([]);
+
+  useEffect(() => {
+    if (!token) {
+      setBookingComponents([]);
+      return;
+    }
+    let alive = true;
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/bookings/permissions",
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) {
+          if (alive) setBookingComponents([]);
+          return;
+        }
+        const payload = (await res.json()) as { rules?: unknown };
+        const rules = normalizeBookingComponentRules(payload?.rules);
+        if (alive) setBookingComponents(rules[0]?.components ?? []);
+      } catch {
+        if (alive) setBookingComponents([]);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [token]);
 
   const fetchTransferFee = useCallback(
     async (signal?: AbortSignal) => {
@@ -1067,6 +1106,26 @@ export default function ServicesContainer(props: ServicesContainerProps) {
 
   const canAdminLike =
     role === "administrativo" || role === "gerente" || role === "desarrollador";
+  const canUseReceiptsForm = canAccessBookingComponent(
+    role,
+    bookingComponents,
+    "receipts_form",
+  );
+  const canUseBilling = canAccessBookingComponent(
+    role,
+    bookingComponents,
+    "billing",
+  );
+  const canUseOperatorPayments = canAccessBookingComponent(
+    role,
+    bookingComponents,
+    "operator_payments",
+  );
+  const canEditBookingStatus = canAccessBookingComponent(
+    role,
+    bookingComponents,
+    "booking_status",
+  );
   const prevDisabled = neighborLoading || !neighborIds.prevId;
   const nextDisabled = neighborLoading || !neighborIds.nextId;
 
@@ -1558,7 +1617,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                   <p className="text-2xl font-medium">Recibos</p>
                 </div>
 
-                {canAdminLike &&
+                {canUseReceiptsForm &&
                   (services.length > 0 || receipts.length > 0) && (
                     <ReceiptForm
                       token={token || null}
@@ -1753,7 +1812,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
               </div>
 
               {/* FACTURACIÓN */}
-              {canAdminLike &&
+              {canUseBilling &&
                 (services.length > 0 ||
                   invoices.length > 0 ||
                   creditNotes.length > 0) && (
@@ -1937,7 +1996,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 )}
 
               {/* PAGOS A OPERADOR */}
-              {canAdminLike && services.length > 0 && (
+              {canUseOperatorPayments && services.length > 0 && (
                 <div>
                   <div className="mb-4 mt-8 flex items-center justify-center gap-2">
                     <p className="text-2xl font-medium">Pagos al Operador</p>
@@ -1961,7 +2020,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
               )}
 
               {/* ESTADOS RESERVA */}
-              {canAdminLike &&
+              {canEditBookingStatus &&
                 (services.length > 0 ||
                   invoices.length > 0 ||
                   receipts.length > 0 ||

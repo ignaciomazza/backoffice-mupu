@@ -13,11 +13,18 @@ type MyJWTPayload = JWTPayload & {
 };
 
 function normalizeRole(r?: string) {
-  return (r ?? "")
+  const normalized = (r ?? "")
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/^leader$/, "lider");
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "";
+  if (["admin", "administrador", "administrativa"].includes(normalized)) {
+    return "administrativo";
+  }
+  if (["dev", "developer"].includes(normalized)) return "desarrollador";
+  if (normalized === "leader") return "lider";
+  return normalized;
 }
 
 async function verifyToken(token: string): Promise<MyJWTPayload | null> {
@@ -131,7 +138,10 @@ export async function middleware(req: NextRequest) {
     let allowed: string[] = [];
     if (/^\/(teams|agency)(\/|$)/.test(pathname)) {
       allowed = ["desarrollador", "gerente"];
-    } else if (/^\/operators(\/|$)/.test(pathname)) {
+    } else if (
+      /^\/operators(\/|$)/.test(pathname) &&
+      !pathname.startsWith("/operators/insights")
+    ) {
       allowed = ["desarrollador", "administrativo", "gerente"];
     } else if (/^\/users(\/|$)/.test(pathname)) {
       allowed = ["desarrollador", "gerente"];

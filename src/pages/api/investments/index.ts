@@ -5,6 +5,14 @@ import { encodePublicId } from "@/lib/publicIds";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
+import {
+  getBookingComponentGrants,
+  getFinanceSectionGrants,
+} from "@/lib/accessControl";
+import {
+  canAccessBookingComponent,
+  canAccessFinanceSection,
+} from "@/utils/permissions";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -405,6 +413,28 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const auth = await getUserFromAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
 
+  const financeGrants = await getFinanceSectionGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const bookingGrants = await getBookingComponentGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canInvestments = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "investments",
+  );
+  const canOperatorPayments = canAccessBookingComponent(
+    auth.role,
+    bookingGrants,
+    "operator_payments",
+  );
+  if (!canInvestments && !canOperatorPayments) {
+    return res.status(403).json({ error: "Sin permisos" });
+  }
+
   try {
     try {
       await ensureRecurringInvestments(auth);
@@ -620,6 +650,28 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const auth = await getUserFromAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
+
+  const financeGrants = await getFinanceSectionGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const bookingGrants = await getBookingComponentGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canInvestments = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "investments",
+  );
+  const canOperatorPayments = canAccessBookingComponent(
+    auth.role,
+    bookingGrants,
+    "operator_payments",
+  );
+  if (!canInvestments && !canOperatorPayments) {
+    return res.status(403).json({ error: "Sin permisos" });
+  }
 
   try {
     const b = req.body ?? {};

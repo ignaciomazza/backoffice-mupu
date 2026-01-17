@@ -1,17 +1,9 @@
 // src/pages/api/finance/currencies/[id].ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { jwtVerify, type JWTPayload } from "jose";
 import prisma from "@/lib/prisma";
 import { z } from "zod";
-
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
-
-type TokenPayload = JWTPayload & {
-  id_agency?: number;
-  agencyId?: number;
-  aid?: number;
-};
+import { resolveAuth } from "@/lib/auth";
+import { getFinancePicksAccess } from "@/lib/accessControl";
 
 const updateSchema = z.object({
   code: z.string().trim().min(2).max(6).optional(),
@@ -20,37 +12,6 @@ const updateSchema = z.object({
   enabled: z.boolean().optional(),
   is_primary: z.boolean().optional(),
 });
-
-function getTokenFromRequest(req: NextApiRequest): string | null {
-  if (req.cookies?.token) return req.cookies.token;
-  const auth = req.headers.authorization || "";
-  if (auth.startsWith("Bearer ")) return auth.slice(7);
-  for (const k of [
-    "session",
-    "auth_token",
-    "access_token",
-    "next-auth.session-token",
-  ]) {
-    const v = (req.cookies || {})[k];
-    if (typeof v === "string" && v) return v;
-  }
-  return null;
-}
-async function resolveAgencyId(req: NextApiRequest): Promise<number | null> {
-  const token = getTokenFromRequest(req);
-  if (!token) return null;
-  try {
-    const { payload } = await jwtVerify(
-      token,
-      new TextEncoder().encode(JWT_SECRET),
-    );
-    const p = payload as TokenPayload;
-    const byToken = Number(p.id_agency ?? p.agencyId ?? p.aid) || 0;
-    return byToken > 0 ? byToken : null;
-  } catch {
-    return null;
-  }
-}
 
 export default async function handler(
   req: NextApiRequest,
@@ -63,40 +24,50 @@ export default async function handler(
   if (!Number.isFinite(id) || id <= 0)
     return res.status(400).json({ error: "id inválido" });
 
-  const id_agency = await resolveAgencyId(req);
-  if (!id_agency) return res.status(401).json({ error: "Unauthorized" });
+  const auth = await resolveAuth(req);
+  if (!auth) return res.status(401).json({ error: "Unauthorized" });
+  const { canRead, canWrite } = await getFinancePicksAccess(
+    auth.id_agency,
+    auth.id_user,
+    auth.role,
+  );
 
   // Asegurar pertenencia a la agencia
-  const where = { id_currency: id, id_agency };
+  const where = { id_currency: id, id_agency: auth.id_agency };
 
   if (req.method === "GET") {
+    if (!canRead) return res.status(403).json({ error: "Sin permisos" });
     const item = await prisma.financeCurrency.findFirst({ where });
     if (!item) return res.status(404).json({ error: "No encontrado" });
     return res.status(200).json(item);
   }
 
   if (req.method === "PUT" || req.method === "PATCH") {
+    if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
     const parsed = updateSchema.safeParse(body);
     if (!parsed.success)
       return res.status(400).json({ error: parsed.error.message });
 
+    const existing = await prisma.financeCurrency.findFirst({ where });
+    if (!existing) return res.status(404).json({ error: "No encontrado" });
+
     // si marcan is_primary=true, ponemos el resto en false dentro de la misma agencia
     if (parsed.data.is_primary === true) {
       await prisma.$transaction([
         prisma.financeCurrency.updateMany({
-          where: { id_agency },
+          where: { id_agency: auth.id_agency },
           data: { is_primary: false },
         }),
         prisma.financeCurrency.update({
           where: { id_currency: id },
-          data: { ...parsed.data, id_agency },
+          data: { ...parsed.data, id_agency: auth.id_agency },
         }),
       ]);
     } else {
       await prisma.financeCurrency.update({
         where: { id_currency: id },
-        data: { ...parsed.data, id_agency },
+        data: { ...parsed.data, id_agency: auth.id_agency },
       });
     }
     const updated = await prisma.financeCurrency.findFirst({ where });
@@ -104,6 +75,9 @@ export default async function handler(
   }
 
   if (req.method === "DELETE") {
+    if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
+    const existing = await prisma.financeCurrency.findFirst({ where });
+    if (!existing) return res.status(404).json({ error: "No encontrado" });
     await prisma.financeCurrency.delete({ where: { id_currency: id } });
     return res.status(204).end();
   }

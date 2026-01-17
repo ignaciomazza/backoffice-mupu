@@ -7,6 +7,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
 import CommissionsConfig from "@/components/finance/CommissionsConfig";
 import ReceiptVerificationConfig from "@/components/finance/ReceiptVerificationConfig";
+import FinanceSectionAccessConfig from "@/components/finance/FinanceSectionAccessConfig";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "@/context/AuthContext";
@@ -177,6 +178,7 @@ const TAB_KEYS = [
   "accounts",
   "methods",
   "verification",
+  "permissions",
   "categories",
   "commissions",
 ] as const;
@@ -188,6 +190,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "accounts", label: "Cuentas" },
   { key: "methods", label: "Métodos" },
   { key: "verification", label: "Verificación" },
+  { key: "permissions", label: "Permisos" },
   { key: "categories", label: "Categorías" },
   { key: "commissions", label: "Comisiones" },
 ];
@@ -1363,6 +1366,9 @@ function FinanceConfigPageInner() {
                 methods={methods}
               />
             )}
+
+            {/* PERMISOS */}
+            {active === "permissions" && <FinanceSectionAccessConfig />}
 
             {/* CATEGORÍAS */}
             {active === "categories" && (

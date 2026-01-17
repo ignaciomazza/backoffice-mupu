@@ -2,6 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { resolveAuth } from "@/lib/auth";
 
 const normalizeAltNames = (arr?: string[]) =>
   Array.from(
@@ -25,6 +26,11 @@ export default async function handler(
   if (!Number.isFinite(id) || id <= 0) {
     return res.status(400).json({ error: "Invalid id" });
   }
+  const auth = await resolveAuth(req);
+  if (!auth) return res.status(401).json({ error: "Unauthorized" });
+  const canWrite = ["desarrollador", "gerente", "administrativo"].includes(
+    auth.role,
+  );
 
   if (req.method === "GET") {
     const row = await prisma.destination.findUnique({
@@ -37,6 +43,7 @@ export default async function handler(
   }
 
   if (req.method === "PUT") {
+    if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
     try {
       const body = UpdateDestination.parse(req.body);
       const data = {
@@ -67,8 +74,9 @@ export default async function handler(
   }
 
   if (req.method === "DELETE") {
+    if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
     try {
-      await prisma.country.delete({ where: { id_country: id } });
+      await prisma.destination.delete({ where: { id_destination: id } });
       return res.status(204).end();
     } catch (e: unknown) {
       // ✅ sin any: detectamos error FK de Prisma

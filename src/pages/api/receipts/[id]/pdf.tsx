@@ -12,6 +12,15 @@ import ReceiptStandaloneDocument, {
   ReceiptStandalonePdfData,
 } from "@/services/receipts/ReceiptStandaloneDocument";
 import { decodePublicId } from "@/lib/publicIds";
+import { jwtVerify, type JWTPayload } from "jose";
+import {
+  getBookingComponentGrants,
+  getFinanceSectionGrants,
+} from "@/lib/accessControl";
+import {
+  canAccessBookingComponent,
+  canAccessFinanceSection,
+} from "@/utils/permissions";
 
 type PdfPaymentRaw = {
   amount: number;
@@ -42,6 +51,92 @@ type AgencyExtras = {
   tax_id?: string | null;
   address?: string | null;
 };
+
+type TokenPayload = JWTPayload & {
+  id_user?: number;
+  userId?: number;
+  uid?: number;
+  role?: string;
+  id_agency?: number;
+  agencyId?: number;
+  aid?: number;
+  email?: string;
+};
+
+type DecodedUser = {
+  id_user?: number;
+  role?: string;
+  id_agency?: number;
+  email?: string;
+};
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
+
+function getTokenFromRequest(req: NextApiRequest): string | null {
+  if (req.cookies?.token) return req.cookies.token;
+  const auth = req.headers.authorization || "";
+  if (auth.startsWith("Bearer ")) return auth.slice(7);
+  const c = req.cookies || {};
+  for (const k of [
+    "session",
+    "auth_token",
+    "access_token",
+    "next-auth.session-token",
+  ]) {
+    if (c[k]) return c[k]!;
+  }
+  return null;
+}
+
+async function getUserFromAuth(
+  req: NextApiRequest,
+): Promise<DecodedUser | null> {
+  try {
+    const token = getTokenFromRequest(req);
+    if (!token) return null;
+    const { payload } = await jwtVerify(
+      token,
+      new TextEncoder().encode(JWT_SECRET),
+    );
+    const p = payload as TokenPayload;
+
+    const id_user = Number(p.id_user ?? p.userId ?? p.uid) || undefined;
+    const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || undefined;
+    const role = p.role;
+    const email = p.email;
+
+    if (!id_user && email) {
+      const u = await prisma.user.findUnique({
+        where: { email },
+        select: { id_user: true, id_agency: true, role: true, email: true },
+      });
+      if (u)
+        return {
+          id_user: u.id_user,
+          id_agency: u.id_agency,
+          role: u.role,
+          email: u.email,
+        };
+    }
+    if (id_user && !id_agency) {
+      const u = await prisma.user.findUnique({
+        where: { id_user },
+        select: { id_agency: true, role: true, email: true },
+      });
+      if (u)
+        return {
+          id_user,
+          id_agency: u.id_agency,
+          role: role ?? u.role,
+          email: email ?? u.email ?? undefined,
+        };
+    }
+    return { id_user, id_agency, role, email };
+  } catch {
+    return null;
+  }
+}
 
 const toNum = (v: unknown, fallback = 0): number => {
   if (v === null || v === undefined) return fallback;
@@ -155,6 +250,14 @@ export default async function handler(
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
 
+  const authUser = await getUserFromAuth(req);
+  const authUserId = authUser?.id_user;
+  const authAgencyId = authUser?.id_agency;
+  const authRole = authUser?.role ?? "";
+  if (!authUserId || !authAgencyId) {
+    return res.status(401).end("No autenticado");
+  }
+
   const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   if (!rawId) return res.status(400).end("ID inválido");
   const rawIdStr = String(rawId);
@@ -170,11 +273,43 @@ export default async function handler(
     return res.status(400).end("ID inválido");
   }
 
+  if (decoded && decoded.a !== authAgencyId) {
+    return res.status(403).end("Sin permisos");
+  }
+
+  const financeGrants = await getFinanceSectionGrants(
+    authAgencyId,
+    authUserId,
+  );
+  const bookingGrants = await getBookingComponentGrants(
+    authAgencyId,
+    authUserId,
+  );
+  const canReceipts = canAccessFinanceSection(
+    authRole,
+    financeGrants,
+    "receipts",
+  );
+  const canReceiptsForm = canAccessBookingComponent(
+    authRole,
+    bookingGrants,
+    "receipts_form",
+  );
+  if (!canReceipts && !canReceiptsForm) {
+    return res.status(403).end("Sin permisos");
+  }
+
   // 1) Recibo + relaciones
   const receipt = await prisma.receipt.findFirst({
     where: decoded
       ? { id_agency: decoded.a, agency_receipt_id: decoded.i }
-      : { id_receipt: parsedId },
+      : {
+          id_receipt: parsedId,
+          OR: [
+            { id_agency: authAgencyId },
+            { booking: { id_agency: authAgencyId } },
+          ],
+        },
     include: {
       payments: true,
       booking: {

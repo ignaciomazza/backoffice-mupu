@@ -4,6 +4,8 @@ import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 import type { BillingAdjustmentConfig } from "@/types";
+import { getFinanceSectionGrants } from "@/lib/accessControl";
+import { canAccessFinanceSection } from "@/utils/permissions";
 
 interface EarningItem {
   currency: string;
@@ -77,7 +79,7 @@ function normalizeSaleTotals(
 
 async function getAuth(
   req: NextApiRequest,
-): Promise<{ id_agency: number } | null> {
+): Promise<{ id_agency: number; id_user: number; role: string } | null> {
   try {
     const cookieTok = req.cookies?.token;
     let token = cookieTok && typeof cookieTok === "string" ? cookieTok : null;
@@ -91,9 +93,11 @@ async function getAuth(
       new TextEncoder().encode(JWT_SECRET),
     );
     const p = payload as TokenPayload;
+    const id_user = Number(p.id_user ?? p.userId ?? p.uid) || 0;
     const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || 0;
-    if (!id_agency) return null;
-    return { id_agency };
+    const role = String(p.role || "");
+    if (!id_user || !id_agency) return null;
+    return { id_agency, id_user, role };
   } catch {
     return null;
   }
@@ -174,6 +178,18 @@ export default async function handler(
 
   const auth = await getAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
+  const financeGrants = await getFinanceSectionGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canEarnings = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "earnings",
+  );
+  if (!canEarnings) {
+    return res.status(403).json({ error: "Sin permisos" });
+  }
 
   const {
     from,

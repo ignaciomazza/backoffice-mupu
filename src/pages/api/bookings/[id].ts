@@ -4,6 +4,8 @@ import prisma, { Prisma } from "@/lib/prisma";
 import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
+import { getBookingComponentGrants } from "@/lib/accessControl";
+import { canAccessBookingComponent } from "@/utils/permissions";
 
 /* ================== Tipos ================== */
 type DecodedUser = {
@@ -311,6 +313,23 @@ export default async function handler(
     }
     const saleTotalsValue =
       normalizedSaleTotals === null ? Prisma.DbNull : normalizedSaleTotals;
+
+    const bookingGrants = await getBookingComponentGrants(
+      authAgencyId,
+      authUserId,
+    );
+    const canEditStatus = canAccessBookingComponent(
+      role,
+      bookingGrants,
+      "booking_status",
+    );
+    const nextStatus = String(status ?? "").trim();
+    const currentStatus = String(existing.status ?? "").trim();
+    if (!canEditStatus && nextStatus !== currentStatus) {
+      return res
+        .status(403)
+        .json({ error: "Sin permisos para modificar el estado." });
+    }
 
     // vendedor: solo puede editar las propias
     if (role === "vendedor" && existing.id_user !== authUserId) {

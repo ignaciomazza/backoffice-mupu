@@ -4,6 +4,14 @@ import prisma from "@/lib/prisma";
 import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { Prisma } from "@prisma/client";
 import { jwtVerify, JWTPayload } from "jose";
+import {
+  getBookingComponentGrants,
+  getFinanceSectionGrants,
+} from "@/lib/accessControl";
+import {
+  canAccessBookingComponent,
+  canAccessFinanceSection,
+} from "@/utils/permissions";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -321,9 +329,29 @@ export default async function handler(
   const authUser = await getUserFromAuth(req);
   const authUserId = authUser?.id_user;
   const authAgencyId = authUser?.id_agency;
+  const authRole = authUser?.role ?? "";
   if (!authUserId || !authAgencyId) {
     return res.status(401).json({ error: "No autenticado" });
   }
+
+  const financeGrants = await getFinanceSectionGrants(
+    authAgencyId,
+    authUserId,
+  );
+  const bookingGrants = await getBookingComponentGrants(
+    authAgencyId,
+    authUserId,
+  );
+  const canReceipts = canAccessFinanceSection(
+    authRole,
+    financeGrants,
+    "receipts",
+  );
+  const canReceiptsForm = canAccessBookingComponent(
+    authRole,
+    bookingGrants,
+    "receipts_form",
+  );
 
   const id = decoded
     ? (
@@ -338,6 +366,9 @@ export default async function handler(
   }
 
   if (req.method === "GET") {
+    if (!canReceipts && !canReceiptsForm) {
+      return res.status(403).json({ error: "Sin permisos" });
+    }
     try {
       await ensureReceiptInAgency(id, authAgencyId);
       const receipt = await prisma.receipt.findUnique({
@@ -376,6 +407,9 @@ export default async function handler(
   }
 
   if (req.method === "DELETE") {
+    if (!canReceipts) {
+      return res.status(403).json({ error: "Sin permisos" });
+    }
     try {
       await ensureReceiptInAgency(id, authAgencyId);
       await prisma.$transaction(async (tx) => {
@@ -400,12 +434,16 @@ export default async function handler(
   // Attach vía PATCH (igual que tenías)
   if (req.method === "PATCH") {
     try {
-      await ensureReceiptInAgency(id, authAgencyId);
-
       const body = (req.body || {}) as PatchBody;
       const bookingId = Number(body.booking?.id_booking);
       const serviceIds = Array.isArray(body.serviceIds) ? body.serviceIds : [];
       const isAttach = Number.isFinite(bookingId) || serviceIds.length > 0;
+
+      if (!canReceipts && !(canReceiptsForm && isAttach)) {
+        return res.status(403).json({ error: "Sin permisos" });
+      }
+
+      await ensureReceiptInAgency(id, authAgencyId);
 
       if (isAttach) {
         if (!Number.isFinite(bookingId) || bookingId <= 0)

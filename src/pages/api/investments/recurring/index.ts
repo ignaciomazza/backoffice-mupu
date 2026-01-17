@@ -4,6 +4,8 @@ import prisma, { Prisma } from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
+import { getFinanceSectionGrants } from "@/lib/accessControl";
+import { canAccessFinanceSection } from "@/utils/permissions";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -137,6 +139,19 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const auth = await getUserFromAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
 
+  const financeGrants = await getFinanceSectionGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canInvestments = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "investments",
+  );
+  if (!canInvestments) {
+    return res.status(403).json({ error: "Sin permisos" });
+  }
+
   try {
     const items = await prisma.recurringInvestment.findMany({
       where: { id_agency: auth.id_agency },
@@ -157,6 +172,19 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const auth = await getUserFromAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
+
+  const financeGrants = await getFinanceSectionGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canInvestments = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "investments",
+  );
+  if (!canInvestments) {
+    return res.status(403).json({ error: "Sin permisos" });
+  }
 
   try {
     const b = req.body ?? {};

@@ -772,6 +772,7 @@ model FinanceConfig {
   default_currency_code                 String
   hide_operator_expenses_in_investments Boolean @default(false)
   receipt_verification_rules            Json?
+  section_access_rules                  Json?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -998,6 +999,7 @@ model ServiceCalcConfig {
   billing_breakdown_mode String @default("auto")
   billing_adjustments    Json?
   use_booking_sale_total Boolean @default(false)
+  booking_access_rules   Json?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

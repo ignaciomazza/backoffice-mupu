@@ -4,6 +4,14 @@ import prisma, { Prisma } from "@/lib/prisma";
 import { encodePublicId } from "@/lib/publicIds";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify, type JWTPayload } from "jose";
+import {
+  getBookingComponentGrants,
+  getFinanceSectionGrants,
+} from "@/lib/accessControl";
+import {
+  canAccessBookingComponent,
+  canAccessFinanceSection,
+} from "@/utils/permissions";
 
 /** ===== Auth helpers (unificado con otros endpoints) ===== */
 type TokenPayload = JWTPayload & {
@@ -327,6 +335,28 @@ export default async function handler(
 ) {
   const auth = await getUserFromAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
+
+  const financeGrants = await getFinanceSectionGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const bookingGrants = await getBookingComponentGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canInvestments = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "investments",
+  );
+  const canOperatorPayments = canAccessBookingComponent(
+    auth.role,
+    bookingGrants,
+    "operator_payments",
+  );
+  if (!canInvestments && !canOperatorPayments) {
+    return res.status(403).json({ error: "Sin permisos" });
+  }
 
   const idParam = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   const id = safeNumber(idParam);

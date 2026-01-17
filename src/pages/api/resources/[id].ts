@@ -3,6 +3,7 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { decodePublicId, encodePublicId } from "@/lib/publicIds";
+import { resolveAuth } from "@/lib/auth";
 
 export default async function handler(
   req: NextApiRequest,
@@ -25,13 +26,19 @@ export default async function handler(
     return res.status(400).json({ error: "ID de recurso inválido." });
   }
 
+  const auth = await resolveAuth(req);
+  if (!auth) return res.status(401).json({ error: "Unauthorized" });
+  if (decoded && decoded.a !== auth.id_agency) {
+    return res.status(404).json({ error: "Recurso no encontrado." });
+  }
+
   try {
     if (req.method === "GET") {
       // Obtener un recurso
       const resource = await prisma.resources.findFirst({
         where: decoded
-          ? { id_agency: decoded.a, agency_resource_id: decoded.i }
-          : { id_resource: idNum },
+          ? { id_agency: auth.id_agency, agency_resource_id: decoded.i }
+          : { id_resource: idNum, id_agency: auth.id_agency },
       });
       if (!resource) {
         return res.status(404).json({ error: "Recurso no encontrado." });
@@ -53,8 +60,8 @@ export default async function handler(
 
       const existing = await prisma.resources.findFirst({
         where: decoded
-          ? { id_agency: decoded.a, agency_resource_id: decoded.i }
-          : { id_resource: idNum },
+          ? { id_agency: auth.id_agency, agency_resource_id: decoded.i }
+          : { id_resource: idNum, id_agency: auth.id_agency },
         select: { id_resource: true },
       });
       if (!existing) {
@@ -74,8 +81,8 @@ export default async function handler(
       // Eliminar recurso
       const existing = await prisma.resources.findFirst({
         where: decoded
-          ? { id_agency: decoded.a, agency_resource_id: decoded.i }
-          : { id_resource: idNum },
+          ? { id_agency: auth.id_agency, agency_resource_id: decoded.i }
+          : { id_resource: idNum, id_agency: auth.id_agency },
         select: { id_resource: true },
       });
       if (!existing) {

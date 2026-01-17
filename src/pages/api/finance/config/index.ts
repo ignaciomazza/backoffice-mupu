@@ -1,79 +1,16 @@
 // src/pages/api/finance/config/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { jwtVerify, type JWTPayload } from "jose";
 import prisma from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { z } from "zod";
-
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
-
-type TokenPayload = JWTPayload & {
-  id_user?: number;
-  userId?: number;
-  uid?: number;
-  id_agency?: number;
-  agencyId?: number;
-  aid?: number;
-  role?: string;
-  email?: string;
-};
+import { resolveAuth } from "@/lib/auth";
+import { getFinanceSectionGrants } from "@/lib/accessControl";
+import { canAccessFinanceSection } from "@/utils/permissions";
 
 const putSchema = z.object({
   default_currency_code: z.string().trim().min(2),
   hide_operator_expenses_in_investments: z.boolean().optional(),
 });
-
-function getTokenFromRequest(req: NextApiRequest): string | null {
-  if (req.cookies?.token) return req.cookies.token;
-  const auth = req.headers.authorization || "";
-  if (auth.startsWith("Bearer ")) return auth.slice(7);
-  for (const k of [
-    "session",
-    "auth_token",
-    "access_token",
-    "next-auth.session-token",
-  ]) {
-    const v = (req.cookies || {})[k];
-    if (typeof v === "string" && v) return v;
-  }
-  return null;
-}
-
-async function resolveAgencyId(req: NextApiRequest): Promise<number | null> {
-  // query tiene prioridad si viene bien formado
-  const raw = Array.isArray(req.query.id_agency)
-    ? req.query.id_agency[0]
-    : req.query.id_agency;
-  const n = raw != null ? Number(raw) : NaN;
-  if (Number.isFinite(n) && n > 0) return n;
-
-  const token = getTokenFromRequest(req);
-  if (!token) return null;
-  try {
-    const { payload } = await jwtVerify(
-      token,
-      new TextEncoder().encode(JWT_SECRET),
-    );
-    const p = payload as TokenPayload;
-    const byToken = Number(p.id_agency ?? p.agencyId ?? p.aid) || 0;
-    if (byToken > 0) return byToken;
-
-    // fallback por email o id_user si faltara agency
-    const id_user = Number(p.id_user ?? p.userId ?? p.uid) || 0;
-    const email = p.email || "";
-    if (id_user || email) {
-      const u = await prisma.user.findFirst({
-        where: id_user ? { id_user } : { email },
-        select: { id_agency: true },
-      });
-      if (u?.id_agency) return u.id_agency;
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
-}
 
 export default async function handler(
   req: NextApiRequest,
@@ -84,11 +21,21 @@ export default async function handler(
 
   if (req.method === "GET") {
     try {
-      const id_agency = await resolveAgencyId(req);
-      if (!id_agency) return res.status(401).json({ error: "Unauthorized" });
+      const auth = await resolveAuth(req);
+      if (!auth) return res.status(401).json({ error: "Unauthorized" });
+      const financeGrants = await getFinanceSectionGrants(
+        auth.id_agency,
+        auth.id_user,
+      );
+      const canConfig = canAccessFinanceSection(
+        auth.role,
+        financeGrants,
+        "finance_config",
+      );
+      if (!canConfig) return res.status(403).json({ error: "Sin permisos" });
 
       const config = await prisma.financeConfig.findFirst({
-        where: { id_agency },
+        where: { id_agency: auth.id_agency },
       });
       return res.status(200).json(config ?? null);
     } catch (e) {
@@ -99,8 +46,18 @@ export default async function handler(
 
   if (req.method === "PUT") {
     try {
-      const id_agency = await resolveAgencyId(req);
-      if (!id_agency) return res.status(401).json({ error: "Unauthorized" });
+      const auth = await resolveAuth(req);
+      if (!auth) return res.status(401).json({ error: "Unauthorized" });
+      const financeGrants = await getFinanceSectionGrants(
+        auth.id_agency,
+        auth.id_user,
+      );
+      const canConfig = canAccessFinanceSection(
+        auth.role,
+        financeGrants,
+        "finance_config",
+      );
+      if (!canConfig) return res.status(403).json({ error: "Sin permisos" });
 
       const body =
         typeof req.body === "string" ? JSON.parse(req.body) : req.body;
@@ -113,12 +70,12 @@ export default async function handler(
 
       await prisma.$transaction(async (tx) => {
         const existing = await tx.financeConfig.findUnique({
-          where: { id_agency },
+          where: { id_agency: auth.id_agency },
           select: { id_config: true },
         });
         if (existing) {
           await tx.financeConfig.update({
-            where: { id_agency },
+            where: { id_agency: auth.id_agency },
             data: {
               default_currency_code,
               hide_operator_expenses_in_investments:
@@ -129,12 +86,12 @@ export default async function handler(
         }
         const agencyConfigId = await getNextAgencyCounter(
           tx,
-          id_agency,
+          auth.id_agency,
           "finance_config",
         );
         await tx.financeConfig.create({
           data: {
-            id_agency,
+            id_agency: auth.id_agency,
             agency_finance_config_id: agencyConfigId,
             default_currency_code,
             hide_operator_expenses_in_investments:

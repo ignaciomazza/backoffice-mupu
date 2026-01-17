@@ -1,95 +1,14 @@
 // src/pages/api/finance/verification-rules/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { jwtVerify, type JWTPayload } from "jose";
 import prisma from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import {
   normalizeReceiptVerificationRules,
   pickReceiptVerificationRule,
 } from "@/utils/receiptVerification";
-
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
-
-type TokenPayload = JWTPayload & {
-  id_user?: number;
-  userId?: number;
-  uid?: number;
-  id_agency?: number;
-  agencyId?: number;
-  aid?: number;
-  role?: string;
-  email?: string;
-};
-
-type AuthContext = {
-  id_user: number;
-  id_agency: number;
-  role: string;
-};
-
-function normalizeRole(r?: string) {
-  return (r ?? "")
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/^leader$/, "lider");
-}
-
-function getTokenFromRequest(req: NextApiRequest): string | null {
-  if (req.cookies?.token) return req.cookies.token;
-  const auth = req.headers.authorization || "";
-  if (auth.startsWith("Bearer ")) return auth.slice(7);
-  for (const k of [
-    "session",
-    "auth_token",
-    "access_token",
-    "next-auth.session-token",
-  ]) {
-    const v = (req.cookies || {})[k];
-    if (typeof v === "string" && v) return v;
-  }
-  return null;
-}
-
-async function resolveAuth(req: NextApiRequest): Promise<AuthContext | null> {
-  const token = getTokenFromRequest(req);
-  if (!token) return null;
-  try {
-    const { payload } = await jwtVerify(
-      token,
-      new TextEncoder().encode(JWT_SECRET),
-    );
-    const p = payload as TokenPayload;
-    const id_user = Number(p.id_user ?? p.userId ?? p.uid) || 0;
-    const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || 0;
-    const role = normalizeRole(p.role);
-    const email = p.email;
-
-    if (id_user && id_agency) {
-      return { id_user, id_agency, role: role || "" };
-    }
-
-    if (id_user || email) {
-      const user = await prisma.user.findFirst({
-        where: id_user ? { id_user } : { email },
-        select: { id_user: true, id_agency: true, role: true },
-      });
-      if (user?.id_user && user.id_agency) {
-        return {
-          id_user: user.id_user,
-          id_agency: user.id_agency,
-          role: role || normalizeRole(user.role),
-        };
-      }
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-const MANAGER_ROLES = new Set(["gerente", "desarrollador"]);
+import { resolveAuth } from "@/lib/auth";
+import { getFinanceSectionGrants } from "@/lib/accessControl";
+import { canAccessFinanceSection } from "@/utils/permissions";
 
 export default async function handler(
   req: NextApiRequest,
@@ -102,15 +21,31 @@ export default async function handler(
   if (!auth?.id_agency || !auth.id_user) {
     return res.status(401).json({ error: "Unauthorized" });
   }
+  const financeGrants = await getFinanceSectionGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canVerify = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "receipts_verify",
+  );
+  const canConfig = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "finance_config",
+  );
 
   if (req.method === "GET") {
+    if (!canVerify && !canConfig) {
+      return res.status(403).json({ error: "Sin permisos" });
+    }
     try {
       const scopeParam = Array.isArray(req.query.scope)
         ? req.query.scope[0]
         : req.query.scope;
       const scope = String(scopeParam || "").trim().toLowerCase();
       const wantsAll = scope === "all";
-      const isManager = MANAGER_ROLES.has(normalizeRole(auth.role));
 
       const config = await prisma.financeConfig.findFirst({
         where: { id_agency: auth.id_agency },
@@ -120,7 +55,7 @@ export default async function handler(
         config?.receipt_verification_rules,
       );
 
-      if (wantsAll && isManager) {
+      if (wantsAll && canConfig) {
         return res.status(200).json({ rules });
       }
 
@@ -133,8 +68,7 @@ export default async function handler(
   }
 
   if (req.method === "PUT") {
-    const role = normalizeRole(auth.role);
-    if (!MANAGER_ROLES.has(role)) {
+    if (!canConfig) {
       return res.status(403).json({ error: "Sin permisos" });
     }
     try {

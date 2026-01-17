@@ -5,10 +5,18 @@ import { jwtVerify, JWTPayload } from "jose";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { encodePublicId } from "@/lib/publicIds";
 import {
+  getBookingComponentGrants,
+  getFinanceSectionGrants,
+} from "@/lib/accessControl";
+import {
   normalizeReceiptVerificationRules,
   pickReceiptVerificationRule,
   ruleHasRestrictions,
 } from "@/utils/receiptVerification";
+import {
+  canAccessBookingComponent,
+  canAccessFinanceSection,
+} from "@/utils/permissions";
 
 /* ======================================================
  * Tipos
@@ -301,6 +309,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const authUser = await getUserFromAuth(req);
     const authUserId = authUser?.id_user;
     const authAgencyId = authUser?.id_agency;
+    const authRole = authUser?.role ?? "";
 
     if (!authUserId || !authAgencyId) {
       return res.status(401).json({ error: "No autenticado" });
@@ -311,6 +320,38 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       ? req.query.bookingId[0]
       : req.query.bookingId;
     const bookingId = Number(bookingIdParam);
+
+    const financeGrants = await getFinanceSectionGrants(
+      authAgencyId,
+      authUserId,
+    );
+    const canReceipts = canAccessFinanceSection(
+      authRole,
+      financeGrants,
+      "receipts",
+    );
+    const canVerify = canAccessFinanceSection(
+      authRole,
+      financeGrants,
+      "receipts_verify",
+    );
+    const needsBookingScope = Number.isFinite(bookingId);
+    let canBookingReceipts = false;
+    if (!canReceipts && !canVerify && needsBookingScope) {
+      const bookingGrants = await getBookingComponentGrants(
+        authAgencyId,
+        authUserId,
+      );
+      canBookingReceipts = canAccessBookingComponent(
+        authRole,
+        bookingGrants,
+        "receipts_form",
+      );
+    }
+
+    if (!canReceipts && !canVerify && !canBookingReceipts) {
+      return res.status(403).json({ error: "Sin permisos" });
+    }
 
     if (Number.isFinite(bookingId)) {
       await ensureBookingInAgency(bookingId, authAgencyId);
@@ -710,13 +751,40 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
  * ====================================================== */
 
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
-  const authUser = await getUserFromAuth(req);
-  const authUserId = authUser?.id_user;
-  const authAgencyId = authUser?.id_agency;
+    const authUser = await getUserFromAuth(req);
+    const authUserId = authUser?.id_user;
+    const authAgencyId = authUser?.id_agency;
+    const authRole = authUser?.role ?? "";
 
-  if (!authUserId || !authAgencyId) {
-    return res.status(401).json({ error: "No autenticado" });
-  }
+    if (!authUserId || !authAgencyId) {
+      return res.status(401).json({ error: "No autenticado" });
+    }
+
+    const financeGrants = await getFinanceSectionGrants(
+      authAgencyId,
+      authUserId,
+    );
+    const canReceipts = canAccessFinanceSection(
+      authRole,
+      financeGrants,
+      "receipts",
+    );
+    let canReceiptsForm = false;
+    if (!canReceipts) {
+      const bookingGrants = await getBookingComponentGrants(
+        authAgencyId,
+        authUserId,
+      );
+      canReceiptsForm = canAccessBookingComponent(
+        authRole,
+        bookingGrants,
+        "receipts_form",
+      );
+    }
+
+    if (!canReceipts && !canReceiptsForm) {
+      return res.status(403).json({ error: "Sin permisos" });
+    }
 
   const rawBody = req.body;
   // eslint-disable-next-line no-console

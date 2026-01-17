@@ -145,7 +145,7 @@ export default async function handler(
     const current = await prisma.booking.findFirst({
       where: decoded
         ? { id_agency: user.id_agency, agency_booking_id: decoded.i }
-        : { id_booking: bookingId },
+        : { id_booking: bookingId, id_agency: user.id_agency },
       select: {
         id_booking: true,
         id_agency: true,

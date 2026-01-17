@@ -6,6 +6,8 @@ import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { jwtVerify, type JWTPayload } from "jose";
+import { getBookingComponentGrants } from "@/lib/accessControl";
+import { canAccessBookingComponent } from "@/utils/permissions";
 
 /* ================= JWT SECRET (igual que invoices/index) ================= */
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -129,11 +131,30 @@ export default async function handler(
     return res.status(400).json({ success: false, message: "ID inválido" });
   }
 
+  const auth = await getUserFromAuth(req);
+  if (!auth?.id_user || !auth.id_agency) {
+    return res
+      .status(401)
+      .json({ success: false, message: "No autenticado" });
+  }
+  const bookingGrants = await getBookingComponentGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canBilling = canAccessBookingComponent(
+    auth.role,
+    bookingGrants,
+    "billing",
+  );
+  if (!canBilling) {
+    return res.status(403).json({ success: false, message: "Sin permisos" });
+  }
+
   if (req.method === "GET") {
     const invoice = await prisma.invoice.findFirst({
       where: decoded
         ? { id_agency: decoded.a, agency_invoice_id: decoded.i }
-        : { id_invoice: parsedId },
+        : { id_invoice: parsedId, id_agency: auth.id_agency },
       include: {
         booking: {
           include: { titular: true, agency: true },
@@ -162,13 +183,6 @@ export default async function handler(
   }
 
   if (req.method === "PATCH") {
-    const auth = await getUserFromAuth(req);
-    if (!auth?.id_user || !auth.id_agency) {
-      return res
-        .status(401)
-        .json({ success: false, message: "No autenticado" });
-    }
-
     let rawBody: unknown = req.body;
     if (typeof rawBody === "string") {
       try {
@@ -212,7 +226,7 @@ export default async function handler(
     const invoice = await prisma.invoice.findFirst({
       where: decoded
         ? { id_agency: auth.id_agency, agency_invoice_id: decoded.i }
-        : { id_invoice: parsedId },
+        : { id_invoice: parsedId, id_agency: auth.id_agency },
       select: {
         id_invoice: true,
         id_agency: true,

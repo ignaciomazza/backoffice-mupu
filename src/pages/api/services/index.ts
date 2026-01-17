@@ -3,6 +3,41 @@ import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { Prisma } from "@prisma/client";
+import { resolveAuth } from "@/lib/auth";
+
+type BookingAccessContext = {
+  id_user: number;
+  id_agency: number;
+  role: string;
+};
+
+const ADMIN_ROLES = new Set(["gerente", "administrativo", "desarrollador"]);
+
+async function getLeaderScope(authUserId: number, authAgencyId: number) {
+  const teams = await prisma.salesTeam.findMany({
+    where: {
+      id_agency: authAgencyId,
+      user_teams: { some: { user: { id_user: authUserId, role: "lider" } } },
+    },
+    include: { user_teams: { select: { id_user: true } } },
+  });
+  const userIds = new Set<number>([authUserId]);
+  teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
+  return { userIds: Array.from(userIds) };
+}
+
+async function canAccessBooking(
+  auth: BookingAccessContext,
+  ownerId: number,
+): Promise<boolean> {
+  if (ADMIN_ROLES.has(auth.role)) return true;
+  if (auth.role === "vendedor") return ownerId === auth.id_user;
+  if (auth.role === "lider") {
+    const scope = await getLeaderScope(auth.id_user, auth.id_agency);
+    return scope.userIds.includes(ownerId);
+  }
+  return false;
+}
 
 export default async function handler(
   req: NextApiRequest,
@@ -16,8 +51,23 @@ export default async function handler(
     }
 
     try {
+      const auth = await resolveAuth(req);
+      if (!auth) return res.status(401).json({ error: "Unauthorized" });
+
+      const booking = await prisma.booking.findUnique({
+        where: { id_booking: Number(bookingId) },
+        select: { id_booking: true, id_agency: true, id_user: true },
+      });
+      if (!booking || booking.id_agency !== auth.id_agency) {
+        return res.status(404).json({ error: "Reserva no encontrada." });
+      }
+      const allowed = await canAccessBooking(auth, booking.id_user);
+      if (!allowed) {
+        return res.status(403).json({ error: "No autorizado." });
+      }
+
       const services = await prisma.service.findMany({
-        where: { booking_id: Number(bookingId) },
+        where: { booking_id: Number(bookingId), id_agency: auth.id_agency },
         orderBy: { id_service: "asc" }, // opcional, para que siempre vengan ordenados
         include: { booking: true, operator: true },
       });
@@ -29,6 +79,9 @@ export default async function handler(
     }
   } else if (req.method === "POST") {
     // 👇 tu código POST queda igual
+    const auth = await resolveAuth(req);
+    if (!auth) return res.status(401).json({ error: "Unauthorized" });
+
     const {
       type,
       description,
@@ -84,16 +137,21 @@ export default async function handler(
 
     const bookingExists = await prisma.booking.findUnique({
       where: { id_booking: Number(booking_id) },
-      select: { id_booking: true, id_agency: true },
+      select: { id_booking: true, id_agency: true, id_user: true },
     });
-    if (!bookingExists) {
+    if (!bookingExists || bookingExists.id_agency !== auth.id_agency) {
       return res.status(404).json({ error: "Reserva no encontrada." });
+    }
+    const canAccess = await canAccessBooking(auth, bookingExists.id_user);
+    if (!canAccess) {
+      return res.status(403).json({ error: "No autorizado." });
     }
 
     const operatorExists = await prisma.operator.findUnique({
       where: { id_operator: Number(id_operator) },
+      select: { id_operator: true, id_agency: true },
     });
-    if (!operatorExists) {
+    if (!operatorExists || operatorExists.id_agency !== auth.id_agency) {
       return res.status(404).json({ error: "Operador no encontrado." });
     }
 

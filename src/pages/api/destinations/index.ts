@@ -2,6 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { resolveAuth } from "@/lib/auth";
 
 /* ============== Utils & Schema ============== */
 const slugify = (s: string) =>
@@ -30,6 +31,12 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
+  const auth = await resolveAuth(req);
+  if (!auth) return res.status(401).json({ error: "Unauthorized" });
+  const canWrite = ["desarrollador", "gerente", "administrativo"].includes(
+    auth.role,
+  );
+
   if (req.method === "GET") {
     const q = String(req.query.q ?? "").trim();
     const iso = String(req.query.countryIso2 ?? "").toUpperCase();
@@ -70,6 +77,7 @@ export default async function handler(
   }
 
   if (req.method === "POST") {
+    if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
     try {
       const body = CreateDestination.parse(req.body);
       const slug = body.slug ?? slugify(body.name);
@@ -82,6 +90,7 @@ export default async function handler(
           popularity: body.popularity ?? 0,
           enabled: body.enabled ?? true,
           country_id: body.countryId,
+          created_by: auth.id_user,
         },
       });
 

@@ -7,6 +7,98 @@ import CreditNoteDocument, {
   VoucherData,
 } from "@/services/credit-notes/CreditNoteDocument";
 import { decodePublicId } from "@/lib/publicIds";
+import { jwtVerify, type JWTPayload } from "jose";
+import { getBookingComponentGrants } from "@/lib/accessControl";
+import { canAccessBookingComponent } from "@/utils/permissions";
+
+type TokenPayload = JWTPayload & {
+  id_user?: number;
+  userId?: number;
+  uid?: number;
+  role?: string;
+  id_agency?: number;
+  agencyId?: number;
+  aid?: number;
+  email?: string;
+};
+
+type DecodedUser = {
+  id_user?: number;
+  id_agency?: number;
+  role?: string;
+  email?: string;
+};
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
+
+function getTokenFromRequest(req: NextApiRequest): string | null {
+  if (req.cookies?.token) return req.cookies.token;
+  const auth = req.headers.authorization || "";
+  if (auth.startsWith("Bearer ")) return auth.slice(7);
+  const c = req.cookies || {};
+  for (const k of [
+    "session",
+    "auth_token",
+    "access_token",
+    "next-auth.session-token",
+  ]) {
+    if (c[k]) return c[k]!;
+  }
+  return null;
+}
+
+async function getUserFromAuth(
+  req: NextApiRequest,
+): Promise<DecodedUser | null> {
+  try {
+    const token = getTokenFromRequest(req);
+    if (!token) return null;
+
+    const { payload } = await jwtVerify(
+      token,
+      new TextEncoder().encode(JWT_SECRET),
+    );
+    const p = payload as TokenPayload;
+
+    const id_user = Number(p.id_user ?? p.userId ?? p.uid) || undefined;
+    const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || undefined;
+    const role = p.role;
+    const email = p.email;
+
+    if (!id_user && email) {
+      const u = await prisma.user.findUnique({
+        where: { email },
+        select: { id_user: true, id_agency: true, role: true, email: true },
+      });
+      if (u)
+        return {
+          id_user: u.id_user,
+          id_agency: u.id_agency,
+          role: u.role,
+          email: u.email,
+        };
+    }
+
+    if (id_user && !id_agency) {
+      const u = await prisma.user.findUnique({
+        where: { id_user },
+        select: { id_agency: true, role: true, email: true },
+      });
+      if (u)
+        return {
+          id_user,
+          id_agency: u.id_agency,
+          role: role ?? u.role,
+          email: email ?? u.email ?? undefined,
+        };
+    }
+
+    return { id_user, id_agency, role, email };
+  } catch {
+    return null;
+  }
+}
 
 /** ===== Helper: traer logo por URL pública (Spaces/S3) a base64 + MIME ===== */
 async function fetchLogoFromUrl(
@@ -53,6 +145,25 @@ export default async function handler(
     return;
   }
 
+  const auth = await getUserFromAuth(req);
+  if (!auth?.id_user || !auth.id_agency) {
+    res.status(401).end("No autenticado");
+    return;
+  }
+  const bookingGrants = await getBookingComponentGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canBilling = canAccessBookingComponent(
+    auth.role,
+    bookingGrants,
+    "billing",
+  );
+  if (!canBilling) {
+    res.status(403).end("Sin permisos");
+    return;
+  }
+
   const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   if (!rawId) {
     res.status(400).end("ID inválido");
@@ -72,6 +183,10 @@ export default async function handler(
     res.status(400).end("ID inválido");
     return;
   }
+  if (decoded && decoded.a !== auth.id_agency) {
+    res.status(403).end("Sin permisos");
+    return;
+  }
 
   // 1) Obtener nota de crédito con sus relaciones
   let creditNote;
@@ -79,7 +194,7 @@ export default async function handler(
     creditNote = await prisma.creditNote.findFirst({
       where: decoded
         ? { id_agency: decoded.a, agency_credit_note_id: decoded.i }
-        : { id_credit_note: parsedId },
+        : { id_credit_note: parsedId, id_agency: auth.id_agency },
       include: {
         invoice: {
           include: {

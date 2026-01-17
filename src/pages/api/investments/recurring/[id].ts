@@ -2,6 +2,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
+import { getFinanceSectionGrants } from "@/lib/accessControl";
+import { canAccessFinanceSection } from "@/utils/permissions";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -139,6 +141,19 @@ export default async function handler(
 ) {
   const auth = await getUserFromAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
+
+  const financeGrants = await getFinanceSectionGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canInvestments = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "investments",
+  );
+  if (!canInvestments) {
+    return res.status(403).json({ error: "Sin permisos" });
+  }
 
   const idParam = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   const id = safeNumber(idParam);

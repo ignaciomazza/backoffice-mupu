@@ -3,12 +3,21 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
+import { resolveAuth } from "@/lib/auth";
+
+const MANAGER_ROLES = new Set(["desarrollador", "gerente"]);
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
   try {
+    const auth = await resolveAuth(req);
+    if (!auth) return res.status(401).json({ error: "Unauthorized" });
+    if (!MANAGER_ROLES.has(auth.role)) {
+      return res.status(403).json({ error: "Sin permisos" });
+    }
+
     // ---------------------------
     // GET /api/teams?agencyId=...
     // ---------------------------
@@ -20,15 +29,13 @@ export default async function handler(
           ? Number(req.query.agencyId)
           : null;
 
-      if (!agencyId) {
-        return res
-          .status(400)
-          .json({ error: "El parámetro agencyId es obligatorio." });
+      if (agencyId && agencyId !== auth.id_agency) {
+        return res.status(403).json({ error: "Sin permisos" });
       }
 
       // 2) Recuperamos solo los equipos de esa agencia
       const teams = await prisma.salesTeam.findMany({
-        where: { id_agency: agencyId },
+        where: { id_agency: auth.id_agency },
         include: {
           user_teams: { include: { user: true } },
         },
@@ -59,25 +66,31 @@ export default async function handler(
           .status(400)
           .json({ error: "No se permiten IDs duplicados en los miembros." });
       }
-      if (typeof id_agency !== "number") {
-        return res
-          .status(400)
-          .json({
-            error: "El campo id_agency es obligatorio y debe ser número.",
-          });
+      if (typeof id_agency === "number" && id_agency !== auth.id_agency) {
+        return res.status(403).json({ error: "Sin permisos" });
+      }
+
+      const members = await prisma.user.findMany({
+        where: { id_user: { in: userIds }, id_agency: auth.id_agency },
+        select: { id_user: true },
+      });
+      if (members.length !== userIds.length) {
+        return res.status(400).json({
+          error: "Hay usuarios que no pertenecen a tu agencia.",
+        });
       }
 
       // 2) Creamos el equipo para la agencia indicada
       const newTeam = await prisma.$transaction(async (tx) => {
         const agencyTeamId = await getNextAgencyCounter(
           tx,
-          id_agency,
+          auth.id_agency,
           "sales_team",
         );
         return tx.salesTeam.create({
           data: {
             name,
-            id_agency, // lo toma directamente del body
+            id_agency: auth.id_agency,
             agency_sales_team_id: agencyTeamId,
             user_teams: {
               create: userIds.map((userId: number) => ({

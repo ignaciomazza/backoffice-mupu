@@ -7,6 +7,7 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
+import BookingPermissionsConfig from "@/components/bookings/BookingPermissionsConfig";
 import type { BillingAdjustmentConfig } from "@/types";
 
 /* =========================================================
@@ -199,7 +200,7 @@ function Modal({
 /* =========================================================
  * Page
  * ========================================================= */
-type TabKey = "types" | "calc";
+type TabKey = "types" | "calc" | "permissions";
 
 export default function BookingsConfigPage() {
   const { token } = useAuth();
@@ -791,6 +792,7 @@ export default function BookingsConfigPage() {
             {[
               { key: "types", label: "Tipos" },
               { key: "calc", label: "Cálculo" },
+              { key: "permissions", label: "Permisos" },
             ].map((t) => (
               <button
                 key={t.key}
@@ -1198,6 +1200,9 @@ export default function BookingsConfigPage() {
                 )}
               </div>
             )}
+
+            {/* ===================== TAB: Permisos ===================== */}
+            {active === "permissions" && <BookingPermissionsConfig />}
           </>
         )}
 
