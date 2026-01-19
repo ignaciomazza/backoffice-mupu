@@ -4,7 +4,10 @@ import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 import type { BillingAdjustmentConfig } from "@/types";
-import { getFinanceSectionGrants } from "@/lib/accessControl";
+import {
+  canAccessBookingByRole,
+  getFinanceSectionGrants,
+} from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
 
 type TokenPayload = JWTPayload & {
@@ -83,6 +86,11 @@ export default async function handler(
     return res.status(405).json({ error: `Method ${req.method} not allowed` });
   }
 
+  const bookingId = Number(req.query.bookingId);
+  if (!Number.isFinite(bookingId) || bookingId <= 0) {
+    return res.status(400).json({ error: "bookingId inválido" });
+  }
+
   const auth = await getAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
   const financeGrants = await getFinanceSectionGrants(
@@ -94,28 +102,32 @@ export default async function handler(
     financeGrants,
     "earnings",
   );
-  if (!canEarnings) {
-    return res.status(403).json({ error: "Sin permisos" });
-  }
-
-  const bookingId = Number(req.query.bookingId);
-  if (!Number.isFinite(bookingId) || bookingId <= 0) {
-    return res.status(400).json({ error: "bookingId inválido" });
-  }
 
   try {
     // Booking + owner + fecha
     const booking = await prisma.booking.findUnique({
       where: { id_booking: bookingId },
-      include: { user: true },
+      select: {
+        id_booking: true,
+        id_agency: true,
+        id_user: true,
+        creation_date: true,
+        sale_totals: true,
+      },
     });
     if (!booking || booking.id_agency !== auth.id_agency) {
       return res.status(404).json({ error: "Reserva no encontrada" });
     }
+    const canReadByRole = await canAccessBookingByRole(auth, {
+      id_user: booking.id_user,
+      id_agency: booking.id_agency,
+    });
+    if (!canEarnings && !canReadByRole) {
+      return res.status(403).json({ error: "Sin permisos" });
+    }
 
     const createdAt = booking.creation_date;
-    // ⬇️ usar el id desde la relación incluída
-    const ownerId = booking.user.id_user;
+    const ownerId = booking.id_user;
 
     const agency = await prisma.agency.findUnique({
       where: { id_agency: auth.id_agency },
