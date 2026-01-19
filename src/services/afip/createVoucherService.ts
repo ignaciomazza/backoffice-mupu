@@ -6,6 +6,7 @@ import {
   getAgencyCUITFromRequest,
   type AfipClient,
 } from "@/services/afip/afipConfig";
+import { resolveSalesPoint } from "@/services/afip/salesPoints";
 import qrcode from "qrcode";
 import { Prisma } from "@prisma/client";
 import {
@@ -28,7 +29,6 @@ interface IVAEntry {
 }
 
 type ServerStatus = { AppServer: string; DbServer: string; AuthServer: string };
-type SalesPoint = { Nro: number };
 type LastInfo = { CbteFch?: string | number } | null;
 
 function getAfipErrorDetails(err: unknown): Record<string, unknown> {
@@ -269,10 +269,7 @@ export async function createVoucherService(
       throw new Error("AFIP no disponible");
     }
 
-    const pts = (await afipClient.ElectronicBilling.getSalesPoints().catch(
-      () => [],
-    )) as SalesPoint[];
-    const ptoVta = pts.length ? pts[0].Nro : 1;
+    const ptoVta = await resolveSalesPoint(afipClient);
 
     const lastVoucherNumber = await afipClient.ElectronicBilling.getLastVoucher(
       ptoVta,

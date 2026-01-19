@@ -636,6 +636,13 @@ export default function ServicesPage() {
       return "Fecha de servicio inválida. Revisá las fechas de los servicios.";
     }
     if (
+      m.includes("punto de venta") ||
+      m.includes("feparamgetptosventa") ||
+      m.includes("ptovta")
+    ) {
+      return "Falta punto de venta habilitado para WSFE. Crealo en ARCA y reintenta.";
+    }
+    if (
       m.includes("iva") ||
       m.includes("impuesto") ||
       m.includes("tributo") ||
@@ -798,15 +805,19 @@ export default function ServicesPage() {
         { method: "POST", body: JSON.stringify(payload) },
         token || undefined,
       );
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(
-          (err as { message?: string }).message ||
-            "Error al crear nota de crédito.",
-        );
+      const raw = await res.text();
+      let parsed: { message?: string; success?: boolean } | null = null;
+      try {
+        parsed = JSON.parse(raw) as { message?: string; success?: boolean };
+      } catch {
+        parsed = null;
       }
-      const result = await res.json();
-      if ((result as { success?: boolean }).success) {
+      if (!res.ok) {
+        const msg = parsed?.message || raw;
+        throw new Error(getInvoiceErrorToast(msg));
+      }
+      const result = (parsed ?? {}) as { message?: string; success?: boolean };
+      if (result.success) {
         toast.success("Nota de crédito creada exitosamente!");
         handleCreditNoteCreated();
         setCreditNoteFormData({
@@ -825,14 +836,14 @@ export default function ServicesPage() {
         setIsBillingFormVisible(false);
       } else {
         toast.error(
-          (result as { message?: string }).message ||
-            "Error al crear nota de crédito.",
+          getInvoiceErrorToast(
+            result.message || "Error al crear nota de crédito.",
+          ),
         );
       }
     } catch (error: unknown) {
-      toast.error(
-        error instanceof Error ? error.message : "Error de servidor.",
-      );
+      const msg = error instanceof Error ? error.message : "Error de servidor.";
+      toast.error(getInvoiceErrorToast(msg));
     } finally {
       setIsCreditNoteSubmitting(false);
     }

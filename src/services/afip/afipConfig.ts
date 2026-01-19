@@ -117,7 +117,8 @@ function buildAfip(opts: {
     cert: opts.cert,
     key: opts.key,
     production: opts.production ?? process.env.AFIP_ENV === "production",
-    access_token: process.env.ACCESS_TOKEN,
+    access_token:
+      process.env.AFIP_SDK_ACCESS_TOKEN || process.env.ACCESS_TOKEN,
   });
 }
 

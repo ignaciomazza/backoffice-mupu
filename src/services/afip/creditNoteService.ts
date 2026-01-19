@@ -7,6 +7,7 @@ import {
   getAgencyCUITFromRequest,
   type AfipClient,
 } from "@/services/afip/afipConfig";
+import { resolveSalesPoint } from "@/services/afip/salesPoints";
 
 export interface IVAEntry {
   Id: number; // 5 = 21%, 4 = 10.5%, 3 = Exento
@@ -38,7 +39,6 @@ export interface CreditNoteVoucherResponse {
 
 /** Tipos de respuesta AFIP que usamos en este módulo */
 type ServerStatus = { AppServer: string; DbServer: string; AuthServer: string };
-type SalesPoint = { Nro: number };
 type VoucherInfo = { CbteFch?: string | number } | null;
 type CreateVoucherResp = { CAE?: string; CAEFchVto?: string };
 type CotizResp = { ResultGet?: { MonCotiz?: string } };
@@ -208,10 +208,7 @@ export async function createCreditNoteVoucher(
     }
 
     // ===== 5) Punto de venta y numeración =====
-    const pts = (await afipClient.ElectronicBilling.getSalesPoints().catch(
-      () => [],
-    )) as SalesPoint[];
-    const ptoVta = pts.length ? pts[0].Nro : 1;
+    const ptoVta = await resolveSalesPoint(afipClient);
 
     const last = await afipClient.ElectronicBilling.getLastVoucher(
       ptoVta,
