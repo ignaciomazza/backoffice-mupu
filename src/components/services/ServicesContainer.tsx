@@ -2197,7 +2197,8 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 {(role === "administrativo" ||
                   role === "desarrollador" ||
                   role === "gerente" ||
-                  role === "vendedor") &&
+                  role === "vendedor" ||
+                  role === "lider") &&
                   booking && (
                     <ClientPaymentForm
                       token={token}

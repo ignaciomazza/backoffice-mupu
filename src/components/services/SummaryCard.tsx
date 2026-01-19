@@ -217,12 +217,13 @@ export default function SummaryCard({
   >([]);
   const [useBookingSaleTotalCfg, setUseBookingSaleTotalCfg] =
     useState<boolean>(false);
-  const [ownerPct, setOwnerPct] = useState<number>(100);
+  const [ownerPct, setOwnerPct] = useState<number | null>(null);
   const [apiCommissionBaseByCurrency, setApiCommissionBaseByCurrency] =
     useState<Record<string, number>>({});
   const [apiSellerEarningsByCurrency, setApiSellerEarningsByCurrency] =
     useState<Record<string, number>>({});
   const [loadingCalc, setLoadingCalc] = useState(false);
+  const [loadingEarnings, setLoadingEarnings] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const bookingId = useMemo(
@@ -247,10 +248,11 @@ export default function SummaryCard({
     if (!token) {
       setAgencyMode("auto");
       setTransferPct(0.024);
-      setOwnerPct(100);
+      setOwnerPct(null);
       setApiCommissionBaseByCurrency({});
       setApiSellerEarningsByCurrency({});
       setLoadingCalc(true);
+      setLoadingEarnings(false);
       return;
     }
 
@@ -267,6 +269,10 @@ export default function SummaryCard({
       !pipelineRef.current.ac.signal.aborted;
 
     setLoadingCalc(true);
+    setLoadingEarnings(Boolean(bookingId));
+    setOwnerPct(null);
+    setApiCommissionBaseByCurrency({});
+    setApiSellerEarningsByCurrency({});
 
     (async () => {
       // (1) Leer config de cálculo
@@ -285,7 +291,9 @@ export default function SummaryCard({
           const pct = Number(data.transfer_fee_pct);
           setTransferPct(Number.isFinite(pct) ? pct : 0.024);
           setBillingAdjustments(
-            Array.isArray(data.billing_adjustments) ? data.billing_adjustments : [],
+            Array.isArray(data.billing_adjustments)
+              ? data.billing_adjustments
+              : [],
           );
           setUseBookingSaleTotalCfg(Boolean(data.use_booking_sale_total));
         }
@@ -296,16 +304,18 @@ export default function SummaryCard({
           setBillingAdjustments([]);
           setUseBookingSaleTotalCfg(false);
         }
+      } finally {
+        if (isActive()) {
+          setLoadingCalc(false);
+        }
       }
 
       // (2) Earnings por booking (si hay bookingId)
       if (!isActive()) return;
       if (!bookingId) {
         if (isActive()) {
-          setOwnerPct(100);
-          setApiCommissionBaseByCurrency({});
-          setApiSellerEarningsByCurrency({});
-          setLoadingCalc(false);
+          setOwnerPct(null);
+          setLoadingEarnings(false);
         }
         return;
       }
@@ -329,12 +339,12 @@ export default function SummaryCard({
         }
       } catch {
         if (isActive()) {
-          setOwnerPct(100);
-          setApiCommissionBaseByCurrency({});
-          setApiSellerEarningsByCurrency({});
+          setOwnerPct(null);
         }
       } finally {
-        if (isActive()) setLoadingCalc(false);
+        if (isActive()) {
+          setLoadingEarnings(false);
+        }
       }
     })();
 
@@ -595,12 +605,19 @@ export default function SummaryCard({
   const effectiveOwnerPct = Number.isFinite(ownerPctOverride as number)
     ? Math.min(Math.max(Number(ownerPctOverride), 0), 100)
     : ownerPct;
+  const ownerPctLoading =
+    !Number.isFinite(ownerPctOverride as number) && loadingEarnings;
+  const ownerPctReady =
+    Number.isFinite(ownerPctOverride as number) ||
+    (!ownerPctLoading && typeof effectiveOwnerPct === "number");
 
   const sellerEarningFor = (cur: string) => {
     if (apiSellerEarningsByCurrency[cur] != null)
       return apiSellerEarningsByCurrency[cur];
     const base = commissionBaseFor(cur);
-    return base * ((effectiveOwnerPct || 0) / 100);
+    return typeof effectiveOwnerPct === "number"
+      ? base * (effectiveOwnerPct / 100)
+      : 0;
   };
 
   const colsClass =
@@ -851,13 +868,24 @@ export default function SummaryCard({
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm opacity-70">
-                    Ganancia del vendedor{" "}
-                    {`(${(effectiveOwnerPct ?? 100).toFixed(0)}%)`}
-                  </p>
-                  <p className="text-end text-lg font-semibold tabular-nums">
-                    {fmt(myEarning, code)}
-                  </p>
+                  {ownerPctReady ? (
+                    <>
+                      <p className="text-sm opacity-70">
+                        Ganancia del vendedor{" "}
+                        {`(${Number(effectiveOwnerPct ?? 0).toFixed(0)}%)`}
+                      </p>
+                      <p className="text-end text-lg font-semibold tabular-nums">
+                        {fmt(myEarning, code)}
+                      </p>
+                    </>
+                  ) : ownerPctLoading ? (
+                    <div className="flex items-center justify-end gap-2 text-sm opacity-70">
+                      <Spinner />
+                      <span>Cargando comisión…</span>
+                    </div>
+                  ) : (
+                    <div className="text-sm opacity-70">Comisión no disponible</div>
+                  )}
                 </div>
               </footer>
             </section>

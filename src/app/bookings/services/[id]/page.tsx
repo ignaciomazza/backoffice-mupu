@@ -369,23 +369,21 @@ export default function ServicesPage() {
       }
 
       try {
-        const all = await Promise.all(
-          invs.map(async (inv) => {
-            const r = await authFetch(
-              `/api/credit-notes?invoiceId=${inv.id_invoice}`,
-              { cache: "no-store", signal },
-              token,
-            );
-            if (!r.ok) return [];
-            const j = await r.json();
-            return (
-              Array.isArray(j?.creditNotes) ? j.creditNotes : []
-            ) as CreditNoteWithItems[];
-          }),
-        );
-        const flat = all.flat();
-        if (mountedRef.current) setCreditNotes(flat);
-        return flat;
+        const all: CreditNoteWithItems[] = [];
+        for (const inv of invs) {
+          if (signal?.aborted) break;
+          const r = await authFetch(
+            `/api/credit-notes?invoiceId=${inv.id_invoice}`,
+            { cache: "no-store", signal },
+            token,
+          );
+          if (!r.ok) continue;
+          const j = await r.json();
+          const items = Array.isArray(j?.creditNotes) ? j.creditNotes : [];
+          all.push(...(items as CreditNoteWithItems[]));
+        }
+        if (mountedRef.current) setCreditNotes(all);
+        return all;
       } catch {
         if (mountedRef.current) setCreditNotes([]);
         return [];

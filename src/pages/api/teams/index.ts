@@ -14,9 +14,7 @@ export default async function handler(
   try {
     const auth = await resolveAuth(req);
     if (!auth) return res.status(401).json({ error: "Unauthorized" });
-    if (!MANAGER_ROLES.has(auth.role)) {
-      return res.status(403).json({ error: "Sin permisos" });
-    }
+    const canManage = MANAGER_ROLES.has(auth.role);
 
     // ---------------------------
     // GET /api/teams?agencyId=...
@@ -33,9 +31,26 @@ export default async function handler(
         return res.status(403).json({ error: "Sin permisos" });
       }
 
+      const where = {
+        id_agency: auth.id_agency,
+        ...(!canManage
+          ? auth.role === "lider"
+            ? {
+                user_teams: {
+                  some: {
+                    user: { id_user: auth.id_user, role: "lider" },
+                  },
+                },
+              }
+            : {
+                user_teams: { some: { id_user: auth.id_user } },
+              }
+          : {}),
+      };
+
       // 2) Recuperamos solo los equipos de esa agencia
       const teams = await prisma.salesTeam.findMany({
-        where: { id_agency: auth.id_agency },
+        where,
         include: {
           user_teams: { include: { user: true } },
         },
@@ -48,6 +63,9 @@ export default async function handler(
     // POST /api/teams
     // ---------------------------
     if (req.method === "POST") {
+      if (!canManage) {
+        return res.status(403).json({ error: "Sin permisos" });
+      }
       const { name, userIds, id_agency } = req.body;
 
       // 1) Validaciones
