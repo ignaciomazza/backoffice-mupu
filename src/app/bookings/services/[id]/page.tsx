@@ -643,6 +643,9 @@ export default function ServicesPage() {
     ) {
       return "Punto de venta invalido para WSFE. Revisalo en ARCA y reintenta.";
     }
+    if (m.includes("cbtnro") || m.includes("cbtenro")) {
+      return "Numero de comprobante invalido. Revisá el punto de venta en ARCA.";
+    }
     if (
       m.includes("iva") ||
       m.includes("impuesto") ||

@@ -220,17 +220,29 @@ export async function createCreditNoteVoucher(
       pref?.selectedSalesPoint ?? null,
     );
 
-    const last = await afipClient.ElectronicBilling.getLastVoucher(
+    const lastRaw = await afipClient.ElectronicBilling.getLastVoucher(
       ptoVta,
       tipoNota,
     );
+    const last = Number(lastRaw);
+    if (!Number.isFinite(last) || last < 0) {
+      throw new Error("No se pudo obtener el ultimo comprobante.");
+    }
     const next = last + 1;
+    if (next > 99999999) {
+      throw new Error(
+        "El numero de comprobante supera el maximo permitido. Crea un nuevo punto de venta.",
+      );
+    }
 
-    const lastInfo = (await afipClient.ElectronicBilling.getVoucherInfo(
-      last,
-      ptoVta,
-      tipoNota,
-    ).catch(() => null)) as VoucherInfo;
+    const lastInfo =
+      last > 0
+        ? ((await afipClient.ElectronicBilling.getVoucherInfo(
+            last,
+            ptoVta,
+            tipoNota,
+          ).catch(() => null)) as VoucherInfo)
+        : null;
     const lastDate = lastInfo ? Number(lastInfo.CbteFch) : null;
 
     // ===== 6) Fecha de comprobante =====

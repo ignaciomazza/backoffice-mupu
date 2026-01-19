@@ -280,17 +280,29 @@ export async function createVoucherService(
       pref?.selectedSalesPoint ?? null,
     );
 
-    const lastVoucherNumber = await afipClient.ElectronicBilling.getLastVoucher(
+    const lastVoucherRaw = await afipClient.ElectronicBilling.getLastVoucher(
       ptoVta,
       tipoFactura,
     );
+    const lastVoucherNumber = Number(lastVoucherRaw);
+    if (!Number.isFinite(lastVoucherNumber) || lastVoucherNumber < 0) {
+      throw new Error("No se pudo obtener el ultimo comprobante.");
+    }
     const next = lastVoucherNumber + 1;
+    if (next > 99999999) {
+      throw new Error(
+        "El numero de comprobante supera el maximo permitido. Crea un nuevo punto de venta.",
+      );
+    }
 
-    const lastInfo = (await afipClient.ElectronicBilling.getVoucherInfo(
-      lastVoucherNumber,
-      ptoVta,
-      tipoFactura,
-    )) as LastInfo;
+    const lastInfo =
+      lastVoucherNumber > 0
+        ? ((await afipClient.ElectronicBilling.getVoucherInfo(
+            lastVoucherNumber,
+            ptoVta,
+            tipoFactura,
+          )) as LastInfo)
+        : null;
     const lastDate = lastInfo ? parseInt(String(lastInfo.CbteFch), 10) : null;
 
     // 5) Fechas
