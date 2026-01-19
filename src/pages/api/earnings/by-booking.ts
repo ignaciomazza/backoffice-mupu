@@ -1,7 +1,6 @@
 // src/pages/api/earnings/by-booking.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
-import { jwtVerify, type JWTPayload } from "jose";
 import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 import type { BillingAdjustmentConfig } from "@/types";
 import {
@@ -9,16 +8,7 @@ import {
   getFinanceSectionGrants,
 } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
-
-type TokenPayload = JWTPayload & {
-  id_user?: number;
-  userId?: number;
-  uid?: number;
-  id_agency?: number;
-  agencyId?: number;
-  aid?: number;
-  role?: string;
-};
+import { resolveAuth } from "@/lib/auth";
 
 function normalizeSaleTotals(
   input: unknown,
@@ -40,34 +30,12 @@ function normalizeSaleTotals(
   return out;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET!;
-if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
-
 async function getAuth(
   req: NextApiRequest,
 ): Promise<{ id_agency: number; id_user: number; role: string } | null> {
-  try {
-    const cookieTok = req.cookies?.token;
-    let token = cookieTok && typeof cookieTok === "string" ? cookieTok : null;
-    if (!token) {
-      const auth = req.headers.authorization || "";
-      if (auth.startsWith("Bearer ")) token = auth.slice(7);
-    }
-    if (!token) return null;
-
-    const { payload } = await jwtVerify(
-      token,
-      new TextEncoder().encode(JWT_SECRET),
-    );
-    const p = payload as TokenPayload;
-    const id_user = Number(p.id_user ?? p.userId ?? p.uid) || 0;
-    const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || 0;
-    const role = String(p.role || "");
-    if (!id_user || !id_agency) return null;
-    return { id_agency, id_user, role };
-  } catch {
-    return null;
-  }
+  const auth = await resolveAuth(req);
+  if (!auth) return null;
+  return { id_agency: auth.id_agency, id_user: auth.id_user, role: auth.role };
 }
 
 export default async function handler(

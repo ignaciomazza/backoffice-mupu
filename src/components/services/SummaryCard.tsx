@@ -134,6 +134,8 @@ const toNum = (v: number | string | null | undefined) => {
 // Busca un bookingId válido recorriendo los services.
 function pickBookingId(svcs: ServiceWithCalcs[]): number | undefined {
   for (const s of svcs) {
+    const direct = Number(s.booking_id);
+    if (Number.isFinite(direct) && direct > 0) return direct;
     const bid = s.booking?.id_booking;
     if (Number.isFinite(bid as number) && (bid as number) > 0)
       return bid as number;
