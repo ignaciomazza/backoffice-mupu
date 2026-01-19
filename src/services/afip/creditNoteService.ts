@@ -5,9 +5,11 @@ import qrcode from "qrcode";
 import {
   getAfipFromRequest,
   getAgencyCUITFromRequest,
+  getAgencyIdFromRequest,
   type AfipClient,
 } from "@/services/afip/afipConfig";
 import { resolveSalesPoint } from "@/services/afip/salesPoints";
+import prisma from "@/lib/prisma";
 
 export interface IVAEntry {
   Id: number; // 5 = 21%, 4 = 10.5%, 3 = Exento
@@ -208,7 +210,15 @@ export async function createCreditNoteVoucher(
     }
 
     // ===== 5) Punto de venta y numeración =====
-    const ptoVta = await resolveSalesPoint(afipClient);
+    const agencyId = await getAgencyIdFromRequest(req);
+    const pref = await prisma.agencyArcaConfig.findUnique({
+      where: { agencyId },
+      select: { selectedSalesPoint: true },
+    });
+    const ptoVta = await resolveSalesPoint(
+      afipClient,
+      pref?.selectedSalesPoint ?? null,
+    );
 
     const last = await afipClient.ElectronicBilling.getLastVoucher(
       ptoVta,

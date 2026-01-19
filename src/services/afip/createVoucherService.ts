@@ -1,9 +1,9 @@
 // src/services/afip/createVoucherService.ts
 import type { NextApiRequest } from "next";
-// import prisma from "@/lib/prisma";
 import {
   getAfipFromRequest,
   getAgencyCUITFromRequest,
+  getAgencyIdFromRequest,
   type AfipClient,
 } from "@/services/afip/afipConfig";
 import { resolveSalesPoint } from "@/services/afip/salesPoints";
@@ -13,6 +13,7 @@ import {
   computeManualTotals,
   type ManualTotalsInput,
 } from "@/services/afip/manualTotals";
+import prisma from "@/lib/prisma";
 
 /** ---------------- Tipos ---------------- */
 interface VoucherResponse {
@@ -269,7 +270,15 @@ export async function createVoucherService(
       throw new Error("AFIP no disponible");
     }
 
-    const ptoVta = await resolveSalesPoint(afipClient);
+    const agencyId = await getAgencyIdFromRequest(req);
+    const pref = await prisma.agencyArcaConfig.findUnique({
+      where: { agencyId },
+      select: { selectedSalesPoint: true },
+    });
+    const ptoVta = await resolveSalesPoint(
+      afipClient,
+      pref?.selectedSalesPoint ?? null,
+    );
 
     const lastVoucherNumber = await afipClient.ElectronicBilling.getLastVoucher(
       ptoVta,

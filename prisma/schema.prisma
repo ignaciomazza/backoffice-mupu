@@ -121,6 +121,8 @@ model AgencyArcaConfig {
   certEncrypted      String?
   keyEncrypted       String?
   authorizedServices String[] @default([])
+  salesPointsDetected Int[] @default([])
+  selectedSalesPoint  Int?
   status             String   @default("pending")
   lastError          String?
   lastOkAt           DateTime?

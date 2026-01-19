@@ -638,9 +638,10 @@ export default function ServicesPage() {
     if (
       m.includes("punto de venta") ||
       m.includes("feparamgetptosventa") ||
-      m.includes("ptovta")
+      m.includes("ptovta") ||
+      m.includes("seleccionado no esta habilitado")
     ) {
-      return "Falta punto de venta habilitado para WSFE. Crealo en ARCA y reintenta.";
+      return "Punto de venta invalido para WSFE. Revisalo en ARCA y reintenta.";
     }
     if (
       m.includes("iva") ||

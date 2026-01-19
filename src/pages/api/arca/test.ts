@@ -33,7 +33,11 @@ export default async function handler(
 
   const cfg = await prisma.agencyArcaConfig.findUnique({
     where: { agencyId: auth.id_agency },
-    select: { certEncrypted: true, keyEncrypted: true },
+    select: {
+      certEncrypted: true,
+      keyEncrypted: true,
+      selectedSalesPoint: true,
+    },
   });
   if (!cfg?.certEncrypted || !cfg?.keyEncrypted) {
     logArca("warn", "API test missing cert/key", { agencyId: auth.id_agency });
@@ -46,14 +50,43 @@ export default async function handler(
     const { serverStatus, salesPoints, missingSalesPoint } =
       await runArcaDiagnostics(afip);
 
+    const rawSelected =
+      req.body && typeof req.body === "object"
+        ? (req.body as { selectedSalesPoint?: unknown }).selectedSalesPoint
+        : undefined;
+    const parsedSelected =
+      typeof rawSelected === "number"
+        ? rawSelected
+        : typeof rawSelected === "string"
+          ? Number(rawSelected)
+          : NaN;
+    const inputSelected =
+      Number.isInteger(parsedSelected) && parsedSelected > 0
+        ? parsedSelected
+        : null;
+
+    const baseSelected =
+      inputSelected != null ? inputSelected : cfg?.selectedSalesPoint ?? null;
+    const selectionValid =
+      baseSelected != null ? salesPoints.includes(baseSelected) : false;
+    const nextSelected = missingSalesPoint
+      ? null
+      : selectionValid
+        ? baseSelected
+        : null;
+
     await prisma.agencyArcaConfig.update({
       where: { agencyId: auth.id_agency },
       data: {
         lastOkAt: new Date(),
         lastError: missingSalesPoint
           ? "Falta punto de venta para Web Services."
+          : baseSelected != null && !selectionValid
+            ? "El punto de venta seleccionado no esta habilitado para WSFE."
           : null,
         status: "connected",
+        salesPointsDetected: salesPoints,
+        selectedSalesPoint: nextSelected,
       },
     });
 
@@ -61,6 +94,9 @@ export default async function handler(
       ok: true,
       missingSalesPoint,
       salesPointsCount: salesPoints.length,
+      salesPoints,
+      selectedSalesPoint: nextSelected,
+      selectionValid: baseSelected != null ? selectionValid : null,
       serverStatus,
     });
   } catch (err) {

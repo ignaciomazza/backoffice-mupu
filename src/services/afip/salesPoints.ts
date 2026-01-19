@@ -5,6 +5,7 @@ type SalesPoint = { Nro: number };
 
 export async function resolveSalesPoint(
   afipClient: AfipClient,
+  preferred?: number | null,
 ): Promise<number> {
   const points = (await afipClient.ElectronicBilling.getSalesPoints().catch(
     () => [],
@@ -16,5 +17,13 @@ export async function resolveSalesPoint(
     );
   }
 
-  return Math.min(...points.map((p) => p.Nro));
+  const list = points.map((p) => p.Nro);
+  if (preferred != null) {
+    if (list.includes(preferred)) return preferred;
+    throw new Error(
+      "El punto de venta seleccionado no esta habilitado para WSFE.",
+    );
+  }
+
+  return Math.min(...list);
 }

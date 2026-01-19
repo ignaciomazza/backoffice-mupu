@@ -14,6 +14,8 @@ type ArcaConfig = {
   taxIdLogin: string;
   alias: string;
   authorizedServices: string[];
+  salesPointsDetected: number[];
+  selectedSalesPoint: number | null;
   status: string;
   lastError: string | null;
   lastOkAt: string | null;
@@ -113,6 +115,7 @@ export default function ArcaPage() {
   const [job, setJob] = useState<ArcaJob | null>(null);
   const [secretsKeyValid, setSecretsKeyValid] = useState<boolean | null>(null);
   const [secretsKeyError, setSecretsKeyError] = useState<string | null>(null);
+  const [salesPointChoice, setSalesPointChoice] = useState<string>("");
 
   const [step, setStep] = useState(1);
   const [missingPv, setMissingPv] = useState(false);
@@ -182,6 +185,7 @@ export default function ArcaPage() {
   const showPvHelp =
     missingPv ||
     (config?.lastError ?? "").toLowerCase().includes("punto de venta");
+  const salesPointsList = config?.salesPointsDetected ?? [];
 
   useEffect(() => {
     if (!token) return;
@@ -224,6 +228,15 @@ export default function ArcaPage() {
       services: ["wsfe"],
     }));
     setAliasHadInvalid(false);
+  }, [config]);
+
+  useEffect(() => {
+    if (!config) return;
+    if (config.selectedSalesPoint != null) {
+      setSalesPointChoice(String(config.selectedSalesPoint));
+    } else if (!config.salesPointsDetected?.length) {
+      setSalesPointChoice("");
+    }
   }, [config]);
 
   useEffect(() => {
@@ -294,29 +307,52 @@ export default function ArcaPage() {
     }
   };
 
-  const handleTest = async () => {
+  const handleTest = async (selected?: number | null) => {
     if (!token) return;
     setTesting(true);
     try {
+      const body =
+        selected != null
+          ? JSON.stringify({ selectedSalesPoint: selected })
+          : undefined;
       const res = await secureFetch(
         "/api/arca/test",
-        { method: "POST" },
+        { method: "POST", ...(body ? { body } : {}) },
         token,
       );
       const data = await safeJson<{
         ok?: boolean;
         missingSalesPoint?: boolean;
+        salesPoints?: number[];
+        selectedSalesPoint?: number | null;
+        selectionValid?: boolean | null;
         error?: string;
       }>(res);
       if (!res.ok) {
         throw new Error(data?.error || "No se pudo probar ARCA");
       }
       setMissingPv(Boolean(data?.missingSalesPoint));
-      toast.success(
-        data?.missingSalesPoint
-          ? "Conexión OK. Falta punto de venta."
-          : "Conexión ARCA OK.",
-      );
+      if (Array.isArray(data?.salesPoints)) {
+        setConfig((prev) =>
+          prev
+            ? {
+                ...prev,
+                salesPointsDetected: data.salesPoints ?? [],
+                selectedSalesPoint:
+                  data.selectedSalesPoint ?? prev.selectedSalesPoint,
+              }
+            : prev,
+        );
+      }
+      if (data?.selectionValid === false) {
+        toast.error(
+          "El punto de venta seleccionado no esta habilitado para WSFE.",
+        );
+      } else if (data?.missingSalesPoint) {
+        toast.info("Conexión OK. Falta punto de venta.");
+      } else {
+        toast.success("Conexión ARCA OK.");
+      }
       const st = await secureFetch("/api/arca", { method: "GET" }, token);
       const payload = await safeJson<ArcaStatusPayload>(st);
       if (st.ok && payload) {
@@ -844,18 +880,87 @@ export default function ArcaPage() {
                     <p className="text-sky-950/80 dark:text-white/80">Alias</p>
                     <p>{config?.alias || form.alias || "—"}</p>
                   </div>
+                  <div>
+                    <p className="text-sky-950/80 dark:text-white/80">
+                      Puntos de venta detectados
+                    </p>
+                    {salesPointsList.length ? (
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {salesPointsList.map((pv) => {
+                          const isSelected =
+                            pv === config?.selectedSalesPoint;
+                          return (
+                            <span
+                              key={pv}
+                              className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                                isSelected
+                                  ? "border-emerald-600/50 bg-emerald-200/60 text-emerald-900 dark:border-emerald-400/40 dark:bg-emerald-500/20 dark:text-emerald-50"
+                                  : "border-sky-950/10 bg-white/60 text-sky-900 dark:border-white/10 dark:bg-white/10 dark:text-white/80"
+                              }`}
+                            >
+                              {pv}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p>—</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sky-950/80 dark:text-white/80">
+                      Punto de venta seleccionado
+                    </p>
+                    <p>{config?.selectedSalesPoint ?? "—"}</p>
+                  </div>
                 </div>
               </div>
 
               <div className="rounded-3xl border border-sky-950/10 bg-white/40 p-5 shadow-md shadow-sky-950/10 backdrop-blur dark:border-white/10 dark:bg-white/10">
                 <h3 className="text-sm font-semibold">Acciones</h3>
                 <div className="mt-4 flex flex-col gap-3">
+                  <div className="rounded-2xl border border-sky-950/10 bg-white/60 p-3 text-xs text-sky-950/70 dark:border-white/10 dark:bg-white/10 dark:text-white/70">
+                    <p className="text-sky-950/80 dark:text-white/80">
+                      Punto de venta para facturar
+                    </p>
+                    <div className="mt-2 flex flex-col gap-2">
+                      <select
+                        value={salesPointChoice}
+                        onChange={(e) => setSalesPointChoice(e.target.value)}
+                        disabled={!salesPointsList.length || testing || isBusy}
+                        className="w-full rounded-2xl border border-sky-950/10 bg-white/70 px-3 py-2 text-sm text-sky-950 outline-none transition focus:border-sky-400/60 focus:ring-2 focus:ring-sky-200/60 disabled:cursor-not-allowed disabled:opacity-70 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:border-sky-300/40 dark:focus:ring-sky-400/30"
+                      >
+                        <option value="">
+                          {salesPointsList.length
+                            ? "Selecciona un punto"
+                            : "No hay puntos detectados"}
+                        </option>
+                        {salesPointsList.map((pv) => (
+                          <option key={pv} value={pv}>
+                            {pv}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] text-sky-950/60 dark:text-white/60">
+                        Se guarda al probar conexión y se usa para emitir
+                        facturas.
+                      </p>
+                    </div>
+                  </div>
                   <button
                     type="button"
                     disabled={
                       !config?.hasCert || !config?.hasKey || testing || isBusy
                     }
-                    onClick={handleTest}
+                    onClick={() => {
+                      const parsed = salesPointChoice.trim()
+                        ? Number(salesPointChoice)
+                        : NaN;
+                      const selected = Number.isFinite(parsed)
+                        ? parsed
+                        : null;
+                      void handleTest(selected);
+                    }}
                     className={`rounded-full px-4 py-2 text-sm shadow-sm transition-transform hover:scale-95 active:scale-90 disabled:cursor-not-allowed ${
                       config?.hasCert && config?.hasKey
                         ? "border border-sky-700/60 bg-sky-200/60 text-sky-950 dark:border-sky-400/40 dark:bg-sky-500/20 dark:text-white"

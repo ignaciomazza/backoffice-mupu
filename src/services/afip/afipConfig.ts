@@ -285,6 +285,29 @@ export async function getAfipFromRequest(
   return getAfipForAgency(agencyId);
 }
 
+export async function getAgencyIdFromRequest(
+  req: NextApiRequest,
+): Promise<number> {
+  const uid = await resolveUserIdFromRequest(req);
+  if (!uid) {
+    throw new Error(
+      "No se pudo resolver el usuario desde el request (x-user-id o token).",
+    );
+  }
+
+  const u = await prisma.user.findUnique({
+    where: { id_user: uid },
+    select: { id_agency: true },
+  });
+
+  const agencyId = u?.id_agency ?? 0;
+  if (!agencyId) {
+    throw new Error("El usuario no tiene agencia asociada.");
+  }
+
+  return agencyId;
+}
+
 /** ------------------------------------------------------------------------
  *  CUIT real de la agencia (para QR, auditoría, etc.)
  *  --------------------------------------------------------------------- */

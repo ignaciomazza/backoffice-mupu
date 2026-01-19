@@ -7,11 +7,12 @@ export async function runArcaDiagnostics(afip: AfipClient) {
     afip.ElectronicBilling.getSalesPoints().catch(() => []),
   ]);
 
-  const missingSalesPoint = salesPoints.length === 0;
+  const list = salesPoints.map((p) => p.Nro).sort((a, b) => a - b);
+  const missingSalesPoint = list.length === 0;
 
   return {
     serverStatus,
-    salesPoints,
+    salesPoints: list,
     missingSalesPoint,
   };
 }
