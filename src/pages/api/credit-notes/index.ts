@@ -6,7 +6,10 @@ import { listCreditNotes, createCreditNote } from "@/services/creditNotes";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 import { jwtVerify, type JWTPayload } from "jose";
 import { encodePublicId } from "@/lib/publicIds";
-import { getBookingComponentGrants } from "@/lib/accessControl";
+import {
+  canAccessBookingByRole,
+  getBookingComponentGrants,
+} from "@/lib/accessControl";
 import { canAccessBookingComponent } from "@/utils/permissions";
 
 /* ================= JWT SECRET (igual que bookings/invoices) ================= */
@@ -121,6 +124,14 @@ const querySchema = z.object({
   ),
 });
 
+// bookingId puede venir como "123" o ["123"]
+const bookingQuerySchema = z.object({
+  bookingId: z.preprocess(
+    (v) => (Array.isArray(v) ? v[0] : v),
+    z.coerce.number().int().positive("bookingId debe ser un número positivo"),
+  ),
+});
+
 const bodySchema = z.object({
   invoiceId: z
     .union([z.string(), z.number()])
@@ -176,15 +187,18 @@ export default async function handler(
         bookingGrants,
         "billing",
       );
-      if (!canBilling) {
-        return res.status(403).json({ success: false, message: "Sin permisos" });
-      }
+      const authUser = auth as DecodedUser;
 
       // rango de fechas (opcional)
       const fromStr = first(req.query.from as string | string[] | undefined);
       const toStr = first(req.query.to as string | string[] | undefined);
 
       if (fromStr && toStr) {
+        if (!canBilling) {
+          return res
+            .status(403)
+            .json({ success: false, message: "Sin permisos" });
+        }
         const fromInt = parseInt(fromStr.replace(/-/g, ""), 10);
         const toInt = parseInt(toStr.replace(/-/g, ""), 10);
 
@@ -254,6 +268,59 @@ export default async function handler(
         return res.status(200).json({ success: true, creditNotes: normalized });
       }
 
+      const bookingIdParam = req.query.bookingId;
+      if (bookingIdParam !== undefined) {
+        const parsedB = bookingQuerySchema.safeParse({
+          bookingId: bookingIdParam,
+        });
+        if (!parsedB.success) {
+          return res.status(400).json({
+            success: false,
+            message: parsedB.error.errors.map((e) => e.message).join(", "),
+          });
+        }
+        const bookingId = parsedB.data.bookingId;
+        const booking = await prisma.booking.findFirst({
+          where: { id_booking: bookingId, id_agency: auth.id_agency },
+          select: { id_booking: true, id_user: true, id_agency: true },
+        });
+        if (!booking) {
+          return res.status(403).json({
+            success: false,
+            message: "La reserva no pertenece a tu agencia.",
+          });
+        }
+        const canReadByRole = await canAccessBookingByRole(
+          authUser,
+          booking,
+        );
+        if (!canBilling && !canReadByRole) {
+          return res
+            .status(403)
+            .json({ success: false, message: "Sin permisos" });
+        }
+
+        const creditNotes = await prisma.creditNote.findMany({
+          where: {
+            id_agency: auth.id_agency,
+            invoice: { bookingId_booking: bookingId },
+          },
+          include: { items: true },
+        });
+        const normalized = creditNotes.map((note) => ({
+          ...note,
+          public_id:
+            note.agency_credit_note_id != null
+              ? encodePublicId({
+                  t: "credit_note",
+                  a: note.id_agency,
+                  i: note.agency_credit_note_id,
+                })
+              : null,
+        }));
+        return res.status(200).json({ success: true, creditNotes: normalized });
+      }
+
       // por invoiceId
       const parsedQ = querySchema.safeParse({ invoiceId: req.query.invoiceId });
       if (!parsedQ.success) {
@@ -270,7 +337,10 @@ export default async function handler(
           id_invoice: invoiceId,
           booking: { id_agency: auth.id_agency },
         },
-        select: { id_invoice: true },
+        select: {
+          id_invoice: true,
+          booking: { select: { id_user: true, id_agency: true } },
+        },
       });
       if (!belongs) {
         return res
@@ -279,6 +349,13 @@ export default async function handler(
             success: false,
             message: "La factura no pertenece a tu agencia.",
           });
+      }
+      const canReadByRole = await canAccessBookingByRole(
+        auth,
+        belongs.booking ?? { id_user: 0, id_agency: 0 },
+      );
+      if (!canBilling && !canReadByRole) {
+        return res.status(403).json({ success: false, message: "Sin permisos" });
       }
 
       const creditNotes: CreditNoteWithItems[] =

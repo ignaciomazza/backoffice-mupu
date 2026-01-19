@@ -139,6 +139,7 @@ interface ServicesContainerProps {
   handleCreditNoteSubmit: (e: React.FormEvent) => Promise<void>;
   isCreditNoteSubmitting: boolean;
   onPaymentCreated?: () => void;
+  operatorsReady?: boolean;
 }
 
 function cap(s: string | null | undefined): string {
@@ -327,6 +328,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     handleCreditNoteSubmit,
     isCreditNoteSubmitting,
     onPaymentCreated,
+    operatorsReady,
   } = props;
 
   const router = useRouter();
@@ -1116,6 +1118,8 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     bookingComponents,
     "billing",
   );
+  const canViewBilling =
+    canUseBilling || role === "vendedor" || role === "lider";
   const canUseOperatorPayments = canAccessBookingComponent(
     role,
     bookingComponents,
@@ -1510,6 +1514,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 token={token}
                 formData={formData}
                 operators={operators}
+                operatorsReady={operatorsReady}
                 handleChange={handleChange}
                 handleSubmit={handleSubmit}
                 editingServiceId={editingServiceId}
@@ -1812,7 +1817,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
               </div>
 
               {/* FACTURACIÓN */}
-              {canUseBilling &&
+              {canViewBilling &&
                 (services.length > 0 ||
                   invoices.length > 0 ||
                   creditNotes.length > 0) && (
@@ -1841,81 +1846,85 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                         </div>
                       </div>
 
-                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                        <div className="inline-flex rounded-full border border-white/15 bg-white/30 p-1 backdrop-blur dark:bg-white/5">
-                          <button
-                            type="button"
-                            onClick={() => openBillingForm("invoice")}
-                            className={`${billingModeBase} ${
-                              billingMode === "invoice"
-                                ? billingModeInvoiceActive
-                                : billingModeInactive
-                            }`}
-                          >
-                            Factura
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openBillingForm("credit")}
-                            className={`${billingModeBase} ${
-                              billingMode === "credit"
-                                ? billingModeCreditActive
-                                : billingModeInactive
-                            }`}
-                          >
-                            Nota de crédito
-                          </button>
-                        </div>
+                      {canUseBilling && (
+                        <>
+                          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                            <div className="inline-flex rounded-full border border-white/15 bg-white/30 p-1 backdrop-blur dark:bg-white/5">
+                              <button
+                                type="button"
+                                onClick={() => openBillingForm("invoice")}
+                                className={`${billingModeBase} ${
+                                  billingMode === "invoice"
+                                    ? billingModeInvoiceActive
+                                    : billingModeInactive
+                                }`}
+                              >
+                                Factura
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openBillingForm("credit")}
+                                className={`${billingModeBase} ${
+                                  billingMode === "credit"
+                                    ? billingModeCreditActive
+                                    : billingModeInactive
+                                }`}
+                              >
+                                Nota de crédito
+                              </button>
+                            </div>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setIsBillingFormVisible((prev) => !prev)
-                          }
-                          className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
-                            billingMode === "invoice"
-                              ? "border-emerald-300/40 bg-emerald-100/60 text-emerald-900 shadow-sm shadow-emerald-900/10 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-100"
-                              : "border-rose-300/40 bg-rose-100/60 text-rose-900 shadow-sm shadow-rose-900/10 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-100"
-                          }`}
-                        >
-                          {isBillingFormVisible
-                            ? "Cerrar formulario"
-                            : "Crear comprobante"}
-                        </button>
-                      </div>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setIsBillingFormVisible((prev) => !prev)
+                              }
+                              className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                                billingMode === "invoice"
+                                  ? "border-emerald-300/40 bg-emerald-100/60 text-emerald-900 shadow-sm shadow-emerald-900/10 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-100"
+                                  : "border-rose-300/40 bg-rose-100/60 text-rose-900 shadow-sm shadow-rose-900/10 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-100"
+                              }`}
+                            >
+                              {isBillingFormVisible
+                                ? "Cerrar formulario"
+                                : "Crear comprobante"}
+                            </button>
+                          </div>
 
-                      {isBillingFormVisible && (
-                        <div className="mt-4">
-                          {billingMode === "invoice" ? (
-                            <InvoiceForm
-                              formData={invoiceFormData}
-                              availableServices={availableServices}
-                              handleChange={handleInvoiceChange}
-                              handleSubmit={handleInvoiceSubmit}
-                              isFormVisible={isBillingFormVisible}
-                              setIsFormVisible={setIsBillingFormVisible}
-                              updateFormData={updateFormData}
-                              isSubmitting={isSubmitting}
-                              token={token}
-                              collapsible={false}
-                              containerClassName="mb-0"
-                            />
-                          ) : (
-                            <CreditNoteForm
-                              formData={creditNoteFormData}
-                              invoices={invoices}
-                              handleChange={handleCreditNoteChange}
-                              handleSubmit={handleLocalCreditNoteSubmit}
-                              isFormVisible={isBillingFormVisible}
-                              setIsFormVisible={setIsBillingFormVisible}
-                              updateFormData={updateCreditNoteFormData}
-                              isSubmitting={isCreditNoteSubmitting}
-                              token={token}
-                              collapsible={false}
-                              containerClassName="mb-0"
-                            />
+                          {isBillingFormVisible && (
+                            <div className="mt-4">
+                              {billingMode === "invoice" ? (
+                                <InvoiceForm
+                                  formData={invoiceFormData}
+                                  availableServices={availableServices}
+                                  handleChange={handleInvoiceChange}
+                                  handleSubmit={handleInvoiceSubmit}
+                                  isFormVisible={isBillingFormVisible}
+                                  setIsFormVisible={setIsBillingFormVisible}
+                                  updateFormData={updateFormData}
+                                  isSubmitting={isSubmitting}
+                                  token={token}
+                                  collapsible={false}
+                                  containerClassName="mb-0"
+                                />
+                              ) : (
+                                <CreditNoteForm
+                                  formData={creditNoteFormData}
+                                  invoices={invoices}
+                                  handleChange={handleCreditNoteChange}
+                                  handleSubmit={handleLocalCreditNoteSubmit}
+                                  isFormVisible={isBillingFormVisible}
+                                  setIsFormVisible={setIsBillingFormVisible}
+                                  updateFormData={updateCreditNoteFormData}
+                                  isSubmitting={isCreditNoteSubmitting}
+                                  token={token}
+                                  collapsible={false}
+                                  containerClassName="mb-0"
+                                />
+                              )}
+                            </div>
                           )}
-                        </div>
+                        </>
                       )}
                     </div>
 

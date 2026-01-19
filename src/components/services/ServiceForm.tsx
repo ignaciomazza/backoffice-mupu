@@ -71,6 +71,8 @@ type ServiceFormProps = {
   canOverrideBillingMode?: boolean;
   /** Usa venta total por reserva (desactiva venta por servicio) */
   useBookingSaleTotal?: boolean;
+  /** Indica que ya cargaron operadores (aunque estén vacíos) */
+  operatorsReady?: boolean;
 };
 
 /* ---------- helpers UI ---------- */
@@ -457,6 +459,7 @@ export default function ServiceForm({
   transferFeeReady,
   canOverrideBillingMode = false,
   useBookingSaleTotal = false,
+  operatorsReady,
 }: ServiceFormProps) {
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -501,6 +504,13 @@ export default function ServiceForm({
     FinanceCurrency[] | null
   >(null);
   const [loadingCurrencies, setLoadingCurrencies] = useState(false);
+
+  const formReady =
+    transferFeeReady &&
+    !loadingTypes &&
+    !loadingAgencyCfg &&
+    !loadingCurrencies &&
+    (operatorsReady ?? true);
 
   /* ==========================================
    * Pipeline al ABRIR el formulario (secuencial)
@@ -1014,13 +1024,18 @@ export default function ServiceForm({
               <p className="text-lg font-semibold">
                 {editingServiceId ? "Editar Servicio" : "Agregar Servicio"}
               </p>
-              {(loadingTypes || loadingCfg || loadingAgencyCfg) && (
+              {(loadingTypes ||
+                loadingCfg ||
+                loadingAgencyCfg ||
+                loadingCurrencies) && (
                 <p className="text-xs text-sky-950/70 dark:text-white/70">
                   {loadingTypes
                     ? "Cargando tipos..."
                     : loadingCfg
                       ? "Aplicando configuración del tipo..."
-                      : "Leyendo configuración de la agencia..."}
+                      : loadingCurrencies
+                        ? "Cargando monedas..."
+                        : "Leyendo configuración de la agencia..."}
                 </p>
               )}
             </div>
@@ -1049,11 +1064,22 @@ export default function ServiceForm({
             exit={{ opacity: 0 }}
             className="relative"
           >
-            <motion.form
-              id="service-form-body"
-              onSubmit={onLocalSubmit}
-              className="space-y-5 px-4 pb-6 pt-4 md:px-6"
-            >
+            {!formReady ? (
+              <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 px-6 py-8 text-sm text-sky-950/70 dark:text-white/70">
+                <Spinner />
+                <div className="text-center">
+                  <p className="text-sm font-medium">Preparando formulario</p>
+                  <p className="text-xs">
+                    Cargando tipos, operadores y configuraciones…
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <motion.form
+                id="service-form-body"
+                onSubmit={onLocalSubmit}
+                className="space-y-5 px-4 pb-6 pt-4 md:px-6"
+              >
               {/* DATOS BÁSICOS */}
               <Section
                 title="Datos básicos"
@@ -1594,7 +1620,8 @@ export default function ServiceForm({
                   )}
                 </button>
               </div>
-            </motion.form>
+              </motion.form>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

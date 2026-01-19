@@ -4,7 +4,10 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { jwtVerify, type JWTPayload } from "jose";
-import { getBookingComponentGrants } from "@/lib/accessControl";
+import {
+  canAccessBookingByRole,
+  getBookingComponentGrants,
+} from "@/lib/accessControl";
 import { canAccessBookingComponent } from "@/utils/permissions";
 
 type TokenPayload = JWTPayload & {
@@ -120,9 +123,6 @@ export default async function handler(
     bookingGrants,
     "billing",
   );
-  if (!canBilling) {
-    return res.status(403).json({ success: false, message: "Sin permisos" });
-  }
 
   const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   if (!rawId) {
@@ -170,6 +170,13 @@ export default async function handler(
     return res
       .status(404)
       .json({ success: false, message: "Nota de crédito no encontrada" });
+  }
+  const canReadByRole = await canAccessBookingByRole(auth, {
+    id_user: creditNote.invoice?.booking?.id_user ?? 0,
+    id_agency: creditNote.invoice?.booking?.id_agency ?? 0,
+  });
+  if (!canBilling && !canReadByRole) {
+    return res.status(403).json({ success: false, message: "Sin permisos" });
   }
 
   const public_id =

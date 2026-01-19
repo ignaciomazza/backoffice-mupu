@@ -27,6 +27,7 @@ import {
   computeManualTotals,
   type ManualTotalsInput,
 } from "@/services/afip/manualTotals";
+import { normalizeRole as normalizeRoleValue } from "@/utils/permissions";
 
 // ===== Cookies utils =====
 type Role =
@@ -34,6 +35,7 @@ type Role =
   | "gerente"
   | "equipo"
   | "vendedor"
+  | "lider"
   | "administrativo"
   | "marketing";
 
@@ -51,19 +53,15 @@ function readRoleFromCookie(): Role | "" {
 }
 
 function normalizeRole(raw: unknown): Role | "" {
-  const s = String(raw ?? "")
-    .trim()
-    .toLowerCase();
+  const s = normalizeRoleValue(String(raw ?? ""));
   if (!s) return "";
-  if (["admin", "administrador", "administrativa"].includes(s))
-    return "administrativo";
-  if (["dev", "developer"].includes(s)) return "desarrollador";
   return (
     [
       "desarrollador",
       "gerente",
       "equipo",
       "vendedor",
+      "lider",
       "administrativo",
       "marketing",
     ] as const
@@ -76,6 +74,25 @@ type AnyRecord = Record<string, unknown>;
 
 function isRecord(v: unknown): v is AnyRecord {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+type BookingPayload = Booking & {
+  services?: Service[];
+  invoices?: Invoice[];
+  Receipt?: Receipt[];
+};
+
+function pickBookingServices(booking: BookingPayload): Service[] {
+  return Array.isArray(booking.services) ? booking.services : [];
+}
+
+function pickBookingInvoices(booking: BookingPayload): Invoice[] {
+  return Array.isArray(booking.invoices) ? booking.invoices : [];
+}
+
+function pickBookingReceipts(booking: BookingPayload): Receipt[] {
+  const raw = Array.isArray(booking.Receipt) ? booking.Receipt : [];
+  return raw.map(coerceReceipt).filter((r) => r.id_receipt > 0);
 }
 
 function extractReceiptsArray(json: unknown): unknown[] {
@@ -127,6 +144,7 @@ export default function ServicesPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [booking, setBooking] = useState<Booking | null>(null);
   const [operators, setOperators] = useState<Operator[]>([]);
+  const [operatorsReady, setOperatorsReady] = useState(false);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [creditNotes, setCreditNotes] = useState<CreditNoteWithItems[]>([]);
@@ -309,11 +327,47 @@ export default function ServicesPage() {
   );
 
   const fetchCreditNotes = useCallback(
-    async (invs: Invoice[], signal?: AbortSignal) => {
-      if (!token || invs.length === 0) {
+    async (
+      bookingId: number | null,
+      invs: Invoice[],
+      signal?: AbortSignal,
+    ) => {
+      if (!token || (!bookingId && invs.length === 0)) {
         if (mountedRef.current) setCreditNotes([]);
         return [];
       }
+
+      if (bookingId) {
+        try {
+          const res = await authFetch(
+            `/api/credit-notes?bookingId=${bookingId}`,
+            { cache: "no-store", signal },
+            token,
+          );
+          if (res.ok) {
+            const json = await res.json();
+            const items = Array.isArray(json?.creditNotes)
+              ? (json.creditNotes as CreditNoteWithItems[])
+              : [];
+            if (mountedRef.current) setCreditNotes(items);
+            return items;
+          }
+          if (res.status !== 404 && res.status !== 405) {
+            if (mountedRef.current) setCreditNotes([]);
+            return [];
+          }
+          // 404/405: fallback al modo invoiceId (compat)
+        } catch {
+          if (mountedRef.current) setCreditNotes([]);
+          return [];
+        }
+      }
+
+      if (invs.length === 0) {
+        if (mountedRef.current) setCreditNotes([]);
+        return [];
+      }
+
       try {
         const all = await Promise.all(
           invs.map(async (inv) => {
@@ -343,6 +397,7 @@ export default function ServicesPage() {
   const fetchOperatorsByAgency = useCallback(
     async (agencyId: number, signal?: AbortSignal) => {
       if (!token || !agencyId) return [];
+      if (mountedRef.current) setOperatorsReady(false);
       const res = await authFetch(
         `/api/operators?agencyId=${agencyId}`,
         { cache: "no-store", signal },
@@ -351,12 +406,13 @@ export default function ServicesPage() {
       if (!res.ok) throw new Error("Error al obtener operadores");
       const data = (await res.json()) as Operator[];
       if (mountedRef.current) setOperators(data);
+      if (mountedRef.current) setOperatorsReady(true);
       return data;
     },
     [token],
   );
 
-  // Carga secuencial: booking → services → (invoices → creditNotes) → receipts → operators
+  // Carga: booking → seeds → fetches secuenciales (sin colapsar)
   useEffect(() => {
     if (!id || !token) return;
     const ac = new AbortController();
@@ -372,23 +428,67 @@ export default function ServicesPage() {
           token,
         );
         if (!res.ok) throw new Error("Error al obtener la reserva");
-        const bk: Booking = await res.json();
+        const bk = (await res.json()) as BookingPayload;
         if (!mountedRef.current) return;
         setBooking(bk);
 
-        // 2) Services
-        await fetchServices(bk.id_booking, ac.signal);
+        const seededServices = pickBookingServices(bk);
+        const seededInvoices = pickBookingInvoices(bk);
+        const seededReceipts = pickBookingReceipts(bk);
 
-        // 3) Invoices → Credit notes
-        const invs = await fetchInvoices(bk.id_booking, ac.signal);
-        await fetchCreditNotes(invs, ac.signal);
+        if (seededServices.length) setServices(seededServices);
+        if (seededInvoices.length) setInvoices(seededInvoices);
+        if (seededReceipts.length) setReceipts(seededReceipts);
 
-        // 4) Receipts
-        await fetchReceipts(bk.id_booking, ac.signal);
+        const bookingId = bk.id_booking;
 
-        // 5) Operators por agencia
+        let invoicesFinal = seededInvoices;
+
+        try {
+          if (!seededServices.length) {
+            await fetchServices(bookingId, ac.signal);
+          }
+        } catch {
+          if (!seededServices.length) {
+            toast.error("No se pudieron cargar los servicios.");
+          }
+        }
+
+        try {
+          if (!seededInvoices.length) {
+            invoicesFinal = await fetchInvoices(bookingId, ac.signal);
+          }
+        } catch {
+          if (!seededInvoices.length) {
+            toast.error("No se pudieron cargar las facturas.");
+          }
+        }
+
+        try {
+          await fetchCreditNotes(bookingId, invoicesFinal, ac.signal);
+        } catch {
+          // silencioso: evita cortar la carga por notas
+        }
+
+        try {
+          if (!seededReceipts.length) {
+            await fetchReceipts(bookingId, ac.signal);
+          }
+        } catch {
+          if (!seededReceipts.length) {
+            toast.error("No se pudieron cargar los recibos.");
+          }
+        }
+
         if (bk?.agency?.id_agency) {
-          await fetchOperatorsByAgency(bk.agency.id_agency, ac.signal);
+          try {
+            await fetchOperatorsByAgency(bk.agency.id_agency, ac.signal);
+          } catch {
+            toast.error("No se pudieron cargar los operadores.");
+            if (mountedRef.current) setOperatorsReady(true);
+          }
+        } else if (mountedRef.current) {
+          setOperatorsReady(true);
         }
       } catch (e) {
         const msg =
@@ -961,7 +1061,9 @@ export default function ServicesPage() {
 
   const handleBookingUpdated = (updated: Booking) => setBooking(updated);
   const handleCreditNoteCreated = () => {
-    if (invoices.length) void fetchCreditNotes(invoices);
+    if (booking?.id_booking) {
+      void fetchCreditNotes(booking.id_booking, invoices);
+    }
   };
 
   const handleInvoiceUpdated = useCallback((updated: Invoice) => {
@@ -1024,6 +1126,7 @@ export default function ServicesPage() {
           updateCreditNoteFormData={updateCreditNoteFormData}
           handleCreditNoteSubmit={handleCreditNoteSubmit}
           isCreditNoteSubmitting={isCreditNoteSubmitting}
+          operatorsReady={operatorsReady}
         />
       )}
     </ProtectedRoute>

@@ -5,6 +5,7 @@ import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { Prisma } from "@prisma/client";
 import { jwtVerify, JWTPayload } from "jose";
 import {
+  canAccessBookingByRole,
   getBookingComponentGrants,
   getFinanceSectionGrants,
 } from "@/lib/accessControl";
@@ -333,6 +334,7 @@ export default async function handler(
   if (!authUserId || !authAgencyId) {
     return res.status(401).json({ error: "No autenticado" });
   }
+  const auth = authUser as DecodedUser;
 
   const financeGrants = await getFinanceSectionGrants(
     authAgencyId,
@@ -366,17 +368,23 @@ export default async function handler(
   }
 
   if (req.method === "GET") {
-    if (!canReceipts && !canReceiptsForm) {
-      return res.status(403).json({ error: "Sin permisos" });
-    }
     try {
       await ensureReceiptInAgency(id, authAgencyId);
       const receipt = await prisma.receipt.findUnique({
         where: { id_receipt: id },
-        include: { payments: true },
+        include: { payments: true, booking: true },
       });
       if (!receipt)
         return res.status(404).json({ error: "Recibo no encontrado" });
+      const canReadByRole = receipt.booking
+        ? await canAccessBookingByRole(auth, {
+            id_user: receipt.booking.id_user,
+            id_agency: receipt.booking.id_agency,
+          })
+        : false;
+      if (!canReceipts && !canReceiptsForm && !canReadByRole) {
+        return res.status(403).json({ error: "Sin permisos" });
+      }
 
       const public_id =
         receipt.agency_receipt_id != null && receipt.id_agency != null
@@ -386,10 +394,12 @@ export default async function handler(
               i: receipt.agency_receipt_id,
             })
           : null;
+      const { booking, ...receiptData } = receipt;
+      void booking;
 
       return res.status(200).json({
         receipt: {
-          ...receipt,
+          ...receiptData,
           public_id,
           payments: normalizePaymentsFromReceipt(receipt),
         },

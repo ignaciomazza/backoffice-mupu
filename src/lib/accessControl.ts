@@ -4,6 +4,7 @@ import {
   canAccessAnyFinanceSection,
   canAccessBookingComponent,
   canAccessFinanceSection,
+  normalizeRole,
   normalizeBookingComponentRules,
   normalizeFinanceSectionRules,
   pickBookingComponentRule,
@@ -11,6 +12,43 @@ import {
   type BookingComponentKey,
   type FinanceSectionKey,
 } from "@/utils/permissions";
+
+const ADMIN_ROLES = new Set(["desarrollador", "gerente", "administrativo"]);
+
+async function getLeaderScope(authUserId: number, authAgencyId: number) {
+  const teams = await prisma.salesTeam.findMany({
+    where: {
+      id_agency: authAgencyId,
+      user_teams: { some: { user: { id_user: authUserId, role: "lider" } } },
+    },
+    include: { user_teams: { select: { id_user: true } } },
+  });
+  const userIds = new Set<number>([authUserId]);
+  teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
+  return { userIds: Array.from(userIds) };
+}
+
+export async function canAccessBookingByRole(
+  auth: {
+    id_user?: number | null;
+    id_agency?: number | null;
+    role?: string | null;
+  },
+  booking: { id_user: number; id_agency: number },
+): Promise<boolean> {
+  if (!auth?.id_user || !auth.id_agency) return false;
+  if (!booking?.id_user || !booking.id_agency) return false;
+  if (booking.id_agency !== auth.id_agency) return false;
+
+  const role = normalizeRole(auth.role);
+  if (ADMIN_ROLES.has(role)) return true;
+  if (role === "vendedor") return booking.id_user === auth.id_user;
+  if (role === "lider") {
+    const scope = await getLeaderScope(auth.id_user, auth.id_agency);
+    return scope.userIds.includes(booking.id_user);
+  }
+  return role !== "";
+}
 
 export async function getFinanceSectionGrants(
   id_agency?: number | null,

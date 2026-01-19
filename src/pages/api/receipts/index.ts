@@ -5,6 +5,7 @@ import { jwtVerify, JWTPayload } from "jose";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { encodePublicId } from "@/lib/publicIds";
 import {
+  canAccessBookingByRole,
   getBookingComponentGrants,
   getFinanceSectionGrants,
 } from "@/lib/accessControl";
@@ -259,15 +260,19 @@ function normalizePaymentsFromReceipt(r: unknown): ReceiptPaymentOut[] {
   return [];
 }
 
-async function ensureBookingInAgency(bookingId: number, agencyId: number) {
+async function ensureBookingInAgency(
+  bookingId: number,
+  agencyId: number,
+): Promise<{ id_booking: number; id_agency: number; id_user: number }> {
   const b = await prisma.booking.findUnique({
     where: { id_booking: bookingId },
-    select: { id_booking: true, id_agency: true },
+    select: { id_booking: true, id_agency: true, id_user: true },
   });
 
   if (!b) throw new Error("La reserva no existe.");
   if (b.id_agency !== agencyId)
     throw new Error("La reserva no pertenece a tu agencia.");
+  return b;
 }
 
 async function nextReceiptNumberForBooking(bookingId: number) {
@@ -314,6 +319,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     if (!authUserId || !authAgencyId) {
       return res.status(401).json({ error: "No autenticado" });
     }
+    const auth = authUser as DecodedUser;
 
     // ====== Modo detalle: por booking ======
     const bookingIdParam = Array.isArray(req.query.bookingId)
@@ -349,12 +355,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       );
     }
 
-    if (!canReceipts && !canVerify && !canBookingReceipts) {
-      return res.status(403).json({ error: "Sin permisos" });
-    }
-
     if (Number.isFinite(bookingId)) {
-      await ensureBookingInAgency(bookingId, authAgencyId);
+      const booking = await ensureBookingInAgency(bookingId, authAgencyId);
+      const canReadByRole = await canAccessBookingByRole(auth, booking);
+      if (!canReceipts && !canVerify && !canBookingReceipts && !canReadByRole) {
+        return res.status(403).json({ error: "Sin permisos" });
+      }
 
       const receipts = await prisma.receipt.findMany({
         where: { booking: { id_booking: bookingId } },
@@ -376,6 +382,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       }));
 
       return res.status(200).json({ receipts: normalized });
+    }
+    if (!canReceipts && !canVerify) {
+      return res.status(403).json({ error: "Sin permisos" });
     }
 
     // ====== Listado mixto (por filtros) ======

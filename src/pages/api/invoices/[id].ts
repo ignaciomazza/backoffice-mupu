@@ -6,7 +6,10 @@ import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { jwtVerify, type JWTPayload } from "jose";
-import { getBookingComponentGrants } from "@/lib/accessControl";
+import {
+  canAccessBookingByRole,
+  getBookingComponentGrants,
+} from "@/lib/accessControl";
 import { canAccessBookingComponent } from "@/utils/permissions";
 
 /* ================= JWT SECRET (igual que invoices/index) ================= */
@@ -146,9 +149,6 @@ export default async function handler(
     bookingGrants,
     "billing",
   );
-  if (!canBilling) {
-    return res.status(403).json({ success: false, message: "Sin permisos" });
-  }
 
   if (req.method === "GET") {
     const invoice = await prisma.invoice.findFirst({
@@ -167,6 +167,13 @@ export default async function handler(
         .status(404)
         .json({ success: false, message: "Factura no encontrada" });
     }
+    const canReadByRole = await canAccessBookingByRole(auth, {
+      id_user: invoice.booking?.id_user ?? 0,
+      id_agency: invoice.booking?.id_agency ?? 0,
+    });
+    if (!canBilling && !canReadByRole) {
+      return res.status(403).json({ success: false, message: "Sin permisos" });
+    }
 
     const public_id =
       invoice.agency_invoice_id != null
@@ -183,6 +190,9 @@ export default async function handler(
   }
 
   if (req.method === "PATCH") {
+    if (!canBilling) {
+      return res.status(403).json({ success: false, message: "Sin permisos" });
+    }
     let rawBody: unknown = req.body;
     if (typeof rawBody === "string") {
       try {

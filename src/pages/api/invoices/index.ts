@@ -5,7 +5,10 @@ import prisma from "@/lib/prisma";
 import { listInvoices, createInvoices } from "@/services/invoices";
 import { encodePublicId } from "@/lib/publicIds";
 import { jwtVerify, type JWTPayload } from "jose";
-import { getBookingComponentGrants } from "@/lib/accessControl";
+import {
+  canAccessBookingByRole,
+  getBookingComponentGrants,
+} from "@/lib/accessControl";
 import { canAccessBookingComponent } from "@/utils/permissions";
 
 /* ================= JWT SECRET (igual que bookings) ================= */
@@ -191,15 +194,17 @@ export default async function handler(
         bookingGrants,
         "billing",
       );
-      if (!canBilling) {
-        return res.status(403).json({ success: false, message: "Sin permisos" });
-      }
 
       // rango de fechas opcional
       const fromStr = first(req.query.from as string | string[] | undefined);
       const toStr = first(req.query.to as string | string[] | undefined);
 
       if (fromStr && toStr) {
+        if (!canBilling) {
+          return res
+            .status(403)
+            .json({ success: false, message: "Sin permisos" });
+        }
         const fromInt = parseInt(fromStr.replace(/-/g, ""), 10);
         const toInt = parseInt(toStr.replace(/-/g, ""), 10);
 
@@ -284,7 +289,7 @@ export default async function handler(
       // valida que la reserva sea de la agencia del usuario
       const booking = await prisma.booking.findFirst({
         where: { id_booking: bookingId, id_agency: auth.id_agency },
-        select: { id_booking: true },
+        select: { id_booking: true, id_agency: true, id_user: true },
       });
       if (!booking) {
         return res
@@ -293,6 +298,10 @@ export default async function handler(
             success: false,
             message: "Reserva no pertenece a tu agencia.",
           });
+      }
+      const canReadByRole = await canAccessBookingByRole(auth, booking);
+      if (!canBilling && !canReadByRole) {
+        return res.status(403).json({ success: false, message: "Sin permisos" });
       }
 
       const invoices = await listInvoices(bookingId);
