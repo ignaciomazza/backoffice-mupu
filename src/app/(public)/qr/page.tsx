@@ -6,10 +6,7 @@ import type React from "react";
 import { useState } from "react";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
-import {
-  trackCompleteRegistration,
-  trackContact,
-} from "@/lib/meta/pixel";
+import { trackCompleteRegistration, trackContact } from "@/lib/meta/pixel";
 
 /* ===========================
  * Config
@@ -20,10 +17,6 @@ const WA_URL = `https://wa.me/${WA_NUMBER}?text=${WA_MSG}`;
 const handleWhatsAppClick = () => {
   trackContact({ content_name: "qr_whatsapp" });
 };
-
-// Meses de prueba (cambiá este número si modificás la promo)
-const TRIAL_MONTHS = 3;
-const TRIAL_LABEL = `${TRIAL_MONTHS} meses`;
 
 /* ===========================
  * Pricing helpers (versión simple)
@@ -310,9 +303,8 @@ function QuickQuoteBlock({
         Detalle de la cotización (después de la prueba)
       </legend>
       <p className="mb-3 mt-1 text-[11px] text-sky-950/60">
-        Esto es una estimación mensual para cuando termine tu período de prueba
-        de {TRIAL_LABEL}. Ahora es gratis; esto es solo referencia si después
-        decidís seguir.
+        Esto es una estimación mensual para cuando termine tu período de prueba.
+        Ahora es gratis; esto es solo referencia si después decidís seguir.
       </p>
 
       {/* Plan selector */}
@@ -403,8 +395,8 @@ function QuickQuoteBlock({
           Estimado aprox: USD {total.toFixed(2)} / mes
         </div>
         <div className="text-[11px] text-sky-950/60">
-          Monto de referencia si decidís continuar después de {TRIAL_LABEL} de
-          prueba. + IVA. Puede variar según la configuración final.
+          Monto de referencia si decidís continuar después de prueba. + IVA.
+          Puede variar según la configuración final.
         </div>
       </div>
     </fieldset>
@@ -588,8 +580,7 @@ function QuickLeadForm() {
               </h3>
               <p className="mt-2 text-sm text-emerald-900/80">
                 Guardá estos datos o sacale una captura antes de cerrar esta
-                página. Con este usuario vas a poder entrar a Ofistur durante{" "}
-                {TRIAL_LABEL} sin costo.
+                página. Con este usuario vas a poder entrar a Ofistur sin costo.
               </p>
             </div>
           </div>
@@ -755,9 +746,8 @@ function QuickLeadForm() {
               </span>
             </button>
             <p className="mt-1 text-[11px]">
-              Tenés {TRIAL_LABEL} de prueba sin costo. Esto solo te muestra una
-              referencia de cuánto podrías pagar después si decidís seguir
-              usando Ofistur.
+              Esto solo te muestra una referencia de cuánto podrías pagar
+              después si decidís seguir usando Ofistur.
             </p>
           </div>
 
@@ -817,7 +807,7 @@ function QuickLeadForm() {
       </div>
 
       <p className="mt-2 text-[11px] text-sky-950/60">
-        Hasta {TRIAL_LABEL} sin costo. Después decidís si seguís o no.
+        Después decidís si seguís o no.
       </p>
 
       {errorMsg && <p className="mt-3 text-sm text-red-600">{errorMsg}</p>}
@@ -851,25 +841,17 @@ export default function QRContactPage() {
           <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[12px] font-medium text-sky-950/80 shadow-sm shadow-sky-950/10 backdrop-blur">
             <img src="/logo.png" alt="" className="size-6" />
             <span className="font-semibold text-sky-950">Ofistur</span>
-            <span className="text-sky-950/60">
-              Acceso de prueba ·{" "}
-              <span className="font-semibold text-emerald-700">
-                {TRIAL_LABEL}
-              </span>
-            </span>
+            <span className="text-sky-950/60">Acceso de prueba · </span>
           </div>
 
           <div>
             <h1 className="text-3xl font-semibold leading-tight tracking-tight text-sky-950">
-              Probá Ofistur{" "}
-              <span className="text-emerald-800">{TRIAL_LABEL} sin costo</span>{" "}
-              con un acceso real
+              Probá Ofistur con un acceso real
             </h1>
             <p className="mx-auto mt-2 max-w-md text-sm text-sky-950/70">
               Dejá tus datos y te armamos una agencia de prueba con un usuario
-              real. Durante {TRIAL_LABEL} no pagás nada. La cotización opcional
-              es solo para que veas cuánto podría salir después si decidís
-              seguir.
+              real. La cotización opcional es solo para que veas cuánto podría
+              salir después si decidís seguir.
             </p>
           </div>
 
