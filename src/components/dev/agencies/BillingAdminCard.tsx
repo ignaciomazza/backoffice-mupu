@@ -6,10 +6,13 @@ import { toast } from "react-toastify";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import {
+  IVA_RATE,
   PLAN_DATA,
+  applyVat,
   calcExtraUsersCost,
   calcInfraCost,
-  calcMonthlyBase,
+  calcMonthlyBaseWithVat,
+  calcVatFromTotal,
   type PlanKey,
 } from "@/lib/billing/pricing";
 
@@ -26,7 +29,7 @@ type BillingConfig = {
 
 type Adjustment = {
   id_adjustment: number;
-  kind: "tax" | "discount";
+  kind: "discount" | "tax";
   mode: "percent" | "fixed";
   value: number;
   currency?: string | null;
@@ -41,6 +44,8 @@ type Charge = {
   period_start?: string | null;
   period_end?: string | null;
   status: string;
+  charge_kind?: string | null;
+  label?: string | null;
   base_amount_usd: number;
   adjustments_total_usd: number;
   total_usd: number;
@@ -55,9 +60,7 @@ type Charge = {
 
 type StatsPayload = {
   totals: {
-    billed_usd: number;
     paid_usd: number;
-    outstanding_usd: number;
   };
   counts: {
     total: number;
@@ -65,12 +68,30 @@ type StatsPayload = {
     paid: number;
   };
   last_payment_at?: string | null;
+  last_charge?: {
+    status: string;
+    period_start?: string | null;
+    period_end?: string | null;
+    total_usd?: number | null;
+  } | null;
   estimates: {
     monthly_usd: number;
     quarterly_usd: number;
     semiannual_usd: number;
     annual_usd: number;
   };
+};
+
+type BillingGroupInfo = {
+  owner: { id_agency: number; name: string; legal_name: string };
+  is_owner: boolean;
+  members: { id_agency: number; name: string; legal_name: string }[];
+};
+
+type AgencyOption = {
+  id_agency: number;
+  name: string;
+  legal_name: string;
 };
 
 function isDateOnly(value: string) {
@@ -136,26 +157,13 @@ function calcDiscountTotal(base: number, adjustments: Adjustment[]) {
   return base * (percent / 100) + fixed;
 }
 
-function calcTaxTotal(netBase: number, adjustments: Adjustment[]) {
-  const percent = adjustments
-    .filter((adj) => adj.mode === "percent")
-    .reduce((sum, adj) => sum + Number(adj.value || 0), 0);
-  const fixed = adjustments
-    .filter((adj) => adj.mode === "fixed")
-    .reduce((sum, adj) => sum + Number(adj.value || 0), 0);
-  return netBase * (percent / 100) + fixed;
-}
-
 function calcTotals(base: number, adjustments: Adjustment[], date: Date) {
   const active = activeAdjustments(adjustments, date);
   const discounts = active.filter((adj) => adj.kind === "discount");
-  const taxes = active.filter((adj) => adj.kind === "tax");
   const discountUsd = calcDiscountTotal(base, discounts);
-  const netBase = Math.max(base - discountUsd, 0);
-  const taxUsd = calcTaxTotal(netBase, taxes);
-  const netAdjustments = taxUsd - discountUsd;
-  const total = netBase + taxUsd;
-  return { discountUsd, taxUsd, netAdjustments, total };
+  const netAdjustments = discountUsd ? -discountUsd : 0;
+  const total = Math.max(base - discountUsd, 0);
+  return { discountUsd, netAdjustments, total };
 }
 
 type Props = { agencyId: number };
@@ -165,6 +173,11 @@ export default function BillingAdminCard({ agencyId }: Props) {
 
   const [configLoading, setConfigLoading] = useState(true);
   const [configSaving, setConfigSaving] = useState(false);
+  const [resettingBilling, setResettingBilling] = useState(false);
+  const [groupResolved, setGroupResolved] = useState(false);
+  const [groupInfo, setGroupInfo] = useState<BillingGroupInfo | null>(null);
+  const [groupSaving, setGroupSaving] = useState(false);
+  const [agencyOptions, setAgencyOptions] = useState<AgencyOption[]>([]);
   const [config, setConfig] = useState<BillingConfig>({
     id_agency: agencyId,
     plan_key: "basico",
@@ -182,7 +195,6 @@ export default function BillingAdminCard({ agencyId }: Props) {
     null,
   );
   const [adjustmentForm, setAdjustmentForm] = useState({
-    kind: "discount" as "discount" | "tax",
     mode: "percent" as "percent" | "fixed",
     value: "",
     currency: "USD",
@@ -211,34 +223,101 @@ export default function BillingAdminCard({ agencyId }: Props) {
     payment_method: "",
     notes: "",
   });
-  const [chargeTaxPct, setChargeTaxPct] = useState("");
   const [chargeDiscountPct, setChargeDiscountPct] = useState("");
-  const [chargeTaxUsd, setChargeTaxUsd] = useState("");
   const [chargeDiscountUsd, setChargeDiscountUsd] = useState("");
   const [chargeSaving, setChargeSaving] = useState(false);
+
+  const [editingExtraChargeId, setEditingExtraChargeId] = useState<number | null>(
+    null,
+  );
+  const [extraForm, setExtraForm] = useState({
+    label: "",
+    amount_usd: "",
+    paid_amount: "",
+    paid_currency: "USD",
+    fx_rate: "",
+    paid_at: "",
+    account: "",
+    payment_method: "",
+    notes: "",
+  });
+  const [extraSaving, setExtraSaving] = useState(false);
+
+  const [bspRate, setBspRate] = useState<number | null>(null);
+  const [bspDate, setBspDate] = useState<string | null>(null);
+  const [bspLoading, setBspLoading] = useState(false);
 
   const [stats, setStats] = useState<StatsPayload | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
+  const billingOwnerId = groupInfo?.owner?.id_agency ?? agencyId;
+  const isBillingOwner = billingOwnerId === agencyId;
+  const billingTargetPath = groupResolved ? billingOwnerId : agencyId;
+
   const monthlyBase = useMemo(() => {
-    return calcMonthlyBase(config.plan_key, config.billing_users);
+    return calcMonthlyBaseWithVat(config.plan_key, config.billing_users);
   }, [config.plan_key, config.billing_users]);
   const monthlyTotals = useMemo(() => {
     return calcTotals(monthlyBase, adjustments, new Date());
   }, [monthlyBase, adjustments]);
   const monthlyTotal = monthlyTotals.total;
+  const monthlyVat = useMemo(() => {
+    return calcVatFromTotal(monthlyTotal);
+  }, [monthlyTotal]);
+  const basePlanVat = useMemo(() => {
+    return applyVat(PLAN_DATA[config.plan_key].base);
+  }, [config.plan_key]);
+  const extraUsersVat = useMemo(() => {
+    return applyVat(calcExtraUsersCost(config.billing_users));
+  }, [config.billing_users]);
+  const infraVat = useMemo(() => {
+    return applyVat(calcInfraCost(config.billing_users));
+  }, [config.billing_users]);
   const chargeAdjustmentNet = useMemo(() => {
-    const tax = Number(chargeTaxUsd || 0);
     const discount = Number(chargeDiscountUsd || 0);
-    if (!Number.isFinite(tax) || !Number.isFinite(discount)) return 0;
-    return tax - discount;
-  }, [chargeTaxUsd, chargeDiscountUsd]);
+    if (!Number.isFinite(discount)) return 0;
+    const safeDiscount = Math.abs(discount);
+    return safeDiscount ? -safeDiscount : 0;
+  }, [chargeDiscountUsd]);
   const chargeTotal = useMemo(() => {
     const base = Number(chargeForm.base_amount_usd || 0);
     const adj = chargeAdjustmentNet;
     if (!Number.isFinite(base) || !Number.isFinite(adj)) return 0;
     return base + adj;
   }, [chargeForm.base_amount_usd, chargeAdjustmentNet]);
+  const extraTotal = useMemo(() => {
+    const base = Number(extraForm.amount_usd || 0);
+    return Number.isFinite(base) ? base : 0;
+  }, [extraForm.amount_usd]);
+  const extraVat = useMemo(() => {
+    return calcVatFromTotal(extraTotal);
+  }, [extraTotal]);
+  const chargePaidUsdEstimate = useMemo(() => {
+    if (chargeForm.paid_currency !== "ARS") return null;
+    const amount = Number(chargeForm.paid_amount || 0);
+    const fx = Number(chargeForm.fx_rate || 0);
+    if (!Number.isFinite(amount) || !Number.isFinite(fx) || fx <= 0) return null;
+    return amount / fx;
+  }, [chargeForm.paid_currency, chargeForm.paid_amount, chargeForm.fx_rate]);
+  const extraPaidUsdEstimate = useMemo(() => {
+    if (extraForm.paid_currency !== "ARS") return null;
+    const amount = Number(extraForm.paid_amount || 0);
+    const fx = Number(extraForm.fx_rate || 0);
+    if (!Number.isFinite(amount) || !Number.isFinite(fx) || fx <= 0) return null;
+    return amount / fx;
+  }, [extraForm.paid_currency, extraForm.paid_amount, extraForm.fx_rate]);
+  const recurringCharges = useMemo(() => {
+    return charges.filter(
+      (charge) =>
+        String(charge.charge_kind || "RECURRING").toUpperCase() !== "EXTRA",
+    );
+  }, [charges]);
+  const extraCharges = useMemo(() => {
+    return charges.filter(
+      (charge) =>
+        String(charge.charge_kind || "RECURRING").toUpperCase() === "EXTRA",
+    );
+  }, [charges]);
 
   const overLimit =
     config.user_limit != null && currentUsers > config.user_limit;
@@ -248,7 +327,7 @@ export default function BillingAdminCard({ agencyId }: Props) {
     setConfigLoading(true);
     try {
       const res = await authFetch(
-        `/api/dev/agencies/${agencyId}/billing/config`,
+        `/api/dev/agencies/${billingTargetPath}/billing/config`,
         {},
         token,
       );
@@ -272,7 +351,7 @@ export default function BillingAdminCard({ agencyId }: Props) {
     setAdjustmentsLoading(true);
     try {
       const res = await authFetch(
-        `/api/dev/agencies/${agencyId}/billing/adjustments`,
+        `/api/dev/agencies/${billingTargetPath}/billing/adjustments`,
         {},
         token,
       );
@@ -293,7 +372,7 @@ export default function BillingAdminCard({ agencyId }: Props) {
     try {
       const qs = new URLSearchParams({ limit: "10" });
       const res = await authFetch(
-        `/api/dev/agencies/${agencyId}/billing/charges?${qs.toString()}`,
+        `/api/dev/agencies/${billingTargetPath}/billing/charges?${qs.toString()}`,
         {},
         token,
       );
@@ -321,7 +400,7 @@ export default function BillingAdminCard({ agencyId }: Props) {
         cursor: String(nextChargeCursor),
       });
       const res = await authFetch(
-        `/api/dev/agencies/${agencyId}/billing/charges?${qs.toString()}`,
+        `/api/dev/agencies/${billingTargetPath}/billing/charges?${qs.toString()}`,
         {},
         token,
       );
@@ -345,7 +424,7 @@ export default function BillingAdminCard({ agencyId }: Props) {
     setStatsLoading(true);
     try {
       const res = await authFetch(
-        `/api/dev/agencies/${agencyId}/billing/stats`,
+        `/api/dev/agencies/${billingTargetPath}/billing/stats`,
         {},
         token,
       );
@@ -360,14 +439,134 @@ export default function BillingAdminCard({ agencyId }: Props) {
     }
   }
 
+  async function fetchGroupInfo() {
+    if (!token) return;
+    try {
+      const res = await authFetch(
+        `/api/dev/agencies/${agencyId}/billing/group`,
+        {},
+        token,
+      );
+      if (!res.ok) throw new Error("No se pudo cargar el grupo");
+      const data = (await res.json()) as BillingGroupInfo;
+      setGroupInfo(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setGroupResolved(true);
+    }
+  }
+
+  async function fetchAgencyOptions() {
+    if (!token) return;
+    try {
+      const res = await authFetch("/api/dev/agencies/options", {}, token);
+      if (!res.ok) throw new Error("No se pudieron cargar agencias");
+      const data = (await res.json()) as { items: AgencyOption[] };
+      setAgencyOptions(data.items || []);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function updateBillingOwner(nextOwnerId: number) {
+    if (!token) return;
+    if (groupSaving) return;
+    setGroupSaving(true);
+    try {
+      const payload = {
+        owner_id: nextOwnerId === agencyId ? null : nextOwnerId,
+      };
+      const res = await authFetch(
+        `/api/dev/agencies/${agencyId}/billing/group`,
+        { method: "PUT", body: JSON.stringify(payload) },
+        token,
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "No se pudo actualizar el grupo");
+      }
+      await fetchGroupInfo();
+      toast.success("Grupo actualizado");
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : "Error actualizando grupo");
+    } finally {
+      setGroupSaving(false);
+    }
+  }
+
+  async function fetchBspRate() {
+    setBspLoading(true);
+    try {
+      const res = await fetch("/api/bsp-rate");
+      if (!res.ok) throw new Error("No se pudo cargar BSP");
+      const data = (await res.json()) as {
+        ok: boolean;
+        arsPerUsd?: number;
+        date?: string | null;
+      };
+      if (data.ok && data.arsPerUsd) {
+        setBspRate(data.arsPerUsd);
+        setBspDate(data.date ?? null);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setBspLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!token || !agencyId) return;
+    setGroupResolved(false);
+    fetchGroupInfo();
+    fetchAgencyOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, agencyId]);
+
+  useEffect(() => {
+    if (!token || !agencyId || !groupResolved) return;
     fetchConfig();
     fetchAdjustments();
     fetchCharges();
     fetchStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, agencyId]);
+  }, [token, agencyId, groupResolved, billingTargetPath]);
+
+  useEffect(() => {
+    fetchBspRate();
+  }, []);
+
+  useEffect(() => {
+    if (chargeForm.paid_currency === "ARS") {
+      if (!chargeForm.fx_rate && bspRate) {
+        setChargeForm((prev) => ({
+          ...prev,
+          fx_rate: String(bspRate),
+        }));
+      }
+      return;
+    }
+    if (chargeForm.fx_rate) {
+      setChargeForm((prev) => ({ ...prev, fx_rate: "" }));
+    }
+  }, [chargeForm.paid_currency, bspRate, chargeForm.fx_rate]);
+
+  useEffect(() => {
+    if (extraForm.paid_currency === "ARS") {
+      if (!extraForm.fx_rate && bspRate) {
+        setExtraForm((prev) => ({
+          ...prev,
+          fx_rate: String(bspRate),
+        }));
+      }
+      return;
+    }
+    if (extraForm.fx_rate) {
+      setExtraForm((prev) => ({ ...prev, fx_rate: "" }));
+    }
+  }, [extraForm.paid_currency, bspRate, extraForm.fx_rate]);
 
   async function saveConfig() {
     if (!token) return;
@@ -382,7 +581,7 @@ export default function BillingAdminCard({ agencyId }: Props) {
         notes: config.notes || "",
       };
       const res = await authFetch(
-        `/api/dev/agencies/${agencyId}/billing/config`,
+        `/api/dev/agencies/${billingTargetPath}/billing/config`,
         {
           method: "PUT",
           body: JSON.stringify(payload),
@@ -405,10 +604,46 @@ export default function BillingAdminCard({ agencyId }: Props) {
     }
   }
 
+  async function resetBilling() {
+    if (!token) return;
+    if (
+      !confirm(
+        isBillingOwner
+          ? "¿Seguro? Se eliminan plan, descuentos y cobros existentes para esta agencia."
+          : "¿Seguro? Se eliminan plan, descuentos y cobros existentes para todo el grupo.",
+      )
+    )
+      return;
+    setResettingBilling(true);
+    try {
+      const res = await authFetch(
+        `/api/dev/agencies/${agencyId}/billing/reset`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "No se pudo resetear");
+      }
+      toast.success("Facturacion reseteada");
+      resetAdjustmentForm();
+      resetChargeForm();
+      resetExtraForm();
+      fetchConfig();
+      fetchAdjustments();
+      fetchCharges();
+      fetchStats();
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : "Error reseteando");
+    } finally {
+      setResettingBilling(false);
+    }
+  }
+
   function startEditAdjustment(adj: Adjustment) {
     setEditingAdjustmentId(adj.id_adjustment);
     setAdjustmentForm({
-      kind: adj.kind,
       mode: adj.mode,
       value: String(adj.value ?? ""),
       currency: adj.currency ?? "USD",
@@ -419,10 +654,9 @@ export default function BillingAdminCard({ agencyId }: Props) {
     });
   }
 
-  function resetAdjustmentForm(kind: "discount" | "tax" = "discount") {
+  function resetAdjustmentForm() {
     setEditingAdjustmentId(null);
     setAdjustmentForm({
-      kind,
       mode: "percent",
       value: "",
       currency: "USD",
@@ -439,7 +673,7 @@ export default function BillingAdminCard({ agencyId }: Props) {
     setAdjustmentSaving(true);
     try {
       const payload = {
-        kind: adjustmentForm.kind,
+        kind: "discount",
         mode: adjustmentForm.mode,
         value: adjustmentForm.value,
         currency:
@@ -452,8 +686,8 @@ export default function BillingAdminCard({ agencyId }: Props) {
         active: adjustmentForm.active,
       };
       const url = editingAdjustmentId
-        ? `/api/dev/agencies/${agencyId}/billing/adjustments/${editingAdjustmentId}`
-        : `/api/dev/agencies/${agencyId}/billing/adjustments`;
+        ? `/api/dev/agencies/${billingTargetPath}/billing/adjustments/${editingAdjustmentId}`
+        : `/api/dev/agencies/${billingTargetPath}/billing/adjustments`;
       const method = editingAdjustmentId ? "PUT" : "POST";
       const res = await authFetch(
         url,
@@ -481,7 +715,7 @@ export default function BillingAdminCard({ agencyId }: Props) {
     if (!confirm("¿Eliminar este ajuste?")) return;
     try {
       const res = await authFetch(
-        `/api/dev/agencies/${agencyId}/billing/adjustments/${id}`,
+        `/api/dev/agencies/${billingTargetPath}/billing/adjustments/${id}`,
         { method: "DELETE" },
         token,
       );
@@ -514,14 +748,11 @@ export default function BillingAdminCard({ agencyId }: Props) {
       payment_method: charge.payment_method || "",
       notes: charge.notes || "",
     });
-    setChargeTaxPct("");
     setChargeDiscountPct("");
-    if (netAdj >= 0) {
-      setChargeTaxUsd(netAdj ? netAdj.toFixed(2) : "");
-      setChargeDiscountUsd("");
-    } else {
-      setChargeTaxUsd("");
+    if (netAdj < 0) {
       setChargeDiscountUsd(Math.abs(netAdj).toFixed(2));
+    } else {
+      setChargeDiscountUsd("");
     }
   }
 
@@ -540,9 +771,7 @@ export default function BillingAdminCard({ agencyId }: Props) {
       payment_method: "",
       notes: "",
     });
-    setChargeTaxPct("");
     setChargeDiscountPct("");
-    setChargeTaxUsd("");
     setChargeDiscountUsd("");
   }
 
@@ -552,11 +781,7 @@ export default function BillingAdminCard({ agencyId }: Props) {
       base_amount_usd: String(monthlyBase.toFixed(2)),
       adjustments_total_usd: String(monthlyTotals.netAdjustments.toFixed(2)),
     }));
-    setChargeTaxPct("");
     setChargeDiscountPct("");
-    setChargeTaxUsd(
-      monthlyTotals.taxUsd ? monthlyTotals.taxUsd.toFixed(2) : "",
-    );
     setChargeDiscountUsd(
       monthlyTotals.discountUsd ? monthlyTotals.discountUsd.toFixed(2) : "",
     );
@@ -568,19 +793,15 @@ export default function BillingAdminCard({ agencyId }: Props) {
       toast.info("Primero cargá el monto base en USD.");
       return;
     }
-    const tax = Number(chargeTaxPct || 0);
     const discount = Number(chargeDiscountPct || 0);
     const discountAmount = Number.isFinite(discount)
       ? (base * discount) / 100
       : 0;
-    const netBase = Math.max(base - discountAmount, 0);
-    const taxAmount = Number.isFinite(tax) ? (netBase * tax) / 100 : 0;
-    const adjustments = taxAmount - discountAmount;
+    const adjustments = discountAmount ? -discountAmount : 0;
     setChargeForm((prev) => ({
       ...prev,
       adjustments_total_usd: adjustments.toFixed(2),
     }));
-    setChargeTaxUsd(taxAmount > 0 ? taxAmount.toFixed(2) : "");
     setChargeDiscountUsd(discountAmount > 0 ? discountAmount.toFixed(2) : "");
   }
 
@@ -598,6 +819,7 @@ export default function BillingAdminCard({ agencyId }: Props) {
         period_start: chargeForm.period_start || null,
         period_end: chargeForm.period_end || null,
         status,
+        charge_kind: "RECURRING",
         base_amount_usd: chargeForm.base_amount_usd,
         adjustments_total_usd: chargeAdjustmentNet,
         paid_amount: paidAmount ?? undefined,
@@ -609,8 +831,8 @@ export default function BillingAdminCard({ agencyId }: Props) {
         notes: chargeForm.notes || undefined,
       };
       const url = editingChargeId
-        ? `/api/dev/agencies/${agencyId}/billing/charges/${editingChargeId}`
-        : `/api/dev/agencies/${agencyId}/billing/charges`;
+        ? `/api/dev/agencies/${billingTargetPath}/billing/charges/${editingChargeId}`
+        : `/api/dev/agencies/${billingTargetPath}/billing/charges`;
       const method = editingChargeId ? "PUT" : "POST";
       const res = await authFetch(
         url,
@@ -633,12 +855,104 @@ export default function BillingAdminCard({ agencyId }: Props) {
     }
   }
 
+  function startEditExtraCharge(charge: Charge) {
+    setEditingExtraChargeId(charge.id_charge);
+    setExtraForm({
+      label: charge.label || "",
+      amount_usd: String(charge.base_amount_usd ?? ""),
+      paid_amount: charge.paid_amount != null ? String(charge.paid_amount) : "",
+      paid_currency: charge.paid_currency || "USD",
+      fx_rate: charge.fx_rate != null ? String(charge.fx_rate) : "",
+      paid_at: toYMD(charge.paid_at ?? null),
+      account: charge.account || "",
+      payment_method: charge.payment_method || "",
+      notes: charge.notes || "",
+    });
+  }
+
+  function resetExtraForm() {
+    setEditingExtraChargeId(null);
+    setExtraForm({
+      label: "",
+      amount_usd: "",
+      paid_amount: "",
+      paid_currency: "USD",
+      fx_rate: "",
+      paid_at: "",
+      account: "",
+      payment_method: "",
+      notes: "",
+    });
+  }
+
+  async function submitExtraCharge(e: React.FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    const base = Number(extraForm.amount_usd || 0);
+    if (!Number.isFinite(base) || base <= 0) {
+      toast.info("Cargá el monto del cobro extra.");
+      return;
+    }
+    if (!extraForm.label.trim()) {
+      toast.info("Agregá una etiqueta para el cobro extra.");
+      return;
+    }
+    setExtraSaving(true);
+    try {
+      const paidAmount = extraForm.paid_amount
+        ? Number(extraForm.paid_amount)
+        : null;
+      const paidAt = extraForm.paid_at || null;
+      const status = paidAmount || paidAt ? "PAID" : "PENDING";
+      const payload = {
+        period_start: null,
+        period_end: null,
+        status,
+        charge_kind: "EXTRA",
+        label: extraForm.label.trim(),
+        base_amount_usd: base,
+        adjustments_total_usd: 0,
+        paid_amount: paidAmount ?? undefined,
+        paid_currency: extraForm.paid_currency || undefined,
+        fx_rate: extraForm.fx_rate || undefined,
+        paid_at: paidAt,
+        account: extraForm.account || undefined,
+        payment_method: extraForm.payment_method || undefined,
+        notes: extraForm.notes || undefined,
+      };
+      const url = editingExtraChargeId
+        ? `/api/dev/agencies/${billingTargetPath}/billing/charges/${editingExtraChargeId}`
+        : `/api/dev/agencies/${billingTargetPath}/billing/charges`;
+      const method = editingExtraChargeId ? "PUT" : "POST";
+      const res = await authFetch(
+        url,
+        { method, body: JSON.stringify(payload) },
+        token,
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "No se pudo guardar el cobro extra");
+      }
+      toast.success(
+        editingExtraChargeId ? "Cobro extra actualizado" : "Cobro extra creado",
+      );
+      resetExtraForm();
+      fetchCharges();
+      fetchStats();
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : "Error guardando cobro extra");
+    } finally {
+      setExtraSaving(false);
+    }
+  }
+
   async function deleteCharge(id: number) {
     if (!token) return;
     if (!confirm("¿Eliminar este cobro?")) return;
     try {
       const res = await authFetch(
-        `/api/dev/agencies/${agencyId}/billing/charges/${id}`,
+        `/api/dev/agencies/${billingTargetPath}/billing/charges/${id}`,
         { method: "DELETE" },
         token,
       );
@@ -666,8 +980,64 @@ export default function BillingAdminCard({ agencyId }: Props) {
           </p>
         </div>
         <div className="text-xs text-sky-950/60 dark:text-white/60">
-          Base en USD. Si el pago es en otra moneda, carga monto y cotizacion.
+          Base en USD (IVA incluido). Si el pago es en ARS, usa BSP por defecto.
         </div>
+      </div>
+
+      <div className="space-y-3 rounded-2xl border border-white/10 bg-white/10 p-4 text-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h4 className="text-base font-medium">Facturacion agrupada</h4>
+            <p className="text-xs text-sky-950/60 dark:text-white/60">
+              Plan, cobros y descuentos se comparten dentro del grupo.
+            </p>
+          </div>
+          {!isBillingOwner && groupInfo?.owner && (
+            <span className="rounded-full bg-amber-100/30 px-3 py-1 text-[11px] text-amber-900 dark:text-amber-200">
+              Factura con: {groupInfo.owner.name}
+            </span>
+          )}
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-xs">Agencia que factura</span>
+            <select
+              value={billingOwnerId}
+              onChange={(e) => updateBillingOwner(Number(e.target.value))}
+              disabled={groupSaving || agencyOptions.length === 0}
+              className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none disabled:opacity-60 dark:bg-white/10 dark:text-white"
+            >
+              {agencyOptions.map((opt) => (
+                <option key={opt.id_agency} value={opt.id_agency}>
+                  {opt.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex flex-col justify-end text-xs text-sky-950/60 dark:text-white/60">
+            {groupSaving
+              ? "Actualizando grupo..."
+              : "Selecciona la agencia que centraliza el plan y los cobros."}
+          </div>
+        </div>
+
+        {groupInfo?.members?.length ? (
+          <div className="flex flex-wrap gap-2 text-xs">
+            {groupInfo.members.map((member) => (
+              <span
+                key={member.id_agency}
+                className={`rounded-full border px-3 py-1 ${
+                  member.id_agency === billingOwnerId
+                    ? "border-emerald-300/40 bg-emerald-100/20 text-emerald-900 dark:text-emerald-200"
+                    : "border-white/10 bg-white/10 text-sky-950/70 dark:text-white/70"
+                }`}
+              >
+                {member.name}
+              </span>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="space-y-4 rounded-2xl border border-white/10 bg-white/10 p-4">
@@ -700,10 +1070,17 @@ export default function BillingAdminCard({ agencyId }: Props) {
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/30 p-3 dark:bg-white/10">
                   <p className="text-xs text-sky-950/60 dark:text-white/60">
-                    Deuda actual
+                    Ultimo cobro
                   </p>
                   <p className="text-base font-semibold">
-                    {formatMoney(stats.totals.outstanding_usd)}
+                    {stats.last_charge?.status ?? "—"}
+                  </p>
+                  <p className="text-[11px] text-sky-950/60 dark:text-white/60">
+                    {stats.last_charge
+                      ? `${formatDate(
+                          stats.last_charge.period_start ?? null,
+                        )} → ${formatDate(stats.last_charge.period_end ?? null)}`
+                      : "Sin cobro registrado"}
                   </p>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/30 p-3 dark:bg-white/10">
@@ -760,7 +1137,7 @@ export default function BillingAdminCard({ agencyId }: Props) {
                   Definir plan y usuarios
                 </h4>
                 <p className="text-xs text-sky-950/60 dark:text-white/60">
-                  Base mensual segun el cotizador. Ajusta usuarios cobrados y
+                  Base mensual con IVA incluido. Ajusta usuarios cobrados y
                   limite interno.
                 </p>
               </div>
@@ -869,25 +1246,25 @@ export default function BillingAdminCard({ agencyId }: Props) {
               <div className="rounded-xl border border-white/10 bg-white/30 p-3 text-xs text-sky-950/70 dark:bg-white/10 dark:text-white/70">
                 <div className="flex justify-between">
                   <span>Base plan</span>
-                  <span>{formatMoney(PLAN_DATA[config.plan_key].base)}</span>
+                  <span>{formatMoney(basePlanVat)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Usuarios extra</span>
                   <span>
-                    {formatMoney(calcExtraUsersCost(config.billing_users))}
+                    {formatMoney(extraUsersVat)}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Infra</span>
-                  <span>{formatMoney(calcInfraCost(config.billing_users))}</span>
+                  <span>{formatMoney(infraVat)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Descuentos activos</span>
                   <span>-{formatMoney(monthlyTotals.discountUsd)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Impuestos activos</span>
-                  <span>{formatMoney(monthlyTotals.taxUsd)}</span>
+                  <span>IVA incluido ({Math.round(IVA_RATE * 100)}%)</span>
+                  <span>{formatMoney(monthlyVat)}</span>
                 </div>
                 <div className="mt-2 flex justify-between font-medium">
                   <span>Total mensual estimado</span>
@@ -909,6 +1286,14 @@ export default function BillingAdminCard({ agencyId }: Props) {
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
+                  onClick={resetBilling}
+                  disabled={resettingBilling}
+                  className="rounded-full bg-red-600/90 px-5 py-2 text-xs text-red-50 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-red-800"
+                >
+                  {resettingBilling ? "Reseteando..." : "Resetear facturacion"}
+                </button>
+                <button
+                  type="button"
                   onClick={saveConfig}
                   disabled={configSaving}
                   className="rounded-full bg-sky-100 px-5 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-white/10 dark:text-white"
@@ -927,27 +1312,20 @@ export default function BillingAdminCard({ agencyId }: Props) {
                 2
               </div>
               <div>
-                <h4 className="text-base font-medium">Ajustes temporales</h4>
+                <h4 className="text-base font-medium">Descuentos temporales</h4>
                 <p className="text-xs text-sky-950/60 dark:text-white/60">
-                  Descuentos o impuestos por campaña. Se aplican sobre la base
-                  mensual. Descuentos primero, impuestos sobre el neto.
+                  Descuentos por campaña. Se aplican sobre la base mensual con
+                  IVA incluido.
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => resetAdjustmentForm("discount")}
+                onClick={() => resetAdjustmentForm()}
                 className="rounded-full bg-white/0 px-4 py-1.5 text-xs text-sky-950 shadow-sm ring-1 ring-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-white dark:ring-white/10"
               >
                 Nuevo descuento
-              </button>
-              <button
-                type="button"
-                onClick={() => resetAdjustmentForm("tax")}
-                className="rounded-full bg-white/0 px-4 py-1.5 text-xs text-sky-950 shadow-sm ring-1 ring-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-white dark:ring-white/10"
-              >
-                Nuevo impuesto
               </button>
             </div>
           </div>
@@ -1015,61 +1393,6 @@ export default function BillingAdminCard({ agencyId }: Props) {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-sky-950/70 dark:text-white/70">
-                  Impuestos
-                </p>
-                {adjustments.filter((adj) => adj.kind === "tax").length === 0 ? (
-                  <p className="text-sm text-sky-950/60 dark:text-white/60">
-                    No hay impuestos activos.
-                  </p>
-                ) : (
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {adjustments
-                      .filter((adj) => adj.kind === "tax")
-                      .map((adj) => (
-                        <div
-                          key={adj.id_adjustment}
-                          className="space-y-2 rounded-xl border border-white/10 bg-white/30 p-3 text-xs dark:bg-white/10"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold">
-                              {adj.label || "Sin titulo"}
-                            </span>
-                            <span className="rounded-full bg-white/30 px-2 py-0.5 text-[10px] dark:bg-white/10">
-                              {adj.active ? "Activo" : "Pausado"}
-                            </span>
-                          </div>
-                          <div className="text-sky-950/70 dark:text-white/70">
-                            {adj.mode === "percent"
-                              ? `${adj.value}%`
-                              : `${adj.value} ${adj.currency || "USD"}`}
-                          </div>
-                          <div className="text-sky-950/60 dark:text-white/60">
-                            {formatDate(adj.starts_at ?? null)} →{" "}
-                            {formatDate(adj.ends_at ?? null)}
-                          </div>
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => startEditAdjustment(adj)}
-                              className="rounded-full bg-sky-100 px-3 py-1 text-xs text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
-                            >
-                              Editar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteAdjustment(adj.id_adjustment)}
-                              className="rounded-full bg-red-600/90 px-3 py-1 text-xs text-red-50 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
-                            >
-                              Eliminar
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                )}
-              </div>
             </div>
           )}
 
@@ -1078,26 +1401,9 @@ export default function BillingAdminCard({ agencyId }: Props) {
             className="space-y-3 rounded-xl border border-white/10 bg-white/20 p-3 text-sm dark:bg-white/10"
           >
             <p className="text-[11px] text-sky-950/60 dark:text-white/60">
-              Ejemplo: base 40, descuento 20 (3 meses), IVA 21% = total 24,20.
+              Ejemplo: base IVA incluido 50, descuento 10% (3 meses) = total 45.
             </p>
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="block">
-                <span className="mb-1 block text-xs">Tipo</span>
-                <select
-                  value={adjustmentForm.kind}
-                  onChange={(e) =>
-                    setAdjustmentForm((prev) => ({
-                      ...prev,
-                      kind: e.target.value as "discount" | "tax",
-                    }))
-                  }
-                  className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
-                >
-                  <option value="discount">Descuento</option>
-                  <option value="tax">Impuesto</option>
-                </select>
-              </label>
-
               <label className="block">
                 <span className="mb-1 block text-xs">Modo</span>
                 <select
@@ -1244,9 +1550,9 @@ export default function BillingAdminCard({ agencyId }: Props) {
               <div>
                 <h4 className="text-base font-medium">Registrar cobro mensual</h4>
                 <p className="text-xs text-sky-950/60 dark:text-white/60">
-                  Crea el cobro (base + impuestos/descuentos) y registra el
-                  pago si ya lo recibiste. Si solo queres deuda, deja el pago
-                  vacio y estado PENDING.
+                  Crea el cobro (base IVA incluido - descuentos) y registra el
+                  pago si ya lo recibiste. Si solo queres pendiente, deja el
+                  pago vacio y estado PENDING.
                 </p>
               </div>
             </div>
@@ -1313,9 +1619,9 @@ export default function BillingAdminCard({ agencyId }: Props) {
               La ventana de cobro es del 1 al 15 de cada mes.
             </p>
 
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-2">
               <label className="block">
-                <span className="mb-1 block text-xs">Base USD</span>
+                <span className="mb-1 block text-xs">Base USD (IVA inc.)</span>
                 <input
                   type="number"
                   step="0.01"
@@ -1339,24 +1645,15 @@ export default function BillingAdminCard({ agencyId }: Props) {
                   className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
                 />
               </label>
-              <label className="block">
-                <span className="mb-1 block text-xs">Impuesto USD</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={chargeTaxUsd}
-                  onChange={(e) => setChargeTaxUsd(e.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
-                />
-              </label>
             </div>
 
             <p className="text-[11px] text-sky-950/60 dark:text-white/60">
               Total USD actual: {formatMoney(chargeTotal)}. Se calcula como
-              base - descuento + impuesto.
+              base - descuento. IVA incluido:{" "}
+              {formatMoney(calcVatFromTotal(chargeTotal))}.
             </p>
 
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-2">
               <label className="block">
                 <span className="mb-1 block text-xs">Descuento %</span>
                 <input
@@ -1368,24 +1665,13 @@ export default function BillingAdminCard({ agencyId }: Props) {
                   className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
                 />
               </label>
-              <label className="block">
-                <span className="mb-1 block text-xs">Impuesto % (IVA)</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={chargeTaxPct}
-                  onChange={(e) => setChargeTaxPct(e.target.value)}
-                  placeholder="21"
-                  className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
-                />
-              </label>
               <div className="flex items-end">
                 <button
                   type="button"
                   onClick={applyPercentAdjustments}
                   className="w-full rounded-full bg-white/0 px-4 py-2 text-xs text-sky-950 shadow-sm ring-1 ring-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-white dark:ring-white/10"
                 >
-                  Calcular desde % (% aplica sobre neto)
+                  Calcular desde %
                 </button>
               </div>
             </div>
@@ -1408,8 +1694,7 @@ export default function BillingAdminCard({ agencyId }: Props) {
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs">Moneda pago</span>
-                <input
-                  type="text"
+                <select
                   value={chargeForm.paid_currency}
                   onChange={(e) =>
                     setChargeForm((prev) => ({
@@ -1418,10 +1703,13 @@ export default function BillingAdminCard({ agencyId }: Props) {
                     }))
                   }
                   className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
-                />
+                >
+                  <option value="USD">USD</option>
+                  <option value="ARS">ARS</option>
+                </select>
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs">Cotizacion USD</span>
+                <span className="mb-1 block text-xs">Cotizacion BSP (ARS/USD)</span>
                 <input
                   type="number"
                   step="0.0001"
@@ -1434,11 +1722,21 @@ export default function BillingAdminCard({ agencyId }: Props) {
                   }
                   className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
                 />
+                <span className="mt-1 block text-[11px] text-sky-950/50 dark:text-white/50">
+                  {bspLoading
+                    ? "Cargando BSP..."
+                    : bspRate
+                      ? `BSP ${bspRate}${bspDate ? ` (${bspDate})` : ""}`
+                      : "BSP no disponible."}
+                </span>
               </label>
             </div>
 
             <p className="text-[11px] text-sky-950/60 dark:text-white/60">
               Si el pago fue en ARS: USD estimado = monto pagado / cotizacion.
+              {chargePaidUsdEstimate != null
+                ? ` Estimado: ${formatMoney(chargePaidUsdEstimate)}.`
+                : ""}
             </p>
 
             <div className="grid gap-3 md:grid-cols-3">
@@ -1529,9 +1827,9 @@ export default function BillingAdminCard({ agencyId }: Props) {
                 4
               </div>
               <div>
-                <h4 className="text-base font-medium">Cobros registrados</h4>
+                <h4 className="text-base font-medium">Cobros mensuales</h4>
                 <p className="text-xs text-sky-950/60 dark:text-white/60">
-                  Lista de cobros registrados y estado de pago.
+                  Lista de cobros mensuales y estado de pago.
                 </p>
               </div>
             </div>
@@ -1541,13 +1839,13 @@ export default function BillingAdminCard({ agencyId }: Props) {
             <p className="text-sm text-sky-950/60 dark:text-white/60">
               Cargando cobros...
             </p>
-          ) : charges.length === 0 ? (
+          ) : recurringCharges.length === 0 ? (
             <p className="text-sm text-sky-950/60 dark:text-white/60">
-              Todavia no hay cobros registrados.
+              Todavia no hay cobros mensuales.
             </p>
           ) : (
             <div className="space-y-3">
-              {charges.map((charge) => (
+              {recurringCharges.map((charge) => (
                 <div
                   key={charge.id_charge}
                   className="space-y-2 rounded-xl border border-white/10 bg-white/30 p-3 text-xs dark:bg-white/10"
@@ -1562,11 +1860,11 @@ export default function BillingAdminCard({ agencyId }: Props) {
                     </span>
                   </div>
                   <div className="text-sky-950/70 dark:text-white/70">
-                    Total: {formatMoney(charge.total_usd)}
+                    Total facturado: {formatMoney(charge.total_usd)}
                   </div>
                   {charge.paid_amount != null && (
                     <div className="text-sky-950/60 dark:text-white/60">
-                      Pago: {charge.paid_amount}{" "}
+                      Cobrado: {charge.paid_amount}{" "}
                       {charge.paid_currency || "USD"}
                       {charge.fx_rate
                         ? ` (USD ${(
@@ -1607,6 +1905,292 @@ export default function BillingAdminCard({ agencyId }: Props) {
                   </button>
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-4 rounded-2xl border border-white/10 bg-white/10 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="flex size-8 items-center justify-center rounded-full bg-sky-100 text-sm font-semibold text-sky-900">
+                5
+              </div>
+              <div>
+                <h4 className="text-base font-medium">
+                  Cobros extras (unicos)
+                </h4>
+                <p className="text-xs text-sky-950/60 dark:text-white/60">
+                  Para desarrollos, capacitaciones o servicios especiales.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={resetExtraForm}
+              className="rounded-full bg-white/0 px-4 py-1.5 text-xs text-sky-950 shadow-sm ring-1 ring-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-white dark:ring-white/10"
+            >
+              Limpiar
+            </button>
+          </div>
+
+          <form
+            onSubmit={submitExtraCharge}
+            className="space-y-3 rounded-xl border border-white/10 bg-white/20 p-3 text-sm dark:bg-white/10"
+          >
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-xs">Etiqueta</span>
+                <input
+                  type="text"
+                  value={extraForm.label}
+                  onChange={(e) =>
+                    setExtraForm((prev) => ({
+                      ...prev,
+                      label: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs">Monto USD (IVA inc.)</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={extraForm.amount_usd}
+                  onChange={(e) =>
+                    setExtraForm((prev) => ({
+                      ...prev,
+                      amount_usd: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
+                />
+              </label>
+            </div>
+
+            <p className="text-[11px] text-sky-950/60 dark:text-white/60">
+              Total USD actual: {formatMoney(extraTotal)}. IVA incluido:{" "}
+              {formatMoney(extraVat)}.
+            </p>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="block">
+                <span className="mb-1 block text-xs">Monto pagado</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={extraForm.paid_amount}
+                  onChange={(e) =>
+                    setExtraForm((prev) => ({
+                      ...prev,
+                      paid_amount: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs">Moneda pago</span>
+                <select
+                  value={extraForm.paid_currency}
+                  onChange={(e) =>
+                    setExtraForm((prev) => ({
+                      ...prev,
+                      paid_currency: e.target.value.toUpperCase(),
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
+                >
+                  <option value="USD">USD</option>
+                  <option value="ARS">ARS</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs">Cotizacion BSP (ARS/USD)</span>
+                <input
+                  type="number"
+                  step="0.0001"
+                  value={extraForm.fx_rate}
+                  onChange={(e) =>
+                    setExtraForm((prev) => ({
+                      ...prev,
+                      fx_rate: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
+                />
+                <span className="mt-1 block text-[11px] text-sky-950/50 dark:text-white/50">
+                  {bspLoading
+                    ? "Cargando BSP..."
+                    : bspRate
+                      ? `BSP ${bspRate}${bspDate ? ` (${bspDate})` : ""}`
+                      : "BSP no disponible."}
+                </span>
+              </label>
+            </div>
+
+            <p className="text-[11px] text-sky-950/60 dark:text-white/60">
+              Si el pago fue en ARS: USD estimado = monto pagado / cotizacion.
+              {extraPaidUsdEstimate != null
+                ? ` Estimado: ${formatMoney(extraPaidUsdEstimate)}.`
+                : ""}
+            </p>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="block">
+                <span className="mb-1 block text-xs">Fecha pago</span>
+                <input
+                  type="date"
+                  value={extraForm.paid_at}
+                  onChange={(e) =>
+                    setExtraForm((prev) => ({
+                      ...prev,
+                      paid_at: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs">Cuenta</span>
+                <input
+                  type="text"
+                  value={extraForm.account}
+                  onChange={(e) =>
+                    setExtraForm((prev) => ({
+                      ...prev,
+                      account: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs">Metodo</span>
+                <input
+                  type="text"
+                  value={extraForm.payment_method}
+                  onChange={(e) =>
+                    setExtraForm((prev) => ({
+                      ...prev,
+                      payment_method: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
+                />
+              </label>
+            </div>
+
+            <label className="block">
+              <span className="mb-1 block text-xs">Notas</span>
+              <textarea
+                value={extraForm.notes}
+                onChange={(e) =>
+                  setExtraForm((prev) => ({ ...prev, notes: e.target.value }))
+                }
+                className="min-h-[70px] w-full rounded-xl border border-white/10 bg-white/50 px-3 py-2 text-sm outline-none dark:bg-white/10 dark:text-white"
+              />
+            </label>
+
+            <div className="flex justify-end gap-2">
+              {editingExtraChargeId && (
+                <button
+                  type="button"
+                  onClick={resetExtraForm}
+                  className="rounded-full bg-white/0 px-4 py-2 text-xs text-sky-950 shadow-sm ring-1 ring-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-white dark:ring-white/10"
+                >
+                  Cancelar
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={extraSaving}
+                className="rounded-full bg-sky-100 px-4 py-2 text-xs text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-white/10 dark:text-white"
+              >
+                {extraSaving
+                  ? "Guardando..."
+                  : editingExtraChargeId
+                    ? "Guardar extra"
+                    : "Crear extra"}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div className="space-y-4 rounded-2xl border border-white/10 bg-white/10 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="flex size-8 items-center justify-center rounded-full bg-sky-100 text-sm font-semibold text-sky-900">
+                6
+              </div>
+              <div>
+                <h4 className="text-base font-medium">Cobros extra</h4>
+                <p className="text-xs text-sky-950/60 dark:text-white/60">
+                  Lista de cobros unicos registrados.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {chargesLoading ? (
+            <p className="text-sm text-sky-950/60 dark:text-white/60">
+              Cargando extras...
+            </p>
+          ) : extraCharges.length === 0 ? (
+            <p className="text-sm text-sky-950/60 dark:text-white/60">
+              Todavia no hay cobros extra.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {extraCharges.map((charge) => (
+                <div
+                  key={charge.id_charge}
+                  className="space-y-2 rounded-xl border border-white/10 bg-white/30 p-3 text-xs dark:bg-white/10"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">
+                      {charge.label || "Cobro extra"}
+                    </span>
+                    <span className="rounded-full bg-white/30 px-2 py-0.5 text-[10px] dark:bg-white/10">
+                      {charge.status}
+                    </span>
+                  </div>
+                  <div className="text-sky-950/70 dark:text-white/70">
+                    Total facturado: {formatMoney(charge.total_usd)}
+                  </div>
+                  {charge.paid_amount != null && (
+                    <div className="text-sky-950/60 dark:text-white/60">
+                      Cobrado: {charge.paid_amount}{" "}
+                      {charge.paid_currency || "USD"}
+                      {charge.fx_rate
+                        ? ` (USD ${(
+                            Number(charge.paid_amount) /
+                            Number(charge.fx_rate)
+                          ).toFixed(2)})`
+                        : ""}
+                    </div>
+                  )}
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => startEditExtraCharge(charge)}
+                      className="rounded-full bg-sky-100 px-3 py-1 text-xs text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteCharge(charge.id_charge)}
+                      className="rounded-full bg-red-600/90 px-3 py-1 text-xs text-red-50 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

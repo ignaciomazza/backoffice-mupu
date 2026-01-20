@@ -17,10 +17,7 @@ type FinanceStats = {
     label: string;
   };
   totals: {
-    billed_usd: number;
-    paid_usd: number;
-    outstanding_usd: number;
-    mrr_estimate_usd: number;
+    paid_total: number;
   };
   counts: {
     agencies_total: number;
@@ -29,6 +26,7 @@ type FinanceStats = {
     charges_total: number;
     charges_paid: number;
     charges_pending: number;
+    agencies_pending_latest: number;
   };
   plan_mix: {
     basico: number;
@@ -36,19 +34,24 @@ type FinanceStats = {
     pro: number;
     sin_plan: number;
   };
-  top_outstanding: {
+  pending_latest: {
     id_agency: number;
     name: string;
     legal_name: string;
-    outstanding_usd: number;
-    pending_charges: number;
+    id_charge: number;
+    status: string;
+    period_start: string | null;
+    period_end: string | null;
+    total_usd: number;
   }[];
   recent_payments: {
     id_charge: number;
     agency_name: string;
     paid_at: string | null;
-    paid_usd: number;
+    paid_amount: number;
+    paid_currency: "USD" | "ARS";
   }[];
+  currency: "USD" | "ARS";
 };
 
 const PERIODS: { key: PeriodKey; label: string }[] = [
@@ -58,11 +61,11 @@ const PERIODS: { key: PeriodKey; label: string }[] = [
   { key: "all", label: "Todo" },
 ];
 
-function formatMoney(value: number) {
+function formatMoney(value: number, currency: "USD" | "ARS") {
   const safe = Number.isFinite(value) ? value : 0;
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
-    currency: "USD",
+    currency,
     maximumFractionDigits: 2,
   }).format(safe);
 }
@@ -78,6 +81,7 @@ export default function DevFinanceStatsPage() {
   const { token } = useAuth();
   const router = useRouter();
   const [period, setPeriod] = useState<PeriodKey>("month");
+  const [displayCurrency, setDisplayCurrency] = useState<"USD" | "ARS">("USD");
   const [stats, setStats] = useState<FinanceStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -88,7 +92,7 @@ export default function DevFinanceStatsPage() {
     else setLoading(true);
     try {
       const res = await authFetch(
-        `/api/dev/stats/finance?period=${activePeriod}`,
+        `/api/dev/stats/finance?period=${activePeriod}&currency=${displayCurrency}`,
         {},
         token,
       );
@@ -107,7 +111,7 @@ export default function DevFinanceStatsPage() {
     if (!token) return;
     fetchStats(period);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, period]);
+  }, [token, period, displayCurrency]);
 
   const mrrSplit = useMemo(() => {
     if (!stats) return [];
@@ -138,19 +142,38 @@ export default function DevFinanceStatsPage() {
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => router.push("/dev/agencies")}
-                className="rounded-full border border-amber-300/40 bg-amber-100/20 px-4 py-1.5 text-xs text-amber-900 shadow-sm shadow-amber-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-amber-200"
-              >
-                Volver a agencias
-              </button>
-              {PERIODS.map((p) => {
-                const active = period === p.key;
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => router.push("/dev/agencies")}
+              className="rounded-full border border-amber-300/40 bg-amber-100/20 px-4 py-1.5 text-xs text-amber-900 shadow-sm shadow-amber-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-amber-200"
+            >
+              Volver a agencias
+            </button>
+            <div className="flex items-center gap-1">
+              {(["USD", "ARS"] as const).map((cur) => {
+                const active = displayCurrency === cur;
                 return (
                   <button
-                    key={p.key}
+                    key={cur}
+                    type="button"
+                    onClick={() => setDisplayCurrency(cur)}
+                    className={`rounded-full border px-3 py-1 text-xs transition-transform hover:scale-95 active:scale-90 ${
+                      active
+                        ? "border-sky-300/40 bg-sky-100/20 text-sky-900 dark:text-sky-200"
+                        : "border-white/10 bg-white/10 text-sky-950/70 dark:text-white/70"
+                    }`}
+                  >
+                    {cur}
+                  </button>
+                );
+              })}
+            </div>
+            {PERIODS.map((p) => {
+              const active = period === p.key;
+              return (
+                <button
+                  key={p.key}
                     type="button"
                     onClick={() => setPeriod(p.key)}
                     className={`rounded-full border px-4 py-1.5 text-xs shadow-sm transition-transform hover:scale-95 active:scale-90 ${
@@ -163,16 +186,16 @@ export default function DevFinanceStatsPage() {
                   </button>
                 );
               })}
-              <button
-                type="button"
-                onClick={() => fetchStats(period, true)}
-                disabled={refreshing}
-                className="rounded-full border border-amber-300/40 bg-amber-100/20 px-4 py-1.5 text-xs text-amber-900 shadow-sm shadow-amber-950/10 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:text-amber-200"
-              >
-                {refreshing ? "Actualizando..." : "Actualizar"}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => fetchStats(period, true)}
+              disabled={refreshing}
+              className="rounded-full border border-amber-300/40 bg-amber-100/20 px-4 py-1.5 text-xs text-amber-900 shadow-sm shadow-amber-950/10 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:text-amber-200"
+            >
+              {refreshing ? "Actualizando..." : "Actualizar"}
+            </button>
           </div>
+        </div>
 
           {loading ? (
             <div className="flex min-h-[200px] items-center justify-center rounded-3xl border border-white/10 bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur">
@@ -187,37 +210,32 @@ export default function DevFinanceStatsPage() {
             </div>
           ) : (
             <>
-              <div className="grid gap-4 lg:grid-cols-4">
+              <div className="grid gap-4 lg:grid-cols-3">
                 <div className="rounded-3xl border border-emerald-300/30 bg-white/10 p-4 shadow-md shadow-emerald-950/10 backdrop-blur">
                   <p className="text-xs text-emerald-900/70 dark:text-emerald-200/70">
                     Cobrado
                   </p>
                   <p className="mt-2 text-2xl font-semibold">
-                    {formatMoney(stats.totals.paid_usd)}
-                  </p>
-                </div>
-                <div className="rounded-3xl border border-amber-300/30 bg-white/10 p-4 shadow-md shadow-amber-950/10 backdrop-blur">
-                  <p className="text-xs text-amber-900/70 dark:text-amber-200/70">
-                    Facturado
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold">
-                    {formatMoney(stats.totals.billed_usd)}
-                  </p>
-                </div>
-                <div className="rounded-3xl border border-amber-300/30 bg-white/10 p-4 shadow-md shadow-amber-950/10 backdrop-blur">
-                  <p className="text-xs text-amber-900/70 dark:text-amber-200/70">
-                    Deuda actual
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold">
-                    {formatMoney(stats.totals.outstanding_usd)}
+                    {formatMoney(
+                      stats.totals.paid_total,
+                      displayCurrency,
+                    )}
                   </p>
                 </div>
                 <div className="rounded-3xl border border-emerald-300/30 bg-white/10 p-4 shadow-md shadow-emerald-950/10 backdrop-blur">
                   <p className="text-xs text-emerald-900/70 dark:text-emerald-200/70">
-                    MRR estimado
+                    Pendientes (ultimo cobro)
                   </p>
                   <p className="mt-2 text-2xl font-semibold">
-                    {formatMoney(stats.totals.mrr_estimate_usd)}
+                    {stats.counts.agencies_pending_latest}
+                  </p>
+                </div>
+                <div className="rounded-3xl border border-amber-300/30 bg-white/10 p-4 shadow-md shadow-amber-950/10 backdrop-blur">
+                  <p className="text-xs text-amber-900/70 dark:text-amber-200/70">
+                    Cobros pendientes
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold">
+                    {stats.counts.charges_pending}
                   </p>
                 </div>
               </div>
@@ -297,7 +315,10 @@ export default function DevFinanceStatsPage() {
                             </p>
                           </div>
                           <span className="font-semibold">
-                            {formatMoney(row.paid_usd)}
+                            {formatMoney(
+                              row.paid_amount,
+                              displayCurrency,
+                            )}
                           </span>
                         </div>
                       ))
@@ -308,15 +329,15 @@ export default function DevFinanceStatsPage() {
 
               <div className="rounded-3xl border border-white/10 bg-white/10 p-4 shadow-md shadow-sky-950/10 backdrop-blur">
                 <h2 className="text-sm font-semibold">
-                  Agencias con mayor deuda
+                  Agencias pendientes (ultimo cobro)
                 </h2>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  {stats.top_outstanding.length === 0 ? (
+                  {stats.pending_latest.length === 0 ? (
                     <p className="text-xs text-sky-950/60 dark:text-white/60">
-                      No hay deuda pendiente en este periodo.
+                      No hay agencias pendientes en este periodo.
                     </p>
                   ) : (
-                    stats.top_outstanding.map((row) => (
+                    stats.pending_latest.map((row) => (
                       <div
                         key={row.id_agency}
                         className="rounded-2xl border border-amber-300/30 bg-amber-100/10 p-3 text-xs text-sky-950/70 dark:text-white/70"
@@ -326,15 +347,23 @@ export default function DevFinanceStatsPage() {
                           {row.legal_name}
                         </p>
                         <div className="mt-2 flex items-center justify-between">
-                          <span>Deuda</span>
+                          <span>Ultimo cobro</span>
+                          <span className="font-semibold">{row.status}</span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between">
+                          <span>Periodo</span>
                           <span className="font-semibold">
-                            {formatMoney(row.outstanding_usd)}
+                            {formatDate(row.period_start)} →{" "}
+                            {formatDate(row.period_end)}
                           </span>
                         </div>
                         <div className="mt-1 flex items-center justify-between">
-                          <span>Cobros pendientes</span>
+                          <span>Total</span>
                           <span className="font-semibold">
-                            {row.pending_charges}
+                            {formatMoney(
+                              row.total_usd,
+                              "USD",
+                            )}
                           </span>
                         </div>
                       </div>

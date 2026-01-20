@@ -40,6 +40,8 @@ CREATE TABLE "AgencyBillingCharge" (
     "period_end" TIMESTAMP(3),
     "due_date" TIMESTAMP(3),
     "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "charge_kind" TEXT NOT NULL DEFAULT 'RECURRING',
+    "label" TEXT,
     "base_amount_usd" DECIMAL(18,2) NOT NULL,
     "adjustments_total_usd" DECIMAL(18,2) NOT NULL DEFAULT 0,
     "total_usd" DECIMAL(18,2) NOT NULL,

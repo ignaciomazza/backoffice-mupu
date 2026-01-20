@@ -77,6 +77,25 @@ function parseAgencyId(param: unknown): number {
   return id;
 }
 
+async function resolveBillingOwnerId(id_agency: number): Promise<number> {
+  const agency = await prisma.agency.findUnique({
+    where: { id_agency },
+    select: { id_agency: true, billing_owner_agency_id: true },
+  });
+  if (!agency) throw httpError(404, "Agencia no encontrada");
+  return agency.billing_owner_agency_id ?? agency.id_agency;
+}
+
+async function getBillingMemberIds(ownerId: number): Promise<number[]> {
+  const members = await prisma.agency.findMany({
+    where: {
+      OR: [{ id_agency: ownerId }, { billing_owner_agency_id: ownerId }],
+    },
+    select: { id_agency: true },
+  });
+  return members.map((m) => m.id_agency);
+}
+
 function toDate(value?: string | Date | null) {
   if (!value) return null;
   if (value instanceof Date) return value;
@@ -122,23 +141,25 @@ const ConfigSchema = z
 async function handleGET(req: NextApiRequest, res: NextApiResponse) {
   await requireDeveloper(req);
   const id_agency = parseAgencyId(req.query.id);
+  const billingOwnerId = await resolveBillingOwnerId(id_agency);
 
   const agency = await prisma.agency.findUnique({
-    where: { id_agency },
+    where: { id_agency: billingOwnerId },
     select: { id_agency: true },
   });
   if (!agency) return res.status(404).json({ error: "Agencia no encontrada" });
 
+  const memberIds = await getBillingMemberIds(billingOwnerId);
   const [config, currentUsers] = await Promise.all([
     prisma.agencyBillingConfig.findUnique({
-      where: { id_agency },
+      where: { id_agency: billingOwnerId },
     }),
-    prisma.user.count({ where: { id_agency } }),
+    prisma.user.count({ where: { id_agency: { in: memberIds } } }),
   ]);
 
   const fallbackUsers = Math.max(currentUsers, 3);
   const fallback = {
-    id_agency,
+    id_agency: billingOwnerId,
     plan_key: "basico",
     billing_users: fallbackUsers,
     user_limit: null,
@@ -157,6 +178,7 @@ async function handleGET(req: NextApiRequest, res: NextApiResponse) {
 async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
   await requireDeveloper(req);
   const id_agency = parseAgencyId(req.query.id);
+  const billingOwnerId = await resolveBillingOwnerId(id_agency);
 
   const parsed = ConfigSchema.parse(req.body ?? {});
   const billingUsers = normalizeUsersCount(parsed.billing_users);
@@ -172,22 +194,26 @@ async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
 
   const saved = await prisma.$transaction(async (tx) => {
     const existing = await tx.agencyBillingConfig.findUnique({
-      where: { id_agency },
+      where: { id_agency: billingOwnerId },
       select: { id_config: true },
     });
     if (existing) {
       return tx.agencyBillingConfig.update({
-        where: { id_agency },
+        where: { id_agency: billingOwnerId },
         data,
       });
     }
     const agencyConfigId = await getNextAgencyCounter(
       tx,
-      id_agency,
+      billingOwnerId,
       "agency_billing_config",
     );
     return tx.agencyBillingConfig.create({
-      data: { id_agency, agency_billing_config_id: agencyConfigId, ...data },
+      data: {
+        id_agency: billingOwnerId,
+        agency_billing_config_id: agencyConfigId,
+        ...data,
+      },
     });
   });
 

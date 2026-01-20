@@ -2,7 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
-import { calcMonthlyBase, isPlanKey } from "@/lib/billing/pricing";
+import { isPlanKey } from "@/lib/billing/pricing";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
@@ -67,70 +67,48 @@ async function requireDeveloper(req: NextApiRequest): Promise<{
   return { id_user, email: p.email };
 }
 
-type Adjustment = {
-  id_agency: number;
-  kind: string;
-  mode: string;
-  value: unknown;
-  starts_at: Date | null;
-  ends_at: Date | null;
-  active: boolean;
-};
-
-function activeAdjustments(adjustments: Adjustment[], date: Date) {
-  return adjustments.filter((adj) => {
-    if (!adj.active) return false;
-    if (adj.starts_at && date < adj.starts_at) return false;
-    if (adj.ends_at && date > adj.ends_at) return false;
-    return true;
-  });
-}
-
-function calcDiscountTotal(base: number, adjustments: Adjustment[]) {
-  const percent = adjustments
-    .filter((adj) => adj.mode === "percent")
-    .reduce((sum, adj) => sum + Number(adj.value || 0), 0);
-  const fixed = adjustments
-    .filter((adj) => adj.mode === "fixed")
-    .reduce((sum, adj) => sum + Number(adj.value || 0), 0);
-  return base * (percent / 100) + fixed;
-}
-
-function calcTaxTotal(netBase: number, adjustments: Adjustment[]) {
-  const percent = adjustments
-    .filter((adj) => adj.mode === "percent")
-    .reduce((sum, adj) => sum + Number(adj.value || 0), 0);
-  const fixed = adjustments
-    .filter((adj) => adj.mode === "fixed")
-    .reduce((sum, adj) => sum + Number(adj.value || 0), 0);
-  return netBase * (percent / 100) + fixed;
-}
-
-function calcTotals(base: number, adjustments: Adjustment[], date: Date) {
-  const active = activeAdjustments(adjustments, date);
-  const discounts = active.filter((adj) => adj.kind === "discount");
-  const taxes = active.filter((adj) => adj.kind === "tax");
-  const discountUsd = calcDiscountTotal(base, discounts);
-  const netBase = Math.max(base - discountUsd, 0);
-  const taxUsd = calcTaxTotal(netBase, taxes);
-  const total = netBase + taxUsd;
-  return { discountUsd, taxUsd, total };
-}
-
-function paidAmountToUsd(charge: {
-  paid_amount: unknown;
-  paid_currency: string | null;
-  fx_rate: unknown;
-  total_usd: unknown;
+function chargeSortDate(charge: {
+  period_end?: Date | null;
+  period_start?: Date | null;
+  created_at?: Date | null;
 }) {
-  const paid = Number(charge.paid_amount ?? 0);
-  if (Number.isFinite(paid) && paid > 0) {
-    const currency = (charge.paid_currency || "USD").toUpperCase();
-    if (currency === "USD") return paid;
-    const fx = Number(charge.fx_rate ?? 0);
-    if (Number.isFinite(fx) && fx > 0) return paid / fx;
+  return (
+    charge.period_end ??
+    charge.period_start ??
+    charge.created_at ??
+    new Date(0)
+  );
+}
+
+function normalizeCurrency(value?: unknown): "USD" | "ARS" {
+  const raw = String(value ?? "")
+    .trim()
+    .toUpperCase();
+  return raw === "ARS" ? "ARS" : "USD";
+}
+
+function currencyMatches(
+  paidCurrency: string | null,
+  selected: "USD" | "ARS",
+) {
+  if (selected === "USD") {
+    return !paidCurrency || paidCurrency.toUpperCase() === "USD";
   }
-  return Number(charge.total_usd ?? 0);
+  return paidCurrency?.toUpperCase() === "ARS";
+}
+
+function paidAmountForCurrency(
+  charge: {
+    paid_amount: unknown;
+    paid_currency: string | null;
+    total_usd: unknown;
+  },
+  selected: "USD" | "ARS",
+) {
+  const paid = Number(charge.paid_amount ?? 0);
+  if (Number.isFinite(paid) && paid > 0) return paid;
+  if (selected === "USD") return Number(charge.total_usd ?? 0);
+  return 0;
 }
 
 function startOfMonth(d: Date) {
@@ -174,91 +152,94 @@ export default async function handler(
       : req.query.period;
     const period = typeof periodRaw === "string" ? periodRaw : "month";
     const range = getRange(period);
+    const currency = normalizeCurrency(
+      Array.isArray(req.query.currency) ? req.query.currency[0] : req.query.currency,
+    );
 
     const chargeWhere =
       range.from && range.to
         ? {
             OR: [
               { period_start: { gte: range.from, lte: range.to } },
-              { period_start: null, created_at: { gte: range.from, lte: range.to } },
+              {
+                period_start: null,
+                created_at: { gte: range.from, lte: range.to },
+              },
             ],
           }
         : {};
 
-    const [agencyTotal, configs, adjustments, billedAgg, pendingAgg, charges] =
-      await Promise.all([
-        prisma.agency.count(),
-        prisma.agencyBillingConfig.findMany({
-          select: {
-            id_agency: true,
-            plan_key: true,
-            billing_users: true,
-          },
-        }),
-        prisma.agencyBillingAdjustment.findMany({
-          select: {
-            id_agency: true,
-            kind: true,
-            mode: true,
-            value: true,
-            starts_at: true,
-            ends_at: true,
-            active: true,
-          },
-        }),
-        prisma.agencyBillingCharge.aggregate({
-          where: chargeWhere,
-          _sum: { total_usd: true },
-          _count: { _all: true },
-        }),
-        prisma.agencyBillingCharge.aggregate({
-          where: { ...chargeWhere, status: { not: "PAID" } },
-          _sum: { total_usd: true },
-          _count: { _all: true },
-        }),
-        prisma.agencyBillingCharge.findMany({
-          where: chargeWhere,
-          select: {
-            id_charge: true,
-            id_agency: true,
-            total_usd: true,
-            paid_amount: true,
-            paid_currency: true,
-            fx_rate: true,
-            paid_at: true,
-            status: true,
-            created_at: true,
-          },
-        }),
-      ]);
+    const paidWhere =
+      range.from && range.to
+        ? {
+            status: "PAID",
+            OR: [
+              { paid_at: { gte: range.from, lte: range.to } },
+              { paid_at: null, created_at: { gte: range.from, lte: range.to } },
+            ],
+          }
+        : { status: "PAID" };
 
-    const paidCharges = charges.filter((c) => {
-      if (String(c.status || "").toUpperCase() !== "PAID") return false;
-      if (!range.from || !range.to) return true;
-      if (c.paid_at) return c.paid_at >= range.from && c.paid_at <= range.to;
-      return c.created_at >= range.from && c.created_at <= range.to;
-    });
-    const paidUsd = paidCharges.reduce((sum, c) => sum + paidAmountToUsd(c), 0);
+    const [agencyTotal, agencies, configs, charges, paidCharges] = await Promise.all([
+      prisma.agency.count(),
+      prisma.agency.findMany({
+        select: {
+          id_agency: true,
+          name: true,
+          legal_name: true,
+          billing_owner_agency_id: true,
+        },
+      }),
+      prisma.agencyBillingConfig.findMany({
+        select: {
+          id_agency: true,
+          plan_key: true,
+          billing_users: true,
+        },
+      }),
+      prisma.agencyBillingCharge.findMany({
+        where: chargeWhere,
+        select: {
+          id_charge: true,
+          id_agency: true,
+          total_usd: true,
+          paid_amount: true,
+          paid_currency: true,
+          fx_rate: true,
+          paid_at: true,
+          status: true,
+          created_at: true,
+          period_start: true,
+          period_end: true,
+          charge_kind: true,
+          agency: { select: { name: true, legal_name: true } },
+        },
+      }),
+      prisma.agencyBillingCharge.findMany({
+        where: paidWhere,
+        select: {
+          id_charge: true,
+          id_agency: true,
+          total_usd: true,
+          paid_amount: true,
+          paid_currency: true,
+          fx_rate: true,
+          paid_at: true,
+          created_at: true,
+          agency: { select: { name: true } },
+        },
+      }),
+    ]);
 
-    const agenciesWithCharges = new Set(charges.map((c) => c.id_agency));
-
-    const adjustmentsByAgency = adjustments.reduce<Record<number, Adjustment[]>>(
-      (acc, adj) => {
-        if (!acc[adj.id_agency]) acc[adj.id_agency] = [];
-        acc[adj.id_agency].push(adj);
-        return acc;
-      },
-      {},
+    const paidFiltered = paidCharges.filter((c) =>
+      currencyMatches(c.paid_currency, currency),
+    );
+    const paidTotal = paidFiltered.reduce(
+      (sum, c) => sum + paidAmountForCurrency(c, currency),
+      0,
     );
 
-    const today = new Date();
-    const mrrEstimateUsd = configs.reduce((sum, cfg) => {
-      const planKey = isPlanKey(cfg.plan_key) ? cfg.plan_key : "basico";
-      const base = calcMonthlyBase(planKey, cfg.billing_users);
-      const agencyAdjustments = adjustmentsByAgency[cfg.id_agency] || [];
-      const totals = calcTotals(base, agencyAdjustments, today);
-      return sum + totals.total;
-    }, 0);
+    const agenciesWithCharges = new Set(charges.map((c) => c.id_agency));
 
     const planMix = configs.reduce<Record<string, number>>((acc, cfg) => {
       const key = isPlanKey(cfg.plan_key) ? cfg.plan_key : "basico";
@@ -266,56 +247,78 @@ export default async function handler(
       return acc;
     }, {});
 
-    const chargesByAgency = await prisma.agencyBillingCharge.groupBy({
-      by: ["id_agency"],
-      where: { ...chargeWhere, status: { not: "PAID" } },
-      _sum: { total_usd: true },
-      _count: { _all: true },
-      orderBy: { _sum: { total_usd: "desc" } },
-      take: 5,
-    });
+    const chargesPaidCount = charges.filter((c) => {
+      if (String(c.status || "").toUpperCase() !== "PAID") return false;
+      return currencyMatches(c.paid_currency, currency);
+    }).length;
+    const chargesPendingCount = charges.filter(
+      (c) => String(c.status || "").toUpperCase() !== "PAID",
+    ).length;
 
-    const topAgencyIds = chargesByAgency.map((row) => row.id_agency);
-    const topAgencies = await prisma.agency.findMany({
-      where: { id_agency: { in: topAgencyIds } },
-      select: { id_agency: true, name: true, legal_name: true },
-    });
-    const topAgencyMap = topAgencies.reduce<Record<number, typeof topAgencies[0]>>(
-      (acc, item) => {
-        acc[item.id_agency] = item;
-        return acc;
-      },
-      {},
+    const recurringCharges = charges.filter(
+      (c) => String(c.charge_kind || "RECURRING").toUpperCase() !== "EXTRA",
     );
+    const latestByOwner = recurringCharges.reduce<
+      Record<number, (typeof charges)[0]>
+    >((acc, charge) => {
+      const current = acc[charge.id_agency];
+      if (!current || chargeSortDate(charge) > chargeSortDate(current)) {
+        acc[charge.id_agency] = charge;
+      }
+      return acc;
+    }, {});
 
-    const topOutstanding = chargesByAgency.map((row) => ({
-      id_agency: row.id_agency,
-      name: topAgencyMap[row.id_agency]?.name ?? "Agencia",
-      legal_name: topAgencyMap[row.id_agency]?.legal_name ?? "",
-      outstanding_usd: Number(row._sum.total_usd ?? 0),
-      pending_charges: row._count._all,
-    }));
+    const pendingLatest = agencies
+      .map((agency) => {
+        const ownerId =
+          agency.billing_owner_agency_id ?? agency.id_agency;
+        const lastCharge = latestByOwner[ownerId];
+        if (!lastCharge) return null;
+        if (String(lastCharge.status || "").toUpperCase() === "PAID")
+          return null;
+        return {
+          id_agency: agency.id_agency,
+          name: agency.name,
+          legal_name: agency.legal_name ?? "",
+          id_charge: lastCharge.id_charge,
+          status: lastCharge.status,
+          period_start: lastCharge.period_start,
+          period_end: lastCharge.period_end,
+          total_usd: Number(lastCharge.total_usd ?? 0),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        const aDate =
+          (a?.period_end ?? a?.period_start ?? new Date(0)).getTime();
+        const bDate =
+          (b?.period_end ?? b?.period_start ?? new Date(0)).getTime();
+        return bDate - aDate;
+      }) as {
+      id_agency: number;
+      name: string;
+      legal_name: string;
+      id_charge: number;
+      status: string;
+      period_start: Date | null;
+      period_end: Date | null;
+      total_usd: number;
+    }[];
 
-    const recentPayments = await prisma.agencyBillingCharge.findMany({
-      where: {
-        status: "PAID",
-        ...(range.from && range.to
-          ? { paid_at: { gte: range.from, lte: range.to } }
-          : {}),
-      },
-      orderBy: { paid_at: "desc" },
-      take: 6,
-      select: {
-        id_charge: true,
-        id_agency: true,
-        paid_amount: true,
-        paid_currency: true,
-        fx_rate: true,
-        paid_at: true,
-        total_usd: true,
-        agency: { select: { name: true } },
-      },
-    });
+    const recentPayments = [...paidFiltered]
+      .sort((a, b) => {
+        const aDate = a.paid_at ?? a.created_at ?? new Date(0);
+        const bDate = b.paid_at ?? b.created_at ?? new Date(0);
+        return bDate.getTime() - aDate.getTime();
+      })
+      .slice(0, 6)
+      .map((row) => ({
+        id_charge: row.id_charge,
+        agency_name: row.agency?.name ?? "Agencia",
+        paid_at: row.paid_at ?? row.created_at,
+        paid_amount: paidAmountForCurrency(row, currency),
+        paid_currency: currency,
+      }));
 
     return res.status(200).json({
       range: {
@@ -324,18 +327,16 @@ export default async function handler(
         label: range.label,
       },
       totals: {
-        billed_usd: Number(billedAgg._sum.total_usd ?? 0),
-        paid_usd: paidUsd,
-        outstanding_usd: Number(pendingAgg._sum.total_usd ?? 0),
-        mrr_estimate_usd: mrrEstimateUsd,
+        paid_total: paidTotal,
       },
       counts: {
         agencies_total: agencyTotal,
         agencies_with_billing: configs.length,
         agencies_with_charges: agenciesWithCharges.size,
-        charges_total: billedAgg._count._all,
-        charges_paid: paidCharges.length,
-        charges_pending: pendingAgg._count._all,
+        charges_total: charges.length,
+        charges_paid: chargesPaidCount,
+        charges_pending: chargesPendingCount,
+        agencies_pending_latest: pendingLatest.length,
       },
       plan_mix: {
         basico: planMix.basico ?? 0,
@@ -343,13 +344,9 @@ export default async function handler(
         pro: planMix.pro ?? 0,
         sin_plan: agencyTotal - configs.length,
       },
-      top_outstanding: topOutstanding,
-      recent_payments: recentPayments.map((row) => ({
-        id_charge: row.id_charge,
-        agency_name: row.agency?.name ?? "Agencia",
-        paid_at: row.paid_at,
-        paid_usd: paidAmountToUsd(row),
-      })),
+      pending_latest: pendingLatest,
+      recent_payments: recentPayments,
+      currency,
     });
   } catch (e) {
     const err = e as AppError;

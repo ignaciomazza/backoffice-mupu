@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 import {
-  calcMonthlyBase,
+  calcMonthlyBaseWithVat,
   isPlanKey,
   type PlanKey,
 } from "@/lib/billing/pricing";
@@ -79,6 +79,15 @@ function parseAgencyId(param: unknown): number {
   return id;
 }
 
+async function resolveBillingOwnerId(id_agency: number): Promise<number> {
+  const agency = await prisma.agency.findUnique({
+    where: { id_agency },
+    select: { id_agency: true, billing_owner_agency_id: true },
+  });
+  if (!agency) throw httpError(404, "Agencia no encontrada");
+  return agency.billing_owner_agency_id ?? agency.id_agency;
+}
+
 type Adjustment = {
   kind: string;
   mode: string;
@@ -108,16 +117,6 @@ function calcDiscountTotal(base: number, adjustments: Adjustment[]) {
   return base * (percent / 100) + fixed;
 }
 
-function calcTaxTotal(netBase: number, adjustments: Adjustment[]) {
-  const percent = adjustments
-    .filter((adj) => adj.mode === "percent")
-    .reduce((sum, adj) => sum + Number(adj.value || 0), 0);
-  const fixed = adjustments
-    .filter((adj) => adj.mode === "fixed")
-    .reduce((sum, adj) => sum + Number(adj.value || 0), 0);
-  return netBase * (percent / 100) + fixed;
-}
-
 function calcTotals(
   base: number,
   adjustments: Adjustment[],
@@ -125,12 +124,9 @@ function calcTotals(
 ) {
   const active = activeAdjustments(adjustments, date);
   const discounts = active.filter((adj) => adj.kind === "discount");
-  const taxes = active.filter((adj) => adj.kind === "tax");
   const discountUsd = calcDiscountTotal(base, discounts);
-  const netBase = Math.max(base - discountUsd, 0);
-  const taxUsd = calcTaxTotal(netBase, taxes);
-  const total = netBase + taxUsd;
-  return { discountUsd, taxUsd, total };
+  const total = Math.max(base - discountUsd, 0);
+  return { discountUsd, total };
 }
 
 function estimateForMonths(
@@ -139,7 +135,7 @@ function estimateForMonths(
   adjustments: Adjustment[],
   months: number,
 ) {
-  const base = calcMonthlyBase(planKey, billingUsers);
+  const base = calcMonthlyBaseWithVat(planKey, billingUsers);
   let total = 0;
   const start = new Date();
   for (let i = 0; i < months; i += 1) {
@@ -166,6 +162,19 @@ function paidAmountToUsd(charge: {
   return Number(charge.total_usd ?? 0);
 }
 
+function chargeSortDate(charge: {
+  period_end?: Date | null;
+  period_start?: Date | null;
+  created_at?: Date | null;
+}) {
+  return (
+    charge.period_end ??
+    charge.period_start ??
+    charge.created_at ??
+    new Date(0)
+  );
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -178,23 +187,24 @@ export default async function handler(
 
     await requireDeveloper(req);
     const id_agency = parseAgencyId(req.query.id);
+    const billingOwnerId = await resolveBillingOwnerId(id_agency);
 
     const [config, adjustments, charges] = await Promise.all([
       prisma.agencyBillingConfig.findUnique({
-        where: { id_agency },
+        where: { id_agency: billingOwnerId },
       }),
       prisma.agencyBillingAdjustment.findMany({
-        where: { id_agency },
+        where: { id_agency: billingOwnerId },
       }),
       prisma.agencyBillingCharge.findMany({
-        where: { id_agency },
+        where: { id_agency: billingOwnerId },
       }),
     ]);
 
     const planKey = isPlanKey(config?.plan_key) ? config?.plan_key : "basico";
     const billingUsers = config?.billing_users ?? 3;
 
-    const monthlyBase = calcMonthlyBase(planKey, billingUsers);
+    const monthlyBase = calcMonthlyBaseWithVat(planKey, billingUsers);
     const monthlyTotals = calcTotals(monthlyBase, adjustments, new Date());
 
     const estimates = {
@@ -207,41 +217,50 @@ export default async function handler(
         .total,
     };
 
-    const billedTotal = charges.reduce((sum, c) => {
-      return sum + Number(c.total_usd ?? 0);
-    }, 0);
-
     const paidTotal = charges.reduce((sum, c) => {
       if (String(c.status || "").toUpperCase() !== "PAID") return sum;
       return sum + paidAmountToUsd(c);
     }, 0);
 
-    const pendingCharges = charges.filter(
+    const recurringCharges = charges.filter(
+      (c) => String(c.charge_kind || "RECURRING").toUpperCase() !== "EXTRA",
+    );
+    const pendingCharges = recurringCharges.filter(
       (c) => String(c.status || "").toUpperCase() !== "PAID",
     );
-    const pendingTotal = pendingCharges.reduce(
-      (sum, c) => sum + Number(c.total_usd ?? 0),
-      0,
+    const lastCharge = recurringCharges.reduce<typeof charges[0] | null>(
+      (acc, c) => {
+        if (!acc) return c;
+        return chargeSortDate(c) > chargeSortDate(acc) ? c : acc;
+      },
+      null,
     );
 
     const lastPaymentAt = charges.reduce<Date | null>((acc, c) => {
-      if (!c.paid_at) return acc;
-      if (!acc || c.paid_at > acc) return c.paid_at;
+      const baseDate = c.paid_at ?? c.created_at;
+      if (!baseDate) return acc;
+      if (!acc || baseDate > acc) return baseDate;
       return acc;
     }, null);
 
     return res.status(200).json({
       totals: {
-        billed_usd: billedTotal,
         paid_usd: paidTotal,
-        outstanding_usd: pendingTotal,
       },
       counts: {
-        total: charges.length,
+        total: recurringCharges.length,
         pending: pendingCharges.length,
-        paid: charges.length - pendingCharges.length,
+        paid: recurringCharges.length - pendingCharges.length,
       },
       last_payment_at: lastPaymentAt,
+      last_charge: lastCharge
+        ? {
+            status: lastCharge.status,
+            period_start: lastCharge.period_start,
+            period_end: lastCharge.period_end,
+            total_usd: Number(lastCharge.total_usd ?? 0),
+          }
+        : null,
       estimates,
     });
   } catch (e) {

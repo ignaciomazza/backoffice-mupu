@@ -141,6 +141,7 @@ function sanitizeAgency(a: {
   foundation_date: Date | null;
   logo_url: string | null;
   creation_date: Date;
+  billing_owner_agency_id: number | null;
   afip_cert_base64?: unknown | null;
   afip_key_base64?: unknown | null;
 }) {
@@ -156,6 +157,32 @@ function sanitizeAgency(a: {
       ),
     },
   };
+}
+
+function chargeSortDate(charge: {
+  period_end?: Date | null;
+  period_start?: Date | null;
+  created_at?: Date | null;
+}) {
+  return (
+    charge.period_end ??
+    charge.period_start ??
+    charge.created_at ??
+    new Date(0)
+  );
+}
+
+function getBillingStatus(
+  charge: {
+    status?: string | null;
+    period_end?: Date | null;
+  } | null,
+) {
+  if (!charge) return "NONE";
+  const status = String(charge.status || "").toUpperCase();
+  if (status === "PAID") return "PAID";
+  if (charge.period_end && charge.period_end < new Date()) return "OVERDUE";
+  return "PENDING";
 }
 
 /* ========== GET (lista con cursor “ver más”) ========== */
@@ -205,6 +232,7 @@ async function handleGET(req: NextApiRequest, res: NextApiResponse) {
       foundation_date: true,
       logo_url: true,
       creation_date: true,
+      billing_owner_agency_id: true,
       afip_cert_base64: true,
       afip_key_base64: true,
     },
@@ -218,6 +246,47 @@ async function handleGET(req: NextApiRequest, res: NextApiResponse) {
     items = list.slice(0, limitNum);
   }
 
+  const ownerIds = Array.from(
+    new Set(
+      items.map((a) => a.billing_owner_agency_id ?? a.id_agency),
+    ),
+  );
+
+  const [ownerAgencies, charges] = await Promise.all([
+    prisma.agency.findMany({
+      where: { id_agency: { in: ownerIds } },
+      select: { id_agency: true, name: true },
+    }),
+    prisma.agencyBillingCharge.findMany({
+      where: { id_agency: { in: ownerIds } },
+      select: {
+        id_agency: true,
+        status: true,
+        period_start: true,
+        period_end: true,
+        created_at: true,
+      },
+    }),
+  ]);
+
+  const ownerNameMap = ownerAgencies.reduce<Record<number, string>>(
+    (acc, row) => {
+      acc[row.id_agency] = row.name;
+      return acc;
+    },
+    {},
+  );
+
+  const lastChargeByOwner = charges.reduce<
+    Record<number, typeof charges[number]>
+  >((acc, charge) => {
+    const current = acc[charge.id_agency];
+    if (!current || chargeSortDate(charge) > chargeSortDate(current)) {
+      acc[charge.id_agency] = charge;
+    }
+    return acc;
+  }, {});
+
   const withCounts = await Promise.all(
     items.map(async (a) => {
       const [users, clients, bookings] = await Promise.all([
@@ -225,9 +294,19 @@ async function handleGET(req: NextApiRequest, res: NextApiResponse) {
         prisma.client.count({ where: { id_agency: a.id_agency } }),
         prisma.booking.count({ where: { id_agency: a.id_agency } }),
       ]);
+      const ownerId = a.billing_owner_agency_id ?? a.id_agency;
+      const lastCharge = lastChargeByOwner[ownerId] ?? null;
       return {
         ...sanitizeAgency(a),
         counts: { users, clients, bookings },
+        billing: {
+          owner_id: ownerId,
+          owner_name: ownerNameMap[ownerId] ?? a.name,
+          is_owner: ownerId === a.id_agency,
+          status: getBillingStatus(lastCharge),
+          period_start: lastCharge?.period_start ?? null,
+          period_end: lastCharge?.period_end ?? null,
+        },
       };
     }),
   );
@@ -271,6 +350,7 @@ async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
         foundation_date: true,
         logo_url: true,
         creation_date: true,
+        billing_owner_agency_id: true,
         afip_cert_base64: true,
         afip_key_base64: true,
       },

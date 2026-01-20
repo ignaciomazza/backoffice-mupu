@@ -59,6 +59,9 @@ model Agency {
   logo_url             String?
   afip_cert_base64     String?
   afip_key_base64      String?
+  billing_owner_agency_id Int?
+  billingOwner         Agency?                @relation("AgencyBillingOwner", fields: [billing_owner_agency_id], references: [id_agency])
+  billingMembers       Agency[]               @relation("AgencyBillingOwner")
   transfer_fee_pct     Decimal?               @db.Decimal(9, 6)
   use_agency_numbers   Boolean                @default(true)
   creation_date        DateTime               @default(now())
@@ -96,6 +99,8 @@ model Agency {
   creditAccounts       CreditAccount[]
   creditEntries        CreditEntry[]
   agencyCounters       AgencyCounter[]
+
+  @@index([billing_owner_agency_id])
 }
 
 model AgencyCounter {
@@ -856,6 +861,8 @@ model AgencyBillingCharge {
   period_end   DateTime?
   due_date     DateTime?
   status       String  @default("PENDING")
+  charge_kind  String  @default("RECURRING")
+  label        String?
 
   base_amount_usd        Decimal @db.Decimal(18, 2)
   adjustments_total_usd  Decimal @db.Decimal(18, 2) @default(0)

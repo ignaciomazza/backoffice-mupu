@@ -1,4 +1,5 @@
 export type PlanKey = "basico" | "medio" | "pro";
+export const IVA_RATE = 0.21;
 
 export const PLAN_DATA: Record<
   PlanKey,
@@ -47,4 +48,18 @@ export function calcInfraCost(users: number): number {
 
 export function calcMonthlyBase(planKey: PlanKey, users: number): number {
   return PLAN_DATA[planKey].base + calcExtraUsersCost(users) + calcInfraCost(users);
+}
+
+export function applyVat(value: number, rate: number = IVA_RATE): number {
+  const safe = Number.isFinite(value) ? value : 0;
+  return safe * (1 + rate);
+}
+
+export function calcMonthlyBaseWithVat(planKey: PlanKey, users: number): number {
+  return applyVat(calcMonthlyBase(planKey, users));
+}
+
+export function calcVatFromTotal(totalWithVat: number, rate: number = IVA_RATE): number {
+  const safe = Number.isFinite(totalWithVat) ? totalWithVat : 0;
+  return safe - safe / (1 + rate);
 }

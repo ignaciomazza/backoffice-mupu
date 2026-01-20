@@ -76,6 +76,15 @@ function parseAgencyId(param: unknown): number {
   return id;
 }
 
+async function resolveBillingOwnerId(id_agency: number): Promise<number> {
+  const agency = await prisma.agency.findUnique({
+    where: { id_agency },
+    select: { id_agency: true, billing_owner_agency_id: true },
+  });
+  if (!agency) throw httpError(404, "Agencia no encontrada");
+  return agency.billing_owner_agency_id ?? agency.id_agency;
+}
+
 function toDate(value?: string | Date | null) {
   if (!value) return null;
   if (value instanceof Date) return value;
@@ -103,7 +112,7 @@ const AdjustmentSchema = z
     kind: z
       .string()
       .transform((v) => v.trim().toLowerCase())
-      .refine((v) => v === "tax" || v === "discount", "Tipo invalido"),
+      .refine((v) => v === "discount", "Tipo invalido"),
     mode: z
       .string()
       .transform((v) => v.trim().toLowerCase())
@@ -126,9 +135,10 @@ const AdjustmentSchema = z
 async function handleGET(req: NextApiRequest, res: NextApiResponse) {
   await requireDeveloper(req);
   const id_agency = parseAgencyId(req.query.id);
+  const billingOwnerId = await resolveBillingOwnerId(id_agency);
 
   const items = await prisma.agencyBillingAdjustment.findMany({
-    where: { id_agency },
+    where: { id_agency: billingOwnerId },
     orderBy: { id_adjustment: "desc" },
   });
 
@@ -143,6 +153,7 @@ async function handleGET(req: NextApiRequest, res: NextApiResponse) {
 async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
   await requireDeveloper(req);
   const id_agency = parseAgencyId(req.query.id);
+  const billingOwnerId = await resolveBillingOwnerId(id_agency);
 
   const parsed = AdjustmentSchema.parse(req.body ?? {});
   const value = Number(parsed.value ?? 0);
@@ -153,12 +164,12 @@ async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
   const created = await prisma.$transaction(async (tx) => {
     const agencyAdjustmentId = await getNextAgencyCounter(
       tx,
-      id_agency,
+      billingOwnerId,
       "agency_billing_adjustment",
     );
     return tx.agencyBillingAdjustment.create({
       data: {
-        id_agency,
+        id_agency: billingOwnerId,
         agency_billing_adjustment_id: agencyAdjustmentId,
         kind: parsed.kind,
         mode: parsed.mode,

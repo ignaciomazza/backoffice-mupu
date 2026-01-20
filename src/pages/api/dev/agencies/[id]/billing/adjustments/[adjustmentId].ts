@@ -75,6 +75,15 @@ function parseAgencyId(param: unknown): number {
   return id;
 }
 
+async function resolveBillingOwnerId(id_agency: number): Promise<number> {
+  const agency = await prisma.agency.findUnique({
+    where: { id_agency },
+    select: { id_agency: true, billing_owner_agency_id: true },
+  });
+  if (!agency) throw httpError(404, "Agencia no encontrada");
+  return agency.billing_owner_agency_id ?? agency.id_agency;
+}
+
 function parseAdjustmentId(param: unknown): number {
   const raw = Array.isArray(param) ? param[0] : param;
   const id = Number.parseInt(String(raw ?? ""), 10);
@@ -110,7 +119,7 @@ const AdjustmentSchema = z
     kind: z
       .string()
       .transform((v) => v.trim().toLowerCase())
-      .refine((v) => v === "tax" || v === "discount", "Tipo invalido"),
+      .refine((v) => v === "discount", "Tipo invalido"),
     mode: z
       .string()
       .transform((v) => v.trim().toLowerCase())
@@ -133,6 +142,7 @@ const AdjustmentSchema = z
 async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
   await requireDeveloper(req);
   const id_agency = parseAgencyId(req.query.id);
+  const billingOwnerId = await resolveBillingOwnerId(id_agency);
   const id_adjustment = parseAdjustmentId(req.query.adjustmentId);
 
   const parsed = AdjustmentSchema.parse(req.body ?? {});
@@ -144,7 +154,7 @@ async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
   const existing = await prisma.agencyBillingAdjustment.findUnique({
     where: { id_adjustment },
   });
-  if (!existing || existing.id_agency !== id_agency) {
+  if (!existing || existing.id_agency !== billingOwnerId) {
     return res.status(404).json({ error: "Ajuste no encontrado" });
   }
 
@@ -168,12 +178,13 @@ async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
 async function handleDELETE(req: NextApiRequest, res: NextApiResponse) {
   await requireDeveloper(req);
   const id_agency = parseAgencyId(req.query.id);
+  const billingOwnerId = await resolveBillingOwnerId(id_agency);
   const id_adjustment = parseAdjustmentId(req.query.adjustmentId);
 
   const existing = await prisma.agencyBillingAdjustment.findUnique({
     where: { id_adjustment },
   });
-  if (!existing || existing.id_agency !== id_agency) {
+  if (!existing || existing.id_agency !== billingOwnerId) {
     return res.status(404).json({ error: "Ajuste no encontrado" });
   }
 

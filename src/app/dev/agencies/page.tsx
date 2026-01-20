@@ -20,6 +20,15 @@ type DevAgency = {
   name: string;
   legal_name: string;
   tax_id: string;
+  billing_owner_agency_id?: Maybe<number>;
+  billing?: {
+    owner_id: number;
+    owner_name: string;
+    is_owner: boolean;
+    status: BillingStatus;
+    period_start?: Maybe<string | Date>;
+    period_end?: Maybe<string | Date>;
+  };
   address?: Maybe<string>;
   phone?: Maybe<string>;
   email?: Maybe<string>;
@@ -31,6 +40,8 @@ type DevAgency = {
     bookings: number;
   };
 };
+
+type BillingStatus = "PAID" | "PENDING" | "OVERDUE" | "NONE";
 
 type DevAgencyInput = {
   name: string;
@@ -58,6 +69,35 @@ function formatDateDMY(value?: string | Date | null): string {
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
   const yy = d.getUTCFullYear();
   return `${dd}/${mm}/${yy}`;
+}
+
+function getBillingBadge(status?: BillingStatus) {
+  switch (status) {
+    case "PAID":
+      return {
+        label: "Pagado",
+        className:
+          "border-emerald-300/40 bg-emerald-100/20 text-emerald-900 dark:text-emerald-200",
+      };
+    case "OVERDUE":
+      return {
+        label: "Vencido",
+        className:
+          "border-red-300/50 bg-red-500/20 text-red-100 dark:text-red-100",
+      };
+    case "PENDING":
+      return {
+        label: "Pendiente",
+        className:
+          "border-amber-300/40 bg-amber-100/20 text-amber-900 dark:text-amber-200",
+      };
+    default:
+      return {
+        label: "Sin cobro",
+        className:
+          "border-white/10 bg-white/10 text-sky-950/70 dark:text-white/70",
+      };
+  }
 }
 function toYMD(value?: string | Date | null): string {
   if (!value) return "";
@@ -696,6 +736,26 @@ export default function DevAgenciesPage() {
                     <span className="rounded-full border border-amber-300/40 bg-amber-100/20 px-3 py-1 text-amber-900 dark:text-amber-200">
                       Reservas: {a.counts?.bookings ?? "—"}
                     </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 text-[11px]">
+                    {a.billing && a.billing.owner_id !== a.id_agency && (
+                      <span className="rounded-full border border-sky-300/40 bg-sky-100/20 px-3 py-1 text-sky-900 dark:text-sky-200">
+                        Grupo: {a.billing.owner_name}
+                      </span>
+                    )}
+                    <span
+                      className={`rounded-full border px-3 py-1 ${
+                        getBillingBadge(a.billing?.status).className
+                      }`}
+                    >
+                      {getBillingBadge(a.billing?.status).label}
+                    </span>
+                    {a.billing?.period_end && (
+                      <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-sky-950/70 dark:text-white/70">
+                        Hasta {formatDateDMY(a.billing.period_end)}
+                      </span>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-sm">

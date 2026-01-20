@@ -76,6 +76,15 @@ function parseAgencyId(param: unknown): number {
   return id;
 }
 
+async function resolveBillingOwnerId(id_agency: number): Promise<number> {
+  const agency = await prisma.agency.findUnique({
+    where: { id_agency },
+    select: { id_agency: true, billing_owner_agency_id: true },
+  });
+  if (!agency) throw httpError(404, "Agencia no encontrada");
+  return agency.billing_owner_agency_id ?? agency.id_agency;
+}
+
 function toDate(value?: string | Date | null) {
   if (!value) return null;
   if (value instanceof Date) return value;
@@ -98,6 +107,12 @@ const decimalInput = z.preprocess((v) => {
   return v;
 }, z.number().finite());
 
+const ChargeKindSchema = z
+  .string()
+  .optional()
+  .transform((v) => (v ? v.trim().toUpperCase() : "RECURRING"))
+  .refine((v) => v === "RECURRING" || v === "EXTRA", "Tipo de cobro invalido");
+
 const ChargeSchema = z
   .object({
     period_start: z.union([z.string(), z.date(), z.null(), z.undefined()]),
@@ -107,6 +122,11 @@ const ChargeSchema = z
       .string()
       .optional()
       .transform((v) => (v ? v.trim().toUpperCase() : "PENDING")),
+    charge_kind: ChargeKindSchema,
+    label: z
+      .string()
+      .optional()
+      .transform((v) => (v ? v.trim() : undefined)),
     base_amount_usd: decimalInput,
     adjustments_total_usd: decimalInput.optional(),
     total_usd: decimalInput.optional(),
@@ -135,6 +155,7 @@ const ChargeSchema = z
 async function handleGET(req: NextApiRequest, res: NextApiResponse) {
   await requireDeveloper(req);
   const id_agency = parseAgencyId(req.query.id);
+  const billingOwnerId = await resolveBillingOwnerId(id_agency);
 
   const limitRaw = Array.isArray(req.query.limit)
     ? req.query.limit[0]
@@ -149,7 +170,7 @@ async function handleGET(req: NextApiRequest, res: NextApiResponse) {
   const cursorId = cursorRaw ? Number.parseInt(String(cursorRaw), 10) : null;
 
   const list = await prisma.agencyBillingCharge.findMany({
-    where: { id_agency },
+    where: { id_agency: billingOwnerId },
     orderBy: { id_charge: "desc" },
     ...(cursorId ? { cursor: { id_charge: cursorId }, skip: 1 } : undefined),
     take: limit + 1,
@@ -177,6 +198,7 @@ async function handleGET(req: NextApiRequest, res: NextApiResponse) {
 async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
   await requireDeveloper(req);
   const id_agency = parseAgencyId(req.query.id);
+  const billingOwnerId = await resolveBillingOwnerId(id_agency);
 
   const parsed = ChargeSchema.parse(req.body ?? {});
   const base = Number(parsed.base_amount_usd ?? 0);
@@ -189,17 +211,19 @@ async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
   const created = await prisma.$transaction(async (tx) => {
     const agencyChargeId = await getNextAgencyCounter(
       tx,
-      id_agency,
+      billingOwnerId,
       "agency_billing_charge",
     );
     return tx.agencyBillingCharge.create({
       data: {
-        id_agency,
+        id_agency: billingOwnerId,
         agency_billing_charge_id: agencyChargeId,
         period_start: toDate(parsed.period_start),
         period_end: toDate(parsed.period_end),
         due_date: toDate(parsed.due_date),
         status: parsed.status || "PENDING",
+        charge_kind: parsed.charge_kind || "RECURRING",
+        label: parsed.label ?? null,
         base_amount_usd: base,
         adjustments_total_usd: adjustments,
         total_usd: total,
