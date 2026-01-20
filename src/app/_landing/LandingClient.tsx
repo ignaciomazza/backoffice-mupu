@@ -18,10 +18,7 @@ import {
 } from "recharts";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
-import {
-  trackCompleteRegistration,
-  trackContact,
-} from "@/lib/meta/pixel";
+import { trackCompleteRegistration, trackContact } from "@/lib/meta/pixel";
 
 /* ===========================
  * Config
@@ -1228,9 +1225,9 @@ function PricingCalculator() {
   const [users, setUsers] = useState<number>(6);
   const [bspRate, setBspRate] = useState<number | null>(null);
   const [bspDate, setBspDate] = useState<string | null>(null);
-  const [bspStatus, setBspStatus] = useState<
-    "idle" | "loading" | "ok" | "err"
-  >("idle");
+  const [bspStatus, setBspStatus] = useState<"idle" | "loading" | "ok" | "err">(
+    "idle",
+  );
   const bspCacheRef = useRef<{
     ts: number;
     rate: number;
@@ -1423,7 +1420,8 @@ function PricingCalculator() {
             Estimación mensual:
           </div>
           <div className="text-xl font-semibold tabular-nums text-sky-950">
-            USD {total.toFixed(2)}
+            USD {total.toFixed(2)}{" "}
+            <span className="text-base font-normal opacity-70"> + IVA</span>
           </div>
           {bspStatus === "loading" && (
             <div className="mt-1 text-[11px] text-sky-950/60">
@@ -1436,7 +1434,10 @@ function PricingCalculator() {
                 Estimacion en ARS
               </div>
               <div className="text-base font-semibold tabular-nums text-sky-950">
-                {formatArs(total * bspRate)}
+                {formatArs(total * bspRate + total * bspRate * 0.21)}{" "}
+                <span className="text-xs font-light tabular-nums text-sky-950/70">
+                  con IVA incluido
+                </span>
               </div>
               <div className="mt-1 text-[10px] text-sky-950/60">
                 TC BSP {formatBspRate(bspRate)}
@@ -1449,9 +1450,9 @@ function PricingCalculator() {
               TC BSP no disponible.
             </div>
           )}
-          <div className="text-[11px] text-sky-950/60">
+          {/* <div className="text-[11px] text-sky-950/60">
             + IVA según corresponda. Valores estimados en USD.
-          </div>
+          </div> */}
         </div>
       </div>
 
