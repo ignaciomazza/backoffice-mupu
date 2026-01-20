@@ -1465,7 +1465,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                           transition={{ duration: 0.2 }}
                           className="flex items-start justify-between gap-2"
                         >
-                          <p className="min-h-[28px] flex-1 rounded-xl bg-white/30 p-2 text-sm font-light dark:bg-white/5">
+                          <p className="min-h-[28px] min-w-0 flex-1 whitespace-pre-wrap break-words rounded-xl bg-white/30 p-2 text-sm font-light dark:bg-white/5">
                             {booking.observation || "Sin observaciones"}
                           </p>
                           {canAdminLike && (

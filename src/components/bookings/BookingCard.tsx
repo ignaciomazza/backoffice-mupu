@@ -227,7 +227,7 @@ export default function BookingCard({
             <p className="text-xs uppercase tracking-[0.15em] text-sky-900/85 dark:text-sky-100/85">
               Observaciones de administración
             </p>
-            <p className="mt-1 text-sm text-sky-950 dark:text-white">
+            <p className="mt-1 whitespace-pre-wrap break-words text-sm text-sky-950 dark:text-white">
               {booking.observation || "Sin observaciones"}
             </p>
           </div>
