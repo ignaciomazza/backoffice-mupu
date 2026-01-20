@@ -912,8 +912,8 @@ function LeadForm() {
               ¡Listo! Ya recibimos tus datos
             </h4>
             <p className="mt-2 text-sm text-emerald-900/80">
-              Te vamos a escribir por WhatsApp y email para coordinar la demo /
-              onboarding. También podés hablarnos directo ahora 👇
+              Te vamos a escribir por WhatsApp y email para coordinar un Meet de
+              demo / onboarding. También podés hablarnos directo ahora 👇
             </p>
 
             <div className="mt-5 flex flex-wrap items-center gap-4">
@@ -1542,7 +1542,8 @@ export default function LandingClient() {
               transition={{ duration: 0.35, ease: "easeOut", delay: 0.06 }}
             >
               Centralizá procesos, documentos y finanzas. Disponible en
-              Argentina.
+              Argentina. Coordinemos un Meet por WhatsApp y vemos tu operación
+              en vivo.
             </motion.p>
 
             <motion.div
@@ -1557,7 +1558,7 @@ export default function LandingClient() {
                 size="sm"
                 onClick={handleWhatsAppClick}
               >
-                Escribinos por WhatsApp
+                Agendar Meet por WhatsApp
               </ButtonPrimary>
               <ButtonGhost href="#contacto" size="sm">
                 Dejar mis datos
@@ -1719,9 +1720,9 @@ export default function LandingClient() {
         <div className="grid gap-6 sm:gap-7 md:grid-cols-[1fr,1.2fr] lg:grid-cols-[1fr,1.3fr]">
           {/* CTA card */}
           <Card>
-            <h3 className="text-lg font-semibold">¿Preferís hablar directo?</h3>
+            <h3 className="text-lg font-semibold">¿Preferís coordinar un Meet?</h3>
             <p className="mt-2 text-sm text-sky-950/80">
-              Te respondemos por WhatsApp. Contanos brevemente tu caso.
+              Te respondemos por WhatsApp para agendar un Meet y ver tu caso.
             </p>
             <div className="mt-4">
               <ButtonPrimary

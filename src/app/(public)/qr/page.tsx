@@ -715,7 +715,7 @@ function QuickLeadForm() {
             required
           />
           <p className="mt-1 text-[11px] text-sky-950/50">
-            Para coordinar rápido.
+            Para coordinar el Meet.
           </p>
         </div>
 
@@ -844,15 +844,18 @@ export default function QRContactPage() {
             <span className="text-sky-950/60">Acceso de prueba · </span>
           </div>
 
-          <div>
+          <div className="space-y-3">
             <h1 className="text-3xl font-semibold leading-tight tracking-tight text-sky-950">
               Probá Ofistur con un acceso real
             </h1>
-            <p className="mx-auto mt-2 max-w-md text-sm text-sky-950/70">
+            <p className="mx-auto mt-2 max-w-lg text-sm text-sky-950/70">
               Dejá tus datos y te armamos una agencia de prueba con un usuario
               real. La cotización opcional es solo para que veas cuánto podría
               salir después si decidís seguir.
             </p>
+            <h1 className="rounded-2xl border border-emerald-600/50 bg-emerald-200/10 p-2 text-2xl font-semibold leading-tight tracking-tight text-emerald-950">
+              Agendemos un Meet por WhatsApp y vemos tu operación en vivo
+            </h1>
           </div>
 
           {/* Beneficios destacados */}
@@ -878,7 +881,7 @@ export default function QRContactPage() {
         {/* Footer mini */}
         <footer className="space-y-2 text-center">
           <p className="text-[11px] text-sky-950/60">
-            ¿Preferís hablar ya mismo?{" "}
+            ¿Preferís coordinar el Meet ahora?{" "}
             <a
               href={WA_URL}
               className="underline decoration-emerald-400/70 underline-offset-4"
