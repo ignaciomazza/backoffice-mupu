@@ -7,6 +7,7 @@ import Spinner from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { useRouter } from "next/navigation";
+import { calcVatFromTotal } from "@/lib/billing/pricing";
 
 type PeriodKey = "month" | "quarter" | "ytd" | "all";
 
@@ -123,6 +124,13 @@ export default function DevFinanceStatsPage() {
     ];
   }, [stats]);
 
+  const paidBreakdown = useMemo(() => {
+    if (!stats) return null;
+    const total = stats.totals.paid_total;
+    const vat = calcVatFromTotal(total);
+    return { total, vat, net: total - vat };
+  }, [stats]);
+
   return (
     <ProtectedRoute>
       <section className="text-sky-950 dark:text-white">
@@ -142,38 +150,38 @@ export default function DevFinanceStatsPage() {
               )}
             </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => router.push("/dev/agencies")}
-              className="rounded-full border border-amber-300/40 bg-amber-100/20 px-4 py-1.5 text-xs text-amber-900 shadow-sm shadow-amber-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-amber-200"
-            >
-              Volver a agencias
-            </button>
-            <div className="flex items-center gap-1">
-              {(["USD", "ARS"] as const).map((cur) => {
-                const active = displayCurrency === cur;
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => router.push("/dev/agencies")}
+                className="rounded-full border border-amber-300/40 bg-amber-100/20 px-4 py-1.5 text-xs text-amber-900 shadow-sm shadow-amber-950/10 transition-transform hover:scale-95 active:scale-90 dark:text-amber-200"
+              >
+                Volver a agencias
+              </button>
+              <div className="flex items-center gap-1">
+                {(["USD", "ARS"] as const).map((cur) => {
+                  const active = displayCurrency === cur;
+                  return (
+                    <button
+                      key={cur}
+                      type="button"
+                      onClick={() => setDisplayCurrency(cur)}
+                      className={`rounded-full border px-3 py-1 text-xs transition-transform hover:scale-95 active:scale-90 ${
+                        active
+                          ? "border-sky-300/40 bg-sky-100/20 text-sky-900 dark:text-sky-200"
+                          : "border-white/10 bg-white/10 text-sky-950/70 dark:text-white/70"
+                      }`}
+                    >
+                      {cur}
+                    </button>
+                  );
+                })}
+              </div>
+              {PERIODS.map((p) => {
+                const active = period === p.key;
                 return (
                   <button
-                    key={cur}
-                    type="button"
-                    onClick={() => setDisplayCurrency(cur)}
-                    className={`rounded-full border px-3 py-1 text-xs transition-transform hover:scale-95 active:scale-90 ${
-                      active
-                        ? "border-sky-300/40 bg-sky-100/20 text-sky-900 dark:text-sky-200"
-                        : "border-white/10 bg-white/10 text-sky-950/70 dark:text-white/70"
-                    }`}
-                  >
-                    {cur}
-                  </button>
-                );
-              })}
-            </div>
-            {PERIODS.map((p) => {
-              const active = period === p.key;
-              return (
-                <button
-                  key={p.key}
+                    key={p.key}
                     type="button"
                     onClick={() => setPeriod(p.key)}
                     className={`rounded-full border px-4 py-1.5 text-xs shadow-sm transition-transform hover:scale-95 active:scale-90 ${
@@ -186,16 +194,16 @@ export default function DevFinanceStatsPage() {
                   </button>
                 );
               })}
-            <button
-              type="button"
-              onClick={() => fetchStats(period, true)}
-              disabled={refreshing}
-              className="rounded-full border border-amber-300/40 bg-amber-100/20 px-4 py-1.5 text-xs text-amber-900 shadow-sm shadow-amber-950/10 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:text-amber-200"
-            >
-              {refreshing ? "Actualizando..." : "Actualizar"}
-            </button>
+              <button
+                type="button"
+                onClick={() => fetchStats(period, true)}
+                disabled={refreshing}
+                className="rounded-full border border-amber-300/40 bg-amber-100/20 px-4 py-1.5 text-xs text-amber-900 shadow-sm shadow-amber-950/10 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:text-amber-200"
+              >
+                {refreshing ? "Actualizando..." : "Actualizar"}
+              </button>
+            </div>
           </div>
-        </div>
 
           {loading ? (
             <div className="flex min-h-[200px] items-center justify-center rounded-3xl border border-white/10 bg-white/10 shadow-md shadow-sky-950/10 backdrop-blur">
@@ -216,11 +224,20 @@ export default function DevFinanceStatsPage() {
                     Cobrado
                   </p>
                   <p className="mt-2 text-2xl font-semibold">
-                    {formatMoney(
-                      stats.totals.paid_total,
-                      displayCurrency,
-                    )}
+                    {formatMoney(stats.totals.paid_total, displayCurrency)}
                   </p>
+                  <div className="mt-2 flex items-center justify-between">
+                    <p className="text-xl font-light opacity-70">Neto:</p>
+                    <p className="mt-1 text-xl font-light opacity-70">
+                      {formatMoney(paidBreakdown?.net ?? 0, displayCurrency)}
+                    </p>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <p className="text-xl font-light opacity-70">Iva:</p>
+                    <p className="text-xl font-light opacity-70">
+                      {formatMoney(paidBreakdown?.vat ?? 0, displayCurrency)}
+                    </p>
+                  </div>
                 </div>
                 <div className="rounded-3xl border border-emerald-300/30 bg-white/10 p-4 shadow-md shadow-emerald-950/10 backdrop-blur">
                   <p className="text-xs text-emerald-900/70 dark:text-emerald-200/70">
@@ -315,10 +332,7 @@ export default function DevFinanceStatsPage() {
                             </p>
                           </div>
                           <span className="font-semibold">
-                            {formatMoney(
-                              row.paid_amount,
-                              displayCurrency,
-                            )}
+                            {formatMoney(row.paid_amount, displayCurrency)}
                           </span>
                         </div>
                       ))
@@ -360,10 +374,7 @@ export default function DevFinanceStatsPage() {
                         <div className="mt-1 flex items-center justify-between">
                           <span>Total</span>
                           <span className="font-semibold">
-                            {formatMoney(
-                              row.total_usd,
-                              "USD",
-                            )}
+                            {formatMoney(row.total_usd, "USD")}
                           </span>
                         </div>
                       </div>

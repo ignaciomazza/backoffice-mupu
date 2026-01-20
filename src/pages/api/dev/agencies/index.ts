@@ -241,9 +241,8 @@ async function handleGET(req: NextApiRequest, res: NextApiResponse) {
   let nextCursor: number | null = null;
   let items = list;
   if (list.length > limitNum) {
-    const nextItem = list[list.length - 1];
-    nextCursor = nextItem.id_agency;
     items = list.slice(0, limitNum);
+    nextCursor = items[items.length - 1]?.id_agency ?? null;
   }
 
   const ownerIds = Array.from(
@@ -265,6 +264,7 @@ async function handleGET(req: NextApiRequest, res: NextApiResponse) {
         period_start: true,
         period_end: true,
         created_at: true,
+        charge_kind: true,
       },
     }),
   ]);
@@ -277,7 +277,12 @@ async function handleGET(req: NextApiRequest, res: NextApiResponse) {
     {},
   );
 
-  const lastChargeByOwner = charges.reduce<
+  const recurringCharges = charges.filter(
+    (charge) =>
+      String(charge.charge_kind || "RECURRING").toUpperCase() !== "EXTRA",
+  );
+
+  const lastChargeByOwner = recurringCharges.reduce<
     Record<number, typeof charges[number]>
   >((acc, charge) => {
     const current = acc[charge.id_agency];

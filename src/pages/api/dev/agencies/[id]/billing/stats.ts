@@ -217,14 +217,14 @@ export default async function handler(
         .total,
     };
 
-    const paidTotal = charges.reduce((sum, c) => {
-      if (String(c.status || "").toUpperCase() !== "PAID") return sum;
-      return sum + paidAmountToUsd(c);
-    }, 0);
-
     const recurringCharges = charges.filter(
       (c) => String(c.charge_kind || "RECURRING").toUpperCase() !== "EXTRA",
     );
+
+    const paidTotal = recurringCharges.reduce((sum, c) => {
+      if (String(c.status || "").toUpperCase() !== "PAID") return sum;
+      return sum + paidAmountToUsd(c);
+    }, 0);
     const pendingCharges = recurringCharges.filter(
       (c) => String(c.status || "").toUpperCase() !== "PAID",
     );
@@ -236,7 +236,7 @@ export default async function handler(
       null,
     );
 
-    const lastPaymentAt = charges.reduce<Date | null>((acc, c) => {
+    const lastPaymentAt = recurringCharges.reduce<Date | null>((acc, c) => {
       const baseDate = c.paid_at ?? c.created_at;
       if (!baseDate) return acc;
       if (!acc || baseDate > acc) return baseDate;
