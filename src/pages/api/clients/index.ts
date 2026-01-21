@@ -237,6 +237,8 @@ export default async function handler(
       const teamId = teamIdParam || 0;
 
       const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+      const gender =
+        typeof req.query.gender === "string" ? req.query.gender.trim() : "";
       const where: Prisma.ClientWhereInput = { id_agency: auth.id_agency };
       const roleNorm = (role || "").toLowerCase();
       const isLeader = roleNorm === "lider";
@@ -292,6 +294,10 @@ export default async function handler(
             where.id_user = { in: ids.length ? ids : [-1] };
           }
         }
+      }
+
+      if (gender) {
+        where.gender = { equals: gender, mode: "insensitive" };
       }
 
       // Búsqueda simple

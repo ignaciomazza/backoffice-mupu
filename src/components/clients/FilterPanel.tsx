@@ -18,6 +18,8 @@ interface Props {
   setSelectedUserId: Dispatch<SetStateAction<number>>;
   selectedTeamId: number; // 0 = todos, -1 = sin equipo
   setSelectedTeamId: Dispatch<SetStateAction<number>>;
+  selectedGender: "" | "Masculino" | "Femenino" | "No Binario";
+  setSelectedGender: Dispatch<SetStateAction<"" | "Masculino" | "Femenino" | "No Binario">>;
   searchTerm: string;
   setSearchTerm: Dispatch<SetStateAction<string>>;
 }
@@ -30,6 +32,8 @@ export default function FilterPanel({
   setSelectedUserId,
   selectedTeamId,
   setSelectedTeamId,
+  selectedGender,
+  setSelectedGender,
   searchTerm,
   setSearchTerm,
 }: Props) {
@@ -43,14 +47,18 @@ export default function FilterPanel({
   // ===== Draft (estados locales) =====
   const [draftUserId, setDraftUserId] = useState<number>(selectedUserId);
   const [draftTeamId, setDraftTeamId] = useState<number>(selectedTeamId);
+  const [draftGender, setDraftGender] = useState<
+    "" | "Masculino" | "Femenino" | "No Binario"
+  >(selectedGender);
   const [draftSearch, setDraftSearch] = useState<string>(searchTerm);
 
   // Sincronizar draft cuando cambian los commits (por navegación, montado, etc.)
   useEffect(() => {
     setDraftUserId(selectedUserId);
     setDraftTeamId(selectedTeamId);
+    setDraftGender(selectedGender);
     setDraftSearch(searchTerm);
-  }, [selectedUserId, selectedTeamId, searchTerm]);
+  }, [selectedUserId, selectedTeamId, selectedGender, searchTerm]);
 
   // ===== Handlers =====
   const onTeamChange = (e: ChangeEvent<HTMLSelectElement>) => {
@@ -62,6 +70,7 @@ export default function FilterPanel({
   const applyFilters = () => {
     setSelectedUserId(draftUserId);
     setSelectedTeamId(draftTeamId);
+    setSelectedGender(draftGender);
     setSearchTerm(draftSearch);
     // setOpen(false); // si querés cerrarlo al aplicar, descomentá
   };
@@ -69,10 +78,12 @@ export default function FilterPanel({
   const resetFilters = () => {
     setDraftUserId(0);
     setDraftTeamId(0);
+    setDraftGender("");
     setDraftSearch("");
 
     setSelectedUserId(0);
     setSelectedTeamId(0);
+    setSelectedGender("");
     setSearchTerm("");
   };
 
@@ -217,6 +228,24 @@ export default function FilterPanel({
               </select>
             </div>
           )}
+
+          <div>
+            <label className="mb-1 block font-medium">Género</label>
+            <select
+              value={draftGender}
+              onChange={(e) =>
+                setDraftGender(
+                  e.target.value as "" | "Masculino" | "Femenino" | "No Binario",
+                )
+              }
+              className={inputClass}
+            >
+              <option value="">Todos</option>
+              <option value="Masculino">Masculino</option>
+              <option value="Femenino">Femenino</option>
+              <option value="No Binario">No Binario</option>
+            </select>
+          </div>
         </div>
 
         {/* Acciones dentro del panel */}

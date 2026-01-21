@@ -60,7 +60,7 @@ export default function LayoutWrapper({
         />
       )}
       <div
-        className={`flex flex-1 ${isLoginPage ? "items-center justify-center" : ""}`}
+        className={`flex min-w-0 flex-1 ${isLoginPage ? "items-center justify-center" : ""}`}
       >
         {showSidebar && (
           <div
@@ -81,12 +81,12 @@ export default function LayoutWrapper({
           />
         )}
         <main
-          className={`flex-1 px-2 pb-6 transition-[margin,max-width,padding] duration-300 ease-out md:px-6 ${
+          className={`min-w-0 flex-1 px-2 pb-6 transition-[margin,max-width,padding] duration-300 ease-out md:px-6 ${
             showSidebar
               ? sidebarHidden
                 ? "md:mx-auto md:max-w-7xl md:px-8"
                 : "md:pl-56 md:pr-8"
-              : ""
+            : ""
           }`}
         >
           {children}
