@@ -113,25 +113,30 @@ function ClientListRow({
     label: string;
     value: React.ReactNode;
   }) => (
-    <p className="text-sm text-sky-950 dark:text-white">
+    <p className="flex min-w-0 flex-wrap gap-x-2 text-sm text-sky-950 dark:text-white">
       <span className="font-semibold text-sky-900/80 dark:text-sky-100/80">
         {label}
       </span>
-      <span className="ml-2 font-medium">{value || "—"}</span>
+      <span className="min-w-0 break-words font-medium">{value || "—"}</span>
     </p>
   );
 
   const actionBtn = `${ACTION_BUTTON} p-2`;
   const dangerBtn = `${DANGER_BUTTON} p-2`;
 
+  const emailDisplay = client.email || "Sin email";
+
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sky-950 shadow-sm shadow-sky-950/10 backdrop-blur dark:bg-white/5 dark:text-white">
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/10 p-3 text-sky-950 shadow-sm shadow-sky-950/10 backdrop-blur dark:bg-white/5 dark:text-white">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <span className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-900/80 dark:text-sky-100/80">
             Cliente N°{clientNumber}
           </span>
-          <p className="text-base font-semibold text-sky-950 dark:text-white">
+          <p
+            className="min-w-0 truncate text-base font-semibold text-sky-950 dark:text-white"
+            title={fullName}
+          >
             {fullName}
           </p>
         </div>
@@ -175,14 +180,16 @@ function ClientListRow({
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-sky-900/80 dark:text-sky-100/80">
         <span>{client.phone || "Sin teléfono"}</span>
         <span className="text-sky-900/50 dark:text-sky-100/50">•</span>
-        <span>{client.email || "Sin email"}</span>
+        <span className="max-w-[220px] truncate" title={emailDisplay}>
+          {emailDisplay}
+        </span>
         <span className="text-sky-900/50 dark:text-sky-100/50">•</span>
         <span>{client.gender || "Sin género"}</span>
       </div>
 
       {isExpanded && (
         <div className="mt-4 space-y-3 border-t border-white/10 pt-4 text-sm dark:border-white/10">
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid min-w-0 gap-3 md:grid-cols-2">
             <Field label="Nacimiento" value={formatDate(client.birth_date)} />
             <Field label="Nacionalidad" value={client.nationality || "—"} />
             <Field label="DNI" value={client.dni_number || "—"} />
@@ -211,7 +218,7 @@ function ClientListRow({
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
                 stroke="currentColor"
-                className="size-6"
+                className="size-5"
               >
                 <path
                   strokeLinecap="round"
@@ -232,7 +239,7 @@ function ClientListRow({
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
                 stroke="currentColor"
-                className="size-6"
+                className="size-5"
               >
                 <path
                   strokeLinecap="round"

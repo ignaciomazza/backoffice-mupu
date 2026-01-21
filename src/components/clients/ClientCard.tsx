@@ -43,29 +43,32 @@ export default function ClientCard({
     label: string;
     value: React.ReactNode;
   }) => (
-    <p className="text-sm text-sky-950 dark:text-white">
+    <p className="flex min-w-0 flex-wrap gap-x-2 text-sm text-sky-950 dark:text-white">
       <span className="font-semibold text-sky-900/80 dark:text-sky-100/80">
         {label}
       </span>
-      <span className="ml-2 font-medium">{value || "—"}</span>
+      <span className="min-w-0 break-words font-medium">{value || "—"}</span>
     </p>
   );
 
-  const actionBtn = `${ACTION_BUTTON} p-2`;
-  const dangerBtn = `${DANGER_BUTTON} p-2`;
+  const actionBtn = `${ACTION_BUTTON} py-2 px-4`;
+  const dangerBtn = `${DANGER_BUTTON} py-2 px-4`;
 
   return (
     <motion.div
       layout
       layoutId={`client-${client.id_client}`}
-      className="h-fit space-y-4 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
+      className="h-fit space-y-4 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.2em] text-sky-900/85 dark:text-sky-100/85">
             Cliente N°{clientNumber}
           </p>
-          <p className="mt-1 text-lg font-semibold text-sky-950 dark:text-white">
+          <p
+            className="mt-1 truncate text-lg font-semibold text-sky-950 dark:text-white"
+            title={`${client.first_name} ${client.last_name}`.trim() || "Sin nombre"}
+          >
             {`${client.first_name} ${client.last_name}`.trim() || "Sin nombre"}
           </p>
         </div>
@@ -104,7 +107,7 @@ export default function ClientCard({
         </button>
       </div>
 
-      <div className="grid gap-3 text-sm sm:grid-cols-2">
+      <div className="grid min-w-0 gap-3 text-sm sm:grid-cols-2">
         <Field label="Teléfono" value={client.phone || "—"} />
         <Field label="Email" value={client.email || "—"} />
         <Field label="Género" value={client.gender || "—"} />
@@ -113,7 +116,7 @@ export default function ClientCard({
 
       {isExpanded && (
         <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4 shadow-inner shadow-sky-950/5 dark:border-white/10 dark:bg-white/5">
-          <div className="grid gap-3 text-sm sm:grid-cols-2">
+          <div className="grid min-w-0 gap-3 text-sm sm:grid-cols-2">
             <Field label="DNI" value={client.dni_number || "—"} />
             <Field label="Pasaporte" value={client.passport_number || "—"} />
             <Field label="CUIT" value={client.tax_id || "—"} />
@@ -141,7 +144,7 @@ export default function ClientCard({
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
                 stroke="currentColor"
-                className="size-6"
+                className="size-5"
               >
                 <path
                   strokeLinecap="round"
@@ -162,7 +165,7 @@ export default function ClientCard({
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
                 stroke="currentColor"
-                className="size-6"
+                className="size-5"
               >
                 <path
                   strokeLinecap="round"
