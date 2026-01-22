@@ -285,7 +285,7 @@ async function handleDELETE(req: NextApiRequest, res: NextApiResponse) {
   if (total > 0) {
     return res.status(409).json({
       error:
-        "No se puede eliminar: la agencia tiene registros vinculados (usuarios, clientes, reservas u otros).",
+        "No se puede eliminar: la agencia tiene registros vinculados (usuarios, pasajeros, reservas u otros).",
       counts: {
         users,
         clients,

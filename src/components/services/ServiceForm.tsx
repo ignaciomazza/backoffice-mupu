@@ -1083,7 +1083,7 @@ export default function ServiceForm({
               {/* DATOS BÁSICOS */}
               <Section
                 title="Datos básicos"
-                desc="Definen qué compró el cliente y cómo lo vas a identificar."
+                desc="Definen qué compró el pax y cómo lo vas a identificar."
               >
                 <Field
                   id="type"

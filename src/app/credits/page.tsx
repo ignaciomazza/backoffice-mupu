@@ -826,7 +826,7 @@ export default function CreditsPage() {
                     ? `${det.client.first_name} ${det.client.last_name}`
                     : acc.client
                       ? `${acc.client.first_name} ${acc.client.last_name}`
-                      : "Cliente"
+                      : "Pax"
                   : hasOperator
                     ? det?.operator?.name || acc.operator?.name || "Operador"
                     : "—";

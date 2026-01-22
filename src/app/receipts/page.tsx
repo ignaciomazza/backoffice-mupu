@@ -177,7 +177,7 @@ type NormalizedReceipt = ReceiptRow & {
   _titularFull: string;
   _convLabel: string; // "Base → Contra" si aplica
   _feeLabel: string; // Costo medio de pago
-  _clientTotalLabel: string; // Total cobrado al cliente (amount + fee)
+  _clientTotalLabel: string; // Total cobrado al pax (amount + fee)
 };
 
 type SortKey = "issue_date" | "receipt_number" | "amount" | "owner";
@@ -427,7 +427,7 @@ export default function ReceiptsPage() {
           ? fmtMoney(fee, feeCurrency)
           : "—";
 
-      // Total cobrado al cliente = amount (entra a la agencia) + fee (retención medio)
+      // Total cobrado al pax = amount (entra a la agencia) + fee (retención medio)
       const clientTotal = toNum(r.amount) + fee;
       const clientTotalLabel =
         clientTotal > 0
@@ -519,7 +519,7 @@ export default function ReceiptsPage() {
     return data.map((r) => normalizeReceipt(r));
   }, [data, normalizeReceipt]);
 
-  /* ---------- Orden en cliente ---------- */
+  /* ---------- Orden en pax ---------- */
   const displayRows = useMemo(() => {
     const rows = [...normalized];
     const dir = sortDir === "asc" ? 1 : -1;
@@ -716,11 +716,11 @@ export default function ReceiptsPage() {
         "Cuenta",
         "Valor aplicado",
         "Costo medio",
-        "Cobrado al cliente",
+        "Cobrado al pax",
         "Conversión",
         "Concepto",
         "Servicios",
-        "Clientes",
+        "Pasajeros",
       ].join(";");
 
       let next: number | null = null;
@@ -1720,7 +1720,7 @@ export default function ReceiptsPage() {
                       <th className="px-4 py-3">Fecha</th>
                       <th className="px-4 py-3">Recibo</th>
                       <th className="px-4 py-3">Reserva</th>
-                      <th className="px-4 py-3">Cliente</th>
+                      <th className="px-4 py-3">Pax</th>
                       <th className="px-4 py-3">Concepto</th>
                       <th className="px-4 py-3">Importe</th>
                       <th className="px-4 py-3">Método</th>
@@ -1990,7 +1990,7 @@ export default function ReceiptsPage() {
                               <div className="mt-0.5 text-[11px] opacity-75">
                                 {r._clientTotalLabel !== "—" && (
                                   <>
-                                    Cliente pagó:{" "}
+                                    Pax pagó:{" "}
                                     <b>{r._clientTotalLabel}</b>
                                   </>
                                 )}
@@ -2064,7 +2064,7 @@ export default function ReceiptsPage() {
 
                         {r._clientTotalLabel !== "—" && (
                           <span className={CHIP}>
-                            <b>Cobrado al cliente:</b> {r._clientTotalLabel}
+                            <b>Cobrado al pax:</b> {r._clientTotalLabel}
                           </span>
                         )}
 
@@ -2073,7 +2073,7 @@ export default function ReceiptsPage() {
                         </span>
 
                         <span className={CHIP}>
-                          <b>Clientes:</b> {clientsCount}
+                          <b>Pasajeros:</b> {clientsCount}
                         </span>
                       </div>
                     </article>

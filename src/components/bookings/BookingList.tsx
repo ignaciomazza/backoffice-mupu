@@ -161,7 +161,7 @@ function BookingListRow({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {statusChip("Cliente", formatStatus(booking.clientStatus))}
+          {statusChip("Pax", formatStatus(booking.clientStatus))}
           {statusChip("Operador", formatStatus(booking.operatorStatus))}
           <button
             onClick={toggleRow}

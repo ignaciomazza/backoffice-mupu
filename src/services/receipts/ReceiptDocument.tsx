@@ -355,7 +355,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
         <View style={styles.twoCols}>
           <View style={styles.col}>
             <View style={styles.infoBox}>
-              <Text style={styles.infoLabel}>Cliente(s)</Text>
+              <Text style={styles.infoLabel}>Pasajeros</Text>
               {recipients.map((r, i) => (
                 <View key={i} style={{ marginBottom: 4 }}>
                   <Text style={styles.infoText}>

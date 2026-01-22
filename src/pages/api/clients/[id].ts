@@ -200,7 +200,7 @@ export default async function handler(
     : req.query.id;
   const clientId = Number(clientIdRaw);
   if (!Number.isFinite(clientId)) {
-    return res.status(400).json({ error: "N° de cliente inválido" });
+    return res.status(400).json({ error: "N° de pax inválido" });
   }
 
   // GET /api/clients/:id
@@ -212,17 +212,17 @@ export default async function handler(
       });
 
       if (!client)
-        return res.status(404).json({ error: "Cliente no encontrado" });
+        return res.status(404).json({ error: "Pax no encontrado" });
       if (client.id_agency !== auth.id_agency) {
         return res
           .status(403)
-          .json({ error: "No autorizado para este cliente" });
+          .json({ error: "No autorizado para este pax" });
       }
       const canAccess = await canAccessClient(auth, client.id_user);
       if (!canAccess) {
         return res
           .status(403)
-          .json({ error: "No autorizado para este cliente" });
+          .json({ error: "No autorizado para este pax" });
       }
 
       return res.status(200).json(client);
@@ -240,18 +240,18 @@ export default async function handler(
         select: { id_client: true, id_agency: true, id_user: true },
       });
       if (!existing) {
-        return res.status(404).json({ error: "Cliente no encontrado" });
+        return res.status(404).json({ error: "Pax no encontrado" });
       }
       if (existing.id_agency !== auth.id_agency) {
         return res
           .status(403)
-          .json({ error: "No autorizado para este cliente" });
+          .json({ error: "No autorizado para este pax" });
       }
       const canAccess = await canAccessClient(auth, existing.id_user);
       if (!canAccess) {
         return res
           .status(403)
-          .json({ error: "No autorizado para este cliente" });
+          .json({ error: "No autorizado para este pax" });
       }
 
       const c = req.body ?? {};
@@ -291,7 +291,7 @@ export default async function handler(
         return res.status(400).json({ error: "Fecha de nacimiento inválida" });
       }
 
-      // Si quieren reasignar el cliente a otro usuario, controlar permisos
+      // Si quieren reasignar el pax a otro usuario, controlar permisos
       let newOwnerId: number = existing.id_user;
       if (c.id_user != null) {
         const candidate = Number(c.id_user);
@@ -310,7 +310,7 @@ export default async function handler(
           if (!canAssignOthers) {
             return res
               .status(403)
-              .json({ error: "No autorizado para reasignar clientes." });
+              .json({ error: "No autorizado para reasignar pasajeros." });
           }
 
           if (role === "lider") {
@@ -344,7 +344,7 @@ export default async function handler(
         }
       }
 
-      // Chequeo de duplicados (en la misma agencia), excluyendo este cliente
+      // Chequeo de duplicados (en la misma agencia), excluyendo este pax
       const duplicate = await prisma.client.findFirst({
         where: {
           id_client: { not: clientId },
@@ -365,7 +365,7 @@ export default async function handler(
       if (duplicate) {
         return res
           .status(409)
-          .json({ error: "Esa información ya pertenece a un cliente." });
+          .json({ error: "Esa información ya pertenece a un pax." });
       }
 
       const updated = await prisma.client.update({
@@ -419,18 +419,18 @@ export default async function handler(
         },
       });
       if (!client) {
-        return res.status(404).json({ error: "Cliente no encontrado" });
+        return res.status(404).json({ error: "Pax no encontrado" });
       }
       if (client.id_agency !== auth.id_agency) {
         return res
           .status(403)
-          .json({ error: "No autorizado para este cliente" });
+          .json({ error: "No autorizado para este pax" });
       }
       const canAccess = await canAccessClient(auth, client.id_user);
       if (!canAccess) {
         return res
           .status(403)
-          .json({ error: "No autorizado para este cliente" });
+          .json({ error: "No autorizado para este pax" });
       }
       if (
         client.bookings.length > 0 ||
@@ -438,12 +438,12 @@ export default async function handler(
         client.invoices.length > 0
       ) {
         return res.status(409).json({
-          error: "No se puede eliminar: el cliente tiene movimientos.",
+          error: "No se puede eliminar: el pax tiene movimientos.",
         });
       }
 
       await prisma.client.delete({ where: { id_client: clientId } });
-      return res.status(200).json({ message: "Cliente eliminado con éxito" });
+      return res.status(200).json({ message: "Pax eliminado con éxito" });
     } catch (e) {
       console.error("[clients/:id][DELETE]", e);
       return res.status(500).json({ error: "Error deleting client" });

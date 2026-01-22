@@ -628,7 +628,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     );
   }, [bookingSaleTotals, normalizedSaleTotalsDraft]);
 
-  /* ================= Pagos de cliente ================= */
+  /* ================= Pagos de pax ================= */
   const [clientPayments, setClientPayments] = useState<ClientPayment[]>([]);
   const [clientPaymentsLoading, setClientPaymentsLoading] = useState(false);
 
@@ -650,7 +650,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
             setClientPayments([]);
             return;
           }
-          throw new Error("Error al obtener pagos de cliente");
+          throw new Error("Error al obtener pagos de pax");
         }
         const data: unknown = await res.json();
         const items: ClientPayment[] = Array.isArray(
@@ -1266,11 +1266,11 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 <div className="flex flex-wrap gap-2">
                   <span
                     className={getStatusPillClasses(booking.clientStatus)}
-                    title={`Cliente: ${formatStatusLabel(
+                    title={`Pax: ${formatStatusLabel(
                       booking.clientStatus,
                     )}`}
                   >
-                    Cliente:
+                    Pax:
                     <span className="ml-1 font-semibold">
                       {formatStatusLabel(booking.clientStatus)}
                     </span>
@@ -2043,9 +2043,9 @@ export default function ServicesContainer(props: ServicesContainerProps) {
 
                     <div className="space-y-6">
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                        {/* Cliente */}
+                        {/* Pax */}
                         <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-                          <p className="mb-2 font-medium">Cliente</p>
+                          <p className="mb-2 font-medium">Pax</p>
                           <div className="flex gap-2">
                             {(["Pendiente", "Pago", "Facturado"] as const).map(
                               (st) => (
@@ -2187,7 +2187,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
               <div className="mb-16">
                 <div className="mb-4 mt-8 flex items-center justify-center gap-2">
                   <p className="text-2xl font-medium">
-                    Plan de pagos del cliente{" "}
+                    Plan de pagos del pax{" "}
                     <span className="text-xl font-normal tracking-wide opacity-70">
                       (Opcional)
                     </span>

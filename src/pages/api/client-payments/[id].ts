@@ -164,15 +164,15 @@ function getPaymentFull(id_payment: number, id_agency: number) {
   });
 }
 
-/** Validación: cliente debe pertenecer a la MISMA AGENCIA */
+/** Validación: pax debe pertenecer a la MISMA AGENCIA */
 async function ensureClientInAgency(clientId: number, agencyId: number) {
   const c = await prisma.client.findUnique({
     where: { id_client: clientId },
     select: { id_client: true, id_agency: true },
   });
-  if (!c) throw new Error("Cliente no encontrado");
+  if (!c) throw new Error("Pax no encontrado");
   if (c.id_agency !== agencyId)
-    throw new Error("El cliente no pertenece a tu agencia.");
+    throw new Error("El pax no pertenece a tu agencia.");
 }
 
 /** ===== Handler ===== */
@@ -204,7 +204,7 @@ export default async function handler(
       if (!RO_WRITE.has(auth.role)) {
         return res
           .status(403)
-          .json({ error: "No autorizado a modificar pagos del cliente." });
+          .json({ error: "No autorizado a modificar pagos del pax." });
       }
 
       const exists = await getPaymentLite(id, auth.id_agency);
@@ -296,7 +296,7 @@ export default async function handler(
       if (!RO_WRITE.has(auth.role)) {
         return res
           .status(403)
-          .json({ error: "No autorizado a eliminar pagos del cliente." });
+          .json({ error: "No autorizado a eliminar pagos del pax." });
       }
 
       const exists = await getPaymentLite(id, auth.id_agency);

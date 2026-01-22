@@ -186,7 +186,7 @@ function movementTypeLabel(type: MovementKind): string {
     case "expense":
       return "Egreso";
     case "client_debt":
-      return "Deuda cliente";
+      return "Deuda pax";
     case "operator_debt":
       return "Deuda operador";
     default:
@@ -738,7 +738,7 @@ export default function CashboxPage() {
                   <div className="mt-3 grid grid-cols-2 gap-3 text-[11px]">
                     <div className="rounded-2xl bg-white/5 p-3 dark:bg-sky-900/10">
                       <p className="mb-1 text-[11px] font-semibold text-zinc-900 dark:text-zinc-100">
-                        Clientes ➜ Agencia
+                        Pasajeros ➜ Agencia
                       </p>
                       {clientDebts.length === 0 && (
                         <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
@@ -1145,7 +1145,7 @@ export default function CashboxPage() {
                                   <div className="flex flex-col gap-0.5">
                                     {m.clientName && (
                                       <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-100">
-                                        Cliente: {m.clientName}
+                                        Pax: {m.clientName}
                                       </span>
                                     )}
                                     {m.operatorName && (
@@ -1178,7 +1178,7 @@ export default function CashboxPage() {
                       Vencimientos del período
                     </p>
                     <p className="text-xs text-amber-800/90 dark:text-amber-100/80">
-                      Deudas de clientes y operadores que vencen dentro del
+                      Deudas de pasajeros y operadores que vencen dentro del
                       rango seleccionado.
                     </p>
                   </div>
@@ -1247,7 +1247,7 @@ export default function CashboxPage() {
                               <div className="flex flex-col gap-0.5">
                                 {m.clientName && (
                                   <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-100">
-                                    Cliente: {m.clientName}
+                                    Pax: {m.clientName}
                                   </span>
                                 )}
                                 {m.operatorName && (

@@ -1118,7 +1118,7 @@ export default function ReceiptForm({
     }
   }, [paymentDescriptionAuto, paymentSummary, paymentDescriptionDirty]);
 
-  /* ===== Clientes ===== */
+  /* ===== Pasajeros ===== */
   const [clientsCount, setClientsCount] = useState(
     Math.max(1, initialClientIds?.length || 1),
   );

@@ -28,7 +28,7 @@ export interface VoucherData {
 
   DocNro: number;
 
-  /** Receptor (cliente) */
+  /** Receptor (pax) */
   recipient?: string;
   recipientAddress?: string;
   recipientCondIVA?: string;

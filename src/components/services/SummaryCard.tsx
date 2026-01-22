@@ -849,7 +849,7 @@ export default function SummaryCard({
                 )}
 
                 {/* Deuda */}
-                <Section title="Deuda del cliente">
+                <Section title="Deuda del pax">
                   <Row
                     label={manualMode ? "Venta" : "Venta c/ interés"}
                     value={fmt(ventaParaDeuda, code)}

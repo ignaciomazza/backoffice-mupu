@@ -405,7 +405,7 @@ export default function ArcaPage() {
             <h1 className="text-2xl font-semibold">Conectar ARCA</h1>
             <p className="text-sm text-sky-950/70 dark:text-white/70">
               Conectá tu CUIT con Automations de Afip SDK en producción y dejá
-              la facturación lista para tus clientes.
+              la facturación lista para tus pasajeros.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -464,7 +464,7 @@ export default function ArcaPage() {
                             CUIT representado
                             <Tooltip
                               label="?"
-                              text="CUIT del cliente que va a facturar. Es el CUIT que quedará en ARCA."
+                              text="CUIT del pax que va a facturar. Es el CUIT que quedará en ARCA."
                             />
                           </label>
                           <input

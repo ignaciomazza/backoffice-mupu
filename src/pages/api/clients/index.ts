@@ -341,7 +341,7 @@ export default async function handler(
       return res.status(200).json({ items: sliced, nextCursor });
     } catch (e) {
       console.error("[clients][GET]", e);
-      return res.status(500).json({ error: "Error al obtener clientes" });
+      return res.status(500).json({ error: "Error al obtener pasajeros" });
     }
   }
 
@@ -424,7 +424,7 @@ export default async function handler(
       if (duplicate) {
         return res
           .status(409)
-          .json({ error: "Esa información ya pertenece a un cliente." });
+          .json({ error: "Esa información ya pertenece a un pax." });
       }
 
       const created = await prisma.$transaction(async (tx) => {
@@ -468,7 +468,7 @@ export default async function handler(
         }
       }
       console.error("[clients][POST]", e);
-      return res.status(500).json({ error: "Error al crear cliente" });
+      return res.status(500).json({ error: "Error al crear pax" });
     }
   }
 

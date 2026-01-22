@@ -214,12 +214,12 @@ export default async function handler(
       if (!client_id && !operator_id) {
         return res
           .status(400)
-          .json({ error: "Debe tener cliente u operador." });
+          .json({ error: "Debe tener pax u operador." });
       }
       if (client_id && operator_id) {
         return res
           .status(400)
-          .json({ error: "No puede tener ambos (cliente y operador)." });
+          .json({ error: "No puede tener ambos (pax y operador)." });
       }
 
       // Validar pertenencia
@@ -231,7 +231,7 @@ export default async function handler(
         if (!c || c.id_agency !== auth.id_agency)
           return res
             .status(400)
-            .json({ error: "Cliente inválido para tu agencia." });
+            .json({ error: "Pax inválido para tu agencia." });
       }
       if (operator_id) {
         const o = await prisma.operator.findUnique({

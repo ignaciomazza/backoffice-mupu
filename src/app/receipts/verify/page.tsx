@@ -393,7 +393,7 @@ export default function ReceiptVerifyPage() {
             <div className="flex min-w-[220px] flex-1 items-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-3 py-2 shadow-sm">
               <input
                 className="w-full bg-transparent text-xs outline-none placeholder:text-sky-950/50 dark:placeholder:text-white/40"
-                placeholder="Buscar por recibo, cliente, concepto o reserva"
+                placeholder="Buscar por recibo, pax, concepto o reserva"
                 value={qInput}
                 onChange={(e) => setQInput(e.target.value)}
               />
@@ -602,7 +602,7 @@ export default function ReceiptVerifyPage() {
                             receipt.payment_fee_amount,
                             receipt.amount_currency,
                           )}{" "}
-                          (Total cliente:{" "}
+                          (Total pax:{" "}
                           {fmtMoney(clientTotal, receipt.amount_currency)})
                         </p>
                       ) : null}

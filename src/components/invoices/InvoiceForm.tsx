@@ -69,7 +69,7 @@ const inputBase =
 
 export type InvoiceFormData = {
   tipoFactura: string;
-  clientIds: string[]; // ids de clientes como string
+  clientIds: string[]; // ids de pasajeros como string
   services: string[]; // ids de servicios como string
   exchangeRate?: string;
   description21: string[];
@@ -265,7 +265,7 @@ export default function InvoiceForm({
   const desc10 = formData.description10_5 || [];
   const descNon = formData.descriptionNonComputable || [];
 
-  /* ========= Clientes (picker múltiple) ========= */
+  /* ========= Pasajeros (picker múltiple) ========= */
   const [clientCount, setClientCount] = useState<number>(
     Math.max(1, formData.clientIds?.length || 1),
   );
@@ -336,7 +336,7 @@ export default function InvoiceForm({
     if (selectedClientsCount > 0) {
       pills.push(
         <span key="clients" className={`${pillBase} ${pillNeutral}`}>
-          Clientes: {selectedClientsCount}
+          Pasajeros: {selectedClientsCount}
         </span>,
       );
     }
@@ -531,7 +531,7 @@ export default function InvoiceForm({
                   {showForm ? "Factura" : "Crear factura"}
                 </p>
                 <p className="text-xs opacity-70">
-                  Seleccioná clientes y servicios.
+                  Seleccioná pasajeros y servicios.
                 </p>
               </div>
             </div>
@@ -561,7 +561,7 @@ export default function InvoiceForm({
               <div>
                 <p className="text-lg font-semibold">Factura</p>
                 <p className="text-xs opacity-70">
-                  Seleccioná clientes y servicios.
+                  Seleccioná pasajeros y servicios.
                 </p>
               </div>
             </div>
@@ -587,7 +587,7 @@ export default function InvoiceForm({
               const hasServices = selectedServiceIds.length > 0;
               if (!formData.tipoFactura || !hasClients || !hasServices) {
                 toast.error(
-                  "Completá tipo de factura, al menos un cliente y un servicio.",
+                  "Completá tipo de factura, al menos un pax y un servicio.",
                 );
                 return;
               }
@@ -632,8 +632,8 @@ export default function InvoiceForm({
               </Field>
             </Section>
 
-            <Section title="Clientes" desc="Agregá uno o más destinatarios.">
-              <Field id="clientCount" label="Cantidad de clientes" required>
+            <Section title="Pasajeros" desc="Agregá uno o más destinatarios.">
+              <Field id="clientCount" label="Cantidad de pasajeros" required>
                 <input
                   id="clientCount"
                   type="number"
@@ -642,7 +642,7 @@ export default function InvoiceForm({
                   onChange={(e) =>
                     setClientCount(Math.max(1, Number(e.target.value) || 1))
                   }
-                  placeholder="Cantidad de clientes..."
+                  placeholder="Cantidad de pasajeros..."
                   className={inputBase}
                 />
               </Field>
@@ -652,7 +652,7 @@ export default function InvoiceForm({
                   <div key={idx}>
                     <ClientPicker
                       token={token}
-                      label={`Cliente ${idx + 1}`}
+                      label={`Pax ${idx + 1}`}
                       placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
                       valueId={
                         formData.clientIds?.[idx]
@@ -669,7 +669,7 @@ export default function InvoiceForm({
               </div>
               {selectedClientsCount > 1 && (
                 <div className="text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
-                  Se emite una factura por cliente y se prorratea en partes
+                  Se emite una factura por pax y se prorratea en partes
                   iguales.
                 </div>
               )}
@@ -887,7 +887,7 @@ export default function InvoiceForm({
 
                   {selectedClientsCount > 1 && (
                     <div className="text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
-                      Se emite una factura por cliente y se prorratea en partes
+                      Se emite una factura por pax y se prorratea en partes
                       iguales. Si querés importes distintos, emití facturas por
                       separado.
                     </div>

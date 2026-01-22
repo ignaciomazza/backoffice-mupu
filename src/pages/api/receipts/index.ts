@@ -936,7 +936,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       if (badClients.length > 0) {
         return res
           .status(400)
-          .json({ error: "Algún cliente no pertenece a la reserva" });
+          .json({ error: "Algún pax no pertenece a la reserva" });
       }
     }
 

@@ -158,7 +158,7 @@ export default function InvoiceCard({
 
       const name = invoice.recipient
         ? slugify(invoice.recipient)
-        : `cliente_${invoice.client_id}`;
+        : `pax_${invoice.client_id}`;
 
       const bookingId =
         invoice.bookingId_booking != null

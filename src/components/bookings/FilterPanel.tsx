@@ -372,7 +372,7 @@ export default function FilterPanel({
           </div>
 
           <div>
-            <label className="mb-1 block font-medium">Estado cliente</label>
+            <label className="mb-1 block font-medium">Estado pax</label>
             <select
               value={draftClientStatus}
               onChange={(e) =>

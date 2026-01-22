@@ -596,7 +596,7 @@ export default function MyEarningsPage() {
               <div className="grid grid-cols-1 gap-6 border-t border-white/10 pt-6 md:grid-cols-2 xl:grid-cols-4">
                 <div className="flex flex-col gap-2">
                   <label className="block text-xs opacity-70">
-                    Estado cliente
+                    Estado pax
                   </label>
                   <div className="flex flex-wrap gap-2">
                     {STATUS_OPTIONS.map((opt) => (

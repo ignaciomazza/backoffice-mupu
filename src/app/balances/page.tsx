@@ -166,7 +166,7 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: "id_booking", label: "Reserva", always: true },
   { key: "titular", label: "Titular", always: true },
   { key: "owner", label: "Vendedor" },
-  { key: "clientStatus", label: "Cliente" },
+  { key: "clientStatus", label: "Pax" },
   { key: "operatorStatus", label: "Operador" },
   { key: "creation_date", label: "Creación" },
   { key: "travel", label: "Viaje" },
@@ -1124,7 +1124,7 @@ export default function BalancesPage() {
     if (clientStatusArr.length)
       chips.push({
         key: "clientStatus",
-        label: `Cliente: ${clientStatusArr.join(", ")}`,
+        label: `Pax: ${clientStatusArr.join(", ")}`,
       });
     if (operatorStatusArr.length)
       chips.push({
@@ -1357,7 +1357,7 @@ export default function BalancesPage() {
                       }
                       className={`${CHIP} ${clientStatusArr.includes(st) ? "ring-1 ring-sky-400/50" : ""}`}
                     >
-                      Cliente: {st}
+                      Pax: {st}
                     </button>
                   ))}
                   {OPERATOR_STATUSES.map((st) => (
@@ -1838,7 +1838,7 @@ function StatusBadge({
   return (
     <span
       className={`${BADGE} ${cls}`}
-      title={`${type === "client" ? "Cliente" : "Operador"}: ${value}`}
+      title={`${type === "client" ? "Pax" : "Operador"}: ${value}`}
     >
       {value || "—"}
     </span>

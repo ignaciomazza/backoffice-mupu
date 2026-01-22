@@ -72,7 +72,7 @@ const PLAN_FEATURES: Record<
   basico: {
     label: "Básico",
     bullets: [
-      "Clientes, reservas y servicios",
+      "Pasajeros, reservas y servicios",
       "Operadores y pagos a operadores",
       "Facturación AFIP y notas de crédito",
       "Recibos y planes de pago",
@@ -90,7 +90,7 @@ const PLAN_FEATURES: Record<
       "Gastos / inversiones y caja mensual",
       "Balances por reserva e impuestos",
       "Ganancias, comisiones e insights",
-      "Estadísticas avanzadas de clientes",
+      "Estadísticas avanzadas de pasajeros",
       "Verificación de recibos y cuentas de crédito",
     ],
   },
@@ -113,7 +113,7 @@ const MODULE_GROUPS: {
     title: "Operativa diaria",
     variant: "sky",
     items: [
-      "Clientes",
+      "Pasajeros",
       "Reservas",
       "Servicios",
       "Operadores",
@@ -141,7 +141,7 @@ const MODULE_GROUPS: {
     items: [
       "Ganancias y comisiones",
       "Insights comerciales",
-      "Estadísticas de clientes",
+      "Estadísticas de pasajeros",
       "Verificación de recibos",
       "Usuarios y roles",
       "Equipos de ventas",
@@ -781,8 +781,8 @@ const VIDEOS: TutorialVideo[] = [
     videoUrl: "https://youtu.be/p3Lzg1y2D7Y",
   },
   {
-    title: "Ofistur N° 2: Clientes — Alta, Edición, Baja y KPIs rápidos",
-    desc: "Cargá, editá y eliminá clientes sin vueltas. Vemos fichas, búsquedas, segmentación y estadísticas clave (deuda, historial, valor). Todo listo para cotizar y confirmar más rápido. Más información.",
+    title: "Ofistur N° 2: Pasajeros — Alta, Edición, Baja y KPIs rápidos",
+    desc: "Cargá, editá y eliminá pasajeros sin vueltas. Vemos fichas, búsquedas, segmentación y estadísticas clave (deuda, historial, valor). Todo listo para cotizar y confirmar más rápido. Más información.",
     videoUrl: "https://youtu.be/-Ps3wLSCVDg",
   },
   {
@@ -814,7 +814,7 @@ const VIDEOS: TutorialVideo[] = [
   {
     title:
       "Ofistur N° 8: Recursos del Equipo — Notas, Calendario y Templates PDF",
-    desc: "Organizá al equipo con anotaciones colaborativas, calendario de clientes y plantillas listas para cotización y confirmación en PDF. Centralizá comunicación y documentación en un solo lugar. Más información.",
+    desc: "Organizá al equipo con anotaciones colaborativas, calendario de pasajeros y plantillas listas para cotización y confirmación en PDF. Centralizá comunicación y documentación en un solo lugar. Más información.",
     videoUrl: "https://youtu.be/xJFyNUfTDjc",
   },
   {
@@ -1580,7 +1580,7 @@ export default function LandingClient() {
         <div className="grid grid-cols-1 gap-5 sm:gap-6 md:[grid-template-columns:repeat(auto-fit,minmax(220px,1fr))] lg:gap-7">
           <FeatureCard
             title="Operativa"
-            desc="Clientes, reservas y servicios, operadores, calendario y recursos internos."
+            desc="Pasajeros, reservas y servicios, operadores, calendario y recursos internos."
             icon={<IconCalendar className="size-5" aria-hidden />}
           />
           <FeatureCard
@@ -1634,7 +1634,7 @@ export default function LandingClient() {
         eyebrow="Videos"
       >
         <p className="text-sm text-sky-950/80">
-          Mirá el flujo real de trabajo: alta de clientes, reservas, servicios,
+          Mirá el flujo real de trabajo: alta de pasajeros, reservas, servicios,
           finanzas, facturación y permisos. Son pantallas reales, tal cual las
           usa tu agencia hoy.
         </p>
@@ -1778,7 +1778,7 @@ export default function LandingClient() {
 const FAQ_ITEMS: [string, string][] = [
   [
     "Hoy tengo todo en Excel y WhatsApp. ¿Me sirve igual?",
-    "Sí. Ese es justamente el caso más común: reservas en un Excel, audios con precios, PDFs sueltos. Ofistur junta clientes, reservas, vencimientos, facturas y cobranzas en un solo lugar para que no dependas de mil chats y planillas.",
+    "Sí. Ese es justamente el caso más común: reservas en un Excel, audios con precios, PDFs sueltos. Ofistur junta pasajeros, reservas, vencimientos, facturas y cobranzas en un solo lugar para que no dependas de mil chats y planillas.",
   ],
   [
     "¿Cuánto tiempo le ahorra a mi equipo?",

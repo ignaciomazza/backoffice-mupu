@@ -731,7 +731,7 @@ export default function DevAgenciesPage() {
                       Usuarios: {a.counts?.users ?? "—"}
                     </span>
                     <span className="rounded-full border border-amber-300/40 bg-amber-100/20 px-3 py-1 text-amber-900 dark:text-amber-200">
-                      Clientes: {a.counts?.clients ?? "—"}
+                      Pasajeros: {a.counts?.clients ?? "—"}
                     </span>
                     <span className="rounded-full border border-amber-300/40 bg-amber-100/20 px-3 py-1 text-amber-900 dark:text-amber-200">
                       Reservas: {a.counts?.bookings ?? "—"}

@@ -222,7 +222,7 @@ export default function ReceiptStandaloneDocument(
             .join(" - "),
         )
         .join(", ")
-    : "Cliente no especificado";
+    : "Pax no especificado";
 
   return (
     <Document>

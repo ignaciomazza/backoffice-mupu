@@ -15,7 +15,7 @@ type FinanceCurrency = { code: string; name?: string; enabled?: boolean };
 type SubjectMode = "client" | "operator";
 
 export type CreateCreditAccountPayload = {
-  /** Si el modo es "cliente", se envía el id; si no, va null */
+  /** Si el modo es "pax", se envía el id; si no, va null */
   client_id: number | null;
   /** Si el modo es "operador", se envía el id; si no, se omite o null */
   id_operator?: number | null;
@@ -239,7 +239,7 @@ export default function CreateAccountForm({
     if (!currency) e.currency = "Elegí una moneda.";
 
     if (subjectMode === "client" && !clientId) {
-      e.subject = "Seleccioná un cliente.";
+      e.subject = "Seleccioná un pax.";
     }
     if (subjectMode === "operator" && !(operatorId > 0)) {
       e.subject = "Seleccioná un operador.";
@@ -313,7 +313,7 @@ export default function CreateAccountForm({
     if (subjectMode === "client" && clientId) {
       pills.push(
         <span key="cli" className={`${pillBase} ${pillOk}`}>
-          Cliente seleccionado
+          Pax seleccionado
         </span>,
       );
     } else if (subjectMode === "operator" && operatorId > 0) {
@@ -327,7 +327,7 @@ export default function CreateAccountForm({
   }, [editingAccountId, currency, status, subjectMode, clientId, operatorId]);
 
   const SUBJECT_LABELS: Record<SubjectMode, string> = {
-    client: "Cliente",
+    client: "Pax",
     operator: "Operador",
   };
 
@@ -395,7 +395,7 @@ export default function CreateAccountForm({
                   : "Crear Cuenta de Crédito"}
               </p>
               <p className="text-xs text-sky-950/70 dark:text-white/70">
-                Elegí si la enlazás a un <b>cliente</b> o a un <b>operador</b> y
+                Elegí si la enlazás a un <b>pax</b> o a un <b>operador</b> y
                 completá los datos.
               </p>
             </div>
@@ -423,7 +423,7 @@ export default function CreateAccountForm({
               {/* TITULAR / OPERADOR */}
               <Section
                 title="Titular"
-                desc="Elegí si la cuenta pertenece a un Cliente o a un Operador (mutuamente excluyentes)."
+                desc="Elegí si la cuenta pertenece a un Pax o a un Operador (mutuamente excluyentes)."
               >
                 {/* Selector UX: Client / Operator */}
                 <div className="md:col-span-2">
@@ -454,12 +454,12 @@ export default function CreateAccountForm({
                   </div>
                 </div>
 
-                {/* Cliente */}
+                {/* Pax */}
                 {subjectMode === "client" && (
                   <div className="md:col-span-2">
                     <ClientPicker
                       token={token}
-                      label="Cliente"
+                      label="Pax"
                       placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
                       valueId={clientId}
                       excludeIds={[]}
@@ -469,7 +469,7 @@ export default function CreateAccountForm({
                       onClear={() => setClientId(null)}
                     />
                     <p className="ml-1 mt-1 text-xs text-sky-950/70 dark:text-white/60">
-                      Obligatorio en modo <b>Cliente</b>.
+                      Obligatorio en modo <b>Pax</b>.
                     </p>
                     {errors.subject && (
                       <p className="mt-1 text-xs text-red-600 dark:text-red-500/90">

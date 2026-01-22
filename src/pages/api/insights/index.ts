@@ -236,7 +236,7 @@ export default async function handler(
       },
     });
 
-    // 2) earliest booking por cliente (para nuevos vs recurrentes)
+    // 2) earliest booking por pax (para nuevos vs recurrentes)
     const earliest = await prisma.booking.groupBy({
       by: ["titular_id"],
       _min: { creation_date: true },

@@ -15,7 +15,7 @@ type DecimalLike = number | Prisma.Decimal;
 type MovementKind =
   | "income" // Ingresos (cobros, etc.)
   | "expense" // Egresos (gastos, pagos, etc.)
-  | "client_debt" // Deuda de clientes hacia la agencia
+  | "client_debt" // Deuda de pasajeros hacia la agencia
   | "operator_debt" // Deuda de la agencia hacia operadores
   | "other";
 
@@ -96,7 +96,7 @@ export type CashboxSummaryResponse = {
 
   // Saldos globales (foto actual) por moneda
   balances: {
-    clientDebtByCurrency: DebtSummary[]; // lo que los clientes deben a la agencia
+    clientDebtByCurrency: DebtSummary[]; // lo que los pasajeros deben a la agencia
     operatorDebtByCurrency: DebtSummary[]; // lo que la agencia debe a operadores
   };
 
@@ -236,7 +236,7 @@ function decimalToNumber(value: DecimalLike | null | undefined): number {
  * Agrega todos los movimientos y arma el resumen “caja”:
  * - Totales por moneda (ingresos / egresos / neto)
  * - Totales por medio de pago y por cuenta
- * - Deuda clientes / operadores por moneda (puede venir override)
+ * - Deuda pasajeros / operadores por moneda (puede venir override)
  * - Próximos vencimientos dentro del rango
  */
 function aggregateCashbox(
@@ -456,7 +456,7 @@ type GetMonthlyMovementsOptions = {
  * Movimientos mensuales para Caja:
  * - Receipt (ingresos)
  * - Investment (egresos)
- * - ClientPayment (deuda de clientes + vencimientos)
+ * - ClientPayment (deuda de pasajeros + vencimientos)
  * - OperatorDue (deuda con operadores + vencimientos)
  */
 async function getMonthlyMovements(
@@ -667,7 +667,7 @@ async function getMonthlyMovements(
       date: cp.created_at.toISOString(),
       type: "client_debt",
       source: "client_payment",
-      description: "Pago de cliente pendiente",
+      description: "Pago de pax pendiente",
       currency: cp.currency,
       amount: decimalToNumber(cp.amount),
       clientName,
@@ -901,7 +901,7 @@ export default async function handler(
       hideOperatorExpenses,
     });
 
-    // 5) Saldos globales de deuda (clientes / operadores)
+    // 5) Saldos globales de deuda (pasajeros / operadores)
     const balances = await getDebtBalances(agencyId);
 
     // 6) Agregación / resumen

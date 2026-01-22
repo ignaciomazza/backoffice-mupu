@@ -131,9 +131,9 @@ async function ensureClientInAgency(clientId: number, agencyId: number) {
     where: { id_client: clientId },
     select: { id_client: true, id_agency: true },
   });
-  if (!c) throw new Error("El cliente no existe.");
+  if (!c) throw new Error("El pax no existe.");
   if (c.id_agency !== agencyId)
-    throw new Error("El cliente no pertenece a tu agencia.");
+    throw new Error("El pax no pertenece a tu agencia.");
 }
 
 /** Acepta "YYYY-MM-DD" o cualquier ISO Date string válido. Devuelve Date UTC a medianoche si es date-only. */
@@ -204,7 +204,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (!RO_CREATE.has(role)) {
       return res
         .status(403)
-        .json({ error: "No autorizado a crear pagos del cliente." });
+        .json({ error: "No autorizado a crear pagos del pax." });
     }
 
     if (!req.body || typeof req.body !== "object") {
@@ -234,7 +234,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (!currency || typeof currency !== "string")
       return res.status(400).json({ error: "currency es requerido" });
 
-    // Seguridad: reserva y cliente deben ser de la misma agencia
+    // Seguridad: reserva y pax deben ser de la misma agencia
     await ensureBookingInAgency(bId, authAgencyId);
     await ensureClientInAgency(cId, authAgencyId);
 

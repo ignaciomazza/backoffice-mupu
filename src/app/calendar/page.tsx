@@ -461,7 +461,7 @@ export default function CalendarPage() {
 
             <div>
               <label className="block cursor-text text-sm font-medium dark:text-white">
-                Estado cliente
+                Estado pax
               </label>
               <select
                 value={selectedClientStatus}

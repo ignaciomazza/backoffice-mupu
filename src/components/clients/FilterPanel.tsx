@@ -105,7 +105,7 @@ export default function FilterPanel({
         <div className="flex w-full items-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-4 py-1 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:text-white">
           <input
             type="text"
-            placeholder="Buscar clientes..."
+            placeholder="Buscar pasajeros..."
             value={draftSearch}
             onChange={(e) => setDraftSearch(e.target.value)}
             onKeyDown={(e) => {

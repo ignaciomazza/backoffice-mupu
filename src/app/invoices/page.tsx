@@ -275,7 +275,7 @@ export default function InvoicesPage() {
       "Factura",
       "Tipo de factura",
       "Fecha",
-      "Cliente",
+      "Pax",
       "Dirección",
       "Localidad",
       "Código Postal",
@@ -312,7 +312,7 @@ export default function InvoicesPage() {
         { value: String(inv.invoice_number) }, // Factura (texto)
         { value: tipo }, // Tipo (texto)
         { value: getCbteDate(inv) }, // Fecha (texto dd/mm/aaaa)
-        { value: getClientName(inv) }, // Cliente (texto)
+        { value: getClientName(inv) }, // Pax (texto)
         { value: direccion }, // Dirección (texto)
         { value: localidad }, // Localidad (texto)
         { value: codigoPostal }, // CP (texto)
@@ -402,7 +402,7 @@ export default function InvoicesPage() {
                     <th className="px-4 py-3 font-normal">Factura</th>
                     <th className="px-4 py-3 font-normal">Reserva</th>
                     <th className="px-4 py-3 font-normal">Fecha</th>
-                    <th className="px-4 py-3 font-normal">Cliente</th>
+                    <th className="px-4 py-3 font-normal">Pax</th>
                     <th className="px-4 py-3 font-normal">Dirección</th>
                     <th className="px-4 py-3 font-normal">IVA</th>
                     <th className="px-4 py-3 font-normal">Total</th>

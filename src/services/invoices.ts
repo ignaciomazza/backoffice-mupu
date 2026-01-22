@@ -173,7 +173,7 @@ export async function createInvoices(
         where: { id_client: cid },
       });
       if (!client) {
-        errorMessages.add("No se encontró el cliente seleccionado.");
+        errorMessages.add("No se encontró el pax seleccionado.");
         continue;
       }
 
@@ -183,8 +183,8 @@ export async function createInvoices(
       if (!docNumber) {
         errorMessages.add(
           isFactB
-            ? "Falta DNI del cliente para emitir Factura B."
-            : "Falta CUIT del cliente para emitir Factura A.",
+            ? "Falta DNI del pax para emitir Factura B."
+            : "Falta CUIT del pax para emitir Factura A.",
         );
         continue;
       }

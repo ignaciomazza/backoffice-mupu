@@ -343,7 +343,7 @@ export default async function handler(
           if (!c || c.id_agency !== auth.id_agency)
             return res
               .status(400)
-              .json({ error: "Cliente inválido para tu agencia." });
+              .json({ error: "Pax inválido para tu agencia." });
         }
         if (hasOperator) {
           const o = await prisma.operator.findUnique({

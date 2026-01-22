@@ -245,10 +245,10 @@ export default function SideBar({
       items: { href: string; label: string }[];
     }[] = [
       {
-        id: "clientes",
-        title: "Clientes",
+        id: "pasajeros",
+        title: "Pasajeros",
         items: [
-          { href: "/clients", label: "Clientes" },
+          { href: "/clients", label: "Pasajeros" },
           { href: "/client-stats", label: "Estadísticas" },
           hasAccess("/clients/config")
             ? { href: "/clients/config", label: "Configuración" }

@@ -39,7 +39,7 @@ export default function CreateReceiptFields(props: {
   // ✅ id del método crédito (real si existe, o virtual 0)
   creditMethodId: number;
 
-  // clientes
+  // pasajeros
   clientsCount: number;
   clientIds: (number | null)[];
   onIncClient: () => void;
@@ -204,8 +204,8 @@ export default function CreateReceiptFields(props: {
   return (
     <>
       <Section
-        title="Clientes"
-        desc="Podés adjudicar el recibo a uno o varios clientes (opcional)."
+        title="Pasajeros"
+        desc="Podés adjudicar el recibo a uno o varios pasajeros (opcional)."
       >
         <div className="flex items-center gap-2 pl-1 md:col-span-2">
           <button
@@ -233,7 +233,7 @@ export default function CreateReceiptFields(props: {
             <div key={idx} className="pl-1">
               <ClientPicker
                 token={token}
-                label={`Cliente ${idx + 1}`}
+                label={`Pax ${idx + 1}`}
                 placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
                 valueId={clientIds[idx] ?? null}
                 excludeIds={excludeForIndex(idx)}

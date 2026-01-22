@@ -530,7 +530,7 @@ export default function ClientStatsPage() {
           );
           const json: ClientsAPI = await res.json();
           if (!res.ok)
-            throw new Error(json?.error || "Error al cargar clientes");
+            throw new Error(json?.error || "Error al cargar pasajeros");
 
           const matched = json.items.filter((rawC) => {
             const n = normalizeClientRecord(rawC, normCtx, DEFAULT_CONFIG);
@@ -549,7 +549,7 @@ export default function ClientStatsPage() {
         });
         setCursor(nextLocal);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Error al cargar clientes";
+        const msg = e instanceof Error ? e.message : "Error al cargar pasajeros";
         toast.error(msg);
       } finally {
         setLoading(false);
@@ -851,7 +851,7 @@ export default function ClientStatsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `clientes_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `pasajeros_${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error al exportar CSV";

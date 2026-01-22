@@ -55,7 +55,7 @@ export interface User {
   sales_teams?: UserTeam[];
 }
 
-// ===================== Clientes / Reservas / Servicios =====================
+// ===================== Pasajeros / Reservas / Servicios =====================
 
 export interface Client {
   id_client: number;
@@ -463,13 +463,13 @@ export interface NewReturningBlock {
 }
 
 export interface TopClientItem {
-  /** Puede venir null si hay reservas sin cliente asociado explícitamente */
+  /** Puede venir null si hay reservas sin pax asociado explícitamente */
   id_client: number | null;
   name: string;
   reservations: number;
   passengers: number;
   totalAmount: InsightsMoneyPerCurrency;
-  /** Última fecha de reserva de ese cliente (ISO) */
+  /** Última fecha de reserva de ese pax (ISO) */
   lastBookingDate: string | null;
 }
 

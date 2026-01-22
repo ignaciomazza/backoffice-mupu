@@ -50,17 +50,17 @@ const OPTIONS: { key: VisibilityMode; label: string; desc: string }[] = [
   {
     key: "all",
     label: "Todos",
-    desc: "Todos pueden ver clientes y estadísticas de toda la agencia.",
+    desc: "Todos pueden ver pasajeros y estadísticas de toda la agencia.",
   },
   {
     key: "team",
     label: "Por equipo",
-    desc: "Cada usuario ve los clientes de su equipo. Si no pertenece a un equipo, solo ve los suyos.",
+    desc: "Cada usuario ve los pasajeros de su equipo. Si no pertenece a un equipo, solo ve los suyos.",
   },
   {
     key: "own",
     label: "Solo propios",
-    desc: "Cada usuario ve solo sus clientes.",
+    desc: "Cada usuario ve solo sus pasajeros.",
   },
 ];
 
@@ -120,7 +120,7 @@ export default function ClientsConfigPage() {
         }
       } catch (e) {
         console.error("[clients/config] load error", e);
-        toast.error("No se pudo cargar la configuración de clientes.");
+        toast.error("No se pudo cargar la configuración de pasajeros.");
       } finally {
         if (alive) setLoading(false);
       }
@@ -165,7 +165,7 @@ export default function ClientsConfigPage() {
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold">
-              Configuración de Clientes
+              Configuración de Pasajeros
             </h1>
             <p className="mt-1 text-sm text-sky-950/70 dark:text-white/70">
               Definí el alcance de visibilidad para vendedores.

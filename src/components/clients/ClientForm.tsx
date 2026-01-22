@@ -302,7 +302,7 @@ export default function ClientForm({
 
             <div className="flex flex-col">
               <p className="text-lg font-semibold">
-                {editingClientId ? "Editar Cliente" : "Agregar Cliente"}
+                {editingClientId ? "Editar Pax" : "Agregar Pax"}
               </p>
             </div>
           </div>
@@ -315,7 +315,7 @@ export default function ClientForm({
               </span>
             ) : (
               <span className="rounded-full border border-emerald-300/50 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800 shadow-sm shadow-emerald-950/10 dark:border-emerald-800/50 dark:bg-emerald-950/50 dark:text-emerald-200">
-                Nuevo cliente
+                Nuevo pax
               </span>
             )}
           </div>
@@ -561,7 +561,7 @@ export default function ClientForm({
               {/* CONTACTO */}
               <Section
                 title="Contacto"
-                desc="Cómo nos comunicamos con el cliente para avisos y entrega de documentación."
+                desc="Cómo nos comunicamos con el pax para avisos y entrega de documentación."
               >
                 <Field id="phone" label="Teléfono / WhatsApp" required>
                   <input
@@ -602,8 +602,8 @@ export default function ClientForm({
                   }`}
                   aria-label={
                     editingClientId
-                      ? "Guardar cambios del cliente"
-                      : "Agregar cliente"
+                      ? "Guardar cambios del pax"
+                      : "Agregar pax"
                   }
                 >
                   {submitting ? (
@@ -611,7 +611,7 @@ export default function ClientForm({
                   ) : editingClientId ? (
                     "Guardar Cambios"
                   ) : (
-                    "Agregar Cliente"
+                    "Agregar Pax"
                   )}
                 </button>
               </div>

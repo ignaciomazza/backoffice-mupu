@@ -415,7 +415,7 @@ export default function BookingForm({
                 <Field
                   id="invoice_observation"
                   label="Observaciones de Factura"
-                  hint="Ej.: Facturar al cliente N° 342"
+                  hint="Ej.: Facturar al pax N° 342"
                 >
                   <input
                     id="invoice_observation"
@@ -423,7 +423,7 @@ export default function BookingForm({
                     name="invoice_observation"
                     value={formData.invoice_observation || ""}
                     onChange={handleChange}
-                    placeholder="Ej: Facturar al cliente N° 342"
+                    placeholder="Ej: Facturar al pax N° 342"
                     className={`${inputBase} ${formData.invoice_observation ? inputOkFocus : ""}`}
                   />
                 </Field>
@@ -446,7 +446,7 @@ export default function BookingForm({
                   <ClientPicker
                     token={token}
                     label="Titular"
-                    placeholder="Buscar por N° Cliente, DNI, Pasaporte, CUIT o Nombre..."
+                    placeholder="Buscar por N° Pax, DNI, Pasaporte, CUIT o Nombre..."
                     valueId={hasTitular ? formData.titular_id : null}
                     excludeIds={formData.clients_ids.filter(isValidId)}
                     required

@@ -131,7 +131,7 @@ function ClientListRow({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <span className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-900/80 dark:text-sky-100/80">
-            Cliente N°{clientNumber}
+            Pax N°{clientNumber}
           </span>
           <p
             className="min-w-0 truncate text-base font-semibold text-sky-950 dark:text-white"
@@ -209,7 +209,7 @@ function ClientListRow({
             <button
               className={actionBtn}
               onClick={() => startEditingClient(client)}
-              aria-label="Editar cliente"
+              aria-label="Editar pax"
               title="Editar"
             >
               <svg
@@ -230,7 +230,7 @@ function ClientListRow({
             <button
               className={dangerBtn}
               onClick={() => deleteClient(client.id_client)}
-              aria-label="Eliminar cliente"
+              aria-label="Eliminar pax"
               title="Eliminar"
             >
               <svg

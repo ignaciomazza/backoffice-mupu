@@ -133,7 +133,7 @@ const bodySchema = z.object({
     .min(1, "Debe haber al menos un servicio"),
   clientIds: z
     .array(z.union([z.string(), z.number()]).transform((v) => Number(v)))
-    .min(1, "Debe haber al menos un cliente"),
+    .min(1, "Debe haber al menos un pax"),
   tipoFactura: z
     .union([z.string(), z.number()])
     .transform((v) => Number(v))

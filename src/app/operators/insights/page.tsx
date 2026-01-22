@@ -48,7 +48,7 @@ const VIEW_OPTIONS: { value: InsightsView; label: string }[] = [
   { value: "incomes", label: "Ingresos" },
   { value: "expenses", label: "Egresos" },
   { value: "cashflow", label: "Ingresos + Egresos" },
-  { value: "clientDebt", label: "Deuda cliente" },
+  { value: "clientDebt", label: "Deuda pax" },
   { value: "operatorDebt", label: "Deuda operador" },
   { value: "due", label: "Vencimientos" },
   { value: "activity", label: "Actividad" },
@@ -877,7 +877,7 @@ export default function OperatorInsightsPage() {
                     </StatCard>
                   )}
                   {showClientDebtCard && (
-                    <StatCard title="Deuda cliente" tone="amber">
+                    <StatCard title="Deuda pax" tone="amber">
                       <MoneyLines data={data.totals.clientDebt} />
                       <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                         Servicios sin recibo:{" "}
@@ -896,7 +896,7 @@ export default function OperatorInsightsPage() {
               {showClientDebtSection && (
                 <section className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    <span>Deuda cliente por reserva</span>
+                    <span>Deuda pax por reserva</span>
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusPill
                         label={`${data.lists.bookings.length} reservas`}
@@ -910,7 +910,7 @@ export default function OperatorInsightsPage() {
                   </div>
                   <div className="mb-4 rounded-2xl border border-white/10 bg-white/60 p-4 shadow-sm dark:bg-slate-900/50">
                     <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      Deuda cliente (venta - cobrado)
+                      Deuda pax (venta - cobrado)
                     </div>
                     <div className="mt-2">
                       <MoneyLines data={data.totals.clientDebt} />
@@ -983,7 +983,7 @@ export default function OperatorInsightsPage() {
                                 )}
                                 <div className="mt-3 text-left">
                                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                                    Deuda cliente
+                                    Deuda pax
                                   </div>
                                   <div className="mt-2">
                                     <MoneyLines data={booking.debt} />

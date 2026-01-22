@@ -63,7 +63,7 @@ export default function ClientCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.2em] text-sky-900/85 dark:text-sky-100/85">
-            Cliente N°{clientNumber}
+            Pax N°{clientNumber}
           </p>
           <p
             className="mt-1 truncate text-lg font-semibold text-sky-950 dark:text-white"
@@ -135,7 +135,7 @@ export default function ClientCard({
             <button
               className={actionBtn}
               onClick={() => handleEdit(client)}
-              aria-label="Editar cliente"
+              aria-label="Editar pax"
               title="Editar"
             >
               <svg
@@ -156,7 +156,7 @@ export default function ClientCard({
             <button
               className={dangerBtn}
               onClick={() => deleteClient(client.id_client)}
-              aria-label="Eliminar cliente"
+              aria-label="Eliminar pax"
               title="Eliminar"
             >
               <svg

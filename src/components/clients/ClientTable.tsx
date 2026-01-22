@@ -413,14 +413,14 @@ export default function ClientTable({
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body?.error || "Error al guardar el cliente.");
+        throw new Error(body?.error || "Error al guardar el pax.");
       }
       onClientsUpdated([body as Client]);
       clearDraftForClient(clientId);
-      toast.success("Cliente actualizado.");
+      toast.success("Pax actualizado.");
     } catch (err) {
       console.error("saveRow client:", err);
-      toast.error((err as Error).message || "Error al guardar el cliente.");
+      toast.error((err as Error).message || "Error al guardar el pax.");
     } finally {
       setSavingRows((prev) => {
         const next = { ...prev };
@@ -489,7 +489,7 @@ export default function ClientTable({
       if (!res.ok) {
         errors.push({
           clientId,
-          message: body?.error || "Error al guardar el cliente.",
+          message: body?.error || "Error al guardar el pax.",
         });
         return;
       }
@@ -917,7 +917,7 @@ function SaveAllModal({
                 const clientName =
                   client?.first_name || client?.last_name
                     ? `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()
-                    : `Cliente ${clientNumber}`;
+                    : `Pax ${clientNumber}`;
                 return (
                   <div
                     key={`${c.clientId}-${c.field}-${idx}`}
@@ -925,7 +925,7 @@ function SaveAllModal({
                   >
                     <div className="flex flex-col gap-1">
                       <span className="text-xs uppercase tracking-[0.2em] text-sky-900/60 dark:text-sky-100/60">
-                        Cliente N°{clientNumber}
+                        Pax N°{clientNumber}
                       </span>
                       <span className="font-medium">{clientName}</span>
                       <span className="opacity-70">
@@ -967,7 +967,7 @@ function SaveAllModal({
                       key={`${err.clientId}-${err.message}`}
                       className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-900 dark:text-rose-100"
                     >
-                      Cliente N°{clientNumber} {clientName && `(${clientName})`}
+                      Pax N°{clientNumber} {clientName && `(${clientName})`}
                       : {err.message}
                     </div>
                   );

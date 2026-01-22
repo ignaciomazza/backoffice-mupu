@@ -300,7 +300,7 @@ const generateHtml = (voucherData: VoucherData, qrBase64: string): string => {
       </tr>
       <tr>
         <td colspan="2">
-          <p><strong>CUIL/CUIT Cliente:</strong> ${DocNro}</p>
+          <p><strong>CUIL/CUIT Pax:</strong> ${DocNro}</p>
           <p><strong>Apellido y Nombre / Razón Social:</strong> ${recipient}</p>
         </td>
       </tr>

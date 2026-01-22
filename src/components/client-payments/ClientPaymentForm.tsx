@@ -111,7 +111,7 @@ export default function ClientPaymentForm({
 }: Props) {
   const [isFormVisible, setIsFormVisible] = useState(false);
 
-  // Cliente que paga (prefill: titular al abrir)
+  // Pax que paga (prefill: titular al abrir)
   const [payerClientId, setPayerClientId] = useState<number | null>(null);
 
   // Cantidad de pagos
@@ -290,7 +290,7 @@ export default function ClientPaymentForm({
 
     // Validaciones básicas
     if (!payerClientId) {
-      toast.error("Seleccioná el cliente que paga.");
+      toast.error("Seleccioná el pax que paga.");
       return;
     }
     if (!count || count < 1) {
@@ -371,7 +371,7 @@ export default function ClientPaymentForm({
       );
 
       if (!res.ok) {
-        let msg = "No se pudo crear el/los pago(s) del cliente.";
+        let msg = "No se pudo crear el/los pago(s) del pax.";
         try {
           const data = await res.json();
           const maybe =
@@ -384,13 +384,13 @@ export default function ClientPaymentForm({
         throw new Error(msg);
       }
 
-      toast.success("Pagos del cliente creados correctamente.");
+      toast.success("Pagos del pax creados correctamente.");
       onCreated?.();
       resetForm();
     } catch (err) {
       if ((err as DOMException)?.name === "AbortError") return;
       const msg =
-        err instanceof Error ? err.message : "Error creando pagos del cliente.";
+        err instanceof Error ? err.message : "Error creando pagos del pax.";
       toast.error(msg);
     } finally {
       setLoading(false);
@@ -480,8 +480,8 @@ export default function ClientPaymentForm({
               className="space-y-5 px-4 pb-6 pt-4 md:px-6"
             >
               <Section
-                title="Cliente que paga"
-                desc="Podés seleccionar cualquier cliente, no se limita a la reserva."
+                title="Pax que paga"
+                desc="Podés seleccionar cualquier pax, no se limita a la reserva."
               >
                 <div className="md:col-span-2">
                   <ClientPicker

@@ -401,7 +401,7 @@ export default function DashboardShortcuts() {
           })().catch((e) => console.error("[dashboard] travel week:", e)),
         );
 
-        // 2.e) Nuevos clientes del mes
+        // 2.e) Nuevos pasajeros del mes
         tasks.push(
           (async () => {
             let count = 0;
@@ -431,7 +431,7 @@ export default function DashboardShortcuts() {
               if (!cursor) break;
             }
             if (!abortedRef.current) setNewClientsCount(count);
-          })().catch((e) => console.error("[dashboard] nuevos clientes:", e)),
+          })().catch((e) => console.error("[dashboard] nuevos pasajeros:", e)),
         );
 
         // 2.f) Mi equipo
@@ -601,7 +601,7 @@ export default function DashboardShortcuts() {
           )}
         </motion.div>
 
-        {/* Nuevos clientes */}
+        {/* Nuevos pasajeros */}
         <motion.div
           layout
           variants={{
@@ -610,7 +610,7 @@ export default function DashboardShortcuts() {
           }}
           className={`${glass} ${spanCls(1, 1)} p-6`}
         >
-          <p className="text-sm font-medium">Nuevos clientes</p>
+          <p className="text-sm font-medium">Nuevos pasajeros</p>
           <div className="mt-2 text-3xl font-semibold">{newClientsCount}</div>
         </motion.div>
 

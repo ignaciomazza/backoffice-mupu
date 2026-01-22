@@ -24,7 +24,7 @@ export interface CommercialBaseRow {
   channel: string | null; // ya no lo usamos realmente
   /** Monto total de la reserva por moneda (ARS, USD, etc.) */
   amounts: InsightsMoneyPerCurrency;
-  /** true si es reserva de cliente nuevo */
+  /** true si es reserva de pax nuevo */
   isNewClient: boolean;
 }
 
@@ -206,7 +206,7 @@ export function buildCommercialInsights(
       };
     });
 
-  // ---------- Clientes ----------
+  // ---------- Pasajeros ----------
   type ClientAgg = {
     id_client: number | null;
     name: string;
@@ -238,7 +238,7 @@ export function buildCommercialInsights(
         id_client: row.clientId,
         name:
           row.clientName ??
-          (row.clientId != null ? `Cliente N° ${row.clientId}` : "Sin cliente"),
+          (row.clientId != null ? `Pax N° ${row.clientId}` : "Sin pax"),
         reservations: 0,
         passengers: 0,
         totalAmount: {},

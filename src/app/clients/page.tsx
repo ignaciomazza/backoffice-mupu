@@ -75,7 +75,7 @@ function matchScore(queryNorm: string, candidateRaw: string): number {
   return 2 + dist;
 }
 
-/** Saca el mejor score de un cliente comparando varios campos */
+/** Saca el mejor score de un pax comparando varios campos */
 function scoreClient(c: Client, queryNorm: string): number {
   const combos = [
     `${c.first_name || ""} ${c.last_name || ""}`,
@@ -97,7 +97,7 @@ function scoreClient(c: Client, queryNorm: string): number {
   return best;
 }
 
-/** Ordena la lista de clientes de "mejor match" → "peor match" */
+/** Ordena la lista de pasajeros de "mejor match" → "peor match" */
 function rankClients(list: Client[], query: string): Client[] {
   const qn = norm(query);
   if (!qn) return list; // sin búsqueda → dejamos el orden del server
@@ -280,7 +280,7 @@ export default function Page() {
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
         console.error("❌ Error inicializando perfil/equipos/usuarios:", err);
-        toast.error("No se pudo inicializar la vista de clientes.");
+        toast.error("No se pudo inicializar la vista de pasajeros.");
       }
     })();
 
@@ -304,7 +304,7 @@ export default function Page() {
     }
   }, [selectedTeamId, teamsList, profile, allUsers]);
 
-  // 3) Fetch de clientes (usa la nueva API: { items, nextCursor } y filtros server-side)
+  // 3) Fetch de pasajeros (usa la nueva API: { items, nextCursor } y filtros server-side)
   const buildClientsQuery = useCallback(
     (opts?: { cursor?: number | null }) => {
       const qs = new URLSearchParams();
@@ -348,7 +348,7 @@ export default function Page() {
           { cache: "no-store", signal: controller.signal },
           token,
         );
-        if (!res.ok) throw new Error("Error al obtener clientes");
+        if (!res.ok) throw new Error("Error al obtener pasajeros");
         const { items, nextCursor } = await res.json();
 
         if (myRequestId !== requestIdRef.current) return; // evita race
@@ -362,7 +362,7 @@ export default function Page() {
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
         console.error("❌ Error fetching clients:", err);
-        toast.error("Error al obtener clientes.");
+        toast.error("Error al obtener pasajeros.");
         setClients([]);
         setNextCursor(null);
       } finally {
@@ -397,7 +397,7 @@ export default function Page() {
         { cache: "no-store" },
         token,
       );
-      if (!res.ok) throw new Error("No se pudieron cargar más clientes");
+      if (!res.ok) throw new Error("No se pudieron cargar más pasajeros");
       const { items, nextCursor: newCursor } = await res.json();
 
       // Merge y volver a rankear con la búsqueda actual
@@ -408,7 +408,7 @@ export default function Page() {
       setNextCursor(newCursor ?? null);
     } catch (e) {
       console.error("loadMore clients:", e);
-      toast.error("No se pudieron cargar más clientes.");
+      toast.error("No se pudieron cargar más pasajeros.");
     } finally {
       setLoadingMore(false);
     }
@@ -460,7 +460,7 @@ export default function Page() {
 
       const body = await res.json();
       if (!res.ok)
-        throw new Error(body?.error || "Error al guardar el cliente");
+        throw new Error(body?.error || "Error al guardar el pax");
 
       // Refrescar primera página con filtros actuales
       const qs = buildClientsQuery();
@@ -479,12 +479,12 @@ export default function Page() {
       setNextCursor(nextCursor ?? null);
       setExpandedClientId(null);
 
-      toast.success("Cliente guardado con éxito!");
+      toast.success("Pax guardado con éxito!");
     } catch (err: unknown) {
-      console.error("Error al guardar el cliente:", err);
+      console.error("Error al guardar el pax:", err);
       toast.error(
         (err as Error).message ||
-          "Error al guardar el cliente. Intente nuevamente.",
+          "Error al guardar el pax. Intente nuevamente.",
       );
     } finally {
       setFormData((prev) => ({
@@ -523,22 +523,22 @@ export default function Page() {
         throw new Error(
           body?.error ||
             (res.status === 409
-              ? "El cliente tiene movimientos."
-              : "Error al eliminar el cliente"),
+              ? "El pax tiene movimientos."
+              : "Error al eliminar el pax"),
         );
       }
 
-      // sacamos el cliente de la lista y re-rankeamos por si había búsqueda activa
+      // sacamos el pax de la lista y re-rankeamos por si había búsqueda activa
       const remaining = clients.filter((c) => c.id_client !== id);
       const ranked = rankClients(remaining, debouncedSearch);
       setClients(ranked);
 
-      toast.success("Cliente eliminado con éxito!");
+      toast.success("Pax eliminado con éxito!");
     } catch (err: unknown) {
-      console.error("Error al eliminar el cliente:", err);
+      console.error("Error al eliminar el pax:", err);
       toast.error(
         (err as Error).message ||
-          "Error al eliminar el cliente. Intente nuevamente.",
+          "Error al eliminar el pax. Intente nuevamente.",
       );
     }
   };
@@ -609,7 +609,7 @@ export default function Page() {
 
         <div className="my-4 flex flex-wrap items-center justify-between gap-4">
           <h2 className="flex items-center gap-2 text-2xl font-semibold dark:font-medium">
-            Clientes
+            Pasajeros
             <span
               className={`${pillBase} ${
                 clients.length > 0 ? pillOk : pillWarn

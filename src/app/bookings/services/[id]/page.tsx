@@ -699,16 +699,16 @@ export default function ServicesPage() {
       return "No se encontró la reserva.";
     }
     if (m.includes("falta cuit") || m.includes("cuit inválido")) {
-      return "Error en el CUIT. Revisá el CUIT del cliente o de la agencia.";
+      return "Error en el CUIT. Revisá el CUIT del pax o de la agencia.";
     }
     if (m.includes("cuit invalido") || m.includes("tax_id")) {
-      return "Error en el CUIT. Revisá el CUIT del cliente o de la agencia.";
+      return "Error en el CUIT. Revisá el CUIT del pax o de la agencia.";
     }
     if (m.includes("falta dni")) {
-      return "Falta DNI del cliente. Revisá el documento para Factura B.";
+      return "Falta DNI del pax. Revisá el documento para Factura B.";
     }
     if (m.includes("docnro") || m.includes("documento")) {
-      return "Documento del cliente inválido. Revisá DNI/CUIT.";
+      return "Documento del pax inválido. Revisá DNI/CUIT.";
     }
     if (
       m.includes("cert") ||
@@ -774,14 +774,14 @@ export default function ServicesPage() {
     if (m.includes("debe haber al menos un servicio")) {
       return "Seleccioná al menos un servicio.";
     }
-    if (m.includes("debe haber al menos un cliente")) {
-      return "Seleccioná al menos un cliente.";
+    if (m.includes("debe haber al menos un pax")) {
+      return "Seleccioná al menos un pax.";
     }
     if (m.includes("tipoFactura".toLowerCase())) {
       return "Tipo de factura inválido. Elegí Factura A o B.";
     }
     if (m.includes("no se generó ninguna factura")) {
-      return "No se pudo generar la factura. Revisá CUIT/DNI del cliente y los servicios.";
+      return "No se pudo generar la factura. Revisá CUIT/DNI del pax y los servicios.";
     }
 
     return msg;
@@ -807,10 +807,11 @@ export default function ServicesPage() {
     const dateLabel = invoiceFormData.invoiceDate
       ? `\nFecha: ${invoiceFormData.invoiceDate}`
       : "";
+    const paxLabel = clientCount === 1 ? "pax" : "pasajeros";
 
     if (
       !window.confirm(
-        `¿Emitir ${tipoLabel} para ${clientCount} cliente(s) y ${serviceCount} servicio(s)?${dateLabel}`,
+        `¿Emitir ${tipoLabel} para ${clientCount} ${paxLabel} y ${serviceCount} servicio(s)?${dateLabel}`,
       )
     ) {
       return;

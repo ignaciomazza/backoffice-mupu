@@ -148,7 +148,7 @@ const EMPTY_ADJUSTMENTS: AdjustmentTotals = {
 const DRAFT_KEY = "quick-load-draft-v1";
 
 const STEP_LABELS = [
-  { id: 1, label: "Clientes", desc: "Alta rápida de pasajeros" },
+  { id: 1, label: "Pasajeros", desc: "Alta rápida de pasajeros" },
   { id: 2, label: "Reserva", desc: "Fechas y facturación" },
   { id: 3, label: "Servicios", desc: "Carga y desglose" },
   { id: 4, label: "Resumen", desc: "Revisión final" },
@@ -881,7 +881,7 @@ export default function QuickLoadPage() {
       (c) => c.kind === "existing" && c.existingId === client.id_client,
     );
     if (exists) {
-      toast.info("Ese cliente ya está en la lista.");
+      toast.info("Ese pax ya está en la lista.");
       return;
     }
     const draft: ExistingClientDraft = {
@@ -905,7 +905,7 @@ export default function QuickLoadPage() {
     setClients((prev) => [...prev, draft]);
     if (!titularId) setTitularId(draft.id);
     setPickerKey((prev) => prev + 1);
-    toast.success("Cliente agregado.");
+    toast.success("Pax agregado.");
   };
 
   const removeClient = (id: string) => {
@@ -1084,7 +1084,7 @@ export default function QuickLoadPage() {
           )
         : ["ARS"];
     if (clients.length === 0) {
-      missing.push("Agregar al menos un cliente.");
+      missing.push("Agregar al menos un pax.");
     }
     if (!titularId) {
       missing.push("Definir un titular.");
@@ -1093,8 +1093,9 @@ export default function QuickLoadPage() {
       (c) => c.kind === "new" && missingClientFields(c).length > 0,
     ).length;
     if (incompleteClients > 0) {
+      const paxLabel = incompleteClients === 1 ? "pax" : "pasajeros";
       missing.push(
-        `Completar ${incompleteClients} cliente(s) con datos obligatorios.`,
+        `Completar ${incompleteClients} ${paxLabel} con datos obligatorios.`,
       );
     }
     if (!booking.details.trim()) {
@@ -1274,7 +1275,7 @@ export default function QuickLoadPage() {
       }
       const missing = missingClientFields(client);
       if (missing.length) {
-        throw new Error(`Cliente incompleto: ${missing.join(", ")}`);
+        throw new Error(`Pax incompleto: ${missing.join(", ")}`);
       }
 
       const res = await authFetch(
@@ -1303,7 +1304,7 @@ export default function QuickLoadPage() {
       );
 
       if (!res.ok) {
-        let msg = "Error al crear cliente.";
+        let msg = "Error al crear pax.";
         try {
           const err = await res.json();
           if (err?.error) msg = String(err.error);
@@ -1530,7 +1531,7 @@ export default function QuickLoadPage() {
     }
   };
 
-  const clientCountLabel = `${clients.length} cliente${clients.length === 1 ? "" : "s"}`;
+  const clientCountLabel = `${clients.length} ${clients.length === 1 ? "pax" : "pasajeros"}`;
   const serviceCountLabel = `${services.length} servicio${services.length === 1 ? "" : "s"}`;
 
   const titularLabel = useMemo(() => {
@@ -1563,7 +1564,7 @@ export default function QuickLoadPage() {
                 carga rápida
               </p>
               <h1 className="text-3xl font-semibold">
-                Crea clientes, reserva y servicios en una sola pasada
+                Crea pasajeros, reserva y servicios en una sola pasada
               </h1>
               <p className="max-w-2xl text-sm text-sky-900/70 dark:text-white/70">
                 Flujo corto para dar de alta pasajeros, armar la reserva y, si
@@ -1663,10 +1664,10 @@ export default function QuickLoadPage() {
                   <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                     <div>
                       <h2 className="text-xl font-semibold">
-                        Paso 1 · Clientes
+                        Paso 1 · Pasajeros
                       </h2>
                       <p className="text-sm text-sky-900/70 dark:text-white/70">
-                        Sumá clientes nuevos o existentes, elegí un titular y
+                        Sumá pasajeros nuevos o existentes, elegí un titular y
                         dejá listo el grupo.
                       </p>
                     </div>
@@ -1675,16 +1676,16 @@ export default function QuickLoadPage() {
                   <div className="mt-8 space-y-4">
                     <div className={`${STACK_SKY} bg-sky-100/5`}>
                       <h3 className="text-sm font-semibold">
-                        Agregar cliente existente
+                        Agregar pax existente
                       </h3>
                       <p className="text-xs text-sky-900/60 dark:text-white/60">
-                        Buscá por nombre, documento o número de cliente.
+                        Buscá por nombre, documento o número de pax.
                       </p>
                       <div className="mt-3">
                         <ClientPicker
                           key={pickerKey}
                           token={token}
-                          label="Cliente existente"
+                          label="Pax existente"
                           placeholder="Buscar por DNI, Pasaporte, CUIT o nombre..."
                           valueId={null}
                           excludeIds={clients
@@ -1698,7 +1699,7 @@ export default function QuickLoadPage() {
 
                     <div className={`${STACK_EMERALD} bg-emerald-100/5`}>
                       <h3 className="text-sm font-semibold">
-                        ¿Cliente nuevo? Cargalo acá
+                        ¿Pax nuevo? Cargalo acá
                       </h3>
                       <p className="mt-2 text-xs text-emerald-900/70 dark:text-emerald-50/70">
                         Sumá un pasajero nuevo y completá sus datos en el
@@ -1710,7 +1711,7 @@ export default function QuickLoadPage() {
                         onClick={addNewClient}
                       >
                         <IconPlus className="size-5" />
-                        Nuevo cliente
+                        Nuevo pax
                       </button>
                     </div>
                   </div>
@@ -1720,10 +1721,10 @@ export default function QuickLoadPage() {
                   {clients.length === 0 && (
                     <div className={STACK_ROSE}>
                       <p className="text-sm font-semibold">
-                        Todavía no hay clientes cargados.
+                        Todavía no hay pasajeros cargados.
                       </p>
                       <p className="text-xs text-sky-900/70 dark:text-white/70">
-                        Agregá al menos un cliente para avanzar.
+                        Agregá al menos un pax para avanzar.
                       </p>
                     </div>
                   )}
@@ -1742,7 +1743,7 @@ export default function QuickLoadPage() {
                         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                           <div>
                             <p className="text-sm font-semibold">
-                              Cliente {index + 1}
+                              Pax {index + 1}
                             </p>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <span
@@ -1999,7 +2000,7 @@ export default function QuickLoadPage() {
                                       )
                                     }
                                     className={INPUT}
-                                    placeholder="Ej: cliente@mail.com"
+                                    placeholder="Ej: pax@mail.com"
                                   />
                                 </div>
                               </div>
@@ -2283,11 +2284,11 @@ export default function QuickLoadPage() {
                               )
                             }
                             className={INPUT}
-                            placeholder="Ej: Facturar al cliente N° 342"
+                            placeholder="Ej: Facturar al pax N° 342"
                           />
                         </div>
                         <p className="text-xs text-sky-900/60 dark:text-white/60">
-                          Los estados de reserva, cliente y operador se ajustan
+                          Los estados de reserva, pax y operador se ajustan
                           luego dentro de la reserva.
                         </p>
                       </div>
@@ -3141,7 +3142,7 @@ export default function QuickLoadPage() {
                         className={BTN_SKY}
                         onClick={() => goToStep(1)}
                       >
-                        Editar clientes
+                        Editar pasajeros
                       </button>
                       <button
                         type="button"
@@ -3162,7 +3163,7 @@ export default function QuickLoadPage() {
 
                   <div className="mt-8 grid gap-6 lg:grid-cols-3">
                     <div className={STACK_SKY}>
-                      <p className="text-sm font-semibold">Clientes</p>
+                      <p className="text-sm font-semibold">Pasajeros</p>
                       <div className="mt-3 space-y-2 text-sm">
                         {clients.map((client) => {
                           const label =
@@ -3175,14 +3176,14 @@ export default function QuickLoadPage() {
                               className="flex items-center justify-between gap-2"
                             >
                               <span className="truncate">
-                                {label || "Cliente sin nombre"}
+                                {label || "Pax sin nombre"}
                                 {client.id === titularId ? " · Titular" : ""}
                               </span>
                               <button
                                 type="button"
                                 className="cursor-pointer text-rose-600 hover:text-rose-700"
                                 onClick={() => removeClient(client.id)}
-                                aria-label="Eliminar cliente"
+                                aria-label="Eliminar pax"
                               >
                                 <IconTrash className="size-4" />
                               </button>

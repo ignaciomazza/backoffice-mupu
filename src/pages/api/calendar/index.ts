@@ -143,7 +143,7 @@ export default async function handler(
       if (Number.isFinite(n)) whereBooking.id_user = n;
     }
 
-    // estado de cliente (siempre dentro de la agencia)
+    // estado de pax (siempre dentro de la agencia)
     if (typeof clientStatus === "string" && clientStatus !== "Todas") {
       whereBooking.clientStatus = clientStatus;
     }

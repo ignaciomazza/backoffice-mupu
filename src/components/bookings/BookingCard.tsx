@@ -161,7 +161,7 @@ export default function BookingCard({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {statusChip("Cliente", statusLabel(booking.clientStatus))}
+        {statusChip("Pax", statusLabel(booking.clientStatus))}
         {statusChip("Operador", statusLabel(booking.operatorStatus))}
       </div>
 

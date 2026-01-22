@@ -76,7 +76,7 @@ function addMoney(
 }
 
 /* =========================
- * Inferencia reservas (fallback clientes nuevos)
+ * Inferencia reservas (fallback pasajeros nuevos)
  * ========================= */
 
 type ClientsSegment = {
@@ -210,7 +210,7 @@ function normalizeRow(
   // clients
   const r = row as TopClientItem;
   return {
-    label1: r.name || "Sin cliente",
+    label1: r.name || "Sin pax",
     reservations: r.reservations,
     passengers: r.passengers,
     totals: r.totalAmount ?? {},
@@ -221,7 +221,7 @@ function normalizeRow(
 function getDimensionChipLabel(dimension: DimensionKey, count: number): string {
   if (dimension === "destination") return `${count} destinos`;
   if (dimension === "period") return `${count} meses`;
-  return `${count} clientes`;
+  return `${count} pasajeros`;
 }
 
 /* =========================
@@ -342,7 +342,7 @@ export default function InsightsPage() {
     [totalsByCurrency],
   );
 
-  // Segmentos clientes nuevos / recurrentes
+  // Segmentos pasajeros nuevos / recurrentes
   const newClientsSegment = data?.clients?.newVsReturning?.newClients || {};
   const returningClientsSegment =
     data?.clients?.newVsReturning?.returningClients || {};
@@ -424,7 +424,7 @@ export default function InsightsPage() {
             </h1>
             <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
               Vista pensada para marketing y gerencia: destinos, evolución
-              mensual de las ventas y comportamiento de clientes, con tickets
+              mensual de las ventas y comportamiento de pasajeros, con tickets
               promedio por moneda.
             </p>
           </div>
@@ -509,16 +509,16 @@ export default function InsightsPage() {
               loading={isInitialLoading}
             />
             <StatCard
-              title="Clientes nuevos"
+              title="Pasajeros nuevos"
               value={formatInteger(newClientReservations)}
-              subtitle="Reservas de clientes que compran por primera vez"
+              subtitle="Reservas de pasajeros que compran por primera vez"
               loading={isInitialLoading}
               accent="emerald"
             />
             <StatCard
-              title="Clientes recurrentes"
+              title="Pasajeros recurrentes"
               value={formatInteger(returningClientReservations)}
-              subtitle="Reservas de clientes que ya habían viajado"
+              subtitle="Reservas de pasajeros que ya habían viajado"
               loading={isInitialLoading}
               accent="amber"
             />
@@ -560,7 +560,7 @@ export default function InsightsPage() {
               </h2>
               <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
                 Cambiá de eje para ver los mismos números desde destinos, meses
-                o clientes top. Las columnas de ticket muestran el promedio por
+                o pasajeros top. Las columnas de ticket muestran el promedio por
                 reserva en cada moneda.
               </p>
             </div>
@@ -598,7 +598,7 @@ export default function InsightsPage() {
                       : "border-slate-300 bg-white/10 text-slate-700 hover:border-emerald-300 hover:text-emerald-700 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:border-emerald-400 dark:hover:text-emerald-300"
                   }`}
                 >
-                  Clientes top
+                  Pasajeros top
                 </button>
               </div>
               <div className="flex flex-wrap items-center gap-1 text-[11px]">
@@ -646,7 +646,7 @@ export default function InsightsPage() {
                     )}
                     {dimension === "clients" && (
                       <>
-                        <th className="px-3 py-2">Cliente</th>
+                        <th className="px-3 py-2">Pax</th>
                         <th className="px-3 py-2">Última reserva</th>
                       </>
                     )}

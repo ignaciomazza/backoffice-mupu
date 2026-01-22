@@ -494,7 +494,7 @@ export default async function handler(
             if (invalid.length)
               return res
                 .status(400)
-                .json({ error: "Algún cliente no pertenece a la reserva" });
+                .json({ error: "Algún pax no pertenece a la reserva" });
             nextClientIds = body.clientIds;
           } else {
             nextClientIds = [];

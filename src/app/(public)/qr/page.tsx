@@ -31,7 +31,7 @@ const PLAN_DATA: Record<
   basico: {
     label: "Básico",
     base: 20,
-    short: "Clientes, reservas, facturación y recibos",
+    short: "Pasajeros, reservas, facturación y recibos",
   },
   medio: {
     label: "Medio",

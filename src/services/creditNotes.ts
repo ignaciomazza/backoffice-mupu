@@ -62,7 +62,7 @@ export async function createCreditNote(
 ): Promise<CreateCreditNoteResult> {
   const { invoiceId, tipoNota, exchangeRate, invoiceDate, manualTotals } = data;
 
-  // 1) Obtener factura original (con items y cliente)
+  // 1) Obtener factura original (con items y pax)
   const orig = await prisma.invoice.findUnique({
     where: { id_invoice: invoiceId },
     include: {

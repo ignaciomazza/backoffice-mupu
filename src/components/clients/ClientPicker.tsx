@@ -10,8 +10,8 @@ type Props = {
   token?: string | null;
   label?: string;
   placeholder?: string;
-  valueId: number | null; // id del cliente seleccionado (si hay)
-  onSelect: (client: Client) => void; // cuando eligen un cliente
+  valueId: number | null; // id del pax seleccionado (si hay)
+  onSelect: (client: Client) => void; // cuando eligen un pax
   onClear?: () => void;
   excludeIds?: number[]; // ids que no se pueden seleccionar (p.ej. titular o duplicados)
   disabled?: boolean;
@@ -39,7 +39,7 @@ export default function ClientPicker({
   // Para accesibilidad del listbox
   const listboxId = useId();
 
-  // Cargar el cliente actual si tenemos un id (modo edición) —> **FIX: por ID exacto**
+  // Cargar el pax actual si tenemos un id (modo edición) —> **FIX: por ID exacto**
   useEffect(() => {
     if (!valueId) {
       setSelected(null);
@@ -152,7 +152,7 @@ export default function ClientPicker({
     return () => controller.abort();
   }, [debouncedTerm, token, excludeIds, selected, valueId]);
 
-  // Seleccionar un cliente
+  // Seleccionar un pax
   const pick = (c: Client) => {
     setSelected(c);
     setTerm(displayClient(c));

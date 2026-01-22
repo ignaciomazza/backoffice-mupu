@@ -8,7 +8,7 @@ export const PLAN_DATA: Record<
   basico: {
     label: "Basico",
     base: 20,
-    short: "Clientes, reservas, facturacion y recibos",
+    short: "Pasajeros, reservas, facturacion y recibos",
   },
   medio: {
     label: "Medio",
