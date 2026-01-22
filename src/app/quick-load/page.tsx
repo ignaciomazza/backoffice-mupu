@@ -152,16 +152,76 @@ const INVOICE_TYPES = [
   "Coordinar con administracion",
 ] as const;
 
+type ServiceTypeOption = {
+  value: string;
+  label: string;
+};
+
+const pickArrayFromJson = (
+  payload: unknown,
+  keys: string[] = ["data", "items", "types", "results"],
+): unknown[] => {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === "object") {
+    for (const key of keys) {
+      const value = (payload as Record<string, unknown>)[key];
+      if (Array.isArray(value)) return value;
+    }
+  }
+  return [];
+};
+
+const toBoolish = (value: unknown): boolean | undefined => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  }
+  return undefined;
+};
+
+const normalizeServiceTypes = (payload: unknown): ServiceTypeOption[] => {
+  const items = pickArrayFromJson(payload);
+  const normalized = items
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const name =
+        typeof record.name === "string"
+          ? record.name
+          : typeof record.label === "string"
+            ? record.label
+            : typeof record.type === "string"
+              ? record.type
+              : "";
+      const code = typeof record.code === "string" ? record.code : "";
+      const enabled =
+        toBoolish(
+          record.enabled ??
+            record.is_active ??
+            record.isActive ??
+            record.active,
+        ) ?? true;
+      const value = name || code;
+      if (!value || enabled === false) return null;
+      return { value, label: name || code };
+    })
+    .filter(Boolean) as ServiceTypeOption[];
+  return normalized.sort((a, b) => a.label.localeCompare(b.label, "es"));
+};
+
 // const GLASS =
 //   "rounded-3xl border border-sky-200/60 bg-white/70 p-6 text-sky-950 shadow-sm shadow-sky-950/10 backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white";
 const PANEL =
-  "rounded-3xl border border-sky-200/60 bg-white/60 p-5 shadow-sm shadow-sky-950/10 backdrop-blur dark:border-white/10 dark:bg-white/5";
+  "rounded-3xl border border-sky-200/60 bg-white/60 p-6 shadow-sm shadow-sky-950/10 backdrop-blur dark:border-white/10 dark:bg-white/5";
 const INPUT =
-  "w-full rounded-2xl border border-white/20 bg-white/70 px-3 py-2 text-sm text-sky-950 shadow-sm shadow-sky-950/10 outline-none transition placeholder:text-sky-950/40 focus:border-sky-300/70 focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:placeholder:text-white/40";
+  "w-full rounded-2xl border border-white/20 bg-white/70 px-3 py-2.5 text-sm text-sky-950 shadow-sm shadow-sky-950/10 outline-none transition placeholder:text-sky-950/40 focus:border-sky-300/70 focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:placeholder:text-white/40";
 const INPUT_SOFT =
-  "w-full rounded-2xl border border-white/10 bg-white/60 px-3 py-2 text-sm text-sky-950 shadow-sm shadow-sky-950/10 outline-none transition placeholder:text-sky-950/40 focus:border-sky-300/70 focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:placeholder:text-white/40";
+  "w-full rounded-2xl border border-white/10 bg-white/60 px-3 py-2.5 text-sm text-sky-950 shadow-sm shadow-sky-950/10 outline-none transition placeholder:text-sky-950/40 focus:border-sky-300/70 focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:placeholder:text-white/40";
 const SUBCARD =
-  "rounded-2xl border border-white/10 bg-white/70 p-4 shadow-sm shadow-sky-950/10 backdrop-blur dark:border-white/10 dark:bg-white/10";
+  "rounded-2xl border border-white/10 bg-white/70 p-5 shadow-sm shadow-sky-950/10 backdrop-blur dark:border-white/10 dark:bg-white/10";
 const BTN_SKY =
   "inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-sky-200/60 bg-sky-100/80 px-4 py-2 text-sm font-semibold text-sky-950 shadow-sm shadow-sky-900/20 transition hover:-translate-y-0.5 hover:bg-sky-100/90 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-400/40 dark:bg-sky-900/30 dark:text-sky-100";
 const BTN_EMERALD =
@@ -179,13 +239,13 @@ const PILL_WARN = "border border-amber-200/60 bg-amber-100/70 text-amber-900";
 const PILL_SKY = "border border-sky-200/60 bg-sky-100/70 text-sky-900";
 
 const STACK_EMERALD =
-  "rounded-2xl border border-emerald-200/60 bg-emerald-100/30 p-4 shadow-sm shadow-emerald-900/10";
+  "rounded-2xl border border-emerald-200/60 bg-emerald-100/30 p-5 shadow-sm shadow-emerald-900/10";
 const STACK_ROSE =
-  "rounded-2xl border border-rose-200/60 bg-rose-100/30 p-4 shadow-sm shadow-rose-900/10";
+  "rounded-2xl border border-rose-200/60 bg-rose-100/30 p-5 shadow-sm shadow-rose-900/10";
 const STACK_AMBER =
-  "rounded-2xl border border-amber-200/60 bg-amber-100/30 p-4 shadow-sm shadow-amber-900/10";
+  "rounded-2xl border border-amber-200/60 bg-amber-100/30 p-5 shadow-sm shadow-amber-900/10";
 const STACK_SKY =
-  "rounded-2xl border border-sky-200/60 bg-sky-100/20 p-4 shadow-sm shadow-sky-900/10";
+  "rounded-2xl border border-sky-200/60 bg-sky-100/20 p-5 shadow-sm shadow-sky-900/10";
 
 const FieldLabel = ({
   htmlFor,
@@ -510,6 +570,11 @@ export default function QuickLoadPage() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [operators, setOperators] = useState<Operator[]>([]);
   const [loadingOperators, setLoadingOperators] = useState(false);
+  const [serviceTypes, setServiceTypes] = useState<ServiceTypeOption[]>([]);
+  const [loadingServiceTypes, setLoadingServiceTypes] = useState(false);
+  const [serviceTypesError, setServiceTypesError] = useState<string | null>(
+    null,
+  );
   const [billingMode, setBillingMode] = useState<"auto" | "manual">("auto");
   const [transferFeePct, setTransferFeePct] = useState(0.024);
   const [useBookingSaleTotal, setUseBookingSaleTotal] = useState(false);
@@ -586,6 +651,36 @@ export default function QuickLoadPage() {
     })();
     return () => controller.abort();
   }, [profile?.id_agency, token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const controller = new AbortController();
+    setLoadingServiceTypes(true);
+    setServiceTypesError(null);
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/service-types",
+          { cache: "no-store", signal: controller.signal },
+          token,
+        );
+        if (!res.ok) throw new Error("Error al cargar tipos de servicio");
+        const data = await res.json();
+        const normalized = normalizeServiceTypes(data);
+        if (!controller.signal.aborted) setServiceTypes(normalized);
+      } catch (err) {
+        if ((err as DOMException)?.name !== "AbortError") {
+          console.error("❌ Error tipos de servicio:", err);
+          setServiceTypes([]);
+          setServiceTypesError("No se pudieron cargar los tipos.");
+          toast.error("No se pudieron cargar los tipos de servicio.");
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoadingServiceTypes(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [token]);
 
   useEffect(() => {
     if (!token) return;
@@ -1353,7 +1448,7 @@ export default function QuickLoadPage() {
 
   return (
     <ProtectedRoute>
-      <section className="space-y-6 text-sky-950 dark:text-white">
+      <section className="space-y-8 text-sky-950 dark:text-white">
         <motion.header
           initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1460,7 +1555,7 @@ export default function QuickLoadPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.3 }}
-                className="space-y-6"
+                className="space-y-8"
               >
                 <div className={PANEL}>
                   <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -1485,7 +1580,7 @@ export default function QuickLoadPage() {
                     </div>
                   </div>
 
-                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                  <div className="mt-8 grid gap-6 md:grid-cols-2">
                     <div className={STACK_SKY}>
                       <h3 className="text-sm font-semibold">
                         Agregar cliente existente
@@ -1534,7 +1629,7 @@ export default function QuickLoadPage() {
                   </div>
                 </div>
 
-                <div className="grid gap-4">
+                <div className="grid gap-6">
                   {clients.length === 0 && (
                     <div className={STACK_ROSE}>
                       <p className="text-sm font-semibold">
@@ -1555,7 +1650,7 @@ export default function QuickLoadPage() {
                       <motion.div
                         key={client.id}
                         layout
-                        className="relative isolate z-0 overflow-visible rounded-3xl border border-white/10 bg-white/60 p-5 shadow-sm shadow-sky-950/10 backdrop-blur focus-within:z-40 dark:border-white/10 dark:bg-white/10"
+                        className="relative isolate z-0 overflow-visible rounded-3xl border border-white/10 bg-white/60 p-6 shadow-sm shadow-sky-950/10 backdrop-blur focus-within:z-40 dark:border-white/10 dark:bg-white/10"
                       >
                         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                           <div>
@@ -1613,12 +1708,12 @@ export default function QuickLoadPage() {
                             <p>Email: {client.snapshot.email || "-"}</p>
                           </div>
                         ) : (
-                          <div className="mt-4 grid gap-4">
+                          <div className="mt-6 grid gap-6">
                             <div className={SUBCARD}>
                               <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                                 Datos personales
                               </p>
-                              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                              <div className="mt-4 grid gap-4 md:grid-cols-3">
                                 <div>
                                   <FieldLabel
                                     htmlFor={`first-${client.id}`}
@@ -1765,7 +1860,7 @@ export default function QuickLoadPage() {
                                   DNI o Pasaporte.
                                 </p>
                               </div>
-                              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                              <div className="mt-4 grid gap-4 md:grid-cols-3">
                                 <div>
                                   <FieldLabel htmlFor={`dni-${client.id}`}>
                                     DNI
@@ -1827,7 +1922,7 @@ export default function QuickLoadPage() {
                               <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                                 Datos fiscales (si aplica)
                               </p>
-                              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                              <div className="mt-4 grid gap-4 md:grid-cols-3">
                                 <div>
                                   <FieldLabel htmlFor={`company-${client.id}`}>
                                     Razón social
@@ -1916,7 +2011,7 @@ export default function QuickLoadPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.3 }}
-                className="space-y-6"
+                className="space-y-8"
               >
                 <div className={PANEL}>
                   <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -1938,12 +2033,12 @@ export default function QuickLoadPage() {
                     </div>
                   </div>
 
-                  <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                  <div className="mt-8 grid gap-6 lg:grid-cols-2">
                     <div className={SUBCARD}>
                       <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                         Datos de reserva
                       </p>
-                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <div className="mt-4 grid gap-4 md:grid-cols-2">
                         <div className="md:col-span-2">
                           <FieldLabel htmlFor="booking-details" required>
                             Detalle de la reserva
@@ -2012,7 +2107,7 @@ export default function QuickLoadPage() {
                       <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                         Facturación
                       </p>
-                      <div className="mt-3 grid gap-3">
+                      <div className="mt-4 grid gap-4">
                         <div>
                           <FieldLabel htmlFor="booking-invoice" required>
                             Tipo de factura
@@ -2086,7 +2181,7 @@ export default function QuickLoadPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.3 }}
-                className="space-y-6"
+                className="space-y-8"
               >
                 <div className={PANEL}>
                   <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -2157,7 +2252,7 @@ export default function QuickLoadPage() {
                       Cargando operadores...
                     </div>
                   ) : (
-                    <div className="mt-6 grid gap-4">
+                    <div className="mt-8 grid gap-6">
                       {services.length === 0 && (
                         <div className={STACK_SKY}>
                           <p className="text-sm font-semibold">
@@ -2204,7 +2299,7 @@ export default function QuickLoadPage() {
                           <motion.div
                             key={service.id}
                             layout
-                            className="relative isolate z-0 overflow-visible rounded-3xl border border-white/10 bg-white/60 p-5 shadow-sm shadow-sky-950/10 backdrop-blur focus-within:z-40 dark:border-white/10 dark:bg-white/10"
+                            className="relative isolate z-0 overflow-visible rounded-3xl border border-white/10 bg-white/60 p-6 shadow-sm shadow-sky-950/10 backdrop-blur focus-within:z-40 dark:border-white/10 dark:bg-white/10"
                           >
                             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                               <div>
@@ -2229,12 +2324,12 @@ export default function QuickLoadPage() {
                               </button>
                             </div>
 
-                            <div className="mt-4 grid gap-4">
+                            <div className="mt-6 grid gap-6">
                               <div className={SUBCARD}>
                                 <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                                   Datos principales
                                 </p>
-                                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                                <div className="mt-4 grid gap-4 md:grid-cols-3">
                                   <div>
                                     <FieldLabel
                                       htmlFor={`service-type-${service.id}`}
@@ -2242,7 +2337,7 @@ export default function QuickLoadPage() {
                                     >
                                       Tipo
                                     </FieldLabel>
-                                    <input
+                                    <select
                                       id={`service-type-${service.id}`}
                                       value={service.type}
                                       onChange={(e) =>
@@ -2252,9 +2347,48 @@ export default function QuickLoadPage() {
                                           e.target.value,
                                         )
                                       }
-                                      className={INPUT}
-                                      placeholder="Ej: Hotel, vuelo, crucero"
-                                    />
+                                      className={`${INPUT} cursor-pointer`}
+                                      disabled={loadingServiceTypes}
+                                      required
+                                    >
+                                      {loadingServiceTypes && (
+                                        <option value="" disabled>
+                                          Cargando tipos...
+                                        </option>
+                                      )}
+                                      {!loadingServiceTypes &&
+                                        serviceTypes.length === 0 && (
+                                          <option value="" disabled>
+                                            {serviceTypesError
+                                              ? "Error al cargar tipos"
+                                              : "Sin tipos disponibles"}
+                                          </option>
+                                        )}
+                                      {!loadingServiceTypes &&
+                                        serviceTypes.length > 0 && (
+                                          <>
+                                            <option value="" disabled>
+                                              Seleccionar tipo
+                                            </option>
+                                            {serviceTypes.map((opt) => (
+                                              <option
+                                                key={opt.value}
+                                                value={opt.value}
+                                              >
+                                                {opt.label}
+                                              </option>
+                                            ))}
+                                          </>
+                                        )}
+                                      {service.type &&
+                                        !serviceTypes.some(
+                                          (opt) => opt.value === service.type,
+                                        ) && (
+                                          <option value={service.type}>
+                                            {service.type} (no listado)
+                                          </option>
+                                        )}
+                                    </select>
                                   </div>
                                   <div>
                                     <FieldLabel
@@ -2382,7 +2516,7 @@ export default function QuickLoadPage() {
                                 <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                                   Destino y fechas
                                 </p>
-                                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                                <div className="mt-4 grid gap-4 md:grid-cols-3">
                                   <div className="space-y-2 md:col-span-2">
                                     <FieldLabel>Destino</FieldLabel>
                                     <DestinationPicker
@@ -2473,7 +2607,7 @@ export default function QuickLoadPage() {
                                   <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                                     Impuestos (manual)
                                   </p>
-                                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                  <div className="mt-4 grid gap-4 md:grid-cols-2">
                                     <div>
                                       <FieldLabel
                                         htmlFor={`service-tax-${service.id}`}
@@ -2503,7 +2637,7 @@ export default function QuickLoadPage() {
                                     <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                                       Impuestos e IVA
                                     </p>
-                                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                                    <div className="mt-4 grid gap-4 md:grid-cols-3">
                                       <div>
                                         <FieldLabel
                                           htmlFor={`service-iva21-${service.id}`}
@@ -2595,7 +2729,7 @@ export default function QuickLoadPage() {
                                     <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                                       Tarjeta
                                     </p>
-                                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                    <div className="mt-4 grid gap-4 md:grid-cols-2">
                                       <div>
                                         <FieldLabel
                                           htmlFor={`service-card-${service.id}`}
@@ -2744,7 +2878,7 @@ export default function QuickLoadPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.3 }}
-                className="space-y-6"
+                className="space-y-8"
               >
                 <div className={PANEL}>
                   <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -2771,7 +2905,7 @@ export default function QuickLoadPage() {
                     </div>
                   </div>
 
-                  <div className="mt-6 grid gap-4 lg:grid-cols-3">
+                  <div className="mt-8 grid gap-6 lg:grid-cols-3">
                     <div className={SUBCARD}>
                       <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                         Venta general
@@ -2806,7 +2940,7 @@ export default function QuickLoadPage() {
                       </div>
 
                       {useBookingSaleTotal && (
-                        <div className="mt-4 grid gap-3">
+                        <div className="mt-5 grid gap-4">
                           {summaryCurrencies.map((cur) => (
                             <div key={cur}>
                               <FieldLabel
@@ -2898,7 +3032,7 @@ export default function QuickLoadPage() {
                     </div>
                   </div>
 
-                  <div className="mt-6 grid gap-4 lg:grid-cols-3">
+                  <div className="mt-8 grid gap-6 lg:grid-cols-3">
                     <div className={STACK_SKY}>
                       <p className="text-sm font-semibold">Clientes</p>
                       <div className="mt-3 space-y-2 text-sm">
