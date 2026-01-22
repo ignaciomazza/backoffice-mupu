@@ -863,7 +863,7 @@ export default function SummaryCard({
               <footer className="mt-4 flex justify-between rounded-2xl border border-white/5 bg-white/10 p-3">
                 <div>
                   <p className="text-sm opacity-70">
-                    Total Comisión neta (fee + ajustes)
+                    Total Comisión neta (Costos Bancarios + ajustes)
                   </p>
                   <p className="text-lg font-semibold tabular-nums">
                     {fmt(netCommission, code)}

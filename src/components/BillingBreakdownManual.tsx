@@ -89,7 +89,10 @@ export default function BillingBreakdownManual({
         {Chip("Modo", "Manual (Exento)")}
         {Chip("Venta", f(importeVenta))}
         {Chip("Costo", f(costo))}
-        {Chip(`${(transferFeePct * 100).toFixed(2)}% fee`, f(transferFee))}
+        {Chip(
+          `${(transferFeePct * 100).toFixed(2)}% Costos Bancarios`,
+          f(transferFee),
+        )}
       </div>
 
       <h3 className="mb-2 text-base font-semibold">Impuestos</h3>
@@ -100,7 +103,7 @@ export default function BillingBreakdownManual({
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/20 p-3">
         <div className="text-sm opacity-70">
-          Total Comisión (sin IVA) – neta de fee
+          Total Comisión (sin IVA) – neta de Costos Bancarios
         </div>
         <div className="text-lg font-semibold tabular-nums">
           {f(commissionNet)}

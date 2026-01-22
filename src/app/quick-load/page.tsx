@@ -18,6 +18,8 @@ import BillingBreakdownManual from "@/components/BillingBreakdownManual";
 import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
+import { loadFinancePicks, type FinanceCurrency } from "@/utils/loadFinancePicks";
+import { normalizeRole } from "@/utils/permissions";
 import type {
   BillingAdjustmentComputed,
   BillingAdjustmentConfig,
@@ -48,6 +50,9 @@ type NewClientDraft = {
   dni_number: string;
   passport_number: string;
   email: string;
+  address: string;
+  postal_code: string;
+  locality: string;
   company_name: string;
   commercial_address: string;
   tax_id: string;
@@ -63,6 +68,9 @@ type ExistingClientDraft = {
     dni_number?: string;
     passport_number?: string;
     email?: string;
+    address?: string;
+    postal_code?: string;
+    locality?: string;
     company_name?: string;
     commercial_address?: string;
     tax_id?: string;
@@ -147,9 +155,12 @@ const STEP_LABELS = [
 ] as const;
 
 const INVOICE_TYPES = [
-  "Factura A",
-  "Factura B",
-  "Coordinar con administracion",
+  { value: "Factura A", label: "Responsable Inscripto (Factura A)" },
+  { value: "Factura B", label: "Consumidor final (Factura B)" },
+  {
+    value: "Coordinar con administracion",
+    label: "No facturar hasta coordinar con administración",
+  },
 ] as const;
 
 type ServiceTypeOption = {
@@ -228,8 +239,6 @@ const BTN_EMERALD =
   "inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-emerald-200/60 bg-emerald-100/70 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-sm shadow-emerald-900/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-400/40 dark:bg-emerald-900/30 dark:text-emerald-100";
 const BTN_ROSE =
   "inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-rose-200/60 bg-rose-100/70 px-3 py-2 text-sm font-semibold text-rose-950 shadow-sm shadow-rose-900/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-400/40 dark:bg-rose-900/30 dark:text-rose-100";
-const BTN_AMBER =
-  "inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-amber-200/60 bg-amber-100/70 px-3 py-2 text-sm font-semibold text-amber-950 shadow-sm shadow-amber-900/20 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-400/40 dark:bg-amber-900/30 dark:text-amber-100";
 
 const PILL_BASE =
   "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold";
@@ -311,6 +320,17 @@ const toNumber = (value: string | number | null | undefined) => {
   return 0;
 };
 
+const normalizeSaleTotals = (input: Record<string, string>) => {
+  const out: Record<string, number> = {};
+  for (const [rawKey, rawVal] of Object.entries(input || {})) {
+    const key = String(rawKey || "").toUpperCase().trim();
+    if (!key) continue;
+    const value = toNumber(rawVal);
+    if (value > 0) out[key] = value;
+  }
+  return out;
+};
+
 const emptyBooking = (): BookingDraft => ({
   clientStatus: "Pendiente",
   operatorStatus: "Pendiente",
@@ -371,6 +391,9 @@ const emptyClient = (): NewClientDraft => ({
   dni_number: "",
   passport_number: "",
   email: "",
+  address: "",
+  postal_code: "",
+  locality: "",
   company_name: "",
   commercial_address: "",
   tax_id: "",
@@ -384,8 +407,12 @@ const missingClientFields = (client: NewClientDraft) => {
   if (!client.birth_date.trim()) missing.push("Nacimiento");
   if (!client.nationality.trim()) missing.push("Nacionalidad");
   if (!client.gender.trim()) missing.push("Género");
-  if (!client.dni_number.trim() && !client.passport_number.trim())
-    missing.push("DNI o Pasaporte");
+  if (
+    !client.dni_number.trim() &&
+    !client.passport_number.trim() &&
+    !client.tax_id.trim()
+  )
+    missing.push("DNI, Pasaporte o CUIT");
   return missing;
 };
 
@@ -394,16 +421,20 @@ const isClientComplete = (client: ClientDraft) => {
   return missingClientFields(client).length === 0;
 };
 
-const isServiceComplete = (service: ServiceDraft) => {
+const isServiceComplete = (
+  service: ServiceDraft,
+  allowMissingSale = false,
+) => {
   const sale = Number(service.sale_price);
   const cost = Number(service.cost_price);
+  const saleOk = allowMissingSale ? true : Number.isFinite(sale);
   return (
     service.type.trim() &&
     service.id_operator > 0 &&
     service.currency.trim() &&
     service.departure_date.trim() &&
     service.return_date.trim() &&
-    Number.isFinite(sale) &&
+    saleOk &&
     Number.isFinite(cost)
   );
 };
@@ -491,7 +522,7 @@ const AdjustmentsPanel = ({
       {netCommission != null && (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/20 p-3">
           <div className="text-sm opacity-70">
-            Comisión neta (fee + ajustes)
+            Comisión neta (Costos Bancarios + ajustes)
           </div>
           <div className="text-lg font-semibold tabular-nums">
             {format(netCommission)}
@@ -505,17 +536,17 @@ const AdjustmentsPanel = ({
 const IconTrash = ({ className }: { className?: string }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
     fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={1.5}
     stroke="currentColor"
-    strokeWidth={2}
     className={className}
     aria-hidden="true"
   >
     <path
       strokeLinecap="round"
       strokeLinejoin="round"
-      d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-1 0v12a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V7"
+      d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
     />
   </svg>
 );
@@ -575,16 +606,20 @@ export default function QuickLoadPage() {
   const [serviceTypesError, setServiceTypesError] = useState<string | null>(
     null,
   );
+  const [financeCurrencies, setFinanceCurrencies] = useState<
+    FinanceCurrency[] | null
+  >(null);
+  const [loadingCurrencies, setLoadingCurrencies] = useState(false);
   const [billingMode, setBillingMode] = useState<"auto" | "manual">("auto");
   const [transferFeePct, setTransferFeePct] = useState(0.024);
   const [useBookingSaleTotal, setUseBookingSaleTotal] = useState(false);
+  const [manualOverride, setManualOverride] = useState(false);
   const [billingAdjustments, setBillingAdjustments] = useState<
     BillingAdjustmentConfig[]
   >([]);
   const [bookingSaleTotals, setBookingSaleTotals] = useState<
     Record<string, string>
   >({});
-  const [sellerPctOverride, setSellerPctOverride] = useState("");
   const [calcConfigLoading, setCalcConfigLoading] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [clients, setClients] = useState<ClientDraft[]>([]);
@@ -599,6 +634,16 @@ export default function QuickLoadPage() {
   >("idle");
   const [storedDraft, setStoredDraft] = useState<QuickLoadDraft | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+
+  const normalizedRole = useMemo(
+    () => normalizeRole(profile?.role),
+    [profile?.role],
+  );
+  const canOverrideBillingMode = useMemo(
+    () =>
+      ["administrativo", "gerente", "desarrollador"].includes(normalizedRole),
+    [normalizedRole],
+  );
 
   useEffect(() => {
     if (!token) return;
@@ -685,6 +730,28 @@ export default function QuickLoadPage() {
   useEffect(() => {
     if (!token) return;
     const controller = new AbortController();
+    setLoadingCurrencies(true);
+    (async () => {
+      try {
+        const picks = await loadFinancePicks(token);
+        if (!controller.signal.aborted) {
+          setFinanceCurrencies(picks?.currencies ?? null);
+        }
+      } catch (err) {
+        if ((err as DOMException)?.name !== "AbortError") {
+          console.error("❌ Error cargando monedas:", err);
+          setFinanceCurrencies(null);
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoadingCurrencies(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const controller = new AbortController();
     setCalcConfigLoading(true);
     (async () => {
       try {
@@ -726,6 +793,16 @@ export default function QuickLoadPage() {
     })();
     return () => controller.abort();
   }, [token]);
+
+  useEffect(() => {
+    if (
+      !canOverrideBillingMode ||
+      billingMode === "manual" ||
+      useBookingSaleTotal
+    ) {
+      setManualOverride(false);
+    }
+  }, [billingMode, canOverrideBillingMode, useBookingSaleTotal]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -814,12 +891,15 @@ export default function QuickLoadPage() {
       snapshot: {
         first_name: client.first_name,
         last_name: client.last_name,
-        dni_number: client.dni_number,
-        passport_number: client.passport_number,
-        email: client.email,
-        company_name: client.company_name,
-        commercial_address: client.commercial_address,
-        tax_id: client.tax_id,
+            dni_number: client.dni_number,
+            passport_number: client.passport_number,
+            email: client.email,
+            address: client.address,
+            postal_code: client.postal_code,
+            locality: client.locality,
+            company_name: client.company_name,
+            commercial_address: client.commercial_address,
+            tax_id: client.tax_id,
       },
     };
     setClients((prev) => [...prev, draft]);
@@ -953,28 +1033,26 @@ export default function QuickLoadPage() {
     updateServiceField(id, "destination", label);
   };
 
-  const useBookingDatesForServices = () => {
-    if (!booking.departure_date || !booking.return_date) {
-      toast.info("Primero cargá las fechas de la reserva.");
-      return;
-    }
-    setServices((prev) =>
-      prev.map((s) => ({
-        ...s,
-        departure_date: booking.departure_date,
-        return_date: booking.return_date,
-      })),
+  const servicesReady = services.every((s) =>
+    isServiceComplete(s, useBookingSaleTotal),
+  );
+  const manualMode =
+    useBookingSaleTotal ||
+    billingMode === "manual" ||
+    (canOverrideBillingMode && manualOverride);
+  const canManualOverride =
+    canOverrideBillingMode && billingMode === "auto" && !useBookingSaleTotal;
+  const canOverrideSaleTotal = canOverrideBillingMode;
+  const currencyOptions = useMemo(() => {
+    const configured = (financeCurrencies || [])
+      .filter((currency) => currency.enabled)
+      .map((currency) => currency.code.toUpperCase())
+      .filter(Boolean);
+    const unique = Array.from(new Set(configured)).sort((a, b) =>
+      a.localeCompare(b, "es"),
     );
-    toast.success("Fechas copiadas a los servicios.");
-  };
-
-  const clientsReady =
-    clients.length > 0 &&
-    !!titularId &&
-    clients.every((c) => isClientComplete(c));
-
-  const servicesReady = services.every((s) => isServiceComplete(s));
-  const manualMode = billingMode === "manual";
+    return unique.length > 0 ? unique : ["ARS", "USD"];
+  }, [financeCurrencies]);
 
   const adjustmentsByServiceId = useMemo(() => {
     const map = new Map<string, AdjustmentTotals>();
@@ -1031,19 +1109,19 @@ export default function QuickLoadPage() {
     if (!booking.invoice_type.trim()) {
       missing.push("Seleccionar el tipo de factura.");
     }
-    if (services.length > 0 && !servicesReady) {
-      missing.push("Revisar servicios incompletos.");
-    }
     if (useBookingSaleTotal) {
       const missingTotals = currenciesForTotals.filter((cur) => {
         const raw = bookingSaleTotals[cur];
-        return toNumber(raw ?? "") <= 0;
+        return raw == null || toNumber(raw) <= 0;
       });
       if (missingTotals.length > 0) {
         missing.push(
-          `Completar venta general para: ${missingTotals.join(", ")}.`,
+          `Completar venta total (${missingTotals.join(", ")}).`,
         );
       }
+    }
+    if (services.length > 0 && !servicesReady) {
+      missing.push("Revisar servicios incompletos.");
     }
     return missing;
   }, [
@@ -1213,6 +1291,9 @@ export default function QuickLoadPage() {
             dni_number: client.dni_number,
             passport_number: client.passport_number,
             email: client.email,
+            address: client.address,
+            postal_code: client.postal_code,
+            locality: client.locality,
             company_name: client.company_name,
             commercial_address: client.commercial_address,
             tax_id: client.tax_id,
@@ -1350,6 +1431,27 @@ export default function QuickLoadPage() {
       const createdBooking = (await bookingRes.json()) as {
         id_booking: number;
       };
+
+      if (useBookingSaleTotal) {
+        const saleTotals = normalizeSaleTotals(bookingSaleTotals);
+        if (Object.keys(saleTotals).length > 0) {
+          const updateRes = await authFetch(
+            `/api/bookings/${createdBooking.id_booking}`,
+            {
+              method: "PUT",
+              body: JSON.stringify({
+                ...payload,
+                sale_totals: saleTotals,
+                clients_ids: companions,
+              }),
+            },
+            token,
+          );
+          if (!updateRes.ok) {
+            toast.error("No se pudo guardar la venta general.");
+          }
+        }
+      }
 
       for (const service of services) {
         const transferPct = Number.isFinite(service.transfer_fee_pct)
@@ -1568,20 +1670,10 @@ export default function QuickLoadPage() {
                         dejá listo el grupo.
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        type="button"
-                        className={BTN_SKY}
-                        onClick={addNewClient}
-                      >
-                        <IconPlus className="size-4" />
-                        Nuevo cliente
-                      </button>
-                    </div>
                   </div>
 
-                  <div className="mt-8 grid gap-6 md:grid-cols-2">
-                    <div className={STACK_SKY}>
+                  <div className="mt-8 space-y-4">
+                    <div className={`${STACK_SKY} bg-sky-100/5`}>
                       <h3 className="text-sm font-semibold">
                         Agregar cliente existente
                       </h3>
@@ -1604,27 +1696,22 @@ export default function QuickLoadPage() {
                       </div>
                     </div>
 
-                    <div className={STACK_AMBER}>
+                    <div className={`${STACK_EMERALD} bg-emerald-100/5`}>
                       <h3 className="text-sm font-semibold">
-                        Estado rápido del grupo
+                        ¿Cliente nuevo? Cargalo acá
                       </h3>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <span
-                          className={`${PILL_BASE} ${
-                            clientsReady ? PILL_OK : PILL_WARN
-                          }`}
-                        >
-                          {clientsReady
-                            ? "Clientes completos"
-                            : "Clientes pendientes"}
-                        </span>
-                        <span className={`${PILL_BASE} ${PILL_SKY}`}>
-                          Titular: {titularLabel}
-                        </span>
-                      </div>
-                      <p className="mt-3 text-xs text-sky-900/60 dark:text-white/60">
-                        Tip: podés volver a este paso sin perder información.
+                      <p className="mt-2 text-xs text-emerald-900/70 dark:text-emerald-50/70">
+                        Sumá un pasajero nuevo y completá sus datos en el
+                        formulario de abajo.
                       </p>
+                      <button
+                        type="button"
+                        className={`${BTN_EMERALD} mt-4 w-full justify-center py-3 text-base`}
+                        onClick={addNewClient}
+                      >
+                        <IconPlus className="size-5" />
+                        Nuevo cliente
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1857,7 +1944,7 @@ export default function QuickLoadPage() {
                                 </p>
                                 <p className="text-xs text-sky-900/60 dark:text-white/60">
                                   <span className="text-rose-600">*</span> Cargá
-                                  DNI o Pasaporte.
+                                  DNI, Pasaporte o CUIT.
                                 </p>
                               </div>
                               <div className="mt-4 grid gap-4 md:grid-cols-3">
@@ -1924,6 +2011,24 @@ export default function QuickLoadPage() {
                               </p>
                               <div className="mt-4 grid gap-4 md:grid-cols-3">
                                 <div>
+                                  <FieldLabel htmlFor={`tax-${client.id}`}>
+                                    CUIT / RUT
+                                  </FieldLabel>
+                                  <input
+                                    id={`tax-${client.id}`}
+                                    value={client.tax_id}
+                                    onChange={(e) =>
+                                      updateClientField(
+                                        client.id,
+                                        "tax_id",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className={INPUT_SOFT}
+                                    placeholder="Ej: 30-12345678-9"
+                                  />
+                                </div>
+                                <div>
                                   <FieldLabel htmlFor={`company-${client.id}`}>
                                     Razón social
                                   </FieldLabel>
@@ -1943,7 +2048,7 @@ export default function QuickLoadPage() {
                                 </div>
                                 <div>
                                   <FieldLabel htmlFor={`address-${client.id}`}>
-                                    Domicilio comercial
+                                    Domicilio comercial (Factura)
                                   </FieldLabel>
                                   <input
                                     id={`address-${client.id}`}
@@ -1960,21 +2065,57 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div>
-                                  <FieldLabel htmlFor={`tax-${client.id}`}>
-                                    CUIT
+                                  <FieldLabel htmlFor={`home-${client.id}`}>
+                                    Dirección particular
                                   </FieldLabel>
                                   <input
-                                    id={`tax-${client.id}`}
-                                    value={client.tax_id}
+                                    id={`home-${client.id}`}
+                                    value={client.address}
                                     onChange={(e) =>
                                       updateClientField(
                                         client.id,
-                                        "tax_id",
+                                        "address",
                                         e.target.value,
                                       )
                                     }
                                     className={INPUT_SOFT}
-                                    placeholder="Ej: 30-12345678-9"
+                                    placeholder="Ej: Calle 123, CABA"
+                                  />
+                                </div>
+                                <div>
+                                  <FieldLabel htmlFor={`locality-${client.id}`}>
+                                    Localidad / Ciudad
+                                  </FieldLabel>
+                                  <input
+                                    id={`locality-${client.id}`}
+                                    value={client.locality}
+                                    onChange={(e) =>
+                                      updateClientField(
+                                        client.id,
+                                        "locality",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className={INPUT_SOFT}
+                                    placeholder="Ej: San Miguel"
+                                  />
+                                </div>
+                                <div>
+                                  <FieldLabel htmlFor={`postal-${client.id}`}>
+                                    Código postal
+                                  </FieldLabel>
+                                  <input
+                                    id={`postal-${client.id}`}
+                                    value={client.postal_code}
+                                    onChange={(e) =>
+                                      updateClientField(
+                                        client.id,
+                                        "postal_code",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className={INPUT_SOFT}
+                                    placeholder="Ej: 1663"
                                   />
                                 </div>
                               </div>
@@ -2122,8 +2263,8 @@ export default function QuickLoadPage() {
                           >
                             <option value="">Seleccionar tipo</option>
                             {INVOICE_TYPES.map((opt) => (
-                              <option key={opt} value={opt}>
-                                {opt}
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
                               </option>
                             ))}
                           </select>
@@ -2153,24 +2294,23 @@ export default function QuickLoadPage() {
                     </div>
                   </div>
                 </div>
-
-                <div className="flex flex-wrap justify-between gap-3">
-                  <button
-                    type="button"
-                    className={BTN_SKY}
-                    onClick={() => goToStep(1)}
-                  >
-                    <IconArrowLeft className="size-4" />
-                    Volver
-                  </button>
-                  <button
-                    type="button"
-                    className={BTN_EMERALD}
-                    onClick={() => goToStep(3)}
-                  >
-                    Siguiente: Servicios
-                  </button>
-                </div>
+              <div className="flex flex-wrap justify-between gap-3">
+                <button
+                  type="button"
+                  className={BTN_SKY}
+                  onClick={() => goToStep(1)}
+                >
+                  <IconArrowLeft className="size-4" />
+                  Volver
+                </button>
+                <button
+                  type="button"
+                  className={BTN_EMERALD}
+                  onClick={() => goToStep(3)}
+                >
+                  Siguiente: Servicios
+                </button>
+              </div>
               </motion.div>
             )}
 
@@ -2193,31 +2333,34 @@ export default function QuickLoadPage() {
                         Opcional: agregá servicios y revisá el desglose.
                       </p>
                       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-sky-900/70 dark:text-white/60">
-                        <span>Modo:</span>
-                        <button
-                          type="button"
-                          className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                            billingMode === "auto"
-                              ? "border-sky-300/60 bg-sky-200/70 text-sky-950 dark:border-sky-300/40 dark:bg-sky-500/30 dark:text-white"
-                              : "border-sky-200/40 bg-white/60 text-sky-900/70 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white/60"
-                          }`}
-                          onClick={() => setBillingMode("auto")}
-                        >
-                          Automático
-                        </button>
-                        <button
-                          type="button"
-                          className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                            billingMode === "manual"
-                              ? "border-amber-300/70 bg-amber-200/70 text-amber-950 dark:border-amber-300/40 dark:bg-amber-500/30 dark:text-amber-50"
-                              : "border-amber-200/40 bg-white/60 text-amber-900/70 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white/60"
-                          }`}
-                          onClick={() => setBillingMode("manual")}
-                        >
-                          Manual
-                        </button>
-                        <span className="ml-2">
-                          Fee: {(transferFeePct * 100).toFixed(2)}%
+                        {canManualOverride && (
+                          <>
+                            <button
+                              type="button"
+                              className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                !manualOverride
+                                  ? "border-sky-300/60 bg-sky-200/70 text-sky-950 dark:border-sky-300/40 dark:bg-sky-500/30 dark:text-white"
+                                  : "border-sky-200/40 bg-white/60 text-sky-900/70 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white/60"
+                              }`}
+                              onClick={() => setManualOverride(false)}
+                            >
+                              Automático
+                            </button>
+                            <button
+                              type="button"
+                              className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                manualOverride
+                                  ? "border-amber-300/70 bg-amber-200/70 text-amber-950 dark:border-amber-300/40 dark:bg-amber-500/30 dark:text-amber-50"
+                                  : "border-amber-200/40 bg-white/60 text-amber-900/70 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white/60"
+                              }`}
+                              onClick={() => setManualOverride(true)}
+                            >
+                              Manual
+                            </button>
+                          </>
+                        )}
+                        <span className={canManualOverride ? "ml-2" : ""}>
+                          Costos Bancarios: {(transferFeePct * 100).toFixed(2)}%
                         </span>
                         {calcConfigLoading && (
                           <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
@@ -2236,96 +2379,152 @@ export default function QuickLoadPage() {
                         <IconPlus className="size-4" />
                         Agregar servicio
                       </button>
-                      <button
-                        type="button"
-                        className={BTN_AMBER}
-                        onClick={useBookingDatesForServices}
-                      >
-                        Usar fechas de la reserva
-                      </button>
                     </div>
                   </div>
 
-                  {loadingOperators ? (
-                    <div className="mt-6 flex items-center gap-3 text-sm text-sky-900/70 dark:text-white/70">
-                      <Spinner />
-                      Cargando operadores...
-                    </div>
-                  ) : (
-                    <div className="mt-8 grid gap-6">
-                      {services.length === 0 && (
-                        <div className={STACK_SKY}>
-                          <p className="text-sm font-semibold">
-                            No hay servicios cargados.
-                          </p>
-                          <p className="text-xs text-sky-900/70 dark:text-white/70">
-                            Podés confirmar la reserva sin servicios y
-                            agregarlos después.
-                          </p>
-                        </div>
-                      )}
-                      {services.map((service, idx) => {
-                        const ready = isServiceComplete(service);
-                        const saleValue = toNumber(service.sale_price);
-                        const costValue = toNumber(service.cost_price);
-                        const showBreakdown =
-                          saleValue > 0 && Number.isFinite(costValue);
-                        const adjustmentTotals =
-                          adjustmentsByServiceId.get(service.id) ??
-                          EMPTY_ADJUSTMENTS;
-                        const transferPct = Number.isFinite(
-                          service.transfer_fee_pct,
-                        )
-                          ? service.transfer_fee_pct
-                          : transferFeePct;
-                        const transferAmount =
-                          Number.isFinite(service.transfer_fee_amount) &&
-                          service.transfer_fee_amount > 0
-                            ? service.transfer_fee_amount
-                            : saleValue * transferPct;
-                        const baseCommission = Number(
-                          service.totalCommissionWithoutVAT ?? 0,
-                        );
-                        const netCommission =
-                          baseCommission > 0
-                            ? Math.max(
-                                baseCommission -
-                                  transferAmount -
-                                  adjustmentTotals.total,
-                                0,
-                              )
-                            : null;
-                        return (
-                          <motion.div
-                            key={service.id}
-                            layout
-                            className="relative isolate z-0 overflow-visible rounded-3xl border border-white/10 bg-white/60 p-6 shadow-sm shadow-sky-950/10 backdrop-blur focus-within:z-40 dark:border-white/10 dark:bg-white/10"
-                          >
-                            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                              <div>
-                                <p className="text-sm font-semibold">
-                                  Servicio {idx + 1}
-                                </p>
-                                <span
-                                  className={`${PILL_BASE} ${
-                                    ready ? PILL_OK : PILL_WARN
-                                  } mt-2`}
-                                >
-                                  {ready ? "Completo" : "Pendiente"}
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                className={BTN_ROSE}
-                                onClick={() => removeService(service.id)}
-                              >
-                                <IconTrash className="size-4" />
-                                Quitar
-                              </button>
-                            </div>
+                  <div className="mt-6 grid gap-4">
+                    {(canOverrideSaleTotal || useBookingSaleTotal) && (
+                      <div className={SUBCARD}>
+                        <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
+                          Venta general
+                        </p>
+                        {canOverrideSaleTotal && (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                useBookingSaleTotal
+                                  ? "border-emerald-300/60 bg-emerald-200/70 text-emerald-950 dark:border-emerald-300/40 dark:bg-emerald-500/30 dark:text-emerald-50"
+                                  : "border-emerald-200/40 bg-white/60 text-emerald-900/70 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white/60"
+                              }`}
+                              onClick={() => setUseBookingSaleTotal(true)}
+                            >
+                              Activar
+                            </button>
+                            <button
+                              type="button"
+                              className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                !useBookingSaleTotal
+                                  ? "border-sky-300/60 bg-sky-200/70 text-sky-950 dark:border-sky-300/40 dark:bg-sky-500/30 dark:text-white"
+                                  : "border-sky-200/40 bg-white/60 text-sky-900/70 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white/60"
+                              }`}
+                              onClick={() => setUseBookingSaleTotal(false)}
+                            >
+                              Por servicio
+                            </button>
+                          </div>
+                        )}
 
-                            <div className="mt-6 grid gap-6">
-                              <div className={SUBCARD}>
+                        {useBookingSaleTotal && (
+                          <div className="mt-5 grid gap-4">
+                            {summaryCurrencies.map((cur) => (
+                              <div key={cur}>
+                                <FieldLabel
+                                  htmlFor={`booking-sale-${cur}`}
+                                  required
+                                >
+                                  Venta total {cur}
+                                </FieldLabel>
+                                <input
+                                  id={`booking-sale-${cur}`}
+                                  type="number"
+                                  value={bookingSaleTotals[cur] || ""}
+                                  onChange={(e) =>
+                                    updateBookingSaleTotal(cur, e.target.value)
+                                  }
+                                  className={INPUT}
+                                  placeholder={`0.00 ${cur}`}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {loadingOperators ? (
+                      <div className="flex items-center gap-3 text-sm text-sky-900/70 dark:text-white/70">
+                        <Spinner />
+                        Cargando operadores...
+                      </div>
+                    ) : (
+                      <div className="grid gap-6">
+                        {services.length === 0 && (
+                          <div className={STACK_SKY}>
+                            <p className="text-sm font-semibold">
+                              No hay servicios cargados.
+                            </p>
+                            <p className="text-xs text-sky-900/70 dark:text-white/70">
+                              Podés confirmar la reserva sin servicios y
+                              agregarlos después.
+                            </p>
+                          </div>
+                        )}
+                        {services.map((service, idx) => {
+                          const ready = isServiceComplete(
+                            service,
+                            useBookingSaleTotal,
+                          );
+                          const saleValue = toNumber(service.sale_price);
+                          const costValue = toNumber(service.cost_price);
+                          const showBreakdown =
+                            saleValue > 0 && Number.isFinite(costValue);
+                          const adjustmentTotals =
+                            adjustmentsByServiceId.get(service.id) ??
+                            EMPTY_ADJUSTMENTS;
+                          const transferPct = Number.isFinite(
+                            service.transfer_fee_pct,
+                          )
+                            ? service.transfer_fee_pct
+                            : transferFeePct;
+                          const transferAmount =
+                            Number.isFinite(service.transfer_fee_amount) &&
+                            service.transfer_fee_amount > 0
+                              ? service.transfer_fee_amount
+                              : saleValue * transferPct;
+                          const baseCommission = Number(
+                            service.totalCommissionWithoutVAT ?? 0,
+                          );
+                          const netCommission =
+                            baseCommission > 0
+                              ? Math.max(
+                                  baseCommission -
+                                    transferAmount -
+                                    adjustmentTotals.total,
+                                  0,
+                                )
+                              : null;
+                          return (
+                            <motion.div
+                              key={service.id}
+                              layout
+                              className="relative isolate z-0 overflow-visible rounded-3xl border border-white/10 bg-white/60 p-6 shadow-sm shadow-sky-950/10 backdrop-blur focus-within:z-40 dark:border-white/10 dark:bg-white/10"
+                            >
+                              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                                <div>
+                                  <p className="text-sm font-semibold">
+                                    Servicio {idx + 1}
+                                  </p>
+                                  <span
+                                    className={`${PILL_BASE} ${
+                                      ready ? PILL_OK : PILL_WARN
+                                    } mt-2`}
+                                  >
+                                    {ready ? "Completo" : "Pendiente"}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  className={BTN_ROSE}
+                                  onClick={() => removeService(service.id)}
+                                >
+                                  <IconTrash className="size-4" />
+                                  Quitar
+                                </button>
+                              </div>
+
+                              <div className="mt-6 grid gap-6">
+                                <div className={SUBCARD}>
                                 <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                                   Datos principales
                                 </p>
@@ -2440,15 +2639,41 @@ export default function QuickLoadPage() {
                                         )
                                       }
                                       className={`${INPUT} cursor-pointer`}
+                                      disabled={loadingCurrencies}
                                     >
-                                      <option value="ARS">ARS</option>
-                                      <option value="USD">USD</option>
+                                      {loadingCurrencies && (
+                                        <>
+                                          {service.currency && (
+                                            <option value={service.currency}>
+                                              {service.currency}
+                                            </option>
+                                          )}
+                                          <option value="" disabled>
+                                            Cargando monedas...
+                                          </option>
+                                        </>
+                                      )}
+                                      {!loadingCurrencies &&
+                                        currencyOptions.map((code) => (
+                                          <option key={code} value={code}>
+                                            {code}
+                                          </option>
+                                        ))}
+                                      {!loadingCurrencies &&
+                                        service.currency &&
+                                        !currencyOptions.includes(
+                                          service.currency.toUpperCase(),
+                                        ) && (
+                                          <option value={service.currency}>
+                                            {service.currency} (no listado)
+                                          </option>
+                                        )}
                                     </select>
                                   </div>
                                   <div>
                                     <FieldLabel
                                       htmlFor={`service-sale-${service.id}`}
-                                      required
+                                      required={!useBookingSaleTotal}
                                     >
                                       Venta
                                     </FieldLabel>
@@ -2463,8 +2688,9 @@ export default function QuickLoadPage() {
                                           e.target.value,
                                         )
                                       }
-                                      className={INPUT}
+                                      className={`${INPUT} disabled:cursor-not-allowed disabled:opacity-60`}
                                       placeholder="0.00"
+                                      disabled={useBookingSaleTotal}
                                     />
                                   </div>
                                   <div>
@@ -2797,16 +3023,7 @@ export default function QuickLoadPage() {
                                     fmtMoney(value, service.currency || "ARS")
                                   }
                                 />
-                              ) : (
-                                <div className={SUBCARD}>
-                                  <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
-                                    Ajustes extra
-                                  </p>
-                                  <p className="mt-2 text-xs text-sky-900/70 dark:text-white/70">
-                                    No hay ajustes configurados en bookings.
-                                  </p>
-                                </div>
-                              )}
+                              ) : null}
 
                               {showBreakdown &&
                                 (manualMode ? (
@@ -2850,8 +3067,9 @@ export default function QuickLoadPage() {
                     </div>
                   )}
                 </div>
+              </div>
 
-                <div className="flex flex-wrap justify-between gap-3">
+              <div className="flex flex-wrap justify-between gap-3">
                   <button
                     type="button"
                     className={BTN_SKY}
@@ -2892,109 +3110,19 @@ export default function QuickLoadPage() {
                     </div>
                     <div className="flex flex-wrap gap-2 text-xs text-sky-900/70 dark:text-white/60">
                       <span className={`${PILL_BASE} ${PILL_SKY}`}>
-                        Modo:{" "}
-                        {useBookingSaleTotal
-                          ? "Venta general"
-                          : manualMode
-                            ? "Manual"
-                            : "Automático"}
-                      </span>
-                      <span className={`${PILL_BASE} ${PILL_SKY}`}>
-                        Fee: {(transferFeePct * 100).toFixed(2)}%
+                        Costos Bancarios: {(transferFeePct * 100).toFixed(2)}%
                       </span>
                     </div>
                   </div>
 
-                  <div className="mt-8 grid gap-6 lg:grid-cols-3">
-                    <div className={SUBCARD}>
-                      <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
-                        Venta general
-                      </p>
-                      <p className="mt-2 text-xs text-sky-900/60 dark:text-white/60">
-                        Si activás venta general, el resumen usa ese total por
-                        moneda.
-                      </p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                            useBookingSaleTotal
-                              ? "border-emerald-300/60 bg-emerald-200/70 text-emerald-950 dark:border-emerald-300/40 dark:bg-emerald-500/30 dark:text-emerald-50"
-                              : "border-emerald-200/40 bg-white/60 text-emerald-900/70 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white/60"
-                          }`}
-                          onClick={() => setUseBookingSaleTotal(true)}
-                        >
-                          Activar
-                        </button>
-                        <button
-                          type="button"
-                          className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                            !useBookingSaleTotal
-                              ? "border-sky-300/60 bg-sky-200/70 text-sky-950 dark:border-sky-300/40 dark:bg-sky-500/30 dark:text-white"
-                              : "border-sky-200/40 bg-white/60 text-sky-900/70 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white/60"
-                          }`}
-                          onClick={() => setUseBookingSaleTotal(false)}
-                        >
-                          Por servicio
-                        </button>
-                      </div>
-
-                      {useBookingSaleTotal && (
-                        <div className="mt-5 grid gap-4">
-                          {summaryCurrencies.map((cur) => (
-                            <div key={cur}>
-                              <FieldLabel
-                                htmlFor={`booking-sale-${cur}`}
-                                required
-                              >
-                                Venta total {cur}
-                              </FieldLabel>
-                              <input
-                                id={`booking-sale-${cur}`}
-                                type="number"
-                                value={bookingSaleTotals[cur] || ""}
-                                onChange={(e) =>
-                                  updateBookingSaleTotal(cur, e.target.value)
-                                }
-                                className={INPUT}
-                                placeholder={`0.00 ${cur}`}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      <div className="mt-4">
-                        <FieldLabel htmlFor="seller-pct">
-                          Porcentaje vendedor (preview)
-                        </FieldLabel>
-                        <input
-                          id="seller-pct"
-                          type="number"
-                          min={0}
-                          max={100}
-                          value={sellerPctOverride}
-                          onChange={(e) => setSellerPctOverride(e.target.value)}
-                          className={INPUT}
-                          placeholder="Ej: 100"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="lg:col-span-2">
-                      <SummaryCard
-                        totalsByCurrency={totalsByCurrency}
-                        services={summaryServices as Service[]}
-                        receipts={[]}
-                        useBookingSaleTotal={useBookingSaleTotal}
-                        bookingSaleTotals={bookingSaleTotals}
-                        ownerPctOverride={
-                          sellerPctOverride.trim()
-                            ? toNumber(sellerPctOverride)
-                            : undefined
-                        }
-                      />
-                    </div>
+                  <div className="mt-8">
+                    <SummaryCard
+                      totalsByCurrency={totalsByCurrency}
+                      services={summaryServices as Service[]}
+                      receipts={[]}
+                      useBookingSaleTotal={useBookingSaleTotal}
+                      bookingSaleTotals={bookingSaleTotals}
+                    />
                   </div>
                 </div>
 
@@ -3076,7 +3204,7 @@ export default function QuickLoadPage() {
                       </div>
                     </div>
 
-                    <div className={STACK_AMBER}>
+                    <div className={`${STACK_AMBER} bg-amber-100/5`}>
                       <p className="text-sm font-semibold">Servicios</p>
                       <div className="mt-3 space-y-2 text-sm">
                         {services.length === 0 && (
@@ -3121,7 +3249,7 @@ export default function QuickLoadPage() {
                   </div>
 
                   {missingSummary.length > 0 && (
-                    <div className={`${STACK_ROSE} mt-6`}>
+                    <div className={`${STACK_ROSE} mt-6 bg-rose-100/5`}>
                       <p className="text-sm font-semibold">
                         Faltan datos para confirmar
                       </p>
