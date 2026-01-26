@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { toast, ToastContainer } from "react-toastify";
 
@@ -26,6 +27,17 @@ import ClientPaymentForm from "@/components/client-payments/ClientPaymentForm";
 import ClientPaymentList from "@/components/client-payments/ClientPaymentList";
 import OperatorDueForm from "@/components/operator-dues/OperatorDueForm";
 import OperatorDueList from "@/components/operator-dues/OperatorDueList";
+const LazyBookingFilesSection = dynamic(
+  () => import("@/components/bookings/BookingFilesSection"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="mb-10 rounded-3xl border border-white/10 bg-white/5 p-6 text-sm text-sky-950/70 dark:text-white/70">
+        Cargando sección de archivos...
+      </div>
+    ),
+  },
+);
 
 import { authFetch } from "@/utils/authFetch";
 import {
@@ -494,6 +506,26 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     selectedBookingStatus,
   ]);
 
+  const bookingPassengers = useMemo(() => {
+    if (!booking) return [];
+    const all = [
+      booking.titular,
+      ...(Array.isArray(booking.clients) ? booking.clients : []),
+    ].filter(Boolean);
+    const seen = new Set<number>();
+    return all
+      .filter((c) => {
+        if (!c || typeof c.id_client !== "number") return false;
+        if (seen.has(c.id_client)) return false;
+        seen.add(c.id_client);
+        return true;
+      })
+      .map((c) => ({
+        id_client: c.id_client,
+        name: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() || "Pax",
+      }));
+  }, [booking]);
+
   const canNavigateNeighbors =
     role === "administrativo" || role === "gerente" || role === "desarrollador";
   const canOverrideBillingMode =
@@ -559,6 +591,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     Record<string, string>
   >({});
   const [saleTotalsSaving, setSaleTotalsSaving] = useState(false);
+  const [filesReady, setFilesReady] = useState(false);
 
   useEffect(() => {
     setInvObsDraft(booking?.observation || "");
@@ -627,6 +660,36 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       JSON.stringify(normalizedSaleTotalsDraft)
     );
   }, [bookingSaleTotals, normalizedSaleTotalsDraft]);
+
+  useEffect(() => {
+    if (!booking?.id_booking) return;
+    setFilesReady(false);
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (w.requestIdleCallback) {
+      const idleId = w.requestIdleCallback(
+        () => {
+          if (!cancelled) setFilesReady(true);
+        },
+        { timeout: 2000 },
+      );
+      return () => {
+        cancelled = true;
+        w.cancelIdleCallback?.(idleId);
+      };
+    }
+    timeoutId = window.setTimeout(() => {
+      if (!cancelled) setFilesReady(true);
+    }, 800);
+    return () => {
+      cancelled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [booking?.id_booking]);
 
   /* ================= Pagos de pax ================= */
   const [clientPayments, setClientPayments] = useState<ClientPayment[]>([]);
@@ -1501,6 +1564,16 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 </div>
               </div>
             </div>
+          )}
+
+          {booking && filesReady && (
+            <LazyBookingFilesSection
+              bookingId={booking.id_booking}
+              bookingKey={booking.public_id ?? booking.id_booking}
+              passengers={bookingPassengers}
+              bookingStatus={booking.status}
+              role={role}
+            />
           )}
 
           {/* SERVICIOS */}

@@ -22,6 +22,7 @@ enum AgencyCounterKey {
   operator
   sales_team
   resource
+  file
   recurring_investment
   template_config
   text_preset
@@ -87,6 +88,9 @@ model Agency {
   billingConfig        AgencyBillingConfig?
   billingAdjustments   AgencyBillingAdjustment[]
   billingCharges       AgencyBillingCharge[]
+  storageConfig        AgencyStorageConfig?
+  storageUsage         AgencyStorageUsage?
+  files                FileAsset[]
   Lead                 Lead[]
   Receipt              Receipt[]
   invoices             Invoice[]
@@ -185,6 +189,7 @@ model User {
   serviceDestinationsAdded ServiceDestination[] @relation("ServiceDestinationAddedBy")
   creditEntries            CreditEntry[]
   verifiedReceipts         Receipt[]            @relation("ReceiptVerifiedBy")
+  createdFiles             FileAsset[]          @relation("FileCreatedBy")
 
   @@unique([id_agency, agency_user_id], name: "agency_user_id_unique")
 }
@@ -219,6 +224,7 @@ model Client {
   invoices               Invoice[]       @relation("ClientInvoices")
   ClientPayment          ClientPayment[]
   creditAccounts         CreditAccount[]
+  files                  FileAsset[]     @relation("ClientFiles")
 
   @@unique([id_agency, agency_client_id], name: "agency_client_id_unique")
 }
@@ -252,6 +258,7 @@ model Booking {
   OperatorDue         OperatorDue[]
   ClientPayment       ClientPayment[]
   creditEntries       CreditEntry[]
+  files               FileAsset[]       @relation("BookingFiles")
 
   @@index([id_agency, id_booking], name: "agency_booking_idx")
   @@unique([id_agency, agency_booking_id], name: "agency_booking_id_unique")
@@ -303,6 +310,7 @@ model Service {
   operator                  Operator             @relation(fields: [id_operator], references: [id_operator], onDelete: Cascade)
   InvoiceItem               InvoiceItem[]
   OperatorDue               OperatorDue[]
+  files                     FileAsset[]           @relation("ServiceFiles")
 
   @@index([id_agency])
   @@unique([id_agency, agency_service_id], name: "agency_service_id_unique")
@@ -571,6 +579,40 @@ model Resources {
   agency      Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
   @@unique([id_agency, agency_resource_id], name: "agency_resource_id_unique")
+}
+
+model FileAsset {
+  id_file        Int      @id @default(autoincrement())
+  agency_file_id Int
+  id_agency      Int
+  agency         Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  booking_id Int?
+  booking    Booking? @relation("BookingFiles", fields: [booking_id], references: [id_booking], onDelete: Cascade)
+  client_id  Int?
+  client     Client?  @relation("ClientFiles", fields: [client_id], references: [id_client], onDelete: Cascade)
+  service_id Int?
+  service    Service? @relation("ServiceFiles", fields: [service_id], references: [id_service], onDelete: Cascade)
+
+  original_name String
+  display_name  String?
+  mime_type     String
+  size_bytes    BigInt
+  storage_key   String
+  status        String   @default("pending")
+
+  created_at  DateTime @default(now())
+  created_by  Int?
+  createdBy   User?    @relation("FileCreatedBy", fields: [created_by], references: [id_user], onDelete: SetNull)
+  downloaded_at DateTime?
+  download_count Int     @default(0)
+
+  @@index([id_agency])
+  @@index([booking_id])
+  @@index([client_id])
+  @@index([service_id])
+  @@index([status])
+  @@unique([id_agency, agency_file_id], name: "agency_file_id_unique")
 }
 
 model CalendarNote {
@@ -883,6 +925,38 @@ model AgencyBillingCharge {
   @@index([id_agency, due_date])
   @@index([id_agency, period_start])
   @@unique([id_agency, agency_billing_charge_id], name: "agency_billing_charge_id_unique")
+}
+
+model AgencyStorageConfig {
+  id_config Int    @id @default(autoincrement())
+  id_agency Int    @unique
+  agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  enabled             Boolean @default(false)
+  scope               String  @default("agency") // "agency" | "group"
+  storage_pack_count  Int     @default(1)
+  transfer_pack_count Int     @default(1)
+  notes               String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([id_agency])
+}
+
+model AgencyStorageUsage {
+  id_usage Int    @id @default(autoincrement())
+  id_agency Int   @unique
+  agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  storage_bytes  BigInt  @default(0)
+  transfer_bytes BigInt  @default(0)
+  transfer_month DateTime @default(now())
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([id_agency])
 }
 
 model FinanceCurrency {

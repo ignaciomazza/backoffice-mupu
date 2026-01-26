@@ -8,6 +8,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
 import UsersAdminCard from "@/components/dev/agencies/UsersAdminCard";
 import BillingAdminCard from "@/components/dev/agencies/BillingAdminCard";
+import StorageAdminCard from "@/components/dev/agencies/StorageAdminCard";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { toast, ToastContainer } from "react-toastify";
@@ -54,7 +55,13 @@ function formatDate(value?: string | Date | null) {
   return `${day}/${month}/${year}`;
 }
 
-type SectionKey = "overview" | "logo" | "afip" | "billing" | "users";
+type SectionKey =
+  | "overview"
+  | "logo"
+  | "afip"
+  | "billing"
+  | "storage"
+  | "users";
 
 function IconButton({
   title,
@@ -509,6 +516,7 @@ export default function DevAgencyDetailPage() {
             { key: "logo", label: "Logo" },
             { key: "afip", label: "Certificados" },
             { key: "billing", label: "Facturacion" },
+            { key: "storage", label: "Storage" },
             { key: "users", label: "Usuarios" },
           ] as { key: SectionKey; label: string }[]).map((tab) => {
             const active = activeSection === tab.key;
@@ -864,6 +872,11 @@ export default function DevAgencyDetailPage() {
             {activeSection === "billing" && agencyId && (
               <div className="mt-6">
                 <BillingAdminCard agencyId={agencyId} />
+              </div>
+            )}
+            {activeSection === "storage" && agencyId && (
+              <div className="mt-6">
+                <StorageAdminCard agencyId={agencyId} />
               </div>
             )}
             {activeSection === "users" && agencyId && (

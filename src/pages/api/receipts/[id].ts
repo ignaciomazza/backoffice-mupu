@@ -82,6 +82,23 @@ const toNum = (v: unknown): number => {
   return n;
 };
 
+function toLocalDate(v: unknown): Date | undefined {
+  if (typeof v !== "string" || !v) return undefined;
+  const ymd = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (ymd)
+    return new Date(
+      Number(ymd[1]),
+      Number(ymd[2]) - 1,
+      Number(ymd[3]),
+      0,
+      0,
+      0,
+      0,
+    );
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? undefined : d;
+}
+
 const toOptionalId = (v: unknown): number | undefined => {
   const n = typeof v === "number" ? v : Number(v ?? NaN);
   if (!Number.isFinite(n)) return undefined;
@@ -304,6 +321,7 @@ type PatchBody = {
   base_currency?: string;
   counter_amount?: number | string;
   counter_currency?: string;
+  issue_date?: string;
 };
 
 export default async function handler(
@@ -549,6 +567,7 @@ export default async function handler(
         counter_amount,
         counter_currency,
         clientIds,
+        issue_date,
       } = body;
 
       const amountCurrencyISO = (amountCurrency || "").toUpperCase();
@@ -569,6 +588,11 @@ export default async function handler(
         return res.status(400).json({
           error: "amountCurrency es requerido (ISO)",
         });
+      }
+
+      const parsedIssueDate = issue_date ? toLocalDate(issue_date) : undefined;
+      if (issue_date && !parsedIssueDate) {
+        return res.status(400).json({ error: "issue_date inválida" });
       }
 
       const hasPayments = Array.isArray(payments) && payments.length > 0;
@@ -643,6 +667,7 @@ export default async function handler(
           ? { payment_fee_amount: toDec(payment_fee_amount) }
           : {}),
 
+        ...(parsedIssueDate ? { issue_date: parsedIssueDate } : {}),
         ...(Array.isArray(clientIds) ? { clientIds } : {}),
       };
 

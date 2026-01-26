@@ -73,6 +73,7 @@ export type ReceiptPayload = {
   amount: number;
   amountString: string;
   amountCurrency: string;
+  issue_date?: string;
 
   payment_fee_amount?: number;
   clientIds?: number[];

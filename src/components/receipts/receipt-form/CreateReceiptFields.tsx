@@ -38,6 +38,8 @@ export default function CreateReceiptFields(props: {
 
   // ✅ id del método crédito (real si existe, o virtual 0)
   creditMethodId: number;
+  issueDate: string;
+  setIssueDate: (v: string) => void;
 
   // pasajeros
   clientsCount: number;
@@ -124,6 +126,8 @@ export default function CreateReceiptFields(props: {
   const {
     token,
     creditMethodId,
+    issueDate,
+    setIssueDate,
 
     clientsCount,
     clientIds,
@@ -243,6 +247,25 @@ export default function CreateReceiptFields(props: {
             </div>
           ))}
         </div>
+      </Section>
+
+      <Section
+        title="Fecha del recibo"
+        desc="Podés cargar recibos con fechas anteriores."
+      >
+        <Field id="issue_date" label="Fecha" required>
+          <input
+            id="issue_date"
+            type="date"
+            value={issueDate}
+            onChange={(e) => setIssueDate(e.target.value)}
+            className={`${inputBase} cursor-pointer`}
+            required
+          />
+          {errors.issue_date && (
+            <p className="mt-1 text-xs text-red-600">{errors.issue_date}</p>
+          )}
+        </Field>
       </Section>
 
       <Section

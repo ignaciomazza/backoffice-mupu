@@ -86,6 +86,7 @@ type ReceiptPostBody = {
   amountString: string; // "UN MILLÓN..."
   amountCurrency: string; // ISO del amount/amountString (ARS | USD | ...)
   amount: number | string;
+  issue_date?: string;
 
   // NUEVO: pagos múltiples (si viene esto, el amount total sale de la suma)
   payments?: ReceiptPaymentLineIn[];
@@ -208,6 +209,23 @@ const toNum = (v: unknown): number => {
   const n = typeof v === "number" ? v : Number(v ?? NaN);
   return n;
 };
+
+function toLocalDate(v: unknown): Date | undefined {
+  if (typeof v !== "string" || !v) return undefined;
+  const ymd = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (ymd)
+    return new Date(
+      Number(ymd[1]),
+      Number(ymd[2]) - 1,
+      Number(ymd[3]),
+      0,
+      0,
+      0,
+      0,
+    );
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? undefined : d;
+}
 
 const toOptionalId = (v: unknown): number | undefined => {
   const n = typeof v === "number" ? v : Number(v ?? NaN);
@@ -812,6 +830,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     serviceIds = [],
     clientIds = [],
     amount,
+    issue_date,
     payments,
     payment_fee_amount,
 
@@ -846,6 +865,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
   if (!isNonEmptyString(amountCurrencyISO)) {
     return res.status(400).json({ error: "amountCurrency es requerido (ISO)" });
+  }
+
+  const parsedIssueDate = issue_date ? toLocalDate(issue_date) : undefined;
+  if (issue_date && !parsedIssueDate) {
+    return res.status(400).json({ error: "issue_date inválida" });
   }
 
   // ---- NUEVO: validar pagos múltiples si vienen
@@ -967,7 +991,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       currency: isNonEmptyString(currency) ? currency : amountCurrencyISO,
       serviceIds,
       clientIds,
-      issue_date: new Date(),
+      issue_date: parsedIssueDate ?? new Date(),
 
       // legacy texto (para no romper listados viejos)
       ...(isNonEmptyString(payment_method) ? { payment_method } : {}),

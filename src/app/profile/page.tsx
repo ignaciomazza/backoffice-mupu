@@ -8,6 +8,7 @@ import Spinner from "@/components/Spinner";
 import { motion, AnimatePresence } from "framer-motion";
 import AnimatedMessage from "@/components/profile/AnimatedMessage";
 import DashboardShortcuts from "@/components/profile/DashboardShortcuts";
+import StorageUsageBanner from "@/components/profile/StorageUsageBanner";
 import { authFetch } from "@/utils/authFetch";
 
 type UserProfile = {
@@ -112,8 +113,10 @@ export default function ProfilePage() {
               transition={{ duration: 0.4 }}
               className="flex w-full items-center justify-center md:p-4"
             >
-              {/* Ya no necesita props */}
-              <DashboardShortcuts />
+              <div className="flex w-full max-w-6xl flex-col items-center gap-4">
+                <StorageUsageBanner role={userProfile?.role} />
+                <DashboardShortcuts />
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

@@ -3,6 +3,7 @@ import React from "react";
 import { Client } from "@/types";
 import ClientCard from "./ClientCard";
 import { ACTION_BUTTON, DANGER_BUTTON, ICON_BUTTON } from "../bookings/palette";
+import ClientFilesPanel from "./ClientFilesPanel";
 
 export type ClientViewMode = "grid" | "list";
 
@@ -204,6 +205,8 @@ function ClientListRow({
               value={client.commercial_address || "—"}
             />
           </div>
+
+          <ClientFilesPanel clientId={client.id_client} expanded={isExpanded} />
 
           <div className="flex justify-end gap-2">
             <button

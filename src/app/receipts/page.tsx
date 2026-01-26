@@ -43,6 +43,17 @@ const toNum = (x: unknown) => {
   return Number.isFinite(n) ? (n as number) : 0;
 };
 
+const toInputDate = (value?: string | null) => {
+  if (!value) return "";
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
 const slugify = (s: string) =>
   (s || "")
     .toLowerCase()
@@ -1334,6 +1345,7 @@ export default function ReceiptsPage() {
               ? toNum(editingReceipt.payment_fee_amount)
               : undefined
           }
+          initialIssueDate={toInputDate(editingReceipt?.issue_date)}
           initialBaseAmount={editingReceipt?.base_amount ?? null}
           initialBaseCurrency={editingReceipt?.base_currency ?? null}
           initialCounterAmount={editingReceipt?.counter_amount ?? null}

@@ -7,7 +7,8 @@ export type PublicIdType =
   | "receipt"
   | "invoice"
   | "credit_note"
-  | "resource";
+  | "resource"
+  | "file";
 
 export type PublicIdPayload = {
   t: PublicIdType;

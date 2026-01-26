@@ -12,6 +12,7 @@ export const COUNTER_KEYS: AgencyCounterKey[] = [
   "operator",
   "sales_team",
   "resource",
+  "file",
   "recurring_investment",
   "template_config",
   "text_preset",

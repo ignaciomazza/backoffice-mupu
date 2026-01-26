@@ -5,6 +5,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Client } from "@/types";
 import { ACTION_BUTTON, DANGER_BUTTON, ICON_BUTTON } from "../bookings/palette";
+import ClientFilesPanel from "./ClientFilesPanel";
 
 interface ClientCardProps {
   client: Client;
@@ -130,6 +131,8 @@ export default function ClientCard({
               value={client.commercial_address || "—"}
             />
           </div>
+
+          <ClientFilesPanel clientId={client.id_client} expanded={isExpanded} />
 
           <div className="flex justify-end gap-2">
             <button

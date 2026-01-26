@@ -95,6 +95,20 @@ type ReceiptForDebt = {
 };
 
 const uid = () => `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const todayInput = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+const toInputDate = (value?: string | null) => {
+  if (!value) return "";
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
 
 export interface ReceiptFormProps {
   token: string | null;
@@ -116,6 +130,7 @@ export interface ReceiptFormProps {
   initialAmountWordsCurrency?: CurrencyCode;
   initialPaymentDescription?: string;
   initialFeeAmount?: number;
+  initialIssueDate?: string | null;
   initialBaseAmount?: number | string | null;
   initialBaseCurrency?: CurrencyCode | string | null;
   initialCounterAmount?: number | string | null;
@@ -165,6 +180,7 @@ export default function ReceiptForm({
   initialAmountWordsCurrency,
   initialPaymentDescription = "",
   initialFeeAmount,
+  initialIssueDate = null,
   initialBaseAmount = null,
   initialBaseCurrency = null,
   initialCounterAmount = null,
@@ -316,6 +332,10 @@ export default function ReceiptForm({
 
   /* ===== Concepto ===== */
   const [concept, setConcept] = useState(initialConcept);
+  const [issueDate, setIssueDate] = useState<string>(() => {
+    const normalized = toInputDate(initialIssueDate);
+    return normalized || todayInput();
+  });
 
   /* ===== Monto / moneda (total) ===== */
   const [amountReceived, setAmountReceived] = useState<string>(
@@ -1247,6 +1267,8 @@ export default function ReceiptForm({
       e.amount = "El total es inválido. Cargá importes o usá el sugerido.";
 
     if (!effectiveCurrency) e.currency = "Elegí una moneda.";
+    const issueDateOk = /^\d{4}-\d{2}-\d{2}$/.test(issueDate);
+    if (!issueDateOk) e.issue_date = "Elegí la fecha del recibo.";
     const baseNum = parseAmountInput(baseAmount);
     if (baseAmount.trim() !== "") {
       if (!baseNum || baseNum <= 0) {
@@ -1422,6 +1444,7 @@ export default function ReceiptForm({
           }
         : {}),
 
+      issue_date: issueDate || undefined,
       concept: (concept ?? "").trim(),
       amount: finalAmount,
       amountString: amountWords.trim(),
@@ -1635,6 +1658,8 @@ export default function ReceiptForm({
                 <CreateReceiptFields
                   token={token}
                   creditMethodId={creditMethodId}
+                  issueDate={issueDate}
+                  setIssueDate={setIssueDate}
                   clientsCount={clientsCount}
                   clientIds={clientIds}
                   onIncClient={onIncClient}

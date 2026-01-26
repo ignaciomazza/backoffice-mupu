@@ -6,6 +6,8 @@ import { motion } from "framer-motion";
 import { Service, BillingAdjustmentComputed } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
+import { normalizeRole } from "@/utils/permissions";
+import ServiceFilesPanel from "./ServiceFilesPanel";
 
 /** Config API */
 type CalcConfigResponse = {
@@ -193,11 +195,18 @@ export default function ServiceCard({
   );
   const showAdjustments = extraAdjustmentsTotal > 0 || extraAdjustments.length > 0;
 
+  const normalizedRole = normalizeRole(role || "");
   const canEditOrDelete =
     status === "Abierta" ||
-    role === "administrativo" ||
-    role === "desarrollador" ||
-    role === "gerente";
+    normalizedRole === "administrativo" ||
+    normalizedRole === "desarrollador" ||
+    normalizedRole === "gerente";
+
+  const blocked = String(status || "").toLowerCase() === "bloqueada";
+  const canBypassBlocked = ["gerente", "administrativo", "desarrollador"].includes(
+    normalizedRole,
+  );
+  const uploadsDisabled = blocked && !canBypassBlocked;
 
   const toggleExpand = () =>
     setExpandedServiceId((prev) =>
@@ -403,6 +412,12 @@ export default function ServiceCard({
               value={fmtMoney(netCommission)}
             />
           </Section>
+
+          <ServiceFilesPanel
+            serviceId={service.id_service}
+            expanded={isExpanded}
+            uploadsDisabled={uploadsDisabled}
+          />
 
           {/* Acciones */}
           <div className="flex items-center justify-end gap-2">
