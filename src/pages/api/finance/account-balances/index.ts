@@ -1,0 +1,165 @@
+// src/pages/api/finance/account-balances/index.ts
+import type { NextApiRequest, NextApiResponse } from "next";
+import { z } from "zod";
+import prisma from "@/lib/prisma";
+import { resolveAuth } from "@/lib/auth";
+import { getFinancePicksAccess } from "@/lib/accessControl";
+
+const upsertSchema = z.object({
+  account_id: z.number().int().positive(),
+  currency: z.string().trim().min(2),
+  amount: z.number(),
+  effective_date: z.string().trim().optional(),
+  note: z.string().trim().nullable().optional(),
+});
+
+function parseDate(value?: string): Date | null {
+  if (!value) return null;
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    return new Date(
+      Number(m[1]),
+      Number(m[2]) - 1,
+      Number(m[3]),
+      0,
+      0,
+      0,
+      0,
+    );
+  }
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
+  res.setHeader("Cache-Control", "no-store");
+
+  const auth = await resolveAuth(req);
+  if (!auth) return res.status(401).json({ error: "Unauthorized" });
+
+  const { canRead, canWrite } = await getFinancePicksAccess(
+    auth.id_agency,
+    auth.id_user,
+    auth.role,
+  );
+
+  if (req.method === "GET") {
+    if (!canRead) return res.status(403).json({ error: "Sin permisos" });
+
+    const account_id = Number(
+      Array.isArray(req.query.account_id)
+        ? req.query.account_id[0]
+        : req.query.account_id,
+    );
+
+    const where = {
+      id_agency: auth.id_agency,
+      ...(Number.isFinite(account_id) && account_id > 0
+        ? { account_id }
+        : {}),
+    };
+
+    const items = await prisma.financeAccountOpeningBalance.findMany({
+      where,
+      orderBy: [{ account_id: "asc" }, { currency: "asc" }],
+    });
+
+    return res.status(200).json(items);
+  }
+
+  if (req.method === "POST") {
+    if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
+
+    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    const parsed = upsertSchema.safeParse(body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.message });
+    }
+
+    const payload = parsed.data;
+    const currency = payload.currency.toUpperCase();
+    const effectiveDate =
+      parseDate(payload.effective_date) ?? new Date();
+
+    const account = await prisma.financeAccount.findFirst({
+      where: { id_account: payload.account_id, id_agency: auth.id_agency },
+      select: { id_account: true, currency: true },
+    });
+    if (!account) {
+      return res.status(404).json({ error: "Cuenta no encontrada" });
+    }
+    if (
+      account.currency &&
+      account.currency.toUpperCase() !== currency.toUpperCase()
+    ) {
+      return res.status(400).json({
+        error: `La cuenta tiene moneda fija (${account.currency}).`,
+      });
+    }
+
+    const existing = await prisma.financeAccountOpeningBalance.findFirst({
+      where: {
+        id_agency: auth.id_agency,
+        account_id: payload.account_id,
+        currency,
+      },
+    });
+
+    const saved = existing
+      ? await prisma.financeAccountOpeningBalance.update({
+          where: { id_opening_balance: existing.id_opening_balance },
+          data: {
+            amount: payload.amount,
+            currency,
+            effective_date: effectiveDate,
+            note: payload.note ?? null,
+          },
+        })
+      : await prisma.financeAccountOpeningBalance.create({
+          data: {
+            id_agency: auth.id_agency,
+            account_id: payload.account_id,
+            currency,
+            amount: payload.amount,
+            effective_date: effectiveDate,
+            note: payload.note ?? null,
+          },
+        });
+
+    return res.status(200).json(saved);
+  }
+
+  if (req.method === "DELETE") {
+    if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
+
+    const account_id = Number(
+      Array.isArray(req.query.account_id)
+        ? req.query.account_id[0]
+        : req.query.account_id,
+    );
+    const currencyRaw = Array.isArray(req.query.currency)
+      ? req.query.currency[0]
+      : req.query.currency;
+    const currency = typeof currencyRaw === "string" ? currencyRaw : "";
+
+    if (!Number.isFinite(account_id) || account_id <= 0 || !currency) {
+      return res.status(400).json({ error: "Parámetros inválidos" });
+    }
+
+    await prisma.financeAccountOpeningBalance.deleteMany({
+      where: {
+        id_agency: auth.id_agency,
+        account_id,
+        currency: currency.toUpperCase(),
+      },
+    });
+
+    return res.status(204).end();
+  }
+
+  res.setHeader("Allow", "GET, POST, DELETE");
+  return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
+}

@@ -46,6 +46,7 @@ model Agency {
   templateConfigs      TemplateConfig[]
   FinanceCurrency      FinanceCurrency[]
   FinanceAccount       FinanceAccount[]
+  FinanceAccountOpeningBalance FinanceAccountOpeningBalance[]
   FinancePaymentMethod FinancePaymentMethod[]
   ExpenseCategory      ExpenseCategory[]
   FinanceConfig        FinanceConfig?
@@ -973,6 +974,29 @@ model FinanceAccount {
   @@unique([id_agency, name])
   @@unique([id_agency, agency_finance_account_id], name: "agency_finance_account_id_unique")
   @@index([id_agency, enabled])
+
+  openingBalances FinanceAccountOpeningBalance[]
+}
+
+model FinanceAccountOpeningBalance {
+  id_opening_balance Int      @id @default(autoincrement())
+  id_agency          Int
+  agency             Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  account_id Int
+  account    FinanceAccount @relation(fields: [account_id], references: [id_account], onDelete: Cascade)
+
+  currency       String
+  amount         Decimal    @db.Decimal(18, 2)
+  effective_date DateTime
+  note           String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([id_agency, account_id, currency])
+  @@index([id_agency])
+  @@index([account_id])
 }
 
 model FinancePaymentMethod {

@@ -23,10 +23,23 @@ import {
 /* ================= Estilos compartidos ================= */
 const GLASS =
   "rounded-3xl border border-white/30 bg-white/10 backdrop-blur shadow-lg shadow-sky-900/10 dark:bg-white/10 dark:border-white/5";
-const ICON_BTN =
-  "rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-[.98] active:scale-95 disabled:opacity-50 dark:bg-white/10 dark:text-white";
-const BADGE =
-  "inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px] font-medium border border-white/10 bg-white/10";
+const BTN_BASE =
+  "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-medium shadow-sm backdrop-blur transition-transform hover:scale-[.98] active:scale-95 disabled:opacity-50";
+const BTN_SKY =
+  `${BTN_BASE} border-sky-300/60 bg-sky-100/5 text-sky-950 shadow-sky-900/10 dark:border-sky-400/30 dark:bg-sky-500/5 dark:text-sky-50`;
+const BTN_EMERALD =
+  `${BTN_BASE} border-emerald-300/60 bg-emerald-100/5 text-emerald-900 shadow-emerald-900/10 dark:border-emerald-400/30 dark:bg-emerald-500/5 dark:text-emerald-50`;
+const BTN_AMBER =
+  `${BTN_BASE} border-amber-300/60 bg-amber-100/5 text-amber-900 shadow-amber-900/10 dark:border-amber-400/30 dark:bg-amber-500/5 dark:text-amber-50`;
+const BTN_DANGER =
+  `${BTN_BASE} border-rose-300/60 bg-rose-500/5 text-rose-900 shadow-rose-900/10 dark:border-rose-400/40 dark:bg-rose-500/5 dark:text-rose-50`;
+const ICON_BTN = BTN_SKY;
+const BADGE_SKY =
+  "inline-flex items-center gap-1 rounded-full border border-sky-300/50 bg-sky-100/5 px-2 py-[2px] text-[10px] font-medium text-sky-950 dark:border-sky-300/30 dark:bg-sky-500/5 dark:text-sky-50";
+const BADGE_AMBER =
+  "inline-flex items-center gap-1 rounded-full border border-amber-300/50 bg-amber-100/5 px-2 py-[2px] text-[10px] font-medium text-amber-900 dark:border-amber-300/30 dark:bg-amber-500/5 dark:text-amber-50";
+const BADGE_EMERALD =
+  "inline-flex items-center gap-1 rounded-full border border-emerald-300/50 bg-emerald-100/5 px-2 py-[2px] text-[10px] font-medium text-emerald-900 dark:border-emerald-300/30 dark:bg-emerald-500/5 dark:text-emerald-50";
 
 /* ================= Tipos (alineados a las APIs) ================= */
 type FinanceConfig = {
@@ -41,6 +54,14 @@ type FinanceBundle = {
   accounts: FinanceAccount[];
   paymentMethods: FinancePaymentMethod[];
   categories: FinanceExpenseCategory[];
+};
+
+type AccountOpeningBalance = {
+  account_id: number;
+  currency: string;
+  amount: number | string;
+  effective_date: string;
+  note?: string | null;
 };
 
 /* ===== Respuestas de error y type guards ===== */
@@ -88,6 +109,13 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
     />
   );
 }
+
+function toDateInputValue(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
 function Switch({
   checked,
   onChange,
@@ -103,15 +131,19 @@ function Switch({
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className={`flex items-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-3 py-1.5 shadow-sm backdrop-blur transition hover:bg-white/20 dark:border-white/10 dark:bg-white/10 ${
-        checked ? "ring-1 ring-sky-400/60" : ""
+      className={`flex items-center gap-2 rounded-2xl border px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur transition hover:brightness-105 ${
+        checked
+          ? "border-emerald-300/60 bg-emerald-100/5 text-emerald-900 dark:border-emerald-300/30 dark:bg-emerald-500/5 dark:text-emerald-50"
+          : "border-amber-300/60 bg-amber-100/5 text-amber-900 dark:border-amber-300/30 dark:bg-amber-500/5 dark:text-amber-50"
       }`}
       title={title}
       aria-label={label}
     >
       <span
         className={`inline-block h-4 w-7 rounded-full ${
-          checked ? "bg-emerald-500/60" : "bg-white/30 dark:bg-white/10"
+          checked
+            ? "bg-emerald-500/20"
+            : "bg-amber-200/20 dark:bg-amber-400/10"
         }`}
       >
         <span
@@ -120,8 +152,48 @@ function Switch({
           }`}
         />
       </span>
-      <span className="text-sm">{label}</span>
+      <span className="text-xs">{label}</span>
     </button>
+  );
+}
+
+type IconProps = React.SVGProps<SVGSVGElement>;
+
+function IconPencilSquare(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden
+      {...props}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+      />
+    </svg>
+  );
+}
+
+function IconTrash(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      aria-hidden
+      {...props}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+      />
+    </svg>
   );
 }
 
@@ -562,6 +634,17 @@ function FinanceConfigPageInner() {
     enabled: true,
   });
 
+  const [balanceModalOpen, setBalanceModalOpen] = useState(false);
+  const [balanceAccount, setBalanceAccount] = useState<FinanceAccount | null>(
+    null,
+  );
+  const [balanceDate, setBalanceDate] = useState("");
+  const [balanceRows, setBalanceRows] = useState<Record<string, string>>({});
+  const [balanceExisting, setBalanceExisting] = useState<
+    Record<string, AccountOpeningBalance>
+  >({});
+  const [balanceSaving, setBalanceSaving] = useState(false);
+
   const openNewAccount = () => {
     setAccountEditing(null);
     setAccountForm({
@@ -581,6 +664,71 @@ function FinanceConfigPageInner() {
       enabled: a.enabled,
     });
     setAccountModalOpen(true);
+  };
+
+  const openBalanceModal = async (a: FinanceAccount) => {
+    if (!token) return;
+    setBalanceAccount(a);
+    setBalanceModalOpen(true);
+    setBalanceSaving(true);
+    try {
+      const res = await authFetch(
+        `/api/finance/account-balances?account_id=${a.id_account}`,
+        { cache: "no-store" },
+        token,
+      );
+      if (!res.ok) {
+        const j: unknown = await res.json().catch(() => null);
+        throw new Error(apiErrorMessage(j) ?? "No se pudieron cargar saldos");
+      }
+      const raw: unknown = await res.json();
+      const items: AccountOpeningBalance[] = Array.isArray(raw)
+        ? (raw as AccountOpeningBalance[])
+        : [];
+
+      const existingMap: Record<string, AccountOpeningBalance> = {};
+      let latestDate: Date | null = null;
+      for (const item of items) {
+        const currency = (item.currency || "").toUpperCase().trim();
+        if (!currency) continue;
+        existingMap[currency] = item;
+        const d = new Date(item.effective_date);
+        if (!Number.isNaN(d.getTime())) {
+          if (!latestDate || d > latestDate) latestDate = d;
+        }
+      }
+
+      const accountCurrency = (a.currency || "").toUpperCase().trim();
+      const restrictCurrency = accountCurrency !== "";
+      const enabledCurrencies = currencies.filter((c) => c.enabled);
+      const codes = new Set<string>();
+
+      if (restrictCurrency) {
+        codes.add(accountCurrency);
+      } else {
+        enabledCurrencies.forEach((c) => codes.add(c.code.toUpperCase()));
+        Object.keys(existingMap).forEach((c) => codes.add(c));
+      }
+
+      const rows: Record<string, string> = {};
+      codes.forEach((code) => {
+        const existing = existingMap[code];
+        rows[code] =
+          existing && Number.isFinite(Number(existing.amount))
+            ? String(existing.amount)
+            : "";
+      });
+
+      setBalanceExisting(existingMap);
+      setBalanceRows(rows);
+      setBalanceDate(
+        latestDate ? toDateInputValue(latestDate) : toDateInputValue(new Date()),
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al cargar saldos");
+    } finally {
+      setBalanceSaving(false);
+    }
   };
 
   const saveAccount = async () => {
@@ -665,6 +813,71 @@ function FinanceConfigPageInner() {
       await reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al eliminar");
+    }
+  };
+
+  const saveOpeningBalances = async () => {
+    if (!token || !balanceAccount) return;
+    const effectiveDate =
+      balanceDate && balanceDate.trim() !== ""
+        ? balanceDate.trim()
+        : toDateInputValue(new Date());
+
+    const updates = Object.entries(balanceRows);
+    const invalid = updates.find(([, v]) => {
+      if (!v || v.trim() === "") return false;
+      const normalized = v.replace(",", ".");
+      return !Number.isFinite(Number(normalized));
+    });
+
+    if (invalid) {
+      toast.error("Ingresá montos válidos (ej: 1200.50)");
+      return;
+    }
+
+    setBalanceSaving(true);
+    try {
+      await Promise.all(
+        updates.map(async ([currency, raw]) => {
+          const value = (raw || "").trim();
+          const existing = balanceExisting[currency];
+
+          if (!value) {
+            if (existing) {
+              await authFetch(
+                `/api/finance/account-balances?account_id=${balanceAccount.id_account}&currency=${currency}`,
+                { method: "DELETE" },
+                token,
+              );
+            }
+            return;
+          }
+
+          const amount = Number(value.replace(",", "."));
+
+          await authFetch(
+            "/api/finance/account-balances",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                account_id: balanceAccount.id_account,
+                currency,
+                amount,
+                effective_date: effectiveDate,
+              }),
+            },
+            token,
+          );
+        }),
+      );
+
+      toast.success("Saldos iniciales actualizados");
+      setBalanceModalOpen(false);
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar saldos");
+    } finally {
+      setBalanceSaving(false);
     }
   };
 
@@ -933,6 +1146,14 @@ function FinanceConfigPageInner() {
     [currencies],
   );
 
+  const currencyNameByCode = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of currencies) {
+      map.set(c.code.toUpperCase(), c.name);
+    }
+    return map;
+  }, [currencies]);
+
   const isDefaultCurrencyValid = useMemo(
     () =>
       enabledCurrencies.some(
@@ -961,7 +1182,7 @@ function FinanceConfigPageInner() {
                 type="button"
                 onClick={() => setActive(t.key)}
                 className={`${ICON_BTN} ${
-                  active === t.key ? "ring-1 ring-sky-400/60" : ""
+                  active === t.key ? "border-sky-400/80" : ""
                 }`}
                 aria-label={`Ir a ${t.label}`}
               >
@@ -995,7 +1216,7 @@ function FinanceConfigPageInner() {
                       className={`w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-3 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10 ${
                         generalForm.default_currency_code &&
                         !isDefaultCurrencyValid
-                          ? "ring-1 ring-red-400/60"
+                          ? "border-red-400/60"
                           : ""
                       }`}
                     >
@@ -1039,7 +1260,7 @@ function FinanceConfigPageInner() {
                     type="button"
                     onClick={saveGeneral}
                     disabled={savingGeneral}
-                    className={ICON_BTN}
+                    className={BTN_EMERALD}
                   >
                     {savingGeneral ? <Spinner /> : "Guardar"}
                   </button>
@@ -1055,7 +1276,7 @@ function FinanceConfigPageInner() {
                   <button
                     type="button"
                     onClick={openNewCurrency}
-                    className={ICON_BTN}
+                    className={BTN_SKY}
                   >
                     Nueva moneda
                   </button>
@@ -1073,17 +1294,19 @@ function FinanceConfigPageInner() {
                         className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur"
                       >
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                          <div className={`${BADGE}`}>N° {c.id_currency}</div>
+                          <div className={BADGE_SKY}>N° {c.id_currency}</div>
                           <div className="truncate">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-semibold">
                                 {c.code}
                               </span>
                               {c.is_primary && (
-                                <span className={`${BADGE}`}>Principal</span>
+                                <span className={BADGE_EMERALD}>
+                                  Principal
+                                </span>
                               )}
                               {!c.enabled && (
-                                <span className={`${BADGE}`}>
+                                <span className={BADGE_AMBER}>
                                   Deshabilitada
                                 </span>
                               )}
@@ -1099,7 +1322,7 @@ function FinanceConfigPageInner() {
                             type="button"
                             onClick={() => moveCurrency(idx, -1)}
                             disabled={idx === 0}
-                            className={ICON_BTN}
+                            className={BTN_AMBER}
                             title="Subir"
                             aria-label="Subir moneda"
                           >
@@ -1109,7 +1332,7 @@ function FinanceConfigPageInner() {
                             type="button"
                             onClick={() => moveCurrency(idx, +1)}
                             disabled={idx === currencies.length - 1}
-                            className={ICON_BTN}
+                            className={BTN_AMBER}
                             title="Bajar"
                             aria-label="Bajar moneda"
                           >
@@ -1120,44 +1343,38 @@ function FinanceConfigPageInner() {
                             type="button"
                             onClick={() => setCurrencyPrimary(c)}
                             disabled={c.is_primary}
-                            className={ICON_BTN}
+                            className={BTN_EMERALD}
                             title="Marcar como principal"
                             aria-label="Marcar como principal"
                           >
                             Principal
                           </button>
 
-                          <button
-                            type="button"
-                            onClick={() => toggleCurrencyEnabled(c)}
-                            className={ICON_BTN}
-                            aria-label={
+                          <Switch
+                            checked={c.enabled}
+                            onChange={() => toggleCurrencyEnabled(c)}
+                            label="Activa"
+                            title={
                               c.enabled
                                 ? "Deshabilitar moneda"
                                 : "Habilitar moneda"
                             }
-                          >
-                            {c.enabled ? "Deshabilitar" : "Habilitar"}
-                          </button>
+                          />
 
                           <button
                             type="button"
                             onClick={() => openEditCurrency(c)}
-                            className={ICON_BTN}
-                            title="Editar"
-                            aria-label="Editar moneda"
+                            className={BTN_SKY}
                           >
-                            Editar
+                            <IconPencilSquare className="size-4" />
                           </button>
 
                           <button
                             type="button"
                             onClick={() => deleteCurrency(c)}
-                            className={`${ICON_BTN} bg-red-600 text-red-100 dark:bg-red-800`}
-                            title="Eliminar"
-                            aria-label="Eliminar moneda"
+                            className={BTN_DANGER}
                           >
-                            Eliminar
+                            <IconTrash className="size-4" />
                           </button>
                         </div>
                       </article>
@@ -1175,7 +1392,7 @@ function FinanceConfigPageInner() {
                   <button
                     type="button"
                     onClick={openNewAccount}
-                    className={ICON_BTN}
+                    className={BTN_SKY}
                   >
                     Nueva cuenta
                   </button>
@@ -1196,15 +1413,15 @@ function FinanceConfigPageInner() {
                           key={a.id_account}
                           className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur"
                         >
-                          <div className="flex min-w-0 flex-1 items-center gap-3">
-                            <div className={`${BADGE}`}>N° {a.id_account}</div>
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                            <div className={BADGE_SKY}>N° {a.id_account}</div>
                             <div className="truncate">
                               <div className="flex items-center gap-2">
                                 <span className="text-sm font-semibold">
                                   {a.name}
                                 </span>
                                 {!a.enabled && (
-                                  <span className={`${BADGE}`}>
+                                  <span className={BADGE_AMBER}>
                                     Deshabilitada
                                   </span>
                                 )}
@@ -1217,38 +1434,43 @@ function FinanceConfigPageInner() {
                             </div>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => toggleAccountEnabled(a)}
-                              className={ICON_BTN}
-                              aria-label={
-                                a.enabled
-                                  ? "Deshabilitar cuenta"
-                                  : "Habilitar cuenta"
-                              }
-                            >
-                              {a.enabled ? "Deshabilitar" : "Habilitar"}
-                            </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openBalanceModal(a)}
+                            className={BTN_AMBER}
+                            aria-label="Editar saldos iniciales"
+                          >
+                            Saldos iniciales
+                          </button>
 
-                            <button
-                              type="button"
-                              onClick={() => openEditAccount(a)}
-                              className={ICON_BTN}
-                              aria-label="Editar cuenta"
-                            >
-                              Editar
-                            </button>
+                          <Switch
+                            checked={a.enabled}
+                            onChange={() => toggleAccountEnabled(a)}
+                            label="Activa"
+                            title={
+                              a.enabled
+                                ? "Deshabilitar cuenta"
+                                : "Habilitar cuenta"
+                            }
+                          />
 
-                            <button
-                              type="button"
-                              onClick={() => deleteAccount(a)}
-                              className={`${ICON_BTN} bg-red-600 text-red-100 dark:bg-red-800`}
-                              aria-label="Eliminar cuenta"
-                            >
-                              Eliminar
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openEditAccount(a)}
+                            className={BTN_SKY}
+                          >
+                            <IconPencilSquare className="size-4" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteAccount(a)}
+                            className={BTN_DANGER}
+                          >
+                            <IconTrash className="size-4" />
+                          </button>
+                        </div>
                         </article>
                       );
                     })}
@@ -1265,7 +1487,7 @@ function FinanceConfigPageInner() {
                   <button
                     type="button"
                     onClick={openNewMethod}
-                    className={ICON_BTN}
+                    className={BTN_SKY}
                   >
                     Nuevo método
                   </button>
@@ -1283,20 +1505,20 @@ function FinanceConfigPageInner() {
                         className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur"
                       >
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                          <div className={`${BADGE}`}>N° {m.id_method}</div>
+                          <div className={BADGE_SKY}>N° {m.id_method}</div>
                           <div className="truncate">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-semibold">
                                 {m.name}
                               </span>
-                              <span className={`${BADGE}`}>{m.code}</span>
+                              <span className={BADGE_SKY}>{m.code}</span>
                               {!m.enabled && (
-                                <span className={`${BADGE}`}>
+                                <span className={BADGE_AMBER}>
                                   Deshabilitado
                                 </span>
                               )}
                               {m.requires_account && (
-                                <span className={`${BADGE}`}>
+                                <span className={BADGE_EMERALD}>
                                   Requiere cuenta
                                 </span>
                               )}
@@ -1305,51 +1527,42 @@ function FinanceConfigPageInner() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => toggleMethodRequiresAccount(m)}
-                            className={ICON_BTN}
-                            title="Alternar 'requiere cuenta'"
-                            aria-label={
+                          <Switch
+                            checked={m.requires_account}
+                            onChange={() => toggleMethodRequiresAccount(m)}
+                            label="Requiere cuenta"
+                            title={
                               m.requires_account
                                 ? "Marcar como no requiere cuenta"
                                 : "Marcar como requiere cuenta"
                             }
-                          >
-                            {m.requires_account
-                              ? "No requiere cuenta"
-                              : "Requiere cuenta"}
-                          </button>
+                          />
 
-                          <button
-                            type="button"
-                            onClick={() => toggleMethodEnabled(m)}
-                            className={ICON_BTN}
-                            aria-label={
+                          <Switch
+                            checked={m.enabled}
+                            onChange={() => toggleMethodEnabled(m)}
+                            label="Activo"
+                            title={
                               m.enabled
                                 ? "Deshabilitar método"
                                 : "Habilitar método"
                             }
-                          >
-                            {m.enabled ? "Deshabilitar" : "Habilitar"}
-                          </button>
+                          />
 
                           <button
                             type="button"
                             onClick={() => openEditMethod(m)}
-                            className={ICON_BTN}
-                            aria-label="Editar método"
+                            className={BTN_SKY}
                           >
-                            Editar
+                            <IconPencilSquare className="size-4" />
                           </button>
 
                           <button
                             type="button"
                             onClick={() => deleteMethod(m)}
-                            className={`${ICON_BTN} bg-red-600 text-red-100 dark:bg-red-800`}
-                            aria-label="Eliminar método"
+                            className={BTN_DANGER}
                           >
-                            Eliminar
+                            <IconTrash className="size-4" />
                           </button>
                         </div>
                       </article>
@@ -1380,7 +1593,7 @@ function FinanceConfigPageInner() {
                   <button
                     type="button"
                     onClick={openNewCategory}
-                    className={ICON_BTN}
+                    className={BTN_SKY}
                   >
                     Nueva categoría
                   </button>
@@ -1398,20 +1611,24 @@ function FinanceConfigPageInner() {
                         className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur"
                       >
                         <div className="flex min-w-0 flex-1 items-center gap-3">
-                          <div className={`${BADGE}`}>N° {c.id_category}</div>
+                          <div className={BADGE_SKY}>N° {c.id_category}</div>
                           <div className="truncate">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-semibold">
                                 {c.name}
                               </span>
                               {c.requires_user && (
-                                <span className={BADGE}>Vincula usuario</span>
+                                <span className={BADGE_SKY}>
+                                  Vincula usuario
+                                </span>
                               )}
                               {c.requires_operator && (
-                                <span className={BADGE}>Vincula operador</span>
+                                <span className={BADGE_SKY}>
+                                  Vincula operador
+                                </span>
                               )}
                               {!c.enabled && (
-                                <span className={`${BADGE}`}>
+                                <span className={BADGE_AMBER}>
                                   Deshabilitada
                                 </span>
                               )}
@@ -1420,35 +1637,31 @@ function FinanceConfigPageInner() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => toggleCategoryEnabled(c)}
-                            className={ICON_BTN}
-                            aria-label={
+                          <Switch
+                            checked={c.enabled}
+                            onChange={() => toggleCategoryEnabled(c)}
+                            label="Activa"
+                            title={
                               c.enabled
                                 ? "Deshabilitar categoría"
                                 : "Habilitar categoría"
                             }
-                          >
-                            {c.enabled ? "Deshabilitar" : "Habilitar"}
-                          </button>
+                          />
 
                           <button
                             type="button"
                             onClick={() => openEditCategory(c)}
-                            className={ICON_BTN}
-                            aria-label="Editar categoría"
+                            className={BTN_SKY}
                           >
-                            Editar
+                            <IconPencilSquare className="size-4" />
                           </button>
 
                           <button
                             type="button"
                             onClick={() => deleteCategory(c)}
-                            className={`${ICON_BTN} bg-red-600 text-red-100 dark:bg-red-800`}
-                            aria-label="Eliminar categoría"
+                            className={BTN_DANGER}
                           >
-                            Eliminar
+                            <IconTrash className="size-4" />
                           </button>
                         </div>
                       </article>
@@ -1473,11 +1686,15 @@ function FinanceConfigPageInner() {
               <button
                 type="button"
                 onClick={() => setCurrencyModalOpen(false)}
-                className={ICON_BTN}
+                className={BTN_AMBER}
               >
                 Cancelar
               </button>
-              <button type="button" onClick={saveCurrency} className={ICON_BTN}>
+              <button
+                type="button"
+                onClick={saveCurrency}
+                className={BTN_EMERALD}
+              >
                 Guardar
               </button>
             </>
@@ -1536,11 +1753,15 @@ function FinanceConfigPageInner() {
               <button
                 type="button"
                 onClick={() => setAccountModalOpen(false)}
-                className={ICON_BTN}
+                className={BTN_AMBER}
               >
                 Cancelar
               </button>
-              <button type="button" onClick={saveAccount} className={ICON_BTN}>
+              <button
+                type="button"
+                onClick={saveAccount}
+                className={BTN_EMERALD}
+              >
                 Guardar
               </button>
             </>
@@ -1595,6 +1816,95 @@ function FinanceConfigPageInner() {
         </Modal>
 
         <Modal
+          open={balanceModalOpen}
+          onClose={() => setBalanceModalOpen(false)}
+          title={`Saldos iniciales${
+            balanceAccount ? ` — ${balanceAccount.name}` : ""
+          }`}
+          wide
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setBalanceModalOpen(false)}
+                className={BTN_AMBER}
+                disabled={balanceSaving}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={saveOpeningBalances}
+                className={BTN_EMERALD}
+                disabled={balanceSaving}
+              >
+                Guardar
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-xs text-zinc-600 dark:text-zinc-400">
+              Cargá el saldo inicial por moneda. Si dejás un valor vacío, no se
+              registra.
+            </p>
+            {balanceAccount?.currency && (
+              <div className="flex items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-400">
+                <span className={BADGE_EMERALD}>Moneda fija</span>
+                <span>{balanceAccount.currency.toUpperCase()}</span>
+              </div>
+            )}
+            <div className="max-w-xs">
+              <Label>Fecha de saldo inicial</Label>
+              <Input
+                type="date"
+                value={balanceDate}
+                onChange={(e) => setBalanceDate(e.target.value)}
+                disabled={balanceSaving}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {Object.keys(balanceRows).length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-white/10 p-4 text-xs opacity-70">
+                  No hay monedas configuradas.
+                </div>
+              ) : (
+                Object.keys(balanceRows)
+                  .sort((a, b) => a.localeCompare(b))
+                  .map((code) => (
+                    <div
+                      key={code}
+                      className="rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur"
+                    >
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-xs font-semibold">{code}</span>
+                        <span className="text-[10px] opacity-70">
+                          {currencyNameByCode.get(code) ?? ""}
+                        </span>
+                      </div>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={balanceRows[code] ?? ""}
+                        onChange={(e) =>
+                          setBalanceRows((prev) => ({
+                            ...prev,
+                            [code]: e.target.value,
+                          }))
+                        }
+                        placeholder="0.00"
+                        disabled={balanceSaving}
+                        className="mt-2"
+                      />
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        </Modal>
+
+        <Modal
           open={methodModalOpen}
           onClose={() => setMethodModalOpen(false)}
           title={methodEditing ? "Editar método" : "Nuevo método"}
@@ -1603,11 +1913,15 @@ function FinanceConfigPageInner() {
               <button
                 type="button"
                 onClick={() => setMethodModalOpen(false)}
-                className={ICON_BTN}
+                className={BTN_AMBER}
               >
                 Cancelar
               </button>
-              <button type="button" onClick={saveMethod} className={ICON_BTN}>
+              <button
+                type="button"
+                onClick={saveMethod}
+                className={BTN_EMERALD}
+              >
                 Guardar
               </button>
             </>
@@ -1666,11 +1980,15 @@ function FinanceConfigPageInner() {
               <button
                 type="button"
                 onClick={() => setCatModalOpen(false)}
-                className={ICON_BTN}
+                className={BTN_AMBER}
               >
                 Cancelar
               </button>
-              <button type="button" onClick={saveCategory} className={ICON_BTN}>
+              <button
+                type="button"
+                onClick={saveCategory}
+                className={BTN_EMERALD}
+              >
                 Guardar
               </button>
             </>

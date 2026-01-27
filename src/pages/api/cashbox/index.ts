@@ -76,6 +76,8 @@ type AccountSummary = {
   income: number;
   expenses: number;
   net: number;
+  opening?: number;
+  closing?: number;
 };
 
 export type CashboxSummaryResponse = {
@@ -245,6 +247,7 @@ function aggregateCashbox(
   from: Date,
   to: Date,
   movements: CashboxMovement[],
+  openingBalancesByAccount: { account: string; currency: string; amount: number }[] = [],
   balancesOverride?: {
     clientDebtByCurrency?: DebtSummary[];
     operatorDebtByCurrency?: DebtSummary[];
@@ -268,7 +271,13 @@ function aggregateCashbox(
 
   const totalsByAccountMap = new Map<
     string,
-    { account: string; currency: string; income: number; expenses: number }
+    {
+      account: string;
+      currency: string;
+      income: number;
+      expenses: number;
+      opening?: number;
+    }
   >();
 
   const clientDebtByCurrencyMap = new Map<string, number>();
@@ -360,6 +369,26 @@ function aggregateCashbox(
     }
   }
 
+  // === Saldos iniciales por cuenta (si existen) ===
+  for (const ob of openingBalancesByAccount) {
+    const accLabel = ob.account?.trim() || "Sin cuenta";
+    const accKey = `${accLabel.toLowerCase()}::${ob.currency}`;
+    if (!totalsByAccountMap.has(accKey)) {
+      totalsByAccountMap.set(accKey, {
+        account: accLabel,
+        currency: ob.currency,
+        income: 0,
+        expenses: 0,
+        opening: ob.amount,
+      });
+      continue;
+    }
+    const accTotals = totalsByAccountMap.get(accKey);
+    if (accTotals && accTotals.opening == null) {
+      accTotals.opening = ob.amount;
+    }
+  }
+
   // Totales caja por moneda
   const totalsByCurrency: CurrencySummary[] = Array.from(
     totalsByCurrencyMap.values(),
@@ -391,6 +420,11 @@ function aggregateCashbox(
     .map((t) => ({
       ...t,
       net: t.income - t.expenses,
+      opening: t.opening,
+      closing:
+        typeof t.opening === "number"
+          ? t.opening + (t.income - t.expenses)
+          : undefined,
     }))
     .sort((a, b) => {
       const byAcc = a.account.localeCompare(b.account, "es");
@@ -450,6 +484,7 @@ function aggregateCashbox(
 
 type GetMonthlyMovementsOptions = {
   hideOperatorExpenses?: boolean;
+  accountNameById?: Map<number, string>;
 };
 
 /**
@@ -465,7 +500,7 @@ async function getMonthlyMovements(
   to: Date,
   options: GetMonthlyMovementsOptions = {},
 ): Promise<CashboxMovement[]> {
-  const { hideOperatorExpenses } = options;
+  const { hideOperatorExpenses, accountNameById } = options;
 
   /* ----------------------------
    * 1) INGRESOS: Recibos
@@ -545,7 +580,10 @@ async function getMonthlyMovements(
       bookingLabel,
       dueDate: null,
       paymentMethod: r.payment_method ?? null,
-      account: r.account ?? null,
+      account:
+        (r.account_id && accountNameById?.get(r.account_id)) ||
+        r.account ||
+        null,
     };
   });
 
@@ -820,6 +858,44 @@ async function getDebtBalances(agencyId: number): Promise<{
   return { clientDebtByCurrency, operatorDebtByCurrency };
 }
 
+async function getOpeningBalancesByAccount(
+  agencyId: number,
+  from: Date,
+): Promise<{ account: string; currency: string; amount: number }[]> {
+  const rows = await prisma.financeAccountOpeningBalance.findMany({
+    where: {
+      id_agency: agencyId,
+      effective_date: {
+        lte: from,
+      },
+    },
+    include: {
+      account: { select: { name: true } },
+    },
+    orderBy: [
+      { account_id: "asc" },
+      { currency: "asc" },
+      { effective_date: "desc" },
+    ],
+  });
+
+  const seen = new Set<string>();
+  const result: { account: string; currency: string; amount: number }[] = [];
+
+  for (const row of rows) {
+    const key = `${row.account_id}::${row.currency}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({
+      account: row.account?.name ?? "Sin cuenta",
+      currency: row.currency,
+      amount: decimalToNumber(row.amount),
+    });
+  }
+
+  return result;
+}
+
 /* =========================================================
  * Handler principal
  * ========================================================= */
@@ -896,13 +972,30 @@ export default async function handler(
     const hideOperatorExpenses =
       !!financeConfig?.hide_operator_expenses_in_investments;
 
+    // Mapa de cuentas por ID (para normalizar nombres)
+    const accounts = await prisma.financeAccount.findMany({
+      where: { id_agency: agencyId },
+      select: { id_account: true, name: true },
+    });
+    const accountNameById = new Map<number, string>();
+    for (const acc of accounts) {
+      accountNameById.set(acc.id_account, acc.name);
+    }
+
     // 4) Movimientos del mes
     const movements = await getMonthlyMovements(agencyId, from, to, {
       hideOperatorExpenses,
+      accountNameById,
     });
 
     // 5) Saldos globales de deuda (pasajeros / operadores)
     const balances = await getDebtBalances(agencyId);
+
+    // 5.1) Saldos iniciales por cuenta (hasta el inicio del mes)
+    const openingBalancesByAccount = await getOpeningBalancesByAccount(
+      agencyId,
+      from,
+    );
 
     // 6) Agregación / resumen
     const summary = aggregateCashbox(
@@ -911,6 +1004,7 @@ export default async function handler(
       from,
       to,
       movements,
+      openingBalancesByAccount,
       balances,
     );
 

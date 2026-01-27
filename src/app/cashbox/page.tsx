@@ -74,6 +74,8 @@ type AccountSummary = {
   income: number;
   expenses: number;
   net: number;
+  opening?: number;
+  closing?: number;
 };
 
 type CashboxSummaryResponse = {
@@ -878,6 +880,13 @@ export default function CashboxPage() {
                         const code = normCurrency(t.currency);
                         const label = currencyLabelDict[code];
                         const isPositive = t.net >= 0;
+                        const hasBalance = typeof t.opening === "number";
+                        const opening =
+                          typeof t.opening === "number" ? t.opening : 0;
+                        const closing =
+                          typeof t.closing === "number"
+                            ? t.closing
+                            : opening + t.net;
 
                         return (
                           <div
@@ -909,6 +918,12 @@ export default function CashboxPage() {
                               >
                                 Neto: {formatAmount(t.net, code)}
                               </span>
+                              {hasBalance && (
+                                <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-sky-700 dark:bg-sky-500/20 dark:text-sky-100">
+                                  Saldo: {formatAmount(opening, code)} →{" "}
+                                  {formatAmount(closing, code)}
+                                </span>
+                              )}
                             </div>
                           </div>
                         );
