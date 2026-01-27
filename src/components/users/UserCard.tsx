@@ -217,57 +217,66 @@ export default function UserCard({
         </li>
       </div>
 
-      <div className="mt-4 flex flex-wrap justify-end gap-2">
-        {/* Editar */}
-        <button
-          type="button"
-          className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-          onClick={() => handleEdit(user)}
-          title="Editar usuario"
-          aria-label="Editar usuario"
-        >
-          <PencilIcon />
-        </button>
-
-        {/* Cambiar contraseña (toggle panel) */}
-        <button
-          type="button"
-          className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-          onClick={() => setPwdOpen((v) => !v)}
-          title="Cambiar contraseña"
-          aria-expanded={pwdOpen}
-          aria-controls={`pwd-panel-${user.id_user}`}
-          aria-label="Cambiar contraseña"
-        >
-          <KeyIcon />
-        </button>
-
-        {/* Resetear contraseña (solo manager) */}
-        {isManager && (
+      <div className="mt-4 flex flex-col gap-2">
+        <div className="flex justify-end gap-2">
+          {/* Editar */}
           <button
             type="button"
-            className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-            onClick={handleResetPassword}
-            disabled={resetting}
-            title="Resetear contraseña"
-            aria-label="Resetear contraseña"
+            className="rounded-full border border-sky-400/40 bg-sky-100/5 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-sky-100 dark:backdrop-blur"
+            onClick={() => handleEdit(user)}
+            title="Editar usuario"
+            aria-label="Editar usuario"
           >
-            {resetting ? <SpinnerTiny /> : <ResetIcon />}
+            <PencilIcon />
           </button>
-        )}
 
-        {/* Eliminar (solo manager) */}
-        {isManager && (
+          {/* Eliminar (solo manager) */}
+          {isManager && (
+            <button
+              type="button"
+              className="rounded-full border border-red-400/80 bg-red-300/10 px-4 py-2 text-center text-red-950 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:text-red-100"
+              onClick={handleDelete}
+              title="Eliminar usuario"
+              aria-label="Eliminar usuario"
+            >
+              <TrashIcon />
+            </button>
+          )}
+        </div>
+
+        <div className="pl-2 text-sm">
+          <p>Contraseña</p>
+        </div>
+        <div className="flex gap-2">
+          {/* Cambiar contraseña (toggle panel) */}
           <button
             type="button"
-            className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800"
-            onClick={handleDelete}
-            title="Eliminar usuario"
-            aria-label="Eliminar usuario"
+            className="flex items-center justify-center gap-2 rounded-full border border-sky-400/40 bg-sky-100/5 px-4 py-2 text-sm text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-sky-100 dark:backdrop-blur"
+            onClick={() => setPwdOpen((v) => !v)}
+            title="Cambiar contraseña"
+            aria-expanded={pwdOpen}
+            aria-controls={`pwd-panel-${user.id_user}`}
+            aria-label="Cambiar contraseña"
           >
-            <TrashIcon />
+            Cambiar
+            <KeyIcon />
           </button>
-        )}
+
+          {/* Resetear contraseña (solo manager) */}
+          {isManager && (
+            <button
+              type="button"
+              className="flex items-center justify-center gap-2 rounded-full border border-sky-400/40 bg-sky-100/5 px-4 py-2 text-sm text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-white/10 dark:text-sky-100 dark:backdrop-blur"
+              onClick={handleResetPassword}
+              disabled={resetting}
+              title="Resetear contraseña"
+              aria-label="Resetear contraseña"
+            >
+              Resetear
+              {resetting ? <SpinnerTiny /> : <ResetIcon />}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ===== Contraseña reseteada (visible hasta copiar) ===== */}
@@ -448,9 +457,8 @@ function generateStrongPassword(length = 12) {
     pickChar(numbers),
     pickChar(symbols),
   ];
-  const rest = Array.from(
-    { length: minLength - required.length },
-    () => pickChar(all),
+  const rest = Array.from({ length: minLength - required.length }, () =>
+    pickChar(all),
   );
 
   return shuffleArray([...required, ...rest]).join("");
@@ -492,9 +500,9 @@ function PencilIcon() {
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
-      strokeWidth={1.4}
+      strokeWidth={1}
       stroke="currentColor"
-      className="size-6"
+      className="size-5"
     >
       <path
         strokeLinecap="round"
@@ -511,9 +519,9 @@ function KeyIcon() {
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
-      strokeWidth={1.5}
+      strokeWidth={1}
       stroke="currentColor"
-      className="size-5"
+      className="size-4"
     >
       <path
         strokeLinecap="round"
@@ -529,7 +537,7 @@ function TrashIcon() {
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
-      strokeWidth={1.4}
+      strokeWidth={1}
       stroke="currentColor"
       className="size-5"
     >
@@ -547,9 +555,9 @@ function ResetIcon() {
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
-      strokeWidth={1.5}
+      strokeWidth={1}
       stroke="currentColor"
-      className="size-5"
+      className="size-4"
     >
       <path
         strokeLinecap="round"
@@ -563,11 +571,11 @@ function EyeOpenIcon() {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      className="size-5"
+      className="size-4"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
-      strokeWidth={1.5}
+      strokeWidth={1}
     >
       <path
         strokeLinecap="round"
@@ -586,11 +594,11 @@ function EyeClosedIcon() {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      className="size-5"
+      className="size-4"
       fill="none"
       viewBox="0 0 24 24"
       stroke="currentColor"
-      strokeWidth={1.5}
+      strokeWidth={1}
     >
       <path
         strokeLinecap="round"
