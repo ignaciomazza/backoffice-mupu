@@ -1,0 +1,86 @@
+import { isPlanKey, type PlanKey } from "@/lib/billing/pricing";
+
+export type PlanFeatureKey =
+  | "calendar"
+  | "resources"
+  | "templates"
+  | "insights"
+  | "client_stats"
+  | "cashbox"
+  | "investments"
+  | "balances"
+  | "earnings"
+  | "receipts_verify"
+  | "credits"
+  | "operators_insights";
+
+const PLAN_RANK: Record<PlanKey, number> = {
+  basico: 0,
+  medio: 1,
+  pro: 2,
+};
+
+export const PLAN_FEATURE_MIN: Record<PlanFeatureKey, PlanKey> = {
+  calendar: "medio",
+  resources: "medio",
+  templates: "medio",
+  insights: "medio",
+  client_stats: "medio",
+  cashbox: "medio",
+  investments: "medio",
+  balances: "medio",
+  earnings: "medio",
+  receipts_verify: "medio",
+  credits: "medio",
+  operators_insights: "medio",
+};
+
+const PLAN_ROUTE_FEATURES: Array<{ prefix: string; feature: PlanFeatureKey }> = [
+  { prefix: "/operators/insights", feature: "operators_insights" },
+  { prefix: "/receipts/verify", feature: "receipts_verify" },
+  { prefix: "/earnings/my", feature: "earnings" },
+  { prefix: "/earnings", feature: "earnings" },
+  { prefix: "/balances", feature: "balances" },
+  { prefix: "/cashbox", feature: "cashbox" },
+  { prefix: "/credits", feature: "credits" },
+  { prefix: "/insights", feature: "insights" },
+  { prefix: "/client-stats", feature: "client_stats" },
+  { prefix: "/calendar", feature: "calendar" },
+  { prefix: "/resources", feature: "resources" },
+  { prefix: "/template-config", feature: "templates" },
+  { prefix: "/templates", feature: "templates" },
+];
+
+function matchesPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+export function resolvePlanFeatureFromRoute(
+  pathname: string,
+): PlanFeatureKey | null {
+  for (const { prefix, feature } of PLAN_ROUTE_FEATURES) {
+    if (matchesPrefix(pathname, prefix)) return feature;
+  }
+  return null;
+}
+
+export function canAccessFeatureByPlan(
+  planKey: PlanKey | null | undefined,
+  hasPlan: boolean,
+  feature: PlanFeatureKey,
+): boolean {
+  if (!hasPlan) return true;
+  const normalized = isPlanKey(planKey) ? planKey : "basico";
+  const minPlan = PLAN_FEATURE_MIN[feature];
+  return PLAN_RANK[normalized] >= PLAN_RANK[minPlan];
+}
+
+export function canAccessRouteByPlan(
+  planKey: PlanKey | null | undefined,
+  hasPlan: boolean,
+  pathname: string,
+): boolean {
+  const feature = resolvePlanFeatureFromRoute(pathname);
+  if (!feature) return true;
+  return canAccessFeatureByPlan(planKey, hasPlan, feature);
+}

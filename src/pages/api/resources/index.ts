@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { encodePublicId } from "@/lib/publicIds";
 import { resolveAuth } from "@/lib/auth";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 export default async function handler(
   req: NextApiRequest,
@@ -13,6 +14,14 @@ export default async function handler(
   if (req.method === "GET") {
     const auth = await resolveAuth(req);
     if (!auth) return res.status(401).json({ error: "Unauthorized" });
+
+    const planAccess = await ensurePlanFeatureAccess(
+      auth.id_agency,
+      "resources",
+    );
+    if (!planAccess.allowed) {
+      return res.status(403).json({ error: "Plan insuficiente" });
+    }
 
     const raw = req.query.agencyId;
     const agencyId = Array.isArray(raw) ? Number(raw[0]) : Number(raw);
@@ -46,6 +55,14 @@ export default async function handler(
   if (req.method === "POST") {
     const auth = await resolveAuth(req);
     if (!auth) return res.status(401).json({ error: "Unauthorized" });
+
+    const planAccess = await ensurePlanFeatureAccess(
+      auth.id_agency,
+      "resources",
+    );
+    if (!planAccess.allowed) {
+      return res.status(403).json({ error: "Plan insuficiente" });
+    }
 
     const { title, id_agency, description } = req.body;
     const cleanTitle = typeof title === "string" ? title.trim() : "";

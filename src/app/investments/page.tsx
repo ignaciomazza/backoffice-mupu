@@ -10,6 +10,7 @@ import "react-toastify/dist/ReactToastify.css";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import InvestmentsForm from "./InvestmentsForm";
 import InvestmentsList from "./InvestmentsList";
+import type { PlanKey } from "@/lib/billing/pricing";
 import type {
   Investment,
   InvestmentFormState,
@@ -140,6 +141,7 @@ function parseCategories(raw: unknown): FinanceCategory[] {
 
 type ListResponse = { items: Investment[]; nextCursor: number | null };
 type ApiError = { error?: string; message?: string };
+type PlanApiResponse = { has_plan?: boolean; plan_key?: PlanKey | null };
 
 /* ===== Finance config ===== */
 type FinanceAccount = { id_account: number; name: string; enabled: boolean };
@@ -177,6 +179,10 @@ export default function Page() {
 
   // ------- Role cookie-first -------
   const [role, setRole] = useState<Role | "">("");
+
+  // ------- Plan -------
+  const [hasPlan, setHasPlan] = useState(false);
+  const [planKey, setPlanKey] = useState<PlanKey | null>(null);
 
   // ------- UI / form state -------
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -222,6 +228,8 @@ export default function Page() {
   const [operadorMode, setOperadorMode] = useState<"all" | "only" | "others">(
     "all",
   );
+
+  const operatorOnly = hasPlan && planKey === "basico";
 
   // form (sin defaults duros)
   const [form, setForm] = useState<InvestmentFormState>({
@@ -272,6 +280,35 @@ export default function Page() {
 
   // edición
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    const ac = new AbortController();
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/agency/plan",
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+        if (!res.ok) throw new Error("plan");
+        const data = (await safeJson<PlanApiResponse>(res)) ?? {};
+        const rawKey = data.plan_key ?? null;
+        const key =
+          rawKey === "basico" || rawKey === "medio" || rawKey === "pro"
+            ? rawKey
+            : null;
+        setHasPlan(!!data.has_plan && !!key);
+        setPlanKey(key);
+      } catch {
+        setHasPlan(false);
+        setPlanKey(null);
+      }
+    })();
+
+    return () => ac.abort();
+  }, [token]);
 
   // ==== Helpers de sincronización de cuenta corriente (fuera de onSubmit)
   const fetchLinkedCreditIds = useCallback(
@@ -354,7 +391,7 @@ export default function Page() {
 
   function resetForm() {
     setForm({
-      category: "",
+      category: operatorOnly ? operatorCategory : "",
       description: "",
       amount: "",
       currency: "",
@@ -744,6 +781,11 @@ export default function Page() {
 
   const fetchRecurring = useCallback(async () => {
     if (!token) return;
+    if (operatorOnly) {
+      setRecurring([]);
+      setLoadingRecurring(false);
+      return;
+    }
     setLoadingRecurring(true);
     try {
       const res = await authFetch(
@@ -760,7 +802,7 @@ export default function Page() {
     } finally {
       setLoadingRecurring(false);
     }
-  }, [token]);
+  }, [token, operatorOnly]);
 
   const fetchList = useCallback(async () => {
     if (!token) return;
@@ -829,11 +871,26 @@ export default function Page() {
   }, [token, nextCursor, loadingMore, buildQuery]);
 
   /* ========= Opciones desde Finance (sin fallbacks) ========= */
-  const categoryOptions = useMemo(() => {
+  const baseCategoryOptions = useMemo(() => {
     const raw =
       finance?.categories?.filter((c) => c.enabled).map((c) => c.name) ?? [];
     return uniqSorted(raw);
   }, [finance?.categories]);
+
+  const operatorCategory = useMemo(() => {
+    const match = baseCategoryOptions.find((c) =>
+      norm(c).startsWith("operador"),
+    );
+    return match || "Operador";
+  }, [baseCategoryOptions]);
+
+  const categoryOptions = useMemo(() => {
+    if (!operatorOnly) return baseCategoryOptions;
+    const ops = baseCategoryOptions.filter((c) =>
+      norm(c).startsWith("operador"),
+    );
+    return ops.length ? ops : [operatorCategory];
+  }, [baseCategoryOptions, operatorCategory, operatorOnly]);
 
   const paymentMethodOptions = useMemo(
     () =>
@@ -1680,8 +1737,28 @@ export default function Page() {
     setPaymentMethodFilter("");
     setAccountFilter("");
     setOperatorFilter(0);
-    setOperadorMode("all");
+    setOperadorMode(operatorOnly ? "only" : "all");
   };
+
+  useEffect(() => {
+    if (!operatorOnly) return;
+    setOperadorMode("only");
+    setCategory((prev) =>
+      prev && norm(prev).startsWith("operador") ? prev : "",
+    );
+    setForm((f) => {
+      if (
+        norm(f.category).startsWith("operador") &&
+        categoryOptions.includes(f.category)
+      )
+        return f;
+      return {
+        ...f,
+        category: operatorCategory,
+        user_id: null,
+      };
+    });
+  }, [operatorOnly, operatorCategory, categoryOptions]);
 
   return (
     <ProtectedRoute>
@@ -1700,6 +1777,7 @@ export default function Page() {
 
         {/* FORM */}
         <InvestmentsForm
+          operatorOnly={operatorOnly}
           isFormOpen={isFormOpen}
           setIsFormOpen={setIsFormOpen}
           editingId={editingId}
@@ -1752,6 +1830,7 @@ export default function Page() {
         />
 
         <InvestmentsList
+          operatorOnly={operatorOnly}
           filterPanelClass={filterPanel}
           filterControlClass={filterControl}
           q={q}

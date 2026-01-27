@@ -16,6 +16,7 @@ import type {
   CommercialInsightsResponse,
   InsightsMoneyPerCurrency,
 } from "@/types";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 type ErrorResponse = { error: string };
 
@@ -167,6 +168,14 @@ export default async function handler(
   const authUser = await getUserFromAuth(req);
   if (!authUser?.id_user || !authUser?.id_agency) {
     return res.status(401).json({ error: "No autenticado o token inválido." });
+  }
+
+  const planAccess = await ensurePlanFeatureAccess(
+    authUser.id_agency,
+    "insights",
+  );
+  if (!planAccess.allowed) {
+    return res.status(403).json({ error: "Plan insuficiente." });
   }
 
   // Armamos un payload “compatible” con resolveCommercialScopeFromToken

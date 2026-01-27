@@ -18,6 +18,7 @@ import {
   canAccessBookingComponent,
   canAccessFinanceSection,
 } from "@/utils/permissions";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 /* ======================================================
  * Tipos
@@ -506,6 +507,16 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         .trim()
         .toLowerCase(),
     );
+
+    if (verificationScope || verificationStatus) {
+      const planAccess = await ensurePlanFeatureAccess(
+        authAgencyId,
+        "receipts_verify",
+      );
+      if (!planAccess.allowed) {
+        return res.status(403).json({ error: "Plan insuficiente" });
+      }
+    }
 
     const take = Math.max(
       1,

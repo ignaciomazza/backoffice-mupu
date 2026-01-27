@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 import { getFinanceSectionGrants } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -336,6 +337,15 @@ export default async function handler(
   if (!auth?.id_agency) {
     return res.status(401).json({ error: "No autenticado" });
   }
+
+  const planAccess = await ensurePlanFeatureAccess(
+    auth.id_agency,
+    "operators_insights",
+  );
+  if (!planAccess.allowed) {
+    return res.status(403).json({ error: "Plan insuficiente" });
+  }
+
   const financeGrants = await getFinanceSectionGrants(
     auth.id_agency,
     auth.id_user,

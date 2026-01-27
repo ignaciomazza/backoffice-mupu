@@ -6,6 +6,7 @@ import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify, type JWTPayload } from "jose";
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 /* ============================================================================
  * Tipos internos de Auth
@@ -453,6 +454,13 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     if (!auth?.id_user || !auth?.id_agency) {
       return res.status(401).json({ error: "No autenticado" });
     }
+    const planAccess = await ensurePlanFeatureAccess(
+      auth.id_agency,
+      "templates",
+    );
+    if (!planAccess.allowed) {
+      return res.status(403).json({ error: "Plan insuficiente" });
+    }
 
     const doc_type = Array.isArray(req.query.doc_type)
       ? req.query.doc_type[0]
@@ -514,6 +522,13 @@ async function handleUpsert(req: NextApiRequest, res: NextApiResponse) {
 
     if (!auth?.id_user || !auth?.id_agency) {
       return res.status(401).json({ error: "No autenticado" });
+    }
+    const planAccess = await ensurePlanFeatureAccess(
+      auth.id_agency,
+      "templates",
+    );
+    if (!planAccess.allowed) {
+      return res.status(403).json({ error: "Plan insuficiente" });
     }
     if (!canEdit(role)) {
       return res
@@ -603,6 +618,13 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
 
     if (!auth?.id_user || !auth?.id_agency) {
       return res.status(401).json({ error: "No autenticado" });
+    }
+    const planAccess = await ensurePlanFeatureAccess(
+      auth.id_agency,
+      "templates",
+    );
+    if (!planAccess.allowed) {
+      return res.status(403).json({ error: "Plan insuficiente" });
     }
     if (!canEdit(role)) {
       return res

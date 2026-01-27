@@ -4,6 +4,7 @@ import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { resolveAuth } from "@/lib/auth";
 import { getFinancePicksAccess } from "@/lib/accessControl";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 const upsertSchema = z.object({
   account_id: z.number().int().positive(),
@@ -39,6 +40,14 @@ export default async function handler(
 
   const auth = await resolveAuth(req);
   if (!auth) return res.status(401).json({ error: "Unauthorized" });
+
+  const planAccess = await ensurePlanFeatureAccess(
+    auth.id_agency,
+    "balances",
+  );
+  if (!planAccess.allowed) {
+    return res.status(403).json({ error: "Plan insuficiente" });
+  }
 
   const { canRead, canWrite } = await getFinancePicksAccess(
     auth.id_agency,

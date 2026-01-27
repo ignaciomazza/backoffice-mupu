@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 import { encodePublicId } from "@/lib/publicIds";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 /** ====== Auth local al endpoint (sin helpers externos) ====== */
 type TokenPayload = JWTPayload & {
@@ -122,6 +123,11 @@ export default async function handler(
     const auth = await getUserFromAuth(req);
     if (!auth?.id_user || !auth.id_agency) {
       return res.status(401).json({ error: "No autenticado o token inválido" });
+    }
+
+    const planAccess = await ensurePlanFeatureAccess(auth.id_agency, "calendar");
+    if (!planAccess.allowed) {
+      return res.status(403).json({ error: "Plan insuficiente" });
     }
 
     const { id_agency } = auth;

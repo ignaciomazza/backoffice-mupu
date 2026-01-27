@@ -26,6 +26,7 @@ type InvestmentsListProps = {
   q: string;
   setQ: Dispatch<SetStateAction<string>>;
   fetchList: () => void | Promise<void>;
+  operatorOnly?: boolean;
   category: string;
   setCategory: Dispatch<SetStateAction<string>>;
   currency: string;
@@ -230,6 +231,7 @@ export default function InvestmentsList({
   q,
   setQ,
   fetchList,
+  operatorOnly = false,
   category,
   setCategory,
   currency,
@@ -302,22 +304,24 @@ export default function InvestmentsList({
             </button>
           </div>
 
-          <select
-            className={filterControlClass}
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            disabled={categoryOptions.length === 0}
-            aria-label="Filtrar por categoría"
-          >
-            <option value="">
-              {categoryOptions.length ? "Categoría (todas)" : "Sin categorías"}
-            </option>
-            {categoryOptions.map((c) => (
-              <option key={c} value={c}>
-                {c}
+          {!operatorOnly && (
+            <select
+              className={filterControlClass}
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              disabled={categoryOptions.length === 0}
+              aria-label="Filtrar por categoría"
+            >
+              <option value="">
+                {categoryOptions.length ? "Categoría (todas)" : "Sin categorías"}
               </option>
-            ))}
-          </select>
+              {categoryOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
 
           <select
             className={filterControlClass}
@@ -387,36 +391,38 @@ export default function InvestmentsList({
             ))}
           </select>
 
-          <div className="flex items-center rounded-2xl border border-white/10 bg-white/60 shadow-sm shadow-sky-950/10 backdrop-blur dark:bg-white/10">
-            {[
-              { key: "all", label: "Todos", badge: counters.total },
-              { key: "only", label: "Operador", badge: counters.op },
-              { key: "others", label: "Otros", badge: counters.others },
-            ].map((opt) => {
-              const active = operadorMode === (opt.key as typeof operadorMode);
-              return (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() =>
-                    setOperadorMode(opt.key as "all" | "only" | "others")
-                  }
-                  className={[
-                    "flex items-center gap-2 rounded-2xl px-4 py-2 text-sm transition-colors",
-                    active
-                      ? "bg-sky-500/15 text-sky-700 dark:text-sky-200"
-                      : "text-sky-950/80 hover:bg-white/60 dark:text-white/80",
-                  ].join(" ")}
-                  title={`Mostrar ${opt.label.toLowerCase()}`}
-                >
-                  <span>{opt.label}</span>
-                  <span className="rounded-full border border-white/10 bg-white/40 px-2 text-xs">
-                    {opt.badge}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          {!operatorOnly && (
+            <div className="flex items-center rounded-2xl border border-white/10 bg-white/60 shadow-sm shadow-sky-950/10 backdrop-blur dark:bg-white/10">
+              {[
+                { key: "all", label: "Todos", badge: counters.total },
+                { key: "only", label: "Operador", badge: counters.op },
+                { key: "others", label: "Otros", badge: counters.others },
+              ].map((opt) => {
+                const active = operadorMode === (opt.key as typeof operadorMode);
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() =>
+                      setOperadorMode(opt.key as "all" | "only" | "others")
+                    }
+                    className={[
+                      "flex items-center gap-2 rounded-2xl px-4 py-2 text-sm transition-colors",
+                      active
+                        ? "bg-sky-500/15 text-sky-700 dark:text-sky-200"
+                        : "text-sky-950/80 hover:bg-white/60 dark:text-white/80",
+                    ].join(" ")}
+                    title={`Mostrar ${opt.label.toLowerCase()}`}
+                  >
+                    <span>{opt.label}</span>
+                    <span className="rounded-full border border-white/10 bg-white/40 px-2 text-xs">
+                      {opt.badge}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           <button
             type="button"

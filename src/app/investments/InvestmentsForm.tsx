@@ -75,6 +75,7 @@ type InvestmentsFormProps = {
   setIsFormOpen: Dispatch<SetStateAction<boolean>>;
   editingId: number | null;
   headerPills: ReactNode;
+  operatorOnly?: boolean;
   onSubmit: (e: FormEvent<HTMLFormElement>) => void | Promise<void>;
   loading: boolean;
   deleteCurrent: () => void;
@@ -127,6 +128,7 @@ export default function InvestmentsForm({
   setIsFormOpen,
   editingId,
   headerPills,
+  operatorOnly = false,
   onSubmit,
   loading,
   deleteCurrent,
@@ -173,6 +175,7 @@ export default function InvestmentsForm({
   isRecurringComision,
   nextRecurringRun,
 }: InvestmentsFormProps) {
+  const allowRecurring = !operatorOnly;
   return (
     <motion.div
       layout
@@ -237,7 +240,9 @@ export default function InvestmentsForm({
               <p className="text-xs opacity-70">
                 {editingId
                   ? "Actualizá la información del gasto."
-                  : "Registrá gastos manuales y automáticos."}
+                  : operatorOnly
+                    ? "Registrá pagos a Operadores."
+                    : "Registrá gastos manuales y automáticos."}
               </p>
             </div>
           </div>
@@ -702,16 +707,17 @@ export default function InvestmentsForm({
               </div>
             </motion.form>
 
-            <div className="px-4 pb-6 md:px-6">
-              <div className="rounded-2xl border border-white/10 bg-white/10 p-4 shadow-sm shadow-sky-950/10">
-                <div className="mb-3">
-                  <h3 className="text-base font-semibold tracking-tight text-sky-950 dark:text-white">
-                    Gasto automático
-                  </h3>
-                  <p className="mt-1 text-xs font-light text-sky-950/70 dark:text-white/70">
-                    Programá gastos recurrentes (ej.: alquiler mensual).
-                  </p>
-                </div>
+            {allowRecurring && (
+              <div className="px-4 pb-6 md:px-6">
+                <div className="rounded-2xl border border-white/10 bg-white/10 p-4 shadow-sm shadow-sky-950/10">
+                  <div className="mb-3">
+                    <h3 className="text-base font-semibold tracking-tight text-sky-950 dark:text-white">
+                      Gasto automático
+                    </h3>
+                    <p className="mt-1 text-xs font-light text-sky-950/70 dark:text-white/70">
+                      Programá gastos recurrentes (ej.: alquiler mensual).
+                    </p>
+                  </div>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <button
@@ -1322,7 +1328,8 @@ export default function InvestmentsForm({
                   )}
                 </div>
               </div>
-            </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

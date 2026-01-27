@@ -33,11 +33,10 @@ export default function OperatorPaymentList({
   const listAbortRef = useRef<AbortController | null>(null);
   const reqIdRef = useRef(0);
 
-  // 🔁 Cambio: usar q=operador (case-insensitive en el back) en lugar de category=OPERADOR
   const queryString = useMemo(() => {
     const qs = new URLSearchParams();
     qs.set("take", "24");
-    qs.set("q", "operador"); // <- match por contains insensible a mayúsculas
+    qs.set("operatorOnly", "1");
     if (operatorId) qs.set("operatorId", String(operatorId));
     if (bookingId) qs.set("bookingId", String(bookingId));
     return qs.toString();
@@ -63,7 +62,7 @@ export default function OperatorPaymentList({
       if (!res.ok) {
         // Fallback por si tu back no soportara bookingId (lo filtramos client-side).
         const onlyCategory = await authFetch(
-          `/api/investments?take=24&q=operador${operatorId ? `&operatorId=${operatorId}` : ""}`,
+          `/api/investments?take=24&operatorOnly=1${operatorId ? `&operatorId=${operatorId}` : ""}`,
           { cache: "no-store", signal: controller.signal, credentials: "omit" },
           token,
         );

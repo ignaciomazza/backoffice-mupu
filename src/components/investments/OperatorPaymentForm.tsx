@@ -56,6 +56,18 @@ const getStr = (o: Record<string, unknown>, k: string): string | undefined => {
   return typeof v === "string" ? v : undefined;
 };
 
+const getBool = (o: Record<string, unknown>, k: string): boolean | undefined => {
+  const v = o[k];
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "true") return true;
+    if (s === "false") return false;
+  }
+  if (typeof v === "number") return v !== 0;
+  return undefined;
+};
+
 const fromKey = (o: unknown, key: string): unknown[] | null => {
   if (!isRecord(o)) return null;
   const rec = o as Record<string, unknown>;
@@ -124,7 +136,12 @@ type FinanceMethod = {
 
 type FinanceCurrency = { code: string; name?: string; enabled?: boolean };
 
-type FinanceCategory = { id_category: number; name: string; enabled?: boolean };
+type FinanceCategory = {
+  id_category: number;
+  name: string;
+  enabled?: boolean;
+  requires_operator?: boolean;
+};
 
 type FinanceConfig = {
   accounts: FinanceAccount[];
@@ -231,12 +248,19 @@ function parseCategories(raw: unknown): FinanceCategory[] {
         : typeof (el as Record<string, unknown>).is_enabled === "boolean"
           ? ((el as Record<string, unknown>).is_enabled as boolean)
           : true;
-    if (id && name) out.push({ id_category: id, name, enabled });
+    const requires_operator =
+      getBool(el as Record<string, unknown>, "requires_operator") ??
+      getBool(el as Record<string, unknown>, "requiresOperator") ??
+      getBool(el as Record<string, unknown>, "needs_operator") ??
+      getBool(el as Record<string, unknown>, "needsOperator") ??
+      false;
+    if (id && name)
+      out.push({ id_category: id, name, enabled, requires_operator });
   }
   return out;
 }
 
-const isOperatorCategory = (name: string) => {
+const isOperatorCategoryLegacy = (name: string) => {
   const n = norm(name);
   return n === "operador" || n.startsWith("operador ");
 };
@@ -296,7 +320,16 @@ export default function OperatorPaymentForm({
         const picks = await loadFinancePicks(token);
         if (ac.signal.aborted) return;
 
-        let categories: FinanceCategory[] | undefined = undefined;
+        const picksCategories: FinanceCategory[] =
+          picks.categories?.map((c) => ({
+            id_category: c.id_category,
+            name: c.name,
+            enabled: c.enabled,
+            requires_operator: c.requires_operator,
+          })) ?? [];
+        let categories: FinanceCategory[] | undefined = picksCategories.length
+          ? picksCategories
+          : undefined;
         try {
           const catsRes = await authFetch(
             "/api/finance/categories",
@@ -328,8 +361,23 @@ export default function OperatorPaymentForm({
     [finance?.categories],
   );
   const operatorCategories = useMemo(
-    () => allCategories.filter((c) => isOperatorCategory(c.name)),
+    () =>
+      allCategories.filter(
+        (c) => c.requires_operator === true || isOperatorCategoryLegacy(c.name),
+      ),
     [allCategories],
+  );
+  const operatorCategorySet = useMemo(
+    () => new Set(operatorCategories.map((c) => norm(c.name))),
+    [operatorCategories],
+  );
+  const isOperatorCategory = useCallback(
+    (name: string) => {
+      const n = norm(name);
+      if (!n) return false;
+      return operatorCategorySet.has(n) || isOperatorCategoryLegacy(name);
+    },
+    [operatorCategorySet],
   );
 
   const paymentMethodOptions = useMemo(
@@ -532,7 +580,7 @@ export default function OperatorPaymentForm({
     return needCredit
       ? uniqSorted([...paymentMethodOptions, CREDIT_METHOD])
       : paymentMethodOptions;
-  }, [paymentMethodOptions, useCredit, category]);
+  }, [paymentMethodOptions, useCredit, category, isOperatorCategory]);
 
   const requiresAccount = useMemo(() => {
     if (!paymentMethod) return false;
@@ -585,7 +633,7 @@ export default function OperatorPaymentForm({
       }
       return pm;
     });
-  }, [category, useCredit]);
+  }, [category, useCredit, isOperatorCategory]);
 
   // Toggle selección con validación operador y moneda homogéneos
   const toggleService = (svc: Service) => {
@@ -935,7 +983,7 @@ export default function OperatorPaymentForm({
         token,
       );
     },
-    [token, booking.id_booking],
+    [token, booking.id_booking, isOperatorCategory],
   );
 
   /* ========= Submit ========= */

@@ -7,6 +7,7 @@ import type { BillingAdjustmentConfig } from "@/types";
 import { jwtVerify, type JWTPayload } from "jose";
 import { getFinanceSectionGrants } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 /* ============ Auth helpers ============ */
 type TokenPayload = JWTPayload & {
@@ -177,6 +178,15 @@ export default async function handler(
 
   const auth = await getAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
+
+  const planAccess = await ensurePlanFeatureAccess(
+    auth.id_agency,
+    "earnings",
+  );
+  if (!planAccess.allowed) {
+    return res.status(403).json({ error: "Plan insuficiente" });
+  }
+
   const financeGrants = await getFinanceSectionGrants(
     auth.id_agency,
     auth.id_user,

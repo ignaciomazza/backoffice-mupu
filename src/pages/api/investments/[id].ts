@@ -12,6 +12,7 @@ import {
   canAccessBookingComponent,
   canAccessFinanceSection,
 } from "@/utils/permissions";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 /** ===== Auth helpers (unificado con otros endpoints) ===== */
 type TokenPayload = JWTPayload & {
@@ -309,7 +310,7 @@ function shouldHaveCreditEntry(payload: {
 function getInvestmentLite(id_investment: number, id_agency: number) {
   return prisma.investment.findFirst({
     where: { id_investment, id_agency },
-    select: { id_investment: true },
+    select: { id_investment: true, category: true, operator_id: true },
   });
 }
 function getInvestmentFull(id_investment: number, id_agency: number) {
@@ -358,6 +359,15 @@ export default async function handler(
     return res.status(403).json({ error: "Sin permisos" });
   }
 
+  const planAccess = await ensurePlanFeatureAccess(
+    auth.id_agency,
+    "investments",
+  );
+  const restrictToOperatorPayments = !planAccess.allowed;
+  if (restrictToOperatorPayments && !canOperatorPayments) {
+    return res.status(403).json({ error: "Plan insuficiente" });
+  }
+
   const idParam = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   const id = safeNumber(idParam);
   if (!id) return res.status(400).json({ error: "ID inválido" });
@@ -367,6 +377,12 @@ export default async function handler(
       const inv = await getInvestmentFull(id, auth.id_agency);
       if (!inv)
         return res.status(404).json({ error: "Inversión no encontrada" });
+      if (
+        restrictToOperatorPayments &&
+        !normSoft(inv.category).startsWith("operador")
+      ) {
+        return res.status(403).json({ error: "Plan insuficiente" });
+      }
       const payload = {
         ...inv,
         booking: inv.booking
@@ -395,6 +411,12 @@ export default async function handler(
       const exists = await getInvestmentLite(id, auth.id_agency);
       if (!exists)
         return res.status(404).json({ error: "Inversión no encontrada" });
+      if (
+        restrictToOperatorPayments &&
+        !normSoft(exists.category).startsWith("operador")
+      ) {
+        return res.status(403).json({ error: "Plan insuficiente" });
+      }
 
       const b = req.body ?? {};
       const category =
@@ -404,6 +426,14 @@ export default async function handler(
       const currency =
         typeof b.currency === "string" ? b.currency.trim() : undefined;
       const amount = safeNumber(b.amount);
+
+      if (
+        restrictToOperatorPayments &&
+        category !== undefined &&
+        !normSoft(category).startsWith("operador")
+      ) {
+        return res.status(403).json({ error: "Plan insuficiente" });
+      }
 
       const paid_at =
         b.paid_at === null
@@ -594,6 +624,12 @@ export default async function handler(
       const exists = await getInvestmentLite(id, auth.id_agency);
       if (!exists)
         return res.status(404).json({ error: "Inversión no encontrada" });
+      if (
+        restrictToOperatorPayments &&
+        !normSoft(exists.category).startsWith("operador")
+      ) {
+        return res.status(403).json({ error: "Plan insuficiente" });
+      }
 
       await prisma.$transaction(async (tx) => {
         // 1) Borrar entries de CC vinculados y revertir sus efectos en el balance

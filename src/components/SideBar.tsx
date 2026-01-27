@@ -3,6 +3,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { canAccessRouteByPlan } from "@/lib/planAccess";
+import type { PlanKey } from "@/lib/billing/pricing";
 import {
   FINANCE_SECTIONS,
   normalizeFinanceSectionRules,
@@ -92,6 +94,8 @@ export default function SideBar({
   const [financeSections, setFinanceSections] = useState<FinanceSectionKey[]>(
     [],
   );
+  const [planKey, setPlanKey] = useState<PlanKey | null>(null);
+  const [hasPlan, setHasPlan] = useState(false);
 
   // Para abortar si desmonta mientras pedimos el rol
   const fetchingRef = useRef(false);
@@ -155,6 +159,39 @@ export default function SideBar({
     };
   }, [mounted]);
 
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/agency/plan", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (!res.ok) {
+          if (alive) {
+            setHasPlan(false);
+            setPlanKey(null);
+          }
+          return;
+        }
+        const data = (await res.json()) as {
+          has_plan?: boolean;
+          plan_key?: PlanKey | null;
+        };
+        if (!alive) return;
+        setHasPlan(Boolean(data?.has_plan));
+        setPlanKey(data?.plan_key ?? null);
+      } catch {
+        if (!alive) return;
+        setHasPlan(false);
+        setPlanKey(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // =========================
   // ACL por ruta (más simple)
   // =========================
@@ -214,12 +251,13 @@ export default function SideBar({
   const hasAccess = useCallback(
     (route: string): boolean => {
       if (!role) return false;
+      if (!canAccessRouteByPlan(planKey, hasPlan, route)) return false;
       const allow = routeAccess[route];
       if (!allow) return true;
       if (allow.includes(role)) return true;
       return extraRoutes.has(route);
     },
-    [extraRoutes, role, routeAccess],
+    [extraRoutes, hasPlan, planKey, role, routeAccess],
   );
 
   // Activo: exacto o subrutas (e.g., /earnings/my o /bookings/123)
@@ -250,7 +288,9 @@ export default function SideBar({
         title: "Pasajeros",
         items: [
           { href: "/clients", label: "Pasajeros" },
-          { href: "/client-stats", label: "Estadísticas" },
+          hasAccess("/client-stats")
+            ? { href: "/client-stats", label: "Estadísticas" }
+            : null,
           hasAccess("/clients/config")
             ? { href: "/clients/config", label: "Configuración" }
             : null,
@@ -310,10 +350,16 @@ export default function SideBar({
         id: "recursos",
         title: "Recursos",
         items: [
-          { href: "/resources", label: "Recursos" },
-          { href: "/calendar", label: "Calendario" },
-          { href: "/templates", label: "Templates" },
-        ],
+          hasAccess("/resources")
+            ? { href: "/resources", label: "Recursos" }
+            : null,
+          hasAccess("/calendar")
+            ? { href: "/calendar", label: "Calendario" }
+            : null,
+          hasAccess("/templates")
+            ? { href: "/templates", label: "Templates" }
+            : null,
+        ].filter(Boolean) as { href: string; label: string }[],
       },
       {
         id: "agencia",

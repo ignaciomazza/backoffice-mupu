@@ -11,6 +11,7 @@ import {
   ruleHasRestrictions,
 } from "@/utils/receiptVerification";
 import { canAccessFinanceSection } from "@/utils/permissions";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -122,6 +123,14 @@ export default async function handler(
 
   if (!authUserId || !authAgencyId) {
     return res.status(401).json({ error: "No autenticado" });
+  }
+
+  const planAccess = await ensurePlanFeatureAccess(
+    authAgencyId,
+    "receipts_verify",
+  );
+  if (!planAccess.allowed) {
+    return res.status(403).json({ error: "Plan insuficiente" });
   }
 
   const financeGrants = await getFinanceSectionGrants(

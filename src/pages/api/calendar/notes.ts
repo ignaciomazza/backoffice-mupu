@@ -2,6 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { resolveAuth } from "@/lib/auth";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 export default async function handler(
   req: NextApiRequest,
@@ -12,6 +13,15 @@ export default async function handler(
     if (!auth?.id_agency) {
       return res.status(401).json({ error: "No autorizado" });
     }
+
+    const planAccess = await ensurePlanFeatureAccess(
+      auth.id_agency,
+      "calendar",
+    );
+    if (!planAccess.allowed) {
+      return res.status(403).json({ error: "Plan insuficiente" });
+    }
+
     const { id_user, role } = auth;
 
     if (!["gerente", "administrativo", "desarrollador"].includes(role)) {

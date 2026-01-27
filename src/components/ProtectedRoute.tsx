@@ -12,6 +12,8 @@ import {
   normalizeRole,
   type FinanceSectionKey,
 } from "@/utils/permissions";
+import { canAccessRouteByPlan } from "@/lib/planAccess";
+import type { PlanKey } from "@/lib/billing/pricing";
 
 const DBG =
   typeof window !== "undefined" && process.env.NEXT_PUBLIC_DEBUG_AUTH === "1";
@@ -90,6 +92,9 @@ export default function ProtectedRoute({
     [],
   );
   const [financeReady, setFinanceReady] = useState(false);
+  const [planKey, setPlanKey] = useState<PlanKey | null>(null);
+  const [hasPlan, setHasPlan] = useState(false);
+  const [planReady, setPlanReady] = useState(false);
 
   useEffect(() => {
     if (loading || !token) return;
@@ -133,6 +138,45 @@ export default function ProtectedRoute({
 
     fetchRole();
   }, [loading, token, router, setToken]);
+
+  useEffect(() => {
+    if (loading || !token) return;
+    let alive = true;
+    setPlanReady(false);
+
+    (async () => {
+      try {
+        const res = await fetch("/api/agency/plan", {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (!res.ok) {
+          if (alive) {
+            setHasPlan(false);
+            setPlanKey(null);
+          }
+          return;
+        }
+        const data = (await res.json()) as {
+          has_plan?: boolean;
+          plan_key?: PlanKey | null;
+        };
+        if (!alive) return;
+        setHasPlan(Boolean(data?.has_plan));
+        setPlanKey(data?.plan_key ?? null);
+      } catch {
+        if (!alive) return;
+        setHasPlan(false);
+        setPlanKey(null);
+      } finally {
+        if (alive) setPlanReady(true);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [loading, token]);
 
   useEffect(() => {
     if (!token || !financeKey) return;
@@ -201,6 +245,18 @@ export default function ProtectedRoute({
           router.push("/profile");
         }
       }
+
+      if (planReady) {
+        const canAccessPlan = canAccessRouteByPlan(
+          planKey,
+          hasPlan,
+          pathname,
+        );
+        if (!canAccessPlan) {
+          dlog("plan not allowed -> push /profile");
+          router.push("/profile");
+        }
+      }
     } else {
       dlog("no role yet, waiting…");
     }
@@ -213,6 +269,9 @@ export default function ProtectedRoute({
     financeKey,
     financeReady,
     financeSections,
+    hasPlan,
+    planKey,
+    planReady,
   ]);
 
   const handleModalAccept = () => {

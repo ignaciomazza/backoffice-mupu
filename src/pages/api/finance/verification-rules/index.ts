@@ -9,6 +9,7 @@ import {
 import { resolveAuth } from "@/lib/auth";
 import { getFinanceSectionGrants } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 export default async function handler(
   req: NextApiRequest,
@@ -21,6 +22,15 @@ export default async function handler(
   if (!auth?.id_agency || !auth.id_user) {
     return res.status(401).json({ error: "Unauthorized" });
   }
+
+  const planAccess = await ensurePlanFeatureAccess(
+    auth.id_agency,
+    "receipts_verify",
+  );
+  if (!planAccess.allowed) {
+    return res.status(403).json({ error: "Plan insuficiente" });
+  }
+
   const financeGrants = await getFinanceSectionGrants(
     auth.id_agency,
     auth.id_user,

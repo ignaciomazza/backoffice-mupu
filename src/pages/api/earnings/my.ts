@@ -208,6 +208,7 @@ export default async function handler(
 
   const auth = await getAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
+
   const financeGrants = await getFinanceSectionGrants(
     auth.id_agency,
     auth.id_user,

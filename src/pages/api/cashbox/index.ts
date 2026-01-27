@@ -5,6 +5,7 @@ import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 import { getFinanceSectionGrants } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 /* =========================================================
  * Tipos de dominio para Cashbox
@@ -913,6 +914,13 @@ export default async function handler(
   try {
     // 1) Auth (unificado con /api/bookings)
     const auth = await getAuth(req);
+    const planAccess = await ensurePlanFeatureAccess(
+      auth.id_agency,
+      "cashbox",
+    );
+    if (!planAccess.allowed) {
+      throw new HttpError(403, "Plan insuficiente.");
+    }
     const financeGrants = await getFinanceSectionGrants(
       auth.id_agency,
       auth.id_user,

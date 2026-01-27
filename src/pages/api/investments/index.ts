@@ -13,6 +13,7 @@ import {
   canAccessBookingComponent,
   canAccessFinanceSection,
 } from "@/utils/permissions";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -137,6 +138,35 @@ const normSoft = (s?: string | null) =>
     .trim()
     .toLowerCase();
 
+async function getOperatorCategoryNames(
+  agencyId: number,
+): Promise<string[]> {
+  const rows = await prisma.expenseCategory.findMany({
+    where: { id_agency: agencyId, requires_operator: true },
+    select: { name: true },
+  });
+  return rows.map((r) => r.name).filter((n) => typeof n === "string");
+}
+
+function buildOperatorCategorySet(names: string[]): Set<string> {
+  const set = new Set<string>();
+  for (const name of names) {
+    const n = normSoft(name);
+    if (n) set.add(n);
+  }
+  return set;
+}
+
+function isOperatorCategoryName(
+  name: string,
+  operatorCategorySet?: Set<string>,
+) {
+  const n = normSoft(name);
+  if (!n) return false;
+  if (n.startsWith("operador")) return true;
+  return operatorCategorySet ? operatorCategorySet.has(n) : false;
+}
+
 const DOC_SIGN: Record<string, number> = { investment: -1, receipt: 1 };
 const normDoc = (s?: string | null) => (s || "").trim().toLowerCase();
 const signForDocType = (dt?: string | null) => DOC_SIGN[normDoc(dt)] ?? 1;
@@ -247,13 +277,16 @@ async function createCreditEntryForInvestment(
   return entry;
 }
 
-function shouldHaveCreditEntry(payload: {
-  category?: string | null;
-  operator_id?: number | null;
-  payment_method?: string | null;
-}) {
+function shouldHaveCreditEntry(
+  payload: {
+    category?: string | null;
+    operator_id?: number | null;
+    payment_method?: string | null;
+  },
+  operatorCategorySet?: Set<string>,
+) {
   return (
-    normSoft(payload.category) === "operador" &&
+    isOperatorCategoryName(payload.category || "", operatorCategorySet) &&
     !!payload.operator_id &&
     (payload.payment_method || "") === CREDIT_METHOD
   );
@@ -292,7 +325,10 @@ function computeFirstDue(
   return due;
 }
 
-async function ensureRecurringInvestments(auth: DecodedAuth) {
+async function ensureRecurringInvestments(
+  auth: DecodedAuth,
+  operatorCategorySet?: Set<string>,
+) {
   const rules = await prisma.recurringInvestment.findMany({
     where: { id_agency: auth.id_agency, active: true },
   });
@@ -368,11 +404,14 @@ async function ensureRecurringInvestments(auth: DecodedAuth) {
           });
 
           if (
-            shouldHaveCreditEntry({
-              category: created.category,
-              operator_id: created.operator_id ?? undefined,
-              payment_method: created.payment_method ?? undefined,
-            })
+            shouldHaveCreditEntry(
+              {
+                category: created.category,
+                operator_id: created.operator_id ?? undefined,
+                payment_method: created.payment_method ?? undefined,
+              },
+              operatorCategorySet,
+            )
           ) {
             if (created.operator_id) {
               await createCreditEntryForInvestment(
@@ -435,11 +474,31 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     return res.status(403).json({ error: "Sin permisos" });
   }
 
+  const planAccess = await ensurePlanFeatureAccess(
+    auth.id_agency,
+    "investments",
+  );
+  const restrictToOperatorPayments = !planAccess.allowed;
+  if (restrictToOperatorPayments && !canOperatorPayments) {
+    return res.status(403).json({ error: "Plan insuficiente" });
+  }
+
   try {
-    try {
-      await ensureRecurringInvestments(auth);
-    } catch (e) {
-      console.error("[investments][recurring][sync]", e);
+    let operatorCategoryNames: string[] = [];
+    let operatorCategorySet: Set<string> | undefined;
+    const loadOperatorCategories = async () => {
+      if (operatorCategorySet) return;
+      operatorCategoryNames = await getOperatorCategoryNames(auth.id_agency);
+      operatorCategorySet = buildOperatorCategorySet(operatorCategoryNames);
+    };
+
+    if (!restrictToOperatorPayments && canInvestments) {
+      try {
+        await loadOperatorCategories();
+        await ensureRecurringInvestments(auth, operatorCategorySet);
+      } catch (e) {
+        console.error("[investments][recurring][sync]", e);
+      }
     }
 
     const takeParam = safeNumber(
@@ -499,10 +558,32 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     );
 
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const operatorOnlyRaw = Array.isArray(req.query.operatorOnly)
+      ? req.query.operatorOnly[0]
+      : req.query.operatorOnly;
+    const operatorOnly =
+      typeof operatorOnlyRaw === "string" &&
+      (operatorOnlyRaw === "1" || operatorOnlyRaw.toLowerCase() === "true");
+
+    if (restrictToOperatorPayments || operatorOnly) {
+      await loadOperatorCategories();
+    }
+
+    const categoryIsOperator = category
+      ? isOperatorCategoryName(category, operatorCategorySet)
+      : false;
+
+    if (restrictToOperatorPayments && category && !categoryIsOperator) {
+      return res.status(403).json({ error: "Plan insuficiente" });
+    }
+    if (operatorOnly && category && !categoryIsOperator) {
+      return res
+        .status(400)
+        .json({ error: "La categoría no corresponde a operador" });
+    }
 
     const where: Prisma.InvestmentWhereInput = {
       id_agency: auth.id_agency,
-      ...(category ? { category } : {}),
       ...(currency ? { currency } : {}),
       ...(paymentMethod ? { payment_method: paymentMethod } : {}),
       ...(account ? { account } : {}),
@@ -510,6 +591,19 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       ...(userId ? { user_id: userId } : {}),
       ...(bookingId ? { booking_id: bookingId } : {}), // 👈 NUEVO
     };
+
+    const andFilters: Prisma.InvestmentWhereInput[] = [];
+    if (category) {
+      where.category = category;
+    } else if (restrictToOperatorPayments || operatorOnly) {
+      const operatorOr: Prisma.InvestmentWhereInput[] = [
+        { category: { startsWith: "operador", mode: "insensitive" } },
+        ...(operatorCategoryNames.length
+          ? [{ category: { in: operatorCategoryNames } }]
+          : []),
+      ];
+      andFilters.push({ OR: operatorOr });
+    }
 
     if (createdFrom || createdTo) {
       where.created_at = {
@@ -573,11 +667,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (q) {
-      const prev = Array.isArray(where.AND)
-        ? where.AND
-        : where.AND
-          ? [where.AND]
-          : [];
       const qNum = Number(q);
       const or: Prisma.InvestmentWhereInput[] = [
         ...(Number.isFinite(qNum) ? [{ id_investment: qNum }] : []),
@@ -599,7 +688,10 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         },
         { operator: { is: { name: { contains: q, mode: "insensitive" } } } },
       ];
-      where.AND = [...prev, { OR: or }];
+      andFilters.push({ OR: or });
+    }
+    if (andFilters.length) {
+      where.AND = andFilters;
     }
 
     const items = await prisma.investment.findMany({
@@ -674,6 +766,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
+    const planAccess = await ensurePlanFeatureAccess(
+      auth.id_agency,
+      "investments",
+    );
+    const restrictToOperatorPayments = !planAccess.allowed;
+    if (restrictToOperatorPayments && !canOperatorPayments) {
+      return res.status(403).json({ error: "Plan insuficiente" });
+    }
+
     const b = req.body ?? {};
     const category = String(b.category ?? "").trim(); // requerido
     const description = String(b.description ?? "").trim(); // requerido
@@ -683,6 +784,17 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return res.status(400).json({
         error: "category, description, currency y amount son obligatorios",
       });
+    }
+    const operatorCategoryNames = await getOperatorCategoryNames(auth.id_agency);
+    const operatorCategorySet = buildOperatorCategorySet(
+      operatorCategoryNames,
+    );
+    const categoryIsOperator = isOperatorCategoryName(
+      category,
+      operatorCategorySet,
+    );
+    if (restrictToOperatorPayments && !categoryIsOperator) {
+      return res.status(403).json({ error: "Plan insuficiente" });
     }
 
     const paid_at = b.paid_at ? toLocalDate(b.paid_at) : undefined;
@@ -718,10 +830,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         : undefined;
 
     // Reglas según categoría
-    if (category.toLowerCase() === "operador" && !operator_id) {
+    if (categoryIsOperator && !operator_id) {
       return res
         .status(400)
-        .json({ error: "Para categoría Operador, operator_id es obligatorio" });
+        .json({
+          error: "Para categorías de Operador, operator_id es obligatorio",
+        });
     }
     if (["sueldo", "comision"].includes(category.toLowerCase()) && !user_id) {
       return res
