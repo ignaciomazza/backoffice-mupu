@@ -7,6 +7,8 @@ import Spinner from "@/components/Spinner";
 import DestinationPicker, {
   DestinationOption,
 } from "@/components/DestinationPicker";
+import type { ClientCustomField } from "@/types";
+import { DEFAULT_REQUIRED_FIELDS, DOCUMENT_ANY_KEY } from "@/utils/clientConfig";
 
 export interface ClientFormData {
   first_name: string;
@@ -24,6 +26,7 @@ export interface ClientFormData {
   nationality?: string;
   gender?: string;
   email?: string;
+  custom_fields?: Record<string, string>;
 }
 
 interface ClientFormProps {
@@ -31,10 +34,13 @@ interface ClientFormProps {
   handleChange: (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => void;
+  handleCustomFieldChange?: (key: string, value: string) => void;
   handleSubmit: (e: React.FormEvent) => void | Promise<void>;
   editingClientId: number | null;
   isFormVisible: boolean;
   setIsFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
+  requiredFields?: string[];
+  customFields?: ClientCustomField[];
 }
 
 /* ========== UI primitives (mismo lenguaje visual que ServiceForm) ========== */
@@ -99,10 +105,13 @@ const Field: React.FC<{
 export default function ClientForm({
   formData,
   handleChange,
+  handleCustomFieldChange,
   handleSubmit,
   editingClientId,
   isFormVisible,
   setIsFormVisible,
+  requiredFields,
+  customFields = [],
 }: ClientFormProps) {
   /* ---------- formateo de fecha (idéntico al tuyo) ---------- */
   const formatIsoToDisplay = (iso: string): string => {
@@ -163,6 +172,48 @@ export default function ClientForm({
     handleChange(event);
   };
 
+  const updateCustomField = (key: string, value: string) => {
+    if (handleCustomFieldChange) {
+      handleCustomFieldChange(key, value);
+    }
+  };
+
+  const handleCustomDateChange =
+    (key: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
+      const digits = e.target.value.replace(/\D/g, "");
+      let formatted = "";
+      if (digits.length > 0) {
+        formatted += digits.substring(0, 2);
+        if (digits.length >= 3) {
+          formatted += "/" + digits.substring(2, 4);
+          if (digits.length >= 5) {
+            formatted += "/" + digits.substring(4, 8);
+          }
+        }
+      }
+      updateCustomField(key, formatted);
+    };
+
+  const handleCustomDatePaste =
+    (key: string) => (e: React.ClipboardEvent<HTMLInputElement>) => {
+      const pasteData = e.clipboardData.getData("text");
+      const digits = pasteData.replace(/\D/g, "");
+      if (digits.length === 8) {
+        const day = digits.slice(0, 2);
+        const month = digits.slice(2, 4);
+        const year = digits.slice(4, 8);
+        const formatted = `${day}/${month}/${year}`;
+        e.preventDefault();
+        updateCustomField(key, formatted);
+      }
+    };
+
+  const handleCustomDateBlur =
+    (key: string) => (e: React.FocusEvent<HTMLInputElement>) => {
+      const iso = formatDisplayToIso(e.target.value);
+      updateCustomField(key, iso);
+    };
+
   /* ---------- Nacionalidad usando DestinationPicker (modo país) ---------- */
   const handleNationalitySelect = (
     val: DestinationOption | DestinationOption[] | null,
@@ -179,16 +230,13 @@ export default function ClientForm({
 
   /* ---------- lógica de requeridos ---------- */
   // Campos marcados con el punto rojo
-  const requiredFields = [
-    "first_name",
-    "last_name",
-    "phone",
-    "birth_date",
-    "nationality",
-    "gender",
-  ];
+  const baseRequiredFields =
+    requiredFields && requiredFields.length > 0
+      ? requiredFields
+      : DEFAULT_REQUIRED_FIELDS;
 
-  const isRequired = (fieldName: string) => requiredFields.includes(fieldName);
+  const isRequired = (fieldName: string) =>
+    baseRequiredFields.includes(fieldName);
 
   const isFilled = (val: unknown) => (val ?? "").toString().trim().length > 0;
 
@@ -196,8 +244,20 @@ export default function ClientForm({
     isFilled(formData[fieldName]);
 
   // chequear si TODOS los marcados con el puntito rojo están completos
-  const requiredFilled = requiredFields.every((f) =>
-    fieldIsFilled(f as keyof ClientFormData),
+  const requiredFilled = baseRequiredFields.every((f) =>
+    f === DOCUMENT_ANY_KEY ? true : fieldIsFilled(f as keyof ClientFormData),
+  );
+
+  const requiredCustomKeys = useMemo(
+    () => customFields.filter((f) => f.required).map((f) => f.key),
+    [customFields],
+  );
+
+  const customFieldIsFilled = (key: string) =>
+    isFilled(formData.custom_fields?.[key]);
+
+  const customRequiredFilled = requiredCustomKeys.every((key) =>
+    customFieldIsFilled(key),
   );
 
   // chequear si tenemos documento para identificar al pasajero / facturar:
@@ -210,7 +270,9 @@ export default function ClientForm({
   }, [formData.dni_number, formData.passport_number, formData.tax_id]);
 
   // estado final para habilitar el submit
-  const formReady = requiredFilled && hasDoc;
+  const docRequired = baseRequiredFields.includes(DOCUMENT_ANY_KEY);
+  const formReady =
+    requiredFilled && customRequiredFilled && (docRequired ? hasDoc : true);
 
   /* ---------- clases dinámicas de input ---------- */
   const inputClass = (fieldName: keyof ClientFormData) => {
@@ -223,6 +285,71 @@ export default function ClientForm({
       return base + alertBorder;
     }
     return base + okBorder;
+  };
+
+  const customInputClass = (field: ClientCustomField) => {
+    const base =
+      "w-full rounded-2xl border bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10 dark:text-white";
+    const okBorder = " border-white/10 dark:border-white/10";
+    const alertBorder = " border-red-500/60 dark:border-red-500/60";
+    if (field.required && !customFieldIsFilled(field.key)) {
+      return base + alertBorder;
+    }
+    return base + okBorder;
+  };
+
+  const customValue = (key: string) => formData.custom_fields?.[key] || "";
+
+  const renderCustomField = (field: ClientCustomField) => {
+    const value = customValue(field.key);
+    const hint = field.help || (field.type === "date" ? "dd/mm/aaaa" : "");
+
+    if (field.type === "date") {
+      return (
+        <Field
+          key={field.key}
+          id={`custom_${field.key}`}
+          label={field.label}
+          hint={hint || undefined}
+          required={field.required}
+        >
+          <input
+            id={`custom_${field.key}`}
+            type="text"
+            name={`custom_${field.key}`}
+            value={formatIsoToDisplay(value)}
+            onChange={handleCustomDateChange(field.key)}
+            onPaste={handleCustomDatePaste(field.key)}
+            onBlur={handleCustomDateBlur(field.key)}
+            inputMode="numeric"
+            placeholder={field.placeholder || "dd/mm/aaaa"}
+            required={field.required}
+            className={customInputClass(field)}
+          />
+        </Field>
+      );
+    }
+
+    return (
+      <Field
+        key={field.key}
+        id={`custom_${field.key}`}
+        label={field.label}
+        hint={field.help}
+        required={field.required}
+      >
+        <input
+          id={`custom_${field.key}`}
+          type={field.type === "number" ? "number" : "text"}
+          name={`custom_${field.key}`}
+          value={value}
+          onChange={(e) => updateCustomField(field.key, e.target.value)}
+          placeholder={field.placeholder}
+          required={field.required}
+          className={customInputClass(field)}
+        />
+      </Field>
+    );
   };
 
   /* ---------- submit con spinner / disable ---------- */
@@ -238,6 +365,19 @@ export default function ClientForm({
   };
 
   const submitDisabled = submitting || !formReady;
+
+  const { dniExpirationField, passportExpirationField, extraCustomFields } =
+    useMemo(() => {
+      const byKey = new Map(customFields.map((f) => [f.key, f]));
+      return {
+        dniExpirationField: byKey.get("dni_expiration") || null,
+        passportExpirationField: byKey.get("passport_expiration") || null,
+        extraCustomFields: customFields.filter(
+          (f) =>
+            f.key !== "dni_expiration" && f.key !== "passport_expiration",
+        ),
+      };
+    }, [customFields]);
 
   /* =========================================================
    * RENDER
@@ -446,7 +586,11 @@ export default function ClientForm({
               {/* DOCUMENTACIÓN DE VIAJE / IDENTIFICACIÓN */}
               <Section
                 title="Documentación de viaje"
-                desc="Tenés que cargar al menos uno: Documento / CI / DNI, Pasaporte o CUIT / RUT."
+                desc={
+                  docRequired
+                    ? "Tenés que cargar al menos uno: Documento / CI / DNI, Pasaporte o CUIT / RUT."
+                    : undefined
+                }
               >
                 <Field id="dni_number" label="Documento / CI / DNI">
                   <input
@@ -460,6 +604,8 @@ export default function ClientForm({
                   />
                 </Field>
 
+                {dniExpirationField ? renderCustomField(dniExpirationField) : null}
+
                 <Field id="passport_number" label="Pasaporte">
                   <input
                     id="passport_number"
@@ -471,6 +617,10 @@ export default function ClientForm({
                     className={inputClass("passport_number")}
                   />
                 </Field>
+
+                {passportExpirationField
+                  ? renderCustomField(passportExpirationField)
+                  : null}
               </Section>
 
               {/* FACTURACIÓN */}
@@ -588,6 +738,15 @@ export default function ClientForm({
                   />
                 </Field>
               </Section>
+
+              {extraCustomFields.length > 0 && (
+                <Section
+                  title="Campos personalizados"
+                  desc="Campos definidos por tu agencia."
+                >
+                  {extraCustomFields.map((field) => renderCustomField(field))}
+                </Section>
+              )}
 
               {/* ACTION BAR */}
               <div className="sticky bottom-2 z-10 flex justify-end">

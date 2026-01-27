@@ -1,12 +1,18 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
-import { Client } from "@/types";
+import { Client, ClientCustomField } from "@/types";
 import { authFetch } from "@/utils/authFetch";
+import {
+  DEFAULT_REQUIRED_FIELDS,
+  DOCUMENT_ANY_KEY,
+} from "@/utils/clientConfig";
 
-type ColumnKey =
+const CUSTOM_COLUMN_PREFIX = "custom:";
+
+type BaseColumnKey =
   | "client_number"
   | "first_name"
   | "last_name"
@@ -26,10 +32,16 @@ type ColumnKey =
   | "id_client"
   | "registration_date";
 
-type EditableKey = Exclude<
-  ColumnKey,
+type CustomColumnKey = `${typeof CUSTOM_COLUMN_PREFIX}${string}`;
+
+type ColumnKey = BaseColumnKey | CustomColumnKey;
+
+type BaseEditableKey = Exclude<
+  BaseColumnKey,
   "client_number" | "id_client" | "registration_date"
 >;
+
+type EditableKey = BaseEditableKey | CustomColumnKey;
 
 type ColumnDef = {
   key: ColumnKey;
@@ -50,6 +62,8 @@ type ClientTableProps = {
   onLoadMore: () => void;
   loadingMore: boolean;
   onClientsUpdated: (updates: Client[]) => void;
+  requiredFields?: string[];
+  customFields?: ClientCustomField[];
 };
 
 const GENDER_OPTIONS = ["Masculino", "Femenino", "No Binario"] as const;
@@ -90,7 +104,7 @@ const COLUMN_DEFS: ColumnDef[] = [
   },
 ];
 
-const FIELD_LABELS: Record<EditableKey, string> = {
+const BASE_FIELD_LABELS: Record<BaseEditableKey, string> = {
   first_name: "Nombre",
   last_name: "Apellido",
   gender: "Género",
@@ -121,6 +135,15 @@ const ICON_BTN =
 const PRIMARY_BTN =
   "rounded-3xl bg-emerald-500/20 px-3 py-1.5 text-sm text-emerald-900 hover:text-emerald-900 dark:text-emerald-200 shadow-sm shadow-emerald-900/10 hover:bg-emerald-500/30 border border-emerald-500/30 active:scale-[.99] transition";
 
+const isCustomColumn = (key: ColumnKey): key is CustomColumnKey =>
+  key.startsWith(CUSTOM_COLUMN_PREFIX);
+
+const toCustomColumnKey = (key: string): CustomColumnKey =>
+  `${CUSTOM_COLUMN_PREFIX}${key}`;
+
+const fromCustomColumnKey = (key: CustomColumnKey) =>
+  key.slice(CUSTOM_COLUMN_PREFIX.length);
+
 function toDateInputValue(value?: string): string {
   if (!value) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
@@ -139,11 +162,12 @@ function formatDateDisplay(value?: string): string {
 }
 
 function normalizeCompareValue(field: EditableKey, value: string): string {
+  if (isCustomColumn(field)) return value.trim();
   if (field === "birth_date") return toDateInputValue(value);
   return value.trim();
 }
 
-function getClientFieldValue(client: Client, field: EditableKey): string {
+function getClientFieldValue(client: Client, field: BaseEditableKey): string {
   switch (field) {
     case "first_name":
       return client.first_name || "";
@@ -204,25 +228,47 @@ function buildPayload(
     nationality: client.nationality || "",
     gender: client.gender || "",
     email: client.email || "",
+    custom_fields: client.custom_fields || {},
   };
-  const merged = { ...base, ...draft };
-  return { ...merged, birth_date: toDateInputValue(merged.birth_date) };
+  const baseDraft: Partial<Record<BaseEditableKey, string>> = {};
+  const customDraft: Record<string, string> = {};
+  Object.entries(draft || {}).forEach(([key, value]) => {
+    const typedKey = key as EditableKey;
+    if (isCustomColumn(typedKey)) {
+      customDraft[fromCustomColumnKey(typedKey)] = value ?? "";
+    } else {
+      baseDraft[typedKey as BaseEditableKey] = value ?? "";
+    }
+  });
+  const mergedBase = { ...base, ...baseDraft };
+  const mergedCustom = {
+    ...(base.custom_fields || {}),
+    ...customDraft,
+  };
+  return {
+    ...mergedBase,
+    birth_date: toDateInputValue(mergedBase.birth_date),
+    custom_fields: mergedCustom,
+  };
 }
 
-function validatePayload(payload: ReturnType<typeof buildPayload>) {
+function validatePayload(
+  payload: ReturnType<typeof buildPayload>,
+  requiredFields: string[],
+  requiredCustomKeys: string[],
+) {
   const fieldErrors: Partial<Record<EditableKey, string>> = {};
-  const required: EditableKey[] = [
-    "first_name",
-    "last_name",
-    "phone",
-    "birth_date",
-    "nationality",
-    "gender",
-  ];
+  const isFilled = (val: unknown) =>
+    String(val ?? "")
+      .trim()
+      .length > 0;
 
-  required.forEach((field) => {
-    if (!String(payload[field] || "").trim()) {
-      fieldErrors[field] = "Requerido";
+  requiredFields.forEach((field) => {
+    if (field === DOCUMENT_ANY_KEY) return;
+    if (!isFilled((payload as Record<string, unknown>)[field])) {
+      if (field in payload) {
+        fieldErrors[field as EditableKey] = "Requerido";
+      }
     }
   });
 
@@ -233,19 +279,36 @@ function validatePayload(payload: ReturnType<typeof buildPayload>) {
     fieldErrors.gender = "Género inválido";
   }
 
-  if (payload.birth_date && !/^\d{4}-\d{2}-\d{2}$/.test(payload.birth_date)) {
+  if (
+    payload.birth_date &&
+    !/^\d{4}-\d{2}-\d{2}$/.test(payload.birth_date)
+  ) {
     fieldErrors.birth_date = "Fecha inválida";
   }
 
+  const docRequired = requiredFields.includes(DOCUMENT_ANY_KEY);
   const hasDoc =
     String(payload.dni_number || "").trim() ||
-    String(payload.passport_number || "").trim();
-  if (!hasDoc) {
-    fieldErrors.dni_number = "DNI o Pasaporte requerido";
-    fieldErrors.passport_number = "DNI o Pasaporte requerido";
+    String(payload.passport_number || "").trim() ||
+    String(payload.tax_id || "").trim();
+  if (docRequired && !hasDoc) {
+    fieldErrors.dni_number = "DNI, Pasaporte o CUIT requerido";
+    fieldErrors.passport_number = "DNI, Pasaporte o CUIT requerido";
+    fieldErrors.tax_id = "DNI, Pasaporte o CUIT requerido";
   }
 
-  return { ok: Object.keys(fieldErrors).length === 0, fieldErrors };
+  const customFilled = (payload.custom_fields || {}) as Record<string, string>;
+  const missingCustomKeys = requiredCustomKeys.filter(
+    (key) => !isFilled(customFilled[key]),
+  );
+  missingCustomKeys.forEach((key) => {
+    fieldErrors[toCustomColumnKey(key)] = "Requerido";
+  });
+
+  const ok =
+    Object.keys(fieldErrors).length === 0 && missingCustomKeys.length === 0;
+
+  return { ok, fieldErrors, missingCustomKeys };
 }
 
 export default function ClientTable({
@@ -256,7 +319,36 @@ export default function ClientTable({
   onLoadMore,
   loadingMore,
   onClientsUpdated,
+  requiredFields,
+  customFields = [],
 }: ClientTableProps) {
+  const baseRequiredFields = useMemo(
+    () =>
+      requiredFields && requiredFields.length > 0
+        ? requiredFields
+        : DEFAULT_REQUIRED_FIELDS,
+    [requiredFields],
+  );
+  const requiredCustomKeys = useMemo(
+    () => customFields.filter((f) => f.required).map((f) => f.key),
+    [customFields],
+  );
+  const customFieldMap = useMemo(
+    () => new Map(customFields.map((field) => [field.key, field])),
+    [customFields],
+  );
+  const customColumnDefs = useMemo<ColumnDef[]>(
+    () =>
+      customFields.map((field) => ({
+        key: toCustomColumnKey(field.key),
+        label: field.label,
+      })),
+    [customFields],
+  );
+  const allColumnDefs = useMemo(
+    () => [...COLUMN_DEFS, ...customColumnDefs],
+    [customColumnDefs],
+  );
   const [visibleKeys, setVisibleKeys] = useState<ColumnKey[]>(DEFAULT_VISIBLE);
   const [columnPickerOpen, setColumnPickerOpen] = useState(false);
   const [drafts, setDrafts] = useState<Drafts>({});
@@ -273,6 +365,70 @@ export default function ClientTable({
     [clients],
   );
 
+  const ensureCustomColumnsVisible = useCallback(
+    (keys: string[]) => {
+      if (keys.length === 0) return;
+      setVisibleKeys((prev) => {
+        const next = new Set(prev);
+        keys.forEach((key) => next.add(toCustomColumnKey(key)));
+        const order = allColumnDefs.map((c) => c.key);
+        return order.filter((k) => next.has(k));
+      });
+    },
+    [allColumnDefs],
+  );
+
+  const getFieldValue = useCallback(
+    (client: Client, field: EditableKey) => {
+      if (isCustomColumn(field)) {
+        const key = fromCustomColumnKey(field);
+        return client.custom_fields?.[key] ?? "";
+      }
+      return getClientFieldValue(client, field as BaseEditableKey);
+    },
+    [],
+  );
+
+  const normalizeValue = useCallback(
+    (field: EditableKey, value: string) => {
+      if (isCustomColumn(field)) {
+        const key = fromCustomColumnKey(field);
+        const def = customFieldMap.get(key);
+        if (def?.type === "date") {
+          return toDateInputValue(value);
+        }
+        return value.trim();
+      }
+      return normalizeCompareValue(field, value);
+    },
+    [customFieldMap],
+  );
+
+  const getFieldLabel = useCallback(
+    (field: EditableKey) => {
+      if (isCustomColumn(field)) {
+        const key = fromCustomColumnKey(field);
+        return customFieldMap.get(key)?.label || key;
+      }
+      return BASE_FIELD_LABELS[field as BaseEditableKey];
+    },
+    [customFieldMap],
+  );
+
+  const formatValue = useCallback(
+    (field: EditableKey, value: string) => {
+      if (!value) return "—";
+      if (isCustomColumn(field)) {
+        const key = fromCustomColumnKey(field);
+        const def = customFieldMap.get(key);
+        if (def?.type === "date") return formatDateDisplay(value);
+        return value;
+      }
+      return formatFieldValue(field, value);
+    },
+    [customFieldMap],
+  );
+
   const changes = useMemo(() => {
     const items: {
       clientId: number;
@@ -285,11 +441,10 @@ export default function ClientTable({
       const client = clientMap.get(clientId);
       if (!client || !draft) return;
       (Object.keys(draft) as EditableKey[]).forEach((field) => {
-        const rawFrom = getClientFieldValue(client, field);
+        const rawFrom = getFieldValue(client, field);
         const rawTo = draft[field] ?? "";
         if (
-          normalizeCompareValue(field, rawFrom) ===
-          normalizeCompareValue(field, rawTo)
+          normalizeValue(field, rawFrom) === normalizeValue(field, rawTo)
         ) {
           return;
         }
@@ -302,7 +457,7 @@ export default function ClientTable({
       });
     });
     return items;
-  }, [drafts, clientMap]);
+  }, [drafts, clientMap, getFieldValue, normalizeValue]);
 
   const summary = useMemo(() => {
     const map = new Map<
@@ -335,9 +490,9 @@ export default function ClientTable({
   ) => {
     const client = clientMap.get(clientId);
     if (!client) return;
-    const original = getClientFieldValue(client, field);
-    const normalizedOriginal = normalizeCompareValue(field, original);
-    const normalizedValue = normalizeCompareValue(field, value);
+    const original = getFieldValue(client, field);
+    const normalizedOriginal = normalizeValue(field, original);
+    const normalizedValue = normalizeValue(field, value);
 
     setDrafts((prev) => {
       const next = { ...prev };
@@ -397,10 +552,19 @@ export default function ClientTable({
     }
 
     const payload = buildPayload(client, draft);
-    const validation = validatePayload(payload);
+    const validation = validatePayload(
+      payload,
+      baseRequiredFields,
+      requiredCustomKeys,
+    );
     if (!validation.ok) {
       setRowErrors((prev) => ({ ...prev, [clientId]: validation.fieldErrors }));
-      toast.error("Revisá los campos requeridos antes de guardar.");
+      if (validation.missingCustomKeys.length) {
+        ensureCustomColumnsVisible(validation.missingCustomKeys);
+        toast.error("Completá los campos personalizados obligatorios.");
+      } else {
+        toast.error("Revisá los campos requeridos antes de guardar.");
+      }
       return;
     }
 
@@ -467,16 +631,28 @@ export default function ClientTable({
       const client = clientMap.get(clientId);
       if (!client) return;
       const payload = buildPayload(client, draft);
-      const validation = validatePayload(payload);
+      const validation = validatePayload(
+        payload,
+        baseRequiredFields,
+        requiredCustomKeys,
+      );
       if (!validation.ok) {
         setRowErrors((prev) => ({
           ...prev,
           [clientId]: validation.fieldErrors,
         }));
-        errors.push({
-          clientId,
-          message: "Validación pendiente en algunos campos.",
-        });
+        if (validation.missingCustomKeys.length) {
+          ensureCustomColumnsVisible(validation.missingCustomKeys);
+          errors.push({
+            clientId,
+            message: "Faltan campos personalizados obligatorios.",
+          });
+        } else {
+          errors.push({
+            clientId,
+            message: "Validación pendiente en algunos campos.",
+          });
+        }
         return;
       }
 
@@ -530,15 +706,10 @@ export default function ClientTable({
 
     const editableField = field as EditableKey;
     const draftValue = drafts[client.id_client]?.[editableField];
-    const value =
-      draftValue !== undefined
-        ? draftValue
-        : getClientFieldValue(client, editableField);
-    const isDirty =
-      normalizeCompareValue(
-        editableField,
-        getClientFieldValue(client, editableField),
-      ) !== normalizeCompareValue(editableField, value);
+    const rawValue = getFieldValue(client, editableField);
+    const value = draftValue !== undefined ? draftValue : rawValue;
+    const isDirty = normalizeValue(editableField, rawValue) !==
+      normalizeValue(editableField, value);
     const hasError = rowErrors[client.id_client]?.[editableField];
     const baseInput =
       "w-full min-w-[140px] rounded-2xl border px-3 py-2 text-sm outline-none transition";
@@ -546,6 +717,30 @@ export default function ClientTable({
       ? "bg-emerald-500/10 border-emerald-500/40"
       : "bg-white/10 border-white/20";
     const error = hasError ? "ring-2 ring-rose-500/50" : "";
+
+    if (isCustomColumn(editableField)) {
+      const key = fromCustomColumnKey(editableField);
+      const def = customFieldMap.get(key);
+      const inputType =
+        def?.type === "number"
+          ? "number"
+          : def?.type === "date"
+            ? "date"
+            : "text";
+      const displayValue =
+        def?.type === "date" ? toDateInputValue(value) : value;
+      return (
+        <input
+          type={inputType}
+          value={displayValue}
+          onChange={(e) =>
+            setDraftValue(client.id_client, editableField, e.target.value)
+          }
+          title={hasError || undefined}
+          className={`${baseInput} ${tone} ${error}`}
+        />
+      );
+    }
 
     if (editableField === "gender") {
       return (
@@ -633,7 +828,7 @@ export default function ClientTable({
           <thead>
             <tr className="text-zinc-700 backdrop-blur dark:text-zinc-200">
               {visibleKeys.map((col) => {
-                const def = COLUMN_DEFS.find((d) => d.key === col);
+                const def = allColumnDefs.find((d) => d.key === col);
                 return (
                   <th key={col} className="p-3 text-left font-medium">
                     {def?.label}
@@ -722,7 +917,7 @@ export default function ClientTable({
       <ColumnPickerModal
         open={columnPickerOpen}
         onClose={() => setColumnPickerOpen(false)}
-        items={COLUMN_DEFS.map((c) => ({
+        items={allColumnDefs.map((c) => ({
           key: c.key,
           label: c.label,
           locked: c.always,
@@ -733,13 +928,15 @@ export default function ClientTable({
             const next = prev.includes(key)
               ? prev.filter((k) => k !== key)
               : [...prev, key];
-            const order = COLUMN_DEFS.map((c) => c.key);
+            const order = allColumnDefs.map((c) => c.key);
             return order.filter((k) => next.includes(k));
           })
         }
-        onAll={() => setVisibleKeys(COLUMN_DEFS.map((c) => c.key))}
+        onAll={() => setVisibleKeys(allColumnDefs.map((c) => c.key))}
         onNone={() =>
-          setVisibleKeys(COLUMN_DEFS.filter((c) => c.always).map((c) => c.key))
+          setVisibleKeys(
+            allColumnDefs.filter((c) => c.always).map((c) => c.key),
+          )
         }
         onReset={() => setVisibleKeys(DEFAULT_VISIBLE)}
       />
@@ -754,6 +951,8 @@ export default function ClientTable({
         onRevert={revertChange}
         clientMap={clientMap}
         errors={saveAllErrors}
+        getLabel={getFieldLabel}
+        formatValue={formatValue}
       />
     </div>
   );
@@ -845,6 +1044,8 @@ function SaveAllModal({
   onRevert,
   clientMap,
   errors,
+  getLabel,
+  formatValue,
 }: {
   open: boolean;
   onClose: () => void;
@@ -855,6 +1056,8 @@ function SaveAllModal({
   onRevert: (clientId: number, field: EditableKey) => void;
   clientMap: Map<number, Client>;
   errors: { clientId: number; message: string }[];
+  getLabel: (field: EditableKey) => string;
+  formatValue: (field: EditableKey, value: string) => string;
 }) {
   if (!open) return null;
   return (
@@ -889,10 +1092,10 @@ function SaveAllModal({
                   key={`${s.field}-${idx}`}
                   className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-sm"
                 >
-                  <span className="font-medium">{FIELD_LABELS[s.field]}</span>
+                  <span className="font-medium">{getLabel(s.field)}</span>
                   <span className="opacity-70">
-                    {formatFieldValue(s.field, s.from)} →{" "}
-                    {formatFieldValue(s.field, s.to)}
+                    {formatValue(s.field, s.from)} →{" "}
+                    {formatValue(s.field, s.to)}
                   </span>
                   <span className="font-semibold">{s.count}</span>
                 </div>
@@ -929,9 +1132,8 @@ function SaveAllModal({
                       </span>
                       <span className="font-medium">{clientName}</span>
                       <span className="opacity-70">
-                        {FIELD_LABELS[c.field]}:{" "}
-                        {formatFieldValue(c.field, c.from)} →{" "}
-                        {formatFieldValue(c.field, c.to)}
+                        {getLabel(c.field)}: {formatValue(c.field, c.from)} →{" "}
+                        {formatValue(c.field, c.to)}
                       </span>
                     </div>
                     <button

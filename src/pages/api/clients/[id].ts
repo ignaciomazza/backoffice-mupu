@@ -1,8 +1,14 @@
 // src/pages/api/clients/[id].ts
 import { NextApiRequest, NextApiResponse } from "next";
-import prisma from "@/lib/prisma";
+import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
+import {
+  DOCUMENT_ANY_KEY,
+  normalizeCustomFields,
+  normalizeRequiredFields,
+  DOC_REQUIRED_FIELDS,
+} from "@/utils/clientConfig";
 
 // ==== Tipos auxiliares ====
 type TokenPayload = JWTPayload & {
@@ -115,6 +121,10 @@ function toLocalDate(v?: string) {
     return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
   const d = new Date(v);
   return isNaN(d.getTime()) ? undefined : d;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
 }
 
 const userSelectSafe = {
@@ -237,7 +247,12 @@ export default async function handler(
     try {
       const existing = await prisma.client.findUnique({
         where: { id_client: clientId },
-        select: { id_client: true, id_agency: true, id_user: true },
+        select: {
+          id_client: true,
+          id_agency: true,
+          id_user: true,
+          custom_fields: true,
+        },
       });
       if (!existing) {
         return res.status(404).json({ error: "Pax no encontrado" });
@@ -255,16 +270,26 @@ export default async function handler(
       }
 
       const c = req.body ?? {};
+
+      const config = await prisma.clientConfig.findFirst({
+        where: { id_agency: auth.id_agency },
+        select: { required_fields: true, custom_fields: true },
+      });
+      const requiredFields = normalizeRequiredFields(config?.required_fields);
+      const customFields = normalizeCustomFields(config?.custom_fields);
+      const requiredCustomKeys = customFields
+        .filter((f) => f.required)
+        .map((f) => f.key);
+
+      const isFilled = (val: unknown) =>
+        String(val ?? "")
+          .trim()
+          .length > 0;
+
       // Validaciones requeridas
-      for (const f of [
-        "first_name",
-        "last_name",
-        "phone",
-        "birth_date",
-        "nationality",
-        "gender",
-      ]) {
-        if (!c[f]) {
+      for (const f of requiredFields) {
+        if (f === DOCUMENT_ANY_KEY) continue;
+        if (!isFilled((c as Record<string, unknown>)[f])) {
           return res
             .status(400)
             .json({ error: `El campo ${f} es obligatorio.` });
@@ -279,16 +304,57 @@ export default async function handler(
         | null;
       const taxId = (String(c.tax_id ?? "").trim() || null) as string | null;
 
-      if (!dni && !pass) {
+      const docRequired =
+        requiredFields.includes(DOCUMENT_ANY_KEY) ||
+        requiredFields.some((field) => DOC_REQUIRED_FIELDS.includes(field));
+      if (docRequired && !dni && !pass && !taxId) {
         return res.status(400).json({
           error:
-            "El DNI y el Pasaporte son obligatorios. Debes cargar al menos uno",
+            "El DNI, el Pasaporte o el CUIT/RUT son obligatorios. Debes cargar al menos uno",
         });
       }
 
-      const birth = toLocalDate(String(c.birth_date ?? ""));
-      if (!birth) {
+      const birthRaw = String(c.birth_date ?? "").trim();
+      const birth = birthRaw ? toLocalDate(birthRaw) : undefined;
+      if (birthRaw && !birth) {
         return res.status(400).json({ error: "Fecha de nacimiento inválida" });
+      }
+      if (requiredFields.includes("birth_date") && !birth) {
+        return res
+          .status(400)
+          .json({ error: "El campo birth_date es obligatorio." });
+      }
+
+      const hasCustomPayload = isRecord(c.custom_fields);
+      const customPayload = hasCustomPayload
+        ? (c.custom_fields as Record<string, unknown>)
+        : {};
+      const allowedCustomKeys = new Set(customFields.map((f) => f.key));
+      const sanitizedCustom = Object.fromEntries(
+        Object.entries(customPayload)
+          .filter(([key]) => allowedCustomKeys.has(key))
+          .map(([key, value]) => [key, String(value ?? "").trim()])
+          .filter(([, value]) => value.length > 0),
+      );
+      const existingCustom = isRecord(existing.custom_fields)
+        ? (existing.custom_fields as Record<string, unknown>)
+        : {};
+      const filteredExistingCustom = Object.fromEntries(
+        Object.entries(existingCustom)
+          .filter(([key]) => allowedCustomKeys.has(key))
+          .map(([key, value]) => [key, String(value ?? "").trim()])
+          .filter(([, value]) => value.length > 0),
+      );
+      const mergedCustom = hasCustomPayload
+        ? { ...filteredExistingCustom, ...sanitizedCustom }
+        : filteredExistingCustom;
+
+      for (const key of requiredCustomKeys) {
+        if (!isFilled((mergedCustom as Record<string, unknown>)[key])) {
+          return res.status(400).json({
+            error: `El campo personalizado ${key} es obligatorio.`,
+          });
+        }
       }
 
       // Si quieren reasignar el pax a otro usuario, controlar permisos
@@ -353,11 +419,15 @@ export default async function handler(
             ...(dni ? [{ dni_number: dni }] : []),
             ...(pass ? [{ passport_number: pass }] : []),
             ...(taxId ? [{ tax_id: taxId }] : []),
-            {
-              first_name,
-              last_name,
-              birth_date: birth,
-            },
+            ...(birth
+              ? [
+                  {
+                    first_name,
+                    last_name,
+                    birth_date: birth,
+                  },
+                ]
+              : []),
           ],
         },
         select: { id_client: true },
@@ -370,23 +440,31 @@ export default async function handler(
 
       const updated = await prisma.client.update({
         where: { id_client: clientId },
-        data: {
-          first_name,
-          last_name,
-          phone: c.phone,
-          address: c.address || null,
-          postal_code: c.postal_code || null,
-          locality: c.locality || null,
-          company_name: c.company_name || null,
-          tax_id: taxId,
-          commercial_address: c.commercial_address || null,
-          dni_number: dni,
-          passport_number: pass,
-          birth_date: birth,
-          nationality: c.nationality,
-          gender: c.gender,
-          email: (String(c.email ?? "").trim() || null) as string | null,
+          data: {
+            first_name,
+            last_name,
+            phone: String(c.phone ?? "").trim(),
+            address: c.address || null,
+            postal_code: c.postal_code || null,
+            locality: c.locality || null,
+            company_name: c.company_name || null,
+            tax_id: taxId,
+            commercial_address: c.commercial_address || null,
+            dni_number: dni,
+            passport_number: pass,
+            birth_date: birth as Date,
+            nationality: String(c.nationality ?? "").trim(),
+            gender: String(c.gender ?? "").trim(),
+            email: (String(c.email ?? "").trim() || null) as string | null,
           id_user: newOwnerId,
+          ...(hasCustomPayload
+            ? {
+                custom_fields:
+                  Object.keys(mergedCustom).length > 0
+                    ? mergedCustom
+                    : Prisma.DbNull,
+              }
+            : {}),
         },
         include: { user: { select: userSelectSafe } },
       });

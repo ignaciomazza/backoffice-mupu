@@ -1,9 +1,10 @@
 // src/pages/api/clients/config/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { jwtVerify, type JWTPayload } from "jose";
-import prisma from "@/lib/prisma";
+import prisma, { Prisma } from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { z } from "zod";
+import { normalizeCustomFields, normalizeRequiredFields } from "@/utils/clientConfig";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
@@ -24,8 +25,25 @@ type AuthContext = {
   role: string;
 };
 
+const customFieldSchema = z.object({
+  key: z
+    .string()
+    .trim()
+    .min(1)
+    .max(40)
+    .regex(/^[a-z0-9_]+$/),
+  label: z.string().trim().min(1).max(80),
+  type: z.enum(["text", "date", "number"]),
+  required: z.boolean().optional(),
+  placeholder: z.string().trim().max(120).optional(),
+  help: z.string().trim().max(200).optional(),
+  builtin: z.boolean().optional(),
+});
+
 const putSchema = z.object({
   visibility_mode: z.enum(["all", "team", "own"]),
+  required_fields: z.array(z.string()).optional(),
+  custom_fields: z.array(customFieldSchema).optional(),
 });
 
 function getTokenFromRequest(req: NextApiRequest): string | null {
@@ -116,17 +134,41 @@ export default async function handler(
       if (!parsed.success)
         return res.status(400).json({ error: parsed.error.message });
 
-      const { visibility_mode } = parsed.data;
+      const { visibility_mode, required_fields, custom_fields } = parsed.data;
 
       await prisma.$transaction(async (tx) => {
         const existing = await tx.clientConfig.findUnique({
           where: { id_agency: auth.id_agency },
-          select: { id_config: true },
+          select: { id_config: true, required_fields: true, custom_fields: true },
         });
+
+        const nextRequired =
+          required_fields !== undefined
+            ? normalizeRequiredFields(required_fields)
+            : existing?.required_fields ?? null;
+
+        const nextCustom =
+          custom_fields !== undefined
+            ? normalizeCustomFields(custom_fields)
+            : existing?.custom_fields ?? null;
+
+        const requiredValue =
+          nextRequired === null
+            ? Prisma.DbNull
+            : (nextRequired as Prisma.InputJsonValue);
+        const customValue =
+          nextCustom === null
+            ? Prisma.DbNull
+            : (nextCustom as Prisma.InputJsonValue);
+
         if (existing) {
           await tx.clientConfig.update({
             where: { id_agency: auth.id_agency },
-            data: { visibility_mode },
+            data: {
+              visibility_mode,
+              required_fields: requiredValue,
+              custom_fields: customValue,
+            },
           });
           return;
         }
@@ -140,6 +182,8 @@ export default async function handler(
             id_agency: auth.id_agency,
             agency_client_config_id: agencyConfigId,
             visibility_mode,
+            required_fields: requiredValue,
+            custom_fields: customValue,
           },
         });
       });

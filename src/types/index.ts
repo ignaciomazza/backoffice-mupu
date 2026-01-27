@@ -75,6 +75,7 @@ export interface Client {
   nationality: string;
   gender: string;
   email?: string;
+  custom_fields?: Record<string, string>;
   registration_date: string;
   id_user: number;
   user: User;
@@ -82,6 +83,25 @@ export interface Client {
   titular_bookings?: Booking[];
   invoices?: Invoice[];
   id_agency: number;
+}
+
+export type ClientCustomFieldType = "text" | "date" | "number";
+
+export interface ClientCustomField {
+  key: string;
+  label: string;
+  type: ClientCustomFieldType;
+  required?: boolean;
+  placeholder?: string;
+  help?: string;
+  builtin?: boolean;
+}
+
+export interface ClientConfig {
+  id_agency: number;
+  visibility_mode: "all" | "team" | "own";
+  required_fields?: string[] | null;
+  custom_fields?: ClientCustomField[] | null;
 }
 
 export interface Booking {

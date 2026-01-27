@@ -10,41 +10,6 @@ generator client {
   provider = "prisma-client-js"
 }
 
-enum AgencyCounterKey {
-  booking
-  client
-  service
-  receipt
-  client_payment
-  investment
-  operator_due
-  user
-  operator
-  sales_team
-  resource
-  file
-  recurring_investment
-  template_config
-  text_preset
-  commission_rule_set
-  finance_config
-  client_config
-  agency_billing_config
-  agency_billing_adjustment
-  agency_billing_charge
-  finance_currency
-  finance_account
-  finance_payment_method
-  expense_category
-  service_type
-  service_calc_config
-  lead
-  credit_account
-  credit_entry
-  invoice
-  credit_note
-}
-
 model Agency {
   id_agency            Int                    @id @default(autoincrement())
   name                 String
@@ -110,7 +75,7 @@ model Agency {
 model AgencyCounter {
   id_counter Int              @id @default(autoincrement())
   id_agency  Int
-  key        AgencyCounterKey
+  key        String
   next_value Int
   created_at DateTime         @default(now())
   updated_at DateTime         @updatedAt
@@ -212,6 +177,7 @@ model Client {
   nationality            String
   gender                 String
   email                  String?
+  custom_fields          Json?
   nationality_country_id Int?
   nationalityCountry     Country?        @relation(fields: [nationality_country_id], references: [id_country])
   registration_date      DateTime        @default(now())
@@ -612,7 +578,7 @@ model FileAsset {
   @@index([client_id])
   @@index([service_id])
   @@index([status])
-  @@unique([id_agency, agency_file_id], name: "agency_file_id_unique")
+  @@unique([id_agency, agency_file_id], name: "FileAsset_id_agency_agency_file_id_key")
 }
 
 model CalendarNote {
@@ -838,6 +804,8 @@ model ClientConfig {
 
   // "all" (todos), "team" (por equipo), "own" (solo propios)
   visibility_mode String @default("all")
+  required_fields Json?
+  custom_fields   Json?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

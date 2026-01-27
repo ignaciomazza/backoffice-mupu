@@ -8,6 +8,16 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
+import type { ClientConfig, ClientCustomField } from "@/types";
+import {
+  BUILTIN_CUSTOM_FIELDS,
+  CUSTOM_FIELD_TYPES,
+  DEFAULT_REQUIRED_FIELDS,
+  REQUIRED_FIELD_OPTIONS,
+  buildCustomFieldKey,
+  normalizeCustomFields,
+  normalizeRequiredFields,
+} from "@/utils/clientConfig";
 
 /* ================= Estilos compartidos ================= */
 const GLASS =
@@ -16,11 +26,6 @@ const PRIMARY_BTN =
   "rounded-2xl bg-sky-600/30 px-4 py-2 text-sm font-medium text-sky-950 shadow-sm shadow-sky-900/10 transition hover:bg-sky-600/40 active:scale-[.99] disabled:opacity-50 dark:text-white";
 
 type VisibilityMode = "all" | "team" | "own";
-
-type ClientConfig = {
-  id_agency: number;
-  visibility_mode: VisibilityMode;
-};
 
 type ApiError = { error: string };
 
@@ -37,13 +42,45 @@ function normalizeClientConfig(v: unknown): ClientConfig | null {
     v.visibility_mode === "own"
       ? v.visibility_mode
       : "all";
-  return { id_agency, visibility_mode };
+  const required_fields = normalizeRequiredFields(v.required_fields);
+  const custom_fields = normalizeCustomFields(v.custom_fields);
+  return { id_agency, visibility_mode, required_fields, custom_fields };
 }
 
 function apiErrorMessage(v: unknown): string | null {
   return isRecord(v) && typeof (v as ApiError).error === "string"
     ? (v as ApiError).error
     : null;
+}
+
+function sortStringList(values: string[]): string[] {
+  return Array.from(new Set(values)).sort();
+}
+
+function normalizeCustomList(values: ClientCustomField[]): ClientCustomField[] {
+  return [...values].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function customFieldsEqual(a: ClientCustomField[], b: ClientCustomField[]) {
+  return (
+    JSON.stringify(normalizeCustomList(a)) ===
+    JSON.stringify(normalizeCustomList(b))
+  );
+}
+
+function applyBuiltinMeta(fields: ClientCustomField[]) {
+  const builtinMap = new Map(BUILTIN_CUSTOM_FIELDS.map((f) => [f.key, f]));
+  return fields.map((field) => {
+    const builtin = builtinMap.get(field.key);
+    if (!builtin) return field;
+    return {
+      ...builtin,
+      required:
+        typeof field.required === "boolean"
+          ? field.required
+          : builtin.required,
+    };
+  });
 }
 
 const OPTIONS: { key: VisibilityMode; label: string; desc: string }[] = [
@@ -73,6 +110,20 @@ export default function ClientsConfigPage() {
 
   const [mode, setMode] = useState<VisibilityMode>("all");
   const [initialMode, setInitialMode] = useState<VisibilityMode>("all");
+  const [requiredFields, setRequiredFields] = useState<string[]>(
+    DEFAULT_REQUIRED_FIELDS,
+  );
+  const [initialRequiredFields, setInitialRequiredFields] = useState<string[]>(
+    DEFAULT_REQUIRED_FIELDS,
+  );
+  const [customFields, setCustomFields] = useState<ClientCustomField[]>([]);
+  const [initialCustomFields, setInitialCustomFields] = useState<
+    ClientCustomField[]
+  >([]);
+  const [newFieldLabel, setNewFieldLabel] = useState("");
+  const [newFieldType, setNewFieldType] =
+    useState<ClientCustomField["type"]>("text");
+  const [newFieldRequired, setNewFieldRequired] = useState(false);
 
   const canEdit = useMemo(
     () =>
@@ -82,7 +133,11 @@ export default function ClientsConfigPage() {
     [role],
   );
 
-  const dirty = mode !== initialMode;
+  const requiredDirty =
+    JSON.stringify(sortStringList(requiredFields)) !==
+    JSON.stringify(sortStringList(initialRequiredFields));
+  const customDirty = !customFieldsEqual(customFields, initialCustomFields);
+  const dirty = mode !== initialMode || requiredDirty || customDirty;
 
   useEffect(() => setMounted(true), []);
 
@@ -113,10 +168,23 @@ export default function ClientsConfigPage() {
           if (alive) {
             setMode(nextMode);
             setInitialMode(nextMode);
+            const nextRequired =
+              cfg?.required_fields && cfg.required_fields.length > 0
+                ? cfg.required_fields
+                : DEFAULT_REQUIRED_FIELDS;
+            const nextCustom = applyBuiltinMeta(cfg?.custom_fields || []);
+            setRequiredFields(nextRequired);
+            setInitialRequiredFields(nextRequired);
+            setCustomFields(nextCustom);
+            setInitialCustomFields(nextCustom);
           }
         } else if (alive) {
           setMode("all");
           setInitialMode("all");
+          setRequiredFields(DEFAULT_REQUIRED_FIELDS);
+          setInitialRequiredFields(DEFAULT_REQUIRED_FIELDS);
+          setCustomFields([]);
+          setInitialCustomFields([]);
         }
       } catch (e) {
         console.error("[clients/config] load error", e);
@@ -135,11 +203,19 @@ export default function ClientsConfigPage() {
     if (!token || !dirty) return;
     setSaving(true);
     try {
+      const normalizedRequired = normalizeRequiredFields(requiredFields);
+      const normalizedCustom = normalizeCustomFields(
+        applyBuiltinMeta(customFields),
+      );
       const res = await authFetch(
         "/api/clients/config",
         {
           method: "PUT",
-          body: JSON.stringify({ visibility_mode: mode }),
+          body: JSON.stringify({
+            visibility_mode: mode,
+            required_fields: normalizedRequired,
+            custom_fields: normalizedCustom,
+          }),
         },
         token,
       );
@@ -148,6 +224,10 @@ export default function ClientsConfigPage() {
         throw new Error(apiErrorMessage(body) || "No se pudo guardar.");
       }
       setInitialMode(mode);
+      setRequiredFields(normalizedRequired);
+      setInitialRequiredFields(normalizedRequired);
+      setCustomFields(normalizedCustom);
+      setInitialCustomFields(normalizedCustom);
       toast.success("Configuración guardada.");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "No se pudo guardar.";
@@ -155,6 +235,64 @@ export default function ClientsConfigPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const toggleRequiredField = (key: string, locked?: boolean) => {
+    if (!canEdit || saving || locked) return;
+    setRequiredFields((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  };
+
+  const isBuiltinActive = (key: string) =>
+    customFields.some((field) => field.key === key);
+
+  const toggleBuiltinField = (field: ClientCustomField) => {
+    if (!canEdit || saving) return;
+    setCustomFields((prev) => {
+      const exists = prev.some((f) => f.key === field.key);
+      if (exists) return prev.filter((f) => f.key !== field.key);
+      return [...prev, field];
+    });
+  };
+
+  const updateCustomField = (
+    key: string,
+    patch: Partial<ClientCustomField>,
+  ) => {
+    if (!canEdit || saving) return;
+    setCustomFields((prev) =>
+      prev.map((field) =>
+        field.key === key ? { ...field, ...patch } : field,
+      ),
+    );
+  };
+
+  const removeCustomField = (key: string) => {
+    if (!canEdit || saving) return;
+    setCustomFields((prev) => prev.filter((field) => field.key !== key));
+  };
+
+  const addCustomField = () => {
+    if (!canEdit || saving) return;
+    const label = newFieldLabel.trim();
+    if (!label) {
+      toast.error("Ingresá un nombre para el campo.");
+      return;
+    }
+    const existingKeys = new Set(customFields.map((f) => f.key));
+    const key = buildCustomFieldKey(label, existingKeys);
+    const next: ClientCustomField = {
+      key,
+      label,
+      type: newFieldType,
+      required: newFieldRequired,
+    };
+    if (newFieldType === "date") next.placeholder = "dd/mm/aaaa";
+    setCustomFields((prev) => [...prev, next]);
+    setNewFieldLabel("");
+    setNewFieldType("text");
+    setNewFieldRequired(false);
   };
 
   if (!mounted) return null;
@@ -183,64 +321,264 @@ export default function ClientsConfigPage() {
             <Spinner />
           </div>
         ) : (
-          <div className={`${GLASS} p-6`}>
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-medium">Visibilidad</h2>
-                <p className="text-sm text-sky-950/70 dark:text-white/70">
-                  Aplica a vendedores. Líderes ven su equipo. Y gerentes ven
-                  todo.
+          <div className="space-y-6">
+            <div className={`${GLASS} p-6`}>
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-medium">Visibilidad</h2>
+                  <p className="text-sm text-sky-950/70 dark:text-white/70">
+                    Aplica a vendedores. Líderes ven su equipo. Y gerentes ven
+                    todo.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={saveConfig}
+                  disabled={!dirty || !canEdit || saving}
+                  className={PRIMARY_BTN}
+                >
+                  Guardar
+                </button>
+              </div>
+
+              <div className="grid gap-3">
+                {OPTIONS.map((opt) => {
+                  const active = mode === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setMode(opt.key)}
+                      disabled={!canEdit || saving}
+                      className={`flex w-full items-start gap-3 rounded-3xl border border-white/20 bg-white/10 p-4 text-left backdrop-blur transition ${
+                        active ? "ring-1 ring-sky-400/60" : "hover:bg-white/20"
+                      } ${!canEdit ? "cursor-not-allowed opacity-60" : ""}`}
+                    >
+                      <span
+                        className={`mt-1 inline-block size-4 rounded-full border ${
+                          active
+                            ? "border-sky-500 bg-sky-400/70"
+                            : "border-white/40 bg-transparent"
+                        }`}
+                        aria-hidden="true"
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold">
+                          {opt.label}
+                        </span>
+                        <span className="block text-sm opacity-70">
+                          {opt.desc}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4">
+                <p className="text-xs text-sky-950/70 dark:text-white/70">
+                  Cambios en visibilidad impactan el listado, búsquedas y
+                  estadísticas.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={saveConfig}
-                disabled={!dirty || !canEdit || saving}
-                className={PRIMARY_BTN}
-              >
-                Guardar
-              </button>
             </div>
 
-            <div className="grid gap-3">
-              {OPTIONS.map((opt) => {
-                const active = mode === opt.key;
-                return (
-                  <button
-                    key={opt.key}
-                    type="button"
-                    onClick={() => setMode(opt.key)}
-                    disabled={!canEdit || saving}
-                    className={`flex w-full items-start gap-3 rounded-3xl border border-white/20 bg-white/10 p-4 text-left backdrop-blur transition ${
-                      active ? "ring-1 ring-sky-400/60" : "hover:bg-white/20"
-                    } ${!canEdit ? "cursor-not-allowed opacity-60" : ""}`}
-                  >
-                    <span
-                      className={`mt-1 inline-block size-4 rounded-full border ${
-                        active
-                          ? "border-sky-500 bg-sky-400/70"
-                          : "border-white/40 bg-transparent"
+            <div className={`${GLASS} p-6`}>
+              <div className="mb-4">
+                <h2 className="text-lg font-medium">Campos obligatorios</h2>
+                <p className="text-sm text-sky-950/70 dark:text-white/70">
+                  Definí qué datos deben completarse al crear o editar un pax.
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {REQUIRED_FIELD_OPTIONS.map((opt) => {
+                  const checked = requiredFields.includes(opt.key);
+                  const locked = opt.locked;
+                  return (
+                    <label
+                      key={opt.key}
+                      className={`flex items-center gap-3 rounded-2xl border border-white/20 bg-white/10 px-3 py-2 text-sm backdrop-blur ${
+                        !canEdit ? "cursor-not-allowed opacity-60" : ""
                       }`}
-                      aria-hidden="true"
-                    />
-                    <span>
-                      <span className="block text-sm font-semibold">
-                        {opt.label}
-                      </span>
-                      <span className="block text-sm opacity-70">
-                        {opt.desc}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!canEdit || saving || locked}
+                        onChange={() => toggleRequiredField(opt.key, locked)}
+                        className="size-4 accent-sky-600"
+                      />
+                      <span className="flex-1">{opt.label}</span>
+                      {locked ? (
+                        <span className="text-xs text-sky-950/60 dark:text-white/60">
+                          Siempre requerido
+                        </span>
+                      ) : null}
+                    </label>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="mt-4">
-              <p className="text-xs text-sky-950/70 dark:text-white/70">
-                Cambios en visibilidad impactan el listado, búsquedas y
-                estadísticas.
-              </p>
+            <div className={`${GLASS} p-6`}>
+              <div className="mb-4">
+                <h2 className="text-lg font-medium">Campos personalizados</h2>
+                <p className="text-sm text-sky-950/70 dark:text-white/70">
+                  Activá campos prearmados o sumá nuevos para tu agencia.
+                </p>
+              </div>
+
+              <div className="mb-5 grid gap-3 sm:grid-cols-2">
+                {BUILTIN_CUSTOM_FIELDS.map((field) => {
+                  const active = isBuiltinActive(field.key);
+                  return (
+                    <label
+                      key={field.key}
+                      className={`flex items-center gap-3 rounded-2xl border border-white/20 bg-white/10 px-3 py-2 text-sm backdrop-blur ${
+                        !canEdit ? "cursor-not-allowed opacity-60" : ""
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={active}
+                        disabled={!canEdit || saving}
+                        onChange={() => toggleBuiltinField(field)}
+                        className="size-4 accent-sky-600"
+                      />
+                      <span className="flex-1">{field.label}</span>
+                      {active ? (
+                        <span className="text-xs text-sky-950/60 dark:text-white/60">
+                          Activo
+                        </span>
+                      ) : null}
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
+                <div className="mb-3 text-sm font-medium">
+                  Agregar nuevo campo
+                </div>
+                <div className="grid gap-3 md:grid-cols-[1.6fr_1fr_0.7fr_auto]">
+                  <input
+                    type="text"
+                    value={newFieldLabel}
+                    onChange={(e) => setNewFieldLabel(e.target.value)}
+                    placeholder="Ej: Vencimiento Visa"
+                    className="w-full rounded-2xl border border-white/20 bg-white/10 px-3 py-2 text-sm outline-none"
+                    disabled={!canEdit || saving}
+                  />
+                  <select
+                    value={newFieldType}
+                    onChange={(e) =>
+                      setNewFieldType(e.target.value as ClientCustomField["type"])
+                    }
+                    className="w-full rounded-2xl border border-white/20 bg-white/10 px-3 py-2 text-sm outline-none"
+                    disabled={!canEdit || saving}
+                  >
+                    {CUSTOM_FIELD_TYPES.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={newFieldRequired}
+                      onChange={(e) => setNewFieldRequired(e.target.checked)}
+                      disabled={!canEdit || saving}
+                      className="size-4 accent-sky-600"
+                    />
+                    Requerido
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addCustomField}
+                    disabled={!canEdit || saving}
+                    className={PRIMARY_BTN}
+                  >
+                    Agregar
+                  </button>
+                </div>
+              </div>
+
+              {customFields.length > 0 ? (
+                <div className="mt-4 space-y-3">
+                  {customFields.map((field) => {
+                    const isBuiltin = Boolean(field.builtin);
+                    return (
+                      <div
+                        key={field.key}
+                        className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/20 bg-white/10 px-3 py-2 text-sm"
+                      >
+                        <input
+                          type="text"
+                          value={field.label}
+                          onChange={(e) =>
+                            updateCustomField(field.key, {
+                              label: e.target.value,
+                            })
+                          }
+                          disabled={!canEdit || saving || isBuiltin}
+                          className="min-w-[160px] flex-1 rounded-xl border border-white/20 bg-white/10 px-2 py-1 text-sm outline-none"
+                        />
+                        <select
+                          value={field.type}
+                          onChange={(e) =>
+                            updateCustomField(field.key, {
+                              type: e.target.value as ClientCustomField["type"],
+                              placeholder:
+                                e.target.value === "date"
+                                  ? "dd/mm/aaaa"
+                                  : undefined,
+                            })
+                          }
+                          disabled={!canEdit || saving || isBuiltin}
+                          className="rounded-xl border border-white/20 bg-white/10 px-2 py-1 text-sm outline-none"
+                        >
+                          {CUSTOM_FIELD_TYPES.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(field.required)}
+                            onChange={(e) =>
+                              updateCustomField(field.key, {
+                                required: e.target.checked,
+                              })
+                            }
+                            disabled={!canEdit || saving}
+                            className="size-4 accent-sky-600"
+                          />
+                          Requerido
+                        </label>
+                        <span className="text-xs text-sky-950/60 dark:text-white/60">
+                          {field.key}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeCustomField(field.key)}
+                          disabled={!canEdit || saving}
+                          className="rounded-full border border-white/20 px-3 py-1 text-xs hover:bg-white/10 disabled:opacity-50"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-sky-950/60 dark:text-white/60">
+                  No hay campos personalizados activos.
+                </p>
+              )}
             </div>
           </div>
         )}

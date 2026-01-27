@@ -1,6 +1,6 @@
-import type { AgencyCounterKey, Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
-export const COUNTER_KEYS: AgencyCounterKey[] = [
+export const COUNTER_KEYS = [
   "booking",
   "client",
   "service",
@@ -33,7 +33,9 @@ export const COUNTER_KEYS: AgencyCounterKey[] = [
   "credit_entry",
   "invoice",
   "credit_note",
-];
+] as const;
+
+export type AgencyCounterKey = (typeof COUNTER_KEYS)[number];
 
 export async function getNextAgencyCounter(
   tx: Prisma.TransactionClient,

@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { Client, User, SalesTeam } from "@/types";
+import { Client, User, SalesTeam, ClientCustomField } from "@/types";
 import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
 import ClientForm from "@/components/clients/ClientForm";
@@ -14,6 +14,12 @@ import { useAuth } from "@/context/AuthContext";
 import "react-toastify/dist/ReactToastify.css";
 import FilterPanel from "@/components/clients/FilterPanel";
 import { authFetch } from "@/utils/authFetch";
+import {
+  DEFAULT_REQUIRED_FIELDS,
+  DOCUMENT_ANY_KEY,
+  normalizeCustomFields,
+  normalizeRequiredFields,
+} from "@/utils/clientConfig";
 
 /* =========================================================
  * NUEVO: helpers de búsqueda flexible
@@ -188,9 +194,14 @@ export default function Page() {
     nationality: "",
     gender: "",
     email: "",
+    custom_fields: {},
     id_user: 0,
     id_agency: 0,
   });
+  const [requiredFields, setRequiredFields] = useState<string[]>(
+    DEFAULT_REQUIRED_FIELDS,
+  );
+  const [customFields, setCustomFields] = useState<ClientCustomField[]>([]);
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
 
@@ -285,6 +296,41 @@ export default function Page() {
     })();
 
     return () => abort.abort();
+  }, [token]);
+
+  // 1.1) Configuración de campos requeridos y custom (por agencia)
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/clients/config",
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) throw new Error("No se pudo cargar la configuración");
+        const cfg = (await res.json().catch(() => null)) as {
+          required_fields?: unknown;
+          custom_fields?: unknown;
+        } | null;
+        const required = normalizeRequiredFields(cfg?.required_fields);
+        const custom = normalizeCustomFields(cfg?.custom_fields);
+        if (alive) {
+          setRequiredFields(required);
+          setCustomFields(custom);
+        }
+      } catch (err) {
+        console.warn("⚠️ No se pudo cargar config de pasajeros:", err);
+        if (alive) {
+          setRequiredFields(DEFAULT_REQUIRED_FIELDS);
+          setCustomFields([]);
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, [token]);
 
   // 2) Al cambiar de equipo (solo roles no-líder), recalcular miembros visibles
@@ -422,17 +468,52 @@ export default function Page() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleCustomFieldChange = (key: string, value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      custom_fields: {
+        ...(prev.custom_fields || {}),
+        [key]: value,
+      },
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const isFilled = (val: unknown) =>
+      String(val ?? "")
+        .trim()
+        .length > 0;
+
+    const missingBase = requiredFields.filter((field) => {
+      if (field === DOCUMENT_ANY_KEY) return false;
+      const value = (formData as Record<string, unknown>)[field];
+      return !isFilled(value);
+    });
+
+    const requiredCustomKeys = customFields
+      .filter((field) => field.required)
+      .map((field) => field.key);
+
+    const missingCustom = requiredCustomKeys.filter(
+      (key) => !isFilled(formData.custom_fields?.[key]),
+    );
+
+    if (missingBase.length || missingCustom.length) {
+      toast.error("Completá los campos obligatorios antes de guardar.");
+      return;
+    }
+
     // 🔁 ACTUALIZADO: misma regla que definimos en el form nuevo
     // Necesita al menos uno: Documento/CI-DNI, Pasaporte o CUIT/RUT
+    const docRequired = requiredFields.includes(DOCUMENT_ANY_KEY);
     const hasDocOrTax =
       formData.dni_number?.trim() ||
       formData.passport_number?.trim() ||
       formData.tax_id?.trim();
 
-    if (!hasDocOrTax) {
+    if (docRequired && !hasDocOrTax) {
       toast.error(
         "Cargá al menos Documento/CI-DNI, Pasaporte o CUIT / RUT para guardar.",
       );
@@ -450,7 +531,16 @@ export default function Page() {
         ? `/api/clients/${editingClientId}`
         : "/api/clients";
       const method = editingClientId ? "PUT" : "POST";
-      const payload = { ...formData, birth_date: birthISO };
+      const cleanedCustom = Object.fromEntries(
+        Object.entries(formData.custom_fields || {}).filter(
+          ([, value]) => String(value ?? "").trim().length > 0,
+        ),
+      );
+      const payload = {
+        ...formData,
+        birth_date: birthISO,
+        custom_fields: cleanedCustom,
+      };
 
       const res = await authFetch(
         url,
@@ -503,6 +593,7 @@ export default function Page() {
         nationality: "",
         gender: "",
         email: "",
+        custom_fields: {},
         id_user: prev.id_user,
         id_agency: prev.id_agency,
       }));
@@ -562,6 +653,7 @@ export default function Page() {
       nationality: client.nationality || "",
       gender: client.gender || "",
       email: client.email || "",
+      custom_fields: client.custom_fields || {},
       id_user: client.user.id_user,
       id_agency: client.user.id_agency,
     });
@@ -600,10 +692,13 @@ export default function Page() {
           <ClientForm
             formData={formData}
             handleChange={handleChange}
+            handleCustomFieldChange={handleCustomFieldChange}
             handleSubmit={handleSubmit}
             editingClientId={editingClientId}
             isFormVisible={isFormVisible}
             setIsFormVisible={setIsFormVisible}
+            requiredFields={requiredFields}
+            customFields={customFields}
           />
         </motion.div>
 
@@ -722,6 +817,8 @@ export default function Page() {
             onLoadMore={loadMore}
             loadingMore={loadingMore}
             onClientsUpdated={applyClientUpdates}
+            requiredFields={requiredFields}
+            customFields={customFields}
           />
         ) : isLoading ? (
           <div className="flex min-h-[50vh] items-center">

@@ -2,7 +2,7 @@
 "use client";
 
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
@@ -25,9 +25,18 @@ import type {
   BillingAdjustmentConfig,
   BillingData,
   Client,
+  ClientCustomField,
   Operator,
   Service,
 } from "@/types";
+import {
+  BUILTIN_CUSTOM_FIELDS,
+  DEFAULT_REQUIRED_FIELDS,
+  DOCUMENT_ANY_KEY,
+  REQUIRED_FIELD_OPTIONS,
+  normalizeCustomFields,
+  normalizeRequiredFields,
+} from "@/utils/clientConfig";
 import "react-toastify/dist/ReactToastify.css";
 
 type Profile = {
@@ -56,6 +65,7 @@ type NewClientDraft = {
   company_name: string;
   commercial_address: string;
   tax_id: string;
+  custom_fields: Record<string, string>;
 };
 
 type ExistingClientDraft = {
@@ -221,6 +231,66 @@ const normalizeServiceTypes = (payload: unknown): ServiceTypeOption[] => {
     })
     .filter(Boolean) as ServiceTypeOption[];
   return normalized.sort((a, b) => a.label.localeCompare(b.label, "es"));
+};
+
+const REQUIRED_FIELD_LABELS = new Map(
+  REQUIRED_FIELD_OPTIONS.map((opt) => [opt.key, opt.label]),
+);
+const isFilledValue = (value: unknown): boolean =>
+  (value ?? "").toString().trim().length > 0;
+
+const applyBuiltinMeta = (fields: ClientCustomField[]) => {
+  const builtinMap = new Map(BUILTIN_CUSTOM_FIELDS.map((f) => [f.key, f]));
+  return fields.map((field) => {
+    const builtin = builtinMap.get(field.key);
+    if (!builtin) return field;
+    return {
+      ...builtin,
+      required:
+        typeof field.required === "boolean"
+          ? field.required
+          : builtin.required,
+    };
+  });
+};
+
+const normalizeClientConfig = (payload: unknown) => {
+  if (!payload || typeof payload !== "object") return null;
+  const record = payload as Record<string, unknown>;
+  return {
+    required_fields: normalizeRequiredFields(record.required_fields),
+    custom_fields: normalizeCustomFields(record.custom_fields),
+  };
+};
+
+const buildMissingClientFields = (
+  client: NewClientDraft,
+  requiredFields: string[],
+  customFields: ClientCustomField[],
+) => {
+  const missing: string[] = [];
+  for (const field of requiredFields) {
+    if (field === DOCUMENT_ANY_KEY) continue;
+    const key = field as keyof NewClientDraft;
+    if (!isFilledValue(client[key])) {
+      missing.push(REQUIRED_FIELD_LABELS.get(field) ?? field);
+    }
+  }
+  const hasDoc =
+    isFilledValue(client.dni_number) ||
+    isFilledValue(client.passport_number) ||
+    isFilledValue(client.tax_id);
+  const docRequired = requiredFields.includes(DOCUMENT_ANY_KEY);
+  if (docRequired && !hasDoc) {
+    missing.push("DNI, Pasaporte o CUIT");
+  }
+  for (const field of customFields) {
+    if (!field.required) continue;
+    if (!isFilledValue(client.custom_fields?.[field.key])) {
+      missing.push(field.label);
+    }
+  }
+  return missing;
 };
 
 // const GLASS =
@@ -397,29 +467,8 @@ const emptyClient = (): NewClientDraft => ({
   company_name: "",
   commercial_address: "",
   tax_id: "",
+  custom_fields: {},
 });
-
-const missingClientFields = (client: NewClientDraft) => {
-  const missing: string[] = [];
-  if (!client.first_name.trim()) missing.push("Nombre");
-  if (!client.last_name.trim()) missing.push("Apellido");
-  if (!client.phone.trim()) missing.push("Teléfono");
-  if (!client.birth_date.trim()) missing.push("Nacimiento");
-  if (!client.nationality.trim()) missing.push("Nacionalidad");
-  if (!client.gender.trim()) missing.push("Género");
-  if (
-    !client.dni_number.trim() &&
-    !client.passport_number.trim() &&
-    !client.tax_id.trim()
-  )
-    missing.push("DNI, Pasaporte o CUIT");
-  return missing;
-};
-
-const isClientComplete = (client: ClientDraft) => {
-  if (client.kind === "existing") return true;
-  return missingClientFields(client).length === 0;
-};
 
 const isServiceComplete = (
   service: ServiceDraft,
@@ -620,6 +669,10 @@ export default function QuickLoadPage() {
   const [bookingSaleTotals, setBookingSaleTotals] = useState<
     Record<string, string>
   >({});
+  const [requiredFields, setRequiredFields] = useState<string[]>(
+    DEFAULT_REQUIRED_FIELDS,
+  );
+  const [customFields, setCustomFields] = useState<ClientCustomField[]>([]);
   const [calcConfigLoading, setCalcConfigLoading] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [clients, setClients] = useState<ClientDraft[]>([]);
@@ -644,6 +697,38 @@ export default function QuickLoadPage() {
       ["administrativo", "gerente", "desarrollador"].includes(normalizedRole),
     [normalizedRole],
   );
+  const normalizedRequiredFields = useMemo(
+    () => normalizeRequiredFields(requiredFields),
+    [requiredFields],
+  );
+  const normalizedCustomFields = useMemo(
+    () => applyBuiltinMeta(customFields),
+    [customFields],
+  );
+  const docRequired = useMemo(
+    () => normalizedRequiredFields.includes(DOCUMENT_ANY_KEY),
+    [normalizedRequiredFields],
+  );
+  const requiredFieldSet = useMemo(
+    () => new Set(normalizedRequiredFields),
+    [normalizedRequiredFields],
+  );
+  const isRequiredField = (field: string) => requiredFieldSet.has(field);
+
+  const missingClientFields = useCallback(
+    (client: NewClientDraft) =>
+      buildMissingClientFields(
+        client,
+        normalizedRequiredFields,
+        normalizedCustomFields,
+      ),
+    [normalizedRequiredFields, normalizedCustomFields],
+  );
+
+  const isClientComplete = (client: ClientDraft) => {
+    if (client.kind === "existing") return true;
+    return missingClientFields(client).length === 0;
+  };
 
   useEffect(() => {
     if (!token) return;
@@ -795,6 +880,36 @@ export default function QuickLoadPage() {
   }, [token]);
 
   useEffect(() => {
+    if (!token) return;
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/clients/config",
+          { cache: "no-store", signal: controller.signal },
+          token,
+        );
+        if (!res.ok) throw new Error("Error al cargar config de clientes");
+        const data = await res.json();
+        const config = normalizeClientConfig(data);
+        if (!controller.signal.aborted && config) {
+          setRequiredFields(config.required_fields);
+          setCustomFields(applyBuiltinMeta(config.custom_fields));
+        }
+      } catch (err) {
+        if ((err as DOMException)?.name !== "AbortError") {
+          console.error("❌ Error config clientes:", err);
+          setRequiredFields(DEFAULT_REQUIRED_FIELDS);
+          setCustomFields([]);
+        }
+      } finally {
+        // nothing else to do
+      }
+    })();
+    return () => controller.abort();
+  }, [token]);
+
+  useEffect(() => {
     if (
       !canOverrideBillingMode ||
       billingMode === "manual" ||
@@ -926,6 +1041,17 @@ export default function QuickLoadPage() {
       prev.map((c) =>
         c.id === id && c.kind === "new" ? { ...c, [field]: value } : c,
       ),
+    );
+  };
+
+  const updateClientCustomField = (id: string, key: string, value: string) => {
+    setClients((prev) =>
+      prev.map((c) => {
+        if (c.id !== id || c.kind !== "new") return c;
+        const nextCustom = { ...(c.custom_fields || {}) };
+        nextCustom[key] = value;
+        return { ...c, custom_fields: nextCustom };
+      }),
     );
   };
 
@@ -1128,6 +1254,7 @@ export default function QuickLoadPage() {
   }, [
     bookingSaleTotals,
     clients,
+    missingClientFields,
     titularId,
     booking.details,
     booking.departure_date,
@@ -1298,6 +1425,7 @@ export default function QuickLoadPage() {
             company_name: client.company_name,
             commercial_address: client.commercial_address,
             tax_id: client.tax_id,
+            custom_fields: client.custom_fields ?? {},
           }),
         },
         token,
@@ -1805,7 +1933,7 @@ export default function QuickLoadPage() {
                                 <div>
                                   <FieldLabel
                                     htmlFor={`first-${client.id}`}
-                                    required
+                                    required={isRequiredField("first_name")}
                                   >
                                     Nombre
                                   </FieldLabel>
@@ -1826,7 +1954,7 @@ export default function QuickLoadPage() {
                                 <div>
                                   <FieldLabel
                                     htmlFor={`last-${client.id}`}
-                                    required
+                                    required={isRequiredField("last_name")}
                                   >
                                     Apellido
                                   </FieldLabel>
@@ -1847,7 +1975,7 @@ export default function QuickLoadPage() {
                                 <div>
                                   <FieldLabel
                                     htmlFor={`phone-${client.id}`}
-                                    required
+                                    required={isRequiredField("phone")}
                                   >
                                     Teléfono
                                   </FieldLabel>
@@ -1868,7 +1996,7 @@ export default function QuickLoadPage() {
                                 <div>
                                   <FieldLabel
                                     htmlFor={`birth-${client.id}`}
-                                    required
+                                    required={isRequiredField("birth_date")}
                                   >
                                     Nacimiento
                                   </FieldLabel>
@@ -1888,7 +2016,11 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div className="space-y-2">
-                                  <FieldLabel required>Nacionalidad</FieldLabel>
+                                  <FieldLabel
+                                    required={isRequiredField("nationality")}
+                                  >
+                                    Nacionalidad
+                                  </FieldLabel>
                                   <DestinationPicker
                                     type="country"
                                     multiple={false}
@@ -1904,16 +2036,16 @@ export default function QuickLoadPage() {
                                     <p className="text-xs text-sky-900/70 dark:text-white/70">
                                       Guardará: <b>{client.nationality}</b>
                                     </p>
-                                  ) : (
+                                  ) : isRequiredField("nationality") ? (
                                     <p className="text-xs text-rose-600">
                                       Obligatorio
                                     </p>
-                                  )}
+                                  ) : null}
                                 </div>
                                 <div>
                                   <FieldLabel
                                     htmlFor={`gender-${client.id}`}
-                                    required
+                                    required={isRequiredField("gender")}
                                   >
                                     Género
                                   </FieldLabel>
@@ -1943,14 +2075,23 @@ export default function QuickLoadPage() {
                                 <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                                   Documentación y contacto
                                 </p>
-                                <p className="text-xs text-sky-900/60 dark:text-white/60">
-                                  <span className="text-rose-600">*</span> Cargá
-                                  DNI, Pasaporte o CUIT.
-                                </p>
+                                {docRequired ? (
+                                  <p className="text-xs text-sky-900/60 dark:text-white/60">
+                                    <span className="text-rose-600">*</span>{" "}
+                                    Cargá DNI, Pasaporte o CUIT.
+                                  </p>
+                                ) : (
+                                  <p className="text-xs text-sky-900/60 dark:text-white/60">
+                                    Opcional
+                                  </p>
+                                )}
                               </div>
                               <div className="mt-4 grid gap-4 md:grid-cols-3">
                                 <div>
-                                  <FieldLabel htmlFor={`dni-${client.id}`}>
+                                  <FieldLabel
+                                    htmlFor={`dni-${client.id}`}
+                                    required={isRequiredField("dni_number")}
+                                  >
                                     DNI
                                   </FieldLabel>
                                   <input
@@ -1968,7 +2109,10 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div>
-                                  <FieldLabel htmlFor={`pass-${client.id}`}>
+                                  <FieldLabel
+                                    htmlFor={`pass-${client.id}`}
+                                    required={isRequiredField("passport_number")}
+                                  >
                                     Pasaporte
                                   </FieldLabel>
                                   <input
@@ -1986,7 +2130,10 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div>
-                                  <FieldLabel htmlFor={`email-${client.id}`}>
+                                  <FieldLabel
+                                    htmlFor={`email-${client.id}`}
+                                    required={isRequiredField("email")}
+                                  >
                                     Email
                                   </FieldLabel>
                                   <input
@@ -2006,13 +2153,63 @@ export default function QuickLoadPage() {
                               </div>
                             </div>
 
+                            {normalizedCustomFields.length > 0 && (
+                              <div className={SUBCARD}>
+                                <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
+                                  Campos extra
+                                </p>
+                                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                                  {normalizedCustomFields.map((field) => (
+                                    <div key={`${client.id}-${field.key}`}>
+                                      <FieldLabel
+                                        htmlFor={`custom-${client.id}-${field.key}`}
+                                        required={field.required}
+                                      >
+                                        {field.label}
+                                      </FieldLabel>
+                                      <input
+                                        id={`custom-${client.id}-${field.key}`}
+                                        type={
+                                          field.type === "number"
+                                            ? "number"
+                                            : field.type === "date"
+                                              ? "date"
+                                              : "text"
+                                        }
+                                        value={
+                                          client.custom_fields?.[field.key] ||
+                                          ""
+                                        }
+                                        onChange={(e) =>
+                                          updateClientCustomField(
+                                            client.id,
+                                            field.key,
+                                            e.target.value,
+                                          )
+                                        }
+                                        className={INPUT}
+                                        placeholder={
+                                          field.type === "date"
+                                            ? "aaaa-mm-dd"
+                                            : field.placeholder || ""
+                                        }
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
                             <div className={SUBCARD}>
                               <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                                 Datos fiscales (si aplica)
                               </p>
                               <div className="mt-4 grid gap-4 md:grid-cols-3">
                                 <div>
-                                  <FieldLabel htmlFor={`tax-${client.id}`}>
+                                  <FieldLabel
+                                    htmlFor={`tax-${client.id}`}
+                                    required={isRequiredField("tax_id")}
+                                  >
                                     CUIT / RUT
                                   </FieldLabel>
                                   <input
@@ -2030,7 +2227,10 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div>
-                                  <FieldLabel htmlFor={`company-${client.id}`}>
+                                  <FieldLabel
+                                    htmlFor={`company-${client.id}`}
+                                    required={isRequiredField("company_name")}
+                                  >
                                     Razón social
                                   </FieldLabel>
                                   <input
@@ -2048,7 +2248,12 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div>
-                                  <FieldLabel htmlFor={`address-${client.id}`}>
+                                  <FieldLabel
+                                    htmlFor={`address-${client.id}`}
+                                    required={isRequiredField(
+                                      "commercial_address",
+                                    )}
+                                  >
                                     Domicilio comercial (Factura)
                                   </FieldLabel>
                                   <input
@@ -2066,7 +2271,10 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div>
-                                  <FieldLabel htmlFor={`home-${client.id}`}>
+                                  <FieldLabel
+                                    htmlFor={`home-${client.id}`}
+                                    required={isRequiredField("address")}
+                                  >
                                     Dirección particular
                                   </FieldLabel>
                                   <input
@@ -2084,7 +2292,10 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div>
-                                  <FieldLabel htmlFor={`locality-${client.id}`}>
+                                  <FieldLabel
+                                    htmlFor={`locality-${client.id}`}
+                                    required={isRequiredField("locality")}
+                                  >
                                     Localidad / Ciudad
                                   </FieldLabel>
                                   <input
@@ -2102,7 +2313,10 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div>
-                                  <FieldLabel htmlFor={`postal-${client.id}`}>
+                                  <FieldLabel
+                                    htmlFor={`postal-${client.id}`}
+                                    required={isRequiredField("postal_code")}
+                                  >
                                     Código postal
                                   </FieldLabel>
                                   <input

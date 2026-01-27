@@ -4,6 +4,12 @@ import prisma, { Prisma } from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
+import {
+  DOCUMENT_ANY_KEY,
+  normalizeCustomFields,
+  normalizeRequiredFields,
+  DOC_REQUIRED_FIELDS,
+} from "@/utils/clientConfig";
 
 // ==== Tipos auxiliares ====
 type TokenPayload = JWTPayload & {
@@ -119,6 +125,10 @@ function toLocalDate(v?: string): Date | undefined {
 function safeNumber(v: unknown): number | undefined {
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
 }
 
 const userSelectSafe = {
@@ -350,16 +360,25 @@ export default async function handler(
     try {
       const c = req.body ?? {};
 
+      const config = await prisma.clientConfig.findFirst({
+        where: { id_agency: auth.id_agency },
+        select: { required_fields: true, custom_fields: true },
+      });
+      const requiredFields = normalizeRequiredFields(config?.required_fields);
+      const customFields = normalizeCustomFields(config?.custom_fields);
+      const requiredCustomKeys = customFields
+        .filter((f) => f.required)
+        .map((f) => f.key);
+
+      const isFilled = (val: unknown) =>
+        String(val ?? "")
+          .trim()
+          .length > 0;
+
       // Validaciones requeridas
-      for (const f of [
-        "first_name",
-        "last_name",
-        "phone",
-        "birth_date",
-        "nationality",
-        "gender",
-      ]) {
-        if (!c[f]) {
+      for (const f of requiredFields) {
+        if (f === DOCUMENT_ANY_KEY) continue;
+        if (!isFilled((c as Record<string, unknown>)[f])) {
           return res
             .status(400)
             .json({ error: `El campo ${f} es obligatorio.` });
@@ -370,17 +389,46 @@ export default async function handler(
       const last_name = String(c.last_name ?? "").trim();
       const dni = String(c.dni_number ?? "").trim();
       const pass = String(c.passport_number ?? "").trim();
+      const taxId = String(c.tax_id ?? "").trim();
 
-      if (!dni && !pass) {
+      const docRequired =
+        requiredFields.includes(DOCUMENT_ANY_KEY) ||
+        requiredFields.some((field) => DOC_REQUIRED_FIELDS.includes(field));
+      if (docRequired && !dni && !pass && !taxId) {
         return res.status(400).json({
           error:
-            "El DNI y el Pasaporte son obligatorios. Debes cargar al menos uno",
+            "El DNI, el Pasaporte o el CUIT/RUT son obligatorios. Debes cargar al menos uno",
         });
       }
 
-      const birth = toLocalDate(c.birth_date);
-      if (!birth) {
+      const birthRaw = String(c.birth_date ?? "").trim();
+      const birth = birthRaw ? toLocalDate(birthRaw) : undefined;
+      if (birthRaw && !birth) {
         return res.status(400).json({ error: "Fecha de nacimiento inválida" });
+      }
+      if (requiredFields.includes("birth_date") && !birth) {
+        return res
+          .status(400)
+          .json({ error: "El campo birth_date es obligatorio." });
+      }
+
+      const customPayload = isRecord(c.custom_fields)
+        ? (c.custom_fields as Record<string, unknown>)
+        : {};
+      const allowedCustomKeys = new Set(customFields.map((f) => f.key));
+      const sanitizedCustom = Object.fromEntries(
+        Object.entries(customPayload)
+          .filter(([key]) => allowedCustomKeys.has(key))
+          .map(([key, value]) => [key, String(value ?? "").trim()])
+          .filter(([, value]) => value.length > 0),
+      );
+
+      for (const key of requiredCustomKeys) {
+        if (!isFilled(sanitizedCustom[key])) {
+          return res.status(400).json({
+            error: `El campo personalizado ${key} es obligatorio.`,
+          });
+        }
       }
 
       // Quién puede asignar a otro usuario
@@ -416,8 +464,10 @@ export default async function handler(
           OR: [
             ...(dni ? [{ dni_number: dni }] : []),
             ...(pass ? [{ passport_number: pass }] : []),
-            ...(c.tax_id ? [{ tax_id: String(c.tax_id).trim() }] : []),
-            { first_name, last_name, birth_date: birth },
+            ...(taxId ? [{ tax_id: taxId }] : []),
+            ...(birth
+              ? [{ first_name, last_name, birth_date: birth }]
+              : []),
           ],
         },
       });
@@ -439,21 +489,25 @@ export default async function handler(
             agency_client_id: agencyClientId,
             first_name,
             last_name,
-            phone: c.phone,
+            phone: String(c.phone ?? "").trim(),
             address: c.address || null,
             postal_code: c.postal_code || null,
             locality: c.locality || null,
             company_name: c.company_name || null,
-            tax_id: c.tax_id ? String(c.tax_id).trim() : null,
+            tax_id: taxId || null,
             commercial_address: c.commercial_address || null,
             dni_number: dni || null,
             passport_number: pass || null,
-            birth_date: birth,
-            nationality: c.nationality,
-            gender: c.gender,
+            birth_date: birth as Date,
+            nationality: String(c.nationality ?? "").trim(),
+            gender: String(c.gender ?? "").trim(),
             email: String(c.email ?? "").trim() || null,
             id_user: usedUserId,
             id_agency: auth.id_agency, // SIEMPRE desde el token
+            custom_fields:
+              Object.keys(sanitizedCustom).length > 0
+                ? sanitizedCustom
+                : undefined,
           },
           include: { user: { select: userSelectSafe } },
         });

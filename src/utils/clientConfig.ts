@@ -1,0 +1,135 @@
+import type { ClientCustomField, ClientCustomFieldType } from "@/types";
+
+export const DOCUMENT_ANY_KEY = "document_any";
+export const DOC_REQUIRED_FIELDS = ["dni_number", "passport_number", "tax_id"];
+
+export const DEFAULT_REQUIRED_FIELDS = [
+  "first_name",
+  "last_name",
+  "phone",
+  "birth_date",
+  "nationality",
+  "gender",
+  DOCUMENT_ANY_KEY,
+];
+
+export const LOCKED_REQUIRED_FIELDS = ["birth_date"];
+
+export const REQUIRED_FIELD_OPTIONS: Array<{
+  key: string;
+  label: string;
+  locked?: boolean;
+}> = [
+  { key: "first_name", label: "Nombre" },
+  { key: "last_name", label: "Apellido" },
+  { key: "phone", label: "Teléfono / WhatsApp" },
+  { key: "birth_date", label: "Fecha de Nacimiento", locked: true },
+  { key: "nationality", label: "Nacionalidad" },
+  { key: "gender", label: "Género" },
+  { key: "email", label: "Correo electrónico" },
+  { key: "dni_number", label: "Documento / CI / DNI" },
+  { key: "passport_number", label: "Pasaporte" },
+  { key: "tax_id", label: "CUIT / RUT" },
+  { key: DOCUMENT_ANY_KEY, label: "Documento (DNI/Pasaporte/CUIT)" },
+  { key: "company_name", label: "Razón Social" },
+  { key: "commercial_address", label: "Domicilio Comercial" },
+  { key: "address", label: "Dirección Particular" },
+  { key: "locality", label: "Localidad / Ciudad" },
+  { key: "postal_code", label: "Código Postal" },
+];
+
+export const BUILTIN_CUSTOM_FIELDS: ClientCustomField[] = [
+  {
+    key: "dni_expiration",
+    label: "Vencimiento DNI/CI",
+    type: "date",
+    placeholder: "dd/mm/aaaa",
+    builtin: true,
+  },
+  {
+    key: "passport_expiration",
+    label: "Vencimiento Pasaporte",
+    type: "date",
+    placeholder: "dd/mm/aaaa",
+    builtin: true,
+  },
+];
+
+export const CUSTOM_FIELD_TYPES: Array<{
+  value: ClientCustomFieldType;
+  label: string;
+}> = [
+  { value: "text", label: "Texto" },
+  { value: "date", label: "Fecha" },
+  { value: "number", label: "Número" },
+];
+
+const KEY_REGEX = /^[a-z0-9_]+$/;
+
+export function normalizeRequiredFields(input: unknown): string[] {
+  if (input == null) return [...DEFAULT_REQUIRED_FIELDS];
+  const allowed = new Set(REQUIRED_FIELD_OPTIONS.map((opt) => opt.key));
+  const raw = Array.isArray(input) ? input : [];
+  const normalized = raw
+    .map((v) => (typeof v === "string" ? v.trim() : ""))
+    .filter((v) => v && allowed.has(v));
+  const out = new Set<string>([...normalized, ...LOCKED_REQUIRED_FIELDS]);
+  return Array.from(out);
+}
+
+export function normalizeCustomFields(input: unknown): ClientCustomField[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: ClientCustomField[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Partial<ClientCustomField>;
+    const key = typeof raw.key === "string" ? raw.key.trim() : "";
+    const label = typeof raw.label === "string" ? raw.label.trim() : "";
+    const type =
+      raw.type === "text" || raw.type === "date" || raw.type === "number"
+        ? raw.type
+        : null;
+    if (!key || !label || !type || !KEY_REGEX.test(key)) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const field: ClientCustomField = {
+      key,
+      label,
+      type,
+    };
+    if (typeof raw.required === "boolean") field.required = raw.required;
+    if (typeof raw.placeholder === "string" && raw.placeholder.trim()) {
+      field.placeholder = raw.placeholder.trim();
+    }
+    if (typeof raw.help === "string" && raw.help.trim()) {
+      field.help = raw.help.trim();
+    }
+    if (typeof raw.builtin === "boolean") field.builtin = raw.builtin;
+    out.push(field);
+  }
+  return out;
+}
+
+export function buildCustomFieldKey(
+  label: string,
+  existingKeys: Set<string>,
+): string {
+  const base = slugifyKey(label) || "campo";
+  let next = base;
+  let i = 2;
+  while (existingKeys.has(next)) {
+    next = `${base}_${i}`;
+    i += 1;
+  }
+  return next;
+}
+
+function slugifyKey(label: string): string {
+  const ascii = label
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+  const cleaned = ascii.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return cleaned;
+}

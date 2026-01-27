@@ -2,7 +2,7 @@
 ALTER TYPE "AgencyCounterKey" ADD VALUE IF NOT EXISTS 'file';
 
 -- CreateTable
-CREATE TABLE "AgencyStorageConfig" (
+CREATE TABLE IF NOT EXISTS "AgencyStorageConfig" (
     "id_config" SERIAL NOT NULL,
     "id_agency" INTEGER NOT NULL,
     "enabled" BOOLEAN NOT NULL DEFAULT false,
@@ -17,7 +17,7 @@ CREATE TABLE "AgencyStorageConfig" (
 );
 
 -- CreateTable
-CREATE TABLE "AgencyStorageUsage" (
+CREATE TABLE IF NOT EXISTS "AgencyStorageUsage" (
     "id_usage" SERIAL NOT NULL,
     "id_agency" INTEGER NOT NULL,
     "storage_bytes" BIGINT NOT NULL DEFAULT 0,
@@ -30,7 +30,7 @@ CREATE TABLE "AgencyStorageUsage" (
 );
 
 -- CreateTable
-CREATE TABLE "FileAsset" (
+CREATE TABLE IF NOT EXISTS "FileAsset" (
     "id_file" SERIAL NOT NULL,
     "agency_file_id" INTEGER NOT NULL,
     "id_agency" INTEGER NOT NULL,
@@ -52,31 +52,31 @@ CREATE TABLE "FileAsset" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "AgencyStorageConfig_id_agency_key" ON "AgencyStorageConfig"("id_agency");
+CREATE UNIQUE INDEX IF NOT EXISTS "AgencyStorageConfig_id_agency_key" ON "AgencyStorageConfig"("id_agency");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "AgencyStorageUsage_id_agency_key" ON "AgencyStorageUsage"("id_agency");
+CREATE UNIQUE INDEX IF NOT EXISTS "AgencyStorageUsage_id_agency_key" ON "AgencyStorageUsage"("id_agency");
 
 -- CreateIndex
-CREATE INDEX "AgencyStorageUsage_id_agency_idx" ON "AgencyStorageUsage"("id_agency");
+CREATE INDEX IF NOT EXISTS "AgencyStorageUsage_id_agency_idx" ON "AgencyStorageUsage"("id_agency");
 
 -- CreateIndex
-CREATE INDEX "FileAsset_id_agency_idx" ON "FileAsset"("id_agency");
+CREATE INDEX IF NOT EXISTS "FileAsset_id_agency_idx" ON "FileAsset"("id_agency");
 
 -- CreateIndex
-CREATE INDEX "FileAsset_booking_id_idx" ON "FileAsset"("booking_id");
+CREATE INDEX IF NOT EXISTS "FileAsset_booking_id_idx" ON "FileAsset"("booking_id");
 
 -- CreateIndex
-CREATE INDEX "FileAsset_client_id_idx" ON "FileAsset"("client_id");
+CREATE INDEX IF NOT EXISTS "FileAsset_client_id_idx" ON "FileAsset"("client_id");
 
 -- CreateIndex
-CREATE INDEX "FileAsset_service_id_idx" ON "FileAsset"("service_id");
+CREATE INDEX IF NOT EXISTS "FileAsset_service_id_idx" ON "FileAsset"("service_id");
 
 -- CreateIndex
-CREATE INDEX "FileAsset_status_idx" ON "FileAsset"("status");
+CREATE INDEX IF NOT EXISTS "FileAsset_status_idx" ON "FileAsset"("status");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "agency_file_id_unique" ON "FileAsset"("id_agency", "agency_file_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "agency_file_id_unique" ON "FileAsset"("id_agency", "agency_file_id");
 
 -- AddForeignKey
 ALTER TABLE "AgencyStorageConfig" ADD CONSTRAINT "AgencyStorageConfig_id_agency_fkey" FOREIGN KEY ("id_agency") REFERENCES "Agency"("id_agency") ON DELETE CASCADE ON UPDATE CASCADE;

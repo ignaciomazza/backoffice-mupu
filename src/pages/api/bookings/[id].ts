@@ -284,7 +284,6 @@ export default async function handler(
       !status ||
       !details ||
       !invoice_type ||
-      !invoice_observation ||
       !titular_id ||
       !departure_date ||
       !return_date

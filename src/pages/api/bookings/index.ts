@@ -20,7 +20,7 @@ type BookingCreateBody = {
   status: string;
   details: string;
   invoice_type: string;
-  invoice_observation: string;
+  invoice_observation?: string;
   observation?: string;
   titular_id: number;
   // id_agency: number;  // <- ignorado en backend, se usa el del token
@@ -476,17 +476,16 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // validaciones mínimas
-  if (
-    !clientStatus ||
-    !operatorStatus ||
-    !status ||
-    !details ||
-    !invoice_type ||
-    !invoice_observation ||
-    !titular_id ||
-    !departure_date ||
-    !return_date
-  ) {
+    if (
+      !clientStatus ||
+      !operatorStatus ||
+      !status ||
+      !details ||
+      !invoice_type ||
+      !titular_id ||
+      !departure_date ||
+      !return_date
+    ) {
     return res
       .status(400)
       .json({ error: "Todos los campos obligatorios deben ser completados" });
