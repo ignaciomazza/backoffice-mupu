@@ -42,6 +42,7 @@ export default function UserList({
           user={user}
           startEditingUser={startEditingUser}
           deleteUser={isManager ? deleteUser : () => {}}
+          isManager={isManager}
           // Nota: UserCard decidirá si mostrar/eliminar según que reciba deleteUser y/o un flag propio.
           // Si preferís explícito, podemos agregar un prop canDelete al UserCard.
         />

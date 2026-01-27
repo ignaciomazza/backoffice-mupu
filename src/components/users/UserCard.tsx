@@ -1,7 +1,7 @@
 // src/components/users/UserCard.tsx
 
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { User } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
@@ -33,6 +33,10 @@ export default function UserCard({
   const [currentPwd, setCurrentPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
+  const [resetPwd, setResetPwd] = useState("");
+  const [resetting, setResetting] = useState(false);
+  const [copiedReset, setCopiedReset] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
 
   const [showCur, setShowCur] = useState(false);
   const [showNew, setShowNew] = useState(false);
@@ -72,14 +76,17 @@ export default function UserCard({
         return;
       }
 
-      const body = requiresCurrent
-        ? { currentPassword: currentPwd, password: newPwd }
-        : { password: newPwd };
+      const body = {
+        action: "changePassword",
+        newPassword: newPwd,
+        confirmPassword: confirmPwd,
+        ...(requiresCurrent ? { oldPassword: currentPwd } : {}),
+      };
 
       const res = await authFetch(
         `/api/users/${user.id_user}`,
         {
-          method: "PUT",
+          method: "PATCH",
           body: JSON.stringify(body),
         },
         token,
@@ -104,6 +111,82 @@ export default function UserCard({
       toast.error(msg);
     }
   };
+
+  const handleResetPassword = async () => {
+    if (!isManager) return;
+    const generated = generateStrongPassword(12);
+    try {
+      setResetting(true);
+      setCopiedReset(false);
+      if (resetTimerRef.current) {
+        window.clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = null;
+      }
+      const res = await authFetch(
+        `/api/users/${user.id_user}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            action: "changePassword",
+            newPassword: generated,
+            confirmPassword: generated,
+          }),
+        },
+        token,
+      );
+
+      if (!res.ok) {
+        let msg = "Error al resetear la contraseña";
+        try {
+          const data = await res.json();
+          msg = data.error || data.message || msg;
+        } catch {
+          // ignore
+        }
+        throw new Error(msg);
+      }
+
+      setResetPwd(generated);
+      toast.success("Contraseña reseteada. Copiala para compartirla.");
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Error al resetear la contraseña.";
+      toast.error(msg);
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const handleCopyResetPassword = async () => {
+    if (!resetPwd) return;
+    try {
+      await navigator.clipboard.writeText(resetPwd);
+      toast.success("Contraseña copiada.");
+      if (resetTimerRef.current) window.clearTimeout(resetTimerRef.current);
+      setCopiedReset(true);
+      resetTimerRef.current = window.setTimeout(() => {
+        setResetPwd("");
+        setCopiedReset(false);
+      }, 1500);
+    } catch {
+      window.prompt("Copiá la contraseña:", resetPwd);
+      if (resetTimerRef.current) window.clearTimeout(resetTimerRef.current);
+      setCopiedReset(true);
+      resetTimerRef.current = window.setTimeout(() => {
+        setResetPwd("");
+        setCopiedReset(false);
+      }, 1500);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) {
+        window.clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleDelete = async () => {
     if (!isManager) return;
@@ -159,6 +242,20 @@ export default function UserCard({
           <KeyIcon />
         </button>
 
+        {/* Resetear contraseña (solo manager) */}
+        {isManager && (
+          <button
+            type="button"
+            className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+            onClick={handleResetPassword}
+            disabled={resetting}
+            title="Resetear contraseña"
+            aria-label="Resetear contraseña"
+          >
+            {resetting ? <SpinnerTiny /> : <ResetIcon />}
+          </button>
+        )}
+
         {/* Eliminar (solo manager) */}
         {isManager && (
           <button
@@ -172,6 +269,47 @@ export default function UserCard({
           </button>
         )}
       </div>
+
+      {/* ===== Contraseña reseteada (visible hasta copiar) ===== */}
+      <AnimatePresence initial={false}>
+        {isManager && resetPwd && (
+          <motion.div
+            key="pwd-reset"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18 }}
+            className="mt-3 rounded-2xl border border-white/10 bg-white/40 p-3 dark:bg-white/10"
+          >
+            <div className="text-sm font-semibold">
+              Nueva contraseña generada
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                value={resetPwd}
+                readOnly
+                className="w-full rounded-xl border border-sky-950/10 bg-white/60 px-3 py-2 font-mono text-sm outline-none dark:border-white/10 dark:bg-white/10"
+                aria-label="Contraseña generada"
+              />
+              <button
+                type="button"
+                onClick={handleCopyResetPassword}
+                className="rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+              >
+                {copiedReset ? "Copiado" : "Copiar"}
+              </button>
+              {copiedReset && (
+                <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                  Copiado
+                </span>
+              )}
+            </div>
+            <p className="mt-2 text-xs opacity-70">
+              Quedará visible hasta que la copies.
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ===== Panel interno de cambio de contraseña ===== */}
       <AnimatePresence initial={false}>
@@ -296,7 +434,58 @@ export default function UserCard({
   );
 }
 
+function generateStrongPassword(length = 12) {
+  const lower = "abcdefghijklmnopqrstuvwxyz";
+  const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const numbers = "0123456789";
+  const symbols = "!@#$%^&*()-_=+[]{};:,.?/|";
+  const all = lower + upper + numbers + symbols;
+
+  const minLength = Math.max(length, 8);
+  const required = [
+    pickChar(lower),
+    pickChar(upper),
+    pickChar(numbers),
+    pickChar(symbols),
+  ];
+  const rest = Array.from(
+    { length: minLength - required.length },
+    () => pickChar(all),
+  );
+
+  return shuffleArray([...required, ...rest]).join("");
+}
+
+function pickChar(chars: string) {
+  return chars[randomInt(chars.length)];
+}
+
+function randomInt(max: number) {
+  if (typeof crypto !== "undefined" && "getRandomValues" in crypto) {
+    const arr = new Uint32Array(1);
+    crypto.getRandomValues(arr);
+    return arr[0] % max;
+  }
+  return Math.floor(Math.random() * max);
+}
+
+function shuffleArray<T>(arr: T[]) {
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = randomInt(i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 /* =================== Iconos =================== */
+function SpinnerTiny() {
+  return (
+    <span
+      className="inline-block size-5 animate-spin rounded-full border-2 border-sky-950/30 border-t-sky-950 dark:border-white/30 dark:border-t-white"
+      aria-label="Cargando"
+    />
+  );
+}
 function PencilIcon() {
   return (
     <svg
@@ -348,6 +537,24 @@ function TrashIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
         d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+      />
+    </svg>
+  );
+}
+function ResetIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      className="size-5"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M16.023 9.348h4.992m0 0-1.993-1.993m1.993 1.993-1.993 1.993M7.98 14.652H3m0 0 1.993 1.993M3 14.652l1.993-1.993M7.98 5.996A7.5 7.5 0 0 1 19.5 9.75m-15 4.5A7.5 7.5 0 0 0 16.02 18.004"
       />
     </svg>
   );

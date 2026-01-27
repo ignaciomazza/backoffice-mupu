@@ -328,11 +328,13 @@ export default function UsersPage() {
       const r = await authFetch(
         `/api/users/${profile.id_user}`,
         {
-          method: "PUT",
+          method: "PATCH",
           body: JSON.stringify({
+            action: "changePassword",
             // backend exige oldPassword para vendedor/líder
             oldPassword,
-            password: newPassword,
+            newPassword,
+            confirmPassword: repeatPassword,
           }),
         },
         token,
@@ -395,6 +397,7 @@ export default function UsersPage() {
                 users={users}
                 startEditingUser={startEditingUser}
                 deleteUser={deleteUser}
+                isManager={isManager}
               />
             )}
           </>
