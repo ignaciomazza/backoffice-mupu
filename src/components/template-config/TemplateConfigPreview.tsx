@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import BlocksCanvas from "@/components/templates/BlocksCanvas";
@@ -800,16 +800,51 @@ const TemplateConfigPreview: React.FC<Props> = ({
     [autoLabels, blocks],
   );
 
+  const blocksKey = useMemo(
+    () => `${blocks.length}:${blocks.map((b) => b.id).join("|")}`,
+    [blocks],
+  );
+  const [draftBlocks, setDraftBlocks] = useState<OrderedBlock[]>(orderedBlocks);
+  const commitTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setDraftBlocks(orderedBlocks);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocksKey]);
+
   const lockedIds = useMemo(
     () => new Set(blocks.filter((b) => b.mode === "form").map((b) => b.id)),
     [blocks],
   );
 
+  const commitBlocks = useCallback(
+    (next: OrderedBlock[]) => {
+      if (!onChange) return;
+      const nextBlocks = applyOrderedBlocks(next as BuilderBlock[], blocks);
+      onChange(setAt(cfg, ["content", "blocks"], nextBlocks));
+    },
+    [blocks, cfg, onChange],
+  );
+
   const handleCanvasChange = (next: OrderedBlock[]) => {
+    setDraftBlocks(next);
     if (!onChange) return;
-    const nextBlocks = applyOrderedBlocks(next as BuilderBlock[], blocks);
-    onChange(setAt(cfg, ["content", "blocks"], nextBlocks));
+    if (commitTimerRef.current != null) {
+      window.clearTimeout(commitTimerRef.current);
+    }
+    commitTimerRef.current = window.setTimeout(() => {
+      commitBlocks(next);
+    }, 200);
   };
+
+  useEffect(
+    () => () => {
+      if (commitTimerRef.current != null) {
+        window.clearTimeout(commitTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const handleToggleMode = (id: string, nextMode: BlockMode) => {
     if (!onChange) return;
@@ -819,7 +854,8 @@ const TemplateConfigPreview: React.FC<Props> = ({
     const fieldKey = resolveFieldKey(current, label);
     const origin: BuilderBlock["origin"] =
       nextMode === "form" ? "form" : "fixed";
-    const next: BuilderBlock[] = orderedBlocks.map((b) =>
+    const source = draftBlocks.length ? draftBlocks : orderedBlocks;
+    const next: BuilderBlock[] = source.map((b) =>
       b.id === id
         ? {
             ...b,
@@ -831,6 +867,7 @@ const TemplateConfigPreview: React.FC<Props> = ({
           }
         : b,
     );
+    setDraftBlocks(next);
     const nextBlocks = applyOrderedBlocks(next, blocks);
     onChange(setAt(cfg, ["content", "blocks"], nextBlocks));
   };
@@ -983,13 +1020,13 @@ const TemplateConfigPreview: React.FC<Props> = ({
             )}
 
             <div className={cx("mt-4", gapBlocks)}>
-              {orderedBlocks.length === 0 ? (
+              {draftBlocks.length === 0 ? (
                 <p className="text-sm opacity-70">
                   No hay secciones aún. Agregá un bloque para empezar.
                 </p>
               ) : (
                 <BlocksCanvas
-                  blocks={orderedBlocks}
+                  blocks={draftBlocks}
                   onChange={handleCanvasChange}
                   lockedIds={lockedIds}
                   allowRemoveLocked

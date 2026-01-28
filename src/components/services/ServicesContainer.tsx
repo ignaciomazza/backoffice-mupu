@@ -1326,7 +1326,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                     {formatDate(booking.creation_date)}
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={getStatusPillClasses(booking.clientStatus)}
                     title={`Pax: ${formatStatusLabel(
@@ -1359,6 +1359,29 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                       {`Reserva: ${formatStatusLabel(booking.status)}`}
                     </span>
                   </span>
+
+                  <Link
+                    href={`/bookings/services/${booking.public_id ?? booking.id_booking}/template`}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/40 px-3 py-1 text-xs font-medium text-sky-950 shadow-sm shadow-sky-950/10 transition hover:scale-[0.98] dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    title="Armar PDF del voucher"
+                    aria-label="Armar PDF del voucher"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="size-3.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.6}
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M19.5 14.25v2.25a2.25 2.25 0 01-2.25 2.25h-10.5A2.25 2.25 0 014.5 16.5v-2.25M12 3v12m0 0l-3-3m3 3l3-3"
+                      />
+                    </svg>
+                    Armar PDF
+                  </Link>
                 </div>
               </div>
 

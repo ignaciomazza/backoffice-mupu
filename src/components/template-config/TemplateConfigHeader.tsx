@@ -79,7 +79,9 @@ const TemplateConfigHeader: React.FC<Props> = ({
                 ? "Cotización"
                 : docType === "confirmation"
                   ? "Confirmación"
-                  : "Sin tipo de documento"}
+                  : docType === "voucher"
+                    ? "Voucher"
+                    : "Sin tipo de documento"}
             </p>
           </div>
         </div>

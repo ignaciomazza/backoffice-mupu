@@ -582,7 +582,7 @@ const TemplatePdfDocument: React.FC<TemplatePdfDocumentProps> = ({
     "Vendedor/a";
 
   const Footer: React.FC = () => (
-    <View style={[styles.footer, styles.contentWrap]}>
+    <View style={[styles.footer, styles.contentWrap]} wrap={false}>
       <View style={base.row}>
         <View
           style={{

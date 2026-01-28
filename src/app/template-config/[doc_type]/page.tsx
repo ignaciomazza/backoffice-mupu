@@ -9,7 +9,7 @@ import TemplateConfigContainer from "@/components/template-config/TemplateConfig
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-type DocType = "quote" | "confirmation";
+type DocType = "quote" | "confirmation" | "voucher";
 
 export default function Page() {
   const params = useParams<{ doc_type?: string }>();
@@ -17,7 +17,7 @@ export default function Page() {
     .trim()
     .toLowerCase();
 
-  const isValid = raw === "quote" || raw === "confirmation";
+  const isValid = raw === "quote" || raw === "confirmation" || raw === "voucher";
   const docType = (isValid ? raw : "quote") as DocType;
 
   if (!isValid) {
@@ -48,6 +48,16 @@ export default function Page() {
               <div className="text-lg font-medium">Confirmación</div>
               <div className="text-sm opacity-70">
                 Configurar estilos y contenido de la confirmación.
+              </div>
+            </Link>
+
+            <Link
+              href="/template-config/voucher"
+              className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm shadow-slate-900/5 transition hover:scale-[0.99] dark:border-white/10 dark:bg-white/5"
+            >
+              <div className="text-lg font-medium">Voucher</div>
+              <div className="text-sm opacity-70">
+                Configurar estilos y contenido del voucher.
               </div>
             </Link>
           </div>

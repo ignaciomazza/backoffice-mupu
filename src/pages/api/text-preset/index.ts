@@ -27,7 +27,7 @@ type DecodedAuth = {
 type CreateBody = {
   title?: string;
   content?: string;
-  doc_type?: string; // "quote" | "confirmation"
+  doc_type?: string; // "quote" | "confirmation" | "voucher"
   data?: unknown; // NEW: formulario entero serializado
 };
 
@@ -101,9 +101,11 @@ function safeNumber(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function normalizeDocType(v?: string): "quote" | "confirmation" | undefined {
+function normalizeDocType(
+  v?: string,
+): "quote" | "confirmation" | "voucher" | undefined {
   const s = (v || "").trim().toLowerCase();
-  if (s === "quote" || s === "confirmation") return s;
+  if (s === "quote" || s === "confirmation" || s === "voucher") return s;
   return undefined;
 }
 

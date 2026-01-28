@@ -18,7 +18,7 @@ import { toast } from "react-toastify";
 import { type Config } from "@/components/template-config/types";
 
 // ===== Tipos =====
-export type DocType = "quote" | "confirmation";
+export type DocType = "quote" | "confirmation" | "voucher";
 
 type ApiGetResponse<T extends DocType = DocType> = {
   exists: boolean;
@@ -50,6 +50,17 @@ function toObj(v: unknown): Config {
 // ===== Presets mínimos (fallback local por doc_type) =====
 const LOCAL_DEFAULTS: Record<DocType, Config> = {
   confirmation: {
+    styles: {
+      colors: { background: "#FFFFFF", text: "#111111", accent: "#6B7280" },
+      fonts: { heading: "Poppins", body: "Poppins" },
+    },
+    layout: "layoutA",
+    coverImage: { mode: "logo" },
+    contactItems: ["phones", "email", "website", "address"],
+    content: { blocks: [] },
+    paymentOptions: [],
+  },
+  voucher: {
     styles: {
       colors: { background: "#FFFFFF", text: "#111111", accent: "#6B7280" },
       fonts: { heading: "Poppins", body: "Poppins" },
@@ -277,7 +288,13 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
           {/* Preview */}
           <TemplateConfigPreview
             cfg={cfg}
-            docTypeLabel={docType === "quote" ? "Cotización" : "Confirmación"}
+            docTypeLabel={
+              docType === "quote"
+                ? "Cotización"
+                : docType === "confirmation"
+                  ? "Confirmación"
+                  : "Voucher"
+            }
             editable={!disabled}
             onChange={onChangeCfg}
           />

@@ -9,7 +9,7 @@ import { authFetch } from "@/utils/authFetch";
 /* =========================
  * Tipos
  * ======================= */
-export type DocType = "quote" | "confirmation";
+export type DocType = "quote" | "confirmation" | "voucher";
 
 export type TextPreset = {
   id_preset: number;

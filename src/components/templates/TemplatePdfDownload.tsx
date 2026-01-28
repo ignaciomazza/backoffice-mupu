@@ -114,7 +114,9 @@ function unwrapBlocks(anyInput: unknown): unknown[] {
 function looksLikePresetBlock(b: unknown): boolean {
   if (!b || typeof b !== "object") return false;
   const o = b as Record<string, unknown>;
-  return "value" in o || "label" in o;
+  // Si viene con `mode` asumimos que ya es ContentBlock válido
+  if ("mode" in o) return false;
+  return "value" in o || "origin" in o || "label" in o;
 }
 function mapOriginToMode(origin?: string): ContentBlock["mode"] {
   return origin === "form" ? "form" : "fixed";

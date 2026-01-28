@@ -532,7 +532,11 @@ const TemplateEditor: React.FC<Props> = ({
     (rCfg as unknown as { labels?: { docTypeLabel?: string } }).labels || {};
   const docLabel =
     labels.docTypeLabel ??
-    (docType === "quote" ? "Cotización" : "Confirmación");
+    (docType === "quote"
+      ? "Cotización"
+      : docType === "confirmation"
+        ? "Confirmación"
+        : "Voucher");
 
   const layout = rCfg.layout ?? "layoutA";
 
@@ -1278,7 +1282,9 @@ const TemplateEditor: React.FC<Props> = ({
             filename ||
             (docType === "quote"
               ? `cotizacion-${new Date().toISOString().slice(0, 10)}.pdf`
-              : `confirmacion-${new Date().toISOString().slice(0, 10)}.pdf`)
+              : docType === "confirmation"
+                ? `confirmacion-${new Date().toISOString().slice(0, 10)}.pdf`
+                : `voucher-${new Date().toISOString().slice(0, 10)}.pdf`)
           }
         />
       </div>

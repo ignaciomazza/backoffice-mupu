@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
 import { toast, ToastContainer } from "react-toastify";
@@ -37,7 +38,9 @@ type RoleResponse = { role?: string };
 const GLASS =
   "rounded-3xl border border-white/30 bg-white/10 backdrop-blur shadow-lg shadow-sky-900/10 dark:bg-white/10 dark:border-white/5";
 const ICON_BTN =
-  "rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-[.98] active:scale-95 disabled:opacity-50 dark:bg-white/10 dark:text-white";
+  "rounded-full bg-sky-200/10 border border-sky-500/50 px-4 py-2 text-sky-950 text-sm shadow-sm shadow-sky-950/20 transition-transform hover:scale-[.98] active:scale-95 disabled:opacity-50 dark:bg-sky-100/10 dark:text-sky-100";
+const TAB_BTN =
+  "rounded-full bg-sky-200/10 border border-sky-500/50 px-3 py-1.5 text-xs font-medium text-sky-950 shadow-sm shadow-sky-950/10 transition-transform hover:scale-[.98] active:scale-95 dark:bg-sky-100/10 dark:text-sky-100";
 const BADGE =
   "inline-flex items-center gap-1 rounded-full px-2 py-[2px] text-[10px] font-medium border border-white/10 bg-white/10";
 
@@ -215,6 +218,10 @@ export default function BookingsConfigPage() {
       role === "gerente" ||
       role === "administrativo" ||
       role === "desarrollador",
+    [role],
+  );
+  const canSeeVoucherConfig = useMemo(
+    () => role === "gerente" || role === "desarrollador",
     [role],
   );
 
@@ -798,14 +805,23 @@ export default function BookingsConfigPage() {
                 key={t.key}
                 type="button"
                 onClick={() => setActive(t.key as TabKey)}
-                className={`${ICON_BTN} ${
-                  active === t.key ? "ring-1 ring-sky-400/60" : ""
+                className={`${TAB_BTN} ${
+                  active === t.key ? "ring-1 ring-sky-500/60" : ""
                 }`}
                 aria-label={`Ir a ${t.label}`}
               >
                 {t.label}
               </button>
             ))}
+            {canSeeVoucherConfig && (
+              <Link
+                href="/bookings/config/voucher-template"
+                className={TAB_BTN}
+                aria-label="Configurar voucher"
+              >
+                Voucher
+              </Link>
+            )}
           </div>
         </div>
 
