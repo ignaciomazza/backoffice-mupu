@@ -54,6 +54,7 @@ import type {
   Invoice,
   Operator,
   OperatorDue,
+  PassengerCategory,
   Receipt,
   Service,
 } from "@/types";
@@ -525,6 +526,101 @@ export default function ServicesContainer(props: ServicesContainerProps) {
         name: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() || "Pax",
       }));
   }, [booking]);
+
+  const [passengerCategories, setPassengerCategories] = useState<
+    PassengerCategory[]
+  >([]);
+
+  useEffect(() => {
+    if (!token) {
+      setPassengerCategories([]);
+      return;
+    }
+    let alive = true;
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/passenger-categories",
+          { cache: "no-store", signal: controller.signal },
+          token,
+        );
+        if (!res.ok) throw new Error("No se pudieron cargar categorías.");
+        const data = (await res.json().catch(() => [])) as PassengerCategory[];
+        if (alive) setPassengerCategories(Array.isArray(data) ? data : []);
+      } catch {
+        if (alive) setPassengerCategories([]);
+      }
+    })();
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [token]);
+
+  const passengerCategoryCounts = useMemo(() => {
+    const counts: Record<number, number> = {};
+    if (!booking) return counts;
+    if (Array.isArray(booking.simple_companions)) {
+      booking.simple_companions.forEach((c) => {
+        const id = c.category_id;
+        if (typeof id !== "number" || !Number.isFinite(id)) return;
+        counts[id] = (counts[id] || 0) + 1;
+      });
+    }
+
+    const realPassengers = [
+      booking.titular,
+      ...(Array.isArray(booking.clients) ? booking.clients : []),
+    ].filter(Boolean);
+
+    realPassengers.forEach((p) => {
+      const id = p?.category_id;
+      if (typeof id !== "number" || !Number.isFinite(id) || id <= 0) return;
+      counts[id] = (counts[id] || 0) + 1;
+    });
+
+    if (!passengerCategories.length) return counts;
+    const eligible = [...passengerCategories]
+      .filter((c) => c.enabled !== false && !c.ignore_age)
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+    const ageFromBirthDate = (value?: string | null) => {
+      if (!value) return null;
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return null;
+      const now = new Date();
+      let age = now.getUTCFullYear() - d.getUTCFullYear();
+      const m = now.getUTCMonth() - d.getUTCMonth();
+      if (m < 0 || (m === 0 && now.getUTCDate() < d.getUTCDate())) {
+        age -= 1;
+      }
+      return age >= 0 ? age : null;
+    };
+
+    const matchCategoryId = (age: number | null) => {
+      if (age == null) return null;
+      for (const cat of eligible) {
+        const min = typeof cat.min_age === "number" ? cat.min_age : null;
+        const max = typeof cat.max_age === "number" ? cat.max_age : null;
+        const okMin = min == null || age >= min;
+        const okMax = max == null || age <= max;
+        if (okMin && okMax) return cat.id_category;
+      }
+      return null;
+    };
+
+    realPassengers.forEach((p) => {
+      const id = p?.category_id;
+      if (typeof id === "number" && Number.isFinite(id) && id > 0) return;
+      const age = ageFromBirthDate(p?.birth_date);
+      const catId = matchCategoryId(age);
+      if (!catId) return;
+      counts[catId] = (counts[catId] || 0) + 1;
+    });
+
+    return counts;
+  }, [booking, passengerCategories]);
 
   const canNavigateNeighbors =
     role === "administrativo" || role === "gerente" || role === "desarrollador";
@@ -1442,6 +1538,12 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                     </li>
                   ))}
                 </ul>
+                {Array.isArray(booking.simple_companions) &&
+                  booking.simple_companions.length > 0 && (
+                    <p className="mt-2 text-xs text-sky-950/70 dark:text-white/70">
+                      Acompañantes simples: {booking.simple_companions.length}
+                    </p>
+                  )}
               </div>
 
               {/* Facturación + Observaciones */}
@@ -1621,6 +1723,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 transferFeeReady={agencyTransferFeeReady}
                 canOverrideBillingMode={canOverrideBillingMode}
                 useBookingSaleTotal={useBookingSaleTotal}
+                passengerCategoryCounts={passengerCategoryCounts}
               />
 
               {services.length > 0 && (

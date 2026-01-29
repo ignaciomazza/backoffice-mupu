@@ -1,7 +1,7 @@
 // src/components/BillingBreakdown.tsx
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { BillingData } from "@/types/index";
 
 interface BillingBreakdownProps {
@@ -22,6 +22,26 @@ interface BillingBreakdownProps {
 const round = (value: number, decimals = 8) =>
   parseFloat(value.toFixed(decimals));
 
+const sameBillingData = (a: BillingData | null, b: BillingData) => {
+  if (!a) return false;
+  return (
+    a.nonComputable === b.nonComputable &&
+    a.taxableBase21 === b.taxableBase21 &&
+    a.taxableBase10_5 === b.taxableBase10_5 &&
+    a.commissionExempt === b.commissionExempt &&
+    a.commission21 === b.commission21 &&
+    a.commission10_5 === b.commission10_5 &&
+    a.vatOnCommission21 === b.vatOnCommission21 &&
+    a.vatOnCommission10_5 === b.vatOnCommission10_5 &&
+    a.totalCommissionWithoutVAT === b.totalCommissionWithoutVAT &&
+    a.impIVA === b.impIVA &&
+    a.taxableCardInterest === b.taxableCardInterest &&
+    a.vatOnCardInterest === b.vatOnCardInterest &&
+    a.transferFeeAmount === b.transferFeeAmount &&
+    a.transferFeePct === b.transferFeePct
+  );
+};
+
 export default function BillingBreakdown({
   importeVenta,
   costo,
@@ -35,6 +55,13 @@ export default function BillingBreakdown({
   onBillingUpdate,
   transferFeePct = 0.024,
 }: BillingBreakdownProps) {
+  const lastPayloadRef = useRef<BillingData | null>(null);
+  const onBillingUpdateRef = useRef(onBillingUpdate);
+
+  useEffect(() => {
+    onBillingUpdateRef.current = onBillingUpdate;
+  }, [onBillingUpdate]);
+
   /* ----------------- Cálculos (idénticos a tu versión) ----------------- */
   const baseNetoDesglose = round(
     costo - (montoIva21 + montoIva10_5) - otrosImpuestos,
@@ -117,24 +144,26 @@ export default function BillingBreakdown({
   );
 
   useEffect(() => {
-    if (onBillingUpdate && !hasError) {
-      onBillingUpdate({
-        nonComputable,
-        taxableBase21: baseIva21,
-        taxableBase10_5: baseIva10_5,
-        commissionExempt,
-        commission21,
-        commission10_5,
-        vatOnCommission21,
-        vatOnCommission10_5,
-        totalCommissionWithoutVAT,
-        impIVA,
-        taxableCardInterest,
-        vatOnCardInterest,
-        transferFeeAmount: transferFee,
-        transferFeePct: transferFeePct,
-      });
-    }
+    if (!onBillingUpdateRef.current || hasError) return;
+    const payload: BillingData = {
+      nonComputable,
+      taxableBase21: baseIva21,
+      taxableBase10_5: baseIva10_5,
+      commissionExempt,
+      commission21,
+      commission10_5,
+      vatOnCommission21,
+      vatOnCommission10_5,
+      totalCommissionWithoutVAT,
+      impIVA,
+      taxableCardInterest,
+      vatOnCardInterest,
+      transferFeeAmount: transferFee,
+      transferFeePct: transferFeePct,
+    };
+    if (sameBillingData(lastPayloadRef.current, payload)) return;
+    lastPayloadRef.current = payload;
+    onBillingUpdateRef.current(payload);
   }, [
     nonComputable,
     baseIva21,
@@ -149,7 +178,6 @@ export default function BillingBreakdown({
     taxableCardInterest,
     vatOnCardInterest,
     hasError,
-    onBillingUpdate,
     transferFee,
     transferFeePct,
   ]);

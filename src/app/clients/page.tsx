@@ -3,12 +3,19 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { Client, User, SalesTeam, ClientCustomField } from "@/types";
+import {
+  Client,
+  User,
+  SalesTeam,
+  ClientCustomField,
+  PassengerCategory,
+} from "@/types";
 import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
 import ClientForm from "@/components/clients/ClientForm";
 import ClientList from "@/components/clients/ClientList";
 import ClientTable from "@/components/clients/ClientTable";
+import ClientRelationsPanel from "@/components/clients/ClientRelationsPanel";
 import Spinner from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import "react-toastify/dist/ReactToastify.css";
@@ -17,6 +24,7 @@ import { authFetch } from "@/utils/authFetch";
 import {
   DEFAULT_REQUIRED_FIELDS,
   DOCUMENT_ANY_KEY,
+  normalizeHiddenFields,
   normalizeCustomFields,
   normalizeRequiredFields,
 } from "@/utils/clientConfig";
@@ -155,6 +163,8 @@ export default function Page() {
   const [selectedGender, setSelectedGender] = useState<
     "" | "Masculino" | "Femenino" | "No Binario"
   >("");
+  const [hiddenFields, setHiddenFields] = useState<string[]>([]);
+  const [relatedClientId, setRelatedClientId] = useState<number | null>(null);
 
   // buscador
   const [searchTerm, setSearchTerm] = useState<string>("");
@@ -193,6 +203,7 @@ export default function Page() {
     birth_date: "",
     nationality: "",
     gender: "",
+    category_id: null,
     email: "",
     custom_fields: {},
     id_user: 0,
@@ -202,8 +213,12 @@ export default function Page() {
     DEFAULT_REQUIRED_FIELDS,
   );
   const [customFields, setCustomFields] = useState<ClientCustomField[]>([]);
+  const [passengerCategories, setPassengerCategories] = useState<
+    PassengerCategory[]
+  >([]);
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
+  const [relationsClient, setRelationsClient] = useState<Client | null>(null);
 
   // Abort + race conditions control
   const fetchAbortRef = useRef<AbortController | null>(null);
@@ -298,6 +313,32 @@ export default function Page() {
     return () => abort.abort();
   }, [token]);
 
+  // 1b) Cargar categorías de pasajeros (select de categoría)
+  useEffect(() => {
+    if (!token) {
+      setPassengerCategories([]);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/passenger-categories",
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) throw new Error("No se pudieron cargar categorías.");
+        const data = (await res.json().catch(() => [])) as PassengerCategory[];
+        if (alive) setPassengerCategories(Array.isArray(data) ? data : []);
+      } catch {
+        if (alive) setPassengerCategories([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+
   // 1.1) Configuración de campos requeridos y custom (por agencia)
   useEffect(() => {
     if (!token) return;
@@ -312,19 +353,25 @@ export default function Page() {
         if (!res.ok) throw new Error("No se pudo cargar la configuración");
         const cfg = (await res.json().catch(() => null)) as {
           required_fields?: unknown;
+          hidden_fields?: unknown;
           custom_fields?: unknown;
         } | null;
-        const required = normalizeRequiredFields(cfg?.required_fields);
+        const hidden = normalizeHiddenFields(cfg?.hidden_fields);
+        const required = normalizeRequiredFields(cfg?.required_fields).filter(
+          (field) => !hidden.includes(field),
+        );
         const custom = normalizeCustomFields(cfg?.custom_fields);
         if (alive) {
           setRequiredFields(required);
           setCustomFields(custom);
+          setHiddenFields(hidden);
         }
       } catch (err) {
         console.warn("⚠️ No se pudo cargar config de pasajeros:", err);
         if (alive) {
           setRequiredFields(DEFAULT_REQUIRED_FIELDS);
           setCustomFields([]);
+          setHiddenFields([]);
         }
       }
     })();
@@ -358,6 +405,7 @@ export default function Page() {
       if (selectedUserId > 0) qs.append("userId", String(selectedUserId));
       if (selectedTeamId !== 0) qs.append("teamId", String(selectedTeamId));
       if (selectedGender) qs.append("gender", selectedGender);
+      if (relatedClientId) qs.append("related_to", String(relatedClientId));
 
       // 👇 cambio clave:
       // en vez de mandar TODA la búsqueda al backend,
@@ -372,7 +420,14 @@ export default function Page() {
 
       return qs.toString();
     },
-    [selectedUserId, selectedTeamId, selectedGender, debouncedSearch, take],
+    [
+      selectedUserId,
+      selectedTeamId,
+      selectedGender,
+      relatedClientId,
+      debouncedSearch,
+      take,
+    ],
   );
 
   useEffect(() => {
@@ -465,6 +520,13 @@ export default function Page() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
+    if (name === "category_id") {
+      setFormData((prev) => ({
+        ...prev,
+        category_id: value ? Number(value) : null,
+      }));
+      return;
+    }
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -592,6 +654,7 @@ export default function Page() {
         birth_date: "",
         nationality: "",
         gender: "",
+        category_id: null,
         email: "",
         custom_fields: {},
         id_user: prev.id_user,
@@ -652,6 +715,7 @@ export default function Page() {
         : "",
       nationality: client.nationality || "",
       gender: client.gender || "",
+      category_id: client.category_id ?? null,
       email: client.email || "",
       custom_fields: client.custom_fields || {},
       id_user: client.user.id_user,
@@ -699,8 +763,21 @@ export default function Page() {
             setIsFormVisible={setIsFormVisible}
             requiredFields={requiredFields}
             customFields={customFields}
+            hiddenFields={hiddenFields}
+            passengerCategories={passengerCategories}
           />
         </motion.div>
+
+        {relationsClient && (
+          <div className="mt-4">
+            <ClientRelationsPanel
+              client={relationsClient}
+              token={token}
+              passengerCategories={passengerCategories}
+              onClose={() => setRelationsClient(null)}
+            />
+          </div>
+        )}
 
         <div className="my-4 flex flex-wrap items-center justify-between gap-4">
           <h2 className="flex items-center gap-2 text-2xl font-semibold dark:font-medium">
@@ -795,6 +872,7 @@ export default function Page() {
         </div>
 
         <FilterPanel
+          token={token}
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
           role={profile?.role}
@@ -804,6 +882,8 @@ export default function Page() {
           setSelectedTeamId={setSelectedTeamId}
           selectedGender={selectedGender}
           setSelectedGender={setSelectedGender}
+          relatedClientId={relatedClientId}
+          setRelatedClientId={setRelatedClientId}
           displayedTeamMembers={teamMembers}
           teams={teamsList}
         />
@@ -836,6 +916,8 @@ export default function Page() {
             onLoadMore={loadMore}
             loadingMore={loadingMore}
             viewMode={viewMode === "list" ? "list" : "grid"}
+            onOpenRelations={(c) => setRelationsClient(c)}
+            passengerCategories={passengerCategories}
           />
         )}
 

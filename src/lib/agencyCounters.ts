@@ -27,6 +27,8 @@ export const COUNTER_KEYS = [
   "finance_payment_method",
   "expense_category",
   "service_type",
+  "passenger_category",
+  "service_type_preset",
   "service_calc_config",
   "lead",
   "credit_account",

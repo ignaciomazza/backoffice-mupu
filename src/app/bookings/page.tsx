@@ -11,7 +11,7 @@ import Spinner from "@/components/Spinner";
 import { motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { Booking, User, SalesTeam } from "@/types";
+import { Booking, User, SalesTeam, PassengerCategory } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 
@@ -40,6 +40,11 @@ type BookingFormData = {
   return_date: string;
   pax_count: number;
   clients_ids: number[];
+  simple_companions?: Array<{
+    category_id?: number | null;
+    age?: number | null;
+    notes?: string | null;
+  }>;
   /** fecha de creación editable por admin/gerente/dev (YYYY-MM-DD) */
   creation_date?: string;
 };
@@ -86,6 +91,10 @@ export default function Page() {
   } | null>(null);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [teamsList, setTeamsList] = useState<SalesTeam[]>([]);
+  const [useSimpleCompanions, setUseSimpleCompanions] = useState(false);
+  const [passengerCategories, setPassengerCategories] = useState<
+    PassengerCategory[]
+  >([]);
 
   const [selectedUserId, setSelectedUserId] = useState(0);
   const [selectedTeamId, setSelectedTeamId] = useState(0);
@@ -197,6 +206,7 @@ export default function Page() {
     return_date: "",
     pax_count: 1,
     clients_ids: [],
+    simple_companions: [],
     creation_date: todayYMD(),
   });
 
@@ -316,6 +326,41 @@ export default function Page() {
     return () => abort.abort();
   }, [token]);
 
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    (async () => {
+      try {
+        const [cfgRes, catsRes] = await Promise.all([
+          authFetch("/api/clients/config", { cache: "no-store" }, token),
+          authFetch("/api/passenger-categories", { cache: "no-store" }, token),
+        ]);
+        if (cfgRes.ok) {
+          const cfg = (await cfgRes.json().catch(() => null)) as {
+            use_simple_companions?: boolean;
+          };
+          if (alive) setUseSimpleCompanions(Boolean(cfg?.use_simple_companions));
+        } else if (alive) {
+          setUseSimpleCompanions(false);
+        }
+        if (catsRes.ok) {
+          const cats = (await catsRes.json().catch(() => [])) as PassengerCategory[];
+          if (alive) setPassengerCategories(cats);
+        } else if (alive) {
+          setPassengerCategories([]);
+        }
+      } catch {
+        if (alive) {
+          setUseSimpleCompanions(false);
+          setPassengerCategories([]);
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+
   // --- Carga de reservas (primera página con cursor) ---
   useEffect(() => {
     if (!profile || loadingFilters || !token) return;
@@ -404,6 +449,30 @@ export default function Page() {
           .filter((id) => id !== formData.titular_id),
       ),
     );
+    const sanitizedSimpleCompanions = Array.isArray(formData.simple_companions)
+      ? formData.simple_companions
+          .map((c) => {
+            if (!c) return null;
+            const category_id =
+              c.category_id != null ? Number(c.category_id) : null;
+            const age = c.age != null ? Number(c.age) : null;
+            const notes =
+              typeof c.notes === "string" && c.notes.trim()
+                ? c.notes.trim()
+                : null;
+            const safeCategory =
+              category_id != null && Number.isFinite(category_id) && category_id > 0
+                ? Math.floor(category_id)
+                : null;
+            const safeAge =
+              age != null && Number.isFinite(age) && age >= 0
+                ? Math.floor(age)
+                : null;
+            if (safeCategory == null && safeAge == null && !notes) return null;
+            return { category_id: safeCategory, age: safeAge, notes };
+          })
+          .filter(Boolean)
+      : [];
 
     // ✅ Validaciones front mínimas (invoice_observation AHORA OPCIONAL)
     if (
@@ -478,7 +547,7 @@ export default function Page() {
       type BookingPayload = Omit<
         BookingFormData,
         "id_booking" | "id_agency" | "id_user" | "creation_date"
-      > & { pax_count: number; clients_ids: number[] } & Partial<
+      > & { pax_count: number; clients_ids: number[]; simple_companions?: BookingFormData["simple_companions"] } & Partial<
           Pick<BookingFormData, "id_user" | "creation_date">
         >;
 
@@ -493,8 +562,10 @@ export default function Page() {
         titular_id: formData.titular_id,
         departure_date: formData.departure_date,
         return_date: formData.return_date,
-        pax_count: 1 + sanitizedCompanions.length,
+        pax_count:
+          1 + sanitizedCompanions.length + sanitizedSimpleCompanions.length,
         clients_ids: sanitizedCompanions,
+        simple_companions: sanitizedSimpleCompanions as BookingPayload["simple_companions"],
         ...(canPickCreator ? { id_user: formData.id_user } : {}),
         ...(canEditCreationDate && formData.creation_date
           ? { creation_date: formData.creation_date }
@@ -582,6 +653,7 @@ export default function Page() {
       return_date: "",
       pax_count: 1,
       clients_ids: [],
+      simple_companions: [],
       creation_date: todayYMD(),
     }));
     setIsFormVisible(false);
@@ -595,6 +667,13 @@ export default function Page() {
     const companions = (booking.clients || [])
       .map((c) => c.id_client)
       .filter((id) => id !== titularId && isValidId(id));
+    const simpleCompanions = Array.isArray(booking.simple_companions)
+      ? booking.simple_companions.map((c) => ({
+          category_id: c.category_id ?? null,
+          age: c.age ?? null,
+          notes: c.notes ?? "",
+        }))
+      : [];
 
     setFormData({
       id_booking: booking.id_booking,
@@ -610,8 +689,9 @@ export default function Page() {
       id_agency: booking.agency?.id_agency || 0,
       departure_date: booking.departure_date.split("T")[0],
       return_date: booking.return_date.split("T")[0],
-      pax_count: Math.max(1, 1 + companions.length),
+      pax_count: Math.max(1, 1 + companions.length + simpleCompanions.length),
       clients_ids: companions,
+      simple_companions: simpleCompanions,
       creation_date:
         (booking.creation_date as unknown as string)?.split("T")[0] ||
         todayYMD(),
@@ -714,6 +794,8 @@ export default function Page() {
             canPickCreator={canPickCreator}
             canEditCreationDate={canEditCreationDate}
             creatorsList={teamMembers}
+            passengerCategories={passengerCategories}
+            allowSimpleCompanions={useSimpleCompanions}
           />
         </motion.div>
 

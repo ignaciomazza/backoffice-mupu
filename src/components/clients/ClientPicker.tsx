@@ -1,7 +1,7 @@
 // src/components/clients/ClientPicker.tsx
 "use client";
 
-import { useEffect, useRef, useState, useId } from "react";
+import { useEffect, useMemo, useRef, useState, useId } from "react";
 import type { Client } from "@/types";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
@@ -35,6 +35,7 @@ export default function ClientPicker({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const excludeIdsSet = useMemo(() => new Set(excludeIds), [excludeIds]);
 
   // Para accesibilidad del listbox
   const listboxId = useId();
@@ -114,7 +115,7 @@ export default function ClientPicker({
   useEffect(() => {
     const q = debouncedTerm.trim();
     if (!q || selected?.id_client === valueId) {
-      setResults([]);
+      if (results.length > 0) setResults([]);
       return;
     }
 
@@ -139,7 +140,7 @@ export default function ClientPicker({
             ? data
             : [];
 
-        const filtered = items.filter((c) => !excludeIds.includes(c.id_client));
+        const filtered = items.filter((c) => !excludeIdsSet.has(c.id_client));
         setResults(filtered);
         setOpen(true);
       } catch {
@@ -150,7 +151,7 @@ export default function ClientPicker({
     })();
 
     return () => controller.abort();
-  }, [debouncedTerm, token, excludeIds, selected, valueId]);
+  }, [debouncedTerm, token, excludeIdsSet, selected, valueId, results.length]);
 
   // Seleccionar un pax
   const pick = (c: Client) => {

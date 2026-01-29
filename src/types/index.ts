@@ -74,6 +74,8 @@ export interface Client {
   birth_date: string;
   nationality: string;
   gender: string;
+  category_id?: number | null;
+  category?: PassengerCategory | null;
   email?: string;
   custom_fields?: Record<string, string>;
   registration_date: string;
@@ -102,6 +104,70 @@ export interface ClientConfig {
   visibility_mode: "all" | "team" | "own";
   required_fields?: string[] | null;
   custom_fields?: ClientCustomField[] | null;
+  hidden_fields?: string[] | null;
+  use_simple_companions?: boolean | null;
+}
+
+export interface PassengerCategory {
+  id_category: number;
+  agency_passenger_category_id?: number | null;
+  id_agency: number;
+  name: string;
+  code: string;
+  min_age?: number | null;
+  max_age?: number | null;
+  ignore_age?: boolean;
+  enabled?: boolean;
+  sort_order?: number;
+}
+
+export interface BookingCompanion {
+  id_companion?: number;
+  booking_id?: number;
+  category_id?: number | null;
+  age?: number | null;
+  notes?: string | null;
+  category?: PassengerCategory | null;
+}
+
+export interface ClientSimpleCompanion {
+  id_template?: number;
+  client_id?: number;
+  category_id?: number | null;
+  age?: number | null;
+  notes?: string | null;
+  category?: PassengerCategory | null;
+}
+
+export interface ServiceTypePresetItem {
+  id_item?: number;
+  category_id: number;
+  sale_price: number;
+  cost_price: number;
+  sale_markup_pct?: number | null;
+  category?: PassengerCategory | null;
+}
+
+export interface ServiceTypePreset {
+  id_preset: number;
+  agency_service_type_preset_id?: number | null;
+  id_agency: number;
+  service_type_id: number;
+  operator_id?: number | null;
+  name: string;
+  currency: string;
+  enabled?: boolean;
+  sort_order?: number;
+  items?: ServiceTypePresetItem[];
+}
+
+export interface ClientRelation {
+  id_relation: number;
+  id_agency: number;
+  client_id: number;
+  related_client_id: number;
+  relation_type?: string | null;
+  related_client?: Client;
 }
 
 export interface Booking {
@@ -123,6 +189,7 @@ export interface Booking {
   return_date: string;
   pax_count: number;
   clients: Client[];
+  simple_companions?: BookingCompanion[];
   services?: Service[];
   creation_date: string;
   totalSale?: number;
@@ -145,6 +212,7 @@ export interface BookingFormData {
   return_date: string;
   pax_count: number;
   clients_ids: number[];
+  simple_companions?: BookingCompanion[];
 }
 
 export interface Service {

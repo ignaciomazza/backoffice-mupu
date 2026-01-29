@@ -7,6 +7,7 @@ import type { JWTPayload } from "jose";
 import {
   DOCUMENT_ANY_KEY,
   normalizeCustomFields,
+  normalizeHiddenFields,
   normalizeRequiredFields,
   DOC_REQUIRED_FIELDS,
 } from "@/utils/clientConfig";
@@ -246,6 +247,13 @@ export default async function handler(
       );
       const teamId = teamIdParam || 0;
 
+      const relatedToParam = safeNumber(
+        Array.isArray(req.query.related_to)
+          ? req.query.related_to[0]
+          : req.query.related_to,
+      );
+      const relatedToId = relatedToParam || 0;
+
       const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
       const gender =
         typeof req.query.gender === "string" ? req.query.gender.trim() : "";
@@ -310,6 +318,26 @@ export default async function handler(
         where.gender = { equals: gender, mode: "insensitive" };
       }
 
+      if (relatedToId > 0) {
+        const relFilter: Prisma.ClientWhereInput = {
+          OR: [
+            {
+              related_to: {
+                some: { client_id: relatedToId, id_agency: auth.id_agency },
+              },
+            },
+            {
+              relations: {
+                some: { related_client_id: relatedToId, id_agency: auth.id_agency },
+              },
+            },
+          ],
+        };
+        where.AND = Array.isArray(where.AND)
+          ? [...where.AND, relFilter]
+          : [relFilter];
+      }
+
       // Búsqueda simple
       if (q) {
         const or: Prisma.ClientWhereInput[] = [];
@@ -362,9 +390,12 @@ export default async function handler(
 
       const config = await prisma.clientConfig.findFirst({
         where: { id_agency: auth.id_agency },
-        select: { required_fields: true, custom_fields: true },
+        select: { required_fields: true, hidden_fields: true, custom_fields: true },
       });
-      const requiredFields = normalizeRequiredFields(config?.required_fields);
+      const hiddenFields = normalizeHiddenFields(config?.hidden_fields);
+      const requiredFields = normalizeRequiredFields(config?.required_fields).filter(
+        (field) => !hiddenFields.includes(field),
+      );
       const customFields = normalizeCustomFields(config?.custom_fields);
       const requiredCustomKeys = customFields
         .filter((f) => f.required)
@@ -410,6 +441,25 @@ export default async function handler(
         return res
           .status(400)
           .json({ error: "El campo birth_date es obligatorio." });
+      }
+
+      const rawCategoryId = (c as Record<string, unknown>).category_id;
+      let categoryId: number | null = null;
+      if (rawCategoryId != null && rawCategoryId !== "") {
+        const parsed = Number(rawCategoryId);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          return res.status(400).json({ error: "category_id inválido." });
+        }
+        const exists = await prisma.passengerCategory.findFirst({
+          where: { id_category: parsed, id_agency: auth.id_agency },
+          select: { id_category: true },
+        });
+        if (!exists) {
+          return res
+            .status(400)
+            .json({ error: "Categoría inválida para tu agencia." });
+        }
+        categoryId = Math.floor(parsed);
       }
 
       const customPayload = isRecord(c.custom_fields)
@@ -501,6 +551,7 @@ export default async function handler(
             birth_date: birth as Date,
             nationality: String(c.nationality ?? "").trim(),
             gender: String(c.gender ?? "").trim(),
+            category_id: categoryId,
             email: String(c.email ?? "").trim() || null,
             id_user: usedUserId,
             id_agency: auth.id_agency, // SIEMPRE desde el token

@@ -8,8 +8,9 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
+import { loadFinancePicks, type FinanceCurrency } from "@/utils/loadFinancePicks";
 import BookingPermissionsConfig from "@/components/bookings/BookingPermissionsConfig";
-import type { BillingAdjustmentConfig } from "@/types";
+import type { BillingAdjustmentConfig, Operator, PassengerCategory } from "@/types";
 
 /* =========================================================
  * Tipos DTO (según las APIs provistas)
@@ -21,6 +22,26 @@ type ServiceTypeDTO = {
   enabled: boolean;
   created_at: string | Date;
   updated_at: string | Date;
+};
+
+type ServiceTypePresetItemLite = {
+  id_item?: number;
+  category_id: number;
+  sale_price: number;
+  cost_price: number;
+  sale_markup_pct?: number | null;
+  category?: PassengerCategory | null;
+};
+
+type ServiceTypePresetLite = {
+  id_preset: number;
+  service_type_id: number;
+  operator_id?: number | null;
+  name: string;
+  currency: string;
+  enabled?: boolean;
+  sort_order?: number | null;
+  items: ServiceTypePresetItemLite[];
 };
 
 type CalcConfigResponse = {
@@ -246,6 +267,40 @@ export default function BookingsConfigPage() {
   const [savingType, setSavingType] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
+  // -------- Presets por tipo -----------
+  const [passengerCategories, setPassengerCategories] = useState<
+    PassengerCategory[]
+  >([]);
+  const [operators, setOperators] = useState<Operator[]>([]);
+  const [financeCurrencies, setFinanceCurrencies] = useState<
+    FinanceCurrency[]
+  >([]);
+  const [currenciesLoading, setCurrenciesLoading] = useState(false);
+  const [presets, setPresets] = useState<ServiceTypePresetLite[]>([]);
+  const [presetsLoading, setPresetsLoading] = useState(false);
+  const [presetModalOpen, setPresetModalOpen] = useState(false);
+  const [presetType, setPresetType] = useState<ServiceTypeDTO | null>(null);
+  const [editingPreset, setEditingPreset] =
+    useState<ServiceTypePresetLite | null>(null);
+  const [presetForm, setPresetForm] = useState<{
+    name: string;
+    operator_id: number | null;
+    currency: string;
+    enabled: boolean;
+    sort_order: string;
+    items: Record<
+      number,
+      { sale_price: string; cost_price: string; sale_markup_pct?: string }
+    >;
+  }>({
+    name: "",
+    operator_id: null,
+    currency: "ARS",
+    enabled: true,
+    sort_order: "0",
+    items: {},
+  });
+
   // -------- Calc Config -----------
   const [cfgLoading, setCfgLoading] = useState(true);
   const [mode, setMode] = useState<"auto" | "manual">("auto");
@@ -281,6 +336,14 @@ export default function BookingsConfigPage() {
   });
 
   const firstLoadRef = useRef(true);
+
+  const currencyOptions = useMemo(() => {
+    const enabled = financeCurrencies.filter((c) => c.enabled !== false);
+    const base = enabled.length ? enabled : financeCurrencies;
+    return [...base].sort(
+      (a, b) => (a.sort_order || 0) - (b.sort_order || 0),
+    );
+  }, [financeCurrencies]);
 
   /* =========================================================
    * Effects: load role + data
@@ -377,10 +440,57 @@ export default function BookingsConfigPage() {
       }
     };
 
+    const loadPassengerCategories = async () => {
+      try {
+        const res = await authFetch(
+          "/api/passenger-categories",
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) throw new Error("No se pudieron obtener categorías");
+        const data = (await res.json()) as PassengerCategory[];
+        if (!cancel) setPassengerCategories(data);
+      } catch (e) {
+        console.error("[bookings/config] passenger-categories", e);
+        if (!cancel) setPassengerCategories([]);
+      }
+    };
+
+    const loadOperators = async () => {
+      try {
+        const res = await authFetch("/api/operators", { cache: "no-store" }, token);
+        if (!res.ok) throw new Error("No se pudieron obtener operadores");
+        const data = (await res.json()) as Operator[];
+        if (!cancel) setOperators(data);
+      } catch (e) {
+        console.error("[bookings/config] operators", e);
+        if (!cancel) setOperators([]);
+      }
+    };
+
+    const loadCurrencies = async () => {
+      setCurrenciesLoading(true);
+      try {
+        const picks = await loadFinancePicks(token);
+        if (!cancel) setFinanceCurrencies(picks?.currencies ?? []);
+      } catch (e) {
+        console.error("[bookings/config] currencies", e);
+        if (!cancel) setFinanceCurrencies([]);
+      } finally {
+        if (!cancel) setCurrenciesLoading(false);
+      }
+    };
+
     const firstLoad = async () => {
       setLoading(true);
       try {
-        await Promise.all([loadCalcConfig(), loadServiceTypes()]);
+        await Promise.all([
+          loadCalcConfig(),
+          loadServiceTypes(),
+          loadPassengerCategories(),
+          loadOperators(),
+          loadCurrencies(),
+        ]);
       } finally {
         if (!cancel) setLoading(false);
       }
@@ -528,6 +638,232 @@ export default function BookingsConfigPage() {
     },
     [token],
   );
+
+  const buildPresetFormFromPreset = useCallback(
+    (preset: ServiceTypePresetLite | null) => {
+      if (!preset) {
+        return {
+          name: "",
+          operator_id: null,
+          currency: "ARS",
+          enabled: true,
+          sort_order: "0",
+          items: {},
+        };
+      }
+      const items: Record<
+        number,
+        { sale_price: string; cost_price: string; sale_markup_pct?: string }
+      > = {};
+      preset.items.forEach((it) => {
+        items[it.category_id] = {
+          sale_price: String(it.sale_price ?? 0),
+          cost_price: String(it.cost_price ?? 0),
+          sale_markup_pct:
+            it.sale_markup_pct != null ? String(it.sale_markup_pct) : "",
+        };
+      });
+      return {
+        name: preset.name || "",
+        operator_id: preset.operator_id ?? null,
+        currency: preset.currency || "ARS",
+        enabled: preset.enabled !== false,
+        sort_order:
+          preset.sort_order == null ? "0" : String(preset.sort_order),
+        items,
+      };
+    },
+    [],
+  );
+
+  const loadPresets = useCallback(
+    async (typeId: number) => {
+      if (!token) return;
+      setPresetsLoading(true);
+      try {
+        const res = await authFetch(
+          `/api/service-type-presets?service_type_id=${typeId}`,
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) throw new Error("No se pudieron cargar presets.");
+        const data = (await res.json()) as ServiceTypePresetLite[];
+        setPresets(Array.isArray(data) ? data : []);
+      } catch (e) {
+        console.error("[bookings/config] presets", e);
+        toast.error("No se pudieron cargar presets.");
+        setPresets([]);
+      } finally {
+        setPresetsLoading(false);
+      }
+    },
+    [token],
+  );
+
+  const openPresetModal = useCallback(
+    async (row: ServiceTypeDTO) => {
+      setPresetType(row);
+      setEditingPreset(null);
+      setPresetForm(buildPresetFormFromPreset(null));
+      setPresetModalOpen(true);
+      await loadPresets(row.id_service_type);
+    },
+    [buildPresetFormFromPreset, loadPresets],
+  );
+
+  const startEditPreset = (preset: ServiceTypePresetLite) => {
+    setEditingPreset(preset);
+    setPresetForm(buildPresetFormFromPreset(preset));
+  };
+
+  const savePreset = async () => {
+    if (!token || !presetType) return;
+    const payloadItems = passengerCategories
+      .map((c) => {
+        const it = presetForm.items[c.id_category];
+        if (!it) return null;
+        const cost = Number(it.cost_price);
+        const markupRaw = it.sale_markup_pct ?? "";
+        const markup =
+          markupRaw !== "" && Number.isFinite(Number(markupRaw))
+            ? Number(markupRaw)
+            : null;
+        let sale = Number(it.sale_price);
+        if (markup != null && Number.isFinite(cost)) {
+          sale = cost * (1 + markup / 100);
+        }
+        if (!Number.isFinite(sale) || !Number.isFinite(cost)) return null;
+        return {
+          category_id: c.id_category,
+          sale_price: sale,
+          cost_price: cost,
+          sale_markup_pct: markup,
+        };
+      })
+      .filter(Boolean) as Array<{
+      category_id: number;
+      sale_price: number;
+      cost_price: number;
+      sale_markup_pct?: number | null;
+    }>;
+
+    if (!presetForm.name.trim()) {
+      toast.error("Ingresá un nombre para el preset.");
+      return;
+    }
+    if (!payloadItems.length) {
+      toast.error("Completá valores para al menos una categoría.");
+      return;
+    }
+
+    const payload = {
+      service_type_id: presetType.id_service_type,
+      operator_id: presetForm.operator_id,
+      name: presetForm.name.trim(),
+      currency: presetForm.currency.trim().toUpperCase(),
+      enabled: presetForm.enabled,
+      sort_order: presetForm.sort_order,
+      items: payloadItems,
+    };
+
+    try {
+      if (editingPreset) {
+        const res = await authFetch(
+          `/api/service-type-presets/${editingPreset.id_preset}`,
+          { method: "PUT", body: JSON.stringify(payload) },
+          token,
+        );
+        const data = (await res.json().catch(() => null)) as
+          | ServiceTypePresetLite
+          | { error?: string };
+        if (!res.ok) {
+          throw new Error(
+            (data as { error?: string })?.error ||
+              "No se pudo actualizar el preset.",
+          );
+        }
+        setPresets((prev) =>
+          prev.map((p) =>
+            p.id_preset === (data as ServiceTypePresetLite).id_preset
+              ? (data as ServiceTypePresetLite)
+              : p,
+          ),
+        );
+        toast.success("Preset actualizado.");
+      } else {
+        const res = await authFetch(
+          "/api/service-type-presets",
+          { method: "POST", body: JSON.stringify(payload) },
+          token,
+        );
+        const data = (await res.json().catch(() => null)) as
+          | ServiceTypePresetLite
+          | { error?: string };
+        if (!res.ok) {
+          throw new Error(
+            (data as { error?: string })?.error ||
+              "No se pudo crear el preset.",
+          );
+        }
+        setPresets((prev) => [...prev, data as ServiceTypePresetLite]);
+        toast.success("Preset creado.");
+      }
+      setEditingPreset(null);
+      setPresetForm(buildPresetFormFromPreset(null));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error guardando preset.";
+      toast.error(msg);
+    }
+  };
+
+  const deletePreset = async (id: number) => {
+    if (!token) return;
+    if (!confirm("¿Eliminar preset?")) return;
+    try {
+      const res = await authFetch(
+        `/api/service-type-presets/${id}`,
+        { method: "DELETE" },
+        token,
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { error?: string };
+        throw new Error(data?.error || "No se pudo eliminar.");
+      }
+      setPresets((prev) => prev.filter((p) => p.id_preset !== id));
+      toast.success("Preset eliminado.");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error eliminando preset.";
+      toast.error(msg);
+    }
+  };
+
+  const updatePresetItem = (
+    categoryId: number,
+    field: "sale_price" | "cost_price" | "sale_markup_pct",
+    value: string,
+  ) => {
+    setPresetForm((prev) => {
+      const current = prev.items[categoryId] || {
+        sale_price: "",
+        cost_price: "",
+        sale_markup_pct: "",
+      };
+      const next = { ...current, [field]: value };
+      const markupRaw = next.sale_markup_pct ?? "";
+      const markup = Number(markupRaw);
+      const cost = Number(next.cost_price);
+      if (markupRaw !== "" && Number.isFinite(markup) && Number.isFinite(cost)) {
+        next.sale_price = String(cost * (1 + markup / 100));
+      }
+      return {
+        ...prev,
+        items: {
+          ...prev.items,
+          [categoryId]: next,
+        },
+      };
+    });
+  };
 
   /* Toggle rápido enabled con update optimista */
   const toggleEnabledQuick = useCallback(
@@ -931,6 +1267,16 @@ export default function BookingsConfigPage() {
 
                               <button
                                 type="button"
+                                onClick={() => openPresetModal(row)}
+                                disabled={!canEdit}
+                                className={ICON_BTN}
+                                aria-label="Presets"
+                              >
+                                Presets
+                              </button>
+
+                              <button
+                                type="button"
                                 onClick={() => openEditType(row)}
                                 disabled={!canEdit}
                                 className={ICON_BTN}
@@ -1281,6 +1627,315 @@ export default function BookingsConfigPage() {
                 label="Habilitado"
               />
             </div>
+          </div>
+        </Modal>
+
+        <Modal
+          open={presetModalOpen}
+          onClose={() => setPresetModalOpen(false)}
+          title={
+            presetType
+              ? `Presets · ${presetType.name}`
+              : "Presets de tipo de servicio"
+          }
+          wide
+          footer={
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPresetModalOpen(false);
+                  setEditingPreset(null);
+                }}
+                className={ICON_BTN}
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={savePreset}
+                disabled={!canEdit}
+                className={ICON_BTN}
+              >
+                {editingPreset ? "Guardar" : "Crear"}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4 p-2">
+            {!presetType ? (
+              <p className="text-sm opacity-70">
+                Seleccioná un tipo para gestionar presets.
+              </p>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-sm font-semibold">Presets existentes</h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingPreset(null);
+                      setPresetForm(buildPresetFormFromPreset(null));
+                    }}
+                    className={ICON_BTN}
+                  >
+                    Nuevo preset
+                  </button>
+                </div>
+                {presetsLoading ? (
+                  <div className="text-sm opacity-70">Cargando presets…</div>
+                ) : presets.length === 0 ? (
+                  <p className="text-sm opacity-70">No hay presets.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {presets.map((p) => {
+                      const op =
+                        operators.find((o) => o.id_operator === p.operator_id) ||
+                        null;
+                      return (
+                        <div
+                          key={p.id_preset}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/20 bg-white/10 px-3 py-2 text-xs"
+                        >
+                          <div>
+                            <div className="text-sm font-medium">{p.name}</div>
+                            <div className="opacity-70">
+                              {op ? `Operador: ${op.name}` : "Sin operador"} ·{" "}
+                              {p.currency}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={BADGE}>
+                              {p.items?.length || 0} categorías
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => startEditPreset(p)}
+                              disabled={!canEdit}
+                              className={ICON_BTN}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deletePreset(p.id_preset)}
+                              disabled={!canEdit}
+                              className={`${ICON_BTN} bg-rose-500/15 text-rose-700 dark:text-rose-300`}
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
+                  <div className="mb-3 text-sm font-medium">
+                    {editingPreset ? "Editar preset" : "Nuevo preset"}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <Label>Nombre</Label>
+                      <Input
+                        value={presetForm.name}
+                        onChange={(e) =>
+                          setPresetForm((prev) => ({
+                            ...prev,
+                            name: e.target.value,
+                          }))
+                        }
+                        placeholder="Ej: Paquete base"
+                        disabled={!canEdit}
+                      />
+                    </div>
+                    <div>
+                      <Label>Operador</Label>
+                      <select
+                        value={presetForm.operator_id ?? 0}
+                        onChange={(e) =>
+                          setPresetForm((prev) => ({
+                            ...prev,
+                            operator_id: Number(e.target.value) || null,
+                          }))
+                        }
+                        disabled={!canEdit}
+                        className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-4 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
+                      >
+                        <option value={0}>Sin operador</option>
+                        {operators.map((op) => (
+                          <option key={op.id_operator} value={op.id_operator}>
+                            {op.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <Label>Moneda</Label>
+                      {currencyOptions.length > 0 ? (
+                        <select
+                          value={presetForm.currency}
+                          onChange={(e) =>
+                            setPresetForm((prev) => ({
+                              ...prev,
+                              currency: e.target.value,
+                            }))
+                          }
+                          disabled={!canEdit || currenciesLoading}
+                          className="w-full cursor-pointer appearance-none rounded-3xl border border-white/30 bg-white/10 px-4 py-2 outline-none backdrop-blur dark:border-white/10 dark:bg-white/10"
+                        >
+                          {currenciesLoading && (
+                            <>
+                              {presetForm.currency && (
+                                <option value={presetForm.currency}>
+                                  {presetForm.currency}
+                                </option>
+                              )}
+                              <option value="" disabled>
+                                Cargando monedas...
+                              </option>
+                            </>
+                          )}
+                          {!currenciesLoading &&
+                            currencyOptions.map((cur) => (
+                              <option key={cur.id_currency} value={cur.code}>
+                                {cur.code} · {cur.name}
+                              </option>
+                            ))}
+                          {!currenciesLoading &&
+                            presetForm.currency &&
+                            !currencyOptions.some(
+                              (c) =>
+                                c.code.toUpperCase() ===
+                                presetForm.currency.toUpperCase(),
+                            ) && (
+                              <option value={presetForm.currency}>
+                                {presetForm.currency} (no listado)
+                              </option>
+                            )}
+                        </select>
+                      ) : (
+                        <Input
+                          value={presetForm.currency}
+                          onChange={(e) =>
+                            setPresetForm((prev) => ({
+                              ...prev,
+                              currency: e.target.value,
+                            }))
+                          }
+                          placeholder="ARS"
+                          disabled={!canEdit || currenciesLoading}
+                        />
+                      )}
+                    </div>
+                    <div>
+                      <Label>Orden de listado</Label>
+                      <Input
+                        type="number"
+                        value={presetForm.sort_order}
+                        onChange={(e) =>
+                          setPresetForm((prev) => ({
+                            ...prev,
+                            sort_order: e.target.value,
+                          }))
+                        }
+                        disabled={!canEdit}
+                      />
+                      <p className="mt-1 text-xs opacity-70">
+                        Se usa para ordenar presets. Menor = más arriba.
+                      </p>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <Switch
+                        checked={presetForm.enabled}
+                        onChange={(v) =>
+                          setPresetForm((prev) => ({ ...prev, enabled: v }))
+                        }
+                        label="Habilitado"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <Label>Valores por categoría</Label>
+                    <p className="mt-1 text-xs opacity-70">
+                      Si cargás “% sobre costo”, la venta se recalcula sola.
+                    </p>
+                    {passengerCategories.length === 0 ? (
+                      <p className="text-xs opacity-70">
+                        Creá categorías en Configuración de Pasajeros.
+                      </p>
+                    ) : (
+                      <div className="mt-2 space-y-2">
+                        {passengerCategories.map((cat) => {
+                          const item = presetForm.items[cat.id_category] || {
+                            sale_price: "",
+                            cost_price: "",
+                            sale_markup_pct: "",
+                          };
+                          return (
+                            <div
+                              key={cat.id_category}
+                              className="grid gap-2 sm:grid-cols-[1.2fr_0.7fr_0.7fr_0.6fr]"
+                            >
+                              <div className="text-sm font-medium">
+                                {cat.name}
+                              </div>
+                              <Input
+                                type="number"
+                                inputMode="decimal"
+                                step="0.01"
+                                value={item.sale_price}
+                                onChange={(e) =>
+                                  updatePresetItem(
+                                    cat.id_category,
+                                    "sale_price",
+                                    e.target.value,
+                                  )
+                                }
+                                placeholder="Venta"
+                                disabled={!canEdit}
+                              />
+                              <Input
+                                type="number"
+                                inputMode="decimal"
+                                step="0.01"
+                                value={item.cost_price}
+                                onChange={(e) =>
+                                  updatePresetItem(
+                                    cat.id_category,
+                                    "cost_price",
+                                    e.target.value,
+                                  )
+                                }
+                                placeholder="Costo"
+                                disabled={!canEdit}
+                              />
+                              <Input
+                                type="number"
+                                inputMode="decimal"
+                                step="0.01"
+                                value={item.sale_markup_pct ?? ""}
+                                onChange={(e) =>
+                                  updatePresetItem(
+                                    cat.id_category,
+                                    "sale_markup_pct",
+                                    e.target.value,
+                                  )
+                                }
+                                placeholder="% sobre costo"
+                                disabled={!canEdit}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </Modal>
 

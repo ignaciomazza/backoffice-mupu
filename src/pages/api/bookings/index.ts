@@ -28,6 +28,11 @@ type BookingCreateBody = {
   return_date: string;
   pax_count: number;
   clients_ids: number[];
+  simple_companions?: Array<{
+    category_id?: number | null;
+    age?: number | null;
+    notes?: string | null;
+  }>;
   id_user?: number; // opcional: admins/líder pueden asignar creador
   creation_date?: string; // opcional: SOLO admin/gerente/dev pueden fijar
 };
@@ -152,6 +157,14 @@ function startOfDay(d: Date) {
 }
 function endOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+}
+
+async function isSimpleCompanionsEnabled(id_agency: number) {
+  const cfg = await prisma.clientConfig.findUnique({
+    where: { id_agency },
+    select: { use_simple_companions: true },
+  });
+  return Boolean(cfg?.use_simple_companions);
 }
 
 // equipos que lidera + ids de usuarios alcanzables
@@ -402,6 +415,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         user: true,
         agency: true,
         clients: true,
+        simple_companions: { include: { category: true } },
         services: { include: { operator: true } },
         invoices: true,
         Receipt: true,
@@ -460,6 +474,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     return_date,
     // pax_count: _paxFromClient,  // ignoramos el valor entrante
     clients_ids,
+    simple_companions,
     id_user,
     creation_date, // NUEVO
   } = body;
@@ -505,6 +520,41 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const companions = Array.from(new Set(companionsRaw)).filter(
     (id) => id !== Number(titular_id),
   );
+
+  const simpleCompanionsRaw = Array.isArray(simple_companions)
+    ? simple_companions
+    : [];
+  const simpleCompanions = simpleCompanionsRaw
+    .map((c) => {
+      if (!c || typeof c !== "object") return null;
+      const rec = c as Record<string, unknown>;
+      const category_id =
+        rec.category_id == null ? null : Number(rec.category_id);
+      const age = rec.age == null ? null : Number(rec.age);
+      const notes =
+        typeof rec.notes === "string" && rec.notes.trim()
+          ? rec.notes.trim()
+          : null;
+      const safeCategory =
+        category_id != null && Number.isFinite(category_id) && category_id > 0
+          ? Math.floor(category_id)
+          : null;
+      const safeAge =
+        age != null && Number.isFinite(age) && age >= 0
+          ? Math.floor(age)
+          : null;
+      if (safeCategory == null && safeAge == null && !notes) return null;
+      return {
+        category_id: safeCategory,
+        age: safeAge,
+        notes,
+      };
+    })
+    .filter(Boolean) as Array<{
+    category_id: number | null;
+    age: number | null;
+    notes: string | null;
+  }>;
 
   // permisos para asignar creador
   const canAssignOthers = [
@@ -579,6 +629,34 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
+  const allowSimpleCompanions = await isSimpleCompanionsEnabled(authAgencyId);
+  const effectiveSimpleCompanions = allowSimpleCompanions
+    ? simpleCompanions
+    : [];
+
+  if (effectiveSimpleCompanions.length > 0) {
+    const categoryIds = Array.from(
+      new Set(
+        effectiveSimpleCompanions
+          .map((c) => c.category_id)
+          .filter((id): id is number => typeof id === "number"),
+      ),
+    );
+    if (categoryIds.length > 0) {
+      const cats = await prisma.passengerCategory.findMany({
+        where: { id_category: { in: categoryIds }, id_agency: authAgencyId },
+        select: { id_category: true },
+      });
+      const ok = new Set(cats.map((c) => c.id_category));
+      const bad = categoryIds.filter((id) => !ok.has(id));
+      if (bad.length) {
+        return res.status(400).json({
+          error: `Hay categorías inválidas para tu agencia: ${bad.join(", ")}`,
+        });
+      }
+    }
+  }
+
   try {
     const booking = await prisma.$transaction(async (tx) => {
       const agencyBookingId = await getNextAgencyCounter(
@@ -599,15 +677,32 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           observation,
           departure_date: parsedDeparture,
           return_date: parsedReturn,
-          // pax_count siempre consistente con acompañantes reales
-          pax_count: 1 + companions.length,
+          // pax_count consistente con acompañantes reales + simples (si están habilitados)
+          pax_count: 1 + companions.length + effectiveSimpleCompanions.length,
           ...(parsedCreationDate ? { creation_date: parsedCreationDate } : {}),
           titular: { connect: { id_client: Number(titular_id) } },
           user: { connect: { id_user: usedUserId } },
           agency: { connect: { id_agency: authAgencyId } }, // <- SIEMPRE del token
           clients: { connect: companions.map((id) => ({ id_client: id })) },
+          ...(effectiveSimpleCompanions.length > 0
+            ? {
+                simple_companions: {
+                  create: effectiveSimpleCompanions.map((c) => ({
+                    category_id: c.category_id,
+                    age: c.age,
+                    notes: c.notes,
+                  })),
+                },
+              }
+            : {}),
         },
-        include: { titular: true, user: true, agency: true, clients: true },
+        include: {
+          titular: true,
+          user: true,
+          agency: true,
+          clients: true,
+          simple_companions: { include: { category: true } },
+        },
       });
     });
 

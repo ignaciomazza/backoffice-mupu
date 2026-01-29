@@ -1,9 +1,10 @@
 // src/components/bookings/BookingForm.tsx
-import { ChangeEvent, FormEvent, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Spinner from "@/components/Spinner";
 import ClientPicker from "@/components/clients/ClientPicker";
-import { Client, User } from "@/types";
+import { Client, ClientSimpleCompanion, PassengerCategory, User } from "@/types";
+import { authFetch } from "@/utils/authFetch";
 
 /* =========================
  * Tipos
@@ -24,6 +25,11 @@ export interface BookingFormData {
   return_date: string; // aaaa-mm-dd
   pax_count: number; // total (titular + acompañantes)
   clients_ids: number[]; // solo acompañantes
+  simple_companions?: Array<{
+    category_id?: number | null;
+    age?: number | null;
+    notes?: string | null;
+  }>;
   creation_date?: string; // aaaa-mm-dd
 }
 
@@ -42,6 +48,8 @@ interface BookingFormProps {
   canPickCreator?: boolean;
   canEditCreationDate?: boolean;
   creatorsList?: User[];
+  passengerCategories?: PassengerCategory[];
+  allowSimpleCompanions?: boolean;
 }
 
 /* =========================
@@ -134,9 +142,19 @@ export default function BookingForm({
   canPickCreator = false,
   canEditCreationDate = false,
   creatorsList = [],
+  passengerCategories = [],
+  allowSimpleCompanions = false,
 }: BookingFormProps) {
   const [loading, setLoading] = useState(false);
   const [useAdminAdjust, setUseAdminAdjust] = useState(false);
+  const [useSimpleMode, setUseSimpleMode] = useState<boolean>(
+    allowSimpleCompanions,
+  );
+  const [relatedClients, setRelatedClients] = useState<Client[]>([]);
+  const [savedCompanions, setSavedCompanions] = useState<
+    ClientSimpleCompanion[]
+  >([]);
+  const [savedCompanionsLoading, setSavedCompanionsLoading] = useState(false);
 
   const localHandleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -182,6 +200,15 @@ export default function BookingForm({
   };
 
   /* --- Pax controls --- */
+  const simpleCompanions = Array.isArray(formData.simple_companions)
+    ? formData.simple_companions
+    : [];
+  const simpleCount = simpleCompanions.length;
+  const companionSlots = Math.max(
+    0,
+    (formData.pax_count || 1) - 1 - simpleCount,
+  );
+
   const handleIncrement = () => {
     setFormData((prev) => ({
       ...prev,
@@ -192,12 +219,17 @@ export default function BookingForm({
 
   const handleDecrement = () => {
     setFormData((prev) => {
-      if (prev.pax_count <= 1) return prev;
+      const minPax = 1 + (Array.isArray(prev.simple_companions) ? prev.simple_companions.length : 0);
+      if (prev.pax_count <= minPax) return prev;
       const newCount = prev.pax_count - 1;
+      const prevSimple = Array.isArray(prev.simple_companions)
+        ? prev.simple_companions.length
+        : 0;
+      const nextSlots = Math.max(0, newCount - 1 - prevSimple);
       return {
         ...prev,
         pax_count: newCount,
-        clients_ids: prev.clients_ids.slice(0, Math.max(0, newCount - 1)),
+        clients_ids: prev.clients_ids.slice(0, nextSlots),
       };
     });
   };
@@ -212,6 +244,173 @@ export default function BookingForm({
   const hasDeparture = !!formData.departure_date;
   const hasReturn = !!formData.return_date;
   const bothDates = hasDeparture && hasReturn;
+
+  useEffect(() => {
+    if (!allowSimpleCompanions) {
+      setUseSimpleMode(false);
+    } else {
+      setUseSimpleMode(true);
+    }
+  }, [allowSimpleCompanions]);
+
+  useEffect(() => {
+    if (!token) {
+      setRelatedClients([]);
+      return;
+    }
+    const titularId = formData.titular_id;
+    if (!isValidId(titularId)) {
+      setRelatedClients([]);
+      return;
+    }
+    let active = true;
+    (async () => {
+      try {
+        const res = await authFetch(
+          `/api/client-relations?client_id=${titularId}`,
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) throw new Error("No se pudieron cargar relaciones.");
+        const data = (await res.json().catch(() => [])) as Array<{
+          related_client?: Client;
+        }>;
+        if (!active) return;
+        const rel = data
+          .map((r) => r.related_client)
+          .filter(Boolean) as Client[];
+        setRelatedClients(rel);
+      } catch {
+        if (active) setRelatedClients([]);
+      } finally {
+        // no-op
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [token, formData.titular_id]);
+
+  useEffect(() => {
+    if (!token) {
+      setSavedCompanions([]);
+      setSavedCompanionsLoading(false);
+      return;
+    }
+    const titularId = formData.titular_id;
+    if (!isValidId(titularId)) {
+      setSavedCompanions([]);
+      setSavedCompanionsLoading(false);
+      return;
+    }
+    let active = true;
+    setSavedCompanionsLoading(true);
+    (async () => {
+      try {
+        const res = await authFetch(
+          `/api/client-simple-companions?client_id=${titularId}`,
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) throw new Error("No se pudieron cargar acompañantes.");
+        const data = (await res.json().catch(() => [])) as
+          | ClientSimpleCompanion[]
+          | [];
+        if (!active) return;
+        setSavedCompanions(Array.isArray(data) ? data : []);
+      } catch {
+        if (active) setSavedCompanions([]);
+      } finally {
+        if (active) setSavedCompanionsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [token, formData.titular_id]);
+
+  const addSimpleCompanion = () => {
+    setFormData((prev) => {
+      const next = Array.isArray(prev.simple_companions)
+        ? [...prev.simple_companions]
+        : [];
+      next.push({ category_id: null, age: null, notes: "" });
+      return {
+        ...prev,
+        simple_companions: next,
+        pax_count: (prev.pax_count || 1) + 1,
+      };
+    });
+  };
+
+  const updateSimpleCompanion = (
+    index: number,
+    patch: { category_id?: number | null; age?: number | null; notes?: string },
+  ) => {
+    setFormData((prev) => {
+      const next = Array.isArray(prev.simple_companions)
+        ? [...prev.simple_companions]
+        : [];
+      const current = next[index] || {};
+      next[index] = { ...current, ...patch };
+      return { ...prev, simple_companions: next };
+    });
+  };
+
+  const removeSimpleCompanion = (index: number) => {
+    setFormData((prev) => {
+      const next = Array.isArray(prev.simple_companions)
+        ? [...prev.simple_companions]
+        : [];
+      next.splice(index, 1);
+      const nextPax = Math.max(1 + next.length, (prev.pax_count || 1) - 1);
+      return { ...prev, simple_companions: next, pax_count: nextPax };
+    });
+  };
+
+  const addSavedCompanion = (comp: ClientSimpleCompanion) => {
+    setFormData((prev) => {
+      const next = Array.isArray(prev.simple_companions)
+        ? [...prev.simple_companions]
+        : [];
+      const exists = next.some(
+        (c) =>
+          (c.category_id ?? null) === (comp.category_id ?? null) &&
+          (c.age ?? null) === (comp.age ?? null) &&
+          String(c.notes ?? "") === String(comp.notes ?? ""),
+      );
+      if (!exists) {
+        next.push({
+          category_id: comp.category_id ?? null,
+          age: comp.age ?? null,
+          notes: comp.notes ?? null,
+        });
+      }
+      return {
+        ...prev,
+        simple_companions: next,
+        pax_count: (prev.pax_count || 1) + (exists ? 0 : 1),
+      };
+    });
+  };
+
+  const addRelatedClientAsCompanion = (clientId: number) => {
+    if (!isValidId(clientId)) return;
+    setFormData((prev) => {
+      const nextClients = [...prev.clients_ids];
+      if (nextClients.includes(clientId)) return prev;
+      const emptyIndex = nextClients.findIndex((id) => !isValidId(id));
+      if (emptyIndex >= 0) {
+        nextClients[emptyIndex] = clientId;
+        return { ...prev, clients_ids: nextClients };
+      }
+      return {
+        ...prev,
+        pax_count: prev.pax_count + 1,
+        clients_ids: [...nextClients, clientId],
+      };
+    });
+  };
 
   return (
     <motion.div
@@ -442,6 +641,41 @@ export default function BookingForm({
                 title="Pasajeros"
                 desc="Seleccioná titular y (si corresponde) acompañantes."
               >
+                {allowSimpleCompanions && (
+                  <div className="md:col-span-2">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="text-sky-950/70 dark:text-white/70">
+                        Modo:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setUseSimpleMode(true)}
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                          useSimpleMode
+                            ? "border-emerald-300/60 bg-emerald-200/70 text-emerald-950 dark:border-emerald-300/40 dark:bg-emerald-500/30 dark:text-emerald-50"
+                            : "border-sky-200/40 bg-white/60 text-sky-900/70 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white/60"
+                        }`}
+                      >
+                        Simple
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUseSimpleMode(false)}
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                          !useSimpleMode
+                            ? "border-sky-300/60 bg-sky-200/70 text-sky-950 dark:border-sky-300/40 dark:bg-sky-500/30 dark:text-white"
+                            : "border-sky-200/40 bg-white/60 text-sky-900/70 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white/60"
+                        }`}
+                      >
+                        Completo
+                      </button>
+                      <span className="ml-2 text-xs text-sky-950/60 dark:text-white/60">
+                        Total pax: {totalPax}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 <div className="md:col-span-2">
                   <ClientPicker
                     token={token}
@@ -467,14 +701,14 @@ export default function BookingForm({
 
                 <div className="md:col-span-2">
                   <label className="mb-1 ml-1 block text-sm font-medium text-sky-950 dark:text-white">
-                    Cantidad de acompañantes
+                    Cantidad de acompañantes reales
                   </label>
                   <div className="ml-1 flex items-center gap-2 py-2">
                     <button
                       type="button"
                       onClick={handleDecrement}
                       className="rounded-full border border-sky-950 p-1 disabled:opacity-50 dark:border-white dark:text-white"
-                      disabled={formData.pax_count <= 1}
+                      disabled={formData.pax_count <= 1 + simpleCount}
                       title="Quitar acompañante"
                     >
                       <svg
@@ -494,12 +728,12 @@ export default function BookingForm({
                     </button>
                     <span
                       className={`${pillBase} ${
-                        Math.max(0, formData.pax_count - 1) > 0
+                        companionSlots > 0
                           ? pillOk
                           : pillNeutral
                       }`}
                     >
-                      {Math.max(0, formData.pax_count - 1)}
+                      {companionSlots}
                     </span>
                     <button
                       type="button"
@@ -525,48 +759,194 @@ export default function BookingForm({
                   </div>
                 </div>
 
-                {formData.pax_count >= 2 && (
+                {(formData.pax_count >= 2 ||
+                  (allowSimpleCompanions && useSimpleMode)) && (
                   <div className="md:col-span-2">
-                    <label className="mb-1 ml-1 block text-sm font-medium text-sky-950 dark:text-white">
-                      Acompañantes
-                    </label>
+                    {formData.pax_count >= 2 && (
+                      <>
+                        <label className="mb-1 ml-1 block text-sm font-medium text-sky-950 dark:text-white">
+                          Acompañantes
+                        </label>
 
-                    {Array.from({ length: formData.pax_count - 1 }).map(
-                      (_, index) => {
-                        const rawId = formData.clients_ids[index];
-                        const currentId = isValidId(rawId) ? rawId : null;
+                        {Array.from({ length: companionSlots }).map(
+                          (_, index) => {
+                            const rawId = formData.clients_ids[index];
+                            const currentId = isValidId(rawId) ? rawId : null;
 
-                        const exclude = [
-                          formData.titular_id,
-                          ...formData.clients_ids.filter((_, i) => i !== index),
-                        ].filter(isValidId) as number[];
+                            const exclude = [
+                              formData.titular_id,
+                              ...formData.clients_ids.filter(
+                                (_, i) => i !== index,
+                              ),
+                            ].filter(isValidId) as number[];
 
-                        return (
-                          <div key={index} className="mt-3">
-                            <ClientPicker
-                              token={token}
-                              label={`Acompañante ${index + 1}`}
-                              placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
-                              valueId={currentId}
-                              excludeIds={exclude}
-                              onSelect={(c: Client) =>
-                                setFormData((prev) => {
-                                  const next = [...prev.clients_ids];
-                                  next[index] = c.id_client;
-                                  return { ...prev, clients_ids: next };
-                                })
-                              }
-                              onClear={() =>
-                                setFormData((prev) => {
-                                  const next = [...prev.clients_ids];
-                                  next[index] = Number.NaN; // vacío
-                                  return { ...prev, clients_ids: next };
-                                })
-                              }
-                            />
+                            return (
+                              <div key={index} className="mt-3">
+                                <ClientPicker
+                                  token={token}
+                                  label={`Acompañante ${index + 1}`}
+                                  placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
+                                  valueId={currentId}
+                                  excludeIds={exclude}
+                                  onSelect={(c: Client) =>
+                                    setFormData((prev) => {
+                                      const next = [...prev.clients_ids];
+                                      next[index] = c.id_client;
+                                      return { ...prev, clients_ids: next };
+                                    })
+                                  }
+                                  onClear={() =>
+                                    setFormData((prev) => {
+                                      const next = [...prev.clients_ids];
+                                      next[index] = Number.NaN; // vacío
+                                      return { ...prev, clients_ids: next };
+                                    })
+                                  }
+                                />
+                              </div>
+                            );
+                          },
+                        )}
+                      </>
+                    )}
+
+                    {allowSimpleCompanions && useSimpleMode && (
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm font-medium">
+                            Acompañantes simples
                           </div>
-                        );
-                      },
+                          <button
+                            type="button"
+                            onClick={addSimpleCompanion}
+                            className="rounded-full border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
+                          >
+                            Agregar
+                          </button>
+                        </div>
+                        {simpleCompanions.length === 0 ? (
+                          <p className="mt-2 text-xs text-sky-950/60 dark:text-white/60">
+                            No hay acompañantes simples cargados.
+                          </p>
+                        ) : (
+                          <div className="mt-3 space-y-3">
+                            {simpleCompanions.map((c, idx) => (
+                              <div
+                                key={`simple-${idx}`}
+                                className="grid gap-2 md:grid-cols-[1.2fr_0.6fr_1.6fr_auto]"
+                              >
+                                <select
+                                  value={c.category_id ?? ""}
+                                  onChange={(e) =>
+                                    updateSimpleCompanion(idx, {
+                                      category_id: e.target.value
+                                        ? Number(e.target.value)
+                                        : null,
+                                    })
+                                  }
+                                  className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 text-sm outline-none dark:bg-white/10"
+                                >
+                                  <option value="">Categoría</option>
+                                  {passengerCategories
+                                    .filter((p) => p.enabled !== false)
+                                    .map((p) => (
+                                      <option
+                                        key={p.id_category}
+                                        value={p.id_category}
+                                      >
+                                        {p.name}
+                                      </option>
+                                    ))}
+                                </select>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={c.age ?? ""}
+                                  onChange={(e) =>
+                                    updateSimpleCompanion(idx, {
+                                      age: e.target.value
+                                        ? Number(e.target.value)
+                                        : null,
+                                    })
+                                  }
+                                  placeholder="Edad"
+                                  className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 text-sm outline-none dark:bg-white/10"
+                                />
+                                <input
+                                  type="text"
+                                  value={c.notes ?? ""}
+                                  onChange={(e) =>
+                                    updateSimpleCompanion(idx, {
+                                      notes: e.target.value,
+                                    })
+                                  }
+                                  placeholder="Notas (opcional)"
+                                  className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 text-sm outline-none dark:bg-white/10"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => removeSimpleCompanion(idx)}
+                                  className="rounded-full border border-rose-400/40 px-3 py-1 text-xs text-rose-700 hover:bg-rose-500/10 dark:text-rose-300"
+                                >
+                                  Quitar
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {savedCompanionsLoading ? (
+                          <p className="mt-3 text-xs text-sky-950/60 dark:text-white/60">
+                            Cargando acompañantes guardados…
+                          </p>
+                        ) : savedCompanions.length > 0 ? (
+                          <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-3">
+                            <p className="text-xs font-semibold text-sky-900/70 dark:text-white/70">
+                              Guardados del titular
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {savedCompanions.map((c, idx) => (
+                                <button
+                                  key={`saved-${c.id_template ?? c.category_id ?? idx}`}
+                                  type="button"
+                                  onClick={() => addSavedCompanion(c)}
+                                  className="rounded-full border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
+                                >
+                                  {c.category?.name || "Sin categoría"}
+                                  {c.age != null ? ` · ${c.age} años` : ""}
+                                  {c.notes ? ` · ${c.notes}` : ""}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+
+                    {relatedClients.length > 0 && (
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-4">
+                        <p className="text-sm font-medium">
+                          Sugerencias por relaciones
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {relatedClients.map((c) => (
+                            <button
+                              key={`rel-${c.id_client}`}
+                              type="button"
+                              onClick={() =>
+                                addRelatedClientAsCompanion(c.id_client)
+                              }
+                              className="rounded-full border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
+                              title={`N° ${
+                                c.agency_client_id ?? c.id_client
+                              }`}
+                            >
+                              {`${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() ||
+                                `Pax ${c.agency_client_id ?? c.id_client}`}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}

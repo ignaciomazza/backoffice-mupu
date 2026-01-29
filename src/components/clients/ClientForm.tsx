@@ -25,6 +25,7 @@ export interface ClientFormData {
   birth_date?: string;
   nationality?: string;
   gender?: string;
+  category_id?: number | null;
   email?: string;
   custom_fields?: Record<string, string>;
 }
@@ -41,6 +42,8 @@ interface ClientFormProps {
   setIsFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
   requiredFields?: string[];
   customFields?: ClientCustomField[];
+  hiddenFields?: string[];
+  passengerCategories?: Array<{ id_category: number; name: string; enabled?: boolean }>;
 }
 
 /* ========== UI primitives (mismo lenguaje visual que ServiceForm) ========== */
@@ -112,6 +115,8 @@ export default function ClientForm({
   setIsFormVisible,
   requiredFields,
   customFields = [],
+  hiddenFields = [],
+  passengerCategories = [],
 }: ClientFormProps) {
   /* ---------- formateo de fecha (idéntico al tuyo) ---------- */
   const formatIsoToDisplay = (iso: string): string => {
@@ -237,6 +242,8 @@ export default function ClientForm({
 
   const isRequired = (fieldName: string) =>
     baseRequiredFields.includes(fieldName);
+  const hiddenFieldSet = useMemo(() => new Set(hiddenFields), [hiddenFields]);
+  const isHidden = (fieldName: string) => hiddenFieldSet.has(fieldName);
 
   const isFilled = (val: unknown) => (val ?? "").toString().trim().length > 0;
 
@@ -483,104 +490,136 @@ export default function ClientForm({
                 desc="Quién es la persona. Estos datos se usan en vouchers y reservas."
               >
                 {/* Nombre */}
-                <Field id="first_name" label="Nombre" required>
-                  <input
-                    id="first_name"
-                    type="text"
-                    name="first_name"
-                    value={formData.first_name || ""}
-                    onChange={handleChange}
-                    placeholder="Ej: Juan"
-                    required={isRequired("first_name")}
-                    className={inputClass("first_name")}
-                  />
-                </Field>
+                {!isHidden("first_name") && (
+                  <Field id="first_name" label="Nombre" required>
+                    <input
+                      id="first_name"
+                      type="text"
+                      name="first_name"
+                      value={formData.first_name || ""}
+                      onChange={handleChange}
+                      placeholder="Ej: Juan"
+                      required={isRequired("first_name")}
+                      className={inputClass("first_name")}
+                    />
+                  </Field>
+                )}
 
                 {/* Apellido */}
-                <Field id="last_name" label="Apellido" required>
-                  <input
-                    id="last_name"
-                    type="text"
-                    name="last_name"
-                    value={formData.last_name || ""}
-                    onChange={handleChange}
-                    placeholder="Ej: Pérez"
-                    required={isRequired("last_name")}
-                    className={inputClass("last_name")}
-                  />
-                </Field>
+                {!isHidden("last_name") && (
+                  <Field id="last_name" label="Apellido" required>
+                    <input
+                      id="last_name"
+                      type="text"
+                      name="last_name"
+                      value={formData.last_name || ""}
+                      onChange={handleChange}
+                      placeholder="Ej: Pérez"
+                      required={isRequired("last_name")}
+                      className={inputClass("last_name")}
+                    />
+                  </Field>
+                )}
 
                 {/* Género */}
-                <Field id="gender" label="Género" required>
-                  <select
-                    id="gender"
-                    name="gender"
-                    value={formData.gender || ""}
-                    onChange={handleChange}
-                    required={isRequired("gender")}
-                    className={`${inputClass("gender")} cursor-pointer appearance-none`}
-                  >
-                    <option value="" disabled>
-                      Seleccionar
-                    </option>
-                    <option value="Masculino">Masculino</option>
-                    <option value="Femenino">Femenino</option>
-                    <option value="No Binario">No Binario</option>
-                  </select>
-                </Field>
+                {!isHidden("gender") && (
+                  <Field id="gender" label="Género" required>
+                    <select
+                      id="gender"
+                      name="gender"
+                      value={formData.gender || ""}
+                      onChange={handleChange}
+                      required={isRequired("gender")}
+                      className={`${inputClass("gender")} cursor-pointer appearance-none`}
+                    >
+                      <option value="" disabled>
+                        Seleccionar
+                      </option>
+                      <option value="Masculino">Masculino</option>
+                      <option value="Femenino">Femenino</option>
+                      <option value="No Binario">No Binario</option>
+                    </select>
+                  </Field>
+                )}
 
-                {/* Fecha de Nacimiento */}
+              {/* Fecha de Nacimiento */}
+              {!isHidden("birth_date") && (
                 <Field
                   id="birth_date"
                   label="Fecha de Nacimiento"
                   required
                   hint="dd/mm/aaaa"
                 >
-                  <input
-                    id="birth_date"
-                    type="text"
-                    name="birth_date"
-                    value={formatIsoToDisplay(formData.birth_date || "")}
-                    onChange={handleDateChange}
-                    onPaste={handleDatePaste}
-                    onBlur={handleDateBlur}
-                    inputMode="numeric"
-                    placeholder="dd/mm/aaaa"
-                    required={isRequired("birth_date")}
-                    className={inputClass("birth_date")}
-                  />
-                </Field>
+                    <input
+                      id="birth_date"
+                      type="text"
+                      name="birth_date"
+                      value={formatIsoToDisplay(formData.birth_date || "")}
+                      onChange={handleDateChange}
+                      onPaste={handleDatePaste}
+                      onBlur={handleDateBlur}
+                      inputMode="numeric"
+                      placeholder="dd/mm/aaaa"
+                      required={isRequired("birth_date")}
+                      className={inputClass("birth_date")}
+                    />
+                  </Field>
+                )}
+
+                {passengerCategories.length > 0 && (
+                  <Field id="category_id" label="Categoría">
+                    <select
+                      id="category_id"
+                      name="category_id"
+                      value={formData.category_id ?? ""}
+                      onChange={handleChange}
+                      className={`${inputClass("category_id")} cursor-pointer appearance-none`}
+                    >
+                      <option value="">Sin categoría</option>
+                      {passengerCategories
+                        .filter((c) => c.enabled !== false)
+                        .map((cat) => (
+                          <option key={cat.id_category} value={cat.id_category}>
+                            {cat.name}
+                          </option>
+                        ))}
+                    </select>
+                  </Field>
+                )}
 
                 {/* Nacionalidad */}
-                <Field id="nationality" label="Nacionalidad" required>
-                  <DestinationPicker
-                    type="country"
-                    multiple={false}
-                    value={null}
-                    onChange={handleNationalitySelect}
-                    placeholder="Ej.: Argentina, Uruguay…"
-                    includeDisabled={true}
-                    className={
-                      isRequired("nationality") && !fieldIsFilled("nationality")
-                        ? // remarcar en rojo si falta
-                          "rounded-2xl"
-                        : ""
-                    }
-                  />
+                {!isHidden("nationality") && (
+                  <Field id="nationality" label="Nacionalidad" required>
+                    <DestinationPicker
+                      type="country"
+                      multiple={false}
+                      value={null}
+                      onChange={handleNationalitySelect}
+                      placeholder="Ej.: Argentina, Uruguay…"
+                      includeDisabled={true}
+                      className={
+                        isRequired("nationality") &&
+                        !fieldIsFilled("nationality")
+                          ? // remarcar en rojo si falta
+                            "rounded-2xl"
+                          : ""
+                      }
+                    />
 
-                  {formData.nationality ? (
-                    <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
-                      Guardará: <b>{formData.nationality}</b>
-                    </p>
-                  ) : (
-                    <p className="ml-1 text-xs text-red-600 dark:text-red-500/90">
-                      {isRequired("nationality") &&
-                      !fieldIsFilled("nationality")
-                        ? "Obligatorio"
-                        : "\u00A0"}
-                    </p>
-                  )}
-                </Field>
+                    {formData.nationality ? (
+                      <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
+                        Guardará: <b>{formData.nationality}</b>
+                      </p>
+                    ) : (
+                      <p className="ml-1 text-xs text-red-600 dark:text-red-500/90">
+                        {isRequired("nationality") &&
+                        !fieldIsFilled("nationality")
+                          ? "Obligatorio"
+                          : "\u00A0"}
+                      </p>
+                    )}
+                  </Field>
+                )}
               </Section>
 
               {/* DOCUMENTACIÓN DE VIAJE / IDENTIFICACIÓN */}
@@ -592,31 +631,35 @@ export default function ClientForm({
                     : undefined
                 }
               >
-                <Field id="dni_number" label="Documento / CI / DNI">
-                  <input
-                    id="dni_number"
-                    type="text"
-                    name="dni_number"
-                    value={formData.dni_number || ""}
-                    onChange={handleChange}
-                    placeholder="DNI argentino o CI uruguaya"
-                    className={inputClass("dni_number")}
-                  />
-                </Field>
+                {!isHidden("dni_number") && (
+                  <Field id="dni_number" label="Documento / CI / DNI">
+                    <input
+                      id="dni_number"
+                      type="text"
+                      name="dni_number"
+                      value={formData.dni_number || ""}
+                      onChange={handleChange}
+                      placeholder="DNI argentino o CI uruguaya"
+                      className={inputClass("dni_number")}
+                    />
+                  </Field>
+                )}
 
                 {dniExpirationField ? renderCustomField(dniExpirationField) : null}
 
-                <Field id="passport_number" label="Pasaporte">
-                  <input
-                    id="passport_number"
-                    type="text"
-                    name="passport_number"
-                    value={formData.passport_number || ""}
-                    onChange={handleChange}
-                    placeholder="Ej: AA123456"
-                    className={inputClass("passport_number")}
-                  />
-                </Field>
+                {!isHidden("passport_number") && (
+                  <Field id="passport_number" label="Pasaporte">
+                    <input
+                      id="passport_number"
+                      type="text"
+                      name="passport_number"
+                      value={formData.passport_number || ""}
+                      onChange={handleChange}
+                      placeholder="Ej: AA123456"
+                      className={inputClass("passport_number")}
+                    />
+                  </Field>
+                )}
 
                 {passportExpirationField
                   ? renderCustomField(passportExpirationField)
@@ -628,84 +671,96 @@ export default function ClientForm({
                 title="Facturación"
                 desc="Solo si le facturás. Estos datos también sirven como respaldo de identidad si no hay documento/pasaporte."
               >
-                <Field id="tax_id" label="CUIT / RUT">
-                  <input
-                    id="tax_id"
-                    type="text"
-                    name="tax_id"
-                    value={formData.tax_id || ""}
-                    onChange={handleChange}
-                    placeholder="20-12345678-3 / 2.345.678-9"
-                    className={inputClass("tax_id")}
-                  />
-                </Field>
+                {!isHidden("tax_id") && (
+                  <Field id="tax_id" label="CUIT / RUT">
+                    <input
+                      id="tax_id"
+                      type="text"
+                      name="tax_id"
+                      value={formData.tax_id || ""}
+                      onChange={handleChange}
+                      placeholder="20-12345678-3 / 2.345.678-9"
+                      className={inputClass("tax_id")}
+                    />
+                  </Field>
+                )}
 
-                <Field
-                  id="company_name"
-                  label="Razón Social"
-                  hint="Solo si factura como empresa o monotributo."
-                >
-                  <input
+                {!isHidden("company_name") && (
+                  <Field
                     id="company_name"
-                    type="text"
-                    name="company_name"
-                    value={formData.company_name || ""}
-                    onChange={handleChange}
-                    placeholder="Ej: Mupu SRL"
-                    className={inputClass("company_name")}
-                  />
-                </Field>
+                    label="Razón Social"
+                    hint="Solo si factura como empresa o monotributo."
+                  >
+                    <input
+                      id="company_name"
+                      type="text"
+                      name="company_name"
+                      value={formData.company_name || ""}
+                      onChange={handleChange}
+                      placeholder="Ej: Mupu SRL"
+                      className={inputClass("company_name")}
+                    />
+                  </Field>
+                )}
 
-                <Field
-                  id="commercial_address"
-                  label="Domicilio Comercial (Factura)"
-                >
-                  <input
+                {!isHidden("commercial_address") && (
+                  <Field
                     id="commercial_address"
-                    type="text"
-                    name="commercial_address"
-                    value={formData.commercial_address || ""}
-                    onChange={handleChange}
-                    placeholder="Calle, número, piso..."
-                    className={inputClass("commercial_address")}
-                  />
-                </Field>
+                    label="Domicilio Comercial (Factura)"
+                  >
+                    <input
+                      id="commercial_address"
+                      type="text"
+                      name="commercial_address"
+                      value={formData.commercial_address || ""}
+                      onChange={handleChange}
+                      placeholder="Calle, número, piso..."
+                      className={inputClass("commercial_address")}
+                    />
+                  </Field>
+                )}
 
-                <Field id="address" label="Dirección Particular">
-                  <input
-                    id="address"
-                    type="text"
-                    name="address"
-                    value={formData.address || ""}
-                    onChange={handleChange}
-                    placeholder="Calle, número, piso..."
-                    className={inputClass("address")}
-                  />
-                </Field>
+                {!isHidden("address") && (
+                  <Field id="address" label="Dirección Particular">
+                    <input
+                      id="address"
+                      type="text"
+                      name="address"
+                      value={formData.address || ""}
+                      onChange={handleChange}
+                      placeholder="Calle, número, piso..."
+                      className={inputClass("address")}
+                    />
+                  </Field>
+                )}
 
-                <Field id="locality" label="Localidad / Ciudad">
-                  <input
-                    id="locality"
-                    type="text"
-                    name="locality"
-                    value={formData.locality || ""}
-                    onChange={handleChange}
-                    placeholder="Ej: San Miguel"
-                    className={inputClass("locality")}
-                  />
-                </Field>
+                {!isHidden("locality") && (
+                  <Field id="locality" label="Localidad / Ciudad">
+                    <input
+                      id="locality"
+                      type="text"
+                      name="locality"
+                      value={formData.locality || ""}
+                      onChange={handleChange}
+                      placeholder="Ej: San Miguel"
+                      className={inputClass("locality")}
+                    />
+                  </Field>
+                )}
 
-                <Field id="postal_code" label="Código Postal">
-                  <input
-                    id="postal_code"
-                    type="text"
-                    name="postal_code"
-                    value={formData.postal_code || ""}
-                    onChange={handleChange}
-                    placeholder="Ej: 1663"
-                    className={inputClass("postal_code")}
-                  />
-                </Field>
+                {!isHidden("postal_code") && (
+                  <Field id="postal_code" label="Código Postal">
+                    <input
+                      id="postal_code"
+                      type="text"
+                      name="postal_code"
+                      value={formData.postal_code || ""}
+                      onChange={handleChange}
+                      placeholder="Ej: 1663"
+                      className={inputClass("postal_code")}
+                    />
+                  </Field>
+                )}
               </Section>
 
               {/* CONTACTO */}
@@ -713,30 +768,34 @@ export default function ClientForm({
                 title="Contacto"
                 desc="Cómo nos comunicamos con el pax para avisos y entrega de documentación."
               >
-                <Field id="phone" label="Teléfono / WhatsApp" required>
-                  <input
-                    id="phone"
-                    type="text"
-                    name="phone"
-                    value={formData.phone || ""}
-                    onChange={handleChange}
-                    placeholder="Ej: +54 9 11 1234-5678"
-                    required={isRequired("phone")}
-                    className={inputClass("phone")}
-                  />
-                </Field>
+                {!isHidden("phone") && (
+                  <Field id="phone" label="Teléfono / WhatsApp" required>
+                    <input
+                      id="phone"
+                      type="text"
+                      name="phone"
+                      value={formData.phone || ""}
+                      onChange={handleChange}
+                      placeholder="Ej: +54 9 11 1234-5678"
+                      required={isRequired("phone")}
+                      className={inputClass("phone")}
+                    />
+                  </Field>
+                )}
 
-                <Field id="email" label="Correo electrónico">
-                  <input
-                    id="email"
-                    type="email"
-                    name="email"
-                    value={formData.email || ""}
-                    onChange={handleChange}
-                    placeholder="nombre@correo.com"
-                    className={inputClass("email")}
-                  />
-                </Field>
+                {!isHidden("email") && (
+                  <Field id="email" label="Correo electrónico">
+                    <input
+                      id="email"
+                      type="email"
+                      name="email"
+                      value={formData.email || ""}
+                      onChange={handleChange}
+                      placeholder="nombre@correo.com"
+                      className={inputClass("email")}
+                    />
+                  </Field>
+                )}
               </Section>
 
               {extraCustomFields.length > 0 && (

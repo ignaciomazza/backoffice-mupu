@@ -73,6 +73,8 @@ type ServiceFormProps = {
   useBookingSaleTotal?: boolean;
   /** Indica que ya cargaron operadores (aunque estén vacíos) */
   operatorsReady?: boolean;
+  /** Cantidad de acompañantes simples por categoría */
+  passengerCategoryCounts?: Record<number, number>;
 };
 
 /* ---------- helpers UI ---------- */
@@ -216,6 +218,7 @@ type FinanceCurrency = { code: string; name: string; enabled: boolean };
  * Tipos/normalizadores API
  * ========================= */
 type RawServiceType = {
+  id_service_type?: number | string | null;
   id?: number | string | null;
   name?: string | null;
   label?: string | null;
@@ -226,6 +229,7 @@ type RawServiceType = {
 };
 
 type NormalizedServiceType = {
+  id?: number | null;
   value: string;
   label: string;
   countryOnly?: boolean;
@@ -244,6 +248,23 @@ type ServiceCalcCfg = {
   countryOnly?: boolean;
   multiDestDefault?: boolean;
   defaultTransferFeePct?: number;
+};
+
+type ServiceTypePresetItemLite = {
+  category_id: number;
+  sale_price: number;
+  cost_price: number;
+  sale_markup_pct?: number | null;
+  category?: { name?: string | null } | null;
+};
+
+type ServiceTypePresetLite = {
+  id_preset: number;
+  operator_id?: number | null;
+  currency: string;
+  enabled?: boolean;
+  sort_order?: number | null;
+  items: ServiceTypePresetItemLite[];
 };
 
 type CalcConfigResponse = {
@@ -288,9 +309,12 @@ function normalizeServiceType(
   const value = (raw.value || raw.name || raw.label || "").toString().trim();
   if (!value) return null;
   const label = (raw.label || raw.name || value).toString().trim();
+  const rawId = raw.id_service_type ?? raw.id;
+  const id =
+    rawId != null && Number.isFinite(Number(rawId)) ? Number(rawId) : null;
   const countryOnly = toBool(raw.countryOnly);
   const multiDestDefault = toBool(raw.multiDestDefault);
-  return { value, label, countryOnly, multiDestDefault };
+  return { id, value, label, countryOnly, multiDestDefault };
 }
 
 function normalizeCalcCfg(raw: RawServiceCalcCfg): ServiceCalcCfg | null {
@@ -460,6 +484,7 @@ export default function ServiceForm({
   canOverrideBillingMode = false,
   useBookingSaleTotal = false,
   operatorsReady,
+  passengerCategoryCounts = {},
 }: ServiceFormProps) {
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -473,6 +498,10 @@ export default function ServiceForm({
   const [serviceTypes, setServiceTypes] = useState<NormalizedServiceType[]>([]);
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [typesError, setTypesError] = useState<string | null>(null);
+  const [presetLoading, setPresetLoading] = useState(false);
+  const [activePreset, setActivePreset] = useState<ServiceTypePresetLite | null>(
+    null,
+  );
 
   const selectedTypeFromList = useMemo(
     () => serviceTypes.find((t) => t.value === formData.type),
@@ -510,6 +539,7 @@ export default function ServiceForm({
     !loadingTypes &&
     !loadingAgencyCfg &&
     !loadingCurrencies &&
+    !presetLoading &&
     (operatorsReady ?? true);
 
   /* ==========================================
@@ -656,6 +686,66 @@ export default function ServiceForm({
     return () => ac.abort();
   }, [isFormVisible, token, formData.type]);
 
+  /* ========== Presets por tipo/operador ========== */
+  useEffect(() => {
+    if (!isFormVisible || !token) {
+      setActivePreset(null);
+      return;
+    }
+    const typeId = selectedTypeFromList?.id;
+    if (!typeId) {
+      setActivePreset(null);
+      return;
+    }
+    const controller = new AbortController();
+    let alive = true;
+    const operatorId = formData.id_operator || 0;
+    const fetchPresets = async (withOperator: boolean) => {
+      const qs = new URLSearchParams();
+      qs.set("service_type_id", String(typeId));
+      qs.set("enabled", "true");
+      if (withOperator && operatorId > 0) {
+        qs.set("operator_id", String(operatorId));
+      }
+      const res = await authFetch(
+        `/api/service-type-presets?${qs.toString()}`,
+        { cache: "no-store", signal: controller.signal },
+        token,
+      );
+      if (!res.ok) return [];
+      const data = (await res.json().catch(() => [])) as ServiceTypePresetLite[];
+      return Array.isArray(data) ? data : [];
+    };
+
+    (async () => {
+      try {
+        setPresetLoading(true);
+        let presets: ServiceTypePresetLite[] = [];
+        if (operatorId > 0) {
+          presets = await fetchPresets(true);
+        }
+        if (!presets.length) {
+          presets = await fetchPresets(false);
+        }
+        if (!alive || controller.signal.aborted) return;
+        const sorted = presets
+          .filter((p) => p && p.items && p.items.length > 0 && p.enabled !== false)
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        const selected = sorted[0] || null;
+        setActivePreset(selected);
+      } catch {
+        if (alive) setActivePreset(null);
+      } finally {
+        if (alive) setPresetLoading(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [isFormVisible, token, selectedTypeFromList?.id, formData.id_operator]);
+
   /* ========== Moneda segura para UI/formatos ========== */
   const currencyOptions = useMemo(
     () =>
@@ -735,6 +825,97 @@ export default function ServiceForm({
       target: { name, value: formatDisplayToIso(value) },
     } as ChangeEvent<HTMLInputElement>);
   };
+
+  const updateField = useCallback(
+    (name: string, value: string | number) => {
+      handleChange({
+        target: { name, value },
+      } as ChangeEvent<HTMLInputElement>);
+    },
+    [handleChange],
+  );
+
+  const presetOverrideRef = useRef(false);
+  useEffect(() => {
+    presetOverrideRef.current = false;
+  }, [activePreset?.id_preset, activePreset?.operator_id]);
+
+  const handlePresetSensitiveChange = useCallback(
+    (
+      e: ChangeEvent<
+        HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      >,
+    ) => {
+      presetOverrideRef.current = true;
+      handleChange(e);
+    },
+    [handleChange],
+  );
+
+  const applyPreset = useCallback(
+    (preset: ServiceTypePresetLite) => {
+      if (!preset || editingServiceId) return;
+      if (presetOverrideRef.current) return;
+      if (!Array.isArray(preset.items) || preset.items.length === 0) return;
+      const counts = passengerCategoryCounts || {};
+      let totalCount = 0;
+      let saleTotal = 0;
+      let costTotal = 0;
+      const parts: string[] = [];
+      for (const item of preset.items) {
+        const count = Number(counts[item.category_id] || 0);
+        if (count <= 0) continue;
+        totalCount += count;
+        const markup =
+          typeof item.sale_markup_pct === "number"
+            ? item.sale_markup_pct
+            : null;
+        const saleUnit =
+          markup != null
+            ? item.cost_price * (1 + markup / 100)
+            : item.sale_price;
+        saleTotal += saleUnit * count;
+        costTotal += item.cost_price * count;
+        const label = item.category?.name || `Cat ${item.category_id}`;
+        parts.push(`${label} x${count}`);
+      }
+      if (totalCount === 0) return;
+      const nextSale = Number(saleTotal.toFixed(2));
+      const nextCost = Number(costTotal.toFixed(2));
+      const currentSale = Number(formData.sale_price || 0);
+      const currentCost = Number(formData.cost_price || 0);
+      const nextDescription = parts.join(", ");
+      const currentDescription = (formData.description || "").trim();
+      const needsSale = Math.abs(currentSale - nextSale) > 0.005;
+      const needsCost = Math.abs(currentCost - nextCost) > 0.005;
+      const needsCurrency =
+        preset.currency && preset.currency !== formData.currency;
+      const needsDescription =
+        parts.length > 0 && currentDescription !== nextDescription;
+
+      if (!needsSale && !needsCost && !needsCurrency && !needsDescription) {
+        return;
+      }
+      if (needsSale) updateField("sale_price", String(nextSale));
+      if (needsCost) updateField("cost_price", String(nextCost));
+      if (needsCurrency) updateField("currency", preset.currency);
+      if (needsDescription) updateField("description", nextDescription);
+    },
+    [
+      editingServiceId,
+      passengerCategoryCounts,
+      formData.cost_price,
+      formData.currency,
+      formData.description,
+      formData.sale_price,
+      updateField,
+    ],
+  );
+
+  useEffect(() => {
+    if (!activePreset) return;
+    applyPreset(activePreset);
+  }, [activePreset, applyPreset]);
 
   const hasPrices =
     Number(formData.cost_price) > 0 &&
@@ -1150,7 +1331,7 @@ export default function ServiceForm({
                     type="text"
                     name="description"
                     value={formData.description || ""}
-                    onChange={handleChange}
+                    onChange={handlePresetSensitiveChange}
                     placeholder="Detalle del servicio..."
                     className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
                   />
@@ -1295,7 +1476,7 @@ export default function ServiceForm({
                     id="currency"
                     name="currency"
                     value={formData.currency}
-                    onChange={handleChange}
+                    onChange={handlePresetSensitiveChange}
                     required
                     disabled={currencyOptions.length === 0}
                     className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
@@ -1372,7 +1553,7 @@ export default function ServiceForm({
                       type="number"
                       name="cost_price"
                       value={formData.cost_price || ""}
-                      onChange={handleChange}
+                      onChange={handlePresetSensitiveChange}
                       placeholder="0,00"
                       step="0.01"
                       min="0"
@@ -1401,7 +1582,7 @@ export default function ServiceForm({
                       type="number"
                       name="sale_price"
                       value={formData.sale_price || ""}
-                      onChange={handleChange}
+                      onChange={handlePresetSensitiveChange}
                       placeholder="0,00"
                       step="0.01"
                       min="0"

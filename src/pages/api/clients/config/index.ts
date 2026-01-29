@@ -4,7 +4,11 @@ import { jwtVerify, type JWTPayload } from "jose";
 import prisma, { Prisma } from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { z } from "zod";
-import { normalizeCustomFields, normalizeRequiredFields } from "@/utils/clientConfig";
+import {
+  normalizeCustomFields,
+  normalizeHiddenFields,
+  normalizeRequiredFields,
+} from "@/utils/clientConfig";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
@@ -44,6 +48,8 @@ const putSchema = z.object({
   visibility_mode: z.enum(["all", "team", "own"]),
   required_fields: z.array(z.string()).optional(),
   custom_fields: z.array(customFieldSchema).optional(),
+  hidden_fields: z.array(z.string()).optional(),
+  use_simple_companions: z.boolean().optional(),
 });
 
 function getTokenFromRequest(req: NextApiRequest): string | null {
@@ -134,12 +140,23 @@ export default async function handler(
       if (!parsed.success)
         return res.status(400).json({ error: parsed.error.message });
 
-      const { visibility_mode, required_fields, custom_fields } = parsed.data;
+      const {
+        visibility_mode,
+        required_fields,
+        custom_fields,
+        hidden_fields,
+        use_simple_companions,
+      } = parsed.data;
 
       await prisma.$transaction(async (tx) => {
         const existing = await tx.clientConfig.findUnique({
           where: { id_agency: auth.id_agency },
-          select: { id_config: true, required_fields: true, custom_fields: true },
+          select: {
+            id_config: true,
+            required_fields: true,
+            hidden_fields: true,
+            custom_fields: true,
+          },
         });
 
         const nextRequired =
@@ -147,15 +164,33 @@ export default async function handler(
             ? normalizeRequiredFields(required_fields)
             : existing?.required_fields ?? null;
 
+        const nextHidden =
+          hidden_fields !== undefined
+            ? normalizeHiddenFields(hidden_fields)
+            : existing?.hidden_fields ?? null;
+
+        const filteredRequired =
+          nextRequired == null
+            ? null
+            : (nextHidden && Array.isArray(nextHidden)
+                ? (nextRequired as string[]).filter(
+                    (field) => !(nextHidden as string[]).includes(field),
+                  )
+                : (nextRequired as string[]));
+
         const nextCustom =
           custom_fields !== undefined
             ? normalizeCustomFields(custom_fields)
             : existing?.custom_fields ?? null;
 
         const requiredValue =
-          nextRequired === null
+          filteredRequired === null
             ? Prisma.DbNull
-            : (nextRequired as Prisma.InputJsonValue);
+            : (filteredRequired as Prisma.InputJsonValue);
+        const hiddenValue =
+          nextHidden === null
+            ? Prisma.DbNull
+            : (nextHidden as Prisma.InputJsonValue);
         const customValue =
           nextCustom === null
             ? Prisma.DbNull
@@ -167,7 +202,11 @@ export default async function handler(
             data: {
               visibility_mode,
               required_fields: requiredValue,
+              hidden_fields: hiddenValue,
               custom_fields: customValue,
+              ...(typeof use_simple_companions === "boolean"
+                ? { use_simple_companions }
+                : {}),
             },
           });
           return;
@@ -183,7 +222,9 @@ export default async function handler(
             agency_client_config_id: agencyConfigId,
             visibility_mode,
             required_fields: requiredValue,
+            hidden_fields: hiddenValue,
             custom_fields: customValue,
+            use_simple_companions: Boolean(use_simple_companions),
           },
         });
       });

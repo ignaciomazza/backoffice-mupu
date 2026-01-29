@@ -140,8 +140,12 @@ export default function DestinationPicker({
     ? selectedList.length > 0
     : selectedList.length === 1;
 
+  const lastValidRef = useRef<boolean | null>(null);
   useEffect(() => {
-    onValidChange?.(isValid);
+    if (!onValidChange) return;
+    if (lastValidRef.current === isValid) return;
+    lastValidRef.current = isValid;
+    onValidChange(isValid);
   }, [isValid, onValidChange]);
 
   // Portal target

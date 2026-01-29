@@ -1,7 +1,7 @@
 // src/components/BillingBreakdownManual.tsx
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { BillingData } from "@/types";
 
 interface Props {
@@ -15,6 +15,26 @@ interface Props {
 
 const round = (v: number, d = 8) => parseFloat(v.toFixed(d));
 
+const sameBillingData = (a: BillingData | null, b: BillingData) => {
+  if (!a) return false;
+  return (
+    a.nonComputable === b.nonComputable &&
+    a.taxableBase21 === b.taxableBase21 &&
+    a.taxableBase10_5 === b.taxableBase10_5 &&
+    a.commissionExempt === b.commissionExempt &&
+    a.commission21 === b.commission21 &&
+    a.commission10_5 === b.commission10_5 &&
+    a.vatOnCommission21 === b.vatOnCommission21 &&
+    a.vatOnCommission10_5 === b.vatOnCommission10_5 &&
+    a.totalCommissionWithoutVAT === b.totalCommissionWithoutVAT &&
+    a.impIVA === b.impIVA &&
+    a.taxableCardInterest === b.taxableCardInterest &&
+    a.vatOnCardInterest === b.vatOnCardInterest &&
+    a.transferFeeAmount === b.transferFeeAmount &&
+    a.transferFeePct === b.transferFeePct
+  );
+};
+
 export default function BillingBreakdownManual({
   importeVenta,
   costo,
@@ -23,6 +43,13 @@ export default function BillingBreakdownManual({
   onBillingUpdate,
   transferFeePct = 0.024,
 }: Props) {
+  const lastPayloadRef = useRef<BillingData | null>(null);
+  const onBillingUpdateRef = useRef(onBillingUpdate);
+
+  useEffect(() => {
+    onBillingUpdateRef.current = onBillingUpdate;
+  }, [onBillingUpdate]);
+
   // Costos bancarios
   const transferFee = round(importeVenta * (transferFeePct ?? 0), 2);
 
@@ -40,8 +67,8 @@ export default function BillingBreakdownManual({
 
   // En modo manual asumimos exento total → no computables y bases gravadas/IVA = 0
   useEffect(() => {
-    if (!onBillingUpdate) return;
-    onBillingUpdate({
+    if (!onBillingUpdateRef.current) return;
+    const payload: BillingData = {
       nonComputable: 0,
       taxableBase21: 0,
       taxableBase10_5: 0,
@@ -56,8 +83,11 @@ export default function BillingBreakdownManual({
       vatOnCardInterest: 0,
       transferFeeAmount: transferFee,
       transferFeePct: transferFeePct ?? 0,
-    });
-  }, [onBillingUpdate, commissionBeforeFee, transferFee, transferFeePct]);
+    };
+    if (sameBillingData(lastPayloadRef.current, payload)) return;
+    lastPayloadRef.current = payload;
+    onBillingUpdateRef.current(payload);
+  }, [commissionBeforeFee, transferFee, transferFeePct]);
 
   const fmt = useMemo(
     () =>

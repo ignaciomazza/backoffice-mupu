@@ -14,6 +14,8 @@ interface ClientListProps {
   formatDate: (dateString: string | undefined) => string;
   startEditingClient: (client: Client) => void;
   deleteClient: (id: number) => void;
+  onOpenRelations?: (client: Client) => void;
+  passengerCategories?: Array<{ id_category: number; name: string }>;
   hasMore?: boolean;
   onLoadMore?: () => void;
   loadingMore?: boolean;
@@ -27,6 +29,8 @@ export default function ClientList({
   formatDate,
   startEditingClient,
   deleteClient,
+  onOpenRelations,
+  passengerCategories = [],
   hasMore = false,
   onLoadMore,
   loadingMore = false,
@@ -44,6 +48,8 @@ export default function ClientList({
             formatDate={formatDate}
             startEditingClient={startEditingClient}
             deleteClient={deleteClient}
+            onOpenRelations={onOpenRelations}
+            passengerCategories={passengerCategories}
           />
         ))}
       </div>
@@ -58,6 +64,7 @@ export default function ClientList({
             formatDate={formatDate}
             startEditingClient={startEditingClient}
             deleteClient={deleteClient}
+            onOpenRelations={onOpenRelations}
           />
         ))}
       </div>
@@ -89,6 +96,8 @@ type ClientRowProps = {
   formatDate: (date: string | undefined) => string;
   startEditingClient: (client: Client) => void;
   deleteClient: (id: number) => void;
+  onOpenRelations?: (client: Client) => void;
+  passengerCategories?: Array<{ id_category: number; name: string }>;
 };
 
 function ClientListRow({
@@ -98,10 +107,19 @@ function ClientListRow({
   formatDate,
   startEditingClient,
   deleteClient,
+  onOpenRelations,
+  passengerCategories = [],
 }: ClientRowProps) {
   const isExpanded = expandedClientId === client.id_client;
   const clientNumber = client.agency_client_id ?? client.id_client;
   const fullName = `${client.first_name} ${client.last_name}`.trim() || "—";
+  const categoryLabel =
+    client.category_id && passengerCategories.length
+      ? passengerCategories.find((c) => c.id_category === client.category_id)
+          ?.name || `Cat ${client.category_id}`
+      : client.category_id
+        ? `Cat ${client.category_id}`
+        : null;
   const toggleRow = () =>
     setExpandedClientId((prevId) =>
       prevId === client.id_client ? null : client.id_client,
@@ -204,11 +222,35 @@ function ClientListRow({
               label="Dirección Comercial"
               value={client.commercial_address || "—"}
             />
+            {categoryLabel && <Field label="Categoría" value={categoryLabel} />}
           </div>
 
           <ClientFilesPanel clientId={client.id_client} expanded={isExpanded} />
 
           <div className="flex justify-end gap-2">
+            {onOpenRelations && (
+              <button
+                className={actionBtn}
+                onClick={() => onOpenRelations(client)}
+                aria-label="Relaciones y acompañantes"
+                title="Relaciones"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                  className="size-5"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"
+                  />
+                </svg>
+              </button>
+            )}
             <button
               className={actionBtn}
               onClick={() => startEditingClient(client)}

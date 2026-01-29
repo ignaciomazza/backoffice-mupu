@@ -106,6 +106,14 @@ async function getUserFromAuth(
   }
 }
 
+async function isSimpleCompanionsEnabled(id_agency: number) {
+  const cfg = await prisma.clientConfig.findUnique({
+    where: { id_agency },
+    select: { use_simple_companions: true },
+  });
+  return Boolean(cfg?.use_simple_companions);
+}
+
 function toLocalDate(v: unknown): Date | undefined {
   if (typeof v !== "string" || !v) return undefined;
   const ymd = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -197,7 +205,10 @@ export default async function handler(
     where: decoded
       ? { id_agency: authAgencyId, agency_booking_id: decoded.i }
       : { id_booking: bookingId },
-    include: { user: true },
+    include: {
+      user: true,
+      simple_companions: { select: { id_companion: true } },
+    },
   });
   if (!existing) {
     return res.status(404).json({ error: "Reserva no encontrada." });
@@ -228,6 +239,7 @@ export default async function handler(
           user: true,
           agency: true,
           clients: true,
+          simple_companions: { include: { category: true } },
           services: { include: { operator: true } },
           invoices: true,
           Receipt: true,
@@ -273,6 +285,7 @@ export default async function handler(
       sale_totals,
       // pax_count (se recalcula abajo, no se usa del body)
       clients_ids,
+      simple_companions,
       id_user, // opcional: reasignar creador
       creation_date, // opcional: setear fecha de creación
     } = req.body ?? {};
@@ -376,6 +389,73 @@ export default async function handler(
           .json({ error: `IDs no válidos: ${missingIds.join(", ")}` });
       }
 
+      const allowSimpleCompanions = await isSimpleCompanionsEnabled(authAgencyId);
+      const shouldUpdateSimpleCompanions =
+        allowSimpleCompanions && simple_companions !== undefined;
+      const currentSimpleCount = Array.isArray(existing.simple_companions)
+        ? existing.simple_companions.length
+        : 0;
+
+      const simpleCompanionsRaw = shouldUpdateSimpleCompanions
+        ? Array.isArray(simple_companions)
+          ? simple_companions
+          : []
+        : [];
+      const simpleCompanions = simpleCompanionsRaw
+        .map((c) => {
+          if (!c || typeof c !== "object") return null;
+          const rec = c as Record<string, unknown>;
+          const category_id =
+            rec.category_id == null ? null : Number(rec.category_id);
+          const age = rec.age == null ? null : Number(rec.age);
+          const notes =
+            typeof rec.notes === "string" && rec.notes.trim()
+              ? rec.notes.trim()
+              : null;
+          const safeCategory =
+            category_id != null && Number.isFinite(category_id) && category_id > 0
+              ? Math.floor(category_id)
+              : null;
+          const safeAge =
+            age != null && Number.isFinite(age) && age >= 0
+              ? Math.floor(age)
+              : null;
+          if (safeCategory == null && safeAge == null && !notes) return null;
+          return {
+            category_id: safeCategory,
+            age: safeAge,
+            notes,
+          };
+        })
+        .filter(Boolean) as Array<{
+        category_id: number | null;
+        age: number | null;
+        notes: string | null;
+      }>;
+
+      if (shouldUpdateSimpleCompanions && simpleCompanions.length > 0) {
+        const categoryIds = Array.from(
+          new Set(
+            simpleCompanions
+              .map((c) => c.category_id)
+              .filter((id): id is number => typeof id === "number"),
+          ),
+        );
+        if (categoryIds.length > 0) {
+          const cats = await prisma.passengerCategory.findMany({
+            where: { id_category: { in: categoryIds }, id_agency: authAgencyId },
+            select: { id_category: true },
+          });
+          const ok = new Set(cats.map((c) => c.id_category));
+          const bad = categoryIds.filter((id) => !ok.has(id));
+          if (bad.length) {
+            return res.status(400).json({
+              error: `Hay categorías inválidas para tu agencia: ${bad.join(", ")}`,
+            });
+          }
+        }
+      }
+
       // Fechas viaje
       const parsedDeparture = toLocalDate(departure_date);
       const parsedReturn = toLocalDate(return_date);
@@ -443,37 +523,59 @@ export default async function handler(
         // Si NO tiene permiso, ignoramos silenciosamente creation_date (no 403)
       }
 
-      // pax_count consistente con acompañantes saneados
-      const nextPax = 1 + companions.length;
+      // pax_count consistente con acompañantes saneados + simples
+      const nextSimpleCount = shouldUpdateSimpleCompanions
+        ? simpleCompanions.length
+        : currentSimpleCount;
+      const nextPax = 1 + companions.length + nextSimpleCount;
 
-      const booking = await prisma.booking.update({
-        where: { id_booking: existing.id_booking },
-        data: {
-          clientStatus,
-          operatorStatus,
-          status,
-          details,
-          invoice_type,
-          invoice_observation,
-          observation,
-          departure_date: parsedDeparture,
-          return_date: parsedReturn,
-          pax_count: nextPax,
-          ...(parsedCreationDate ? { creation_date: parsedCreationDate } : {}),
-          ...(normalizedSaleTotals !== undefined
-            ? { sale_totals: saleTotalsValue }
-            : {}),
-          titular: { connect: { id_client: Number(titular_id) } },
-          user: { connect: { id_user: usedUserId } },
-          // agency: NO se cambia por body; permanece la del token/existing
-          clients: { set: companions.map((cid) => ({ id_client: cid })) },
-        },
-        include: {
-          titular: true,
-          user: true,
-          agency: true,
-          clients: true,
-        },
+      const booking = await prisma.$transaction(async (tx) => {
+        if (shouldUpdateSimpleCompanions) {
+          await tx.bookingCompanion.deleteMany({
+            where: { booking_id: existing.id_booking },
+          });
+          if (simpleCompanions.length > 0) {
+            await tx.bookingCompanion.createMany({
+              data: simpleCompanions.map((c) => ({
+                booking_id: existing.id_booking,
+                category_id: c.category_id,
+                age: c.age,
+                notes: c.notes,
+              })),
+            });
+          }
+        }
+
+        return tx.booking.update({
+          where: { id_booking: existing.id_booking },
+          data: {
+            clientStatus,
+            operatorStatus,
+            status,
+            details,
+            invoice_type,
+            invoice_observation,
+            observation,
+            departure_date: parsedDeparture,
+            return_date: parsedReturn,
+            pax_count: nextPax,
+            ...(parsedCreationDate ? { creation_date: parsedCreationDate } : {}),
+            ...(normalizedSaleTotals !== undefined
+              ? { sale_totals: saleTotalsValue }
+              : {}),
+            titular: { connect: { id_client: Number(titular_id) } },
+            user: { connect: { id_user: usedUserId } },
+            // agency: NO se cambia por body; permanece la del token/existing
+            clients: { set: companions.map((cid) => ({ id_client: cid })) },
+          },
+          include: {
+            titular: true,
+            user: true,
+            agency: true,
+            clients: true,
+            simple_companions: { include: { category: true } },
+          },
+        });
       });
 
       return res.status(200).json(booking);

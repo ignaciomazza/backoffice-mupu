@@ -38,6 +38,8 @@ export const REQUIRED_FIELD_OPTIONS: Array<{
   { key: "postal_code", label: "Código Postal" },
 ];
 
+export const HIDDEN_FIELD_OPTIONS = REQUIRED_FIELD_OPTIONS;
+
 export const BUILTIN_CUSTOM_FIELDS: ClientCustomField[] = [
   {
     key: "dni_expiration",
@@ -74,6 +76,17 @@ export function normalizeRequiredFields(input: unknown): string[] {
     .map((v) => (typeof v === "string" ? v.trim() : ""))
     .filter((v) => v && allowed.has(v));
   const out = new Set<string>([...normalized, ...LOCKED_REQUIRED_FIELDS]);
+  return Array.from(out);
+}
+
+export function normalizeHiddenFields(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const allowed = new Set(HIDDEN_FIELD_OPTIONS.map((opt) => opt.key));
+  const raw = input
+    .map((v) => (typeof v === "string" ? v.trim() : ""))
+    .filter((v) => v && allowed.has(v));
+  const out = new Set<string>(raw);
+  LOCKED_REQUIRED_FIELDS.forEach((key) => out.delete(key));
   return Array.from(out);
 }
 

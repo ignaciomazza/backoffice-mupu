@@ -9,8 +9,10 @@ import {
 } from "react";
 import { motion } from "framer-motion";
 import { User, SalesTeam } from "@/types";
+import ClientPicker from "@/components/clients/ClientPicker";
 
 interface Props {
+  token?: string | null;
   role?: string | null;
   teams: SalesTeam[];
   displayedTeamMembers: User[];
@@ -22,9 +24,12 @@ interface Props {
   setSelectedGender: Dispatch<SetStateAction<"" | "Masculino" | "Femenino" | "No Binario">>;
   searchTerm: string;
   setSearchTerm: Dispatch<SetStateAction<string>>;
+  relatedClientId: number | null;
+  setRelatedClientId: Dispatch<SetStateAction<number | null>>;
 }
 
 export default function FilterPanel({
+  token,
   role = "",
   teams,
   displayedTeamMembers,
@@ -36,6 +41,8 @@ export default function FilterPanel({
   setSelectedGender,
   searchTerm,
   setSearchTerm,
+  relatedClientId,
+  setRelatedClientId,
 }: Props) {
   const [open, setOpen] = useState(false);
   const actualRole = role ?? "";
@@ -51,6 +58,9 @@ export default function FilterPanel({
     "" | "Masculino" | "Femenino" | "No Binario"
   >(selectedGender);
   const [draftSearch, setDraftSearch] = useState<string>(searchTerm);
+  const [draftRelatedClientId, setDraftRelatedClientId] = useState<number | null>(
+    relatedClientId,
+  );
 
   // Sincronizar draft cuando cambian los commits (por navegación, montado, etc.)
   useEffect(() => {
@@ -58,7 +68,8 @@ export default function FilterPanel({
     setDraftTeamId(selectedTeamId);
     setDraftGender(selectedGender);
     setDraftSearch(searchTerm);
-  }, [selectedUserId, selectedTeamId, selectedGender, searchTerm]);
+    setDraftRelatedClientId(relatedClientId);
+  }, [selectedUserId, selectedTeamId, selectedGender, searchTerm, relatedClientId]);
 
   // ===== Handlers =====
   const onTeamChange = (e: ChangeEvent<HTMLSelectElement>) => {
@@ -72,6 +83,7 @@ export default function FilterPanel({
     setSelectedTeamId(draftTeamId);
     setSelectedGender(draftGender);
     setSearchTerm(draftSearch);
+    setRelatedClientId(draftRelatedClientId);
     // setOpen(false); // si querés cerrarlo al aplicar, descomentá
   };
 
@@ -80,11 +92,13 @@ export default function FilterPanel({
     setDraftTeamId(0);
     setDraftGender("");
     setDraftSearch("");
+    setDraftRelatedClientId(null);
 
     setSelectedUserId(0);
     setSelectedTeamId(0);
     setSelectedGender("");
     setSearchTerm("");
+    setRelatedClientId(null);
   };
 
   // ===== UI =====
@@ -138,29 +152,27 @@ export default function FilterPanel({
           </button>
         </div>
 
-        {(isManager || isLeader) && (
-          <button
-            onClick={() => setOpen((o) => !o)}
-            className="flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-6 py-2 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:text-white"
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-6 py-2 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:text-white"
+        >
+          {/* Icono sliders */}
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.4}
+            stroke="currentColor"
+            className="size-5"
           >
-            {/* Icono sliders */}
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.4}
-              stroke="currentColor"
-              className="size-5"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75"
-              />
-            </svg>
-            <span>Filtros</span>
-          </button>
-        )}
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75"
+            />
+          </svg>
+          <span>Filtros</span>
+        </button>
       </div>
 
       {/* Panel de filtros (con Aplicar / Limpiar adentro) */}
@@ -245,6 +257,17 @@ export default function FilterPanel({
               <option value="Femenino">Femenino</option>
               <option value="No Binario">No Binario</option>
             </select>
+          </div>
+
+          <div className="md:col-span-2 xl:col-span-3">
+            <ClientPicker
+              token={token}
+              label="Relacionado con"
+              placeholder="Elegí un pasajero..."
+              valueId={draftRelatedClientId ?? null}
+              onSelect={(c) => setDraftRelatedClientId(c.id_client)}
+              onClear={() => setDraftRelatedClientId(null)}
+            />
           </div>
         </div>
 

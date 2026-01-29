@@ -2,7 +2,7 @@
 "use client";
 
 import type React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast, ToastContainer } from "react-toastify";
@@ -25,8 +25,10 @@ import type {
   BillingAdjustmentConfig,
   BillingData,
   Client,
+  ClientSimpleCompanion,
   ClientCustomField,
   Operator,
+  PassengerCategory,
   Service,
 } from "@/types";
 import {
@@ -35,6 +37,7 @@ import {
   DOCUMENT_ANY_KEY,
   REQUIRED_FIELD_OPTIONS,
   normalizeCustomFields,
+  normalizeHiddenFields,
   normalizeRequiredFields,
 } from "@/utils/clientConfig";
 import "react-toastify/dist/ReactToastify.css";
@@ -56,6 +59,7 @@ type NewClientDraft = {
   birth_date: string;
   nationality: string;
   gender: string;
+  category_id: number | null;
   dni_number: string;
   passport_number: string;
   email: string;
@@ -75,6 +79,8 @@ type ExistingClientDraft = {
   snapshot: {
     first_name: string;
     last_name: string;
+    birth_date?: string;
+    category_id?: number | null;
     dni_number?: string;
     passport_number?: string;
     email?: string;
@@ -99,6 +105,11 @@ type BookingDraft = {
   observation: string;
   departure_date: string;
   return_date: string;
+  simple_companions?: Array<{
+    category_id?: number | null;
+    age?: number | null;
+    notes?: string | null;
+  }>;
 };
 
 type ServiceDraft = {
@@ -135,6 +146,23 @@ type ServiceDraft = {
   impIVA: number;
   transfer_fee_pct: number;
   transfer_fee_amount: number;
+};
+
+type ServiceTypePresetItemLite = {
+  category_id: number;
+  sale_price: number;
+  cost_price: number;
+  sale_markup_pct?: number | null;
+  category?: { name?: string | null } | null;
+};
+
+type ServiceTypePresetLite = {
+  id_preset: number;
+  operator_id?: number | null;
+  currency: string;
+  enabled?: boolean;
+  sort_order?: number | null;
+  items: ServiceTypePresetItemLite[];
 };
 
 type QuickLoadDraft = {
@@ -174,6 +202,7 @@ const INVOICE_TYPES = [
 ] as const;
 
 type ServiceTypeOption = {
+  id?: number | null;
   value: string;
   label: string;
 };
@@ -217,6 +246,12 @@ const normalizeServiceTypes = (payload: unknown): ServiceTypeOption[] => {
             : typeof record.type === "string"
               ? record.type
               : "";
+      const rawId =
+        typeof record.id_service_type === "number"
+          ? record.id_service_type
+          : typeof record.id === "number"
+            ? record.id
+            : null;
       const code = typeof record.code === "string" ? record.code : "";
       const enabled =
         toBoolish(
@@ -227,7 +262,7 @@ const normalizeServiceTypes = (payload: unknown): ServiceTypeOption[] => {
         ) ?? true;
       const value = name || code;
       if (!value || enabled === false) return null;
-      return { value, label: name || code };
+      return { id: rawId, value, label: name || code };
     })
     .filter(Boolean) as ServiceTypeOption[];
   return normalized.sort((a, b) => a.label.localeCompare(b.label, "es"));
@@ -257,9 +292,18 @@ const applyBuiltinMeta = (fields: ClientCustomField[]) => {
 const normalizeClientConfig = (payload: unknown) => {
   if (!payload || typeof payload !== "object") return null;
   const record = payload as Record<string, unknown>;
+  const hidden_fields = normalizeHiddenFields(record.hidden_fields);
+  const required_fields = normalizeRequiredFields(record.required_fields).filter(
+    (field) => !hidden_fields.includes(field),
+  );
   return {
-    required_fields: normalizeRequiredFields(record.required_fields),
+    required_fields,
     custom_fields: normalizeCustomFields(record.custom_fields),
+    hidden_fields,
+    use_simple_companions:
+      typeof record.use_simple_companions === "boolean"
+        ? record.use_simple_companions
+        : false,
   };
 };
 
@@ -411,6 +455,7 @@ const emptyBooking = (): BookingDraft => ({
   observation: "",
   departure_date: "",
   return_date: "",
+  simple_companions: [],
 });
 
 const emptyService = (booking?: BookingDraft): ServiceDraft => ({
@@ -458,6 +503,7 @@ const emptyClient = (): NewClientDraft => ({
   birth_date: "",
   nationality: "",
   gender: "",
+  category_id: null,
   dni_number: "",
   passport_number: "",
   email: "",
@@ -600,6 +646,24 @@ const IconTrash = ({ className }: { className?: string }) => (
   </svg>
 );
 
+const IconClock = ({ className }: { className?: string }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.5}
+    className={className}
+    aria-hidden="true"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M12 6v6l4 2m6-2a10 10 0 1 1-20 0 10 10 0 0 1 20 0Z"
+    />
+  </svg>
+);
+
 const IconPlus = ({ className }: { className?: string }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -672,7 +736,17 @@ export default function QuickLoadPage() {
   const [requiredFields, setRequiredFields] = useState<string[]>(
     DEFAULT_REQUIRED_FIELDS,
   );
+  const [hiddenFields, setHiddenFields] = useState<string[]>([]);
   const [customFields, setCustomFields] = useState<ClientCustomField[]>([]);
+  const [useSimpleCompanions, setUseSimpleCompanions] = useState(false);
+  const [passengerCategories, setPassengerCategories] = useState<
+    PassengerCategory[]
+  >([]);
+  const [savedCompanions, setSavedCompanions] = useState<
+    ClientSimpleCompanion[]
+  >([]);
+  const [savedCompanionsLoading, setSavedCompanionsLoading] = useState(false);
+  const [useSimpleMode, setUseSimpleMode] = useState(false);
   const [calcConfigLoading, setCalcConfigLoading] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [clients, setClients] = useState<ClientDraft[]>([]);
@@ -701,6 +775,7 @@ export default function QuickLoadPage() {
     () => normalizeRequiredFields(requiredFields),
     [requiredFields],
   );
+  const hiddenFieldSet = useMemo(() => new Set(hiddenFields), [hiddenFields]);
   const normalizedCustomFields = useMemo(
     () => applyBuiltinMeta(customFields),
     [customFields],
@@ -714,6 +789,7 @@ export default function QuickLoadPage() {
     [normalizedRequiredFields],
   );
   const isRequiredField = (field: string) => requiredFieldSet.has(field);
+  const isHiddenField = (field: string) => hiddenFieldSet.has(field);
 
   const missingClientFields = useCallback(
     (client: NewClientDraft) =>
@@ -895,12 +971,16 @@ export default function QuickLoadPage() {
         if (!controller.signal.aborted && config) {
           setRequiredFields(config.required_fields);
           setCustomFields(applyBuiltinMeta(config.custom_fields));
+          setUseSimpleCompanions(Boolean(config.use_simple_companions));
+          setHiddenFields(config.hidden_fields || []);
         }
       } catch (err) {
         if ((err as DOMException)?.name !== "AbortError") {
           console.error("❌ Error config clientes:", err);
           setRequiredFields(DEFAULT_REQUIRED_FIELDS);
           setCustomFields([]);
+          setUseSimpleCompanions(false);
+          setHiddenFields([]);
         }
       } finally {
         // nothing else to do
@@ -908,6 +988,64 @@ export default function QuickLoadPage() {
     })();
     return () => controller.abort();
   }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/passenger-categories",
+          { cache: "no-store", signal: controller.signal },
+          token,
+        );
+        if (!res.ok) throw new Error("Error al cargar categorías de pasajeros");
+        const data = (await res.json().catch(() => [])) as PassengerCategory[];
+        if (!controller.signal.aborted) setPassengerCategories(data);
+      } catch (err) {
+        if ((err as DOMException)?.name !== "AbortError") {
+          console.error("❌ Error categorías pasajeros:", err);
+          setPassengerCategories([]);
+        }
+      }
+    })();
+    return () => controller.abort();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token || !titularId) {
+      setSavedCompanions([]);
+      setSavedCompanionsLoading(false);
+      return;
+    }
+    const target = clients.find((c) => c.id === titularId);
+    if (!target || target.kind !== "existing") {
+      setSavedCompanions([]);
+      setSavedCompanionsLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setSavedCompanionsLoading(true);
+    (async () => {
+      try {
+        const res = await authFetch(
+          `/api/client-simple-companions?client_id=${target.existingId}`,
+          { cache: "no-store", signal: controller.signal },
+          token,
+        );
+        if (!res.ok) throw new Error("No se pudieron cargar acompañantes.");
+        const data = (await res.json().catch(() => [])) as ClientSimpleCompanion[];
+        if (!controller.signal.aborted) {
+          setSavedCompanions(Array.isArray(data) ? data : []);
+        }
+      } catch {
+        if (!controller.signal.aborted) setSavedCompanions([]);
+      } finally {
+        if (!controller.signal.aborted) setSavedCompanionsLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [token, titularId, clients]);
 
   useEffect(() => {
     if (
@@ -918,6 +1056,10 @@ export default function QuickLoadPage() {
       setManualOverride(false);
     }
   }, [billingMode, canOverrideBillingMode, useBookingSaleTotal]);
+
+  useEffect(() => {
+    setUseSimpleMode(useSimpleCompanions);
+  }, [useSimpleCompanions]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1006,15 +1148,17 @@ export default function QuickLoadPage() {
       snapshot: {
         first_name: client.first_name,
         last_name: client.last_name,
-            dni_number: client.dni_number,
-            passport_number: client.passport_number,
-            email: client.email,
-            address: client.address,
-            postal_code: client.postal_code,
-            locality: client.locality,
-            company_name: client.company_name,
-            commercial_address: client.commercial_address,
-            tax_id: client.tax_id,
+        birth_date: client.birth_date,
+        category_id: client.category_id ?? null,
+        dni_number: client.dni_number,
+        passport_number: client.passport_number,
+        email: client.email,
+        address: client.address,
+        postal_code: client.postal_code,
+        locality: client.locality,
+        company_name: client.company_name,
+        commercial_address: client.commercial_address,
+        tax_id: client.tax_id,
       },
     };
     setClients((prev) => [...prev, draft]);
@@ -1035,7 +1179,7 @@ export default function QuickLoadPage() {
   const updateClientField = (
     id: string,
     field: keyof NewClientDraft,
-    value: string,
+    value: string | number | null,
   ) => {
     setClients((prev) =>
       prev.map((c) =>
@@ -1069,9 +1213,146 @@ export default function QuickLoadPage() {
     setBooking((prev) => ({ ...prev, [field]: value }));
   };
 
+  const addSimpleCompanion = () => {
+    setBooking((prev) => ({
+      ...prev,
+      simple_companions: [
+        ...(prev.simple_companions || []),
+        { category_id: null, age: null, notes: "" },
+      ],
+    }));
+  };
+
+  const updateSimpleCompanion = (
+    index: number,
+    patch: { category_id?: number | null; age?: number | null; notes?: string },
+  ) => {
+    setBooking((prev) => {
+      const next = Array.isArray(prev.simple_companions)
+        ? [...prev.simple_companions]
+        : [];
+      const current = next[index] || {};
+      next[index] = { ...current, ...patch };
+      return { ...prev, simple_companions: next };
+    });
+  };
+
+  const removeSimpleCompanion = (index: number) => {
+    setBooking((prev) => {
+      const next = Array.isArray(prev.simple_companions)
+        ? [...prev.simple_companions]
+        : [];
+      next.splice(index, 1);
+      return { ...prev, simple_companions: next };
+    });
+  };
+
+  const addSavedCompanion = (comp: ClientSimpleCompanion) => {
+    setBooking((prev) => {
+      const next = Array.isArray(prev.simple_companions)
+        ? [...prev.simple_companions]
+        : [];
+      const exists = next.some(
+        (c) =>
+          (c.category_id ?? null) === (comp.category_id ?? null) &&
+          (c.age ?? null) === (comp.age ?? null) &&
+          String(c.notes ?? "") === String(comp.notes ?? ""),
+      );
+      if (!exists) {
+        next.push({
+          category_id: comp.category_id ?? null,
+          age: comp.age ?? null,
+          notes: comp.notes ?? null,
+        });
+      }
+      return { ...prev, simple_companions: next };
+    });
+  };
+
   const updateBookingSaleTotal = (currency: string, value: string) => {
     setBookingSaleTotals((prev) => ({ ...prev, [currency]: value }));
   };
+
+  const presetCacheRef = useRef<Map<string, ServiceTypePresetLite[]>>(new Map());
+
+  const simpleCompanionCounts = useMemo(() => {
+    const counts: Record<number, number> = {};
+    if (!Array.isArray(booking.simple_companions)) return counts;
+    booking.simple_companions.forEach((c) => {
+      const id = c.category_id;
+      if (typeof id !== "number" || !Number.isFinite(id)) return;
+      counts[id] = (counts[id] || 0) + 1;
+    });
+    return counts;
+  }, [booking.simple_companions]);
+
+  const passengerCategoryCounts = useMemo(() => {
+    const counts: Record<number, number> = { ...simpleCompanionCounts };
+
+    const explicitCategory = (c: ClientDraft) =>
+      c.kind === "existing" ? c.snapshot.category_id : c.category_id;
+
+    clients.forEach((c) => {
+      const cat = explicitCategory(c);
+      if (typeof cat === "number" && Number.isFinite(cat) && cat > 0) {
+        counts[cat] = (counts[cat] || 0) + 1;
+      }
+    });
+
+    if (!passengerCategories.length) return counts;
+    const eligible = [...passengerCategories]
+      .filter((c) => c.enabled !== false && !c.ignore_age)
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+    const ageFromBirthDate = (value?: string | null) => {
+      if (!value) return null;
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return null;
+      const now = new Date();
+      let age = now.getUTCFullYear() - d.getUTCFullYear();
+      const m = now.getUTCMonth() - d.getUTCMonth();
+      if (m < 0 || (m === 0 && now.getUTCDate() < d.getUTCDate())) {
+        age -= 1;
+      }
+      return age >= 0 ? age : null;
+    };
+
+    const matchCategoryId = (age: number | null) => {
+      if (age == null) return null;
+      for (const cat of eligible) {
+        const min = typeof cat.min_age === "number" ? cat.min_age : null;
+        const max = typeof cat.max_age === "number" ? cat.max_age : null;
+        const okMin = min == null || age >= min;
+        const okMax = max == null || age <= max;
+        if (okMin && okMax) return cat.id_category;
+      }
+      return null;
+    };
+
+    clients.forEach((c) => {
+      const cat = explicitCategory(c);
+      if (typeof cat === "number" && Number.isFinite(cat) && cat > 0) {
+        return;
+      }
+      const birth =
+        c.kind === "existing" ? c.snapshot.birth_date : c.birth_date;
+      const age = ageFromBirthDate(birth);
+      const catId = matchCategoryId(age);
+      if (!catId) return;
+      counts[catId] = (counts[catId] || 0) + 1;
+    });
+
+    return counts;
+  }, [clients, passengerCategories, simpleCompanionCounts]);
+
+  const categoryLabelById = useCallback(
+    (id?: number | null) => {
+      if (!id || !Number.isFinite(id)) return null;
+      const found = passengerCategories.find((p) => p.id_category === id);
+      return found?.name || `Cat ${id}`;
+    },
+    [passengerCategories],
+  );
 
   const addService = () => {
     setServices((prev) => [
@@ -1121,33 +1402,135 @@ export default function QuickLoadPage() {
         return billingInputs.has(field) ? { ...next, ...resetBilling } : next;
       }),
     );
+
+    if (field === "type" || field === "id_operator") {
+      const nextType =
+        field === "type"
+          ? String(value)
+          : services.find((s) => s.id === id)?.type;
+      const nextOperator =
+        field === "id_operator"
+          ? Number(value)
+          : services.find((s) => s.id === id)?.id_operator ?? 0;
+      const serviceTypeId =
+        serviceTypes.find((t) => t.value === nextType)?.id ?? null;
+      if (serviceTypeId) {
+        void applyPresetForService(id, serviceTypeId, nextOperator);
+      }
+    }
   };
 
-  const updateServiceBilling = (id: string, data: BillingData) => {
+  const applyPresetForService = async (
+    serviceId: string,
+    serviceTypeId: number,
+    operatorId: number,
+  ) => {
+    if (!token) return;
+    const cacheKey = `${serviceTypeId}:${operatorId || 0}`;
+    let presets = presetCacheRef.current.get(cacheKey);
+    if (!presets) {
+      const fetchPresets = async (withOperator: boolean) => {
+        const qs = new URLSearchParams();
+        qs.set("service_type_id", String(serviceTypeId));
+        qs.set("enabled", "true");
+        if (withOperator && operatorId > 0) {
+          qs.set("operator_id", String(operatorId));
+        }
+        const res = await authFetch(
+          `/api/service-type-presets?${qs.toString()}`,
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) return [];
+        const data = (await res.json().catch(() => [])) as ServiceTypePresetLite[];
+        return Array.isArray(data) ? data : [];
+      };
+      if (operatorId > 0) {
+        presets = await fetchPresets(true);
+      }
+      if (!presets || presets.length === 0) {
+        presets = await fetchPresets(false);
+      }
+      presetCacheRef.current.set(cacheKey, presets || []);
+    }
+
+    const sorted = (presets || [])
+      .filter((p) => p && p.items && p.items.length > 0 && p.enabled !== false)
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    const preset = sorted[0];
+    if (!preset) return;
+
+    let totalCount = 0;
+    let saleTotal = 0;
+    let costTotal = 0;
+    const parts: string[] = [];
+    for (const item of preset.items) {
+      const count = Number(passengerCategoryCounts[item.category_id] || 0);
+      if (count <= 0) continue;
+      totalCount += count;
+      const markup =
+        typeof item.sale_markup_pct === "number"
+          ? item.sale_markup_pct
+          : null;
+      const saleUnit =
+        markup != null
+          ? item.cost_price * (1 + markup / 100)
+          : item.sale_price;
+      saleTotal += saleUnit * count;
+      costTotal += item.cost_price * count;
+      const label = item.category?.name || `Cat ${item.category_id}`;
+      parts.push(`${label} x${count}`);
+    }
+    if (totalCount === 0) return;
     setServices((prev) =>
       prev.map((s) =>
-        s.id === id
+        s.id === serviceId
           ? {
               ...s,
-              nonComputable: data.nonComputable ?? 0,
-              taxableBase21: data.taxableBase21 ?? 0,
-              taxableBase10_5: data.taxableBase10_5 ?? 0,
-              commissionExempt: data.commissionExempt ?? 0,
-              commission21: data.commission21 ?? 0,
-              commission10_5: data.commission10_5 ?? 0,
-              vatOnCommission21: data.vatOnCommission21 ?? 0,
-              vatOnCommission10_5: data.vatOnCommission10_5 ?? 0,
-              totalCommissionWithoutVAT: data.totalCommissionWithoutVAT ?? 0,
-              impIVA: data.impIVA ?? 0,
-              taxableCardInterest: data.taxableCardInterest ?? 0,
-              vatOnCardInterest: data.vatOnCardInterest ?? 0,
-              transfer_fee_pct: data.transferFeePct ?? transferFeePct,
-              transfer_fee_amount: data.transferFeeAmount ?? 0,
+              sale_price: String(saleTotal),
+              cost_price: String(costTotal),
+              currency: preset.currency || s.currency,
+              description: parts.length ? parts.join(", ") : s.description,
             }
           : s,
       ),
     );
   };
+
+  const updateServiceBilling = useCallback(
+    (id: string, data: BillingData) => {
+      setServices((prev) => {
+        let changed = false;
+        const next = prev.map((s) => {
+          if (s.id !== id) return s;
+          const nextValues = {
+            nonComputable: data.nonComputable ?? 0,
+            taxableBase21: data.taxableBase21 ?? 0,
+            taxableBase10_5: data.taxableBase10_5 ?? 0,
+            commissionExempt: data.commissionExempt ?? 0,
+            commission21: data.commission21 ?? 0,
+            commission10_5: data.commission10_5 ?? 0,
+            vatOnCommission21: data.vatOnCommission21 ?? 0,
+            vatOnCommission10_5: data.vatOnCommission10_5 ?? 0,
+            totalCommissionWithoutVAT: data.totalCommissionWithoutVAT ?? 0,
+            impIVA: data.impIVA ?? 0,
+            taxableCardInterest: data.taxableCardInterest ?? 0,
+            vatOnCardInterest: data.vatOnCardInterest ?? 0,
+            transfer_fee_pct: data.transferFeePct ?? transferFeePct,
+            transfer_fee_amount: data.transferFeeAmount ?? 0,
+          };
+          const same = Object.entries(nextValues).every(
+            ([key, value]) => (s as Record<string, unknown>)[key] === value,
+          );
+          if (same) return s;
+          changed = true;
+          return { ...s, ...nextValues };
+        });
+        return changed ? next : prev;
+      });
+    },
+    [transferFeePct],
+  );
 
   const handleDestinationSelect = (
     id: string,
@@ -1416,6 +1799,7 @@ export default function QuickLoadPage() {
             birth_date: client.birth_date,
             nationality: client.nationality,
             gender: client.gender,
+            category_id: client.category_id ?? null,
             dni_number: client.dni_number,
             passport_number: client.passport_number,
             email: client.email,
@@ -1522,6 +1906,30 @@ export default function QuickLoadPage() {
         .filter((c) => c.id !== titularId)
         .map((c) => idMap.get(c.id))
         .filter((id): id is number => typeof id === "number");
+      const simpleCompanions = Array.isArray(booking.simple_companions)
+        ? booking.simple_companions
+            .map((c) => {
+              if (!c) return null;
+              const category_id =
+                c.category_id != null ? Number(c.category_id) : null;
+              const age = c.age != null ? Number(c.age) : null;
+              const notes =
+                typeof c.notes === "string" && c.notes.trim()
+                  ? c.notes.trim()
+                  : null;
+              const safeCategory =
+                category_id != null && Number.isFinite(category_id) && category_id > 0
+                  ? Math.floor(category_id)
+                  : null;
+              const safeAge =
+                age != null && Number.isFinite(age) && age >= 0
+                  ? Math.floor(age)
+                  : null;
+              if (safeCategory == null && safeAge == null && !notes) return null;
+              return { category_id: safeCategory, age: safeAge, notes };
+            })
+            .filter(Boolean)
+        : [];
 
       const payload = {
         clientStatus: booking.clientStatus,
@@ -1535,8 +1943,9 @@ export default function QuickLoadPage() {
         titular_id: titularBackendId,
         departure_date: booking.departure_date,
         return_date: booking.return_date,
-        pax_count: 1 + companions.length,
+        pax_count: 1 + companions.length + simpleCompanions.length,
         clients_ids: companions,
+        simple_companions: simpleCompanions,
         id_user: profile.id_user,
       };
 
@@ -1659,7 +2068,12 @@ export default function QuickLoadPage() {
     }
   };
 
-  const clientCountLabel = `${clients.length} ${clients.length === 1 ? "pax" : "pasajeros"}`;
+  const totalPax =
+    clients.length +
+    (Array.isArray(booking.simple_companions)
+      ? booking.simple_companions.length
+      : 0);
+  const clientCountLabel = `${totalPax} ${totalPax === 1 ? "pax" : "pasajeros"}`;
   const serviceCountLabel = `${services.length} servicio${services.length === 1 ? "" : "s"}`;
 
   const titularLabel = useMemo(() => {
@@ -1691,13 +2105,9 @@ export default function QuickLoadPage() {
               <p className="text-xs uppercase tracking-[0.3em] text-sky-700/70 dark:text-white/60">
                 carga rápida
               </p>
-              <h1 className="text-3xl font-semibold">
-                Crea pasajeros, reserva y servicios en una sola pasada
-              </h1>
+              <h1 className="text-3xl font-semibold">Carga rápida</h1>
               <p className="max-w-2xl text-sm text-sky-900/70 dark:text-white/70">
-                Flujo corto para dar de alta pasajeros, armar la reserva y, si
-                querés, cargar servicios. Todo queda guardado como borrador si
-                cerrás la pestaña.
+                Pasajeros, reserva y servicios en un solo flujo.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1718,26 +2128,29 @@ export default function QuickLoadPage() {
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`${PANEL} flex flex-col gap-4 md:flex-row md:items-center md:justify-between`}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200/60 bg-amber-100/40 px-4 py-2 text-xs text-amber-950 shadow-sm shadow-amber-900/10 dark:border-amber-200/30 dark:bg-amber-200/10 dark:text-amber-100"
           >
-            <div>
-              <p className="text-sm font-semibold">
-                Encontramos un borrador reciente.
-              </p>
-              <p className="text-xs text-sky-950/70 dark:text-white/60">
-                Última actualización: {formatDate(lastSavedAt || undefined)}
-              </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <IconClock className="size-4" />
+              <span className="font-semibold">Borrador disponible</span>
+              <span className="text-[11px] opacity-70">
+                Actualizado {formatDate(lastSavedAt || undefined)}
+              </span>
             </div>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                className={BTN_EMERALD}
+                className="inline-flex items-center gap-2 rounded-full border border-emerald-300/60 bg-emerald-200/60 px-3 py-1 text-[11px] font-semibold text-emerald-950 transition hover:bg-emerald-200/80 dark:border-emerald-300/30 dark:bg-emerald-500/20 dark:text-emerald-50"
                 onClick={recoverDraft}
               >
                 <IconCheck className="size-4" />
                 Recuperar
               </button>
-              <button type="button" className={BTN_ROSE} onClick={discardDraft}>
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-full border border-rose-300/60 bg-rose-100/60 px-3 py-1 text-[11px] font-semibold text-rose-900 transition hover:bg-rose-100/80 dark:border-rose-300/30 dark:bg-rose-500/20 dark:text-rose-50"
+                onClick={discardDraft}
+              >
                 <IconTrash className="size-4" />
                 Descartar
               </button>
@@ -1795,10 +2208,38 @@ export default function QuickLoadPage() {
                         Paso 1 · Pasajeros
                       </h2>
                       <p className="text-sm text-sky-900/70 dark:text-white/70">
-                        Sumá pasajeros nuevos o existentes, elegí un titular y
-                        dejá listo el grupo.
+                        Sumá pasajeros y elegí titular.
                       </p>
                     </div>
+                    {useSimpleCompanions && (
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-sky-900/70 dark:text-white/70">
+                          Modo:
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setUseSimpleMode(true)}
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                            useSimpleMode
+                              ? "border-emerald-300/60 bg-emerald-200/70 text-emerald-950 dark:border-emerald-300/40 dark:bg-emerald-500/30 dark:text-emerald-50"
+                              : "border-sky-200/40 bg-white/60 text-sky-900/70 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white/60"
+                          }`}
+                        >
+                          Simple
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setUseSimpleMode(false)}
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                            !useSimpleMode
+                              ? "border-sky-300/60 bg-sky-200/70 text-sky-950 dark:border-sky-300/40 dark:bg-sky-500/30 dark:text-white"
+                              : "border-sky-200/40 bg-white/60 text-sky-900/70 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white/60"
+                          }`}
+                        >
+                          Completo
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-8 space-y-4">
@@ -1922,6 +2363,12 @@ export default function QuickLoadPage() {
                               {client.snapshot.passport_number || "-"}
                             </p>
                             <p>Email: {client.snapshot.email || "-"}</p>
+                            {categoryLabelById(client.snapshot.category_id) && (
+                              <p>
+                                Categoría:{" "}
+                                {categoryLabelById(client.snapshot.category_id)}
+                              </p>
+                            )}
                           </div>
                         ) : (
                           <div className="mt-6 grid gap-6">
@@ -1930,7 +2377,9 @@ export default function QuickLoadPage() {
                                 Datos personales
                               </p>
                               <div className="mt-4 grid gap-4 md:grid-cols-3">
-                                <div>
+                                <div
+                                  className={isHiddenField("first_name") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`first-${client.id}`}
                                     required={isRequiredField("first_name")}
@@ -1951,7 +2400,9 @@ export default function QuickLoadPage() {
                                     placeholder="Ej: Juan"
                                   />
                                 </div>
-                                <div>
+                                <div
+                                  className={isHiddenField("last_name") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`last-${client.id}`}
                                     required={isRequiredField("last_name")}
@@ -1972,7 +2423,9 @@ export default function QuickLoadPage() {
                                     placeholder="Ej: Pérez"
                                   />
                                 </div>
-                                <div>
+                                <div
+                                  className={isHiddenField("phone") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`phone-${client.id}`}
                                     required={isRequiredField("phone")}
@@ -1993,7 +2446,9 @@ export default function QuickLoadPage() {
                                     placeholder="Ej: 11 2345-6789"
                                   />
                                 </div>
-                                <div>
+                                <div
+                                  className={isHiddenField("birth_date") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`birth-${client.id}`}
                                     required={isRequiredField("birth_date")}
@@ -2015,7 +2470,11 @@ export default function QuickLoadPage() {
                                     placeholder="aaaa-mm-dd"
                                   />
                                 </div>
-                                <div className="space-y-2">
+                                <div
+                                  className={`space-y-2 ${
+                                    isHiddenField("nationality") ? "hidden" : ""
+                                  }`}
+                                >
                                   <FieldLabel
                                     required={isRequiredField("nationality")}
                                   >
@@ -2042,7 +2501,9 @@ export default function QuickLoadPage() {
                                     </p>
                                   ) : null}
                                 </div>
-                                <div>
+                                <div
+                                  className={isHiddenField("gender") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`gender-${client.id}`}
                                     required={isRequiredField("gender")}
@@ -2067,6 +2528,41 @@ export default function QuickLoadPage() {
                                     <option value="Otro">Otro</option>
                                   </select>
                                 </div>
+                                {passengerCategories.length > 0 && (
+                                  <div>
+                                    <FieldLabel
+                                      htmlFor={`category-${client.id}`}
+                                    >
+                                      Categoría
+                                    </FieldLabel>
+                                    <select
+                                      id={`category-${client.id}`}
+                                      value={client.category_id ?? ""}
+                                      onChange={(e) =>
+                                        updateClientField(
+                                          client.id,
+                                          "category_id",
+                                          e.target.value
+                                            ? Number(e.target.value)
+                                            : null,
+                                        )
+                                      }
+                                      className={`${INPUT} cursor-pointer`}
+                                    >
+                                      <option value="">Sin categoría</option>
+                                      {passengerCategories
+                                        .filter((p) => p.enabled !== false)
+                                        .map((p) => (
+                                          <option
+                                            key={p.id_category}
+                                            value={p.id_category}
+                                          >
+                                            {p.name}
+                                          </option>
+                                        ))}
+                                    </select>
+                                  </div>
+                                )}
                               </div>
                             </div>
 
@@ -2087,7 +2583,9 @@ export default function QuickLoadPage() {
                                 )}
                               </div>
                               <div className="mt-4 grid gap-4 md:grid-cols-3">
-                                <div>
+                                <div
+                                  className={isHiddenField("dni_number") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`dni-${client.id}`}
                                     required={isRequiredField("dni_number")}
@@ -2108,7 +2606,9 @@ export default function QuickLoadPage() {
                                     placeholder="Ej: 12345678"
                                   />
                                 </div>
-                                <div>
+                                <div
+                                  className={isHiddenField("passport_number") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`pass-${client.id}`}
                                     required={isRequiredField("passport_number")}
@@ -2129,7 +2629,9 @@ export default function QuickLoadPage() {
                                     placeholder="Ej: AA123456"
                                   />
                                 </div>
-                                <div>
+                                <div
+                                  className={isHiddenField("email") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`email-${client.id}`}
                                     required={isRequiredField("email")}
@@ -2205,7 +2707,9 @@ export default function QuickLoadPage() {
                                 Datos fiscales (si aplica)
                               </p>
                               <div className="mt-4 grid gap-4 md:grid-cols-3">
-                                <div>
+                                <div
+                                  className={isHiddenField("tax_id") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`tax-${client.id}`}
                                     required={isRequiredField("tax_id")}
@@ -2226,7 +2730,9 @@ export default function QuickLoadPage() {
                                     placeholder="Ej: 30-12345678-9"
                                   />
                                 </div>
-                                <div>
+                                <div
+                                  className={isHiddenField("company_name") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`company-${client.id}`}
                                     required={isRequiredField("company_name")}
@@ -2247,7 +2753,9 @@ export default function QuickLoadPage() {
                                     placeholder="Ej: Ofistur SRL"
                                   />
                                 </div>
-                                <div>
+                                <div
+                                  className={isHiddenField("commercial_address") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`address-${client.id}`}
                                     required={isRequiredField(
@@ -2270,7 +2778,9 @@ export default function QuickLoadPage() {
                                     placeholder="Ej: Calle 123, CABA"
                                   />
                                 </div>
-                                <div>
+                                <div
+                                  className={isHiddenField("address") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`home-${client.id}`}
                                     required={isRequiredField("address")}
@@ -2291,7 +2801,9 @@ export default function QuickLoadPage() {
                                     placeholder="Ej: Calle 123, CABA"
                                   />
                                 </div>
-                                <div>
+                                <div
+                                  className={isHiddenField("locality") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`locality-${client.id}`}
                                     required={isRequiredField("locality")}
@@ -2312,7 +2824,9 @@ export default function QuickLoadPage() {
                                     placeholder="Ej: San Miguel"
                                   />
                                 </div>
-                                <div>
+                                <div
+                                  className={isHiddenField("postal_code") ? "hidden" : ""}
+                                >
                                   <FieldLabel
                                     htmlFor={`postal-${client.id}`}
                                     required={isRequiredField("postal_code")}
@@ -2348,6 +2862,131 @@ export default function QuickLoadPage() {
                   })}
                 </div>
 
+                {useSimpleCompanions && useSimpleMode && (
+                  <div className={PANEL}>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold">
+                          Acompañantes simples
+                        </h3>
+                        <p className="text-xs text-sky-900/70 dark:text-white/70">
+                          Cargá edad y/o categoría sin crear pasajeros nuevos.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className={BTN_SKY}
+                        onClick={addSimpleCompanion}
+                      >
+                        <IconPlus className="size-4" />
+                        Agregar acompañante
+                      </button>
+                    </div>
+
+                    {(!booking.simple_companions ||
+                      booking.simple_companions.length === 0) && (
+                      <p className="mt-4 text-xs text-sky-900/70 dark:text-white/70">
+                        No hay acompañantes simples cargados.
+                      </p>
+                    )}
+
+                    {savedCompanionsLoading ? (
+                      <p className="mt-4 text-xs text-sky-900/70 dark:text-white/70">
+                        Cargando acompañantes guardados…
+                      </p>
+                    ) : savedCompanions.length > 0 ? (
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-3">
+                        <p className="text-xs font-semibold text-sky-900/70 dark:text-white/70">
+                          Guardados del titular
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {savedCompanions.map((c, idx) => (
+                            <button
+                              key={`saved-${c.id_template ?? c.category_id ?? idx}`}
+                              type="button"
+                              onClick={() => addSavedCompanion(c)}
+                              className="rounded-full border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
+                            >
+                              {c.category?.name || "Sin categoría"}
+                              {c.age != null ? ` · ${c.age} años` : ""}
+                              {c.notes ? ` · ${c.notes}` : ""}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {Array.isArray(booking.simple_companions) &&
+                      booking.simple_companions.length > 0 && (
+                        <div className="mt-4 space-y-3">
+                          {booking.simple_companions.map((c, idx) => (
+                            <div
+                              key={`simple-comp-${idx}`}
+                              className="grid gap-3 md:grid-cols-[1.2fr_0.6fr_1.6fr_auto]"
+                            >
+                              <select
+                                value={c.category_id ?? ""}
+                                onChange={(e) =>
+                                  updateSimpleCompanion(idx, {
+                                    category_id: e.target.value
+                                      ? Number(e.target.value)
+                                      : null,
+                                  })
+                                }
+                                className={`${INPUT} cursor-pointer`}
+                              >
+                                <option value="">Categoría</option>
+                                {passengerCategories
+                                  .filter((p) => p.enabled !== false)
+                                  .map((p) => (
+                                    <option
+                                      key={p.id_category}
+                                      value={p.id_category}
+                                    >
+                                      {p.name}
+                                    </option>
+                                  ))}
+                              </select>
+                              <input
+                                type="number"
+                                min={0}
+                                value={c.age ?? ""}
+                                onChange={(e) =>
+                                  updateSimpleCompanion(idx, {
+                                    age: e.target.value
+                                      ? Number(e.target.value)
+                                      : null,
+                                  })
+                                }
+                                className={INPUT}
+                                placeholder="Edad"
+                              />
+                              <input
+                                type="text"
+                                value={c.notes ?? ""}
+                                onChange={(e) =>
+                                  updateSimpleCompanion(idx, {
+                                    notes: e.target.value,
+                                  })
+                                }
+                                className={INPUT}
+                                placeholder="Notas (opcional)"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeSimpleCompanion(idx)}
+                                className={BTN_ROSE}
+                              >
+                                <IconTrash className="size-4" />
+                                Quitar
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                  </div>
+                )}
+
                 <div className="flex flex-wrap justify-end gap-3">
                   <button
                     type="button"
@@ -2381,7 +3020,11 @@ export default function QuickLoadPage() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <span className={`${PILL_BASE} ${PILL_SKY}`}>
-                        Pax: {clients.length}
+                        Pax:{" "}
+                        {clients.length +
+                          (Array.isArray(booking.simple_companions)
+                            ? booking.simple_companions.length
+                            : 0)}
                       </span>
                       <span className={`${PILL_BASE} ${PILL_SKY}`}>
                         Titular: {titularLabel}
@@ -2545,7 +3188,7 @@ export default function QuickLoadPage() {
                         Paso 3 · Servicios
                       </h2>
                       <p className="text-sm text-sky-900/70 dark:text-white/70">
-                        Opcional: agregá servicios y revisá el desglose.
+                        Opcional: agregá servicios y revisá totales.
                       </p>
                       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-sky-900/70 dark:text-white/60">
                         {canManualOverride && (
@@ -2585,16 +3228,7 @@ export default function QuickLoadPage() {
                         )}
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className={BTN_SKY}
-                        onClick={addService}
-                      >
-                        <IconPlus className="size-4" />
-                        Agregar servicio
-                      </button>
-                    </div>
+                    <div className="flex flex-wrap gap-2" />
                   </div>
 
                   <div className="mt-6 grid gap-4">
@@ -3279,6 +3913,23 @@ export default function QuickLoadPage() {
                           </motion.div>
                         );
                       })}
+                      <button
+                        type="button"
+                        onClick={addService}
+                        className="group flex w-full items-center justify-between rounded-3xl border border-dashed border-sky-200/70 bg-white/40 p-5 text-left text-sky-950 shadow-sm shadow-sky-950/10 transition hover:-translate-y-0.5 hover:bg-white/60 dark:border-white/10 dark:bg-white/5 dark:text-white"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold">
+                            Agregar servicio
+                          </p>
+                          <p className="text-xs text-sky-900/60 dark:text-white/60">
+                            Usá presets por categoría si existen.
+                          </p>
+                        </div>
+                        <span className="inline-flex size-9 items-center justify-center rounded-full border border-sky-200/60 bg-sky-100/70 text-sky-900 transition group-hover:scale-105 dark:border-white/10 dark:bg-white/10 dark:text-white">
+                          <IconPlus className="size-4" />
+                        </span>
+                      </button>
                     </div>
                   )}
                 </div>
@@ -3320,7 +3971,7 @@ export default function QuickLoadPage() {
                         Paso 4 · Resumen financiero
                       </h2>
                       <p className="text-sm text-sky-900/70 dark:text-white/70">
-                        Revisá márgenes, impuestos, costos bancarios y ganancia.
+                        Revisá márgenes, impuestos y costos bancarios.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2 text-xs text-sky-900/70 dark:text-white/60">
@@ -3346,8 +3997,7 @@ export default function QuickLoadPage() {
                     <div>
                       <h3 className="text-lg font-semibold">Revisión final</h3>
                       <p className="text-sm text-sky-900/70 dark:text-white/70">
-                        Revisá lo generado, editá o eliminá lo que necesites y
-                        confirmá.
+                        Editá lo necesario y confirmá.
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -3404,6 +4054,13 @@ export default function QuickLoadPage() {
                             </div>
                           );
                         })}
+                        {Array.isArray(booking.simple_companions) &&
+                          booking.simple_companions.length > 0 && (
+                            <div className="mt-3 text-xs text-sky-900/70 dark:text-white/70">
+                              Acompañantes simples:{" "}
+                              {booking.simple_companions.length}
+                            </div>
+                          )}
                       </div>
                     </div>
 
