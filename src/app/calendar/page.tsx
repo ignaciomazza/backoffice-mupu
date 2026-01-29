@@ -2,7 +2,7 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import FullCalendar from "@fullcalendar/react";
-import { EventInput, EventApi } from "@fullcalendar/core";
+import { EventInput, EventApi, EventContentArg } from "@fullcalendar/core";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin, { DateClickArg } from "@fullcalendar/interaction";
 import esLocale from "@fullcalendar/core/locales/es";
@@ -13,8 +13,10 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { authFetch } from "@/utils/authFetch";
 
 type ClientStatus = "Todas" | "Pendiente" | "Pago" | "Facturado";
-type ViewOption = "dayGridMonth" | "dayGridWeek";
+type ViewOption = "dayGridMonth" | "dayGridWeek" | "dayGridDay";
 type NoteMode = "create" | "view" | "edit";
+type FilterMode = "bookings" | "services";
+type DetailMode = "name" | "detail";
 
 interface User {
   id_user: number;
@@ -32,8 +34,22 @@ interface SalesTeam {
 
 interface CalendarEvent extends EventInput {
   extendedProps?: {
-    content: string;
-    creator: string;
+    kind?: "booking" | "service" | "note";
+    content?: string;
+    creator?: string;
+    bookingPublicId?: number | string;
+    bookingId?: number;
+    details?: string;
+    paxCount?: number;
+    clientStatus?: string;
+    status?: string;
+    servicesCount?: number;
+    returnDate?: string | Date;
+    serviceType?: string;
+    destination?: string;
+    reference?: string;
+    description?: string;
+    note?: string;
   };
 }
 
@@ -66,6 +82,8 @@ export default function CalendarPage() {
     to: "",
   });
   const [currentView, setCurrentView] = useState<ViewOption>("dayGridMonth");
+  const [filterMode, setFilterMode] = useState<FilterMode>("bookings");
+  const [detailMode, setDetailMode] = useState<DetailMode>("name");
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
@@ -84,6 +102,13 @@ export default function CalendarPage() {
     title: "",
     content: "",
   });
+
+  const clientStatusOptions: ClientStatus[] = [
+    "Todas",
+    "Pendiente",
+    "Pago",
+    "Facturado",
+  ];
 
   // Perfil + vendors + teams
   useEffect(() => {
@@ -188,28 +213,27 @@ export default function CalendarPage() {
     }
     if (dateRange.from) qs.append("from", dateRange.from);
     if (dateRange.to) qs.append("to", dateRange.to);
+    if (filterMode === "services") qs.append("mode", "services");
 
     setLoadingEvents(true);
     authFetch(`/api/calendar?${qs.toString()}`, { cache: "no-store" }, token)
       .then((r) => r.json() as Promise<CalendarEvent[]>)
       .then((data) => {
-        const reservas = data
-          .filter((ev) => String(ev.id).startsWith("b-"))
-          .map((ev) => ({
-            ...ev,
-            allDay: true,
-            color: "#e0f2fe",
-            textColor: "#082f49",
-          }));
-        const notas = data
-          .filter((ev) => String(ev.id).startsWith("n-"))
-          .map((ev) => ({
-            ...ev,
-            allDay: true,
-            color: "#f97316",
-            extendedProps: ev.extendedProps,
-          }));
-        setEvents([...reservas, ...notas]);
+        const normalized = data.map((ev) => ({
+          ...ev,
+          allDay: true,
+          extendedProps: {
+            ...ev.extendedProps,
+            kind:
+              ev.extendedProps?.kind ??
+              (String(ev.id).startsWith("n-")
+                ? "note"
+                : String(ev.id).startsWith("s-")
+                  ? "service"
+                  : "booking"),
+          },
+        }));
+        setEvents(normalized);
       })
       .catch(console.error)
       .finally(() => setLoadingEvents(false));
@@ -220,11 +244,25 @@ export default function CalendarPage() {
     selectedClientStatus,
     dateRange,
     allowedVendors,
+    filterMode,
   ]);
 
   const handleViewChange = (view: ViewOption) => {
     calendarRef.current?.getApi().changeView(view);
     setCurrentView(view);
+  };
+
+  const getEventKind = (event: EventApi) => {
+    const kind = (event.extendedProps as CalendarEvent["extendedProps"])?.kind;
+    if (kind) return kind;
+    if (event.id.startsWith("n-")) return "note";
+    if (event.id.startsWith("s-")) return "service";
+    return "booking";
+  };
+
+  const getBookingRouteId = (event: EventApi) => {
+    const props = event.extendedProps as CalendarEvent["extendedProps"];
+    return props?.bookingPublicId ?? props?.bookingId ?? event.id.slice(2);
   };
 
   const handleEventDidMount = ({
@@ -234,21 +272,41 @@ export default function CalendarPage() {
     event: EventApi;
     el: HTMLElement;
   }) => {
-    el.setAttribute(
-      "title",
-      event.id.startsWith("b-") ? event.title : `Nota: ${event.title}`,
-    );
+    const kind = getEventKind(event);
+    const props = event.extendedProps as CalendarEvent["extendedProps"];
+    const tooltip =
+      kind === "note"
+        ? `Nota: ${event.title}`
+        : kind === "service"
+          ? [
+              event.title,
+              props?.serviceType && `Servicio: ${props.serviceType}`,
+              props?.destination && `Destino: ${props.destination}`,
+              props?.description && `Detalle: ${props.description}`,
+              props?.reference && `Ref: ${props.reference}`,
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : [
+              event.title,
+              props?.details && `Detalle: ${props.details}`,
+              props?.paxCount != null && `Pax: ${props.paxCount}`,
+              props?.servicesCount != null &&
+                `Servicios: ${props.servicesCount}`,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+    el.setAttribute("title", tooltip);
     el.style.cursor = "pointer";
   };
 
   const handleEventClick = ({ event }: { event: EventApi }) => {
-    if (event.id.startsWith("b-")) {
-      router.push(`/bookings/services/${event.id.slice(2)}`);
-    } else {
+    const kind = getEventKind(event);
+    if (kind === "note") {
       const id = Number(event.id.slice(2));
       const { content, creator } = event.extendedProps as {
-        content: string;
-        creator: string;
+        content?: string;
+        creator?: string;
       };
       setNoteModal({
         open: true,
@@ -256,10 +314,14 @@ export default function CalendarPage() {
         id,
         date: event.startStr,
         title: event.title,
-        content,
-        creator,
+        content: content ?? "",
+        creator: creator ?? "",
       });
+      return;
     }
+
+    const bookingId = getBookingRouteId(event);
+    router.push(`/bookings/services/${bookingId}`);
   };
 
   const handleDateClick = (arg: DateClickArg) => {
@@ -311,8 +373,8 @@ export default function CalendarPage() {
           title: `${newNote.title}`,
           start: newNote.date,
           allDay: true,
-          color: "#f59e0b",
           extendedProps: {
+            kind: "note",
             content: newNote.content,
             creator: `${profile!.first_name} ${profile!.last_name}`,
           },
@@ -411,6 +473,265 @@ export default function CalendarPage() {
     setNoteModal((m) => ({ ...m, mode: "edit" }));
   };
 
+  const formatShortDate = (value?: string | Date) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Intl.DateTimeFormat("es-AR", {
+      day: "2-digit",
+      month: "short",
+    }).format(date);
+  };
+
+  const getStatusPillClass = (status: ClientStatus, selected: boolean) => {
+    if (selected) {
+      if (status === "Pendiente") {
+        return "bg-amber-100/70 text-amber-950 ring-1 ring-amber-200/80 dark:bg-amber-400/15 dark:text-amber-100 dark:ring-amber-300/30";
+      }
+      if (status === "Pago") {
+        return "bg-emerald-100/70 text-emerald-950 ring-1 ring-emerald-200/80 dark:bg-emerald-400/15 dark:text-emerald-100 dark:ring-emerald-300/30";
+      }
+      if (status === "Facturado") {
+        return "bg-sky-100/70 text-sky-950 ring-1 ring-sky-200/80 dark:bg-sky-400/15 dark:text-sky-100 dark:ring-sky-300/30";
+      }
+      return "bg-white/80 text-sky-950 ring-1 ring-sky-200/80 dark:bg-white/10 dark:text-white dark:ring-white/10";
+    }
+
+    if (status === "Pendiente") {
+      return "bg-amber-50/70 text-amber-900/70 ring-1 ring-amber-100/80 hover:bg-amber-100/60 dark:bg-amber-400/5 dark:text-amber-100/70 dark:ring-amber-300/20 dark:hover:bg-amber-400/10";
+    }
+    if (status === "Pago") {
+      return "bg-emerald-50/70 text-emerald-900/70 ring-1 ring-emerald-100/80 hover:bg-emerald-100/60 dark:bg-emerald-400/5 dark:text-emerald-100/70 dark:ring-emerald-300/20 dark:hover:bg-emerald-400/10";
+    }
+    if (status === "Facturado") {
+      return "bg-sky-50/70 text-sky-900/70 ring-1 ring-sky-100/80 hover:bg-sky-100/60 dark:bg-sky-400/5 dark:text-sky-100/70 dark:ring-sky-300/20 dark:hover:bg-sky-400/10";
+    }
+    return "bg-white/40 text-sky-950/70 ring-1 ring-sky-100/70 hover:bg-white/60 dark:bg-white/5 dark:text-white/60 dark:ring-white/10 dark:hover:bg-white/10";
+  };
+
+  const eventClassNames = ({ event }: { event: EventApi }) => {
+    const kind = getEventKind(event);
+    const base = [
+      "rounded-2xl",
+      "border",
+      "shadow-sm",
+      "backdrop-blur",
+      "px-2",
+      "py-1",
+      "whitespace-normal",
+      "transition",
+      "hover:scale-[1.01]",
+    ];
+
+    if (kind === "note") {
+      return [
+        ...base,
+        "!bg-amber-100/70",
+        "!text-sky-950",
+        "border-amber-200/70",
+        "dark:!bg-amber-400/10",
+        "dark:!text-amber-100",
+        "dark:border-amber-300/20",
+      ];
+    }
+
+    if (kind === "service") {
+      return [
+        ...base,
+        "!bg-emerald-100/70",
+        "!text-sky-950",
+        "border-emerald-200/70",
+        "dark:!bg-emerald-400/10",
+        "dark:!text-emerald-100",
+        "dark:border-emerald-300/20",
+      ];
+    }
+
+    return [
+      ...base,
+      "!bg-sky-100/70",
+      "!text-sky-950",
+      "border-sky-200/80",
+      "dark:!bg-sky-400/10",
+      "dark:!text-sky-100",
+      "dark:border-sky-300/20",
+    ];
+  };
+
+  const renderEventContent = (arg: EventContentArg) => {
+    const kind = getEventKind(arg.event);
+    const props = arg.event.extendedProps as CalendarEvent["extendedProps"];
+    const isDay = arg.view.type === "dayGridDay";
+    const showDetails = isDay || detailMode === "detail";
+    const noteSnippet =
+      props?.content && props.content.length > 80
+        ? `${props.content.slice(0, 80)}…`
+        : props?.content;
+
+    const secondaryLine =
+      kind === "booking"
+        ? props?.details
+        : kind === "service"
+          ? [props?.serviceType, props?.destination, props?.description]
+              .filter(Boolean)
+              .join(" · ")
+          : noteSnippet;
+
+    const badges: { label: string; tone: "sky" | "emerald" | "amber" }[] = [];
+    if (kind === "booking") {
+      if (props?.paxCount != null) {
+        badges.push({ label: `Pax ${props.paxCount}`, tone: "emerald" });
+      }
+      if (props?.servicesCount != null) {
+        badges.push({
+          label: `Servicios ${props.servicesCount}`,
+          tone: "sky",
+        });
+      }
+      const returnLabel = formatShortDate(props?.returnDate);
+      if (returnLabel) {
+        badges.push({ label: `Regreso ${returnLabel}`, tone: "sky" });
+      }
+      if (props?.clientStatus) {
+        badges.push({ label: props.clientStatus, tone: "amber" });
+      }
+    }
+    if (kind === "service") {
+      if (props?.reference) {
+        badges.push({ label: `Ref ${props.reference}`, tone: "sky" });
+      }
+      const returnLabel = formatShortDate(props?.returnDate);
+      if (returnLabel) {
+        badges.push({ label: `Regreso ${returnLabel}`, tone: "sky" });
+      }
+      if (props?.clientStatus) {
+        badges.push({ label: props.clientStatus, tone: "amber" });
+      }
+    }
+    if (kind === "note" && props?.creator) {
+      badges.push({ label: props.creator, tone: "sky" });
+    }
+
+    const icon = isDay ? (
+      kind === "note" ? (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.6}
+          className="size-3"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M16.862 4.487 19.5 7.125m-2.638-2.638L7.5 13.85l-1 4.15 4.15-1 9.212-9.213a2.121 2.121 0 0 0-3-3Z"
+          />
+        </svg>
+      ) : kind === "service" ? (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.6}
+          className="size-3"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="m14.25 6.087 1.5-1.5a2.121 2.121 0 1 1 3 3l-1.5 1.5m-3-3 3 3m-3-3-6.364 6.364a2.121 2.121 0 0 0-.621 1.5V17.5h3.55a2.12 2.12 0 0 0 1.5-.621L18 10.5m-4.5 9.75H19.5"
+          />
+        </svg>
+      ) : (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.6}
+          className="size-3"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M8 6.75h8m-8 3.5h8m-8 3.5h8M6.75 3.75h10.5A1.5 1.5 0 0 1 18.75 5.25v13.5a1.5 1.5 0 0 1-1.5 1.5H6.75a1.5 1.5 0 0 1-1.5-1.5V5.25a1.5 1.5 0 0 1 1.5-1.5Z"
+          />
+        </svg>
+      )
+    ) : detailMode === "name" ? (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.6}
+        className="size-3"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M15.75 7.5a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 19.5a7.5 7.5 0 0 1 15 0v.75H4.5v-.75Z"
+        />
+      </svg>
+    ) : (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.6}
+        className="size-3"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M8.25 6.75h7.5m-7.5 3.75h7.5m-7.5 3.75h4.5M5.25 3.75h10.5A2.25 2.25 0 0 1 18 6v12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18V6a2.25 2.25 0 0 1 2.25-2.25Z"
+        />
+      </svg>
+    );
+
+    return (
+      <div
+        className={`flex flex-col ${isDay ? "gap-1" : "gap-0.5"} text-sky-950 dark:text-sky-100`}
+      >
+        <div className="flex items-center gap-1">
+          <span className="flex size-4 items-center justify-center rounded-full bg-white/70 text-sky-950/80 dark:bg-white/10 dark:text-white/80">
+            {icon}
+          </span>
+          <span
+            className={`font-semibold ${isDay ? "text-sm" : "text-[11px]"}`}
+          >
+            {arg.event.title}
+          </span>
+        </div>
+        {showDetails && secondaryLine ? (
+          <span className={`${isDay ? "text-xs" : "text-[10px]"} opacity-80`}>
+            {secondaryLine}
+          </span>
+        ) : null}
+        {isDay && badges.length ? (
+          <div className="mt-0.5 flex flex-wrap gap-1">
+            {badges.map((badge) => (
+              <span
+                key={`${badge.tone}-${badge.label}`}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  badge.tone === "emerald"
+                    ? "bg-emerald-200/70 text-emerald-900 ring-1 ring-emerald-300/60 dark:bg-emerald-300/20 dark:text-emerald-100 dark:ring-emerald-300/30"
+                    : badge.tone === "amber"
+                      ? "bg-amber-200/70 text-amber-900 ring-1 ring-amber-300/60 dark:bg-amber-300/20 dark:text-amber-100 dark:ring-amber-300/30"
+                      : "bg-sky-200/70 text-sky-900 ring-1 ring-sky-300/60 dark:bg-sky-300/20 dark:text-sky-100 dark:ring-sky-300/30"
+                }`}
+              >
+                {badge.label}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   return (
     <ProtectedRoute>
       <div className="space-y-6 p-6">
@@ -418,22 +739,206 @@ export default function CalendarPage() {
           <h1 className="text-3xl font-semibold">Calendario</h1>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="flex gap-2">
-              {(["dayGridMonth", "dayGridWeek"] as ViewOption[]).map((v) => (
+        <div className="rounded-3xl border border-sky-200/60 bg-white/20 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white">
+          <div className="grid grid-cols-1 items-end gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+                Vista
+              </span>
+              <div className="flex flex-wrap items-center gap-1 rounded-full border border-sky-200/70 bg-sky-100/20 p-1 shadow-inner shadow-sky-950/5 dark:border-white/10 dark:bg-white/5 dark:shadow-none">
+                {(
+                  ["dayGridMonth", "dayGridWeek", "dayGridDay"] as ViewOption[]
+                ).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => handleViewChange(v)}
+                    className={`flex-1 cursor-pointer justify-center rounded-full px-4 py-2 text-xs transition ${
+                      currentView === v
+                        ? "bg-white/80 text-sky-950 shadow-sm shadow-sky-950/10 ring-1 ring-sky-200/80 dark:bg-white/10 dark:text-white dark:ring-white/10"
+                        : "text-sky-950/60 hover:bg-white/40 dark:text-white/60 dark:hover:bg-white/10"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      {v === "dayGridMonth" ? (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={1.5}
+                          className="size-4"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M6.75 3v1.5m10.5-1.5V4.5M3.75 8.25h16.5M4.5 6h15a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5v-12A1.5 1.5 0 0 1 4.5 6Z"
+                          />
+                        </svg>
+                      ) : v === "dayGridWeek" ? (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={1.5}
+                          className="size-4"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M3 8.25h18M3 12h18M3 15.75h18M6.75 4.5h10.5"
+                          />
+                        </svg>
+                      ) : (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={1.5}
+                          className="size-4"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M6 4.5h12M6 9h12M6 13.5h12M6 18h12"
+                          />
+                        </svg>
+                      )}
+                      {v === "dayGridMonth"
+                        ? "Mes"
+                        : v === "dayGridWeek"
+                          ? "Semana"
+                          : "Día"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+                Mostrar
+              </span>
+              <div className="flex flex-wrap items-center gap-1 rounded-full border border-emerald-200/70 bg-emerald-100/20 p-1 shadow-inner shadow-emerald-950/5 dark:border-emerald-300/20 dark:bg-emerald-400/5 dark:shadow-none">
                 <button
-                  key={v}
-                  onClick={() => handleViewChange(v)}
-                  className={`cursor-pointer rounded-full px-4 py-2 ${
-                    currentView === v
-                      ? "rounded-3xl bg-sky-100 p-6 text-sky-950 shadow-sm shadow-sky-950/10 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-                      : "text-sky-950/70 hover:bg-sky-950/5 dark:text-white/70 dark:hover:bg-white/5"
+                  onClick={() => setFilterMode("bookings")}
+                  type="button"
+                  className={`flex-1 cursor-pointer justify-center rounded-full px-4 py-2 text-xs transition ${
+                    filterMode === "bookings"
+                      ? "bg-emerald-100/5 text-emerald-950 shadow-sm shadow-emerald-950/10 ring-1 ring-emerald-200/80 dark:bg-emerald-400/5 dark:text-emerald-100 dark:ring-emerald-300/30"
+                      : "text-sky-950/60 hover:bg-white/40 dark:text-white/60 dark:hover:bg-white/10"
                   }`}
                 >
-                  {v === "dayGridMonth" ? "Mes" : "Semana"}
+                  <span className="flex items-center gap-2">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      className="size-4"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M6.75 3.75h10.5A2.25 2.25 0 0 1 19.5 6v12a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 18V6a2.25 2.25 0 0 1 2.25-2.25ZM9 8.25h6M9 12h6M9 15.75h4.5"
+                      />
+                    </svg>
+                    Reservas
+                  </span>
                 </button>
-              ))}
+                <button
+                  onClick={() => setFilterMode("services")}
+                  type="button"
+                  className={`flex-1 cursor-pointer justify-center rounded-full px-4 py-2 text-xs transition ${
+                    filterMode === "services"
+                      ? "bg-emerald-100/5 text-emerald-950 shadow-sm shadow-emerald-950/10 ring-1 ring-emerald-200/80 dark:bg-emerald-400/5 dark:text-emerald-100 dark:ring-emerald-300/30"
+                      : "text-sky-950/60 hover:bg-white/40 dark:text-white/60 dark:hover:bg-white/10"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      className="size-4"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M21 7.5 14.25 14.25m0 0-3-3m3 3L7.5 21M14.25 14.25l2.25-2.25M7.5 21H3v-4.5l9.75-9.75a2.121 2.121 0 1 1 3 3L7.5 21Z"
+                      />
+                    </svg>
+                    Servicios
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+                Detalle
+              </span>
+              <div className="flex flex-wrap items-center gap-1 rounded-full border border-amber-200/70 bg-amber-100/20 p-1 shadow-inner shadow-amber-950/5 dark:border-amber-300/20 dark:bg-amber-400/5 dark:shadow-none">
+                <button
+                  type="button"
+                  onClick={() => setDetailMode("name")}
+                  className={`flex-1 cursor-pointer justify-center rounded-full px-4 py-2 text-xs transition ${
+                    detailMode === "name"
+                      ? "bg-amber-100/5 text-amber-950 shadow-sm shadow-amber-950/10 ring-1 ring-amber-200/80 dark:bg-amber-400/15 dark:text-amber-100 dark:ring-amber-300/30"
+                      : "text-amber-900/70 hover:bg-amber-100/50 dark:text-amber-100/70 dark:hover:bg-amber-400/10"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      className="size-4"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15.75 7.5a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 19.5a7.5 7.5 0 0 1 15 0v.75H4.5v-.75Z"
+                      />
+                    </svg>
+                    Solo nombre
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDetailMode("detail")}
+                  className={`flex-1 cursor-pointer justify-center rounded-full px-4 py-2 text-xs transition ${
+                    detailMode === "detail"
+                      ? "bg-amber-100/5 text-amber-950 shadow-sm shadow-amber-950/10 ring-1 ring-amber-200/80 dark:bg-amber-400/15 dark:text-amber-100 dark:ring-amber-300/30"
+                      : "text-amber-900/70 hover:bg-amber-100/50 dark:text-amber-100/70 dark:hover:bg-amber-400/10"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      className="size-4"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M8.25 6.75h7.5m-7.5 3.75h7.5m-7.5 3.75h4.5M5.25 3.75h10.5A2.25 2.25 0 0 1 18 6v12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18V6a2.25 2.25 0 0 1 2.25-2.25Z"
+                      />
+                    </svg>
+                    Nombre + detalle
+                  </span>
+                </button>
+              </div>
             </div>
 
             {profile?.role !== "vendedor" && (
@@ -446,7 +951,7 @@ export default function CalendarPage() {
                   value={vendorInput}
                   onChange={(e) => setVendorInput(e.target.value)}
                   placeholder="Buscar vendedor..."
-                  className="mt-1 w-full appearance-none rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="mt-1 w-full appearance-none rounded-2xl border border-sky-200/70 bg-white/20 px-3 py-2 text-sm outline-none transition focus:border-sky-300/80 focus:ring-2 focus:ring-sky-200/40 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:border-white/30 dark:focus:ring-white/10"
                 />
                 <datalist id="vendors-list">
                   {allowedVendors.map((v) => (
@@ -461,24 +966,6 @@ export default function CalendarPage() {
 
             <div>
               <label className="block cursor-text text-sm font-medium dark:text-white">
-                Estado pax
-              </label>
-              <select
-                value={selectedClientStatus}
-                onChange={(e) =>
-                  setSelectedClientStatus(e.target.value as ClientStatus)
-                }
-                className="mt-1 cursor-pointer appearance-none rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"
-              >
-                <option>Todas</option>
-                <option>Pendiente</option>
-                <option>Pago</option>
-                <option>Facturado</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block cursor-text text-sm font-medium dark:text-white">
                 Rango fechas
               </label>
               <div className="mt-1 flex items-center gap-2">
@@ -488,7 +975,7 @@ export default function CalendarPage() {
                   onChange={(e) =>
                     setDateRange((r) => ({ ...r, from: e.target.value }))
                   }
-                  className="cursor-text rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="cursor-text rounded-2xl border border-sky-200/70 bg-white/20 px-3 py-2 text-sm outline-none transition focus:border-sky-300/80 focus:ring-2 focus:ring-sky-200/40 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:border-white/30 dark:focus:ring-white/10"
                 />
                 <span className="text-sky-950 dark:text-white">–</span>
                 <input
@@ -497,8 +984,29 @@ export default function CalendarPage() {
                   onChange={(e) =>
                     setDateRange((r) => ({ ...r, to: e.target.value }))
                   }
-                  className="cursor-text rounded-2xl border border-sky-950/10 bg-white/10 px-3 py-2 outline-none dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="cursor-text rounded-2xl border border-sky-200/70 bg-white/20 px-3 py-2 text-sm outline-none transition focus:border-sky-300/80 focus:ring-2 focus:ring-sky-200/40 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:border-white/30 dark:focus:ring-white/10"
                 />
+              </div>
+            </div>
+
+            <div>
+              <label className="block cursor-text text-sm font-medium dark:text-white">
+                Estado pax
+              </label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {clientStatusOptions.map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => setSelectedClientStatus(status)}
+                    className={`rounded-full px-3 py-1 text-xs transition ${getStatusPillClass(
+                      status,
+                      selectedClientStatus === status,
+                    )}`}
+                  >
+                    {status}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -563,7 +1071,7 @@ export default function CalendarPage() {
                   </button>
                 </div>
               </div>
-              <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
+              <div className="overflow-hidden rounded-3xl border border-sky-200/60 bg-gradient-to-br from-white/60 via-white/10 to-sky-50/30 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:border-white/10 dark:from-white/10 dark:via-white/5 dark:to-sky-900/10 dark:text-white">
                 <FullCalendar
                   ref={calendarRef}
                   plugins={[dayGridPlugin, interactionPlugin]}
@@ -574,6 +1082,33 @@ export default function CalendarPage() {
                   dayHeaderFormat={{ weekday: "long" }}
                   dayHeaderClassNames={() => ["capitalize"]}
                   datesSet={(arg) => {
+                    if (arg.view.type !== "dayGridMonth") {
+                      const yearTitle = new Intl.DateTimeFormat("es-AR", {
+                        year: "numeric",
+                      }).format(arg.view.currentStart);
+                      if (arg.view.type === "dayGridDay") {
+                        const dayTitle = new Intl.DateTimeFormat("es-AR", {
+                          day: "numeric",
+                          month: "long",
+                        }).format(arg.view.currentStart);
+                        setCalendarTitle(
+                          dayTitle.charAt(0).toUpperCase() + dayTitle.slice(1),
+                        );
+                        setCalendarYear(yearTitle);
+                        return;
+                      }
+
+                      const monthTitle = new Intl.DateTimeFormat("es-AR", {
+                        month: "long",
+                      }).format(arg.view.currentStart);
+                      setCalendarTitle(
+                        monthTitle.charAt(0).toUpperCase() +
+                          monthTitle.slice(1),
+                      );
+                      setCalendarYear(yearTitle);
+                      return;
+                    }
+
                     const fullTitle = arg.view.title;
                     const onlyMonth = fullTitle.split(" ")[0];
                     const parts = fullTitle.split(" ");
@@ -586,6 +1121,8 @@ export default function CalendarPage() {
                   showNonCurrentDates={false}
                   buttonText={{ today: "Hoy" }}
                   events={events}
+                  eventClassNames={eventClassNames}
+                  eventContent={renderEventContent}
                   eventDidMount={handleEventDidMount}
                   eventClick={handleEventClick}
                   dateClick={handleDateClick}

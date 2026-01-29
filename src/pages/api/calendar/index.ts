@@ -133,9 +133,11 @@ export default async function handler(
     const { id_agency } = auth;
 
     // --------- parámetros ---------
-    const { userId, userIds, clientStatus, from, to } = req.query;
+    const { userId, userIds, clientStatus, from, to, mode } = req.query;
+    const calendarMode =
+      typeof mode === "string" && mode === "services" ? "services" : "bookings";
 
-    const whereBooking: Prisma.BookingWhereInput = { id_agency };
+    const baseBookingFilter: Prisma.BookingWhereInput = { id_agency };
 
     // userIds CSV (p.ej. "5,12,27")
     if (typeof userIds === "string") {
@@ -143,48 +145,127 @@ export default async function handler(
         .split(",")
         .map((s) => parseInt(s, 10))
         .filter((n) => Number.isFinite(n));
-      if (ids.length) whereBooking.id_user = { in: ids };
+      if (ids.length) baseBookingFilter.id_user = { in: ids };
     } else if (typeof userId === "string") {
       const n = parseInt(userId, 10);
-      if (Number.isFinite(n)) whereBooking.id_user = n;
+      if (Number.isFinite(n)) baseBookingFilter.id_user = n;
     }
 
     // estado de pax (siempre dentro de la agencia)
     if (typeof clientStatus === "string" && clientStatus !== "Todas") {
-      whereBooking.clientStatus = clientStatus;
+      baseBookingFilter.clientStatus = clientStatus;
     }
 
     // rango por fecha de partida — extremos independientes
     const gte = toDateAtStart(typeof from === "string" ? from : undefined);
     const lte = toDateAtEnd(typeof to === "string" ? to : undefined);
-    if (gte || lte) {
-      whereBooking.departure_date = {
-        ...(gte ? { gte } : {}),
-        ...(lte ? { lte } : {}),
-      };
-    }
+    const bookingDateFilter =
+      gte || lte
+        ? {
+            departure_date: {
+              ...(gte ? { gte } : {}),
+              ...(lte ? { lte } : {}),
+            },
+          }
+        : {};
 
     // --------- datos ---------
-    const bookings = await prisma.booking.findMany({
-      where: whereBooking,
-      include: { titular: true },
-    });
-
-    const bookingEvents = bookings.map((b) => {
-      const publicId =
-        b.agency_booking_id != null
-          ? encodePublicId({
-              t: "booking",
-              a: b.id_agency,
-              i: b.agency_booking_id,
+    const bookingEvents =
+      calendarMode === "bookings"
+        ? (
+            await prisma.booking.findMany({
+              where: { ...baseBookingFilter, ...bookingDateFilter },
+              include: {
+                titular: true,
+                _count: { select: { services: true } },
+              },
             })
-          : null;
-      return {
-        id: `b-${publicId ?? b.id_booking}`,
-        title: `${b.titular.first_name} ${b.titular.last_name}: ${b.details}`,
-        start: b.departure_date,
-      };
-    });
+          ).map((b) => {
+            const publicId =
+              b.agency_booking_id != null
+                ? encodePublicId({
+                    t: "booking",
+                    a: b.id_agency,
+                    i: b.agency_booking_id,
+                  })
+                : null;
+            return {
+              id: `b-${publicId ?? b.id_booking}`,
+              title: `${b.titular.first_name} ${b.titular.last_name}`,
+              start: b.departure_date,
+              extendedProps: {
+                kind: "booking",
+                bookingPublicId: publicId ?? b.id_booking,
+                details: b.details,
+                paxCount: b.pax_count,
+                clientStatus: b.clientStatus,
+                status: b.status,
+                servicesCount: b._count.services,
+                returnDate: b.return_date,
+              },
+            };
+          })
+        : [];
+
+    const serviceEvents =
+      calendarMode === "services"
+        ? (
+            await prisma.service.findMany({
+              where: {
+                id_agency,
+                ...(gte || lte
+                  ? {
+                      departure_date: {
+                        ...(gte ? { gte } : {}),
+                        ...(lte ? { lte } : {}),
+                      },
+                    }
+                  : {}),
+                booking: baseBookingFilter,
+              },
+              include: {
+                booking: {
+                  select: {
+                    id_booking: true,
+                    agency_booking_id: true,
+                    clientStatus: true,
+                    status: true,
+                    pax_count: true,
+                    titular: { select: { first_name: true, last_name: true } },
+                  },
+                },
+              },
+            })
+          ).map((s) => {
+            const publicId =
+              s.booking.agency_booking_id != null
+                ? encodePublicId({
+                    t: "booking",
+                    a: id_agency,
+                    i: s.booking.agency_booking_id,
+                  })
+                : null;
+            return {
+              id: `s-${s.id_service}`,
+              title: `${s.booking.titular.first_name} ${s.booking.titular.last_name}`,
+              start: s.departure_date,
+              extendedProps: {
+                kind: "service",
+                bookingPublicId: publicId ?? s.booking.id_booking,
+                bookingId: s.booking.id_booking,
+                serviceType: s.type,
+                destination: s.destination,
+                reference: s.reference,
+                description: s.description,
+                note: s.note,
+                clientStatus: s.booking.clientStatus,
+                status: s.booking.status,
+                paxCount: s.booking.pax_count,
+                returnDate: s.return_date,
+              },
+            };
+          })
+        : [];
 
     // Notas de la misma agencia (se une por el creador)
     const notes = await prisma.calendarNote.findMany({
@@ -197,12 +278,15 @@ export default async function handler(
       title: n.title,
       start: n.date,
       extendedProps: {
+        kind: "note",
         content: n.content,
         creator: `${n.creator.first_name} ${n.creator.last_name}`,
       },
     }));
 
-    return res.status(200).json([...bookingEvents, ...noteEvents]);
+    return res
+      .status(200)
+      .json([...bookingEvents, ...serviceEvents, ...noteEvents]);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Error interno";
     return res.status(500).json({ error: msg });
