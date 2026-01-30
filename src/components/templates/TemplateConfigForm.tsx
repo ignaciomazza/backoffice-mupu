@@ -47,7 +47,7 @@ function Card({
   return (
     <section
       className={cx(
-        "mb-6 h-fit rounded-3xl border border-slate-900/10 bg-white/70 p-4 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-white/10 dark:bg-white/10",
+        "mb-6 h-fit rounded-3xl border border-white/10 bg-white/10 p-4 shadow-md shadow-sky-950/10 backdrop-blur dark:bg-white/5",
         className,
       )}
     >
@@ -164,13 +164,13 @@ function OptionTile({
       role={role}
       aria-pressed={!!active}
       className={cx(
-        `relative rounded-2xl border bg-white/70 p-3 text-left shadow-sm shadow-slate-900/5 transition hover:scale-[0.99] dark:border-white/10 dark:bg-white/10 ${
-          active ? activeClass : "border-slate-900/10"
+        `relative rounded-2xl border bg-white/10 p-3 text-left shadow-sm shadow-sky-950/10 transition hover:scale-[0.99] ${
+          active ? activeClass : "border-white/10"
         }`,
       )}
     >
       {icon && (
-        <div className="mb-2 inline-flex size-8 items-center justify-center rounded-2xl border border-slate-900/10 bg-white/80 text-slate-500 shadow-sm dark:border-white/10 dark:bg-white/10 dark:text-slate-300">
+        <div className="mb-2 inline-flex size-8 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-slate-500 shadow-sm shadow-sky-950/10 dark:text-slate-300">
           {icon}
         </div>
       )}
@@ -317,7 +317,7 @@ export default function TemplateConfigForm({
 
         {coverOptions.length === 0 ? (
           <div className="px-4 pb-4">
-            <div className="rounded-2xl border border-slate-900/10 bg-white/70 p-4 text-sm text-slate-600 shadow-sm shadow-slate-900/10 dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-4 text-sm text-slate-600 shadow-sm shadow-sky-950/10 dark:text-slate-200">
               No hay imágenes configuradas para portada.
             </div>
           </div>
@@ -392,7 +392,7 @@ export default function TemplateConfigForm({
             {Array.from({ length: 4 }).map((_, i) => (
               <div
                 key={i}
-                className="rounded-2xl border border-slate-900/10 bg-white/60 p-3 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-white/10"
+                className="rounded-2xl border border-white/10 bg-white/10 p-3 shadow-sm shadow-sky-950/10"
               >
                 <SkeletonLine className="mb-2 h-4 w-24" />
                 <SkeletonLine />
@@ -401,7 +401,7 @@ export default function TemplateConfigForm({
           </div>
         ) : phoneOptions.length === 0 ? (
           <div className="px-4 pb-4">
-            <div className="rounded-2xl border border-slate-900/10 bg-white/70 p-4 text-sm text-slate-600 shadow-sm shadow-slate-900/10 dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-4 text-sm text-slate-600 shadow-sm shadow-sky-950/10 dark:text-slate-200">
               La agencia no tiene teléfonos cargados.
             </div>
           </div>
@@ -481,7 +481,7 @@ export default function TemplateConfigForm({
 
         {paymentOptions.length === 0 ? (
           <div className="px-4 pb-4">
-            <div className="rounded-2xl border border-slate-900/10 bg-white/70 p-4 text-sm text-slate-600 shadow-sm shadow-slate-900/10 dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-4 text-sm text-slate-600 shadow-sm shadow-sky-950/10 dark:text-slate-200">
               No hay opciones de pago cargadas.
             </div>
           </div>
@@ -528,7 +528,7 @@ export default function TemplateConfigForm({
             </div>
 
             {typeof paymentIdx === "number" && paymentOptions[paymentIdx] && (
-              <div className="rounded-2xl border border-slate-900/10 bg-white/70 p-3 text-sm text-slate-700 shadow-sm shadow-slate-900/10 dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sm text-slate-700 shadow-sm shadow-sky-950/10 dark:text-slate-200">
                 {paymentOptions[paymentIdx]}
               </div>
             )}

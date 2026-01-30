@@ -70,8 +70,8 @@ export default function TemplatesPage() {
       },
       {
         id: "confirmation" as DocType,
-        label: "Confirmacion",
-        description: "Cierre y datos finales",
+        label: "Confirmacion manual",
+        description: "Cierre y datos finales (manual)",
         icon: (
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -240,7 +240,7 @@ export default function TemplatesPage() {
         </div>
 
         {/* Selector DocType */}
-        <div className="mb-6 rounded-3xl border border-slate-900/10 bg-white/70 p-3 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-white/10 dark:bg-white/10">
+        <div className="mb-6 rounded-3xl border border-white/10 bg-white/10 p-3 shadow-md shadow-sky-950/10 backdrop-blur">
           <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
             Tipo de documento
           </div>
@@ -254,16 +254,16 @@ export default function TemplatesPage() {
                   onClick={() => setDocType(opt.id)}
                   className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${
                     active
-                      ? "border-emerald-400/60 bg-emerald-500/10 text-emerald-800 shadow-sm shadow-emerald-900/10"
-                      : "border-slate-900/10 bg-white/60 text-slate-700 hover:border-emerald-300/60 dark:border-white/10 dark:bg-white/10 dark:text-slate-200"
+                      ? "border-sky-400/60 bg-sky-500/10 text-sky-950 shadow-sm shadow-sky-950/10"
+                      : "border-white/10 bg-white/10 text-slate-700 hover:border-sky-300/60 dark:text-slate-200"
                   }`}
                   aria-pressed={active}
                 >
                   <span
                     className={`mt-0.5 inline-flex size-8 items-center justify-center rounded-2xl border ${
                       active
-                        ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-700"
-                        : "border-slate-900/10 bg-white/70 text-slate-500 dark:border-white/10 dark:bg-white/10"
+                        ? "border-sky-400/40 bg-sky-500/15 text-sky-800"
+                        : "border-white/10 bg-white/10 text-slate-500"
                     }`}
                   >
                     {opt.icon}

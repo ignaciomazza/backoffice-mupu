@@ -56,7 +56,7 @@ export default function BookingVoucherTemplatePage() {
         </div>
       ) : !canAccess ? (
         <section className="mx-auto max-w-3xl p-6 text-slate-900 dark:text-white">
-          <h1 className="text-2xl font-semibold">Voucher de reservas</h1>
+          <h1 className="text-2xl font-semibold">Confirmación de reservas</h1>
           <p className="mt-2 text-sm opacity-80">
             No tenés permisos para acceder a esta configuración.
           </p>

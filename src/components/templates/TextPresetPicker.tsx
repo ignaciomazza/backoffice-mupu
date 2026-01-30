@@ -246,7 +246,7 @@ export default function TextPresetPicker({
 
   const Item = ({ p }: { p: TextPreset }) => (
     <div
-      className={`group relative rounded-2xl border border-slate-900/10 bg-white/70 p-3 text-left shadow-sm shadow-slate-900/10 transition-colors hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-white dark:hover:bg-white/20 ${
+      className={`group relative rounded-2xl border border-white/10 bg-white/10 p-3 text-left shadow-sm shadow-sky-950/10 transition-colors hover:bg-white/20 dark:text-white ${
         view === "grid" ? "" : "flex items-center justify-between gap-3"
       }`}
       title={p.title}
@@ -329,11 +329,17 @@ export default function TextPresetPicker({
       {/* header */}
       <div className="flex items-center justify-between">
         <p className="ml-1 text-xs font-semibold uppercase tracking-wide opacity-70">
-          Presets ({docType === "quote" ? "Cotización" : "Confirmación"})
+          Presets (
+          {docType === "quote"
+            ? "Cotización"
+            : docType === "voucher"
+              ? "Confirmación"
+              : "Confirmación manual"}
+          )
         </p>
         <div className="flex items-center gap-2">
           <input
-            className="w-56 rounded-2xl border border-slate-900/10 bg-white/70 p-2 px-3 text-sm shadow-sm shadow-slate-900/10 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+            className="w-56 rounded-2xl border border-white/10 bg-white/10 p-2 px-3 text-sm shadow-sm shadow-sky-950/10 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:text-white"
             placeholder="Buscar…"
             value={q}
             onChange={onSearchChange}
@@ -341,7 +347,7 @@ export default function TextPresetPicker({
           <button
             type="button"
             onClick={toggleView}
-            className="rounded-full border border-slate-900/10 bg-white/70 px-3 py-1 text-xs text-slate-700 shadow-sm shadow-slate-900/10 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-slate-200 dark:hover:bg-white/20"
+            className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-slate-700 shadow-sm shadow-sky-950/10 hover:bg-white/20 dark:text-slate-200"
             title={view === "compact" ? "Ver en grilla" : "Ver compacto"}
           >
             {view === "compact" ? "Grilla" : "Compacto"}
@@ -351,11 +357,11 @@ export default function TextPresetPicker({
 
       {/* list */}
       {loading ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-slate-900/10 bg-white/70 p-3 shadow-sm shadow-slate-900/10 dark:border-white/10 dark:bg-white/10">
+        <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/10 p-3 shadow-sm shadow-sky-950/10">
           <Spinner /> <span className="text-sm opacity-80">Cargando…</span>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-900/10 bg-white/60 p-3 text-sm opacity-80 shadow-sm shadow-slate-900/10 dark:border-white/10 dark:bg-white/10">
+        <div className="rounded-2xl border border-dashed border-white/10 bg-white/10 p-3 text-sm opacity-80 shadow-sm shadow-sky-950/10">
           No hay presets para este tipo de documento.
         </div>
       ) : view === "grid" ? (
@@ -378,7 +384,7 @@ export default function TextPresetPicker({
           <button
             type="button"
             onClick={() => setShowAll((v) => !v)}
-            className="rounded-full border border-slate-900/10 bg-white/70 px-3 py-1 text-xs text-slate-700 shadow-sm shadow-slate-900/10 hover:bg-white/80 dark:border-white/10 dark:bg-white/10 dark:text-slate-200 dark:hover:bg-white/20"
+            className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-slate-700 shadow-sm shadow-sky-950/10 hover:bg-white/20 dark:text-slate-200"
           >
             {showAll ? "Ver menos" : `Ver todos (${filtered.length})`}
           </button>

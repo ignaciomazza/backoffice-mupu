@@ -16,6 +16,8 @@ import { authFetch } from "@/utils/authFetch";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 import { type Config } from "@/components/template-config/types";
+import type { ContentBlock } from "@/types/templates";
+import { setAt } from "@/components/template-config/sections/_helpers";
 
 // ===== Tipos =====
 export type DocType = "quote" | "confirmation" | "voucher";
@@ -110,6 +112,7 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
 
   // abort para GET
   const abortRef = useRef<AbortController | null>(null);
+  const contentDraftRef = useRef<ContentBlock[] | null>(null);
 
   const fallback = useMemo<Config>(
     () => LOCAL_DEFAULTS[docType] ?? {},
@@ -150,6 +153,7 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
         created_at: data.created_at ?? null,
         updated_at: data.updated_at ?? null,
       });
+      contentDraftRef.current = null;
       setCfg(toObj(data.config));
     } catch (e) {
       if ((e as { name?: string }).name === "AbortError") return;
@@ -173,7 +177,12 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
     setCfg(toObj(next));
   };
 
+  const onDraftBlocksChange = useCallback((blocks: ContentBlock[]) => {
+    contentDraftRef.current = blocks;
+  }, []);
+
   const onResetDefaults = () => {
+    contentDraftRef.current = null;
     setCfg(fallback);
   };
 
@@ -183,8 +192,12 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
       setSaving(true);
 
       const contactItemsRaw = (cfg as Record<string, unknown>).contactItems;
+      const cfgWithDraft: Config =
+        contentDraftRef.current != null
+          ? (setAt(cfg, ["content", "blocks"], contentDraftRef.current) as Config)
+          : cfg;
       const sanitized: Config = {
-        ...cfg,
+        ...cfgWithDraft,
         contactItems: Array.isArray(contactItemsRaw)
           ? contactItemsRaw.filter((x): x is string => typeof x === "string")
           : [],
@@ -215,6 +228,7 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
         created_at: record.created_at,
         updated_at: record.updated_at,
       });
+      contentDraftRef.current = null;
       setCfg(toObj(record.config));
       toast.success("Configuración guardada ✅");
     } catch (e) {
@@ -245,6 +259,7 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
 
       setExists(false);
       setMeta({ id_template: null, created_at: null, updated_at: null });
+      contentDraftRef.current = null;
       setCfg(fallback);
       toast.success("Configuración eliminada ✅");
     } catch (e) {
@@ -256,7 +271,7 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
   };
 
   return (
-    <section className="mx-auto max-w-6xl text-slate-900 dark:text-white">
+    <section className="mx-auto max-w-6xl p-6 text-slate-950 dark:text-white">
       <TemplateConfigHeader
         docType={docType}
         exists={exists}
@@ -277,7 +292,7 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
           <Spinner />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+        <div className="space-y-6">
           {/* Editor */}
           <TemplateConfigForm
             cfg={cfg}
@@ -292,11 +307,11 @@ const TemplateConfigContainer: React.FC<Props> = ({ docType }) => {
               docType === "quote"
                 ? "Cotización"
                 : docType === "confirmation"
-                  ? "Confirmación"
-                  : "Voucher"
+                  ? "Confirmación manual"
+                  : "Confirmación"
             }
             editable={!disabled}
-            onChange={onChangeCfg}
+            onDraftBlocksChange={onDraftBlocksChange}
           />
         </div>
       )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -8,7 +8,13 @@ import Spinner from "@/components/Spinner";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import TemplatePdfDownload from "@/components/templates/TemplatePdfDownload";
-import type { OrderedBlock, BlockType, Density } from "@/types/templates";
+import TextPresetPicker from "@/components/templates/TextPresetPicker";
+import type {
+  OrderedBlock,
+  BlockFormValue,
+  BlockType,
+  Density,
+} from "@/types/templates";
 import BlocksCanvas from "@/components/templates/BlocksCanvas";
 import { nanoid } from "nanoid/non-secure";
 import { normalizeConfig, getAt } from "@/lib/templateConfig";
@@ -19,10 +25,14 @@ type ServiceWithOperator = Service & { operator?: Operator | null };
 type BookingPayload = Booking & { services?: ServiceWithOperator[] };
 
 /* eslint-disable @next/next/no-img-element */
-const PAGE_TITLE = "Voucher de servicios";
+const PAGE_TITLE = "Confirmación de servicios";
 
 const cx = (...classes: Array<string | false | null | undefined>) =>
   classes.filter(Boolean).join(" ");
+
+function isObj(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
 
 function useUiTokens(cfg: Record<string, unknown>) {
   const radius = getAt<string>(cfg, ["styles", "ui", "radius"], "2xl");
@@ -101,7 +111,10 @@ function formatDate(dateString?: string | null) {
   return date.toLocaleDateString("es-AR", { timeZone: "UTC" });
 }
 
-function formatMoney(amount: number | null | undefined, currency?: string | null) {
+function formatMoney(
+  amount: number | null | undefined,
+  currency?: string | null,
+) {
   if (amount == null || !Number.isFinite(Number(amount))) return "—";
   const c = (currency || "ARS").toUpperCase();
   try {
@@ -136,8 +149,13 @@ function formatPassenger(p: Client) {
 function buildTotalPriceValue(
   booking: BookingPayload | null,
   services: ServiceWithOperator[],
+  allServicesCount?: number,
 ): string {
-  if (booking?.totalSale != null) {
+  if (
+    booking?.totalSale != null &&
+    typeof allServicesCount === "number" &&
+    services.length === allServicesCount
+  ) {
     return formatMoney(booking.totalSale, "ARS");
   }
 
@@ -156,11 +174,17 @@ function buildTotalPriceValue(
     return formatMoney(total, cur);
   }
   return entries
-    .map(([cur, total]) => `${cur} ${formatMoney(total, cur).replace(cur, "").trim()}`)
+    .map(
+      ([cur, total]) =>
+        `${cur} ${formatMoney(total, cur).replace(cur, "").trim()}`,
+    )
     .join(" + ");
 }
 
-function contentBlockToOrdered(b: ContentBlock, forceEditable = false): OrderedBlock {
+function contentBlockToOrdered(
+  b: ContentBlock,
+  forceEditable = false,
+): OrderedBlock {
   const base = {
     id: b.id,
     origin: forceEditable ? "form" : b.mode === "form" ? "form" : "fixed",
@@ -288,12 +312,11 @@ function makeNewBlock(type: BlockType): OrderedBlock {
 
 function normalizeAgencyForPdf(agency?: Booking["agency"]): TemplateAgency {
   if (!agency) return {};
-  const emails =
-    Array.isArray((agency as { emails?: string[] }).emails)
-      ? ((agency as { emails?: string[] }).emails as string[])
-      : agency.email
-        ? [agency.email]
-        : [];
+  const emails = Array.isArray((agency as { emails?: string[] }).emails)
+    ? ((agency as { emails?: string[] }).emails as string[])
+    : agency.email
+      ? [agency.email]
+      : [];
   const phones = Array.isArray(agency.phones) ? agency.phones : [];
   const socials =
     (agency as { socials?: TemplateAgency["socials"] }).socials ??
@@ -316,6 +339,136 @@ function normalizeAgencyForPdf(agency?: Booking["agency"]): TemplateAgency {
   };
 }
 
+type CoverOption = { url: string; name: string };
+
+function buildCoverOptions(cfg: Record<string, unknown>): CoverOption[] {
+  const options = new Map<string, CoverOption>();
+
+  const savedRaw = getAt<unknown>(cfg, ["coverImage", "saved"], []);
+  if (Array.isArray(savedRaw)) {
+    savedRaw
+      .filter(isObj)
+      .map((o) => ({
+        url: String(o.url || ""),
+        name: String(o.name || o.url || "Portada"),
+      }))
+      .filter((o) => o.url.trim().length > 0)
+      .forEach((o) => {
+        if (!options.has(o.url)) options.set(o.url, o);
+      });
+  }
+
+  const urlsRaw = getAt<unknown>(cfg, ["coverImage", "urls"], []);
+  if (Array.isArray(urlsRaw)) {
+    urlsRaw
+      .filter((u): u is string => typeof u === "string" && u.trim().length > 0)
+      .forEach((url) => {
+        if (!options.has(url)) options.set(url, { url, name: url });
+      });
+  }
+
+  const directUrl = getAt<string>(cfg, ["coverImage", "url"], "");
+  if (directUrl && !options.has(directUrl)) {
+    options.set(directUrl, { url: directUrl, name: directUrl });
+  }
+
+  return Array.from(options.values());
+}
+
+function isValidBlockType(type: string): type is BlockType {
+  return (
+    type === "heading" ||
+    type === "subtitle" ||
+    type === "paragraph" ||
+    type === "list" ||
+    type === "keyValue" ||
+    type === "twoColumns" ||
+    type === "threeColumns"
+  );
+}
+
+function presetValueFor(
+  type: BlockType,
+  raw: Record<string, unknown>,
+): BlockFormValue {
+  const value = isObj(raw.value) ? (raw.value as Record<string, unknown>) : {};
+  switch (type) {
+    case "heading":
+      return {
+        type: "heading",
+        text: String(value.text ?? raw.text ?? raw.label ?? ""),
+        level: (value.level as 1 | 2 | 3) ?? 1,
+      };
+    case "subtitle":
+      return {
+        type: "subtitle",
+        text: String(value.text ?? raw.text ?? raw.label ?? ""),
+      };
+    case "paragraph":
+      return {
+        type: "paragraph",
+        text: String(value.text ?? raw.text ?? ""),
+      };
+    case "list":
+      return {
+        type: "list",
+        items: Array.isArray(value.items)
+          ? value.items.map((x) => String(x ?? ""))
+          : Array.isArray(raw.items)
+            ? raw.items.map((x) => String(x ?? ""))
+            : [],
+      };
+    case "keyValue":
+      return {
+        type: "keyValue",
+        pairs: Array.isArray(value.pairs)
+          ? value.pairs.map((p) => ({
+              key: String((p as { key?: unknown }).key ?? ""),
+              value: String((p as { value?: unknown }).value ?? ""),
+            }))
+          : Array.isArray(raw.pairs)
+            ? raw.pairs.map((p) => ({
+                key: String((p as { key?: unknown }).key ?? ""),
+                value: String((p as { value?: unknown }).value ?? ""),
+              }))
+            : [],
+      };
+    case "twoColumns":
+      return {
+        type: "twoColumns",
+        left: String(value.left ?? raw.left ?? ""),
+        right: String(value.right ?? raw.right ?? ""),
+      };
+    case "threeColumns":
+      return {
+        type: "threeColumns",
+        left: String(value.left ?? raw.left ?? ""),
+        center: String(value.center ?? raw.center ?? ""),
+        right: String(value.right ?? raw.right ?? ""),
+      };
+  }
+}
+
+function presetBlocksToOrdered(input: unknown): OrderedBlock[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((raw) => {
+      if (!isObj(raw)) return null;
+      const type = String(raw.type || "");
+      if (!isValidBlockType(type)) return null;
+      const origin =
+        raw.origin === "fixed" || raw.origin === "form" ? raw.origin : "extra";
+      const value = presetValueFor(type, raw);
+      return {
+        id: nanoid(),
+        origin,
+        type,
+        value,
+      } satisfies OrderedBlock;
+    })
+    .filter(Boolean) as OrderedBlock[];
+}
+
 export default function BookingVoucherPage() {
   const params = useParams();
   const id = params?.id ? String(params.id) : null;
@@ -332,6 +485,24 @@ export default function BookingVoucherPage() {
   const [includeClarification, setIncludeClarification] = useState(true);
   const [includeDni, setIncludeDni] = useState(true);
 
+  const [selectedCoverUrl, setSelectedCoverUrl] = useState("");
+  const [selectedPaymentIndex, setSelectedPaymentIndex] = useState<
+    number | null
+  >(null);
+  const [selectedPhone, setSelectedPhone] = useState("");
+  const [selectedServiceIds, setSelectedServiceIds] = useState<Set<number>>(
+    new Set(),
+  );
+
+  const coverTouchedRef = useRef(false);
+  const paymentTouchedRef = useRef(false);
+  const phoneTouchedRef = useRef(false);
+  const servicesInitRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    servicesInitRef.current = null;
+  }, [id]);
+
   useEffect(() => {
     if (!token || !id) return;
     const controller = new AbortController();
@@ -342,7 +513,11 @@ export default function BookingVoucherPage() {
         setError(null);
 
         const [bookingRes, cfgRes] = await Promise.all([
-          authFetch(`/api/bookings/${id}`, { cache: "no-store", signal: controller.signal }, token),
+          authFetch(
+            `/api/bookings/${id}`,
+            { cache: "no-store", signal: controller.signal },
+            token,
+          ),
           authFetch(
             "/api/template-config/voucher?resolved=1",
             { cache: "no-store", signal: controller.signal },
@@ -351,16 +526,20 @@ export default function BookingVoucherPage() {
         ]);
 
         const bookingJson = (await bookingRes.json()) as BookingPayload;
-        const cfgJson = (await cfgRes.json()) as { config?: Record<string, unknown> };
+        const cfgJson = (await cfgRes.json()) as {
+          config?: Record<string, unknown>;
+        };
 
         if (!bookingRes.ok) {
           throw new Error(
-            (bookingJson as { error?: string })?.error || "Error al obtener la reserva",
+            (bookingJson as { error?: string })?.error ||
+              "Error al obtener la reserva",
           );
         }
         if (!cfgRes.ok) {
           throw new Error(
-            (cfgJson as { error?: string })?.error || "Error al obtener el template",
+            (cfgJson as { error?: string })?.error ||
+              "Error al obtener el template",
           );
         }
 
@@ -380,8 +559,14 @@ export default function BookingVoucherPage() {
   }, [token, id]);
 
   const rCfg = useMemo(() => normalizeConfig(cfgRaw, "voucher"), [cfgRaw]);
-  const selectedCoverUrl =
+  const coverOptions = useMemo(() => buildCoverOptions(cfgRaw), [cfgRaw]);
+  const defaultCoverUrl =
     rCfg.coverImage?.mode === "url" ? rCfg.coverImage?.url || "" : "";
+
+  useEffect(() => {
+    if (coverTouchedRef.current) return;
+    setSelectedCoverUrl(defaultCoverUrl);
+  }, [defaultCoverUrl]);
 
   const uiTokens = useUiTokens(rCfg as Record<string, unknown>);
   const accent = rCfg?.styles?.colors?.accent ?? "#6B7280";
@@ -395,13 +580,58 @@ export default function BookingVoucherPage() {
     bg.toLowerCase() === "#ffffff" || bg.toLowerCase() === "#fff"
       ? "rgba(0,0,0,0.04)"
       : "rgba(255,255,255,0.06)";
+  const panelBgSoft =
+    bg.toLowerCase() === "#ffffff" || bg.toLowerCase() === "#fff"
+      ? "rgba(0,0,0,0.06)"
+      : "rgba(255,255,255,0.06)";
   const headingFont = "Poppins";
   const headingWeight = 600;
 
-  const services = useMemo(
-    () => (Array.isArray(booking?.services) ? booking?.services : []),
+  const services = useMemo<ServiceWithOperator[]>(
+    () =>
+      Array.isArray(booking?.services)
+        ? (booking.services as ServiceWithOperator[])
+        : [],
     [booking],
   );
+
+  useEffect(() => {
+    if (!id || services.length === 0) return;
+    if (servicesInitRef.current === id) return;
+    servicesInitRef.current = id;
+    setSelectedServiceIds(new Set(services.map((s) => s.id_service)));
+  }, [id, services]);
+
+  const selectedServices = useMemo(
+    () => services.filter((s) => selectedServiceIds.has(s.id_service)),
+    [services, selectedServiceIds],
+  );
+
+  const paymentOptions = useMemo(
+    () => (Array.isArray(rCfg.paymentOptions) ? rCfg.paymentOptions : []),
+    [rCfg.paymentOptions],
+  );
+  const defaultPaymentIndex =
+    typeof rCfg.payment?.selectedIndex === "number"
+      ? rCfg.payment.selectedIndex
+      : null;
+
+  useEffect(() => {
+    if (paymentTouchedRef.current) return;
+    if (
+      defaultPaymentIndex == null ||
+      defaultPaymentIndex >= paymentOptions.length
+    ) {
+      setSelectedPaymentIndex(null);
+      return;
+    }
+    setSelectedPaymentIndex(defaultPaymentIndex);
+  }, [defaultPaymentIndex, paymentOptions.length]);
+
+  const paymentSelected =
+    selectedPaymentIndex !== null
+      ? paymentOptions[selectedPaymentIndex] || ""
+      : "";
 
   const coreBlocks = useMemo<ContentBlock[]>(() => {
     if (!booking) return [];
@@ -472,7 +702,9 @@ export default function BookingVoucherPage() {
       type: "paragraph",
       mode: "fixed",
       text: `Cantidad de pasajeros: ${
-        Number.isFinite(Number(booking.pax_count)) ? String(booking.pax_count) : "—"
+        Number.isFinite(Number(booking.pax_count))
+          ? String(booking.pax_count)
+          : "—"
       }`,
     });
 
@@ -507,15 +739,15 @@ export default function BookingVoucherPage() {
       level: 2,
     });
 
-    if (services.length === 0) {
+    if (selectedServices.length === 0) {
       blocks.push({
         id: makeId("srv_empty"),
         type: "paragraph",
         mode: "fixed",
-        text: "Sin servicios cargados.",
+        text: "Sin servicios seleccionados.",
       });
     } else {
-      const descriptions = services
+      const descriptions = selectedServices
         .map((s) => s.description || "")
         .map((s) => s.trim())
         .filter(Boolean);
@@ -542,13 +774,17 @@ export default function BookingVoucherPage() {
       pairs: [
         {
           key: "Precio final",
-          value: buildTotalPriceValue(booking, services),
+          value: buildTotalPriceValue(
+            booking,
+            selectedServices,
+            services.length,
+          ),
         },
       ],
     });
 
     return blocks;
-  }, [booking, services]);
+  }, [booking, selectedServices, services]);
 
   const signatureBlocks = useMemo<ContentBlock[]>(() => {
     if (!includeSignature) return [];
@@ -637,19 +873,64 @@ export default function BookingVoucherPage() {
     });
   }, [previewKey, previewBlocks]);
 
-  const agencyForPdf = useMemo(
+  const baseAgencyForPdf = useMemo(
     () => normalizeAgencyForPdf(booking?.agency),
     [booking],
   );
 
+  const phoneOptions = useMemo(() => {
+    const options: Array<{ value: string; label: string }> = [];
+    const seen = new Set<string>();
+    const add = (value: string, label: string) => {
+      const trimmed = value.trim();
+      if (!trimmed || seen.has(trimmed)) return;
+      seen.add(trimmed);
+      options.push({ value: trimmed, label });
+    };
+
+    if (baseAgencyForPdf.phone) {
+      add(baseAgencyForPdf.phone, "Teléfono agencia");
+    }
+    if (Array.isArray(baseAgencyForPdf.phones)) {
+      baseAgencyForPdf.phones.forEach((p, idx) => {
+        add(p, `Teléfono ${idx + 1}`);
+      });
+    }
+
+    return options;
+  }, [baseAgencyForPdf]);
+
+  useEffect(() => {
+    if (phoneTouchedRef.current) return;
+    const fallback = phoneOptions[0]?.value || "";
+    setSelectedPhone(fallback);
+  }, [phoneOptions]);
+
+  const agencyForPdf = useMemo(() => {
+    const phones = Array.isArray(baseAgencyForPdf.phones)
+      ? [...baseAgencyForPdf.phones]
+      : [];
+    const preferred = selectedPhone || baseAgencyForPdf.phone || "";
+    if (preferred) {
+      const idx = phones.indexOf(preferred);
+      if (idx >= 0) phones.splice(idx, 1);
+      phones.unshift(preferred);
+    }
+    return { ...baseAgencyForPdf, phones };
+  }, [baseAgencyForPdf, selectedPhone]);
+
   const contactLine = useMemo(() => {
     const items = Array.isArray(rCfg.contactItems) ? rCfg.contactItems : [];
     const out: Array<{ label: string; value: string }> = [];
-    const phones = Array.isArray(agencyForPdf.phones) ? agencyForPdf.phones : [];
-    const emails = Array.isArray(agencyForPdf.emails) ? agencyForPdf.emails : [];
+    const phones = Array.isArray(agencyForPdf.phones)
+      ? agencyForPdf.phones
+      : [];
+    const emails = Array.isArray(agencyForPdf.emails)
+      ? agencyForPdf.emails
+      : [];
     const website = agencyForPdf.website || "";
     const address = agencyForPdf.address || "";
-    const phone = phones[0] || agencyForPdf.phone || "";
+    const phone = selectedPhone || phones[0] || agencyForPdf.phone || "";
     const email = emails[0] || "";
 
     if (items.includes("website") && website)
@@ -662,7 +943,23 @@ export default function BookingVoucherPage() {
       out.push({ label: "Mail", value: email });
 
     return out;
-  }, [agencyForPdf, rCfg]);
+  }, [agencyForPdf, rCfg, selectedPhone]);
+
+  const PaymentPreview: React.FC = () =>
+    !paymentSelected ? null : (
+      <div
+        className={cx("mt-4 text-sm", uiTokens.innerRadiusClass, "p-3")}
+        style={{
+          border: `1px solid ${dividerColor}`,
+          backgroundColor: panelBgSoft,
+        }}
+      >
+        <div className="mb-1 font-medium" style={{ color: accent }}>
+          Forma de pago
+        </div>
+        <div className="opacity-90">{paymentSelected}</div>
+      </div>
+    );
 
   const userForPdf = useMemo(
     () =>
@@ -676,22 +973,71 @@ export default function BookingVoucherPage() {
     [booking],
   );
 
+  const saveCurrentAsPreset = async () => {
+    try {
+      if (!token) throw new Error("No hay token de autenticación.");
+      const title = window.prompt("Nombre del preset de contenido:");
+      if (!title || !title.trim()) return;
+
+      const blocksToSave = editableBlocks.filter((b) => b.origin !== "fixed");
+      if (blocksToSave.length === 0) {
+        alert("No hay bloques personalizados para guardar.");
+        return;
+      }
+
+      const envelope = {
+        version: 2,
+        kind: "data" as const,
+        data: { blocks: blocksToSave },
+      };
+
+      const payload = {
+        title: title.trim(),
+        content: "",
+        doc_type: "voucher",
+        data: envelope,
+      };
+
+      const res = await fetch("/api/text-preset", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const msg =
+          (data?.error as string) ||
+          (data?.message as string) ||
+          "No se pudo guardar el preset.";
+        throw new Error(msg);
+      }
+
+      alert("Preset guardado.");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Error guardando preset.");
+    }
+  };
+
   const bookingId = booking?.agency_booking_id ?? booking?.id_booking ?? "";
 
   return (
     <ProtectedRoute>
-      <section className="mx-auto max-w-5xl p-6 text-slate-950 dark:text-white">
+      <section className="mx-auto p-6 text-slate-950 dark:text-white">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">{PAGE_TITLE}</h1>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-300">
-              Generá el voucher con los datos de la reserva y el template
+              Generá la confirmación con los datos de la reserva y el template
               configurado.
             </p>
           </div>
           <Link
             href={`/bookings/services/${id}`}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white px-4 py-2 text-sm shadow-sm shadow-slate-900/5 transition hover:scale-[0.98] dark:border-white/10 dark:bg-white/5"
+            className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-950 shadow-sm shadow-sky-900/5 transition hover:scale-[0.98] dark:bg-sky-500/20 dark:text-sky-100"
           >
             Volver a la reserva
           </Link>
@@ -706,7 +1052,7 @@ export default function BookingVoucherPage() {
             {error}
           </div>
         ) : !booking ? (
-          <div className="rounded-3xl border border-slate-200/70 bg-white p-6 text-slate-700 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-white/5 dark:text-slate-200">
+          <div className="rounded-3xl border border-slate-200/70 bg-white p-6 text-slate-700 shadow-sm shadow-sky-900/5 dark:border-white/10 dark:bg-white/5 dark:text-slate-200">
             No se encontró la reserva.
           </div>
         ) : (
@@ -718,7 +1064,7 @@ export default function BookingVoucherPage() {
                     Reserva
                   </p>
                   <p className="text-lg font-semibold">
-                    Nro {bookingId}
+                    {booking.details} - Nº {bookingId}
                   </p>
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-300">
                     Salida: {formatDate(booking.departure_date)} · Regreso:{" "}
@@ -730,10 +1076,11 @@ export default function BookingVoucherPage() {
                   agency={agencyForPdf}
                   user={userForPdf}
                   blocks={editableBlocks}
-                  docLabel="Voucher"
+                  docLabel="Confirmación"
                   selectedCoverUrl={selectedCoverUrl}
-                  fileName={`voucher-${bookingId || "reserva"}.pdf`}
-                  className="inline-flex items-center justify-center rounded-full border border-emerald-500/30 bg-emerald-500/15 px-5 py-2 text-sm font-medium text-emerald-900 shadow-sm shadow-emerald-900/10 transition hover:scale-[0.98] dark:text-emerald-200"
+                  paymentSelected={paymentSelected}
+                  fileName={`confirmacion-${bookingId || "reserva"}.pdf`}
+                  className="dark:bg-emeral-500/50 inline-flex items-center justify-center rounded-full border border-emerald-100 bg-emerald-50/90 px-5 py-2 text-sm font-medium text-emerald-900 shadow-sm shadow-emerald-900/10 transition hover:scale-[0.98] dark:border-emerald-100/70 dark:bg-emerald-500/20 dark:text-emerald-100"
                 >
                   Descargar PDF
                 </TemplatePdfDownload>
@@ -741,11 +1088,253 @@ export default function BookingVoucherPage() {
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
+              <div className="mb-4">
+                <h2 className="text-base font-semibold">Personalización</h2>
+                <p className="text-sm text-slate-500 dark:text-slate-300">
+                  Elegí portada, teléfono visible y forma de pago para esta
+                  confirmación.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-white/10 bg-white/20 p-4">
+                  <h3 className="text-sm font-semibold">Portada</h3>
+                  {coverOptions.length === 0 ? (
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">
+                      No hay portadas configuradas en el template.
+                    </p>
+                  ) : (
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          coverTouchedRef.current = true;
+                          setSelectedCoverUrl("");
+                        }}
+                        className={cx(
+                          "rounded-xl border px-2 py-2 text-xs",
+                          !selectedCoverUrl
+                            ? "border-sky-400/60 bg-sky-500/10 text-sky-900 dark:text-sky-200"
+                            : "border-white/10 bg-white/10 text-slate-600 dark:text-slate-300",
+                        )}
+                      >
+                        Usar logo
+                      </button>
+                      {coverOptions.map((opt) => {
+                        const active = selectedCoverUrl === opt.url;
+                        return (
+                          <button
+                            key={opt.url}
+                            type="button"
+                            onClick={() => {
+                              coverTouchedRef.current = true;
+                              setSelectedCoverUrl(opt.url);
+                            }}
+                            className={cx(
+                              "relative overflow-hidden rounded-xl border",
+                              active
+                                ? "border-sky-400/60 ring-1 ring-sky-300/60"
+                                : "border-white/10",
+                            )}
+                            title={opt.name}
+                          >
+                            <img
+                              src={opt.url}
+                              alt={opt.name}
+                              className="h-28 w-full object-cover"
+                            />
+                            <span className="absolute inset-x-4 bottom-2 truncate rounded border border-sky-600/10 bg-sky-600/10 px-1 py-0.5 text-[10px] tracking-wide text-sky-100 backdrop-blur-sm">
+                              {opt.name}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/20 p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">Teléfono visible</h3>
+                  </div>
+                  {phoneOptions.length === 0 ? (
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">
+                      La agencia no tiene teléfonos cargados.
+                    </p>
+                  ) : (
+                    <div className="mt-3 grid grid-cols-3 gap-2 space-y-2">
+                      {phoneOptions.map((opt) => {
+                        const active = selectedPhone === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => {
+                              phoneTouchedRef.current = true;
+                              setSelectedPhone(opt.value);
+                            }}
+                            className={cx(
+                              "w-full rounded-xl border px-3 py-2 text-left text-xs",
+                              active
+                                ? "border-sky-400/60 bg-sky-500/10 text-sky-900 dark:text-sky-200"
+                                : "border-white/10 bg-white/10 text-slate-600 dark:text-slate-300",
+                            )}
+                          >
+                            <div className="font-medium">{opt.value}</div>
+                            <div className="opacity-70">{opt.label}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/20 p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">Forma de pago</h3>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        paymentTouchedRef.current = true;
+                        setSelectedPaymentIndex(null);
+                      }}
+                      className="text-[11px] opacity-70 hover:opacity-100"
+                    >
+                      Limpiar
+                    </button>
+                  </div>
+                  {paymentOptions.length === 0 ? (
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">
+                      No hay opciones de pago cargadas.
+                    </p>
+                  ) : (
+                    <div className="mt-3 grid grid-cols-3 gap-2 space-y-2">
+                      {paymentOptions.map((opt, idx) => {
+                        const active = selectedPaymentIndex === idx;
+                        return (
+                          <button
+                            key={`${opt}-${idx}`}
+                            type="button"
+                            onClick={() => {
+                              paymentTouchedRef.current = true;
+                              setSelectedPaymentIndex(idx);
+                            }}
+                            className={cx(
+                              "w-full rounded-xl border px-3 py-2 text-left text-xs",
+                              active
+                                ? "border-sky-400/60 bg-sky-500/10 text-sky-900 dark:text-sky-200"
+                                : "border-white/10 bg-white/10 text-slate-600 dark:text-slate-300",
+                            )}
+                          >
+                            {opt.length > 140 ? `${opt.slice(0, 137)}…` : opt}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold">
+                    Servicios incluidos
+                  </h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-300">
+                    Elegí qué servicios se muestran en la confirmación.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedServiceIds(
+                        new Set(services.map((s) => s.id_service)),
+                      )
+                    }
+                    className="rounded-full border border-sky-500/30 bg-sky-500/5 px-3 py-1 text-sky-900 dark:text-sky-200"
+                  >
+                    Seleccionar todo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedServiceIds(new Set())}
+                    className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-slate-600 dark:text-slate-300"
+                  >
+                    Limpiar
+                  </button>
+                </div>
+              </div>
+
+              {services.length === 0 ? (
+                <p className="text-sm text-slate-500 dark:text-slate-300">
+                  No hay servicios cargados en esta reserva.
+                </p>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {services.map((service) => {
+                    const active = selectedServiceIds.has(service.id_service);
+                    const label =
+                      service.description ||
+                      service.type ||
+                      `Servicio ${service.id_service}`;
+                    return (
+                      <label
+                        key={service.id_service}
+                        className={cx(
+                          "flex cursor-pointer items-start gap-3 rounded-2xl border p-3 text-xs",
+                          active
+                            ? "border border-sky-500/30 bg-sky-500/5 text-sky-900 dark:text-sky-200"
+                            : "border-white/10 bg-white/10 text-slate-600 dark:text-slate-300",
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={active}
+                          onChange={() => {
+                            setSelectedServiceIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(service.id_service)) {
+                                next.delete(service.id_service);
+                              } else {
+                                next.add(service.id_service);
+                              }
+                              return next;
+                            });
+                          }}
+                          className="mt-1 size-4"
+                        />
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{label}</div>
+                          {service.operator?.name && (
+                            <div className="mt-1 opacity-70">
+                              Operador: {service.operator.name}
+                            </div>
+                          )}
+                          {service.sale_price != null && (
+                            <div className="mt-1 opacity-70">
+                              {formatMoney(
+                                service.sale_price,
+                                service.currency,
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-base font-semibold">Firmas</h2>
                   <p className="text-sm text-slate-500 dark:text-slate-300">
-                    Activá o desactivá la sección de firmas en el voucher.
+                    Activá o desactivá la sección de firmas en la confirmación.
                   </p>
                 </div>
                 <label className="inline-flex items-center gap-2 text-sm">
@@ -774,7 +1363,9 @@ export default function BookingVoucherPage() {
                     <input
                       type="checkbox"
                       checked={includeAgencySignature}
-                      onChange={(e) => setIncludeAgencySignature(e.target.checked)}
+                      onChange={(e) =>
+                        setIncludeAgencySignature(e.target.checked)
+                      }
                       className="size-4"
                     />
                     Firma Agencia
@@ -783,7 +1374,9 @@ export default function BookingVoucherPage() {
                     <input
                       type="checkbox"
                       checked={includeClarification}
-                      onChange={(e) => setIncludeClarification(e.target.checked)}
+                      onChange={(e) =>
+                        setIncludeClarification(e.target.checked)
+                      }
                       className="size-4"
                     />
                     Aclaración
@@ -804,12 +1397,22 @@ export default function BookingVoucherPage() {
             <div className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-semibold">Vista previa editable</h2>
+                  <h2 className="text-base font-semibold">
+                    Vista previa editable
+                  </h2>
                   <p className="text-sm text-slate-500 dark:text-slate-300">
                     Editá, reordená y agregá bloques antes de descargar.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={saveCurrentAsPreset}
+                    className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-900 shadow-sm shadow-emerald-900/10 transition hover:scale-[0.98] dark:text-emerald-200"
+                    title="Guardar preset con los bloques personalizados"
+                  >
+                    Guardar preset
+                  </button>
                   {(
                     [
                       { type: "heading", label: "Título" },
@@ -838,6 +1441,28 @@ export default function BookingVoucherPage() {
                 </div>
               </div>
 
+              <TextPresetPicker
+                token={token ?? null}
+                docType="voucher"
+                onApply={(content) => {
+                  if (!content?.trim()) return;
+                  setEditableBlocks((prev) => [
+                    ...prev,
+                    {
+                      id: nanoid(),
+                      origin: "extra",
+                      type: "paragraph",
+                      value: { type: "paragraph", text: content },
+                    },
+                  ]);
+                }}
+                onApplyData={(maybeBlocks) => {
+                  const nextBlocks = presetBlocksToOrdered(maybeBlocks);
+                  if (nextBlocks.length === 0) return;
+                  setEditableBlocks((prev) => [...prev, ...nextBlocks]);
+                }}
+              />
+
               <div
                 className={cx(
                   "rounded-3xl border border-white/10 bg-white/40 shadow-inner shadow-sky-950/5 dark:border-white/10 dark:bg-white/5",
@@ -846,7 +1471,9 @@ export default function BookingVoucherPage() {
                 style={{ backgroundColor: bg, color: text }}
               >
                 <div className={cx(uiTokens.padX, "pb-6")}>
-                  <div className={cx("mx-auto", uiTokens.contentMaxW, "w-full")}>
+                  <div
+                    className={cx("mx-auto", uiTokens.contentMaxW, "w-full")}
+                  >
                     <div className="mb-4 flex items-start justify-between gap-4">
                       <div>
                         <h3
@@ -867,7 +1494,7 @@ export default function BookingVoucherPage() {
                           color: accent,
                         }}
                       >
-                        Voucher
+                        Confirmación
                       </span>
                     </div>
 
@@ -877,15 +1504,26 @@ export default function BookingVoucherPage() {
                           "mb-4 flex flex-wrap gap-2 border p-2 text-xs",
                           uiTokens.innerRadiusClass,
                         )}
-                        style={{ borderColor: dividerColor, backgroundColor: panelBgStrong }}
+                        style={{
+                          borderColor: dividerColor,
+                          backgroundColor: panelBgStrong,
+                        }}
                       >
                         {contactLine.map((item) => (
                           <span
                             key={`${item.label}-${item.value}`}
-                            className={cx("rounded-full px-2 py-1", uiTokens.innerRadiusClass)}
-                            style={{ backgroundColor: dividerColor, color: text }}
+                            className={cx(
+                              "rounded-full px-2 py-1",
+                              uiTokens.innerRadiusClass,
+                            )}
+                            style={{
+                              backgroundColor: dividerColor,
+                              color: text,
+                            }}
                           >
-                            <strong style={{ color: accent }}>{item.label}:</strong>{" "}
+                            <strong style={{ color: accent }}>
+                              {item.label}:
+                            </strong>{" "}
                             {item.value}
                           </span>
                         ))}
@@ -895,8 +1533,11 @@ export default function BookingVoucherPage() {
                     {selectedCoverUrl ? (
                       <img
                         src={selectedCoverUrl}
-                        alt="Portada voucher"
-                        className={cx("w-full object-cover", uiTokens.innerRadiusClass)}
+                        alt="Portada confirmación"
+                        className={cx(
+                          "w-full object-cover",
+                          uiTokens.innerRadiusClass,
+                        )}
                         style={{
                           height:
                             uiTokens.density === "compact"
@@ -919,21 +1560,26 @@ export default function BookingVoucherPage() {
                           onChange={setEditableBlocks}
                           lockedIds={lockedIds}
                           showMeta
-                          getMode={(b) => (b.origin === "fixed" ? "fixed" : "form")}
+                          getMode={(b) =>
+                            b.origin === "fixed" ? "fixed" : "form"
+                          }
                           onToggleMode={(id, nextMode) => {
                             setEditableBlocks((prev) =>
                               prev.map((b) =>
                                 b.id === id
                                   ? {
                                       ...b,
-                                      origin: nextMode === "fixed" ? "fixed" : "form",
+                                      origin:
+                                        nextMode === "fixed" ? "fixed" : "form",
                                     }
                                   : b,
                               ),
                             );
                           }}
                           options={{
-                            dividerColor: uiTokens.dividers ? dividerColor : "transparent",
+                            dividerColor: uiTokens.dividers
+                              ? dividerColor
+                              : "transparent",
                             panelBgStrong,
                             innerRadiusClass: uiTokens.innerRadiusClass,
                             gapGridClass: uiTokens.gapGrid,
@@ -945,6 +1591,8 @@ export default function BookingVoucherPage() {
                         />
                       )}
                     </div>
+
+                    <PaymentPreview />
                   </div>
                 </div>
               </div>

@@ -132,7 +132,7 @@ const CoverSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
               type="button"
               onClick={addToLibrary}
               disabled={disabled || !tempName || !tempUrl}
-              className="rounded-xl bg-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm dark:bg-white/10 dark:text-white"
+              className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-slate-900 shadow-sm shadow-sky-950/10 dark:text-white"
               title="Guardar en biblioteca"
             >
               Guardar
@@ -161,7 +161,7 @@ const CoverSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
 
           {/* Vista previa */}
           {coverUrl ? (
-            <div className="overflow-hidden rounded-xl border border-slate-900/10 dark:border-white/10">
+            <div className="overflow-hidden rounded-xl border border-white/10 bg-white/10 shadow-sm shadow-sky-950/10">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={coverUrl}
@@ -179,7 +179,7 @@ const CoverSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
                 {saved.map((s) => (
                   <div
                     key={s.url}
-                    className="overflow-hidden rounded-xl border border-slate-900/10 p-2 dark:border-white/10"
+                    className="overflow-hidden rounded-xl border border-white/10 bg-white/10 p-2 shadow-sm shadow-sky-950/10"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img

@@ -446,7 +446,7 @@ const TemplatePdfDownload: React.FC<TemplatePdfDownloadProps> = (props) => {
       agency,
       user,
       docLabel,
-      selectedCoverUrl: selectedCoverUrl || selectedCoverUrlFromCfg,
+      selectedCoverUrl: selectedCoverUrl ?? selectedCoverUrlFromCfg,
       paymentSelected: paymentSelected ?? paymentSelectedFromCfg,
     }),
     [
@@ -489,7 +489,7 @@ const TemplatePdfDownload: React.FC<TemplatePdfDownloadProps> = (props) => {
           rUser={user}
           blocks={sanitized}
           docLabel={docLabel}
-          selectedCoverUrl={selectedCoverUrl || selectedCoverUrlFromCfg}
+          selectedCoverUrl={selectedCoverUrl ?? selectedCoverUrlFromCfg}
           paymentSelected={paymentSelected ?? paymentSelectedFromCfg}
         />
       );

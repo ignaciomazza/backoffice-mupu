@@ -46,10 +46,10 @@ export function normalizeKey(label: string, fallback: string) {
 }
 
 export const input =
-  "w-full appearance-none rounded-2xl border border-slate-200/80 bg-white/80 p-2 px-3 text-sm outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide focus-visible:border-amber-300 focus-visible:ring-2 focus-visible:ring-amber-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white";
+  "w-full appearance-none rounded-2xl border border-white/10 bg-white/10 p-2 px-3 text-sm outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide focus-visible:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-200/60 dark:text-white";
 
 export const section =
-  "mb-5 h-fit rounded-3xl border border-slate-200/70 bg-white p-5 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-white/5";
+  "mb-5 h-fit rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur dark:bg-white/5";
 
 export const badge =
   "rounded-full bg-slate-900/5 px-2 py-0.5 text-[11px] uppercase tracking-wide text-slate-700 dark:bg-white/10 dark:text-slate-200";

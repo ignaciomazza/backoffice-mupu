@@ -1153,9 +1153,9 @@ export default function BookingsConfigPage() {
               <Link
                 href="/bookings/config/voucher-template"
                 className={TAB_BTN}
-                aria-label="Configurar voucher"
+                aria-label="Configurar confirmación de reservas"
               >
-                Voucher
+                Confirmación
               </Link>
             )}
           </div>

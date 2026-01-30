@@ -134,7 +134,7 @@ const PaymentSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
           <button
             onClick={() => selectForPreview(null)}
             disabled={disabled || selectedIndex === null}
-            className="rounded-full bg-slate-200 px-3 py-1 text-xs text-slate-900 shadow-sm disabled:opacity-50 dark:bg-white/10 dark:text-white"
+            className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-slate-900 shadow-sm shadow-sky-950/10 disabled:opacity-50 dark:text-white"
             title="Quitar selección de vista previa"
           >
             Quitar selección
@@ -142,7 +142,7 @@ const PaymentSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
           <button
             onClick={addPayment}
             disabled={disabled}
-            className="rounded-full bg-slate-200 px-4 py-1 text-sm text-slate-900 shadow-sm dark:bg-white/10 dark:text-white"
+            className="rounded-full border border-white/10 bg-white/10 px-4 py-1 text-sm text-slate-900 shadow-sm shadow-sky-950/10 dark:text-white"
           >
             + Agregar opción
           </button>
@@ -158,10 +158,10 @@ const PaymentSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
             return (
               <div
                 key={idx}
-                className={`relative rounded-xl border p-3 dark:border-white/10 dark:bg-white/5 ${
+                className={`relative rounded-xl border border-white/10 bg-white/10 p-3 shadow-sm shadow-sky-950/10 ${
                   active
                     ? "border-emerald-400/60 ring-2 ring-emerald-300"
-                    : "border-slate-900/10 bg-white/40"
+                    : ""
                 }`}
               >
                 {active && (
@@ -225,7 +225,7 @@ const PaymentSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
 
       {/* ===== Estilo de color para Mupu ===== */}
       {isMupuAgency && (
-        <details className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+        <details className="mt-4 rounded-xl border border-emerald-500/20 bg-white/10 p-3 shadow-sm shadow-sky-950/10">
           <summary className="cursor-pointer select-none text-sm font-medium text-emerald-800 dark:text-emerald-300">
             Mupu — Color de texto de la opción seleccionada
           </summary>
@@ -237,7 +237,7 @@ const PaymentSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
               <div className="mt-1 flex items-center gap-2">
                 <input
                   type="color"
-                  className="h-8 w-10 cursor-pointer rounded border border-slate-900/10 bg-white/70 dark:border-white/10 dark:bg-white/10"
+                  className="h-8 w-10 cursor-pointer rounded border border-white/10 bg-white/10"
                   value={mupuStyle.color ?? "#1F2937"}
                   onChange={(e) => setMupuStyle({ color: e.target.value })}
                   disabled={disabled}
@@ -259,19 +259,19 @@ const PaymentSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
           </div>
 
           <div className="mt-3">
-            <button
-              type="button"
-              onClick={() =>
-                setMupuStyle({
-                  color: undefined,
-                })
-              }
-              disabled={disabled}
-              className="rounded-full bg-slate-200 px-3 py-1 text-xs text-slate-900 shadow-sm transition hover:scale-[0.98] dark:bg-white/10 dark:text-white"
-              title="Volver a heredar"
-            >
-              Restablecer estilo
-            </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setMupuStyle({
+                    color: undefined,
+                  })
+                }
+                disabled={disabled}
+                className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-slate-900 shadow-sm shadow-sky-950/10 transition hover:scale-[0.98] dark:text-white"
+                title="Volver a heredar"
+              >
+                Restablecer estilo
+              </button>
           </div>
         </details>
       )}

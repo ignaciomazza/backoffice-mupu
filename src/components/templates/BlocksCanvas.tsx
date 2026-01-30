@@ -207,8 +207,8 @@ const EditableText = forwardRef<HTMLDivElement, EditableProps>(
     useEffect(() => {
       const el = localRef.current;
       if (!el) return;
-      const domText = sanitizeText(el.innerText || "");
-      if (domText !== value) el.innerText = value || "";
+      const domText = sanitizeText(el.textContent || "");
+      if (domText !== value) el.textContent = value || "";
     }, [value]);
 
     const setRefs = (el: HTMLDivElement | null): void => {
@@ -222,7 +222,7 @@ const EditableText = forwardRef<HTMLDivElement, EditableProps>(
 
     const handleInput: React.FormEventHandler<HTMLDivElement> = (e) => {
       if (readOnly) return;
-      let raw = (e.currentTarget.innerText ?? "").toString();
+      let raw = (e.currentTarget.textContent ?? "").toString();
       if (!multiline) raw = raw.replace(/\n+/g, " "); // fuerza single-line
       onChange(sanitizeText(raw));
     };
@@ -257,7 +257,7 @@ const EditableText = forwardRef<HTMLDivElement, EditableProps>(
       }
 
       if (e.key === "Backspace" && onBackspaceEmpty) {
-        if ((el.innerText || "").trim().length === 0) {
+        if ((el.textContent || "").trim().length === 0) {
           e.preventDefault();
           onBackspaceEmpty();
           return;
@@ -274,7 +274,7 @@ const EditableText = forwardRef<HTMLDivElement, EditableProps>(
         }
       }
       if (e.key === "ArrowDown" && onArrowDownAtEnd) {
-        const len = (el.innerText || "").length;
+        const len = (el.textContent || "").length;
         const sel = window.getSelection?.();
         const end =
           !!sel && sel.rangeCount > 0 && sel.getRangeAt(0).endOffset === len;
@@ -544,7 +544,7 @@ const BlockItem: React.FC<BlockItemProps> = ({
 
               <div className="ml-auto flex flex-wrap items-center gap-2">
                 {showToggle && onToggleMode && (
-                  <div className="inline-flex items-center rounded-full border border-slate-200/70 bg-white/70 p-0.5 text-[11px] text-slate-600 shadow-sm dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
+                  <div className="inline-flex items-center rounded-full border border-white/10 bg-white/10 p-0.5 text-[11px] text-slate-600 shadow-sm shadow-sky-950/10 dark:text-slate-200">
                     <button
                       type="button"
                       onClick={() => onToggleMode(block.id, "fixed")}

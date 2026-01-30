@@ -535,8 +535,8 @@ const TemplateEditor: React.FC<Props> = ({
     (docType === "quote"
       ? "Cotización"
       : docType === "confirmation"
-        ? "Confirmación"
-        : "Voucher");
+        ? "Confirmación manual"
+        : "Confirmación");
 
   const layout = rCfg.layout ?? "layoutA";
 
@@ -901,7 +901,7 @@ const TemplateEditor: React.FC<Props> = ({
   return (
     <section className={cx("space-y-6", className)}>
       {/* Toolbar superior */}
-      <div className="mb-2 rounded-3xl border border-slate-900/10 bg-white/70 p-4 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-white/10 dark:bg-white/10">
+      <div className="mb-2 rounded-3xl border border-white/10 bg-white/10 p-4 shadow-md shadow-sky-950/10 backdrop-blur dark:bg-white/5">
         <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-2">
             <span className="inline-flex size-8 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 shadow-sm shadow-emerald-900/10 dark:border-emerald-400/20 dark:text-emerald-300">
@@ -927,7 +927,7 @@ const TemplateEditor: React.FC<Props> = ({
 
           <div className="flex flex-wrap items-center gap-3">
             {/* Toggle: desbloquear fijos */}
-            <label className="flex cursor-pointer select-none items-center gap-2 rounded-full border border-slate-900/10 bg-white/70 px-3 py-1 text-sm shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-white/10">
+            <label className="flex cursor-pointer select-none items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-sm shadow-sm shadow-sky-950/5">
               <input
                 type="checkbox"
                 className="size-4 accent-emerald-600"
@@ -1284,7 +1284,7 @@ const TemplateEditor: React.FC<Props> = ({
               ? `cotizacion-${new Date().toISOString().slice(0, 10)}.pdf`
               : docType === "confirmation"
                 ? `confirmacion-${new Date().toISOString().slice(0, 10)}.pdf`
-                : `voucher-${new Date().toISOString().slice(0, 10)}.pdf`)
+                : `confirmacion-${new Date().toISOString().slice(0, 10)}.pdf`)
           }
         />
       </div>

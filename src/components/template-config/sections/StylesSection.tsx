@@ -9,7 +9,7 @@ import { authFetch } from "@/utils/authFetch";
 
 /** ===== Mini helpers de UI ===== */
 const radio =
-  "inline-flex items-center gap-2 rounded-xl border border-slate-900/10 bg-white/60 px-3 py-2 text-sm transition hover:scale-[0.99] dark:border-white/10 dark:bg-white/10";
+  "inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm shadow-sm shadow-sky-950/10 transition hover:scale-[0.99]";
 const radioActive = "ring-2 ring-emerald-400 border-emerald-400/60";
 
 /** Check visual para cards activas */
@@ -92,7 +92,7 @@ const StylesSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
   }) => {
     const border = active
       ? `border-amber-400/60 ring-2 ring-amber-300`
-      : `border-slate-900/10 dark:border-white/10`;
+      : `border-white/10`;
 
     const coverBlock = (
       <div
@@ -189,7 +189,7 @@ const StylesSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
         className={`relative rounded-xl border p-3 text-left transition hover:scale-[0.99] ${
           active
             ? "border-emerald-400 ring-2 ring-emerald-300"
-            : "border-slate-900/10 dark:border-white/10"
+            : "border-white/10"
         }`}
       >
         {active && <SelectedMark />}
@@ -318,7 +318,7 @@ const StylesSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
               Elegir color
               <input
                 type="color"
-                className="mt-1 h-10 w-12 cursor-pointer rounded border border-slate-900/10 bg-white/70 dark:border-white/10 dark:bg-white/10"
+                className="mt-1 h-10 w-12 cursor-pointer rounded border border-white/10 bg-white/10"
                 value={colors.accent}
                 onChange={(e) => setAccent(e.target.value)}
                 disabled={disabled}
@@ -330,7 +330,7 @@ const StylesSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
             <label className="text-sm">
               Valor (hex / rgb / etc.)
               <input
-                className="mt-1 w-full rounded-lg border border-slate-900/10 bg-white/60 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/10"
+                className="mt-1 w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm"
                 value={colors.accent}
                 onChange={(e) => setAccent(e.target.value || undefined)}
                 placeholder="#22C55E"
@@ -343,7 +343,7 @@ const StylesSection: React.FC<Props> = ({ cfg, disabled, onChange }) => {
               type="button"
               onClick={resetAccentToPreset}
               disabled={disabled}
-              className="rounded-xl border border-slate-900/10 bg-white/60 px-3 py-2 text-sm transition hover:scale-[0.99] dark:border-white/10 dark:bg-white/10"
+              className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm shadow-sm shadow-sky-950/10 transition hover:scale-[0.99]"
               title="Volver al color de acento del preset seleccionado"
             >
               Restablecer al preset

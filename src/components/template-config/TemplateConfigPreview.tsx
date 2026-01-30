@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import BlocksCanvas from "@/components/templates/BlocksCanvas";
@@ -25,18 +25,6 @@ function getAt<T>(obj: AnyObj, path: string[], fallback: T): T {
     cur = (cur as AnyObj)[k];
   }
   return (cur as T) ?? fallback;
-}
-function setAt(obj: AnyObj, path: string[], value: unknown): AnyObj {
-  const next: AnyObj = { ...obj };
-  let cur: AnyObj = next;
-  for (let i = 0; i < path.length - 1; i += 1) {
-    const k = path[i];
-    const v = cur[k];
-    if (!isObject(v)) cur[k] = {};
-    cur = cur[k] as AnyObj;
-  }
-  cur[path[path.length - 1]] = value;
-  return next;
 }
 const asStringArray = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
@@ -224,192 +212,6 @@ type BuilderBlock = OrderedBlock & {
   fieldKey?: string;
   mupuStyle?: MupuStyle;
 };
-
-function blockToValue(b: ContentBlock): BlockFormValue {
-  switch (b.type) {
-    case "heading":
-      return { type: "heading", text: b.text ?? "", level: b.level ?? 1 };
-    case "subtitle":
-      return { type: "subtitle", text: b.text ?? "" };
-    case "paragraph":
-      return { type: "paragraph", text: b.text ?? "" };
-    case "list":
-      return { type: "list", items: Array.isArray(b.items) ? b.items : [] };
-    case "keyValue":
-      return {
-        type: "keyValue",
-        pairs: Array.isArray(b.pairs) ? b.pairs : [],
-      };
-    case "twoColumns":
-      return { type: "twoColumns", left: b.left ?? "", right: b.right ?? "" };
-    case "threeColumns":
-      return {
-        type: "threeColumns",
-        left: b.left ?? "",
-        center: b.center ?? "",
-        right: b.right ?? "",
-      };
-  }
-}
-
-function blockToPlaceholder(
-  b: ContentBlock,
-  fieldKey?: string,
-): BlockFormValue {
-  const placeholder = `{${fieldKey || b.fieldKey || "campo"}}`;
-  switch (b.type) {
-    case "heading":
-      return { type: "heading", text: placeholder, level: b.level ?? 1 };
-    case "subtitle":
-      return { type: "subtitle", text: placeholder };
-    case "paragraph":
-      return { type: "paragraph", text: placeholder };
-    case "list":
-      return { type: "list", items: [placeholder] };
-    case "keyValue":
-      return { type: "keyValue", pairs: [{ key: placeholder, value: placeholder }] };
-    case "twoColumns":
-      return { type: "twoColumns", left: placeholder, right: placeholder };
-    case "threeColumns":
-      return {
-        type: "threeColumns",
-        left: placeholder,
-        center: placeholder,
-        right: placeholder,
-      };
-  }
-}
-
-function toOrderedBlock(
-  b: ContentBlock,
-  label: string,
-  fieldKey: string,
-): BuilderBlock {
-  return {
-    id: b.id,
-    origin: b.mode === "form" ? "form" : "fixed",
-    type: b.type,
-    label,
-    fieldKey,
-    mupuStyle: b.mupuStyle,
-    value: b.mode === "form" ? blockToPlaceholder(b, fieldKey) : blockToValue(b),
-  };
-}
-
-function applyOrderedBlocks(
-  next: BuilderBlock[],
-  current: ContentBlock[],
-): ContentBlock[] {
-  const byId = new Map<string, ContentBlock>();
-  current.forEach((b) => byId.set(b.id, b));
-  const counts: Record<BlockType, number> = {
-    heading: 0,
-    subtitle: 0,
-    paragraph: 0,
-    list: 0,
-    keyValue: 0,
-    twoColumns: 0,
-    threeColumns: 0,
-  };
-
-  return next.map((b) => {
-    const prev = byId.get(b.id);
-    const mode: BlockMode = b.origin === "form" ? "form" : "fixed";
-    counts[b.type] += 1;
-    const label = `${BLOCK_LABELS[b.type]} ${counts[b.type]}`;
-    const fallbackKey = normalizeKey(label, `${b.type}_${b.id.slice(-4)}`);
-    const fieldKey = prev?.fieldKey ?? b.fieldKey ?? fallbackKey;
-
-    const base: BaseBlock = {
-      id: b.id,
-      type: b.type,
-      mode,
-      label,
-      fieldKey,
-      mupuStyle: b.mupuStyle ?? prev?.mupuStyle,
-    };
-
-    const val = (b.value ?? {}) as Partial<BlockFormValue>;
-    const useValue = mode === "fixed";
-
-    switch (b.type) {
-      case "heading":
-        return {
-          ...base,
-          type: "heading",
-          text: useValue
-            ? (val as { text?: string }).text ?? (prev as HeadingBlock | undefined)?.text ?? ""
-            : (prev as HeadingBlock | undefined)?.text ?? "",
-          level: (val as { level?: 1 | 2 | 3 }).level ?? (prev as HeadingBlock | undefined)?.level ?? 1,
-        };
-      case "subtitle":
-        return {
-          ...base,
-          type: "subtitle",
-          text: useValue
-            ? (val as { text?: string }).text ?? (prev as SubtitleBlock | undefined)?.text ?? ""
-            : (prev as SubtitleBlock | undefined)?.text ?? "",
-        };
-      case "paragraph":
-        return {
-          ...base,
-          type: "paragraph",
-          text: useValue
-            ? (val as { text?: string }).text ?? (prev as ParagraphBlock | undefined)?.text ?? ""
-            : (prev as ParagraphBlock | undefined)?.text ?? "",
-        };
-      case "list": {
-        const items =
-          useValue
-            ? (val as { items?: string[] }).items ?? (prev as ListBlock | undefined)?.items ?? []
-            : (prev as ListBlock | undefined)?.items ?? [];
-        return {
-          ...base,
-          type: "list",
-          items: Array.isArray(items) ? items : [],
-        };
-      }
-      case "keyValue": {
-        const pairs =
-          useValue
-            ? (val as { pairs?: { key: string; value: string }[] }).pairs ??
-              (prev as KeyValueBlock | undefined)?.pairs ??
-              []
-            : (prev as KeyValueBlock | undefined)?.pairs ?? [];
-        return {
-          ...base,
-          type: "keyValue",
-          pairs: Array.isArray(pairs) ? pairs : [],
-        };
-      }
-      case "twoColumns":
-        return {
-          ...base,
-          type: "twoColumns",
-          left: useValue
-            ? (val as { left?: string }).left ?? (prev as TwoColumnsBlock | undefined)?.left ?? ""
-            : (prev as TwoColumnsBlock | undefined)?.left ?? "",
-          right: useValue
-            ? (val as { right?: string }).right ?? (prev as TwoColumnsBlock | undefined)?.right ?? ""
-            : (prev as TwoColumnsBlock | undefined)?.right ?? "",
-        };
-      case "threeColumns":
-        return {
-          ...base,
-          type: "threeColumns",
-          left: useValue
-            ? (val as { left?: string }).left ?? (prev as ThreeColumnsBlock | undefined)?.left ?? ""
-            : (prev as ThreeColumnsBlock | undefined)?.left ?? "",
-          center: useValue
-            ? (val as { center?: string }).center ?? (prev as ThreeColumnsBlock | undefined)?.center ?? ""
-            : (prev as ThreeColumnsBlock | undefined)?.center ?? "",
-          right: useValue
-            ? (val as { right?: string }).right ?? (prev as ThreeColumnsBlock | undefined)?.right ?? ""
-            : (prev as ThreeColumnsBlock | undefined)?.right ?? "",
-        };
-    }
-  });
-}
 
 /* =============================================================================
  * Datos remotos: Agencia + Usuario
@@ -676,18 +478,18 @@ type Props = {
   cfg: Config;
   docTypeLabel?: string;
   editable?: boolean;
-  onChange?: (next: Config) => void;
+  onDraftBlocksChange?: (blocks: ContentBlock[]) => void;
 };
 
 const TemplateConfigPreview: React.FC<Props> = ({
   cfg,
   docTypeLabel = "Documento",
   editable = false,
-  onChange,
+  onDraftBlocksChange,
 }) => {
   const { token } = useAuth();
   const { agency, user, loading } = useAgencyAndUser(token);
-  const canEditContent = editable && typeof onChange === "function";
+  const canEditContent = editable;
 
   // Layout actual
   const layout = getAt<string>(cfg, ["layout"], "layoutA");
@@ -790,86 +592,246 @@ const TemplateConfigPreview: React.FC<Props> = ({
 
   const autoLabels = useMemo(() => buildAutoLabels(blocks), [blocks]);
 
-  const orderedBlocks = useMemo<BuilderBlock[]>(
-    () =>
-      blocks.map((b) => {
-        const label = autoLabels.get(b.id) ?? BLOCK_LABELS[b.type];
-        const fieldKey = resolveFieldKey(b, label);
-        return toOrderedBlock(b, label, fieldKey);
-      }),
-    [autoLabels, blocks],
-  );
+  const contentBlockToOrdered = useCallback(
+    (b: ContentBlock): BuilderBlock => {
+      const label = b.label || autoLabels.get(b.id) || BLOCK_LABELS[b.type];
+      const fieldKey = resolveFieldKey(b, label);
+      const base = {
+        id: b.id,
+        origin: b.mode === "form" ? "form" : "fixed",
+        type: b.type,
+        label,
+        fieldKey,
+        mupuStyle: b.mupuStyle,
+      } as const;
 
-  const blocksKey = useMemo(
-    () => `${blocks.length}:${blocks.map((b) => b.id).join("|")}`,
-    [blocks],
-  );
-  const [draftBlocks, setDraftBlocks] = useState<OrderedBlock[]>(orderedBlocks);
-  const commitTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    setDraftBlocks(orderedBlocks);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blocksKey]);
-
-  const lockedIds = useMemo(
-    () => new Set(blocks.filter((b) => b.mode === "form").map((b) => b.id)),
-    [blocks],
-  );
-
-  const commitBlocks = useCallback(
-    (next: OrderedBlock[]) => {
-      if (!onChange) return;
-      const nextBlocks = applyOrderedBlocks(next as BuilderBlock[], blocks);
-      onChange(setAt(cfg, ["content", "blocks"], nextBlocks));
-    },
-    [blocks, cfg, onChange],
-  );
-
-  const handleCanvasChange = (next: OrderedBlock[]) => {
-    setDraftBlocks(next);
-    if (!onChange) return;
-    if (commitTimerRef.current != null) {
-      window.clearTimeout(commitTimerRef.current);
-    }
-    commitTimerRef.current = window.setTimeout(() => {
-      commitBlocks(next);
-    }, 200);
-  };
-
-  useEffect(
-    () => () => {
-      if (commitTimerRef.current != null) {
-        window.clearTimeout(commitTimerRef.current);
+      switch (b.type) {
+        case "heading":
+          return {
+            ...base,
+            type: "heading",
+            value: { type: "heading", text: b.text ?? "", level: b.level ?? 1 },
+          };
+        case "subtitle":
+          return {
+            ...base,
+            type: "subtitle",
+            value: { type: "subtitle", text: b.text ?? "" },
+          };
+        case "paragraph":
+          return {
+            ...base,
+            type: "paragraph",
+            value: { type: "paragraph", text: b.text ?? "" },
+          };
+        case "list":
+          return {
+            ...base,
+            type: "list",
+            value: {
+              type: "list",
+              items: Array.isArray(b.items) ? [...b.items] : [],
+            },
+          };
+        case "keyValue":
+          return {
+            ...base,
+            type: "keyValue",
+            value: {
+              type: "keyValue",
+              pairs: Array.isArray(b.pairs) ? [...b.pairs] : [],
+            },
+          };
+        case "twoColumns":
+          return {
+            ...base,
+            type: "twoColumns",
+            value: {
+              type: "twoColumns",
+              left: b.left ?? "",
+              right: b.right ?? "",
+            },
+          };
+        case "threeColumns":
+          return {
+            ...base,
+            type: "threeColumns",
+            value: {
+              type: "threeColumns",
+              left: b.left ?? "",
+              center: b.center ?? "",
+              right: b.right ?? "",
+            },
+          };
       }
     },
-    [],
+    [autoLabels],
   );
 
+  const previewKey = useMemo(
+    () => blocks.map((b) => b.id).join("|"),
+    [blocks],
+  );
+  const [editableBlocks, setEditableBlocks] = useState<OrderedBlock[]>([]);
+
+  useEffect(() => {
+    setEditableBlocks((prev) => {
+      const byId = new Map(prev.map((b) => [b.id, b]));
+      return blocks.map((b) => byId.get(b.id) ?? contentBlockToOrdered(b));
+    });
+  }, [previewKey, blocks, contentBlockToOrdered]);
+
+  const lockedIds = useMemo(() => new Set<string>(), []);
+
+  const baseById = useMemo(() => {
+    const map = new Map<string, ContentBlock>();
+    blocks.forEach((b) => map.set(b.id, b));
+    return map;
+  }, [blocks]);
+
+  const toContentBlock = useCallback(
+    (ob: OrderedBlock): ContentBlock => {
+      const base = baseById.get(ob.id);
+      const mode: BlockMode = ob.origin === "form" ? "form" : "fixed";
+      const label =
+        base?.label ??
+        (ob as BuilderBlock).label ??
+        autoLabels.get(ob.id) ??
+        BLOCK_LABELS[ob.type];
+      const fallbackKey = normalizeKey(label, `${ob.type}_${ob.id.slice(-4)}`);
+      const fieldKey =
+        base?.fieldKey ?? (ob as BuilderBlock).fieldKey ?? fallbackKey;
+      const mupuStyle = base?.mupuStyle ?? (ob as BuilderBlock).mupuStyle;
+      const val = (ob.value ?? {}) as Partial<BlockFormValue>;
+
+      const common = {
+        id: ob.id,
+        type: ob.type,
+        mode,
+        label,
+        fieldKey,
+        mupuStyle,
+      };
+
+      switch (ob.type) {
+        case "heading":
+          return {
+            ...common,
+            type: "heading",
+            text:
+              (val as { text?: string }).text ??
+              (base as HeadingBlock | undefined)?.text ??
+              "",
+            level:
+              (val as { level?: 1 | 2 | 3 }).level ??
+              (base as HeadingBlock | undefined)?.level ??
+              1,
+          };
+        case "subtitle":
+          return {
+            ...common,
+            type: "subtitle",
+            text:
+              (val as { text?: string }).text ??
+              (base as SubtitleBlock | undefined)?.text ??
+              "",
+          };
+        case "paragraph":
+          return {
+            ...common,
+            type: "paragraph",
+            text:
+              (val as { text?: string }).text ??
+              (base as ParagraphBlock | undefined)?.text ??
+              "",
+          };
+        case "list": {
+          const items =
+            (val as { items?: string[] }).items ??
+            (base as ListBlock | undefined)?.items ??
+            [];
+          return {
+            ...common,
+            type: "list",
+            items: Array.isArray(items) ? items : [],
+          };
+        }
+        case "keyValue": {
+          const pairs =
+            (val as { pairs?: { key: string; value: string }[] }).pairs ??
+            (base as KeyValueBlock | undefined)?.pairs ??
+            [];
+          return {
+            ...common,
+            type: "keyValue",
+            pairs: Array.isArray(pairs) ? pairs : [],
+          };
+        }
+        case "twoColumns":
+          return {
+            ...common,
+            type: "twoColumns",
+            left:
+              (val as { left?: string }).left ??
+              (base as TwoColumnsBlock | undefined)?.left ??
+              "",
+            right:
+              (val as { right?: string }).right ??
+              (base as TwoColumnsBlock | undefined)?.right ??
+              "",
+          };
+        case "threeColumns":
+          return {
+            ...common,
+            type: "threeColumns",
+            left:
+              (val as { left?: string }).left ??
+              (base as ThreeColumnsBlock | undefined)?.left ??
+              "",
+            center:
+              (val as { center?: string }).center ??
+              (base as ThreeColumnsBlock | undefined)?.center ??
+              "",
+            right:
+              (val as { right?: string }).right ??
+              (base as ThreeColumnsBlock | undefined)?.right ??
+              "",
+          };
+        default:
+          return {
+            ...common,
+            type: "paragraph",
+            text:
+              (val as { text?: string }).text ??
+              (base as ParagraphBlock | undefined)?.text ??
+              "",
+          };
+      }
+    },
+    [autoLabels, baseById],
+  );
+
+  useEffect(() => {
+    if (!onDraftBlocksChange) return;
+    const nextBlocks = editableBlocks.map((b) => toContentBlock(b));
+    onDraftBlocksChange(nextBlocks);
+  }, [editableBlocks, onDraftBlocksChange, toContentBlock]);
+
+  const handleCanvasChange = (next: OrderedBlock[]) => {
+    setEditableBlocks(next);
+  };
+
   const handleToggleMode = (id: string, nextMode: BlockMode) => {
-    if (!onChange) return;
-    const current = blocks.find((b) => b.id === id);
-    if (!current) return;
-    const label = autoLabels.get(current.id) ?? BLOCK_LABELS[current.type];
-    const fieldKey = resolveFieldKey(current, label);
-    const origin: BuilderBlock["origin"] =
-      nextMode === "form" ? "form" : "fixed";
-    const source = draftBlocks.length ? draftBlocks : orderedBlocks;
-    const next: BuilderBlock[] = source.map((b) =>
-      b.id === id
-        ? {
-            ...b,
-            origin,
-            value:
-              nextMode === "fixed"
-                ? blockToValue(current)
-                : blockToPlaceholder(current, fieldKey),
-          }
-        : b,
+    setEditableBlocks((prev) =>
+      prev.map((b) =>
+        b.id === id
+          ? {
+              ...b,
+              origin: nextMode === "form" ? "form" : "fixed",
+            }
+          : b,
+      ),
     );
-    setDraftBlocks(next);
-    const nextBlocks = applyOrderedBlocks(next, blocks);
-    onChange(setAt(cfg, ["content", "blocks"], nextBlocks));
   };
 
   // Derivados de agencia/usuario
@@ -927,7 +889,7 @@ const TemplateConfigPreview: React.FC<Props> = ({
       ? resolveMupuTextStyle(paymentMupuStyle)
       : undefined;
 
-  const PaymentPreview: React.FC = () =>
+  const renderPaymentPreview = () =>
     !paymentSelected ? null : (
       <div className={cx(padX)}>
         <div
@@ -945,7 +907,7 @@ const TemplateConfigPreview: React.FC<Props> = ({
     );
 
   // Header
-  const Header: React.FC = () => (
+  const renderHeader = () => (
     <div className={cx(padX, "pt-6")}>
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
@@ -1002,7 +964,7 @@ const TemplateConfigPreview: React.FC<Props> = ({
   );
 
   // Content
-  const ContentBlocks: React.FC = () => {
+  const renderContentBlocks = () => {
     const note = getAt<string>(cfg, ["styles", "note"], "");
     const notesEnabled = (note || "").length > 0;
 
@@ -1020,18 +982,17 @@ const TemplateConfigPreview: React.FC<Props> = ({
             )}
 
             <div className={cx("mt-4", gapBlocks)}>
-              {draftBlocks.length === 0 ? (
+              {editableBlocks.length === 0 ? (
                 <p className="text-sm opacity-70">
                   No hay secciones aún. Agregá un bloque para empezar.
                 </p>
               ) : (
                 <BlocksCanvas
-                  blocks={draftBlocks}
+                  blocks={editableBlocks}
                   onChange={handleCanvasChange}
                   lockedIds={lockedIds}
                   allowRemoveLocked
                   showMeta
-                  getLabel={(b) => autoLabels.get(b.id)}
                   getMode={(b) => (b.origin === "form" ? "form" : "fixed")}
                   onToggleMode={handleToggleMode}
                   options={{
@@ -1279,7 +1240,7 @@ const TemplateConfigPreview: React.FC<Props> = ({
   };
 
   // Footer
-  const Footer: React.FC = () => (
+  const renderFooter = () => (
     <div
       className={cx("mt-4", padX, padY)}
       style={{ borderTop: `1px solid ${dividerColor}` }}
@@ -1346,16 +1307,16 @@ const TemplateConfigPreview: React.FC<Props> = ({
             logoUrl={agencyLogo}
             isLightBg={isLightBg}
           />
-          <Header />
-          <ContentBlocks />
-          <PaymentPreview />
-          <Footer />
+          {renderHeader()}
+          {renderContentBlocks()}
+          {renderPaymentPreview()}
+          {renderFooter()}
         </>
       )}
 
       {layout === "layoutB" && (
         <>
-          <Header />
+          {renderHeader()}
           {coverMode === "url" && coverUrl ? (
             <div className={cx(padX, "mt-4")}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1374,9 +1335,9 @@ const TemplateConfigPreview: React.FC<Props> = ({
               />
             </div>
           ) : null}
-          <ContentBlocks />
-          <PaymentPreview />
-          <Footer />
+          {renderContentBlocks()}
+          {renderPaymentPreview()}
+          {renderFooter()}
         </>
       )}
 
@@ -1468,9 +1429,9 @@ const TemplateConfigPreview: React.FC<Props> = ({
               />
             ) : null}
 
-            <ContentBlocks />
-            <PaymentPreview />
-            <Footer />
+            {renderContentBlocks()}
+            {renderPaymentPreview()}
+            {renderFooter()}
           </main>
         </div>
       )}

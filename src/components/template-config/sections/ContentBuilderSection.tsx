@@ -87,7 +87,7 @@ const AddBlockButton: React.FC<
     type="button"
     onClick={onAdd}
     disabled={disabled}
-    className="inline-flex items-center gap-2 rounded-full bg-slate-900/5 px-3 py-1 text-xs text-slate-700 shadow-sm transition hover:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white/10 dark:text-white"
+    className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-slate-700 shadow-sm shadow-sky-950/10 transition hover:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 dark:text-white"
   >
     <svg
       xmlns="http://www.w3.org/2000/svg"

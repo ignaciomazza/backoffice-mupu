@@ -1459,8 +1459,8 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                   <Link
                     href={`/bookings/services/${booking.public_id ?? booking.id_booking}/template`}
                     className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/40 px-3 py-1 text-xs font-medium text-sky-950 shadow-sm shadow-sky-950/10 transition hover:scale-[0.98] dark:border-white/10 dark:bg-white/10 dark:text-white"
-                    title="Armar PDF del voucher"
-                    aria-label="Armar PDF del voucher"
+                    title="Armar PDF de confirmación"
+                    aria-label="Armar PDF de confirmación"
                   >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"

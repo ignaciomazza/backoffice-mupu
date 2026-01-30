@@ -31,7 +31,7 @@ const chip = (ok: boolean) =>
     : "inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-sm text-amber-700 shadow-sm shadow-amber-900/10 backdrop-blur dark:text-amber-300";
 
 const metaItem =
-  "inline-flex items-center gap-2 rounded-full border border-slate-900/10 bg-white/70 px-3 py-1 text-xs text-slate-600 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-slate-200";
+  "inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-slate-600 shadow-sm shadow-sky-950/10 backdrop-blur dark:text-slate-200";
 
 const TemplateConfigHeader: React.FC<Props> = ({
   docType,
@@ -48,8 +48,8 @@ const TemplateConfigHeader: React.FC<Props> = ({
   onResetDefaults,
 }) => {
   return (
-    <>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div className="mb-6 rounded-3xl border border-white/10 bg-white/10 p-5 shadow-md shadow-sky-950/10 backdrop-blur">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="inline-flex size-10 items-center justify-center rounded-2xl border border-amber-500/20 bg-amber-500/10 text-amber-700 shadow-sm shadow-amber-900/10 dark:border-amber-400/20 dark:text-amber-300">
             <svg
@@ -78,9 +78,9 @@ const TemplateConfigHeader: React.FC<Props> = ({
               {docType === "quote"
                 ? "Cotización"
                 : docType === "confirmation"
-                  ? "Confirmación"
+                  ? "Confirmación manual"
                   : docType === "voucher"
-                    ? "Voucher"
+                    ? "Confirmación"
                     : "Sin tipo de documento"}
             </p>
           </div>
@@ -133,7 +133,7 @@ const TemplateConfigHeader: React.FC<Props> = ({
       </div>
 
       {!loading && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className={metaItem}>
             <svg
               viewBox="0 0 24 24"
@@ -195,7 +195,7 @@ const TemplateConfigHeader: React.FC<Props> = ({
             {meta.updated_at ? new Date(meta.updated_at).toLocaleString() : "-"}
           </span>
 
-          <label className="ml-auto inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white px-3 py-1 text-xs text-slate-600 shadow-sm shadow-slate-900/5 dark:border-white/10 dark:bg-white/5 dark:text-slate-200">
+          <label className="ml-auto inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs text-slate-600 shadow-sm shadow-sky-950/5 dark:text-slate-200">
             <input
               type="checkbox"
               checked={resolvedView}
@@ -227,7 +227,7 @@ const TemplateConfigHeader: React.FC<Props> = ({
         </div>
       )}
 
-      <div className="mb-6 flex flex-wrap items-center gap-2">
+      <div className="mt-5 flex flex-wrap items-center gap-2">
         <button
           onClick={onSave}
           disabled={disabled}
@@ -285,7 +285,7 @@ const TemplateConfigHeader: React.FC<Props> = ({
           Eliminar
         </button>
 
-        <div className="mx-2 h-6 w-px bg-slate-200 dark:bg-white/10" />
+        <div className="mx-2 h-6 w-px bg-white/10" />
 
         <button
           onClick={onResetDefaults}
@@ -315,7 +315,7 @@ const TemplateConfigHeader: React.FC<Props> = ({
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 };
 
