@@ -7,6 +7,7 @@ import { authFetch } from "@/utils/authFetch";
 import type { Invoice } from "@/types";
 import { toast } from "react-toastify";
 import { computeManualTotals } from "@/services/afip/manualTotals";
+import { displayInvoiceNumber } from "@/utils/invoiceNumbers";
 
 const Section = ({
   title,
@@ -348,7 +349,8 @@ export default function CreditNoteForm({
       pills.push(
         <span key="invoice" className={`${pillBase} ${pillNeutral}`}>
           Factura N°{" "}
-          {selectedInvoice.invoice_number || selectedInvoice.id_invoice}
+          {displayInvoiceNumber(selectedInvoice.invoice_number) ||
+            selectedInvoice.id_invoice}
         </span>,
       );
     }
@@ -508,10 +510,10 @@ export default function CreditNoteForm({
                           title={`Factura ID ${inv.id_invoice}`}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div className="text-sm font-medium">
-                              N° {inv.invoice_number || inv.id_invoice} ·{" "}
-                              {inv.recipient || "Sin destinatario"}
-                            </div>
+                          <div className="text-sm font-medium">
+                            N° {displayInvoiceNumber(inv.invoice_number) || inv.id_invoice} ·{" "}
+                            {inv.recipient || "Sin destinatario"}
+                          </div>
                             {active && (
                               <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs text-rose-800 dark:bg-rose-500/20 dark:text-rose-100">
                                 seleccionada

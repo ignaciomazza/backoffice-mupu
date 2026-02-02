@@ -286,6 +286,8 @@ export interface Invoice {
   public_id?: string | null;
   id_agency: number;
   invoice_number: string;
+  pto_vta?: number;
+  cbte_tipo?: number;
   issue_date: string;
   total_amount: number;
   status: string;

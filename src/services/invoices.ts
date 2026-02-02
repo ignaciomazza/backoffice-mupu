@@ -4,6 +4,10 @@ import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import type { NextApiRequest } from "next";
 import { createVoucherService } from "@/services/afip/createVoucherService";
 import {
+  buildInvoiceNumber,
+  buildInvoiceNumberLegacy,
+} from "@/utils/invoiceNumbers";
+import {
   splitManualTotalsByClient,
   type ManualTotalsInput,
 } from "@/services/afip/manualTotals";
@@ -12,6 +16,11 @@ import type { Invoice, InvoiceItem, Prisma } from "@prisma/client";
 export type InvoiceWithItems = Invoice & { InvoiceItem: InvoiceItem[] };
 
 type RawVoucherDetails = Prisma.JsonObject;
+
+const isPrismaUniqueError = (err: unknown) => {
+  if (typeof err !== "object" || err === null) return false;
+  return (err as { code?: string }).code === "P2002";
+};
 
 export async function listInvoices(
   bookingId: number,
@@ -208,6 +217,35 @@ export async function createInvoices(
       }
 
       const details = resp.details as RawVoucherDetails;
+      const ptoVta = Number(details.PtoVta ?? 0);
+      const cbteTipo = Number(details.CbteTipo ?? tipoFactura);
+      const rawNumber = details.CbteDesde?.toString() ?? "";
+      const formattedNumber =
+        buildInvoiceNumber(ptoVta, cbteTipo, rawNumber) || rawNumber;
+      const legacyNumber = buildInvoiceNumberLegacy(ptoVta, rawNumber);
+
+      if (rawNumber) {
+        const duplicate = await prisma.invoice.findFirst({
+          where: {
+            id_agency: booking.id_agency,
+            pto_vta: ptoVta,
+            cbte_tipo: cbteTipo,
+            OR: [
+              { invoice_number: rawNumber },
+              { invoice_number: legacyNumber },
+              { invoice_number: formattedNumber },
+            ],
+          },
+          select: { id_invoice: true, invoice_number: true },
+        });
+        if (duplicate) {
+          errorMessages.add(
+            "Ya existe una factura con el mismo número para ese punto de venta y tipo.",
+          );
+          continue;
+        }
+      }
+
       const payloadAfip: Prisma.JsonObject = {
         voucherData: details,
         afipResponse: {
@@ -228,58 +266,72 @@ export async function createInvoices(
         })),
       };
 
-      const created = await prisma.$transaction(async (tx) => {
-        const agencyInvoiceId = await getNextAgencyCounter(
-          tx,
-          booking.id_agency,
-          "invoice",
-        );
-        const inv = await tx.invoice.create({
-          data: {
-            agency_invoice_id: agencyInvoiceId,
-            id_agency: booking.id_agency,
-            invoice_number: details.CbteDesde!.toString(),
-            issue_date: new Date(),
-            total_amount: details.ImpTotal as number,
-            currency: afipCurrency,
-            status: "Autorizada",
-            type: tipoFactura === 1 ? "Factura A" : "Factura B",
-            recipient:
-              client.company_name || `${client.first_name} ${client.last_name}`,
-            payloadAfip,
-            bookingId_booking: bookingId,
-            client_id: cid,
-          },
-        });
+      let created: InvoiceWithItems | null = null;
+      try {
+        created = await prisma.$transaction(async (tx) => {
+          const agencyInvoiceId = await getNextAgencyCounter(
+            tx,
+            booking.id_agency,
+            "invoice",
+          );
+          const inv = await tx.invoice.create({
+            data: {
+              agency_invoice_id: agencyInvoiceId,
+              id_agency: booking.id_agency,
+              invoice_number: formattedNumber || rawNumber,
+              pto_vta: ptoVta,
+              cbte_tipo: cbteTipo,
+              issue_date: new Date(),
+              total_amount: details.ImpTotal as number,
+              currency: afipCurrency,
+              status: "Autorizada",
+              type: tipoFactura === 1 ? "Factura A" : "Factura B",
+              recipient:
+                client.company_name ||
+                `${client.first_name} ${client.last_name}`,
+              payloadAfip,
+              bookingId_booking: bookingId,
+              client_id: cid,
+            },
+          });
 
-        await Promise.all(
-          svcs.map((svc) =>
-            tx.invoiceItem.create({
-              data: {
-                invoiceId: inv.id_invoice,
-                serviceId: svc.id_service,
-                description: svc.description,
-                sale_price: svc.sale_price,
-                taxableBase21: svc.taxableBase21,
-                commission21: svc.commission21,
-                tax_21: svc.tax_21,
-                vatOnCommission21: svc.vatOnCommission21,
-                taxableBase10_5: svc.taxableBase10_5,
-                commission10_5: svc.commission10_5,
-                tax_105: svc.tax_105,
-                vatOnCommission10_5: svc.vatOnCommission10_5,
-                taxableCardInterest: svc.taxableCardInterest,
-                vatOnCardInterest: svc.vatOnCardInterest,
-              },
-            }),
-          ),
-        );
+          await Promise.all(
+            svcs.map((svc) =>
+              tx.invoiceItem.create({
+                data: {
+                  invoiceId: inv.id_invoice,
+                  serviceId: svc.id_service,
+                  description: svc.description,
+                  sale_price: svc.sale_price,
+                  taxableBase21: svc.taxableBase21,
+                  commission21: svc.commission21,
+                  tax_21: svc.tax_21,
+                  vatOnCommission21: svc.vatOnCommission21,
+                  taxableBase10_5: svc.taxableBase10_5,
+                  commission10_5: svc.commission10_5,
+                  tax_105: svc.tax_105,
+                  vatOnCommission10_5: svc.vatOnCommission10_5,
+                  taxableCardInterest: svc.taxableCardInterest,
+                  vatOnCardInterest: svc.vatOnCardInterest,
+                },
+              }),
+            ),
+          );
 
-        return tx.invoice.findUnique({
-          where: { id_invoice: inv.id_invoice },
-          include: { InvoiceItem: true },
+          return tx.invoice.findUnique({
+            where: { id_invoice: inv.id_invoice },
+            include: { InvoiceItem: true },
+          });
         });
-      });
+      } catch (err) {
+        if (isPrismaUniqueError(err)) {
+          errorMessages.add(
+            "La factura ya existe para ese punto de venta y tipo.",
+          );
+          continue;
+        }
+        throw err;
+      }
 
       if (created) invoicesResult.push(created);
     }

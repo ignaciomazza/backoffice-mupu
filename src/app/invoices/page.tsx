@@ -9,6 +9,7 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Link from "next/link";
 import { authFetch } from "@/utils/authFetch";
+import { displayInvoiceNumber } from "@/utils/invoiceNumbers";
 
 interface Invoice {
   id_invoice: number;
@@ -309,7 +310,7 @@ export default function InvoicesPage() {
           : "";
 
       return csvRow([
-        { value: String(inv.invoice_number) }, // Factura (texto)
+        { value: displayInvoiceNumber(inv.invoice_number) }, // Factura (texto)
         { value: tipo }, // Tipo (texto)
         { value: getCbteDate(inv) }, // Fecha (texto dd/mm/aaaa)
         { value: getClientName(inv) }, // Pax (texto)
@@ -419,10 +420,10 @@ export default function InvoicesPage() {
                         <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">
                           {inv.isCredit ? (
                             <span className="text-red-600">
-                              NC {inv.invoice_number}
+                              NC {displayInvoiceNumber(inv.invoice_number)}
                             </span>
                           ) : (
-                            inv.invoice_number
+                            displayInvoiceNumber(inv.invoice_number)
                           )}
                         </td>
                         <td className="border-t border-white/10 px-2 py-4 text-sm font-light text-sky-950 dark:text-white">

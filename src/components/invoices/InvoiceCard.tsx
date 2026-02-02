@@ -4,6 +4,7 @@ import { Invoice } from "@/types";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
+import { displayInvoiceNumber } from "@/utils/invoiceNumbers";
 import { useEffect, useMemo, useState } from "react";
 
 /* ======================== Utils ======================== */
@@ -266,7 +267,9 @@ export default function InvoiceCard({
         <div className="rounded-2xl border border-white/10 bg-white/20 p-3 dark:bg-white/10">
           <p className="text-sm font-semibold">
             Comprobante N°{" "}
-            <span className="font-light">{invoice.invoice_number}</span>
+            <span className="font-light">
+              {displayInvoiceNumber(invoice.invoice_number)}
+            </span>
           </p>
           <p className="text-sm">
             Fecha{" "}
@@ -324,7 +327,9 @@ export default function InvoiceCard({
           </div>
           <p className="text-[15px]">
             Comprobante N°{" "}
-            <span className="font-medium">{invoice.invoice_number}</span>
+            <span className="font-medium">
+              {displayInvoiceNumber(invoice.invoice_number)}
+            </span>
           </p>
           <p className="text-sm opacity-80">
             {invoice.recipient} – N° {invoice.client_id}
