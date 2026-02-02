@@ -712,10 +712,8 @@ export default function ClientTable({
       normalizeValue(editableField, value);
     const hasError = rowErrors[client.id_client]?.[editableField];
     const baseInput =
-      "w-full min-w-[140px] rounded-2xl border px-3 py-2 text-sm outline-none transition";
-    const tone = isDirty
-      ? "bg-emerald-500/10 border-emerald-500/40"
-      : "bg-white/10 border-white/20";
+      "w-full min-w-[140px] rounded-2xl border border-sky-200 bg-white/50 px-3 py-2 text-sm shadow-sm shadow-sky-950/10 outline-none transition dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
+    const tone = isDirty ? "bg-emerald-500/10 border-emerald-500/40" : "";
     const error = hasError ? "ring-2 ring-rose-500/50" : "";
 
     if (isCustomColumn(editableField)) {

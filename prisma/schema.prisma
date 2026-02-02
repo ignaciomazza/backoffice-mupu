@@ -627,6 +627,7 @@ model Investment {
   createdBy            User                 @relation("InvestmentCreatedBy", fields: [created_by], references: [id_user])
   booking_id           Int?
   booking              Booking?             @relation("BookingInvestments", fields: [booking_id], references: [id_booking], onDelete: SetNull)
+  serviceIds           Int[]                @default([])
   recurring_id         Int?
   recurring            RecurringInvestment? @relation(fields: [recurring_id], references: [id_recurring], onDelete: SetNull)
   creditEntries        CreditEntry[]

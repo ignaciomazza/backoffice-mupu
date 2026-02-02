@@ -3,7 +3,12 @@ import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Spinner from "@/components/Spinner";
 import ClientPicker from "@/components/clients/ClientPicker";
-import { Client, ClientSimpleCompanion, PassengerCategory, User } from "@/types";
+import {
+  Client,
+  ClientSimpleCompanion,
+  PassengerCategory,
+  User,
+} from "@/types";
 import { authFetch } from "@/utils/authFetch";
 
 /* =========================
@@ -126,7 +131,7 @@ const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 const pillWarn = "bg-rose-500/15 text-rose-700 dark:text-rose-300";
 
 const inputBase =
-  "w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10";
+  "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-sky-100/10 dark:border-sky-200/60";
 const inputOkFocus = "focus:ring-2 focus:ring-emerald-400/40";
 const inputWarnFocus = "focus:ring-2 focus:ring-rose-400/40";
 
@@ -219,7 +224,11 @@ export default function BookingForm({
 
   const handleDecrement = () => {
     setFormData((prev) => {
-      const minPax = 1 + (Array.isArray(prev.simple_companions) ? prev.simple_companions.length : 0);
+      const minPax =
+        1 +
+        (Array.isArray(prev.simple_companions)
+          ? prev.simple_companions.length
+          : 0);
       if (prev.pax_count <= minPax) return prev;
       const newCount = prev.pax_count - 1;
       const prevSimple = Array.isArray(prev.simple_companions)
@@ -728,9 +737,7 @@ export default function BookingForm({
                     </button>
                     <span
                       className={`${pillBase} ${
-                        companionSlots > 0
-                          ? pillOk
-                          : pillNeutral
+                        companionSlots > 0 ? pillOk : pillNeutral
                       }`}
                     >
                       {companionSlots}
@@ -937,9 +944,7 @@ export default function BookingForm({
                                 addRelatedClientAsCompanion(c.id_client)
                               }
                               className="rounded-full border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
-                              title={`N° ${
-                                c.agency_client_id ?? c.id_client
-                              }`}
+                              title={`N° ${c.agency_client_id ?? c.id_client}`}
                             >
                               {`${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() ||
                                 `Pax ${c.agency_client_id ?? c.id_client}`}

@@ -167,6 +167,47 @@ function isOperatorCategoryName(
   return operatorCategorySet ? operatorCategorySet.has(n) : false;
 }
 
+function parseServiceIds(raw: unknown): number[] {
+  const ids: number[] = [];
+  if (Array.isArray(raw)) {
+    for (const v of raw) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) ids.push(Math.trunc(n));
+    }
+  } else if (typeof raw === "string" && raw.trim()) {
+    for (const part of raw.split(",")) {
+      const n = Number(part.trim());
+      if (Number.isFinite(n) && n > 0) ids.push(Math.trunc(n));
+    }
+  }
+  return Array.from(new Set(ids));
+}
+
+type ServicePick = {
+  id_service: number;
+  booking_id: number;
+  id_operator: number;
+  currency: string;
+  cost_price: number | null;
+};
+
+async function getServicesByIds(
+  agencyId: number,
+  ids: number[],
+): Promise<ServicePick[]> {
+  if (ids.length === 0) return [];
+  return prisma.service.findMany({
+    where: { id_service: { in: ids }, id_agency: agencyId },
+    select: {
+      id_service: true,
+      booking_id: true,
+      id_operator: true,
+      currency: true,
+      cost_price: true,
+    },
+  });
+}
+
 const DOC_SIGN: Record<string, number> = { investment: -1, receipt: 1 };
 const normDoc = (s?: string | null) => (s || "").trim().toLowerCase();
 const signForDocType = (dt?: string | null) => DOC_SIGN[normDoc(dt)] ?? 1;
@@ -465,11 +506,17 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     financeGrants,
     "investments",
   );
-  const canOperatorPayments = canAccessBookingComponent(
+  const canOperatorPaymentsSection = canAccessFinanceSection(
     auth.role,
-    bookingGrants,
+    financeGrants,
     "operator_payments",
   );
+  const canOperatorPayments =
+    canAccessBookingComponent(
+      auth.role,
+      bookingGrants,
+      "operator_payments",
+    ) || canOperatorPaymentsSection;
   if (!canInvestments && !canOperatorPayments) {
     return res.status(403).json({ error: "Sin permisos" });
   }
@@ -564,8 +611,30 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const operatorOnly =
       typeof operatorOnlyRaw === "string" &&
       (operatorOnlyRaw === "1" || operatorOnlyRaw.toLowerCase() === "true");
+    const excludeOperatorRaw = Array.isArray(req.query.excludeOperator)
+      ? req.query.excludeOperator[0]
+      : req.query.excludeOperator;
+    const excludeOperator =
+      typeof excludeOperatorRaw === "string" &&
+      (excludeOperatorRaw === "1" ||
+        excludeOperatorRaw.toLowerCase() === "true");
+    const includeCountsRaw = Array.isArray(req.query.includeCounts)
+      ? req.query.includeCounts[0]
+      : req.query.includeCounts;
+    const includeCounts =
+      typeof includeCountsRaw === "string" &&
+      (includeCountsRaw === "1" || includeCountsRaw.toLowerCase() === "true");
 
-    if (restrictToOperatorPayments || operatorOnly) {
+    if (operatorOnly && excludeOperator) {
+      return res
+        .status(400)
+        .json({ error: "Parámetros incompatibles" });
+    }
+    if (restrictToOperatorPayments && excludeOperator) {
+      return res.status(403).json({ error: "Plan insuficiente" });
+    }
+
+    if (restrictToOperatorPayments || operatorOnly || excludeOperator) {
       await loadOperatorCategories();
     }
 
@@ -581,6 +650,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         .status(400)
         .json({ error: "La categoría no corresponde a operador" });
     }
+    if (excludeOperator && category && categoryIsOperator) {
+      return res
+        .status(400)
+        .json({ error: "La categoría corresponde a operador" });
+    }
 
     const where: Prisma.InvestmentWhereInput = {
       id_agency: auth.id_agency,
@@ -589,20 +663,40 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       ...(account ? { account } : {}),
       ...(operatorId ? { operator_id: operatorId } : {}),
       ...(userId ? { user_id: userId } : {}),
-      ...(bookingId ? { booking_id: bookingId } : {}), // 👈 NUEVO
     };
 
     const andFilters: Prisma.InvestmentWhereInput[] = [];
+    if (bookingId) {
+      const bookingServices = await prisma.service.findMany({
+        where: { booking_id: bookingId, id_agency: auth.id_agency },
+        select: { id_service: true },
+      });
+      const bookingServiceIds = bookingServices.map((s) => s.id_service);
+      if (bookingServiceIds.length > 0) {
+        andFilters.push({
+          OR: [
+            { booking_id: bookingId },
+            { serviceIds: { hasSome: bookingServiceIds } },
+          ],
+        });
+      } else {
+        where.booking_id = bookingId;
+      }
+    }
     if (category) {
       where.category = category;
-    } else if (restrictToOperatorPayments || operatorOnly) {
+    } else if (restrictToOperatorPayments || operatorOnly || excludeOperator) {
       const operatorOr: Prisma.InvestmentWhereInput[] = [
         { category: { startsWith: "operador", mode: "insensitive" } },
         ...(operatorCategoryNames.length
           ? [{ category: { in: operatorCategoryNames } }]
           : []),
       ];
-      andFilters.push({ OR: operatorOr });
+      if (restrictToOperatorPayments || operatorOnly) {
+        andFilters.push({ OR: operatorOr });
+      } else if (excludeOperator) {
+        andFilters.push({ NOT: { OR: operatorOr } });
+      }
     }
 
     if (createdFrom || createdTo) {
@@ -694,6 +788,23 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       where.AND = andFilters;
     }
 
+    const baseWhere: Prisma.InvestmentWhereInput = {
+      id_agency: auth.id_agency,
+    };
+    if (restrictToOperatorPayments || operatorOnly || excludeOperator) {
+      const operatorOr: Prisma.InvestmentWhereInput[] = [
+        { category: { startsWith: "operador", mode: "insensitive" } },
+        ...(operatorCategoryNames.length
+          ? [{ category: { in: operatorCategoryNames } }]
+          : []),
+      ];
+      if (restrictToOperatorPayments || operatorOnly) {
+        baseWhere.AND = [{ OR: operatorOr }];
+      } else if (excludeOperator) {
+        baseWhere.AND = [{ NOT: { OR: operatorOr } }];
+      }
+    }
+
     const items = await prisma.investment.findMany({
       where,
       include: {
@@ -729,7 +840,22 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     }));
     const nextCursor = hasMore ? sliced[sliced.length - 1].id_investment : null;
 
-    return res.status(200).json({ items: normalized, nextCursor });
+    let totalCount: number | undefined;
+    let filteredCount: number | undefined;
+    if (includeCounts) {
+      [filteredCount, totalCount] = await Promise.all([
+        prisma.investment.count({ where }),
+        prisma.investment.count({ where: baseWhere }),
+      ]);
+    }
+
+    return res.status(200).json({
+      items: normalized,
+      nextCursor,
+      ...(includeCounts
+        ? { totalCount: totalCount ?? 0, filteredCount: filteredCount ?? 0 }
+        : {}),
+    });
   } catch (e: unknown) {
     console.error("[investments][GET]", e);
     return res
@@ -756,11 +882,17 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     financeGrants,
     "investments",
   );
-  const canOperatorPayments = canAccessBookingComponent(
+  const canOperatorPaymentsSection = canAccessFinanceSection(
     auth.role,
-    bookingGrants,
+    financeGrants,
     "operator_payments",
   );
+  const canOperatorPayments =
+    canAccessBookingComponent(
+      auth.role,
+      bookingGrants,
+      "operator_payments",
+    ) || canOperatorPaymentsSection;
   if (!canInvestments && !canOperatorPayments) {
     return res.status(403).json({ error: "Sin permisos" });
   }
@@ -798,7 +930,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const paid_at = b.paid_at ? toLocalDate(b.paid_at) : undefined;
-    const operator_id = Number.isFinite(Number(b.operator_id))
+    let operator_id = Number.isFinite(Number(b.operator_id))
       ? Number(b.operator_id)
       : undefined;
     const user_id = Number.isFinite(Number(b.user_id))
@@ -808,6 +940,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const booking_id = Number.isFinite(Number(b.booking_id))
       ? Number(b.booking_id)
       : undefined;
+    const booking_agency_id = Number.isFinite(Number(b.booking_agency_id))
+      ? Number(b.booking_agency_id)
+      : undefined;
+    const serviceIds = parseServiceIds(b.serviceIds);
 
     // 👇 NUEVO: método de pago / cuenta (opcionales)
     const payment_method =
@@ -830,7 +966,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         : undefined;
 
     // Reglas según categoría
-    if (categoryIsOperator && !operator_id) {
+    if (categoryIsOperator && !operator_id && serviceIds.length === 0) {
       return res
         .status(400)
         .json({
@@ -856,6 +992,92 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           .json({ error: "La reserva no existe o no pertenece a tu agencia" });
       }
       bookingIdToSave = bkg.id_booking;
+    } else if (typeof booking_agency_id === "number") {
+      const bkg = await prisma.booking.findFirst({
+        where: {
+          agency_booking_id: booking_agency_id,
+          id_agency: auth.id_agency,
+        },
+        select: { id_booking: true },
+      });
+      if (!bkg) {
+        return res
+          .status(400)
+          .json({ error: "La reserva no existe o no pertenece a tu agencia" });
+      }
+      bookingIdToSave = bkg.id_booking;
+    }
+
+    // Validar servicios asociados (si vienen)
+    if (serviceIds.length > 0) {
+      if (!categoryIsOperator) {
+        return res.status(400).json({
+          error: "Solo podés asociar servicios a pagos de operador",
+        });
+      }
+
+      const services = await getServicesByIds(auth.id_agency, serviceIds);
+      if (services.length !== serviceIds.length) {
+        return res.status(400).json({
+          error: "Algún servicio no existe o no pertenece a tu agencia",
+        });
+      }
+
+      const operatorIds = new Set(services.map((s) => s.id_operator));
+      if (operatorIds.size !== 1) {
+        return res.status(400).json({
+          error: "No podés mezclar servicios de distintos operadores",
+        });
+      }
+      const serviceOperatorId = services[0].id_operator;
+      if (operator_id && operator_id !== serviceOperatorId) {
+        return res.status(400).json({
+          error: "El operador no coincide con los servicios seleccionados",
+        });
+      }
+      if (!operator_id) operator_id = serviceOperatorId;
+
+      const currencies = new Set(
+        services.map((s) => (s.currency || "").toUpperCase()),
+      );
+      if (currencies.size !== 1) {
+        return res.status(400).json({
+          error: "No podés mezclar servicios de monedas distintas",
+        });
+      }
+      const serviceCurrency = (services[0].currency || "").toUpperCase();
+      if (currency.toUpperCase() !== serviceCurrency) {
+        return res.status(400).json({
+          error: "La moneda del pago debe coincidir con la de los servicios",
+        });
+      }
+
+      const totalCost = services.reduce(
+        (sum, s) => sum + Number(s.cost_price || 0),
+        0,
+      );
+      if (Number.isFinite(totalCost) && totalCost > amount) {
+        return res.status(400).json({
+          error:
+            "El costo total de los servicios no puede superar el monto del pago",
+        });
+      }
+
+      const bookingIds = new Set(services.map((s) => s.booking_id));
+      if (bookingIds.size === 1) {
+        const onlyBookingId = services[0].booking_id;
+        if (bookingIdToSave && bookingIdToSave !== onlyBookingId) {
+          return res.status(400).json({
+            error: "La reserva no coincide con los servicios seleccionados",
+          });
+        }
+        bookingIdToSave = onlyBookingId;
+      } else if (bookingIdToSave) {
+        return res.status(400).json({
+          error:
+            "No podés asociar servicios de múltiples reservas y fijar una reserva",
+        });
+      }
     }
 
     const created = await prisma.$transaction(async (tx) => {
@@ -878,6 +1100,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           user_id: user_id ?? null,
           created_by: auth.id_user,
           booking_id: bookingIdToSave,
+          serviceIds,
 
           // 👇 NUEVO: guardar método de pago / cuenta si vienen
           ...(payment_method ? { payment_method } : {}),

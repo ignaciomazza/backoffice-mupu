@@ -8,9 +8,16 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
-import { loadFinancePicks, type FinanceCurrency } from "@/utils/loadFinancePicks";
+import {
+  loadFinancePicks,
+  type FinanceCurrency,
+} from "@/utils/loadFinancePicks";
 import BookingPermissionsConfig from "@/components/bookings/BookingPermissionsConfig";
-import type { BillingAdjustmentConfig, Operator, PassengerCategory } from "@/types";
+import type {
+  BillingAdjustmentConfig,
+  Operator,
+  PassengerCategory,
+} from "@/types";
 
 /* =========================================================
  * Tipos DTO (según las APIs provistas)
@@ -133,7 +140,7 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`block w-full min-w-fit appearance-none rounded-3xl border border-white/30 bg-white/10 px-4 py-2 outline-none backdrop-blur placeholder:opacity-60 dark:border-white/10 dark:bg-white/10 ${props.className || ""}`}
+      className={`block w-full min-w-fit appearance-none rounded-2xl border border-sky-200 bg-white/50 px-4 py-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur placeholder:opacity-60 dark:border-sky-200/60 dark:bg-sky-100/10 ${props.className || ""}`}
     />
   );
 }
@@ -272,9 +279,9 @@ export default function BookingsConfigPage() {
     PassengerCategory[]
   >([]);
   const [operators, setOperators] = useState<Operator[]>([]);
-  const [financeCurrencies, setFinanceCurrencies] = useState<
-    FinanceCurrency[]
-  >([]);
+  const [financeCurrencies, setFinanceCurrencies] = useState<FinanceCurrency[]>(
+    [],
+  );
   const [currenciesLoading, setCurrenciesLoading] = useState(false);
   const [presets, setPresets] = useState<ServiceTypePresetLite[]>([]);
   const [presetsLoading, setPresetsLoading] = useState(false);
@@ -340,9 +347,7 @@ export default function BookingsConfigPage() {
   const currencyOptions = useMemo(() => {
     const enabled = financeCurrencies.filter((c) => c.enabled !== false);
     const base = enabled.length ? enabled : financeCurrencies;
-    return [...base].sort(
-      (a, b) => (a.sort_order || 0) - (b.sort_order || 0),
-    );
+    return [...base].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
   }, [financeCurrencies]);
 
   /* =========================================================
@@ -458,7 +463,11 @@ export default function BookingsConfigPage() {
 
     const loadOperators = async () => {
       try {
-        const res = await authFetch("/api/operators", { cache: "no-store" }, token);
+        const res = await authFetch(
+          "/api/operators",
+          { cache: "no-store" },
+          token,
+        );
         if (!res.ok) throw new Error("No se pudieron obtener operadores");
         const data = (await res.json()) as Operator[];
         if (!cancel) setOperators(data);
@@ -668,8 +677,7 @@ export default function BookingsConfigPage() {
         operator_id: preset.operator_id ?? null,
         currency: preset.currency || "ARS",
         enabled: preset.enabled !== false,
-        sort_order:
-          preset.sort_order == null ? "0" : String(preset.sort_order),
+        sort_order: preset.sort_order == null ? "0" : String(preset.sort_order),
         items,
       };
     },
@@ -852,7 +860,11 @@ export default function BookingsConfigPage() {
       const markupRaw = next.sale_markup_pct ?? "";
       const markup = Number(markupRaw);
       const cost = Number(next.cost_price);
-      if (markupRaw !== "" && Number.isFinite(markup) && Number.isFinite(cost)) {
+      if (
+        markupRaw !== "" &&
+        Number.isFinite(markup) &&
+        Number.isFinite(cost)
+      ) {
         next.sale_price = String(cost * (1 + markup / 100));
       }
       return {
@@ -1690,8 +1702,9 @@ export default function BookingsConfigPage() {
                   <div className="space-y-2">
                     {presets.map((p) => {
                       const op =
-                        operators.find((o) => o.id_operator === p.operator_id) ||
-                        null;
+                        operators.find(
+                          (o) => o.id_operator === p.operator_id,
+                        ) || null;
                       return (
                         <div
                           key={p.id_preset}

@@ -284,9 +284,9 @@ export default function ClientForm({
   /* ---------- clases dinámicas de input ---------- */
   const inputClass = (fieldName: keyof ClientFormData) => {
     const base =
-      "w-full rounded-2xl border bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10 dark:text-white";
-    const okBorder = " border-white/10 dark:border-white/10";
-    const alertBorder = " border-red-500/60 dark:border-red-500/60";
+      "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
+    const okBorder = "";
+    const alertBorder = " border-rose-500/60 dark:border-rose-500/60";
 
     if (isRequired(fieldName) && !fieldIsFilled(fieldName)) {
       return base + alertBorder;
@@ -296,9 +296,9 @@ export default function ClientForm({
 
   const customInputClass = (field: ClientCustomField) => {
     const base =
-      "w-full rounded-2xl border bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10 dark:text-white";
-    const okBorder = " border-white/10 dark:border-white/10";
-    const alertBorder = " border-red-500/60 dark:border-red-500/60";
+      "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
+    const okBorder = "";
+    const alertBorder = " border-rose-500/60 dark:border-rose-500/60";
     if (field.required && !customFieldIsFilled(field.key)) {
       return base + alertBorder;
     }

@@ -43,7 +43,8 @@ export default function ResourceCard({
   const hasDescription = description.trim().length > 0;
   const links = extractLinks(description);
   const listItems = extractListItems(description);
-  const maxChars = isExpanded ? 240 : 140;
+  const maxChars = isExpanded ? 260 : 120;
+  const cardSpacing = isExpanded ? "p-6 space-y-4" : "p-5 space-y-3";
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
@@ -60,10 +61,10 @@ export default function ResourceCard({
     <motion.div
       layout
       layoutId={`resource-${resource.id_resource}`}
-      className="group h-fit space-y-4 rounded-3xl border border-sky-200/60 bg-white/80 p-6 text-sky-950 shadow-lg shadow-sky-950/10 backdrop-blur transition hover:-translate-y-1 hover:border-sky-300/70 dark:border-white/10 dark:bg-white/5 dark:text-white"
+      className={`group h-fit overflow-hidden rounded-3xl border border-sky-200/60 bg-white/80 text-sky-950 shadow-lg shadow-sky-950/10 backdrop-blur transition hover:-translate-y-1 hover:border-sky-300/70 dark:border-white/10 dark:bg-white/5 dark:text-white ${cardSpacing}`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="space-y-2">
+        <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wide text-sky-900/60 dark:text-white/60">
             <span className="rounded-full border border-sky-200/60 bg-sky-100/80 px-2 py-1 text-[10px] font-semibold text-sky-900 dark:border-white/10 dark:bg-white/5 dark:text-white">
               Recurso
@@ -79,7 +80,9 @@ export default function ResourceCard({
               </span>
             )}
           </div>
-          <h3 className="text-lg font-semibold">{resource.title}</h3>
+          <h3 className="break-words text-lg font-semibold">
+            {resource.title}
+          </h3>
         </div>
         <button
           onClick={() =>
@@ -122,7 +125,7 @@ export default function ResourceCard({
         Creado el {formatDate(resource.createdAt)}
       </p>
 
-      <p className="whitespace-pre-wrap text-sm text-sky-900/80 dark:text-white/80">
+      <p className="whitespace-pre-wrap break-all text-sm text-sky-900/80 dark:text-white/80">
         {displayText}
       </p>
 

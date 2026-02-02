@@ -152,6 +152,76 @@ const normSoft = (s?: string | null) =>
     .trim()
     .toLowerCase();
 
+async function getOperatorCategoryNames(
+  agencyId: number,
+): Promise<string[]> {
+  const rows = await prisma.expenseCategory.findMany({
+    where: { id_agency: agencyId, requires_operator: true },
+    select: { name: true },
+  });
+  return rows.map((r) => r.name).filter((n) => typeof n === "string");
+}
+
+function buildOperatorCategorySet(names: string[]): Set<string> {
+  const set = new Set<string>();
+  for (const name of names) {
+    const n = normSoft(name);
+    if (n) set.add(n);
+  }
+  return set;
+}
+
+function isOperatorCategoryName(
+  name: string,
+  operatorCategorySet?: Set<string>,
+) {
+  const n = normSoft(name);
+  if (!n) return false;
+  if (n.startsWith("operador")) return true;
+  return operatorCategorySet ? operatorCategorySet.has(n) : false;
+}
+
+function parseServiceIds(raw: unknown): number[] {
+  const ids: number[] = [];
+  if (Array.isArray(raw)) {
+    for (const v of raw) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) ids.push(Math.trunc(n));
+    }
+  } else if (typeof raw === "string" && raw.trim()) {
+    for (const part of raw.split(",")) {
+      const n = Number(part.trim());
+      if (Number.isFinite(n) && n > 0) ids.push(Math.trunc(n));
+    }
+  }
+  return Array.from(new Set(ids));
+}
+
+type ServicePick = {
+  id_service: number;
+  booking_id: number;
+  id_operator: number;
+  currency: string;
+  cost_price: number | null;
+};
+
+async function getServicesByIds(
+  agencyId: number,
+  ids: number[],
+): Promise<ServicePick[]> {
+  if (ids.length === 0) return [];
+  return prisma.service.findMany({
+    where: { id_service: { in: ids }, id_agency: agencyId },
+    select: {
+      id_service: true,
+      booking_id: true,
+      id_operator: true,
+      currency: true,
+      cost_price: true,
+    },
+  });
+}
+
 const DOC_SIGN: Record<string, number> = { investment: -1, receipt: 1 };
 const normDoc = (s?: string | null) => (s || "").trim().toLowerCase();
 const signForDocType = (dt?: string | null) => DOC_SIGN[normDoc(dt)] ?? 1;
@@ -294,13 +364,16 @@ async function createCreditEntryForInvestment(
   return entry;
 }
 
-function shouldHaveCreditEntry(payload: {
-  category?: string | null;
-  operator_id?: number | null;
-  payment_method?: string | null;
-}) {
+function shouldHaveCreditEntry(
+  payload: {
+    category?: string | null;
+    operator_id?: number | null;
+    payment_method?: string | null;
+  },
+  operatorCategorySet?: Set<string>,
+) {
   return (
-    normSoft(payload.category) === "operador" &&
+    isOperatorCategoryName(payload.category || "", operatorCategorySet) &&
     !!payload.operator_id &&
     (payload.payment_method || "") === CREDIT_METHOD
   );
@@ -310,7 +383,15 @@ function shouldHaveCreditEntry(payload: {
 function getInvestmentLite(id_investment: number, id_agency: number) {
   return prisma.investment.findFirst({
     where: { id_investment, id_agency },
-    select: { id_investment: true, category: true, operator_id: true },
+    select: {
+      id_investment: true,
+      category: true,
+      operator_id: true,
+      amount: true,
+      currency: true,
+      booking_id: true,
+      serviceIds: true,
+    },
   });
 }
 function getInvestmentFull(id_investment: number, id_agency: number) {
@@ -350,11 +431,17 @@ export default async function handler(
     financeGrants,
     "investments",
   );
-  const canOperatorPayments = canAccessBookingComponent(
+  const canOperatorPaymentsSection = canAccessFinanceSection(
     auth.role,
-    bookingGrants,
+    financeGrants,
     "operator_payments",
   );
+  const canOperatorPayments =
+    canAccessBookingComponent(
+      auth.role,
+      bookingGrants,
+      "operator_payments",
+    ) || canOperatorPaymentsSection;
   if (!canInvestments && !canOperatorPayments) {
     return res.status(403).json({ error: "Sin permisos" });
   }
@@ -368,6 +455,13 @@ export default async function handler(
     return res.status(403).json({ error: "Plan insuficiente" });
   }
 
+  let operatorCategorySet: Set<string> | undefined;
+  const loadOperatorCategories = async () => {
+    if (operatorCategorySet) return;
+    const names = await getOperatorCategoryNames(auth.id_agency);
+    operatorCategorySet = buildOperatorCategorySet(names);
+  };
+
   const idParam = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   const id = safeNumber(idParam);
   if (!id) return res.status(400).json({ error: "ID inválido" });
@@ -377,11 +471,11 @@ export default async function handler(
       const inv = await getInvestmentFull(id, auth.id_agency);
       if (!inv)
         return res.status(404).json({ error: "Inversión no encontrada" });
-      if (
-        restrictToOperatorPayments &&
-        !normSoft(inv.category).startsWith("operador")
-      ) {
-        return res.status(403).json({ error: "Plan insuficiente" });
+      if (restrictToOperatorPayments) {
+        await loadOperatorCategories();
+        if (!isOperatorCategoryName(inv.category, operatorCategorySet)) {
+          return res.status(403).json({ error: "Plan insuficiente" });
+        }
       }
       const payload = {
         ...inv,
@@ -411,11 +505,11 @@ export default async function handler(
       const exists = await getInvestmentLite(id, auth.id_agency);
       if (!exists)
         return res.status(404).json({ error: "Inversión no encontrada" });
-      if (
-        restrictToOperatorPayments &&
-        !normSoft(exists.category).startsWith("operador")
-      ) {
-        return res.status(403).json({ error: "Plan insuficiente" });
+      if (restrictToOperatorPayments) {
+        await loadOperatorCategories();
+        if (!isOperatorCategoryName(exists.category, operatorCategorySet)) {
+          return res.status(403).json({ error: "Plan insuficiente" });
+        }
       }
 
       const b = req.body ?? {};
@@ -427,10 +521,13 @@ export default async function handler(
         typeof b.currency === "string" ? b.currency.trim() : undefined;
       const amount = safeNumber(b.amount);
 
+      if (category !== undefined || restrictToOperatorPayments) {
+        await loadOperatorCategories();
+      }
       if (
         restrictToOperatorPayments &&
         category !== undefined &&
-        !normSoft(category).startsWith("operador")
+        !isOperatorCategoryName(category, operatorCategorySet)
       ) {
         return res.status(403).json({ error: "Plan insuficiente" });
       }
@@ -469,7 +566,39 @@ export default async function handler(
           }
           booking_id = bid;
         }
+      } else if (b.booking_agency_id !== undefined) {
+        if (b.booking_agency_id === null) {
+          booking_id = null;
+        } else {
+          const bid = safeNumber(b.booking_agency_id);
+          if (!bid) {
+            return res.status(400).json({
+              error: "booking_agency_id inválido (debe ser numérico)",
+            });
+          }
+          const bkg = await prisma.booking.findFirst({
+            where: {
+              agency_booking_id: bid,
+              id_agency: auth.id_agency,
+            },
+            select: { id_booking: true },
+          });
+          if (!bkg) {
+            return res.status(400).json({
+              error: "La reserva no existe o no pertenece a tu agencia",
+            });
+          }
+          booking_id = bkg.id_booking;
+        }
       }
+
+      const hasServiceIds = Object.prototype.hasOwnProperty.call(
+        b,
+        "serviceIds",
+      );
+      const serviceIds = hasServiceIds
+        ? parseServiceIds(b.serviceIds ?? [])
+        : [];
 
       // método de pago / cuenta (acepta string o null para limpiar)
       const payment_method = normStrUpdate(b.payment_method);
@@ -497,24 +626,114 @@ export default async function handler(
       }
 
       // Reglas por categoría si se envía cambio de categoría
-      const nextCat = (category ?? "").toLowerCase();
-      if (
-        nextCat === "operador" &&
-        b.operator_id !== undefined &&
-        operator_id == null
-      ) {
+      if (b.operator_id !== undefined && !operatorCategorySet) {
+        await loadOperatorCategories();
+      }
+      const nextCategory = category ?? exists.category;
+      const nextCategoryIsOperator = isOperatorCategoryName(
+        nextCategory,
+        operatorCategorySet,
+      );
+      if (nextCategoryIsOperator && b.operator_id !== undefined && operator_id == null) {
         return res.status(400).json({
           error: "Para categoría Operador, operator_id es obligatorio",
         });
       }
       if (
-        ["sueldo", "comision"].includes(nextCat) &&
+        ["sueldo", "comision"].includes((nextCategory || "").toLowerCase()) &&
         b.user_id !== undefined &&
         user_id == null
       ) {
         return res
           .status(400)
           .json({ error: "Para Sueldo/Comision, user_id es obligatorio" });
+      }
+
+      if (!operatorCategorySet) {
+        await loadOperatorCategories();
+      }
+
+      let serviceIdsToSave: number[] | undefined;
+      if (hasServiceIds) {
+        serviceIdsToSave = serviceIds;
+        if (serviceIds.length > 0) {
+          if (!nextCategoryIsOperator) {
+            return res.status(400).json({
+              error: "Solo podés asociar servicios a pagos de operador",
+            });
+          }
+
+          const services = await getServicesByIds(auth.id_agency, serviceIds);
+          if (services.length !== serviceIds.length) {
+            return res.status(400).json({
+              error: "Algún servicio no existe o no pertenece a tu agencia",
+            });
+          }
+
+          const operatorIds = new Set(services.map((s) => s.id_operator));
+          if (operatorIds.size !== 1) {
+            return res.status(400).json({
+              error: "No podés mezclar servicios de distintos operadores",
+            });
+          }
+          const serviceOperatorId = services[0].id_operator;
+          const nextOperatorId =
+            operator_id !== undefined ? operator_id : exists.operator_id;
+          if (!nextOperatorId || nextOperatorId !== serviceOperatorId) {
+            return res.status(400).json({
+              error: "El operador no coincide con los servicios seleccionados",
+            });
+          }
+
+          const currencies = new Set(
+            services.map((s) => (s.currency || "").toUpperCase()),
+          );
+          if (currencies.size !== 1) {
+            return res.status(400).json({
+              error: "No podés mezclar servicios de monedas distintas",
+            });
+          }
+          const serviceCurrency = (services[0].currency || "").toUpperCase();
+          const nextCurrency =
+            (currency ?? exists.currency ?? "").toString().toUpperCase();
+          if (nextCurrency !== serviceCurrency) {
+            return res.status(400).json({
+              error: "La moneda del pago debe coincidir con la de los servicios",
+            });
+          }
+
+          const nextAmount =
+            amount !== undefined ? amount : Number(exists.amount);
+          const totalCost = services.reduce(
+            (sum, s) => sum + Number(s.cost_price || 0),
+            0,
+          );
+          if (Number.isFinite(totalCost) && totalCost > nextAmount) {
+            return res.status(400).json({
+              error:
+                "El costo total de los servicios no puede superar el monto del pago",
+            });
+          }
+
+          const bookingIds = new Set(services.map((s) => s.booking_id));
+          if (bookingIds.size === 1) {
+            const onlyBookingId = services[0].booking_id;
+            if (booking_id !== undefined && booking_id !== onlyBookingId) {
+              return res.status(400).json({
+                error: "La reserva no coincide con los servicios seleccionados",
+              });
+            }
+            booking_id = onlyBookingId;
+          } else {
+            if (booking_id !== undefined) {
+              return res.status(400).json({
+                error:
+                  "No podés asociar servicios de múltiples reservas y fijar una reserva",
+              });
+            }
+            booking_id = null;
+          }
+        }
       }
 
       // === TX: actualizar la inversión + (re)sincronizar cuenta de crédito si corresponde
@@ -555,6 +774,7 @@ export default async function handler(
         if (counter_amount !== undefined) data.counter_amount = counter_amount;
         if (counter_currency !== undefined)
           data.counter_currency = counter_currency || undefined;
+        if (serviceIdsToSave !== undefined) data.serviceIds = serviceIdsToSave;
 
         const after = await tx.investment.update({
           where: { id_investment: id },
@@ -584,7 +804,7 @@ export default async function handler(
             category: after.category,
             operator_id: after.operator_id,
             payment_method: after.payment_method ?? undefined,
-          })
+          }, operatorCategorySet)
         ) {
           if (!after.operator_id) {
             throw new Error(
@@ -624,11 +844,11 @@ export default async function handler(
       const exists = await getInvestmentLite(id, auth.id_agency);
       if (!exists)
         return res.status(404).json({ error: "Inversión no encontrada" });
-      if (
-        restrictToOperatorPayments &&
-        !normSoft(exists.category).startsWith("operador")
-      ) {
-        return res.status(403).json({ error: "Plan insuficiente" });
+      if (restrictToOperatorPayments) {
+        await loadOperatorCategories();
+        if (!isOperatorCategoryName(exists.category, operatorCategorySet)) {
+          return res.status(403).json({ error: "Plan insuficiente" });
+        }
       }
 
       await prisma.$transaction(async (tx) => {

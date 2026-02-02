@@ -157,7 +157,11 @@ export default function OperatorPaymentList({
         ) : (
           <>
             {items.map((it) => (
-              <OperatorPaymentCard key={it.id_investment} item={it} />
+              <OperatorPaymentCard
+                key={it.id_investment}
+                item={it}
+                token={token}
+              />
             ))}
 
             {nextCursor && (

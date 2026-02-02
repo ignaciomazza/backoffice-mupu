@@ -7,7 +7,7 @@ export const pillNeutral = "bg-white/30 dark:bg-white/10";
 export const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 
 export const inputBase =
-  "w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10 dark:text-white";
+  "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
 
 export const Section: React.FC<{
   title: string;

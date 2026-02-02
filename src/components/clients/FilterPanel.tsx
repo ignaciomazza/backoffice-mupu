@@ -21,7 +21,9 @@ interface Props {
   selectedTeamId: number; // 0 = todos, -1 = sin equipo
   setSelectedTeamId: Dispatch<SetStateAction<number>>;
   selectedGender: "" | "Masculino" | "Femenino" | "No Binario";
-  setSelectedGender: Dispatch<SetStateAction<"" | "Masculino" | "Femenino" | "No Binario">>;
+  setSelectedGender: Dispatch<
+    SetStateAction<"" | "Masculino" | "Femenino" | "No Binario">
+  >;
   searchTerm: string;
   setSearchTerm: Dispatch<SetStateAction<string>>;
   relatedClientId: number | null;
@@ -58,9 +60,9 @@ export default function FilterPanel({
     "" | "Masculino" | "Femenino" | "No Binario"
   >(selectedGender);
   const [draftSearch, setDraftSearch] = useState<string>(searchTerm);
-  const [draftRelatedClientId, setDraftRelatedClientId] = useState<number | null>(
-    relatedClientId,
-  );
+  const [draftRelatedClientId, setDraftRelatedClientId] = useState<
+    number | null
+  >(relatedClientId);
 
   // Sincronizar draft cuando cambian los commits (por navegación, montado, etc.)
   useEffect(() => {
@@ -69,7 +71,13 @@ export default function FilterPanel({
     setDraftGender(selectedGender);
     setDraftSearch(searchTerm);
     setDraftRelatedClientId(relatedClientId);
-  }, [selectedUserId, selectedTeamId, selectedGender, searchTerm, relatedClientId]);
+  }, [
+    selectedUserId,
+    selectedTeamId,
+    selectedGender,
+    searchTerm,
+    relatedClientId,
+  ]);
 
   // ===== Handlers =====
   const onTeamChange = (e: ChangeEvent<HTMLSelectElement>) => {
@@ -103,7 +111,7 @@ export default function FilterPanel({
 
   // ===== UI =====
   const inputClass =
-    "w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
+    "w-full cursor-pointer appearance-none rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 outline-none shadow-sm shadow-sky-950/10 backdrop-blur placeholder:font-light placeholder:tracking-wide dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
 
   const btn = "rounded-2xl px-4 py-2 shadow-sm border transition";
 
@@ -116,7 +124,7 @@ export default function FilterPanel({
     <div className="mb-4 flex flex-col gap-2">
       {/* Barra superior: búsqueda + toggle filtros */}
       <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="flex w-full items-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-4 py-1 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:text-white">
+        <div className="flex w-full items-center gap-2 rounded-2xl border border-sky-200 bg-white/50 px-4 py-1 text-sky-950 shadow-sm shadow-sky-950/10 backdrop-blur dark:border-sky-200/60 dark:bg-sky-100/10 dark:text-white">
           <input
             type="text"
             placeholder="Buscar pasajeros..."
@@ -247,7 +255,11 @@ export default function FilterPanel({
               value={draftGender}
               onChange={(e) =>
                 setDraftGender(
-                  e.target.value as "" | "Masculino" | "Femenino" | "No Binario",
+                  e.target.value as
+                    | ""
+                    | "Masculino"
+                    | "Femenino"
+                    | "No Binario",
                 )
               }
               className={inputClass}

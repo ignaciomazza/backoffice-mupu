@@ -1,9 +1,11 @@
 // src/app/investments/InvestmentsList.tsx
 "use client";
 
-import type { Dispatch, SetStateAction } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
+import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
+import { authFetch } from "@/utils/authFetch";
 import type { Investment, Operator } from "./types";
 
 type Counters = {
@@ -26,7 +28,11 @@ type InvestmentsListProps = {
   q: string;
   setQ: Dispatch<SetStateAction<string>>;
   fetchList: () => void | Promise<void>;
-  operatorOnly?: boolean;
+  itemLabel?: string;
+  searchPlaceholder?: string;
+  showCategoryFilter?: boolean;
+  showOperatorFilter?: boolean;
+  showOperatorMode?: boolean;
   category: string;
   setCategory: Dispatch<SetStateAction<string>>;
   currency: string;
@@ -58,16 +64,94 @@ type InvestmentsListProps = {
   loadMore: () => void | Promise<void>;
   formatDate: (s?: string | null) => string;
   onEdit: (it: Investment) => void;
+  token?: string | null;
+  showOperatorPaymentPdf?: boolean;
 };
+
+const slugify = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+
+function PaymentPdfButton({
+  token,
+  item,
+  variant = "chip",
+}: {
+  token?: string | null;
+  item: Investment;
+  variant?: "chip" | "table";
+}) {
+  const [loading, setLoading] = useState(false);
+  const paymentDisplayId = item.agency_investment_id ?? item.id_investment;
+  const operatorName = item.operator?.name || "Operador";
+
+  const downloadPDF = async () => {
+    if (!token) {
+      toast.error("Sesión expirada. Volvé a iniciar sesión.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await authFetch(
+        `/api/investments/${item.id_investment}/pdf`,
+        { headers: { Accept: "application/pdf" } },
+        token,
+      );
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Pago_Operador_${slugify(operatorName)}_${paymentDisplayId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success("Comprobante descargado exitosamente.");
+    } catch {
+      toast.error("No se pudo descargar el comprobante.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const className =
+    variant === "table"
+      ? "rounded-full bg-sky-100 px-3 py-2 text-xs font-semibold text-sky-950 shadow-sm shadow-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+      : "rounded-full bg-sky-100 px-3 py-1 text-xs text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white";
+
+  return (
+    <button
+      type="button"
+      onClick={downloadPDF}
+      disabled={loading}
+      className={className}
+      title="Descargar comprobante"
+      aria-label="Descargar comprobante"
+    >
+      {loading ? <Spinner /> : "PDF"}
+    </button>
+  );
+}
 
 function InvestmentCard({
   item,
   onEdit,
   formatDate,
+  itemLabel,
+  token,
+  showOperatorPaymentPdf,
 }: {
   item: Investment;
   onEdit: (it: Investment) => void;
   formatDate: (s?: string | null) => string;
+  itemLabel: string;
+  token?: string | null;
+  showOperatorPaymentPdf?: boolean;
 }) {
   const bookingNumber = item.booking?.agency_booking_id ?? item.booking_id;
   return (
@@ -85,12 +169,15 @@ function InvestmentCard({
           <div className="text-sm opacity-70">
             N° {item.agency_investment_id ?? item.id_investment}
           </div>
+          {showOperatorPaymentPdf && (
+            <PaymentPdfButton token={token} item={item} />
+          )}
           <button
             type="button"
             onClick={() => onEdit(item)}
             className="text-sky-700/70 transition-colors hover:text-sky-800 dark:text-white/60 dark:hover:text-white"
-            title="Editar gasto"
-            aria-label="Editar gasto seleccionado"
+            title={`Editar ${itemLabel}`}
+            aria-label={`Editar ${itemLabel} seleccionado`}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -206,10 +293,16 @@ function InvestmentsCardsList({
   items,
   onEdit,
   formatDate,
+  itemLabel,
+  token,
+  showOperatorPaymentPdf,
 }: {
   items: Investment[];
   onEdit: (it: Investment) => void;
   formatDate: (s?: string | null) => string;
+  itemLabel: string;
+  token?: string | null;
+  showOperatorPaymentPdf?: boolean;
 }) {
   return (
     <div className="space-y-3">
@@ -219,6 +312,9 @@ function InvestmentsCardsList({
           item={item}
           onEdit={onEdit}
           formatDate={formatDate}
+          itemLabel={itemLabel}
+          token={token}
+          showOperatorPaymentPdf={showOperatorPaymentPdf}
         />
       ))}
     </div>
@@ -231,7 +327,11 @@ export default function InvestmentsList({
   q,
   setQ,
   fetchList,
-  operatorOnly = false,
+  itemLabel = "gasto",
+  searchPlaceholder = "Buscar por texto, usuario u operador…",
+  showCategoryFilter = true,
+  showOperatorFilter = true,
+  showOperatorMode = true,
   category,
   setCategory,
   currency,
@@ -263,22 +363,25 @@ export default function InvestmentsList({
   loadMore,
   formatDate,
   onEdit,
+  token,
+  showOperatorPaymentPdf,
 }: InvestmentsListProps) {
+  const itemLabelPlural = itemLabel.endsWith("s") ? itemLabel : `${itemLabel}s`;
   return (
     <>
       {/* FILTROS */}
       <div className={`mb-4 ${filterPanelClass}`}>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex w-full items-center gap-2 rounded-2xl border border-white/10 bg-white/60 text-sky-950 shadow-sm shadow-sky-950/10 outline-none backdrop-blur focus-within:border-emerald-300/60 focus-within:ring-2 focus-within:ring-emerald-200/40 dark:bg-white/10 dark:text-white">
+          <div className="flex w-full items-center gap-2 rounded-2xl border border-sky-200 bg-white/50 text-sky-950 shadow-sm shadow-sky-950/10 outline-none backdrop-blur focus-within:border-emerald-300/60 focus-within:ring-2 focus-within:ring-emerald-200/40 dark:border-sky-200/60 dark:bg-sky-100/10 dark:text-white">
             <input
               className="w-full bg-transparent p-2 px-4 outline-none"
-              placeholder="Buscar por texto, usuario u operador…"
+              placeholder={searchPlaceholder}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") fetchList();
               }}
-              aria-label="Buscar gastos"
+              aria-label={`Buscar ${itemLabel}s`}
             />
             <button
               type="button"
@@ -304,7 +407,7 @@ export default function InvestmentsList({
             </button>
           </div>
 
-          {!operatorOnly && (
+          {showCategoryFilter && (
             <select
               className={filterControlClass}
               value={category}
@@ -313,7 +416,9 @@ export default function InvestmentsList({
               aria-label="Filtrar por categoría"
             >
               <option value="">
-                {categoryOptions.length ? "Categoría (todas)" : "Sin categorías"}
+                {categoryOptions.length
+                  ? "Categoría (todas)"
+                  : "Sin categorías"}
               </option>
               {categoryOptions.map((c) => (
                 <option key={c} value={c}>
@@ -374,31 +479,34 @@ export default function InvestmentsList({
             ))}
           </select>
 
-          <select
-            className={filterControlClass}
-            value={operatorFilter}
-            onChange={(e) => setOperatorFilter(Number(e.target.value))}
-            disabled={operators.length === 0}
-            aria-label="Filtrar por operador"
-          >
-            <option value={0}>
-              {operators.length ? "Operador (todos)" : "Sin operadores"}
-            </option>
-            {operators.map((o) => (
-              <option key={o.id_operator} value={o.id_operator}>
-                {o.name}
+          {showOperatorFilter && (
+            <select
+              className={filterControlClass}
+              value={operatorFilter}
+              onChange={(e) => setOperatorFilter(Number(e.target.value))}
+              disabled={operators.length === 0}
+              aria-label="Filtrar por operador"
+            >
+              <option value={0}>
+                {operators.length ? "Operador (todos)" : "Sin operadores"}
               </option>
-            ))}
-          </select>
+              {operators.map((o) => (
+                <option key={o.id_operator} value={o.id_operator}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          )}
 
-          {!operatorOnly && (
+          {showOperatorMode && (
             <div className="flex items-center rounded-2xl border border-white/10 bg-white/60 shadow-sm shadow-sky-950/10 backdrop-blur dark:bg-white/10">
               {[
                 { key: "all", label: "Todos", badge: counters.total },
                 { key: "only", label: "Operador", badge: counters.op },
                 { key: "others", label: "Otros", badge: counters.others },
               ].map((opt) => {
-                const active = operadorMode === (opt.key as typeof operadorMode);
+                const active =
+                  operadorMode === (opt.key as typeof operadorMode);
                 return (
                   <button
                     key={opt.key}
@@ -505,30 +613,14 @@ export default function InvestmentsList({
                 }).format(total)}
               </span>
             ))}
-            {Object.keys(totalsByCurrencyFiltered).length === 0 && (
-              <span className="opacity-60">
-                Sin totales para el filtro actual
-              </span>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 opacity-80">
-            <span className="opacity-70">Resumen general (lista cargada):</span>
-            {Object.entries(totalsByCurrencyAll).map(([cur, total]) => (
-              <span
-                key={`a-${cur}`}
-                className="rounded-xl border border-amber-300/60 bg-white/70 px-3 py-1 text-amber-700 dark:border-amber-400/60 dark:bg-white/10 dark:text-amber-200"
-              >
-                {cur}:{" "}
-                {new Intl.NumberFormat("es-AR", {
-                  style: "currency",
-                  currency: cur,
-                }).format(total)}
-              </span>
-            ))}
-          </div>
+          {Object.keys(totalsByCurrencyFiltered).length === 0 && (
+            <span className="opacity-60">
+              Sin totales para el filtro actual
+            </span>
+          )}
         </div>
-      )}
+      </div>
+    )}
 
       {loadingList ? (
         <div className="flex min-h-[40vh] items-center">
@@ -536,7 +628,7 @@ export default function InvestmentsList({
         </div>
       ) : filteredItems.length === 0 ? (
         <div className="rounded-3xl border border-white/10 bg-white/10 p-6 text-center text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-          No hay gastos para el filtro seleccionado.
+          No hay {itemLabelPlural} para el filtro seleccionado.
         </div>
       ) : (
         <>
@@ -600,13 +692,22 @@ export default function InvestmentsList({
                               : "-"}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => onEdit(it)}
-                            className="rounded-full bg-white/70 px-3 py-2 text-xs font-semibold text-sky-950 shadow-sm shadow-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
-                          >
-                            Editar
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            {showOperatorPaymentPdf && (
+                              <PaymentPdfButton
+                                token={token}
+                                item={it}
+                                variant="table"
+                              />
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onEdit(it)}
+                              className="rounded-full bg-white/70 px-3 py-2 text-xs font-semibold text-sky-950 shadow-sm shadow-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
+                            >
+                              Editar
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -677,6 +778,9 @@ export default function InvestmentsList({
               items={filteredItems}
               onEdit={onEdit}
               formatDate={formatDate}
+              itemLabel={itemLabel}
+              token={token}
+              showOperatorPaymentPdf={showOperatorPaymentPdf}
             />
           )}
 

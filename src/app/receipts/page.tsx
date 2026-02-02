@@ -1,7 +1,13 @@
 // src/app/receipts/page.tsx
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
 import { toast, ToastContainer } from "react-toastify";
@@ -394,10 +400,7 @@ export default function ReceiptsPage() {
         ? (r.base_currency as string | null)
         : (r.amount_currency as string | null);
 
-      const amountLabel = fmtMoney(
-        displayAmount,
-        displayCurrency || "ARS",
-      );
+      const amountLabel = fmtMoney(displayAmount, displayCurrency || "ARS");
 
       const ownerFull = r.booking?.user
         ? `${r.booking.user.first_name || ""} ${r.booking.user.last_name || ""}`.trim()
@@ -407,7 +410,9 @@ export default function ReceiptsPage() {
         : "";
 
       const hasCounter = r.counter_amount != null && r.counter_currency;
-      const counterAmount = hasCounter ? toNum(r.counter_amount) : toNum(r.amount);
+      const counterAmount = hasCounter
+        ? toNum(r.counter_amount)
+        : toNum(r.amount);
       const counterCurrency = hasCounter
         ? (r.counter_currency as string | null)
         : (r.amount_currency as string | null);
@@ -590,7 +595,9 @@ export default function ReceiptsPage() {
       const d = r.issue_date ? new Date(r.issue_date) : new Date(0);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       const existing = map.get(key);
-      const currency = String(r._displayCurrency || r.amount_currency).toUpperCase();
+      const currency = String(
+        r._displayCurrency || r.amount_currency,
+      ).toUpperCase();
       if (!existing) {
         map.set(key, {
           key,
@@ -605,9 +612,7 @@ export default function ReceiptsPage() {
       }
     }
 
-    return Array.from(map.values()).sort((a, b) =>
-      b.key.localeCompare(a.key),
-    );
+    return Array.from(map.values()).sort((a, b) => b.key.localeCompare(a.key));
   }, [displayRows]);
 
   /* ---------- KPIs ---------- */
@@ -1039,9 +1044,7 @@ export default function ReceiptsPage() {
   useEffect(() => {
     if (!attachOpen) return;
     if (attachTarget?.booking?.id_booking) return; // booking bloqueada si ya tiene
-    const term = attachBookingQuery
-      .trim()
-      .replace(/^(#|n[°º]?\s*)/i, "");
+    const term = attachBookingQuery.trim().replace(/^(#|n[°º]?\s*)/i, "");
     if (!term) {
       setAttachBookingOpts([]);
       return;
@@ -1249,11 +1252,9 @@ export default function ReceiptsPage() {
     const iconClass = variant === "compact" ? "size-4" : "size-4";
     const tonePdf =
       "text-emerald-700 hover:text-emerald-800 dark:text-emerald-200";
-    const toneEdit =
-      "text-amber-700 hover:text-amber-800 dark:text-amber-200";
+    const toneEdit = "text-amber-700 hover:text-amber-800 dark:text-amber-200";
     const toneDelete = "text-rose-700 hover:text-rose-800 dark:text-rose-200";
-    const toneAttach =
-      "text-sky-700 hover:text-sky-800 dark:text-sky-200";
+    const toneAttach = "text-sky-700 hover:text-sky-800 dark:text-sky-200";
 
     return (
       <div className="flex flex-wrap items-center gap-2">
@@ -1333,7 +1334,9 @@ export default function ReceiptsPage() {
           isFormVisible={formVisible}
           setIsFormVisible={setFormVisible}
           initialConcept={editingReceipt?.concept ?? ""}
-          initialAmount={editingReceipt ? toNum(editingReceipt.amount) : undefined}
+          initialAmount={
+            editingReceipt ? toNum(editingReceipt.amount) : undefined
+          }
           initialCurrency={editingReceipt?.amount_currency ?? undefined}
           initialAmountWords={editingReceipt?.amount_string ?? ""}
           initialAmountWordsCurrency={
@@ -1397,7 +1400,9 @@ export default function ReceiptsPage() {
 
             if (!res.ok) {
               let msg = "No se pudo crear el recibo.";
-              if (typeof (json as { error?: string } | null)?.error === "string")
+              if (
+                typeof (json as { error?: string } | null)?.error === "string"
+              )
                 msg = (json as { error: string }).error;
               throw new Error(msg);
             }
@@ -1756,8 +1761,7 @@ export default function ReceiptsPage() {
                       const associationClass = isUnlinked
                         ? ASSOCIATION_BADGE.unlinked
                         : ASSOCIATION_BADGE.linked;
-                      const methodLabel =
-                        r.payment_method || r.currency || "—";
+                      const methodLabel = r.payment_method || r.currency || "—";
 
                       return (
                         <tr
@@ -1770,7 +1774,7 @@ export default function ReceiptsPage() {
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
                               <span className="font-semibold">
-                              N° {getReceiptDisplayNumber(r)}
+                                N° {getReceiptDisplayNumber(r)}
                               </span>
                               <button
                                 className={BADGE}
@@ -1823,9 +1827,7 @@ export default function ReceiptsPage() {
                               <span className={`${BADGE} ${statusClass}`}>
                                 {statusLabel}
                               </span>
-                              <span
-                                className={`${BADGE} ${associationClass}`}
-                              >
+                              <span className={`${BADGE} ${associationClass}`}>
                                 {associationLabel}
                               </span>
                             </div>
@@ -2002,8 +2004,7 @@ export default function ReceiptsPage() {
                               <div className="mt-0.5 text-[11px] opacity-75">
                                 {r._clientTotalLabel !== "—" && (
                                   <>
-                                    Pax pagó:{" "}
-                                    <b>{r._clientTotalLabel}</b>
+                                    Pax pagó: <b>{r._clientTotalLabel}</b>
                                   </>
                                 )}
                                 {r._feeLabel !== "—" && (
@@ -2125,9 +2126,7 @@ export default function ReceiptsPage() {
                 <div>
                   <h3 className="text-lg font-semibold">
                     Asociar recibo N°{" "}
-                    {attachTarget
-                      ? getReceiptDisplayNumber(attachTarget)
-                      : ""}
+                    {attachTarget ? getReceiptDisplayNumber(attachTarget) : ""}
                   </h3>
                   <p className="text-xs opacity-70">
                     Elegí una reserva y marcá los servicios a vincular.
@@ -2146,7 +2145,8 @@ export default function ReceiptsPage() {
                 <div className="mb-3 text-sm">
                   Reserva:{" "}
                   <span className="rounded-full bg-white/10 px-2 py-1">
-                    N° {attachTarget.booking.agency_booking_id ??
+                    N°{" "}
+                    {attachTarget.booking.agency_booking_id ??
                       attachTarget.booking.id_booking}{" "}
                     (bloqueada)
                   </span>
@@ -2285,7 +2285,7 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`block w-full min-w-fit appearance-none rounded-3xl border border-white/30 bg-white/10 px-4 py-2 outline-none backdrop-blur placeholder:opacity-60 dark:border-white/10 dark:bg-white/10 ${
+      className={`block w-full min-w-fit appearance-none rounded-2xl border border-sky-200 bg-white/50 px-4 py-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur placeholder:opacity-60 dark:border-sky-200/60 dark:bg-sky-100/10 ${
         props.className || ""
       }`}
     />

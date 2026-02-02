@@ -36,6 +36,7 @@ export const PLAN_FEATURE_MIN: Record<PlanFeatureKey, PlanKey> = {
 };
 
 const PLAN_ROUTE_FEATURES: Array<{ prefix: string; feature: PlanFeatureKey }> = [
+  { prefix: "/operators/panel", feature: "operators_insights" },
   { prefix: "/operators/insights", feature: "operators_insights" },
   { prefix: "/receipts/verify", feature: "receipts_verify" },
   { prefix: "/earnings/my", feature: "earnings" },

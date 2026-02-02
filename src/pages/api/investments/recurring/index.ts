@@ -120,6 +120,42 @@ function safeNumber(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+const normSoft = (s?: string | null) =>
+  (s || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim()
+    .toLowerCase();
+
+async function getOperatorCategoryNames(
+  agencyId: number,
+): Promise<string[]> {
+  const rows = await prisma.expenseCategory.findMany({
+    where: { id_agency: agencyId, requires_operator: true },
+    select: { name: true },
+  });
+  return rows.map((r) => r.name).filter((n) => typeof n === "string");
+}
+
+function buildOperatorCategorySet(names: string[]): Set<string> {
+  const set = new Set<string>();
+  for (const name of names) {
+    const n = normSoft(name);
+    if (n) set.add(n);
+  }
+  return set;
+}
+
+function isOperatorCategoryName(
+  name: string,
+  operatorCategorySet?: Set<string>,
+) {
+  const n = normSoft(name);
+  if (!n) return false;
+  if (n.startsWith("operador")) return true;
+  return operatorCategorySet ? operatorCategorySet.has(n) : false;
+}
+
 function parseDayOfMonth(v: unknown): number | undefined {
   const n = safeNumber(v);
   if (!n) return undefined;
@@ -261,7 +297,16 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         ? b.counter_currency.toUpperCase()
         : undefined;
 
-    if (category.toLowerCase() === "operador" && !operator_id) {
+    const operatorCategoryNames = await getOperatorCategoryNames(auth.id_agency);
+    const operatorCategorySet = buildOperatorCategorySet(
+      operatorCategoryNames,
+    );
+    const categoryIsOperator = isOperatorCategoryName(
+      category,
+      operatorCategorySet,
+    );
+
+    if (categoryIsOperator && !operator_id) {
       return res
         .status(400)
         .json({ error: "Para categoría Operador, operator_id es obligatorio" });

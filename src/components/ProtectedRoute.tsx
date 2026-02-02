@@ -27,6 +27,9 @@ const FINANCE_ROUTE_MATCHERS = [...FINANCE_SECTIONS]
   .sort((a, b) => b.route.length - a.route.length);
 
 function matchFinanceSection(pathname: string): FinanceSectionKey | null {
+  if (pathname === "/operators/insights" || pathname.startsWith("/operators/insights/")) {
+    return "operators_insights";
+  }
   for (const { key, route } of FINANCE_ROUTE_MATCHERS) {
     if (pathname === route || pathname.startsWith(`${route}/`)) {
       return key;
@@ -216,10 +219,7 @@ export default function ProtectedRoute({
       let allowedRoles: string[] = [];
       if (/^\/(teams|agency|arca)(\/|$)/.test(pathname)) {
         allowedRoles = ["desarrollador", "gerente"];
-      } else if (
-        /^\/operators(\/|$)/.test(pathname) &&
-        !pathname.startsWith("/operators/insights")
-      ) {
+      } else if (pathname === "/operators") {
         allowedRoles = ["desarrollador", "administrativo", "gerente"];
       }
       dlog("route guard", {

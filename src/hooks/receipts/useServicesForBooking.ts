@@ -4,12 +4,12 @@
 import { useEffect, useState } from "react";
 import type { ServiceLite } from "@/types/receipts";
 
-export function useServicesForBooking(args: {
+export function useServicesForBooking<T = ServiceLite>(args: {
   bookingId: number | null;
-  loadServicesForBooking?: (bookingId: number) => Promise<ServiceLite[]>;
+  loadServicesForBooking?: (bookingId: number) => Promise<T[]>;
 }) {
   const { bookingId, loadServicesForBooking } = args;
-  const [services, setServices] = useState<ServiceLite[]>([]);
+  const [services, setServices] = useState<T[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {

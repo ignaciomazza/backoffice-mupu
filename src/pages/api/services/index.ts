@@ -44,7 +44,63 @@ export default async function handler(
   res: NextApiResponse,
 ) {
   if (req.method === "GET") {
-    const { bookingId } = req.query;
+    const { bookingId, ids } = req.query;
+
+    const idsParam = Array.isArray(ids) ? ids[0] : ids;
+    if (idsParam) {
+      const parsed = idsParam
+        .split(",")
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isFinite(n) && n > 0)
+        .map((n) => Math.trunc(n));
+      const uniqueIds = Array.from(new Set(parsed));
+      if (uniqueIds.length === 0) {
+        return res.status(400).json({ error: "ids inválidos" });
+      }
+
+      try {
+        const auth = await resolveAuth(req);
+        if (!auth) return res.status(401).json({ error: "Unauthorized" });
+
+        const services = await prisma.service.findMany({
+          where: { id_service: { in: uniqueIds }, id_agency: auth.id_agency },
+          select: {
+            id_service: true,
+            agency_service_id: true,
+            booking_id: true,
+            id_operator: true,
+            currency: true,
+            cost_price: true,
+            type: true,
+            destination: true,
+            booking: {
+              select: {
+                id_booking: true,
+                agency_booking_id: true,
+                id_user: true,
+              },
+            },
+            operator: {
+              select: { id_operator: true, name: true },
+            },
+          },
+        });
+
+        for (const svc of services) {
+          const ownerId = svc.booking?.id_user;
+          if (ownerId && !(await canAccessBooking(auth, ownerId))) {
+            return res.status(403).json({ error: "No autorizado." });
+          }
+        }
+
+        return res.status(200).json({ services, total: services.length });
+      } catch (error) {
+        console.error("Error al obtener servicios por ids:", error);
+        return res
+          .status(500)
+          .json({ error: "Error al obtener servicios." });
+      }
+    }
 
     if (!bookingId || Array.isArray(bookingId)) {
       return res.status(400).json({ error: "N° de reserva inválido" });

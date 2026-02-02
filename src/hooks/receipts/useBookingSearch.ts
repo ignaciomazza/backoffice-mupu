@@ -44,7 +44,7 @@ export function useBookingSearch(args: {
     return async (q: string) => {
       try {
         const res = await authFetch(
-          `/api/bookings/search?q=${encodeURIComponent(q)}`,
+          `/api/bookings?q=${encodeURIComponent(q)}&take=20`,
           { cache: "no-store" },
           token || undefined,
         );

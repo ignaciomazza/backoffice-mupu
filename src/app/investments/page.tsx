@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
@@ -10,6 +11,7 @@ import "react-toastify/dist/ReactToastify.css";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import InvestmentsForm from "./InvestmentsForm";
 import InvestmentsList from "./InvestmentsList";
+import OperatorPaymentServicesSection from "@/components/investments/OperatorPaymentServicesSection";
 import type { PlanKey } from "@/lib/billing/pricing";
 import type {
   Investment,
@@ -28,6 +30,9 @@ const norm = (s: string) =>
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+
+const isOperatorCategoryLegacy = (name: string) =>
+  norm(name).startsWith("operador");
 
 const uniqSorted = (arr: string[]) => {
   const seen = new Map<string, string>();
@@ -96,6 +101,21 @@ const CREDIT_METHOD = "Crédito operador";
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
 
+const getBool = (
+  o: Record<string, unknown>,
+  k: string,
+): boolean | undefined => {
+  const v = o[k];
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "true") return true;
+    if (s === "false") return false;
+  }
+  if (typeof v === "number") return v !== 0;
+  return undefined;
+};
+
 function parseCategories(raw: unknown): FinanceCategory[] {
   const arr: unknown[] = Array.isArray(raw)
     ? raw
@@ -134,14 +154,39 @@ function parseCategories(raw: unknown): FinanceCategory[] {
           ? ((el as Record<string, unknown>).is_enabled as boolean)
           : true;
 
-    if (id && name) out.push({ id_category: id, name, enabled });
+    const requires_operator =
+      getBool(el as Record<string, unknown>, "requires_operator") ??
+      getBool(el as Record<string, unknown>, "needs_operator") ??
+      getBool(el as Record<string, unknown>, "requiresOperator") ??
+      false;
+    const requires_user =
+      getBool(el as Record<string, unknown>, "requires_user") ??
+      getBool(el as Record<string, unknown>, "needs_user") ??
+      getBool(el as Record<string, unknown>, "requiresUser") ??
+      false;
+
+    if (id && name)
+      out.push({ id_category: id, name, enabled, requires_operator, requires_user });
   }
   return out;
 }
 
-type ListResponse = { items: Investment[]; nextCursor: number | null };
+type ListResponse = {
+  items: Investment[];
+  nextCursor: number | null;
+  totalCount?: number;
+  filteredCount?: number;
+};
 type ApiError = { error?: string; message?: string };
 type PlanApiResponse = { has_plan?: boolean; plan_key?: PlanKey | null };
+type ServiceSelectionSummary = {
+  serviceIds: number[];
+  totalCost: number;
+  operatorId: number | null;
+  currency: string | null;
+  bookingIds: number[];
+  services?: unknown[];
+};
 
 /* ===== Finance config ===== */
 type FinanceAccount = { id_account: number; name: string; enabled: boolean };
@@ -152,7 +197,13 @@ type FinanceMethod = {
   requires_account?: boolean | null;
 };
 type FinanceCurrency = { code: string; name: string; enabled: boolean };
-type FinanceCategory = { id_category: number; name: string; enabled: boolean };
+type FinanceCategory = {
+  id_category: number;
+  name: string;
+  enabled: boolean;
+  requires_operator?: boolean;
+  requires_user?: boolean;
+};
 
 type FinanceConfig = {
   accounts: FinanceAccount[];
@@ -184,6 +235,9 @@ export default function Page() {
   const [hasPlan, setHasPlan] = useState(false);
   const [planKey, setPlanKey] = useState<PlanKey | null>(null);
 
+  const pathname = usePathname() || "";
+  const operatorOnly = pathname.startsWith("/operators/payments");
+
   // ------- UI / form state -------
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -201,6 +255,11 @@ export default function Page() {
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const [listCounts, setListCounts] = useState<{
+    total: number | null;
+    filtered: number | null;
+  }>({ total: null, filtered: null });
 
   // gastos automáticos
   const [recurring, setRecurring] = useState<RecurringInvestment[]>([]);
@@ -224,12 +283,15 @@ export default function Page() {
     "cards",
   );
 
+  const itemLabel = operatorOnly ? "pago" : "gasto";
+  const itemLabelCap = operatorOnly ? "Pago" : "Gasto";
+
   // Filtro local: Operador / Otros / Todos
   const [operadorMode, setOperadorMode] = useState<"all" | "only" | "others">(
-    "all",
+    operatorOnly ? "only" : "others",
   );
 
-  const operatorOnly = hasPlan && planKey === "basico";
+  const planRestrictOperatorOnly = hasPlan && planKey === "basico";
 
   // form (sin defaults duros)
   const [form, setForm] = useState<InvestmentFormState>({
@@ -238,6 +300,7 @@ export default function Page() {
     amount: "",
     currency: "",
     paid_at: "",
+    booking_number: "",
     user_id: null,
     operator_id: null,
     paid_today: false,
@@ -253,6 +316,51 @@ export default function Page() {
 
     use_credit: false,
   });
+
+  const [associateServices, setAssociateServices] = useState(false);
+  const [serviceResetKey, setServiceResetKey] = useState(0);
+  const [initialServiceIds, setInitialServiceIds] = useState<number[]>([]);
+  const [serviceSelection, setServiceSelection] =
+    useState<ServiceSelectionSummary>({
+      serviceIds: [],
+      totalCost: 0,
+      operatorId: null,
+      currency: null,
+      bookingIds: [],
+    });
+
+  const clearServiceSelection = useCallback(() => {
+    setInitialServiceIds([]);
+    setServiceSelection({
+      serviceIds: [],
+      totalCost: 0,
+      operatorId: null,
+      currency: null,
+      bookingIds: [],
+    });
+    setServiceResetKey((k) => k + 1);
+  }, []);
+
+  const handleToggleAssociateServices = useCallback(
+    (next: boolean) => {
+      if (!next && serviceSelection.serviceIds.length > 0) {
+        const ok = confirm(
+          "Se van a desvincular los servicios seleccionados. ¿Continuar?",
+        );
+        if (!ok) return;
+      }
+      setAssociateServices(next);
+      if (!next) clearServiceSelection();
+    },
+    [serviceSelection.serviceIds.length, clearServiceSelection],
+  );
+
+  const handleServiceSelectionChange = useCallback(
+    (summary: ServiceSelectionSummary) => {
+      setServiceSelection(summary);
+    },
+    [],
+  );
 
   const [recurringForm, setRecurringForm] = useState<RecurringFormState>({
     category: "",
@@ -347,17 +455,39 @@ export default function Page() {
     [token, fetchLinkedCreditIds],
   );
 
+  const operatorCategorySet = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of finance?.categories || []) {
+      if (c.requires_operator) {
+        const n = norm(c.name);
+        if (n) set.add(n);
+      }
+    }
+    return set;
+  }, [finance?.categories]);
+
+  const isOperatorCategory = useCallback(
+    (name?: string | null) => {
+      const n = norm(name || "");
+      if (!n) return false;
+      if (n.startsWith("operador")) return true;
+      return operatorCategorySet.has(n);
+    },
+    [operatorCategorySet],
+  );
+
   const createCreditEntryForInvestment = useCallback(
     async (inv: Investment) => {
       if (!token) return;
-      if (norm(inv.category) !== "operador" || !inv.operator_id) return;
+      if (!isOperatorCategory(inv.category) || !inv.operator_id) return;
 
       const payload = {
         subject_type: "OPERATOR",
         operator_id: Number(inv.operator_id),
         currency: (inv.currency || "").toUpperCase(),
         amount: Math.abs(Number(inv.amount || 0)), // la API aplica el signo por doc_type
-        concept: inv.description || `Gasto Operador N° ${inv.id_investment}`,
+        concept:
+          inv.description || `${itemLabelCap} Operador N° ${inv.id_investment}`,
         doc_type: "investment",
         investment_id: inv.id_investment,
         value_date: inv.paid_at ? inv.paid_at.slice(0, 10) : undefined,
@@ -370,7 +500,7 @@ export default function Page() {
         token,
       );
     },
-    [token],
+    [token, isOperatorCategory, itemLabelCap],
   );
 
   const syncCreditEntry = useCallback(
@@ -396,6 +526,7 @@ export default function Page() {
       amount: "",
       currency: "",
       paid_at: "",
+      booking_number: "",
       user_id: null,
       operator_id: null,
       paid_today: false,
@@ -411,6 +542,8 @@ export default function Page() {
 
       use_credit: false,
     });
+    setAssociateServices(false);
+    clearServiceSelection();
     setEditingId(null);
   }
 
@@ -448,6 +581,12 @@ export default function Page() {
       amount: String(inv.amount ?? ""),
       currency: (inv.currency ?? "").toUpperCase(),
       paid_at: inv.paid_at ? inv.paid_at.slice(0, 10) : "",
+      booking_number:
+        inv.booking?.agency_booking_id != null
+          ? String(inv.booking.agency_booking_id)
+          : inv.booking_id != null
+            ? String(inv.booking_id)
+            : "",
       user_id: inv.user_id ?? null,
       operator_id: inv.operator_id ?? null,
       paid_today: false,
@@ -468,6 +607,24 @@ export default function Page() {
 
       use_credit: false, // no agregar crédito automáticamente al editar salvo que el usuario tildé
     });
+    if (operatorOnly) {
+      const currentServiceIds = Array.isArray(inv.serviceIds)
+        ? inv.serviceIds
+        : [];
+      setAssociateServices(currentServiceIds.length > 0);
+      setInitialServiceIds(currentServiceIds);
+      setServiceSelection({
+        serviceIds: [],
+        totalCost: 0,
+        operatorId: null,
+        currency: null,
+        bookingIds: [],
+      });
+      setServiceResetKey((k) => k + 1);
+    } else {
+      setAssociateServices(false);
+      clearServiceSelection();
+    }
     setEditingId(inv.id_investment);
     setIsFormOpen(true);
     if (typeof window !== "undefined") {
@@ -503,7 +660,7 @@ export default function Page() {
       counter_currency: (rule.counter_currency ?? "").toUpperCase(),
 
       use_credit:
-        norm(rule.category) === "operador" &&
+        isOperatorCategory(rule.category) &&
         rule.payment_method === CREDIT_METHOD,
     });
     setRecurringEditingId(rule.id_recurring);
@@ -532,11 +689,11 @@ export default function Page() {
       );
       if (!res.ok) {
         const body = (await safeJson<ApiError>(res)) ?? {};
-        throw new Error(body.error || "No se pudo eliminar el gasto");
+        throw new Error(body.error || `No se pudo eliminar el ${itemLabel}`);
       }
 
       setItems((prev) => prev.filter((i) => i.id_investment !== editingId));
-      toast.success("Gasto eliminado");
+      toast.success(`${itemLabelCap} eliminado`);
       resetForm();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al eliminar");
@@ -765,23 +922,35 @@ export default function Page() {
   const reqIdRef = useRef(0);
 
   const buildQuery = useCallback(
-    (cursor?: number | null) => {
+    (cursor?: number | null, opts?: { includeCounts?: boolean }) => {
       const qs = new URLSearchParams();
       if (debouncedQ.trim()) qs.append("q", debouncedQ.trim());
       if (category) qs.append("category", category);
       if (currency) qs.append("currency", currency);
       if (paymentMethodFilter) qs.append("payment_method", paymentMethodFilter);
       if (accountFilter) qs.append("account", accountFilter);
+      if (operatorFilter) qs.append("operatorId", String(operatorFilter));
+      if (operatorOnly) qs.append("operatorOnly", "1");
+      else qs.append("excludeOperator", "1");
       qs.append("take", "24");
+      if (opts?.includeCounts) qs.append("includeCounts", "1");
       if (cursor != null) qs.append("cursor", String(cursor));
       return qs.toString();
     },
-    [debouncedQ, category, currency, paymentMethodFilter, accountFilter],
+    [
+      debouncedQ,
+      category,
+      currency,
+      paymentMethodFilter,
+      accountFilter,
+      operatorFilter,
+      operatorOnly,
+    ],
   );
 
   const fetchRecurring = useCallback(async () => {
     if (!token) return;
-    if (operatorOnly) {
+    if (operatorOnly || planRestrictOperatorOnly) {
       setRecurring([]);
       setLoadingRecurring(false);
       return;
@@ -802,11 +971,12 @@ export default function Page() {
     } finally {
       setLoadingRecurring(false);
     }
-  }, [token, operatorOnly]);
+  }, [token, operatorOnly, planRestrictOperatorOnly]);
 
   const fetchList = useCallback(async () => {
     if (!token) return;
     setLoadingList(true);
+    setListError(null);
 
     listAbortRef.current?.abort();
     const controller = new AbortController();
@@ -815,11 +985,26 @@ export default function Page() {
 
     try {
       const res = await authFetch(
-        `/api/investments?${buildQuery()}`,
+        `/api/investments?${buildQuery(null, { includeCounts: true })}`,
         { cache: "no-store", signal: controller.signal },
         token,
       );
-      if (!res.ok) throw new Error("No se pudo obtener la lista");
+      if (!res.ok) {
+        const body = (await safeJson<ApiError>(res)) ?? {};
+        if (res.status === 403) {
+          const msg = operatorOnly
+            ? body.error || "No tenés permisos para ver pagos a operadores."
+            : body.error ||
+              "Tu plan o permisos no permiten ver inversiones. Usá Operadores > Pagos.";
+          if (myId !== reqIdRef.current) return;
+          setListError(msg);
+          setItems([]);
+          setNextCursor(null);
+          setListCounts({ total: null, filtered: null });
+          return;
+        }
+        throw new Error(body.error || "No se pudo obtener la lista");
+      }
       const data = (await safeJson<ListResponse>(res)) ?? {
         items: [],
         nextCursor: null,
@@ -827,16 +1012,23 @@ export default function Page() {
       if (myId !== reqIdRef.current) return;
       setItems(data.items);
       setNextCursor(data.nextCursor ?? null);
+      if (data.totalCount != null || data.filteredCount != null) {
+        setListCounts({
+          total: data.totalCount ?? 0,
+          filtered: data.filteredCount ?? 0,
+        });
+      }
     } catch (e) {
       if ((e as { name?: string }).name === "AbortError") return;
       console.error(e);
-      toast.error("Error cargando gastos");
+      toast.error(`Error cargando ${itemLabel}s`);
       setItems([]);
       setNextCursor(null);
+      setListCounts({ total: null, filtered: null });
     } finally {
       if (!controller.signal.aborted) setLoadingList(false);
     }
-  }, [buildQuery, token]);
+  }, [buildQuery, token, operatorOnly, itemLabel]);
 
   useEffect(() => {
     fetchList();
@@ -871,26 +1063,48 @@ export default function Page() {
   }, [token, nextCursor, loadingMore, buildQuery]);
 
   /* ========= Opciones desde Finance (sin fallbacks) ========= */
-  const baseCategoryOptions = useMemo(() => {
-    const raw =
-      finance?.categories?.filter((c) => c.enabled).map((c) => c.name) ?? [];
-    return uniqSorted(raw);
-  }, [finance?.categories]);
+  const enabledCategories = useMemo(
+    () => finance?.categories?.filter((c) => c.enabled) ?? [],
+    [finance?.categories],
+  );
+
+  const baseCategoryOptions = useMemo(
+    () => uniqSorted(enabledCategories.map((c) => c.name)),
+    [enabledCategories],
+  );
+
+  const operatorCategoryOptions = useMemo(() => {
+    const raw = enabledCategories
+      .filter(
+        (c) => c.requires_operator === true || isOperatorCategoryLegacy(c.name),
+      )
+      .map((c) => c.name);
+    const uniq = uniqSorted(raw);
+    if (uniq.length) return uniq;
+    const legacy = baseCategoryOptions.filter((c) =>
+      isOperatorCategoryLegacy(c),
+    );
+    return legacy.length ? uniqSorted(legacy) : ["Operador"];
+  }, [enabledCategories, baseCategoryOptions]);
 
   const operatorCategory = useMemo(() => {
-    const match = baseCategoryOptions.find((c) =>
-      norm(c).startsWith("operador"),
+    const match = operatorCategoryOptions.find((c) =>
+      isOperatorCategoryLegacy(c),
     );
-    return match || "Operador";
-  }, [baseCategoryOptions]);
+    return match || operatorCategoryOptions[0] || "Operador";
+  }, [operatorCategoryOptions]);
 
-  const categoryOptions = useMemo(() => {
-    if (!operatorOnly) return baseCategoryOptions;
-    const ops = baseCategoryOptions.filter((c) =>
-      norm(c).startsWith("operador"),
-    );
-    return ops.length ? ops : [operatorCategory];
-  }, [baseCategoryOptions, operatorCategory, operatorOnly]);
+  const nonOperatorCategoryOptions = useMemo(() => {
+    const raw = enabledCategories
+      .filter((c) => !isOperatorCategory(c.name))
+      .map((c) => c.name);
+    return uniqSorted(raw);
+  }, [enabledCategories, isOperatorCategory]);
+
+  const categoryOptions = useMemo(
+    () => (operatorOnly ? operatorCategoryOptions : nonOperatorCategoryOptions),
+    [operatorOnly, operatorCategoryOptions, nonOperatorCategoryOptions],
+  );
 
   const paymentMethodOptions = useMemo(
     () =>
@@ -903,19 +1117,56 @@ export default function Page() {
 
   // Si está activo "usar crédito" en categoría Operador, inyectamos el método virtual
   const uiPaymentMethodOptions = useMemo(() => {
-    const needCredit = norm(form.category) === "operador" && form.use_credit;
+    const needCredit = isOperatorCategory(form.category) && form.use_credit;
     return needCredit
       ? uniqSorted([...paymentMethodOptions, CREDIT_METHOD])
       : paymentMethodOptions;
-  }, [paymentMethodOptions, form.use_credit, form.category]);
+  }, [paymentMethodOptions, form.use_credit, form.category, isOperatorCategory]);
 
   const recurringPaymentMethodOptions = useMemo(() => {
     const needCredit =
-      norm(recurringForm.category) === "operador" && recurringForm.use_credit;
+      isOperatorCategory(recurringForm.category) && recurringForm.use_credit;
     return needCredit
       ? uniqSorted([...paymentMethodOptions, CREDIT_METHOD])
       : paymentMethodOptions;
-  }, [paymentMethodOptions, recurringForm.use_credit, recurringForm.category]);
+  }, [
+    paymentMethodOptions,
+    recurringForm.use_credit,
+    recurringForm.category,
+    isOperatorCategory,
+  ]);
+
+  useEffect(() => {
+    if (!operatorOnly || !associateServices) return;
+    if (
+      serviceSelection.operatorId &&
+      form.operator_id !== serviceSelection.operatorId
+    ) {
+      setForm((f) => ({ ...f, operator_id: serviceSelection.operatorId }));
+    }
+  }, [
+    operatorOnly,
+    associateServices,
+    serviceSelection.operatorId,
+    form.operator_id,
+    setForm,
+  ]);
+
+  useEffect(() => {
+    if (!operatorOnly || !associateServices) return;
+    if (
+      serviceSelection.currency &&
+      form.currency !== serviceSelection.currency
+    ) {
+      setForm((f) => ({ ...f, currency: serviceSelection.currency || "" }));
+    }
+  }, [
+    operatorOnly,
+    associateServices,
+    serviceSelection.currency,
+    form.currency,
+    setForm,
+  ]);
 
   const requiresAccountMap = useMemo(() => {
     const map = new Map<string, boolean>();
@@ -1016,12 +1267,13 @@ export default function Page() {
       toast.error("Completá categoría, descripción y moneda");
       return;
     }
-    if (categoryLower === "operador" && !form.operator_id) {
-      toast.error("Para la categoría OPERADOR, seleccioná un operador");
+    if (isOperatorCategory(form.category) && !form.operator_id) {
+      toast.error(
+        "Para categorías vinculadas a operador, seleccioná un operador",
+      );
       return;
     }
-    const payingWithCredit =
-      norm(form.category) === "operador" && form.use_credit;
+    const payingWithCredit = isOperatorCategory(form.category) && form.use_credit;
 
     if (!form.payment_method && !payingWithCredit) {
       toast.error("Seleccioná el método de pago");
@@ -1051,6 +1303,38 @@ export default function Page() {
         ? new Date().toISOString().slice(0, 10)
         : form.paid_at || undefined;
 
+    const allowBookingLink = !operatorOnly;
+    const bookingRaw = allowBookingLink ? form.booking_number.trim() : "";
+    let bookingAgencyId: number | null = null;
+    if (bookingRaw) {
+      const num = Number(bookingRaw);
+      if (!Number.isFinite(num) || num <= 0) {
+        toast.error("Ingresá un N° de reserva válido");
+        return;
+      }
+      bookingAgencyId = num;
+    }
+
+    const shouldAssociateServices = operatorOnly && associateServices;
+    if (shouldAssociateServices) {
+      if (serviceSelection.serviceIds.length === 0) {
+        toast.error("Seleccioná al menos un servicio o desactivá la asociación.");
+        return;
+      }
+      if (serviceSelection.totalCost > amountNum) {
+        toast.error(
+          "El costo total de los servicios no puede superar el monto del pago.",
+        );
+        return;
+      }
+      if (serviceSelection.bookingIds.length > 1 && bookingAgencyId) {
+        toast.error(
+          "No podés fijar una reserva si asociás servicios de múltiples reservas.",
+        );
+        return;
+      }
+    }
+
     const payload: Record<string, unknown> = {
       category: form.category,
       description: form.description,
@@ -1066,6 +1350,20 @@ export default function Page() {
           ? form.account
           : undefined,
     };
+
+    if (editingId && !bookingRaw && !shouldAssociateServices) {
+      payload.booking_id = null;
+    } else if (bookingAgencyId) {
+      payload.booking_agency_id = bookingAgencyId;
+    }
+
+    if (operatorOnly) {
+      if (shouldAssociateServices) {
+        payload.serviceIds = serviceSelection.serviceIds;
+      } else if (editingId) {
+        payload.serviceIds = [];
+      }
+    }
 
     if (form.use_conversion) {
       const bAmt = Number(form.base_amount);
@@ -1090,7 +1388,7 @@ export default function Page() {
         );
         if (!res.ok) {
           const body = (await safeJson<ApiError>(res)) ?? {};
-          throw new Error(body.error || "No se pudo crear el gasto");
+          throw new Error(body.error || `No se pudo crear el ${itemLabel}`);
         }
         created = await safeJson<Investment>(res);
         if (created) {
@@ -1098,7 +1396,7 @@ export default function Page() {
         } else {
           await fetchList();
         }
-        toast.success("Gasto cargado");
+        toast.success(`${itemLabelCap} cargado`);
       } else {
         const res = await authFetch(
           `/api/investments/${editingId}`,
@@ -1107,7 +1405,7 @@ export default function Page() {
         );
         if (!res.ok) {
           const body = (await safeJson<ApiError>(res)) ?? {};
-          throw new Error(body.error || "No se pudo actualizar el gasto");
+          throw new Error(body.error || `No se pudo actualizar el ${itemLabel}`);
         }
         const updated = (await safeJson<Investment>(res))!;
         setItems((prev) =>
@@ -1115,7 +1413,7 @@ export default function Page() {
             it.id_investment === updated.id_investment ? updated : it,
           ),
         );
-        toast.success("Gasto actualizado");
+        toast.success(`${itemLabelCap} actualizado`);
 
         // 👇 Ya no llamamos a syncCreditEntry en edición (lo maneja el backend)
         resetForm();
@@ -1125,7 +1423,7 @@ export default function Page() {
       try {
         if (created) {
           const wantCredit =
-            norm(created.category) === "operador" &&
+            isOperatorCategory(created.category) &&
             !!created.operator_id &&
             form.use_credit;
           await syncCreditEntry(created, wantCredit);
@@ -1171,8 +1469,10 @@ export default function Page() {
       toast.error("El intervalo debe ser entre 1 y 12 meses");
       return;
     }
-    if (categoryLower === "operador" && !recurringForm.operator_id) {
-      toast.error("Para la categoría OPERADOR, seleccioná un operador");
+    if (isOperatorCategory(recurringForm.category) && !recurringForm.operator_id) {
+      toast.error(
+        "Para categorías vinculadas a operador, seleccioná un operador",
+      );
       return;
     }
     if (
@@ -1184,7 +1484,7 @@ export default function Page() {
     }
 
     const payingWithCredit =
-      norm(recurringForm.category) === "operador" && recurringForm.use_credit;
+      isOperatorCategory(recurringForm.category) && recurringForm.use_credit;
 
     if (!recurringForm.payment_method && !payingWithCredit) {
       toast.error("Seleccioná el método de pago");
@@ -1281,10 +1581,10 @@ export default function Page() {
   };
 
   /* ========= Helpers UI ========= */
-  const isOperador = norm(form.category) === "operador";
+  const isOperador = isOperatorCategory(form.category);
   const isSueldo = norm(form.category) === "sueldo";
   const isComision = norm(form.category) === "comision";
-  const isRecurringOperador = norm(recurringForm.category) === "operador";
+  const isRecurringOperador = isOperatorCategory(recurringForm.category);
   const isRecurringSueldo = norm(recurringForm.category) === "sueldo";
   const isRecurringComision = norm(recurringForm.category) === "comision";
 
@@ -1293,9 +1593,9 @@ export default function Page() {
   const pillNeutral = "bg-white/30 dark:bg-white/10";
   const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
   const input =
-    "w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10 dark:text-white";
+    "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
   const filterControl =
-    "cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/60 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/10 outline-none transition focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-200/40 dark:bg-white/10 dark:text-white";
+    "cursor-pointer appearance-none rounded-2xl border border-sky-200 bg-white/50 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/10 outline-none transition focus:border-emerald-300/60 focus:ring-2 focus:ring-emerald-200/40 dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
   const filterPanel =
     "rounded-3xl border border-white/10 bg-white/10 p-3 shadow-md shadow-sky-950/10 backdrop-blur dark:bg-white/10";
 
@@ -1563,7 +1863,7 @@ export default function Page() {
   // Fijar/limpiar método según crédito y categoría
   useEffect(() => {
     setForm((f) => {
-      const isOperador = norm(f.category) === "operador";
+      const isOperador = isOperatorCategory(f.category);
 
       // Caso 1: operador + crédito → fijar método y limpiar cuenta
       if (isOperador && f.use_credit) {
@@ -1585,11 +1885,11 @@ export default function Page() {
 
       return f;
     });
-  }, [form.category, form.use_credit]);
+  }, [form.category, form.use_credit, isOperatorCategory]);
 
   useEffect(() => {
     setRecurringForm((f) => {
-      const isOperador = norm(f.category) === "operador";
+      const isOperador = isOperatorCategory(f.category);
 
       if (isOperador && f.use_credit) {
         if (f.payment_method !== CREDIT_METHOD || f.account) {
@@ -1608,7 +1908,7 @@ export default function Page() {
 
       return f;
     });
-  }, [recurringForm.category, recurringForm.use_credit]);
+  }, [recurringForm.category, recurringForm.use_credit, isOperatorCategory]);
 
   const nextRecurringRun = useCallback((rule: RecurringInvestment) => {
     const day = Math.min(Math.max(rule.day_of_month || 1, 1), 31);
@@ -1661,7 +1961,7 @@ export default function Page() {
   /* ====== Filtro local y resúmenes ====== */
   const filteredItems = useMemo(() => {
     return items.filter((it) => {
-      const isOp = norm(it.category) === "operador";
+      const isOp = isOperatorCategory(it.category);
       if (operadorMode === "only" && !isOp) return false;
       if (operadorMode === "others" && isOp) return false;
       if (
@@ -1672,7 +1972,7 @@ export default function Page() {
       }
       return true;
     });
-  }, [items, operadorMode, operatorFilter]);
+  }, [items, operadorMode, operatorFilter, isOperatorCategory]);
 
   const totalsByCurrencyAll = useMemo(() => {
     return items.reduce<Record<string, number>>((acc, it) => {
@@ -1692,11 +1992,16 @@ export default function Page() {
     let op = 0;
     let others = 0;
     for (const it of items) {
-      if (norm(it.category) === "operador") op++;
+      if (isOperatorCategory(it.category)) op++;
       else others++;
     }
-    return { op, others, total: items.length, filtered: filteredItems.length };
-  }, [items, filteredItems]);
+    return {
+      op,
+      others,
+      total: listCounts.total ?? items.length,
+      filtered: listCounts.filtered ?? filteredItems.length,
+    };
+  }, [items, filteredItems, isOperatorCategory, listCounts]);
 
   const groupedByMonth = useMemo(() => {
     const map = new Map<
@@ -1737,20 +2042,17 @@ export default function Page() {
     setPaymentMethodFilter("");
     setAccountFilter("");
     setOperatorFilter(0);
-    setOperadorMode(operatorOnly ? "only" : "all");
+    setOperadorMode(operatorOnly ? "only" : "others");
   };
 
   useEffect(() => {
     if (!operatorOnly) return;
     setOperadorMode("only");
     setCategory((prev) =>
-      prev && norm(prev).startsWith("operador") ? prev : "",
+      prev && isOperatorCategory(prev) ? prev : "",
     );
     setForm((f) => {
-      if (
-        norm(f.category).startsWith("operador") &&
-        categoryOptions.includes(f.category)
-      )
+      if (isOperatorCategory(f.category) && categoryOptions.includes(f.category))
         return f;
       return {
         ...f,
@@ -1758,26 +2060,60 @@ export default function Page() {
         user_id: null,
       };
     });
-  }, [operatorOnly, operatorCategory, categoryOptions]);
+  }, [operatorOnly, operatorCategory, categoryOptions, isOperatorCategory]);
+
+  useEffect(() => {
+    if (operatorOnly) return;
+    setAssociateServices(false);
+    clearServiceSelection();
+  }, [operatorOnly, clearServiceSelection]);
+
+  const operatorServicesSection = operatorOnly ? (
+    <OperatorPaymentServicesSection
+      token={token ?? null}
+      enabled={associateServices}
+      onToggle={handleToggleAssociateServices}
+      initialServiceIds={initialServiceIds}
+      resetKey={serviceResetKey}
+      operatorId={form.operator_id ?? null}
+      currency={form.currency}
+      amount={form.amount}
+      operators={operators}
+      onSelectionChange={handleServiceSelectionChange}
+    />
+  ) : null;
 
   return (
     <ProtectedRoute>
       <section className="text-sky-950 dark:text-white">
-        {/* Info: ahora se permiten pagos a Operadores + crédito */}
-        <div className="mb-4 rounded-2xl border border-white/10 bg-white/10 p-3 text-sm text-sky-950 shadow-md shadow-sky-950/10 dark:text-white">
-          <div className="flex items-start gap-3">
-            <span className="mt-1 size-2 rounded-full bg-amber-400" />
-            <p>
-              <b>Novedad:</b> ahora podés registrar <b>pagos a Operadores</b>{" "}
-              directamente desde <b>Gastos</b> y, si querés, impactarlos en la{" "}
-              <b>cuenta de crédito</b> del Operador.
-            </p>
+        {!operatorOnly && (
+          <div className="mb-4 rounded-2xl border border-white/10 bg-white/10 p-3 text-sm text-sky-950 shadow-md shadow-sky-950/10 dark:text-white">
+            <div className="flex items-start gap-3">
+              <span className="mt-1 size-2 rounded-full bg-amber-400" />
+              <p>
+                <b>Nota:</b> los pagos a Operadores ahora se cargan en{" "}
+                <b>Operadores &gt; Pagos</b>.
+              </p>
+            </div>
           </div>
-        </div>
+        )}
+        {operatorOnly && (
+          <div className="mb-4 rounded-2xl border border-white/10 bg-white/10 p-3 text-sm text-sky-950 shadow-md shadow-sky-950/10 dark:text-white">
+            <div className="flex items-start gap-3">
+              <span className="mt-1 size-2 rounded-full bg-emerald-400" />
+              <p>
+                Podés vincular el pago a una reserva ahora o dejarlo sin
+                asociar para vincularlo más adelante.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* FORM */}
         <InvestmentsForm
           operatorOnly={operatorOnly}
+          showBookingLink={!operatorOnly}
+          operatorServicesSection={operatorServicesSection}
           isFormOpen={isFormOpen}
           setIsFormOpen={setIsFormOpen}
           editingId={editingId}
@@ -1829,13 +2165,26 @@ export default function Page() {
           nextRecurringRun={nextRecurringRun}
         />
 
+        {listError && (
+          <div className="mb-4 rounded-2xl border border-amber-200/60 bg-amber-50/70 p-3 text-sm text-amber-900 shadow-sm shadow-amber-900/10 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-100">
+            {listError}
+          </div>
+        )}
+
         <InvestmentsList
-          operatorOnly={operatorOnly}
           filterPanelClass={filterPanel}
           filterControlClass={filterControl}
           q={q}
           setQ={setQ}
           fetchList={fetchList}
+          itemLabel={itemLabel}
+          searchPlaceholder={
+            operatorOnly
+              ? "Buscar por texto u operador…"
+              : "Buscar por texto o usuario…"
+          }
+          showOperatorFilter={operatorOnly}
+          showOperatorMode={false}
           category={category}
           setCategory={setCategory}
           currency={currency}
@@ -1867,6 +2216,8 @@ export default function Page() {
           loadMore={loadMore}
           formatDate={formatDate}
           onEdit={beginEdit}
+          token={token ?? null}
+          showOperatorPaymentPdf={operatorOnly}
         />
 
         <ToastContainer />

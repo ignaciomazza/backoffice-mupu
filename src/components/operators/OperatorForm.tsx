@@ -1,9 +1,8 @@
 // src/components/operators/OperatorForm.tsx
 
 "use client";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
-// Definimos un tipo para los datos del formulario de operador
 export type OperatorFormData = {
   name: string;
   email: string;
@@ -30,6 +29,47 @@ interface OperatorFormProps {
   setIsFormVisible: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
+const Section: React.FC<{
+  title: string;
+  desc?: string;
+  children: React.ReactNode;
+}> = ({ title, desc, children }) => (
+  <section className="rounded-2xl border border-white/10 bg-white/10 p-4">
+    <div className="mb-3">
+      <h3 className="text-base font-semibold tracking-tight text-sky-950 dark:text-white">
+        {title}
+      </h3>
+      {desc && (
+        <p className="mt-1 text-xs font-light text-sky-950/70 dark:text-white/70">
+          {desc}
+        </p>
+      )}
+    </div>
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">{children}</div>
+  </section>
+);
+
+const Field: React.FC<{
+  id: string;
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}> = ({ id, label, required, children }) => (
+  <div className="space-y-1">
+    <label
+      htmlFor={id}
+      className={`ml-1 block text-sm font-medium text-sky-950 dark:text-white ${
+        required
+          ? "relative pl-4 before:absolute before:left-0 before:top-1/2 before:size-2 before:-translate-y-1/2 before:rounded-full before:bg-red-600"
+          : ""
+      }`}
+    >
+      {label}
+    </label>
+    {children}
+  </div>
+);
+
 export default function OperatorForm({
   formData,
   handleChange,
@@ -38,99 +78,185 @@ export default function OperatorForm({
   isFormVisible,
   setIsFormVisible,
 }: OperatorFormProps) {
+  const inputClass =
+    "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 outline-none shadow-sm shadow-sky-950/10 backdrop-blur placeholder:font-light placeholder:tracking-wide dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
+
+  const identityFields = [
+    {
+      name: "name",
+      label: "Nombre comercial",
+      required: true,
+      placeholder: "Ej: TravelPro",
+    },
+    {
+      name: "legal_name",
+      label: "Razón social",
+      placeholder: "Ej: TravelPro S.A.",
+    },
+    {
+      name: "tax_id",
+      label: "CUIT",
+      required: true,
+      placeholder: "Ej: 30-12345678-9",
+    },
+    {
+      name: "vat_status",
+      label: "Condición IVA",
+      placeholder: "Ej: Responsable inscripto",
+    },
+  ];
+
+  const contactFields = [
+    {
+      name: "email",
+      label: "Email",
+      type: "email",
+      required: true,
+      placeholder: "contacto@operador.com",
+    },
+    { name: "phone", label: "Teléfono", type: "tel", placeholder: "11 1234 5678" },
+    { name: "website", label: "Sitio web", type: "url", placeholder: "https://..." },
+  ];
+
+  const locationFields = [
+    { name: "address", label: "Dirección", placeholder: "Calle y número" },
+    { name: "postal_code", label: "Código Postal", placeholder: "CP" },
+    { name: "city", label: "Localidad", placeholder: "Ciudad" },
+    { name: "state", label: "Provincia", placeholder: "Provincia" },
+    { name: "country", label: "País", placeholder: "País" },
+  ];
+
+  const namePreview =
+    formData.name?.trim() || (editingOperatorId ? "Operador en edición" : "Nuevo operador");
+
   return (
     <motion.div
       layout
-      initial={{ maxHeight: 100, opacity: 1 }}
-      animate={{
-        maxHeight: isFormVisible ? 700 : 100,
-        opacity: 1,
-        transition: { duration: 0.4, ease: "easeInOut" },
-      }}
-      className="mb-6 space-y-3 overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
+      className="mb-6 overflow-hidden rounded-3xl border border-white/10 bg-white/10 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white"
     >
-      <div
-        className="flex cursor-pointer items-center justify-between"
+      <button
+        type="button"
         onClick={() => setIsFormVisible(!isFormVisible)}
+        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
       >
-        <p className="text-lg font-medium dark:text-white">
-          {editingOperatorId ? "Editar Operador" : "Agregar Operador"}
-        </p>
-        <button className="rounded-full bg-sky-100 p-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur">
-          {isFormVisible ? (
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="size-6"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
-            </svg>
-          ) : (
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="size-6"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 4.5v15m7.5-7.5h-15"
-              />
-            </svg>
-          )}
-        </button>
-      </div>
-
-      {isFormVisible && (
-        <motion.form
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onSubmit={handleSubmit}
-          className="max-h-[450px] items-center justify-center space-y-3 overflow-y-auto md:grid md:grid-cols-2 md:gap-6 md:space-y-0 md:pr-12"
-        >
-          {[
-            { name: "name", label: "Nombre", type: "text" },
-            { name: "email", label: "Email", type: "email" },
-            { name: "phone", label: "Teléfono", type: "tel" },
-            { name: "website", label: "Sitio Web", type: "url" },
-            { name: "address", label: "Dirección", type: "text" },
-            { name: "postal_code", label: "Código Postal", type: "text" },
-            { name: "city", label: "Localidad", type: "text" },
-            { name: "state", label: "Provincia", type: "text" },
-            { name: "country", label: "País", type: "text" },
-            { name: "vat_status", label: "Condición IVA", type: "text" },
-            { name: "legal_name", label: "Razón Social", type: "text" },
-            { name: "tax_id", label: "CUIT", type: "text" },
-          ].map(({ name, label, type = "text" }) => (
-            <div key={name}>
-              <label className="ml-2 block dark:text-white">{label}</label>
-              <input
-                type={type}
-                name={name}
-                value={String(formData[name as keyof OperatorFormData] || "")}
-                placeholder={label}
-                onChange={handleChange}
-                className="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
-              />
-            </div>
-          ))}
-          <div className="md:col-span-2">
-            <button
-              type="submit"
-              className="mt-4 rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-            >
-              {editingOperatorId ? "Guardar Cambios" : "Agregar Operador"}
-            </button>
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 items-center justify-center rounded-full bg-white/30 text-sky-950 shadow-inner dark:bg-white/10 dark:text-white">
+            {isFormVisible ? (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="size-5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.6}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
+              </svg>
+            ) : (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="size-5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.6}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 4.5v15m7.5-7.5h-15"
+                />
+              </svg>
+            )}
           </div>
-        </motion.form>
-      )}
+          <div>
+            <p className="text-lg font-semibold">
+              {editingOperatorId ? "Editar Operador" : "Agregar Operador"}
+            </p>
+            <p className="text-xs text-sky-950/70 dark:text-white/70">
+              Datos fiscales, contacto y ubicación.
+            </p>
+          </div>
+        </div>
+        <span className="hidden rounded-full border border-emerald-300/40 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-800 shadow-sm shadow-emerald-900/10 dark:border-emerald-400/30 dark:text-emerald-200 md:inline-flex">
+          {namePreview}
+        </span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {isFormVisible && (
+          <motion.form
+            key="operator-form"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onSubmit={handleSubmit}
+            className="space-y-5 px-4 pb-6 pt-2 md:px-6"
+          >
+            <Section
+              title="Identidad fiscal"
+              desc="Información comercial y legal del operador."
+            >
+              {identityFields.map(({ name, label, required, placeholder }) => (
+                <Field key={name} id={name} label={label} required={required}>
+                  <input
+                    id={name}
+                    type="text"
+                    name={name}
+                    value={String(formData[name as keyof OperatorFormData] || "")}
+                    placeholder={placeholder || label}
+                    onChange={handleChange}
+                    required={required}
+                    className={inputClass}
+                  />
+                </Field>
+              ))}
+            </Section>
+
+            <Section title="Contacto" desc="Canales de comunicación habituales.">
+              {contactFields.map(({ name, label, type = "text", required, placeholder }) => (
+                <Field key={name} id={name} label={label} required={required}>
+                  <input
+                    id={name}
+                    type={type}
+                    name={name}
+                    value={String(formData[name as keyof OperatorFormData] || "")}
+                    placeholder={placeholder || label}
+                    onChange={handleChange}
+                    required={required}
+                    className={inputClass}
+                  />
+                </Field>
+              ))}
+            </Section>
+
+            <Section title="Ubicación" desc="Dirección y datos geográficos.">
+              {locationFields.map(({ name, label, placeholder }) => (
+                <Field key={name} id={name} label={label}>
+                  <input
+                    id={name}
+                    type="text"
+                    name={name}
+                    value={String(formData[name as keyof OperatorFormData] || "")}
+                    placeholder={placeholder || label}
+                    onChange={handleChange}
+                    className={inputClass}
+                  />
+                </Field>
+              ))}
+            </Section>
+
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
+              >
+                {editingOperatorId ? "Guardar Cambios" : "Agregar Operador"}
+              </button>
+            </div>
+          </motion.form>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

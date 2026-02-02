@@ -76,6 +76,8 @@ type InvestmentsFormProps = {
   editingId: number | null;
   headerPills: ReactNode;
   operatorOnly?: boolean;
+  showBookingLink?: boolean;
+  operatorServicesSection?: ReactNode;
   onSubmit: (e: FormEvent<HTMLFormElement>) => void | Promise<void>;
   loading: boolean;
   deleteCurrent: () => void;
@@ -129,6 +131,8 @@ export default function InvestmentsForm({
   editingId,
   headerPills,
   operatorOnly = false,
+  showBookingLink = false,
+  operatorServicesSection,
   onSubmit,
   loading,
   deleteCurrent,
@@ -175,6 +179,7 @@ export default function InvestmentsForm({
   isRecurringComision,
   nextRecurringRun,
 }: InvestmentsFormProps) {
+  const itemLabel = operatorOnly ? "pago" : "gasto";
   const allowRecurring = !operatorOnly;
   return (
     <motion.div
@@ -235,11 +240,11 @@ export default function InvestmentsForm({
             </div>
             <div>
               <p className="text-lg font-semibold">
-                {editingId ? "Editar gasto" : "Cargar gasto"}
+                {editingId ? `Editar ${itemLabel}` : `Cargar ${itemLabel}`}
               </p>
               <p className="text-xs opacity-70">
                 {editingId
-                  ? "Actualizá la información del gasto."
+                  ? `Actualizá la información del ${itemLabel}.`
                   : operatorOnly
                     ? "Registrá pagos a Operadores."
                     : "Registrá gastos manuales y automáticos."}
@@ -264,7 +269,7 @@ export default function InvestmentsForm({
               className="space-y-5 px-4 pb-6 pt-4 md:px-6"
             >
               <Section
-                title="Detalle del gasto"
+                title={`Detalle del ${itemLabel}`}
                 desc="Categoría, fecha y descripción."
               >
                 <Field id="category" label="Categoría" required>
@@ -308,6 +313,30 @@ export default function InvestmentsForm({
                   />
                 </Field>
 
+                {showBookingLink && (
+                  <Field
+                    id="booking_number"
+                    label="Reserva (opcional)"
+                    hint="N° de reserva (agencia)"
+                  >
+                    <input
+                      id="booking_number"
+                      type="number"
+                      min="1"
+                      inputMode="numeric"
+                      className={inputClass}
+                      value={form.booking_number}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          booking_number: e.target.value,
+                        }))
+                      }
+                      placeholder="Ej: 1234"
+                    />
+                  </Field>
+                )}
+
                 <Field
                   id="description"
                   label="Descripción"
@@ -324,11 +353,13 @@ export default function InvestmentsForm({
                         description: e.target.value,
                       }))
                     }
-                    placeholder="Concepto / detalle del gasto…"
+                    placeholder={`Concepto / detalle del ${itemLabel}…`}
                     required
                   />
                 </Field>
               </Section>
+
+              {operatorServicesSection}
 
               <Section title="Pago" desc="Monto, moneda y método de pago.">
                 <Field id="amount" label="Monto" required>
@@ -673,9 +704,9 @@ export default function InvestmentsForm({
                   {loading ? (
                     <Spinner />
                   ) : editingId ? (
-                    "Actualizar gasto"
+                    `Actualizar ${itemLabel}`
                   ) : (
-                    "Agregar gasto"
+                    `Agregar ${itemLabel}`
                   )}
                 </button>
 
@@ -683,10 +714,10 @@ export default function InvestmentsForm({
                   <button
                     type="button"
                     onClick={() => {
-                      if (confirm("¿Eliminar este gasto?")) deleteCurrent();
+                      if (confirm(`¿Eliminar este ${itemLabel}?`)) deleteCurrent();
                     }}
                     className="rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition active:scale-[0.98] dark:bg-red-800"
-                    title="Eliminar gasto"
+                    title={`Eliminar ${itemLabel}`}
                   >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"

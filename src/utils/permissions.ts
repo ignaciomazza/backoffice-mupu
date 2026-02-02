@@ -22,9 +22,15 @@ export const FINANCE_SECTIONS = [
     defaultRoles: ADMIN_ROLES,
   },
   {
+    key: "operator_payments",
+    label: "Pagos Operadores",
+    route: "/operators/payments",
+    defaultRoles: ADMIN_ROLES,
+  },
+  {
     key: "operators_insights",
     label: "Panel Operadores",
-    route: "/operators/insights",
+    route: "/operators/panel",
     defaultRoles: ADMIN_ROLES,
   },
   {

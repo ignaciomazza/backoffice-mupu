@@ -218,9 +218,9 @@ export default function FilterPanel({
 
   // ===== UI =====
   const inputClass =
-    "w-full cursor-pointer appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
+    "w-full cursor-pointer appearance-none rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 outline-none shadow-sm shadow-sky-950/10 backdrop-blur placeholder:font-light placeholder:tracking-wide dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
   const inputClassDate =
-    "w-full cursor-text appearance-none rounded-2xl border border-sky-950/10 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white";
+    "w-full cursor-text appearance-none rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 outline-none shadow-sm shadow-sky-950/10 backdrop-blur placeholder:font-light placeholder:tracking-wide dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
   const btn = "rounded-2xl px-4 py-2 shadow-sm border transition";
 
   const variants = {
@@ -232,7 +232,7 @@ export default function FilterPanel({
     <div className="flex flex-col gap-2">
       {/* Barra superior: búsqueda + toggle filtros */}
       <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="flex w-full items-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-4 py-1 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:text-white">
+        <div className="flex w-full items-center gap-2 rounded-2xl border border-sky-200 bg-white/50 px-4 py-1 text-sky-950 shadow-sm shadow-sky-950/10 backdrop-blur dark:border-sky-200/60 dark:bg-sky-100/10 dark:text-white">
           <input
             type="text"
             placeholder="Buscar reservas..."

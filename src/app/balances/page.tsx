@@ -320,7 +320,9 @@ export default function BalancesPage() {
         const pct = Number(data.transfer_fee_pct);
         setTransferFeePct(Number.isFinite(pct) ? pct : 0.024);
         setBillingAdjustments(
-          Array.isArray(data.billing_adjustments) ? data.billing_adjustments : [],
+          Array.isArray(data.billing_adjustments)
+            ? data.billing_adjustments
+            : [],
         );
       } catch (err) {
         if (controller.signal.aborted) return;
@@ -398,9 +400,7 @@ export default function BalancesPage() {
       const key = normCurrency(String(keyRaw || ""));
       if (key !== "ARS" && key !== "USD") continue;
       const n =
-        typeof val === "number"
-          ? val
-          : Number(String(val).replace(",", "."));
+        typeof val === "number" ? val : Number(String(val).replace(",", "."));
       if (Number.isFinite(n) && n >= 0) out[key] = n;
     }
     return out;
@@ -428,9 +428,7 @@ export default function BalancesPage() {
   const sumReceiptsByCurrency = useCallback((receipts: Booking["Receipt"]) => {
     return receipts.reduce<Record<CurrencyCode, number>>(
       (acc, r) => {
-        const baseCur = r.base_currency
-          ? normCurrency(r.base_currency)
-          : null;
+        const baseCur = r.base_currency ? normCurrency(r.base_currency) : null;
         const baseVal = toNum(r.base_amount ?? 0);
 
         const amountCur = r.amount_currency
@@ -441,7 +439,7 @@ export default function BalancesPage() {
         const feeCur =
           feeCurRaw && String(feeCurRaw).trim() !== ""
             ? normCurrency(feeCurRaw)
-            : amountCur ?? baseCur;
+            : (amountCur ?? baseCur);
 
         const amountVal = toNum(r.amount ?? 0);
         const feeVal = toNum(r.payment_fee_amount ?? 0);
@@ -499,7 +497,10 @@ export default function BalancesPage() {
             : sale * (Number.isFinite(pct) ? pct : 0);
         const extraCosts = toNum(s.extra_costs_amount);
         const extraTaxes = toNum(s.extra_taxes_amount);
-        const commNet = Math.max(commSinIVA - transf - extraCosts - extraTaxes, 0);
+        const commNet = Math.max(
+          commSinIVA - transf - extraCosts - extraTaxes,
+          0,
+        );
 
         bucket.iva21 += iva21;
         bucket.iva105 += iva105;
@@ -551,7 +552,8 @@ export default function BalancesPage() {
         const taxes = taxTotals[cur] || 0;
         if (!sale && !cost && !taxes) continue;
         const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
-        const fee = sale * (Number.isFinite(transferFeePct) ? transferFeePct : 0);
+        const fee =
+          sale * (Number.isFinite(transferFeePct) ? transferFeePct : 0);
         const adjustments = computeBillingAdjustments(
           billingAdjustments,
           sale,
@@ -612,7 +614,10 @@ export default function BalancesPage() {
 
       const taxByCurrency = sumTaxesByCurrency(b.services);
       if (useBookingSaleTotal) {
-        const commNetByCur = computeBookingCommissionBaseByCurrency(b, saleNoInt);
+        const commNetByCur = computeBookingCommissionBaseByCurrency(
+          b,
+          saleNoInt,
+        );
         for (const cur of TAX_CURRENCIES) {
           taxByCurrency[cur].commNet = commNetByCur[cur] || 0;
         }
@@ -775,7 +780,6 @@ export default function BalancesPage() {
     () => ALL_COLUMNS.filter((c) => c.always || visible.includes(c.key)),
     [visible],
   );
-
 
   // Presets rápidos para columnas
   const applyPreset = (p: "basic" | "finance" | "debt") => {
@@ -2040,7 +2044,7 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`block w-full min-w-fit appearance-none rounded-3xl border border-white/30 bg-white/10 px-4 py-2 outline-none backdrop-blur placeholder:opacity-60 dark:border-white/10 dark:bg-white/10 ${props.className || ""}`}
+      className={`block w-full min-w-fit appearance-none rounded-2xl border border-sky-200 bg-white/50 px-4 py-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur placeholder:opacity-60 dark:border-sky-200/60 dark:bg-sky-100/10 ${props.className || ""}`}
     />
   );
 }

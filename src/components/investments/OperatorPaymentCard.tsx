@@ -1,7 +1,9 @@
 // src/components/investments/OperatorPaymentCard.tsx
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
+import { toast } from "react-toastify";
+import { authFetch } from "@/utils/authFetch";
 
 export type OperatorLite = { id_operator: number; name: string | null };
 export type UserLite = {
@@ -22,6 +24,7 @@ export type InvestmentItem = {
   operator_id?: number | null;
   user_id?: number | null;
   booking_id?: number | null;
+  serviceIds?: number[] | null;
   booking?: { id_booking: number; agency_booking_id?: number | null } | null;
   operator?: OperatorLite | null;
   user?: UserLite | null;
@@ -38,7 +41,16 @@ export type InvestmentItem = {
 
 type Props = {
   item: InvestmentItem;
+  token?: string | null;
 };
+
+const slugify = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
 
 function formatDate(s?: string | null) {
   if (!s) return "-";
@@ -60,12 +72,45 @@ function fmtMoney(v?: number | string | null, cur?: string | null) {
   }
 }
 
-function OperatorPaymentCard({ item }: Props) {
+function OperatorPaymentCard({ item, token }: Props) {
+  const [loadingPDF, setLoadingPDF] = useState(false);
   const formattedAmount = useMemo(
     () => fmtMoney(item.amount, item.currency),
     [item.amount, item.currency],
   );
   const bookingNumber = item.booking?.agency_booking_id ?? item.booking_id;
+  const paymentDisplayId = item.agency_investment_id ?? item.id_investment;
+
+  const downloadPDF = async () => {
+    if (!token) {
+      toast.error("Sesión expirada. Volvé a iniciar sesión.");
+      return;
+    }
+    setLoadingPDF(true);
+    try {
+      const res = await authFetch(
+        `/api/investments/${item.id_investment}/pdf`,
+        { headers: { Accept: "application/pdf" } },
+        token,
+      );
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const operatorName = item.operator?.name || "Operador";
+      a.href = url;
+      a.download = `Pago_Operador_${slugify(operatorName)}_${paymentDisplayId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success("Comprobante descargado exitosamente.");
+    } catch {
+      toast.error("No se pudo descargar el comprobante.");
+    } finally {
+      setLoadingPDF(false);
+    }
+  };
 
   const hasBase =
     item.base_amount !== null &&
@@ -89,9 +134,17 @@ function OperatorPaymentCard({ item }: Props) {
               Reserva N° {bookingNumber}
             </span>
           ) : null}
-          <span className="text-sm opacity-70">
-            N° {item.agency_investment_id ?? item.id_investment}
-          </span>
+          <span className="text-sm opacity-70">N° {paymentDisplayId}</span>
+          <button
+            type="button"
+            onClick={downloadPDF}
+            disabled={loadingPDF}
+            className="rounded-full bg-sky-100 px-3 py-1 text-xs text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-white/10 dark:text-white"
+            title="Descargar comprobante"
+            aria-label="Descargar comprobante"
+          >
+            {loadingPDF ? "..." : "PDF"}
+          </button>
         </div>
       </div>
 
@@ -136,6 +189,11 @@ function OperatorPaymentCard({ item }: Props) {
         {item.operator?.name && (
           <span>
             <b>Operador:</b> {item.operator.name}
+          </span>
+        )}
+        {item.serviceIds && item.serviceIds.length > 0 && (
+          <span>
+            <b>Servicios:</b> {item.serviceIds.length}
           </span>
         )}
         {item.createdBy && (

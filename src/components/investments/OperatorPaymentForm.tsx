@@ -56,7 +56,10 @@ const getStr = (o: Record<string, unknown>, k: string): string | undefined => {
   return typeof v === "string" ? v : undefined;
 };
 
-const getBool = (o: Record<string, unknown>, k: string): boolean | undefined => {
+const getBool = (
+  o: Record<string, unknown>,
+  k: string,
+): boolean | undefined => {
   const v = o[k];
   if (typeof v === "boolean") return v;
   if (typeof v === "string") {
@@ -213,7 +216,7 @@ const pillNeutral = "bg-white/30 dark:bg-white/10";
 const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 
 const inputBase =
-  "w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10 dark:text-white";
+  "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
 
 /* ========= Categorías ========= */
 function parseCategories(raw: unknown): FinanceCategory[] {
@@ -288,6 +291,19 @@ type InvestmentLite = {
   operator_id?: number | null;
 };
 
+type OperatorPaymentOption = {
+  id_investment: number;
+  agency_investment_id?: number | null;
+  description: string;
+  amount: number;
+  currency: string;
+  operator_id?: number | null;
+  operator_name?: string | null;
+  created_at?: string | null;
+  paid_at?: string | null;
+  serviceIds?: number[] | null;
+};
+
 export default function OperatorPaymentForm({
   token,
   booking,
@@ -303,6 +319,15 @@ export default function OperatorPaymentForm({
       mountedRef.current = false;
     };
   }, []);
+
+  const [action, setAction] = useState<"create" | "attach">("create");
+  const [paymentQuery, setPaymentQuery] = useState("");
+  const [paymentOptions, setPaymentOptions] = useState<OperatorPaymentOption[]>(
+    [],
+  );
+  const [loadingPayments, setLoadingPayments] = useState(false);
+  const [selectedPayment, setSelectedPayment] =
+    useState<OperatorPaymentOption | null>(null);
 
   // ====== Finance config + categorías
   const [finance, setFinance] = useState<FinanceConfig | null>(null);
@@ -422,6 +447,97 @@ export default function OperatorPaymentForm({
     }
     return d;
   }, [finance?.currencies]);
+
+  useEffect(() => {
+    if (action !== "attach") {
+      setPaymentQuery("");
+      setPaymentOptions([]);
+      setSelectedPayment(null);
+      setLoadingPayments(false);
+      return;
+    }
+  }, [action]);
+
+  useEffect(() => {
+    if (action !== "attach") return;
+    if (!token) {
+      setLoadingPayments(false);
+      return;
+    }
+    const raw = paymentQuery.trim();
+    if (raw.length < 2) {
+      setPaymentOptions([]);
+      setLoadingPayments(false);
+      return;
+    }
+
+    let alive = true;
+    const controller = new AbortController();
+    setLoadingPayments(true);
+
+    const t = setTimeout(() => {
+      authFetch(
+        `/api/investments?operatorOnly=1&take=12&q=${encodeURIComponent(raw)}`,
+        { cache: "no-store", signal: controller.signal },
+        token,
+      )
+        .then(async (res) => {
+          if (!res.ok) return [];
+          const data = (await safeJson<unknown>(res)) ?? {};
+          const items = isRecord(data)
+            ? ((data as Record<string, unknown>).items as unknown[])
+            : Array.isArray(data)
+              ? data
+              : [];
+          if (!Array.isArray(items)) return [];
+
+          return items
+            .map((it): OperatorPaymentOption | null => {
+              if (!isRecord(it)) return null;
+              const rec = it as Record<string, unknown>;
+              const id = getNum(rec, "id_investment") ?? getNum(rec, "id");
+              if (!id) return null;
+              const operator =
+                isRecord(rec.operator) && rec.operator
+                  ? (rec.operator as Record<string, unknown>)
+                  : null;
+              const serviceIds = Array.isArray(rec.serviceIds)
+                ? rec.serviceIds.filter((v) => Number.isFinite(Number(v)))
+                : null;
+              return {
+                id_investment: id,
+                agency_investment_id: getNum(rec, "agency_investment_id"),
+                description: getStr(rec, "description") || "Pago a operador",
+                amount: getNum(rec, "amount") ?? 0,
+                currency: (getStr(rec, "currency") || "ARS").toUpperCase(),
+                operator_id:
+                  getNum(rec, "operator_id") ??
+                  (operator ? getNum(operator, "id_operator") : undefined),
+                operator_name: operator ? getStr(operator, "name") : undefined,
+                created_at: getStr(rec, "created_at"),
+                paid_at: getStr(rec, "paid_at"),
+                serviceIds,
+              };
+            })
+            .filter((x): x is OperatorPaymentOption => x !== null);
+        })
+        .then((opts) => {
+          if (alive) setPaymentOptions(opts);
+        })
+        .catch(() => {
+          if (alive) setPaymentOptions([]);
+        })
+        .finally(() => {
+          if (alive) setLoadingPayments(false);
+        });
+    }, 250);
+
+    return () => {
+      alive = false;
+      controller.abort();
+      clearTimeout(t);
+    };
+  }, [action, paymentQuery, token]);
 
   /* ========= Servicios de la reserva ========= */
   const servicesFromBooking: Service[] = useMemo(() => {
@@ -991,6 +1107,97 @@ export default function OperatorPaymentForm({
     e.preventDefault();
     if (!token) return;
 
+    if (action === "attach") {
+      if (!selectedPayment) {
+        toast.error("Elegí un pago existente.");
+        return;
+      }
+      if (selectedServices.length === 0) {
+        toast.error("Seleccioná al menos un servicio de la reserva.");
+        return;
+      }
+      if (!allSameCurrency) {
+        toast.error(
+          "Los servicios seleccionados deben ser de la misma moneda.",
+        );
+        return;
+      }
+
+      const totalCost = selectedServices.reduce(
+        (sum, s) => sum + Number(s.cost_price || 0),
+        0,
+      );
+      if (
+        Number.isFinite(selectedPayment.amount) &&
+        selectedPayment.amount > 0 &&
+        totalCost > selectedPayment.amount
+      ) {
+        toast.error(
+          "El costo total de los servicios no puede superar el monto del pago.",
+        );
+        return;
+      }
+
+      const paymentCurrency = (selectedPayment.currency || "").toUpperCase();
+      if (
+        lockedSvcCurrency &&
+        paymentCurrency &&
+        paymentCurrency !== lockedSvcCurrency
+      ) {
+        toast.error(
+          `La moneda del pago (${paymentCurrency}) debe coincidir con la moneda de los servicios (${lockedSvcCurrency}).`,
+        );
+        return;
+      }
+
+      if (
+        selectedPayment.operator_id &&
+        operatorIdFromSelection != null &&
+        selectedPayment.operator_id !== operatorIdFromSelection
+      ) {
+        toast.error(
+          "El operador del pago no coincide con los servicios seleccionados.",
+        );
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const res = await authFetch(
+          `/api/investments/${selectedPayment.id_investment}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              serviceIds: selectedServices.map((s) => s.id_service),
+            }),
+          },
+          token,
+        );
+        if (!res.ok) {
+          const err = await safeJson<ApiError>(res);
+          const msg =
+            err?.error ||
+            err?.message ||
+            "No se pudo asociar el pago al operador.";
+          throw new Error(msg);
+        }
+
+        toast.success("Pago asociado correctamente.");
+        onCreated?.();
+        setSelectedIds([]);
+        setPaymentQuery("");
+        setPaymentOptions([]);
+        setSelectedPayment(null);
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : "Error al asociar el pago.";
+        toast.error(msg);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (selectedServices.length === 0) {
       toast.error("Seleccioná al menos un servicio de la reserva.");
       return;
@@ -1024,6 +1231,16 @@ export default function OperatorPaymentForm({
     const amountNum = Number(amount);
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
       toast.error("El monto debe ser un número positivo.");
+      return;
+    }
+    const totalCost = selectedServices.reduce(
+      (sum, s) => sum + Number(s.cost_price || 0),
+      0,
+    );
+    if (Number.isFinite(totalCost) && totalCost > amountNum) {
+      toast.error(
+        "El costo total de los servicios no puede superar el monto del pago.",
+      );
       return;
     }
 
@@ -1075,6 +1292,7 @@ export default function OperatorPaymentForm({
         operator_id: Number(operatorId),
         paid_at: paidAt || undefined,
         booking_id: booking.id_booking,
+        serviceIds: selectedServices.map((s) => s.id_service),
         payment_method: payingWithCredit ? CREDIT_METHOD : paymentMethod,
         account: payingWithCredit
           ? undefined
@@ -1265,7 +1483,13 @@ export default function OperatorPaymentForm({
             </div>
             <div>
               <p className="text-lg font-semibold">
-                {visible ? "Pago a Operador" : "Cargar Pago a Operador"}
+                {visible
+                  ? action === "attach"
+                    ? "Asociar pago a Operador"
+                    : "Pago a Operador"
+                  : action === "attach"
+                    ? "Asociar Pago a Operador"
+                    : "Cargar Pago a Operador"}
               </p>
               <p className="text-xs opacity-70">
                 Reserva N° {booking.agency_booking_id ?? booking.id_booking}
@@ -1293,6 +1517,34 @@ export default function OperatorPaymentForm({
               onSubmit={handleSubmit}
               className="space-y-5 px-4 pb-6 pt-4 md:px-6"
             >
+              <div className="flex flex-wrap items-center gap-2">
+                {[
+                  { key: "create", label: "Crear pago" },
+                  { key: "attach", label: "Asociar pago existente" },
+                ].map((opt) => {
+                  const active = action === opt.key;
+                  return (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setAction(opt.key as "create" | "attach")}
+                      className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
+                        active
+                          ? "bg-sky-500/15 text-sky-700 dark:text-sky-200"
+                          : "text-sky-950/80 hover:bg-white/60 dark:text-white/80"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs opacity-70">
+                {action === "attach"
+                  ? "Elegí un pago ya creado y vinculalo a servicios de esta reserva."
+                  : "Creá un pago nuevo vinculado a servicios de esta reserva."}
+              </p>
+
               {/* CONTEXTO */}
               <Section
                 title="Contexto"
@@ -1380,417 +1632,526 @@ export default function OperatorPaymentForm({
                 </div>
               </Section>
 
-              {/* PAGO: categoría / operador / crédito */}
-              <Section
-                title="Pago"
-                desc="Definí categoría, operador y si usás crédito."
-              >
-                <Field id="category" label="Categoría" required>
-                  {loadingPicks ? (
-                    <div className="flex h-[42px] items-center">
-                      <Spinner />
-                    </div>
-                  ) : (
-                    <select
-                      id="category"
-                      value={category}
-                      onChange={(e) => setCategory(e.target.value)}
-                      className={`${inputBase} cursor-pointer appearance-none`}
-                      required
-                      disabled={operatorCategories.length === 0}
-                    >
-                      <option value="" disabled>
-                        {operatorCategories.length
-                          ? "Seleccionar…"
-                          : "Sin categorías de Operador"}
-                      </option>
-                      {operatorCategories.map((c) => (
-                        <option key={c.id_category} value={c.name}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </Field>
-
-                <Field id="operator" label="Operador" required>
-                  <select
-                    id="operator"
-                    value={operatorId}
-                    onChange={(e) =>
-                      setOperatorId(
-                        e.target.value ? Number(e.target.value) : "",
-                      )
-                    }
-                    className={`${inputBase} cursor-pointer appearance-none`}
-                    required
+              {action === "attach" && (
+                <Section
+                  title="Pago existente"
+                  desc="Buscá el pago que querés asociar."
+                >
+                  <Field
+                    id="payment_search"
+                    label="Buscar pago"
+                    hint="Por número, descripción u operador…"
                   >
-                    <option value="" disabled>
-                      Seleccionar operador…
-                    </option>
-                    {operators.map((o) => (
-                      <option key={o.id_operator} value={o.id_operator}>
-                        {o.name}
-                      </option>
-                    ))}
-                  </select>
-                  {selectedServices.length > 0 &&
-                    operatorIdFromSelection == null && (
-                      <p className="ml-1 mt-1 text-xs opacity-70">
-                        Seleccionaste servicios de operadores distintos. Elegí
-                        uno manualmente.
-                      </p>
-                    )}
-                </Field>
-
-                {isOperatorCategory(category) ? (
-                  <div className="md:col-span-2">
-                    <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
-                        checked={useCredit}
-                        onChange={(e) => setUseCredit(e.target.checked)}
-                      />
-                      Usar <b>cuenta de crédito</b> del Operador
-                    </label>
-                    <p className="ml-1 mt-1 text-xs opacity-70">
-                      Se registrará un movimiento en la cuenta corriente del
-                      Operador vinculado a este pago.
-                    </p>
-                  </div>
-                ) : (
-                  <div />
-                )}
-              </Section>
-
-              {/* IMPORTE / MONEDA */}
-              <Section
-                title="Importe y moneda"
-                desc="Cuánto le pagás al operador y en qué divisa."
-              >
-                <Field id="amount" label="Monto" required>
-                  <input
-                    id="amount"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    inputMode="decimal"
-                    className={inputBase}
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    placeholder="0.00"
-                    required
-                  />
-                  {previewAmount && (
-                    <p className="ml-1 mt-1 text-xs opacity-80">
-                      {previewAmount}
-                    </p>
-                  )}
-                  {selectedServices.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={useSuggested}
-                      className="mt-2 text-xs underline underline-offset-2"
-                    >
-                      Usar suma de costos:{" "}
-                      {formatMoney(
-                        suggestedAmount,
-                        (lockedSvcCurrency || currency || "ARS").toUpperCase(),
-                      )}
-                    </button>
-                  )}
-                </Field>
-
-                <Field id="currency" label="Moneda" required>
-                  {lockedSvcCurrency ? (
-                    <div className="rounded-2xl border border-white/10 bg-white/10 p-2 text-sm">
-                      {lockedSvcCurrency} (bloqueada por servicios)
-                    </div>
-                  ) : loadingPicks ? (
-                    <div className="flex h-[42px] items-center">
-                      <Spinner />
-                    </div>
-                  ) : (
-                    <select
-                      id="currency"
-                      value={currency}
-                      onChange={(e) => setCurrency(e.target.value)}
-                      className={`${inputBase} cursor-pointer appearance-none`}
-                      required
-                      disabled={currencyOptions.length === 0}
-                    >
-                      <option value="" disabled>
-                        {currencyOptions.length
-                          ? "Seleccionar moneda"
-                          : "Sin monedas habilitadas"}
-                      </option>
-                      {currencyOptions.map((code) => (
-                        <option key={code} value={code}>
-                          {currencyDict[code]
-                            ? `${code} — ${currencyDict[code]}`
-                            : code}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </Field>
-              </Section>
-
-              {/* MÉTODO / CUENTA */}
-              <Section
-                title="Forma de pago"
-                desc="Elegí método y, si corresponde, la cuenta."
-              >
-                <Field
-                  id="payment_method"
-                  label="Método de pago"
-                  required={!useCredit}
-                >
-                  {loadingPicks ? (
-                    <div className="flex h-[42px] items-center">
-                      <Spinner />
-                    </div>
-                  ) : (
-                    <select
-                      id="payment_method"
-                      value={paymentMethod}
-                      onChange={(e) => setPaymentMethod(e.target.value)}
-                      className={`${inputBase} cursor-pointer appearance-none`}
-                      required={!useCredit}
-                      disabled={
-                        uiPaymentMethodOptions.length === 0 ||
-                        (isOperatorCategory(category) && useCredit)
-                      }
-                    >
-                      <option value="" disabled>
-                        {uiPaymentMethodOptions.length
-                          ? "Seleccionar método"
-                          : "Sin métodos habilitados"}
-                      </option>
-                      {uiPaymentMethodOptions.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </Field>
-
-                {requiresAccount ? (
-                  <Field id="account" label="Cuenta" required>
-                    <select
-                      id="account"
-                      value={account}
-                      onChange={(e) => setAccount(e.target.value)}
-                      className={`${inputBase} cursor-pointer appearance-none`}
-                      required
-                      disabled={accounts.length === 0}
-                    >
-                      <option value="" disabled>
-                        {filteredAccounts.length || accounts.length
-                          ? "Seleccionar cuenta"
-                          : "Sin cuentas habilitadas"}
-                      </option>
-                      {(filteredAccounts.length
-                        ? filteredAccounts
-                        : accounts
-                      ).map((a) => {
-                        const label = a.display_name || a.name;
-                        return (
-                          <option key={a.id_account} value={label}>
-                            {label}
-                          </option>
-                        );
-                      })}
-                    </select>
-                    {account && (
-                      <p className="ml-1 mt-1 text-xs opacity-70">
-                        Moneda detectada:{" "}
-                        <b>{guessAccountCurrency(account) || "—"}</b>
-                      </p>
-                    )}
+                    <input
+                      id="payment_search"
+                      value={paymentQuery}
+                      onChange={(e) => setPaymentQuery(e.target.value)}
+                      placeholder="Escribí al menos 2 caracteres"
+                      className={inputBase}
+                      autoComplete="off"
+                    />
                   </Field>
-                ) : (
-                  <div />
-                )}
-              </Section>
 
-              {/* INFO CRÉDITO (si está activo) */}
-              {isOperatorCategory(category) && useCredit && (
-                <div
-                  className="rounded-2xl border border-white/10 bg-white/10 p-3 text-xs md:col-span-2"
-                  role="status"
-                  aria-live="polite"
-                >
-                  {!operatorId || !currency ? (
-                    <p>
-                      Elegí operador y moneda para validar la cuenta de crédito.
-                    </p>
-                  ) : creditAccStatus === "checking" ? (
-                    <div className="flex items-center gap-2">
-                      <Spinner />
-                      <span>
-                        Verificando cuenta en {String(currency).toUpperCase()}…
-                      </span>
-                    </div>
-                  ) : creditAccStatus === "exists" ? (
-                    <p className="text-emerald-400">
-                      ✓ Existe una cuenta de crédito en{" "}
-                      {String(currency).toUpperCase()} para este operador.
-                    </p>
-                  ) : creditAccStatus === "creating" ? (
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-amber-300">
-                        Creando cuenta de crédito en{" "}
-                        {String(currency).toUpperCase()}…
-                      </span>
-                      <button
-                        type="button"
-                        className="rounded-full bg-sky-100 px-3 py-1 text-sky-950 shadow-sm dark:bg-white/10 dark:text-white"
-                        disabled
-                      >
+                  <div className="md:col-span-2">
+                    {loadingPayments ? (
+                      <div className="py-2">
                         <Spinner />
-                      </button>
+                      </div>
+                    ) : paymentOptions.length > 0 ? (
+                      <div className="max-h-56 overflow-auto rounded-2xl border border-white/10">
+                        {paymentOptions.map((opt) => {
+                          const active =
+                            selectedPayment?.id_investment ===
+                            opt.id_investment;
+                          const displayId =
+                            opt.agency_investment_id ?? opt.id_investment;
+                          return (
+                            <button
+                              key={opt.id_investment}
+                              type="button"
+                              className={`w-full px-3 py-2 text-left transition hover:bg-white/5 ${
+                                active ? "bg-white/10" : ""
+                              }`}
+                              onClick={() => setSelectedPayment(opt)}
+                            >
+                              <div className="text-sm font-medium">
+                                N° {displayId} ·{" "}
+                                {opt.operator_name || "Operador"} ·{" "}
+                                {formatMoney(opt.amount, opt.currency)}
+                              </div>
+                              <div className="text-xs text-sky-950/70 dark:text-white/70">
+                                {opt.description}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : paymentQuery && paymentQuery.length >= 2 ? (
+                      <p className="text-sm text-sky-950/70 dark:text-white/70">
+                        Sin resultados.
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {selectedPayment && (
+                    <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-xs md:col-span-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">
+                          Pago N°{" "}
+                          {selectedPayment.agency_investment_id ??
+                            selectedPayment.id_investment}
+                        </span>
+                        <span className="opacity-70">
+                          {selectedPayment.operator_name || "Operador"}
+                        </span>
+                        <span className="opacity-70">
+                          {formatMoney(
+                            selectedPayment.amount,
+                            selectedPayment.currency,
+                          )}
+                        </span>
+                      </div>
+                      {selectedPayment.serviceIds &&
+                        selectedPayment.serviceIds.length > 0 && (
+                          <p className="mt-1 text-amber-300">
+                            Este pago ya tiene servicios asociados. Al guardar
+                            se reemplazarán.
+                          </p>
+                        )}
                     </div>
-                  ) : creditAccStatus === "missing" ? (
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-amber-300">
-                        No existe cuenta de crédito en{" "}
-                        {String(currency).toUpperCase()} para este operador.
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleCreateCreditAccount}
-                        className="rounded-full bg-sky-100 px-3 py-1 text-sky-950 shadow-sm dark:bg-white/10 dark:text-white"
-                      >
-                        {`Crear cuenta ${String(currency).toUpperCase()}`}
-                      </button>
-                    </div>
-                  ) : creditAccStatus === "error" ? (
-                    <p className="text-rose-400">
-                      No se pudo verificar: {creditAccMsg}
-                    </p>
-                  ) : null}
-                </div>
+                  )}
+                </Section>
               )}
 
+              {/* PAGO: categoría / operador / crédito */}
+              {action === "create" && (
+                <Section
+                  title="Pago"
+                  desc="Definí categoría, operador y si usás crédito."
+                >
+                  <Field id="category" label="Categoría" required>
+                    {loadingPicks ? (
+                      <div className="flex h-[42px] items-center">
+                        <Spinner />
+                      </div>
+                    ) : (
+                      <select
+                        id="category"
+                        value={category}
+                        onChange={(e) => setCategory(e.target.value)}
+                        className={`${inputBase} cursor-pointer appearance-none`}
+                        required
+                        disabled={operatorCategories.length === 0}
+                      >
+                        <option value="" disabled>
+                          {operatorCategories.length
+                            ? "Seleccionar…"
+                            : "Sin categorías de Operador"}
+                        </option>
+                        {operatorCategories.map((c) => (
+                          <option key={c.id_category} value={c.name}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </Field>
+
+                  <Field id="operator" label="Operador" required>
+                    <select
+                      id="operator"
+                      value={operatorId}
+                      onChange={(e) =>
+                        setOperatorId(
+                          e.target.value ? Number(e.target.value) : "",
+                        )
+                      }
+                      className={`${inputBase} cursor-pointer appearance-none`}
+                      required
+                    >
+                      <option value="" disabled>
+                        Seleccionar operador…
+                      </option>
+                      {operators.map((o) => (
+                        <option key={o.id_operator} value={o.id_operator}>
+                          {o.name}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedServices.length > 0 &&
+                      operatorIdFromSelection == null && (
+                        <p className="ml-1 mt-1 text-xs opacity-70">
+                          Seleccionaste servicios de operadores distintos. Elegí
+                          uno manualmente.
+                        </p>
+                      )}
+                  </Field>
+
+                  {isOperatorCategory(category) ? (
+                    <div className="md:col-span-2">
+                      <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
+                          checked={useCredit}
+                          onChange={(e) => setUseCredit(e.target.checked)}
+                        />
+                        Usar <b>cuenta de crédito</b> del Operador
+                      </label>
+                      <p className="ml-1 mt-1 text-xs opacity-70">
+                        Se registrará un movimiento en la cuenta corriente del
+                        Operador vinculado a este pago.
+                      </p>
+                    </div>
+                  ) : (
+                    <div />
+                  )}
+                </Section>
+              )}
+
+              {/* IMPORTE / MONEDA */}
+              {action === "create" && (
+                <Section
+                  title="Importe y moneda"
+                  desc="Cuánto le pagás al operador y en qué divisa."
+                >
+                  <Field id="amount" label="Monto" required>
+                    <input
+                      id="amount"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      className={inputBase}
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      placeholder="0.00"
+                      required
+                    />
+                    {previewAmount && (
+                      <p className="ml-1 mt-1 text-xs opacity-80">
+                        {previewAmount}
+                      </p>
+                    )}
+                    {selectedServices.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={useSuggested}
+                        className="mt-2 text-xs underline underline-offset-2"
+                      >
+                        Usar suma de costos:{" "}
+                        {formatMoney(
+                          suggestedAmount,
+                          (
+                            lockedSvcCurrency ||
+                            currency ||
+                            "ARS"
+                          ).toUpperCase(),
+                        )}
+                      </button>
+                    )}
+                  </Field>
+
+                  <Field id="currency" label="Moneda" required>
+                    {lockedSvcCurrency ? (
+                      <div className="rounded-2xl border border-white/10 bg-white/10 p-2 text-sm">
+                        {lockedSvcCurrency} (bloqueada por servicios)
+                      </div>
+                    ) : loadingPicks ? (
+                      <div className="flex h-[42px] items-center">
+                        <Spinner />
+                      </div>
+                    ) : (
+                      <select
+                        id="currency"
+                        value={currency}
+                        onChange={(e) => setCurrency(e.target.value)}
+                        className={`${inputBase} cursor-pointer appearance-none`}
+                        required
+                        disabled={currencyOptions.length === 0}
+                      >
+                        <option value="" disabled>
+                          {currencyOptions.length
+                            ? "Seleccionar moneda"
+                            : "Sin monedas habilitadas"}
+                        </option>
+                        {currencyOptions.map((code) => (
+                          <option key={code} value={code}>
+                            {currencyDict[code]
+                              ? `${code} — ${currencyDict[code]}`
+                              : code}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </Field>
+                </Section>
+              )}
+
+              {/* MÉTODO / CUENTA */}
+              {action === "create" && (
+                <Section
+                  title="Forma de pago"
+                  desc="Elegí método y, si corresponde, la cuenta."
+                >
+                  <Field
+                    id="payment_method"
+                    label="Método de pago"
+                    required={!useCredit}
+                  >
+                    {loadingPicks ? (
+                      <div className="flex h-[42px] items-center">
+                        <Spinner />
+                      </div>
+                    ) : (
+                      <select
+                        id="payment_method"
+                        value={paymentMethod}
+                        onChange={(e) => setPaymentMethod(e.target.value)}
+                        className={`${inputBase} cursor-pointer appearance-none`}
+                        required={!useCredit}
+                        disabled={
+                          uiPaymentMethodOptions.length === 0 ||
+                          (isOperatorCategory(category) && useCredit)
+                        }
+                      >
+                        <option value="" disabled>
+                          {uiPaymentMethodOptions.length
+                            ? "Seleccionar método"
+                            : "Sin métodos habilitados"}
+                        </option>
+                        {uiPaymentMethodOptions.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </Field>
+
+                  {requiresAccount ? (
+                    <Field id="account" label="Cuenta" required>
+                      <select
+                        id="account"
+                        value={account}
+                        onChange={(e) => setAccount(e.target.value)}
+                        className={`${inputBase} cursor-pointer appearance-none`}
+                        required
+                        disabled={accounts.length === 0}
+                      >
+                        <option value="" disabled>
+                          {filteredAccounts.length || accounts.length
+                            ? "Seleccionar cuenta"
+                            : "Sin cuentas habilitadas"}
+                        </option>
+                        {(filteredAccounts.length
+                          ? filteredAccounts
+                          : accounts
+                        ).map((a) => {
+                          const label = a.display_name || a.name;
+                          return (
+                            <option key={a.id_account} value={label}>
+                              {label}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      {account && (
+                        <p className="ml-1 mt-1 text-xs opacity-70">
+                          Moneda detectada:{" "}
+                          <b>{guessAccountCurrency(account) || "—"}</b>
+                        </p>
+                      )}
+                    </Field>
+                  ) : (
+                    <div />
+                  )}
+                </Section>
+              )}
+
+              {/* INFO CRÉDITO (si está activo) */}
+              {action === "create" &&
+                isOperatorCategory(category) &&
+                useCredit && (
+                  <div
+                    className="rounded-2xl border border-white/10 bg-white/10 p-3 text-xs md:col-span-2"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {!operatorId || !currency ? (
+                      <p>
+                        Elegí operador y moneda para validar la cuenta de
+                        crédito.
+                      </p>
+                    ) : creditAccStatus === "checking" ? (
+                      <div className="flex items-center gap-2">
+                        <Spinner />
+                        <span>
+                          Verificando cuenta en {String(currency).toUpperCase()}
+                          …
+                        </span>
+                      </div>
+                    ) : creditAccStatus === "exists" ? (
+                      <p className="text-emerald-400">
+                        ✓ Existe una cuenta de crédito en{" "}
+                        {String(currency).toUpperCase()} para este operador.
+                      </p>
+                    ) : creditAccStatus === "creating" ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-amber-300">
+                          Creando cuenta de crédito en{" "}
+                          {String(currency).toUpperCase()}…
+                        </span>
+                        <button
+                          type="button"
+                          className="rounded-full bg-sky-100 px-3 py-1 text-sky-950 shadow-sm dark:bg-white/10 dark:text-white"
+                          disabled
+                        >
+                          <Spinner />
+                        </button>
+                      </div>
+                    ) : creditAccStatus === "missing" ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-amber-300">
+                          No existe cuenta de crédito en{" "}
+                          {String(currency).toUpperCase()} para este operador.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleCreateCreditAccount}
+                          className="rounded-full bg-sky-100 px-3 py-1 text-sky-950 shadow-sm dark:bg-white/10 dark:text-white"
+                        >
+                          {`Crear cuenta ${String(currency).toUpperCase()}`}
+                        </button>
+                      </div>
+                    ) : creditAccStatus === "error" ? (
+                      <p className="text-rose-400">
+                        No se pudo verificar: {creditAccMsg}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+
               {/* CONVERSIÓN */}
-              <Section
-                title="Conversión (opcional)"
-                desc="Registra valor/contravalor (sin tipo de cambio) si el acuerdo está en otra divisa."
-              >
-                <Field id="base" label="Valor base">
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      inputMode="decimal"
-                      className={inputBase}
-                      placeholder="0.00"
-                      value={baseAmount}
-                      onChange={(e) => {
-                        setUseConversion(true);
-                        setBaseAmount(e.target.value);
-                      }}
-                    />
-                    <select
-                      className={`${inputBase} cursor-pointer appearance-none`}
-                      value={baseCurrency}
-                      onChange={(e) => {
-                        setUseConversion(true);
-                        setBaseCurrency(e.target.value);
-                      }}
-                      disabled={currencyOptions.length === 0}
-                    >
-                      <option value="" disabled>
-                        {currencyOptions.length ? "Moneda" : "Sin monedas"}
-                      </option>
-                      {currencyOptions.map((code) => (
-                        <option key={`bc-${code}`} value={code}>
-                          {code}
+              {action === "create" && (
+                <Section
+                  title="Conversión (opcional)"
+                  desc="Registra valor/contravalor (sin tipo de cambio) si el acuerdo está en otra divisa."
+                >
+                  <Field id="base" label="Valor base">
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        inputMode="decimal"
+                        className={inputBase}
+                        placeholder="0.00"
+                        value={baseAmount}
+                        onChange={(e) => {
+                          setUseConversion(true);
+                          setBaseAmount(e.target.value);
+                        }}
+                      />
+                      <select
+                        className={`${inputBase} cursor-pointer appearance-none`}
+                        value={baseCurrency}
+                        onChange={(e) => {
+                          setUseConversion(true);
+                          setBaseCurrency(e.target.value);
+                        }}
+                        disabled={currencyOptions.length === 0}
+                      >
+                        <option value="" disabled>
+                          {currencyOptions.length ? "Moneda" : "Sin monedas"}
                         </option>
-                      ))}
-                    </select>
-                  </div>
-                  {useConversion && previewBase && (
-                    <div className="ml-1 mt-1 text-xs opacity-70">
-                      {previewBase}
+                        {currencyOptions.map((code) => (
+                          <option key={`bc-${code}`} value={code}>
+                            {code}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                  )}
-                </Field>
+                    {useConversion && previewBase && (
+                      <div className="ml-1 mt-1 text-xs opacity-70">
+                        {previewBase}
+                      </div>
+                    )}
+                  </Field>
 
-                <Field id="counter" label="Contravalor">
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      inputMode="decimal"
-                      className={inputBase}
-                      placeholder="0.00"
-                      value={counterAmount}
-                      onChange={(e) => {
-                        setUseConversion(true);
-                        setCounterAmount(e.target.value);
-                      }}
-                    />
-                    <select
-                      className={`${inputBase} cursor-pointer appearance-none`}
-                      value={counterCurrency}
-                      onChange={(e) => {
-                        setUseConversion(true);
-                        setCounterCurrency(e.target.value);
-                      }}
-                      disabled={currencyOptions.length === 0}
-                    >
-                      <option value="" disabled>
-                        {currencyOptions.length ? "Moneda" : "Sin monedas"}
-                      </option>
-                      {currencyOptions.map((code) => (
-                        <option key={`cc-${code}`} value={code}>
-                          {code}
+                  <Field id="counter" label="Contravalor">
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        inputMode="decimal"
+                        className={inputBase}
+                        placeholder="0.00"
+                        value={counterAmount}
+                        onChange={(e) => {
+                          setUseConversion(true);
+                          setCounterAmount(e.target.value);
+                        }}
+                      />
+                      <select
+                        className={`${inputBase} cursor-pointer appearance-none`}
+                        value={counterCurrency}
+                        onChange={(e) => {
+                          setUseConversion(true);
+                          setCounterCurrency(e.target.value);
+                        }}
+                        disabled={currencyOptions.length === 0}
+                      >
+                        <option value="" disabled>
+                          {currencyOptions.length ? "Moneda" : "Sin monedas"}
                         </option>
-                      ))}
-                    </select>
-                  </div>
-                  {useConversion && previewCounter && (
-                    <div className="ml-1 mt-1 text-xs opacity-70">
-                      {previewCounter}
+                        {currencyOptions.map((code) => (
+                          <option key={`cc-${code}`} value={code}>
+                            {code}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                  )}
-                </Field>
+                    {useConversion && previewCounter && (
+                      <div className="ml-1 mt-1 text-xs opacity-70">
+                        {previewCounter}
+                      </div>
+                    )}
+                  </Field>
 
-                <div className="text-xs opacity-70 md:col-span-2">
-                  Se guarda el valor y contravalor <b>sin tipo de cambio</b>.
-                  Útil si pagás en una moneda pero el acuerdo está en otra.
-                </div>
-              </Section>
+                  <div className="text-xs opacity-70 md:col-span-2">
+                    Se guarda el valor y contravalor <b>sin tipo de cambio</b>.
+                    Útil si pagás en una moneda pero el acuerdo está en otra.
+                  </div>
+                </Section>
+              )}
 
               {/* FECHA + DESCRIPCIÓN */}
-              <Section title="Fecha y detalle">
-                <Field id="paid_at" label="Fecha de pago">
-                  <input
-                    id="paid_at"
-                    type="date"
-                    value={paidAt}
-                    onChange={(e) => setPaidAt(e.target.value)}
-                    className={`${inputBase} cursor-pointer`}
-                  />
-                </Field>
+              {action === "create" && (
+                <Section title="Fecha y detalle">
+                  <Field id="paid_at" label="Fecha de pago">
+                    <input
+                      id="paid_at"
+                      type="date"
+                      value={paidAt}
+                      onChange={(e) => setPaidAt(e.target.value)}
+                      className={`${inputBase} cursor-pointer`}
+                    />
+                  </Field>
 
-                <Field id="desc" label="Descripción" required>
-                  <input
-                    id="desc"
-                    className={inputBase}
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Concepto / detalle del pago…"
-                    required
-                  />
-                </Field>
-              </Section>
+                  <Field id="desc" label="Descripción" required>
+                    <input
+                      id="desc"
+                      className={inputBase}
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="Concepto / detalle del pago…"
+                      required
+                    />
+                  </Field>
+                </Section>
+              )}
 
               {/* ACTION BAR */}
               <div className="sticky bottom-2 z-10 flex justify-end gap-3">
@@ -1805,18 +2166,26 @@ export default function OperatorPaymentForm({
                   }`}
                   aria-label="Cargar pago al operador"
                 >
-                  {loading ? <Spinner /> : "Cargar pago"}
+                  {loading ? (
+                    <Spinner />
+                  ) : action === "attach" ? (
+                    "Asociar pago"
+                  ) : (
+                    "Cargar pago"
+                  )}
                 </button>
 
-                <button
-                  type="button"
-                  onClick={useSuggested}
-                  disabled={selectedServices.length === 0}
-                  className="rounded-full bg-sky-950/10 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition active:scale-[0.98] disabled:opacity-50 dark:bg-white/10 dark:text-white"
-                  title="Usar sugeridos"
-                >
-                  Usar sugeridos
-                </button>
+                {action === "create" && (
+                  <button
+                    type="button"
+                    onClick={useSuggested}
+                    disabled={selectedServices.length === 0}
+                    className="rounded-full bg-sky-950/10 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition active:scale-[0.98] disabled:opacity-50 dark:bg-white/10 dark:text-white"
+                    title="Usar sugeridos"
+                  >
+                    Usar sugeridos
+                  </button>
+                )}
               </div>
             </motion.form>
           </motion.div>

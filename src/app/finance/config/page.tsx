@@ -1,7 +1,13 @@
 // src/app/finance/config/page.tsx
 "use client";
 
-import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useSearchParams } from "next/navigation";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
@@ -25,14 +31,10 @@ const GLASS =
   "rounded-3xl border border-white/30 bg-white/10 backdrop-blur shadow-lg shadow-sky-900/10 dark:bg-white/10 dark:border-white/5";
 const BTN_BASE =
   "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-medium shadow-sm backdrop-blur transition-transform hover:scale-[.98] active:scale-95 disabled:opacity-50";
-const BTN_SKY =
-  `${BTN_BASE} border-sky-300/60 bg-sky-100/5 text-sky-950 shadow-sky-900/10 dark:border-sky-400/30 dark:bg-sky-500/5 dark:text-sky-50`;
-const BTN_EMERALD =
-  `${BTN_BASE} border-emerald-300/60 bg-emerald-100/5 text-emerald-900 shadow-emerald-900/10 dark:border-emerald-400/30 dark:bg-emerald-500/5 dark:text-emerald-50`;
-const BTN_AMBER =
-  `${BTN_BASE} border-amber-300/60 bg-amber-100/5 text-amber-900 shadow-amber-900/10 dark:border-amber-400/30 dark:bg-amber-500/5 dark:text-amber-50`;
-const BTN_DANGER =
-  `${BTN_BASE} border-rose-300/60 bg-rose-500/5 text-rose-900 shadow-rose-900/10 dark:border-rose-400/40 dark:bg-rose-500/5 dark:text-rose-50`;
+const BTN_SKY = `${BTN_BASE} border-sky-300/60 bg-sky-100/5 text-sky-950 shadow-sky-900/10 dark:border-sky-400/30 dark:bg-sky-500/5 dark:text-sky-50`;
+const BTN_EMERALD = `${BTN_BASE} border-emerald-300/60 bg-emerald-100/5 text-emerald-900 shadow-emerald-900/10 dark:border-emerald-400/30 dark:bg-emerald-500/5 dark:text-emerald-50`;
+const BTN_AMBER = `${BTN_BASE} border-amber-300/60 bg-amber-100/5 text-amber-900 shadow-amber-900/10 dark:border-amber-400/30 dark:bg-amber-500/5 dark:text-amber-50`;
+const BTN_DANGER = `${BTN_BASE} border-rose-300/60 bg-rose-500/5 text-rose-900 shadow-rose-900/10 dark:border-rose-400/40 dark:bg-rose-500/5 dark:text-rose-50`;
 const ICON_BTN = BTN_SKY;
 const BADGE_SKY =
   "inline-flex items-center gap-1 rounded-full border border-sky-300/50 bg-sky-100/5 px-2 py-[2px] text-[10px] font-medium text-sky-950 dark:border-sky-300/30 dark:bg-sky-500/5 dark:text-sky-50";
@@ -105,7 +107,7 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`block w-full min-w-fit appearance-none rounded-3xl border border-white/30 bg-white/10 px-4 py-2 outline-none backdrop-blur placeholder:opacity-60 dark:border-white/10 dark:bg-white/10 ${props.className || ""}`}
+      className={`block w-full min-w-fit appearance-none rounded-2xl border border-sky-200 bg-white/50 px-4 py-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur placeholder:opacity-60 dark:border-sky-200/60 dark:bg-sky-100/10 ${props.className || ""}`}
     />
   );
 }
@@ -141,9 +143,7 @@ function Switch({
     >
       <span
         className={`inline-block h-4 w-7 rounded-full ${
-          checked
-            ? "bg-emerald-500/20"
-            : "bg-amber-200/20 dark:bg-amber-400/10"
+          checked ? "bg-emerald-500/20" : "bg-amber-200/20 dark:bg-amber-400/10"
         }`}
       >
         <span
@@ -722,7 +722,9 @@ function FinanceConfigPageInner() {
       setBalanceExisting(existingMap);
       setBalanceRows(rows);
       setBalanceDate(
-        latestDate ? toDateInputValue(latestDate) : toDateInputValue(new Date()),
+        latestDate
+          ? toDateInputValue(latestDate)
+          : toDateInputValue(new Date()),
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al cargar saldos");
@@ -1301,9 +1303,7 @@ function FinanceConfigPageInner() {
                                 {c.code}
                               </span>
                               {c.is_primary && (
-                                <span className={BADGE_EMERALD}>
-                                  Principal
-                                </span>
+                                <span className={BADGE_EMERALD}>Principal</span>
                               )}
                               {!c.enabled && (
                                 <span className={BADGE_AMBER}>
@@ -1413,7 +1413,7 @@ function FinanceConfigPageInner() {
                           key={a.id_account}
                           className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur"
                         >
-                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <div className="flex min-w-0 flex-1 items-center gap-3">
                             <div className={BADGE_SKY}>N° {a.id_account}</div>
                             <div className="truncate">
                               <div className="flex items-center gap-2">
@@ -1434,43 +1434,43 @@ function FinanceConfigPageInner() {
                             </div>
                           </div>
 
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openBalanceModal(a)}
-                            className={BTN_AMBER}
-                            aria-label="Editar saldos iniciales"
-                          >
-                            Saldos iniciales
-                          </button>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openBalanceModal(a)}
+                              className={BTN_AMBER}
+                              aria-label="Editar saldos iniciales"
+                            >
+                              Saldos iniciales
+                            </button>
 
-                          <Switch
-                            checked={a.enabled}
-                            onChange={() => toggleAccountEnabled(a)}
-                            label="Activa"
-                            title={
-                              a.enabled
-                                ? "Deshabilitar cuenta"
-                                : "Habilitar cuenta"
-                            }
-                          />
+                            <Switch
+                              checked={a.enabled}
+                              onChange={() => toggleAccountEnabled(a)}
+                              label="Activa"
+                              title={
+                                a.enabled
+                                  ? "Deshabilitar cuenta"
+                                  : "Habilitar cuenta"
+                              }
+                            />
 
-                          <button
-                            type="button"
-                            onClick={() => openEditAccount(a)}
-                            className={BTN_SKY}
-                          >
-                            <IconPencilSquare className="size-4" />
-                          </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditAccount(a)}
+                              className={BTN_SKY}
+                            >
+                              <IconPencilSquare className="size-4" />
+                            </button>
 
-                          <button
-                            type="button"
-                            onClick={() => deleteAccount(a)}
-                            className={BTN_DANGER}
-                          >
-                            <IconTrash className="size-4" />
-                          </button>
-                        </div>
+                            <button
+                              type="button"
+                              onClick={() => deleteAccount(a)}
+                              className={BTN_DANGER}
+                            >
+                              <IconTrash className="size-4" />
+                            </button>
+                          </div>
                         </article>
                       );
                     })}

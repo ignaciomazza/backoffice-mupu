@@ -203,6 +203,8 @@ export default function SideBar({
 
     return {
       "/operators": ["desarrollador", "administrativo", "gerente"],
+      "/operators/payments": ["desarrollador", "administrativo", "gerente"],
+      "/operators/panel": ["desarrollador", "administrativo", "gerente"],
       "/operators/insights": ["desarrollador", "administrativo", "gerente"],
       "/agency": devMgr,
       "/agency/storage": adm,
@@ -323,9 +325,6 @@ export default function SideBar({
           hasAccess("/investments")
             ? { href: "/investments", label: "Inversión" }
             : null,
-          hasAccess("/operators/insights")
-            ? { href: "/operators/insights", label: "Panel Operadores" }
-            : null,
           hasAccess("/receipts")
             ? { href: "/receipts", label: "Recibos" }
             : null,
@@ -343,6 +342,21 @@ export default function SideBar({
             : null,
           hasAccess("/finance/config")
             ? { href: "/finance/config", label: "Configuración" }
+            : null,
+        ].filter(Boolean) as { href: string; label: string }[],
+      },
+      {
+        id: "operadores",
+        title: "Operadores",
+        items: [
+          hasAccess("/operators")
+            ? { href: "/operators", label: "Operadores" }
+            : null,
+          hasAccess("/operators/payments")
+            ? { href: "/operators/payments", label: "Pagos" }
+            : null,
+          hasAccess("/operators/panel")
+            ? { href: "/operators/panel", label: "Panel" }
             : null,
         ].filter(Boolean) as { href: string; label: string }[],
       },
@@ -370,9 +384,6 @@ export default function SideBar({
             ? { href: "/agency/storage", label: "Almacenamiento" }
             : null,
           hasAccess("/arca") ? { href: "/arca", label: "Conectar ARCA" } : null,
-          hasAccess("/operators")
-            ? { href: "/operators", label: "Operadores" }
-            : null,
           hasAccess("/users")
             ? {
                 href: "/users",

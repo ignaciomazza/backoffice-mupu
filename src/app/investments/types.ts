@@ -14,6 +14,7 @@ export type Investment = {
   operator?: { id_operator: number; name: string } | null;
   createdBy?: { id_user: number; first_name: string; last_name: string } | null;
   booking_id?: number | null;
+  serviceIds?: number[] | null;
   booking?: {
     id_booking: number;
     agency_booking_id?: number | null;
@@ -62,6 +63,7 @@ export type InvestmentFormState = {
   amount: string;
   currency: string;
   paid_at: string;
+  booking_number: string;
   user_id: number | null;
   operator_id: number | null;
   paid_today: boolean;
