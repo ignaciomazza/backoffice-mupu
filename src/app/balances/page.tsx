@@ -8,6 +8,8 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { authFetch } from "@/utils/authFetch";
 import { useAuth } from "@/context/AuthContext";
+import { computeBillingAdjustments } from "@/utils/billingAdjustments";
+import type { BillingAdjustmentConfig } from "@/types";
 
 /* ================= Tipos ================= */
 
@@ -24,15 +26,21 @@ type ServiceForBalance = {
   sale_price: number;
   currency: CurrencyCode;
   card_interest?: number | null;
+  cost_price?: number | null;
 
   tax_21?: number | null;
   tax_105?: number | null;
   exempt?: number | null;
   other_taxes?: number | null;
   nonComputable?: number | null;
+  taxableBase21?: number | null;
+  taxableBase10_5?: number | null;
   taxableCardInterest?: number | null;
   vatOnCardInterest?: number | null;
   transfer_fee_amount?: number | string | null;
+  transfer_fee_pct?: number | string | null;
+  extra_costs_amount?: number | null;
+  extra_taxes_amount?: number | null;
   totalCommissionWithoutVAT?: number | null;
   vatOnCommission21?: number | null;
   vatOnCommission10_5?: number | null;
@@ -80,13 +88,19 @@ type BookingsAPI = {
 type TaxBucket = {
   iva21: number;
   iva105: number;
+  iva21Comm: number;
+  iva105Comm: number;
   exento: number;
   otros: number;
   noComp: number;
   cardIntBase: number;
   cardIntIVA: number;
   transf: number;
+  base21: number;
+  base105: number;
   commSinIVA: number;
+  commNet: number;
+  commWithVAT: number;
   total: number;
 };
 
@@ -94,13 +108,19 @@ function makeEmptyTaxBucket(): TaxBucket {
   return {
     iva21: 0,
     iva105: 0,
+    iva21Comm: 0,
+    iva105Comm: 0,
     exento: 0,
     otros: 0,
     noComp: 0,
     cardIntBase: 0,
     cardIntIVA: 0,
     transf: 0,
+    base21: 0,
+    base105: 0,
     commSinIVA: 0,
+    commNet: 0,
+    commWithVAT: 0,
     total: 0,
   };
 }
@@ -151,6 +171,10 @@ type VisibleKey =
   | "debt_total"
   | "tax_iva21"
   | "tax_iva105"
+  | "tax_iva21_comm"
+  | "tax_iva105_comm"
+  | "tax_base21"
+  | "tax_base105"
   | "tax_exento"
   | "tax_otros"
   | "tax_noComp"
@@ -158,6 +182,8 @@ type VisibleKey =
   | "tax_cardBase"
   | "tax_cardIVA"
   | "tax_commNoVAT"
+  | "tax_commNet"
+  | "tax_commWithVAT"
   | "tax_total";
 
 type ColumnDef = { key: VisibleKey; label: string; always?: boolean };
@@ -175,6 +201,10 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: "debt_total", label: "Deuda" },
   { key: "tax_iva21", label: "IVA 21%" },
   { key: "tax_iva105", label: "IVA 10,5%" },
+  { key: "tax_iva21_comm", label: "IVA 21% com." },
+  { key: "tax_iva105_comm", label: "IVA 10,5% com." },
+  { key: "tax_base21", label: "Gravado 21%" },
+  { key: "tax_base105", label: "Gravado 10.5%" },
   { key: "tax_exento", label: "Exento" },
   { key: "tax_otros", label: "Otros" },
   { key: "tax_noComp", label: "No comp." },
@@ -182,6 +212,8 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: "tax_cardBase", label: "Base int. tarjeta" },
   { key: "tax_cardIVA", label: "IVA int. tarjeta" },
   { key: "tax_commNoVAT", label: "Comisión s/IVA" },
+  { key: "tax_commNet", label: "Comisión neta (costos + imp.)" },
+  { key: "tax_commWithVAT", label: "Comisión c/IVA" },
   { key: "tax_total", label: "Total imp." },
 ];
 
@@ -226,6 +258,10 @@ export default function BalancesPage() {
   const [calcMode, setCalcMode] = useState<"auto" | "manual" | null>(null);
   const [useBookingSaleTotal, setUseBookingSaleTotal] =
     useState<boolean>(false);
+  const [transferFeePct, setTransferFeePct] = useState<number>(0.024);
+  const [billingAdjustments, setBillingAdjustments] = useState<
+    BillingAdjustmentConfig[]
+  >([]);
 
   useEffect(() => {
     if (!token) {
@@ -254,6 +290,9 @@ export default function BalancesPage() {
   useEffect(() => {
     if (!token) {
       setCalcMode(null);
+      setUseBookingSaleTotal(false);
+      setTransferFeePct(0.024);
+      setBillingAdjustments([]);
       return;
     }
     const controller = new AbortController();
@@ -267,6 +306,8 @@ export default function BalancesPage() {
         if (!res.ok) throw new Error("No se pudo cargar Cálculo & Comisiones");
         const data = (await res.json()) as {
           billing_breakdown_mode?: string | null;
+          transfer_fee_pct?: number | null;
+          billing_adjustments?: BillingAdjustmentConfig[] | null;
           use_booking_sale_total?: boolean;
         };
         if (controller.signal.aborted) return;
@@ -276,11 +317,18 @@ export default function BalancesPage() {
             : "auto";
         setCalcMode(mode);
         setUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
+        const pct = Number(data.transfer_fee_pct);
+        setTransferFeePct(Number.isFinite(pct) ? pct : 0.024);
+        setBillingAdjustments(
+          Array.isArray(data.billing_adjustments) ? data.billing_adjustments : [],
+        );
       } catch (err) {
         if (controller.signal.aborted) return;
         console.error("[balances] calc config", err);
         setCalcMode(null);
         setUseBookingSaleTotal(false);
+        setTransferFeePct(0.024);
+        setBillingAdjustments([]);
         toast.error(
           err instanceof Error
             ? err.message
@@ -425,32 +473,96 @@ export default function BalancesPage() {
         const cur = s.currency === "USD" ? "USD" : "ARS";
         const bucket = acc[cur];
 
-        const iva21 = toNum(s.tax_21) + toNum(s.vatOnCommission21);
-        const iva105 = toNum(s.tax_105) + toNum(s.vatOnCommission10_5);
+        const iva21 = toNum(s.tax_21);
+        const iva105 = toNum(s.tax_105);
+        const iva21Comm = toNum(s.vatOnCommission21);
+        const iva105Comm = toNum(s.vatOnCommission10_5);
         const exento = toNum(s.exempt);
         const otros = toNum(s.other_taxes);
         const noComp = toNum(s.nonComputable);
+        const base21 = toNum(s.taxableBase21);
+        const base105 = toNum(s.taxableBase10_5);
         const cardIntBase = toNum(s.taxableCardInterest);
         const cardIntIVA = toNum(s.vatOnCardInterest);
-        const transf = toNum(s.transfer_fee_amount ?? 0);
         const commSinIVA = toNum(s.totalCommissionWithoutVAT);
+        const commWithVAT = commSinIVA + iva21Comm + iva105Comm;
+
+        const sale = toNum(s.sale_price);
+        const pctRaw = s.transfer_fee_pct;
+        const pct =
+          pctRaw != null && String(pctRaw).trim() !== ""
+            ? toNum(pctRaw)
+            : transferFeePct;
+        const transf =
+          s.transfer_fee_amount != null
+            ? toNum(s.transfer_fee_amount)
+            : sale * (Number.isFinite(pct) ? pct : 0);
+        const extraCosts = toNum(s.extra_costs_amount);
+        const extraTaxes = toNum(s.extra_taxes_amount);
+        const commNet = Math.max(commSinIVA - transf - extraCosts - extraTaxes, 0);
 
         bucket.iva21 += iva21;
         bucket.iva105 += iva105;
+        bucket.iva21Comm += iva21Comm;
+        bucket.iva105Comm += iva105Comm;
         bucket.exento += exento;
         bucket.otros += otros;
         bucket.noComp += noComp;
+        bucket.base21 += base21;
+        bucket.base105 += base105;
         bucket.cardIntBase += cardIntBase;
         bucket.cardIntIVA += cardIntIVA;
         bucket.transf += transf;
         bucket.commSinIVA += commSinIVA;
+        bucket.commNet += commNet;
+        bucket.commWithVAT += commWithVAT;
 
-        bucket.total += iva21 + iva105 + cardIntIVA + otros + noComp + transf;
+        bucket.total +=
+          iva21 +
+          iva105 +
+          iva21Comm +
+          iva105Comm +
+          cardIntIVA +
+          otros +
+          noComp +
+          transf;
       });
 
       return acc;
     },
-    [],
+    [transferFeePct],
+  );
+
+  const computeBookingCommissionBaseByCurrency = useCallback(
+    (b: Booking, saleTotals: Record<CurrencyCode, number>) => {
+      const costTotals: Record<CurrencyCode, number> = { ARS: 0, USD: 0 };
+      const taxTotals: Record<CurrencyCode, number> = { ARS: 0, USD: 0 };
+
+      b.services.forEach((s) => {
+        const cur = normCurrency(s.currency);
+        costTotals[cur] = (costTotals[cur] || 0) + toNum(s.cost_price);
+        taxTotals[cur] = (taxTotals[cur] || 0) + toNum(s.other_taxes);
+      });
+
+      const out: Record<CurrencyCode, number> = { ARS: 0, USD: 0 };
+      for (const cur of TAX_CURRENCIES) {
+        const sale = saleTotals[cur] || 0;
+        const cost = costTotals[cur] || 0;
+        const taxes = taxTotals[cur] || 0;
+        if (!sale && !cost && !taxes) continue;
+        const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
+        const fee = sale * (Number.isFinite(transferFeePct) ? transferFeePct : 0);
+        const adjustments = computeBillingAdjustments(
+          billingAdjustments,
+          sale,
+          cost,
+        ).total;
+        out[cur] = Math.max(commissionBeforeFee - fee - adjustments, 0);
+      }
+
+      return out;
+    },
+    [billingAdjustments, transferFeePct],
   );
 
   /* ---------- Normalizador reutilizable ---------- */
@@ -499,7 +611,12 @@ export default function BalancesPage() {
       const ret = b.return_date ? new Date(b.return_date) : null;
 
       const taxByCurrency = sumTaxesByCurrency(b.services);
-
+      if (useBookingSaleTotal) {
+        const commNetByCur = computeBookingCommissionBaseByCurrency(b, saleNoInt);
+        for (const cur of TAX_CURRENCIES) {
+          taxByCurrency[cur].commNet = commNetByCur[cur] || 0;
+        }
+      }
       return {
         ...b,
         _titularFull: titularFull,
@@ -526,6 +643,7 @@ export default function BalancesPage() {
       sumByCurrency,
       sumReceiptsByCurrency,
       sumTaxesByCurrency,
+      computeBookingCommissionBaseByCurrency,
       calcMode,
       normalizeSaleTotals,
       useBookingSaleTotal,
@@ -658,6 +776,7 @@ export default function BalancesPage() {
     [visible],
   );
 
+
   // Presets rápidos para columnas
   const applyPreset = (p: "basic" | "finance" | "debt") => {
     if (p === "basic") {
@@ -680,10 +799,18 @@ export default function BalancesPage() {
         "debt_total",
         "tax_iva21",
         "tax_iva105",
+        "tax_iva21_comm",
+        "tax_iva105_comm",
+        "tax_base21",
+        "tax_base105",
         "tax_exento",
         "tax_otros",
         "tax_noComp",
         "tax_transf",
+        "tax_cardIVA",
+        "tax_commNoVAT",
+        "tax_commNet",
+        "tax_commWithVAT",
         "tax_total",
         "creation_date",
       ]);
@@ -715,6 +842,10 @@ export default function BalancesPage() {
     | "debt_total"
     | "tax_iva21"
     | "tax_iva105"
+    | "tax_iva21_comm"
+    | "tax_iva105_comm"
+    | "tax_base21"
+    | "tax_base105"
     | "tax_exento"
     | "tax_otros"
     | "tax_noComp"
@@ -722,6 +853,8 @@ export default function BalancesPage() {
     | "tax_cardBase"
     | "tax_cardIVA"
     | "tax_commNoVAT"
+    | "tax_commNet"
+    | "tax_commWithVAT"
     | "tax_total";
 
   const [sortKey, setSortKey] = useState<SortKey>("creation_date");
@@ -802,6 +935,22 @@ export default function BalancesPage() {
           va = getTaxFieldSum(a, "iva105");
           vb = getTaxFieldSum(b, "iva105");
           break;
+        case "tax_iva21_comm":
+          va = getTaxFieldSum(a, "iva21Comm");
+          vb = getTaxFieldSum(b, "iva21Comm");
+          break;
+        case "tax_iva105_comm":
+          va = getTaxFieldSum(a, "iva105Comm");
+          vb = getTaxFieldSum(b, "iva105Comm");
+          break;
+        case "tax_base21":
+          va = getTaxFieldSum(a, "base21");
+          vb = getTaxFieldSum(b, "base21");
+          break;
+        case "tax_base105":
+          va = getTaxFieldSum(a, "base105");
+          vb = getTaxFieldSum(b, "base105");
+          break;
         case "tax_exento":
           va = getTaxFieldSum(a, "exento");
           vb = getTaxFieldSum(b, "exento");
@@ -829,6 +978,14 @@ export default function BalancesPage() {
         case "tax_commNoVAT":
           va = getTaxFieldSum(a, "commSinIVA");
           vb = getTaxFieldSum(b, "commSinIVA");
+          break;
+        case "tax_commNet":
+          va = getTaxFieldSum(a, "commNet");
+          vb = getTaxFieldSum(b, "commNet");
+          break;
+        case "tax_commWithVAT":
+          va = getTaxFieldSum(a, "commWithVAT");
+          vb = getTaxFieldSum(b, "commWithVAT");
           break;
         case "tax_total":
           va = getTaxFieldSum(a, "total");
@@ -1028,6 +1185,18 @@ export default function BalancesPage() {
       case "tax_iva105":
         raw = formatTaxField(b, "iva105") || "—";
         break;
+      case "tax_iva21_comm":
+        raw = formatTaxField(b, "iva21Comm") || "—";
+        break;
+      case "tax_iva105_comm":
+        raw = formatTaxField(b, "iva105Comm") || "—";
+        break;
+      case "tax_base21":
+        raw = formatTaxField(b, "base21") || "—";
+        break;
+      case "tax_base105":
+        raw = formatTaxField(b, "base105") || "—";
+        break;
       case "tax_exento":
         raw = formatTaxField(b, "exento") || "—";
         break;
@@ -1048,6 +1217,12 @@ export default function BalancesPage() {
         break;
       case "tax_commNoVAT":
         raw = formatTaxField(b, "commSinIVA") || "—";
+        break;
+      case "tax_commNet":
+        raw = formatTaxField(b, "commNet") || "—";
+        break;
+      case "tax_commWithVAT":
+        raw = formatTaxField(b, "commWithVAT") || "—";
         break;
       case "tax_total":
         raw = formatTaxField(b, "total") || "—";
@@ -1575,6 +1750,14 @@ export default function BalancesPage() {
                         return renderTaxCell(b, "iva21", col.key, rowPad);
                       case "tax_iva105":
                         return renderTaxCell(b, "iva105", col.key, rowPad);
+                      case "tax_iva21_comm":
+                        return renderTaxCell(b, "iva21Comm", col.key, rowPad);
+                      case "tax_iva105_comm":
+                        return renderTaxCell(b, "iva105Comm", col.key, rowPad);
+                      case "tax_base21":
+                        return renderTaxCell(b, "base21", col.key, rowPad);
+                      case "tax_base105":
+                        return renderTaxCell(b, "base105", col.key, rowPad);
                       case "tax_exento":
                         return renderTaxCell(b, "exento", col.key, rowPad);
                       case "tax_otros":
@@ -1589,6 +1772,10 @@ export default function BalancesPage() {
                         return renderTaxCell(b, "cardIntIVA", col.key, rowPad);
                       case "tax_commNoVAT":
                         return renderTaxCell(b, "commSinIVA", col.key, rowPad);
+                      case "tax_commNet":
+                        return renderTaxCell(b, "commNet", col.key, rowPad);
+                      case "tax_commWithVAT":
+                        return renderTaxCell(b, "commWithVAT", col.key, rowPad);
                       case "tax_total":
                         return renderTaxCell(b, "total", col.key, rowPad);
                     }
