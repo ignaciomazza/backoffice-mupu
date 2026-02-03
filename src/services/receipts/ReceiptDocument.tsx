@@ -10,6 +10,7 @@ import {
   Image,
   Font,
 } from "@react-pdf/renderer";
+import { softWrapLongWords } from "@/lib/pdfText";
 
 /** Línea de pago para el PDF */
 export type ReceiptPdfPaymentLine = {
@@ -165,9 +166,6 @@ const styles = StyleSheet.create({
     lineHeight: 1.35,
   },
   headerBand: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     padding: 12,
     borderRadius: 8,
     marginBottom: 14,
@@ -175,16 +173,22 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
     backgroundColor: "#f8fafc",
   },
-  headerLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
-  logo: { height: 30, width: 120, objectFit: "contain" },
+  headerRow: { width: "100%", overflow: "hidden" },
+  headerRightRow: { width: "100%", marginTop: 6 },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    width: "100%",
+    minWidth: 0,
+  },
+  headerLeftText: { flexGrow: 1, flexShrink: 1, minWidth: 0, maxWidth: 320 },
   agencyName: { fontSize: 10, fontWeight: "bold", color: "#0f172a" },
   agencyMeta: { fontSize: 8.5, color: "#64748b" },
-  headerRight: {
-    alignItems: "flex-end",
-    gap: 2,
-  },
+  logo: { height: 30, width: 120, objectFit: "contain" },
   docTitle: {
     fontSize: 14,
+    marginBottom: 6,
     fontWeight: "bold",
     textTransform: "uppercase",
     color: "#0f172a",
@@ -297,6 +301,10 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
     agency.logoBase64 && (agency.logoMime || "image/png")
       ? `data:${agency.logoMime || "image/png"};base64,${agency.logoBase64}`
       : undefined;
+  const agencyNameSafe = softWrapLongWords(agency.name, { breakChar: " " });
+  const agencyLegalSafe = softWrapLongWords(agency.legalName, {
+    breakChar: " ",
+  });
 
   const safePayments = Array.isArray(payments) ? payments : [];
   const fee =
@@ -330,20 +338,22 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
       <Page size="A4" style={styles.page}>
         {/* Cabecera */}
         <View style={styles.headerBand}>
-          <View style={styles.headerLeft}>
-            {logoSrc ? (
-              // eslint-disable-next-line jsx-a11y/alt-text
-              <Image style={styles.logo} src={logoSrc} />
-            ) : (
-              <View style={{ height: 30, width: 90 }} />
-            )}
-            <View>
-              <Text style={styles.agencyName}>{agency.name}</Text>
-              <Text style={styles.agencyMeta}>{agency.legalName}</Text>
-              <Text style={styles.agencyMeta}>CUIT {agency.taxId}</Text>
+          <View style={styles.headerRow}>
+            <View style={styles.headerLeft}>
+              {logoSrc ? (
+                // eslint-disable-next-line jsx-a11y/alt-text
+                <Image style={styles.logo} src={logoSrc} />
+              ) : (
+                <View style={{ height: 30, width: 90 }} />
+              )}
+              <View style={styles.headerLeftText}>
+                <Text style={styles.agencyName}>{agencyNameSafe}</Text>
+                <Text style={styles.agencyMeta}>{agencyLegalSafe}</Text>
+                <Text style={styles.agencyMeta}>CUIT {agency.taxId}</Text>
+              </View>
             </View>
           </View>
-          <View style={styles.headerRight}>
+          <View style={styles.headerRightRow}>
             <Text style={styles.docTitle}>Recibo de pago</Text>
             <Text style={styles.docSub}>Nro {receiptNumber}</Text>
             <Text style={styles.docSub}>{fmtDate(new Date(issueDate))}</Text>
@@ -372,7 +382,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
             <View style={styles.infoBox}>
               <Text style={styles.infoLabel}>Agencia</Text>
               <Text style={styles.infoText}>
-                {agency.name} ({agency.legalName})
+                {agencyNameSafe} ({agencyLegalSafe})
               </Text>
               <Text style={styles.infoText}>CUIT: {agency.taxId}</Text>
               <Text style={styles.infoText}>{agency.address}</Text>

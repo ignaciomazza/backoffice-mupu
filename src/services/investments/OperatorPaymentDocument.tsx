@@ -10,6 +10,7 @@ import {
   Image,
   Font,
 } from "@react-pdf/renderer";
+import { softWrapLongWords } from "@/lib/pdfText";
 
 export type OperatorPaymentPdfData = {
   paymentNumber: string;
@@ -105,9 +106,6 @@ const styles = StyleSheet.create({
     lineHeight: 1.45,
   },
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
     marginBottom: 24,
     padding: 16,
     borderWidth: 1,
@@ -115,11 +113,26 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: "#f8fafc",
   },
-  logo: { height: 28, width: 120, objectFit: "contain", marginBottom: 4 },
+  headerRow: { width: "100%", overflow: "hidden" },
+  headerRightRow: { width: "100%", marginTop: 6 },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    width: "100%",
+    minWidth: 0,
+  },
+  headerLeftText: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: 320,
+  },
   agencyName: { fontSize: 12, fontWeight: "bold", color: "#0f172a" },
   agencyMeta: { fontSize: 9, color: "#64748b" },
+  logo: { height: 28, width: 120, objectFit: "contain", marginBottom: 4 },
   title: { fontSize: 14, fontWeight: "bold", textTransform: "uppercase" },
-  subtitle: { fontSize: 9, color: "#64748b" },
+  subtitle: { fontSize: 9, marginBottom: 6, color: "#64748b" },
   sectionTitle: {
     fontSize: 11,
     fontWeight: "bold",
@@ -171,6 +184,11 @@ export default function OperatorPaymentDocument(props: OperatorPaymentPdfData) {
     agency,
   } = props;
 
+  const agencyNameSafe = softWrapLongWords(agency.name, { breakChar: " " });
+  const agencyLegalSafe = softWrapLongWords(agency.legalName, {
+    breakChar: " ",
+  });
+
   const displayCurrency = currency || "ARS";
   const displayAmount = safeFmtCurrency(amount, displayCurrency);
   const hasBase =
@@ -186,20 +204,24 @@ export default function OperatorPaymentDocument(props: OperatorPaymentPdfData) {
     <Document>
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
-          <View>
-            {agency.logoBase64 && agency.logoMime && (
-              // eslint-disable-next-line jsx-a11y/alt-text
-              <Image
-                style={styles.logo}
-                src={`data:${agency.logoMime};base64,${agency.logoBase64}`}
-              />
-            )}
-            <Text style={styles.agencyName}>{agency.name}</Text>
-            <Text style={styles.agencyMeta}>{agency.legalName}</Text>
-            <Text style={styles.agencyMeta}>CUIT: {agency.taxId}</Text>
-            <Text style={styles.agencyMeta}>{agency.address}</Text>
+          <View style={styles.headerRow}>
+            <View style={styles.headerLeft}>
+              {agency.logoBase64 && agency.logoMime && (
+                // eslint-disable-next-line jsx-a11y/alt-text
+                <Image
+                  style={styles.logo}
+                  src={`data:${agency.logoMime};base64,${agency.logoBase64}`}
+                />
+              )}
+              <View style={styles.headerLeftText}>
+                <Text style={styles.agencyName}>{agencyNameSafe}</Text>
+                <Text style={styles.agencyMeta}>{agencyLegalSafe}</Text>
+                <Text style={styles.agencyMeta}>CUIT: {agency.taxId}</Text>
+                <Text style={styles.agencyMeta}>{agency.address}</Text>
+              </View>
+            </View>
           </View>
-          <View style={{ alignItems: "flex-end" }}>
+          <View style={styles.headerRightRow}>
             <Text style={styles.title}>Comprobante de pago</Text>
             <Text style={styles.subtitle}>Operador</Text>
             <Text style={styles.subtitle}>N° {paymentNumber}</Text>
