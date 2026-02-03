@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Spinner from "@/components/Spinner";
 import Link from "next/link";
@@ -56,6 +56,11 @@ type ReceiptForBalance = {
   payment_fee_amount?: number | string | null;
   payment_fee_currency?: CurrencyCode | string | null;
 };
+type OperatorDueForBalance = {
+  amount: number | string;
+  currency: CurrencyCode | string;
+  status?: string | null;
+};
 
 interface Booking {
   id_booking: number;
@@ -75,6 +80,7 @@ interface Booking {
   user?: UserLite | null;
   services: ServiceForBalance[];
   Receipt: ReceiptForBalance[];
+  OperatorDue?: OperatorDueForBalance[];
 }
 
 type BookingsAPI = {
@@ -136,13 +142,23 @@ type NormalizedBooking = Booking & {
   _saleWithInt: Record<CurrencyCode, number>;
   _paid: Record<CurrencyCode, number>;
   _debt: Record<CurrencyCode, number>;
+  _operatorDebt: Record<CurrencyCode, number>;
   _saleLabel: string;
   _paidLabel: string;
   _debtLabel: string;
+  _operatorDebtLabel: string;
   _depDate: Date | null;
   _retDate: Date | null;
   _travelLabel: string;
   _taxByCurrency: Record<CurrencyCode, TaxBucket>;
+};
+
+type BalanceKpis = {
+  count: number;
+  sale: Record<CurrencyCode, number>;
+  paid: Record<CurrencyCode, number>;
+  debt: Record<CurrencyCode, number>;
+  operatorDebt: Record<CurrencyCode, number>;
 };
 
 /* ================= Estilos compartidos (glass / sky) ================= */
@@ -169,6 +185,7 @@ type VisibleKey =
   | "sale_total"
   | "paid_total"
   | "debt_total"
+  | "operator_debt"
   | "tax_iva21"
   | "tax_iva105"
   | "tax_iva21_comm"
@@ -199,6 +216,7 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: "sale_total", label: "Venta (sin int.)" },
   { key: "paid_total", label: "Cobrado" },
   { key: "debt_total", label: "Deuda" },
+  { key: "operator_debt", label: "Deuda operadores" },
   { key: "tax_iva21", label: "IVA 21%" },
   { key: "tax_iva105", label: "IVA 10,5%" },
   { key: "tax_iva21_comm", label: "IVA 21% com." },
@@ -232,6 +250,13 @@ const normCurrency = (raw: string | null | undefined): CurrencyCode => {
   const s = (raw || "").trim().toUpperCase();
   if (s === "USD" || s === "U$D" || s === "U$S" || s === "US$") return "USD";
   return "ARS";
+};
+const normalizeDueStatus = (status?: string | null) => {
+  const normalized = (status || "").trim().toUpperCase();
+  if (normalized === "PAGO" || normalized === "PAGADA") return "PAGADA";
+  if (normalized === "CANCELADA" || normalized === "CANCELADO")
+    return "CANCELADA";
+  return "PENDIENTE";
 };
 
 const TAKE = 120;
@@ -460,6 +485,50 @@ export default function BalancesPage() {
     );
   }, []);
 
+  const sumOperatorDuesByCurrency = useCallback(
+    (dues: Booking["OperatorDue"]) => {
+      return (dues ?? []).reduce<Record<CurrencyCode, number>>(
+        (acc, d) => {
+          if (normalizeDueStatus(d?.status) !== "PENDIENTE") return acc;
+          const cur = normCurrency(d?.currency);
+          const val = toNum(d?.amount ?? 0);
+          if (val) acc[cur] = (acc[cur] || 0) + val;
+          return acc;
+        },
+        { ARS: 0, USD: 0 },
+      );
+    },
+    [],
+  );
+
+  const computeBookingAmounts = useCallback(
+    (b: Booking) => {
+      const saleNoInt = useBookingSaleTotal
+        ? normalizeSaleTotals(b.sale_totals)
+        : sumByCurrency(b.services, false);
+      const saleWithInt = useBookingSaleTotal
+        ? saleNoInt
+        : sumByCurrency(b.services, true);
+      const paid = sumReceiptsByCurrency(b.Receipt);
+      const saleForDebt = calcMode === "manual" ? saleNoInt : saleWithInt;
+      const debt: Record<CurrencyCode, number> = {
+        ARS: (saleForDebt.ARS || 0) - (paid.ARS || 0),
+        USD: (saleForDebt.USD || 0) - (paid.USD || 0),
+      };
+      const operatorDebt = sumOperatorDuesByCurrency(b.OperatorDue);
+
+      return { saleNoInt, saleWithInt, paid, debt, operatorDebt };
+    },
+    [
+      calcMode,
+      normalizeSaleTotals,
+      sumByCurrency,
+      sumOperatorDuesByCurrency,
+      sumReceiptsByCurrency,
+      useBookingSaleTotal,
+    ],
+  );
+
   const sumTaxesByCurrency = useCallback(
     (services: Booking["services"]): Record<CurrencyCode, TaxBucket> => {
       const acc: Record<CurrencyCode, TaxBucket> = {
@@ -577,18 +646,8 @@ export default function BalancesPage() {
           ? `${b.user?.first_name || ""} ${b.user?.last_name || ""}`.trim()
           : "";
 
-      const saleNoInt = useBookingSaleTotal
-        ? normalizeSaleTotals(b.sale_totals)
-        : sumByCurrency(b.services, false);
-      const saleWithInt = useBookingSaleTotal
-        ? saleNoInt
-        : sumByCurrency(b.services, true);
-      const paid = sumReceiptsByCurrency(b.Receipt);
-      const saleForDebt = calcMode === "manual" ? saleNoInt : saleWithInt;
-      const debt: Record<CurrencyCode, number> = {
-        ARS: (saleForDebt.ARS || 0) - (paid.ARS || 0),
-        USD: (saleForDebt.USD || 0) - (paid.USD || 0),
-      };
+      const { saleNoInt, saleWithInt, paid, debt, operatorDebt } =
+        computeBookingAmounts(b);
 
       const saleLabel = [
         saleNoInt.ARS ? fmtARS(saleNoInt.ARS) : "",
@@ -605,6 +664,12 @@ export default function BalancesPage() {
       const debtLabel = [
         debt.ARS ? fmtARS(debt.ARS) : "",
         debt.USD ? fmtUSD(debt.USD) : "",
+      ]
+        .filter(Boolean)
+        .join(" y ");
+      const operatorDebtLabel = [
+        operatorDebt.ARS ? fmtARS(operatorDebt.ARS) : "",
+        operatorDebt.USD ? fmtUSD(operatorDebt.USD) : "",
       ]
         .filter(Boolean)
         .join(" y ");
@@ -630,9 +695,11 @@ export default function BalancesPage() {
         _saleWithInt: saleWithInt,
         _paid: paid,
         _debt: debt,
+        _operatorDebt: operatorDebt,
         _saleLabel: saleLabel || "—",
         _paidLabel: paidLabel || "—",
         _debtLabel: debtLabel || "—",
+        _operatorDebtLabel: operatorDebtLabel || "—",
         _depDate: dep,
         _retDate: ret,
         _travelLabel:
@@ -645,12 +712,9 @@ export default function BalancesPage() {
     [
       fmtARS,
       fmtUSD,
-      sumByCurrency,
-      sumReceiptsByCurrency,
+      computeBookingAmounts,
       sumTaxesByCurrency,
       computeBookingCommissionBaseByCurrency,
-      calcMode,
-      normalizeSaleTotals,
       useBookingSaleTotal,
     ],
   );
@@ -823,6 +887,7 @@ export default function BalancesPage() {
         "id_booking",
         "titular",
         "debt_total",
+        "operator_debt",
         "paid_total",
         "owner",
         "tax_iva21",
@@ -844,6 +909,7 @@ export default function BalancesPage() {
     | "sale_total"
     | "paid_total"
     | "debt_total"
+    | "operator_debt"
     | "tax_iva21"
     | "tax_iva105"
     | "tax_iva21_comm"
@@ -931,6 +997,10 @@ export default function BalancesPage() {
           va = (a._debt.ARS || 0) * 1e6 + (a._debt.USD || 0);
           vb = (b._debt.ARS || 0) * 1e6 + (b._debt.USD || 0);
           break;
+        case "operator_debt":
+          va = (a._operatorDebt.ARS || 0) * 1e6 + (a._operatorDebt.USD || 0);
+          vb = (b._operatorDebt.ARS || 0) * 1e6 + (b._operatorDebt.USD || 0);
+          break;
         case "tax_iva21":
           va = getTaxFieldSum(a, "iva21");
           vb = getTaxFieldSum(b, "iva21");
@@ -1014,7 +1084,9 @@ export default function BalancesPage() {
       paidARS = 0,
       paidUSD = 0,
       debtARS = 0,
-      debtUSD = 0;
+      debtUSD = 0,
+      operatorDebtARS = 0,
+      operatorDebtUSD = 0;
 
     for (const r of sortedRows) {
       saleARS += r._saleNoInt.ARS || 0;
@@ -1023,6 +1095,8 @@ export default function BalancesPage() {
       paidUSD += r._paid.USD || 0;
       debtARS += r._debt.ARS || 0;
       debtUSD += r._debt.USD || 0;
+      operatorDebtARS += r._operatorDebt.ARS || 0;
+      operatorDebtUSD += r._operatorDebt.USD || 0;
     }
 
     return {
@@ -1030,12 +1104,17 @@ export default function BalancesPage() {
       sale: { ARS: saleARS, USD: saleUSD },
       paid: { ARS: paidARS, USD: paidUSD },
       debt: { ARS: debtARS, USD: debtUSD },
+      operatorDebt: { ARS: operatorDebtARS, USD: operatorDebtUSD },
     };
   }, [sortedRows]);
 
+  const [fullKpis, setFullKpis] = useState<BalanceKpis | null>(null);
+  const [fullKpisLoading, setFullKpisLoading] = useState(false);
+  const totalsAbortRef = useRef<AbortController | null>(null);
+
   /* ---------- Fetch page / aplicar ---------- */
   const buildQS = useCallback(
-    (withCursor?: number | null) => {
+    (withCursor?: number | null, opts?: { take?: number }) => {
       const qs = new URLSearchParams();
       if (q.trim()) qs.append("q", q.trim());
 
@@ -1060,9 +1139,10 @@ export default function BalancesPage() {
       }
 
       // paginación
-      qs.append("take", String(TAKE));
+      qs.append("take", String(opts?.take ?? TAKE));
       if (withCursor !== undefined && withCursor !== null)
         qs.append("cursor", String(withCursor));
+      qs.append("includeOperatorDues", "1");
 
       return qs;
     },
@@ -1106,15 +1186,105 @@ export default function BalancesPage() {
     [buildQS, cursor, token],
   );
 
+  const fetchTotals = useCallback(async () => {
+    if (!token || !calcMode) {
+      setFullKpis(null);
+      setFullKpisLoading(false);
+      return;
+    }
+
+    totalsAbortRef.current?.abort();
+    const controller = new AbortController();
+    totalsAbortRef.current = controller;
+    setFullKpisLoading(true);
+    setFullKpis(null);
+
+    let count = 0;
+    let saleARS = 0,
+      saleUSD = 0,
+      paidARS = 0,
+      paidUSD = 0,
+      debtARS = 0,
+      debtUSD = 0,
+      operatorDebtARS = 0,
+      operatorDebtUSD = 0;
+
+    try {
+      let next: number | null = null;
+      for (let i = 0; i < 2000; i++) {
+        const qs = buildQS(next, { take: 100 });
+        const res = await authFetch(
+          `/api/bookings?${qs.toString()}`,
+          { cache: "no-store", signal: controller.signal },
+          token || undefined,
+        );
+        const json: BookingsAPI = await res.json();
+        if (!res.ok)
+          throw new Error(json?.error || "Error al cargar totales");
+
+        const items = Array.isArray(json.items) ? json.items : [];
+        count += items.length;
+
+        for (const b of items) {
+          const amounts = computeBookingAmounts(b);
+          saleARS += amounts.saleNoInt.ARS || 0;
+          saleUSD += amounts.saleNoInt.USD || 0;
+          paidARS += amounts.paid.ARS || 0;
+          paidUSD += amounts.paid.USD || 0;
+          debtARS += amounts.debt.ARS || 0;
+          debtUSD += amounts.debt.USD || 0;
+          operatorDebtARS += amounts.operatorDebt.ARS || 0;
+          operatorDebtUSD += amounts.operatorDebt.USD || 0;
+        }
+
+        next = json.nextCursor ?? null;
+        if (next === null || items.length === 0) break;
+      }
+
+      if (!controller.signal.aborted) {
+        setFullKpis({
+          count,
+          sale: { ARS: saleARS, USD: saleUSD },
+          paid: { ARS: paidARS, USD: paidUSD },
+          debt: { ARS: debtARS, USD: debtUSD },
+          operatorDebt: { ARS: operatorDebtARS, USD: operatorDebtUSD },
+        });
+      }
+    } catch (e) {
+      if (controller.signal.aborted) return;
+      const msg = e instanceof Error ? e.message : "Error al cargar totales";
+      toast.error(msg);
+      setFullKpis(null);
+    } finally {
+      if (!controller.signal.aborted) setFullKpisLoading(false);
+    }
+  }, [buildQS, calcMode, computeBookingAmounts, token]);
+
   const handleSearch = () => {
     setCursor(null);
     setData([]);
     fetchPage(true);
+    void fetchTotals();
   };
 
   useEffect(() => {
-    if (data.length === 0 && !loading) fetchPage(true);
+    if (data.length === 0 && !loading) {
+      fetchPage(true);
+      void fetchTotals();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!calcMode || !token) return;
+    void fetchTotals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calcMode, token, useBookingSaleTotal]);
+
+  useEffect(() => {
+    return () => {
+      totalsAbortRef.current?.abort();
+    };
   }, []);
 
   /* ---------- Helpers de impuestos para UI / CSV ---------- */
@@ -1182,6 +1352,9 @@ export default function BalancesPage() {
         break;
       case "debt_total":
         raw = b._debtLabel;
+        break;
+      case "operator_debt":
+        raw = b._operatorDebtLabel;
         break;
       case "tax_iva21":
         raw = formatTaxField(b, "iva21") || "—";
@@ -1333,6 +1506,8 @@ export default function BalancesPage() {
 
   /* ================= UI ================= */
   const rowPad = density === "compact" ? "py-1.5" : "py-2.5";
+  const kpiPlaceholder = fullKpisLoading ? "Calculando..." : "—";
+  const kpisForHeader = fullKpis;
 
   return (
     <ProtectedRoute>
@@ -1348,38 +1523,76 @@ export default function BalancesPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <ChipKPI label="Total" value={kpis.count} />
+            <ChipKPI
+              label="Total"
+              value={kpisForHeader ? kpisForHeader.count : kpiPlaceholder}
+            />
             <ChipKPI
               label="Venta"
               value={
-                [
-                  kpis.sale.ARS ? fmtARS(kpis.sale.ARS) : "",
-                  kpis.sale.USD ? fmtUSD(kpis.sale.USD) : "",
-                ]
-                  .filter(Boolean)
-                  .join(" y ") || "—"
+                kpisForHeader
+                  ? [
+                      kpisForHeader.sale.ARS
+                        ? fmtARS(kpisForHeader.sale.ARS)
+                        : "",
+                      kpisForHeader.sale.USD
+                        ? fmtUSD(kpisForHeader.sale.USD)
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" y ") || "—"
+                  : kpiPlaceholder
               }
             />
             <ChipKPI
               label="Cobrado"
               value={
-                [
-                  kpis.paid.ARS ? fmtARS(kpis.paid.ARS) : "",
-                  kpis.paid.USD ? fmtUSD(kpis.paid.USD) : "",
-                ]
-                  .filter(Boolean)
-                  .join(" y ") || "—"
+                kpisForHeader
+                  ? [
+                      kpisForHeader.paid.ARS
+                        ? fmtARS(kpisForHeader.paid.ARS)
+                        : "",
+                      kpisForHeader.paid.USD
+                        ? fmtUSD(kpisForHeader.paid.USD)
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" y ") || "—"
+                  : kpiPlaceholder
               }
             />
             <ChipKPI
               label="Deuda"
               value={
-                [
-                  kpis.debt.ARS ? fmtARS(kpis.debt.ARS) : "",
-                  kpis.debt.USD ? fmtUSD(kpis.debt.USD) : "",
-                ]
-                  .filter(Boolean)
-                  .join(" y ") || "—"
+                kpisForHeader
+                  ? [
+                      kpisForHeader.debt.ARS
+                        ? fmtARS(kpisForHeader.debt.ARS)
+                        : "",
+                      kpisForHeader.debt.USD
+                        ? fmtUSD(kpisForHeader.debt.USD)
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" y ") || "—"
+                  : kpiPlaceholder
+              }
+            />
+            <ChipKPI
+              label="Deuda operadores"
+              value={
+                kpisForHeader
+                  ? [
+                      kpisForHeader.operatorDebt.ARS
+                        ? fmtARS(kpisForHeader.operatorDebt.ARS)
+                        : "",
+                      kpisForHeader.operatorDebt.USD
+                        ? fmtUSD(kpisForHeader.operatorDebt.USD)
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" y ") || "—"
+                  : kpiPlaceholder
               }
             />
           </div>
@@ -1750,6 +1963,15 @@ export default function BalancesPage() {
                             {b._debtLabel}
                           </td>
                         );
+                      case "operator_debt":
+                        return (
+                          <td
+                            key={col.key}
+                            className={`px-4 ${rowPad} text-center`}
+                          >
+                            {b._operatorDebtLabel}
+                          </td>
+                        );
                       case "tax_iva21":
                         return renderTaxCell(b, "iva21", col.key, rowPad);
                       case "tax_iva105":
@@ -1853,12 +2075,27 @@ export default function BalancesPage() {
                         .join(" y ") || "—"}
                     </td>
                   )}
+                  {visible.includes("operator_debt") && (
+                    <td className={`px-4 ${rowPad} text-center font-medium`}>
+                      {[
+                        kpis.operatorDebt.ARS
+                          ? fmtARS(kpis.operatorDebt.ARS)
+                          : "",
+                        kpis.operatorDebt.USD
+                          ? fmtUSD(kpis.operatorDebt.USD)
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" y ") || "—"}
+                    </td>
+                  )}
                   {/* Completar con celdas vacías si faltan */}
                   {(() => {
                     const printed = [
                       visible.includes("sale_total"),
                       visible.includes("paid_total"),
                       visible.includes("debt_total"),
+                      visible.includes("operator_debt"),
                     ].filter(Boolean).length;
                     const missing = visibleCols.length - 1 - printed; // -1 por el colSpan de la etiqueta
                     return Array.from({ length: Math.max(0, missing) }).map(

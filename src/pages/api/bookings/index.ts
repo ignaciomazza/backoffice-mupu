@@ -205,6 +205,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       : (req.query.status as string) || undefined;
     const clientStatusArr = parseCSV(req.query.clientStatus);
     const operatorStatusArr = parseCSV(req.query.operatorStatus);
+    const includeOperatorDuesRaw = Array.isArray(req.query.includeOperatorDues)
+      ? req.query.includeOperatorDues[0]
+      : req.query.includeOperatorDues;
+    const includeOperatorDues =
+      typeof includeOperatorDuesRaw === "string" &&
+      ["1", "true", "yes", "si"].includes(
+        includeOperatorDuesRaw.trim().toLowerCase(),
+      );
 
     let creationFrom = toLocalDate(req.query.creationFrom);
     let creationTo = toLocalDate(req.query.creationTo);
@@ -408,18 +416,29 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       ? { ...where, AND: [...baseAND, keysetWhere] }
       : where;
 
+    const include: Prisma.BookingInclude = {
+      titular: true,
+      user: true,
+      agency: true,
+      clients: true,
+      simple_companions: { include: { category: true } },
+      services: { include: { operator: true } },
+      invoices: true,
+      Receipt: true,
+    };
+    if (includeOperatorDues) {
+      include.OperatorDue = {
+        select: {
+          amount: true,
+          currency: true,
+          status: true,
+        },
+      };
+    }
+
     const items = await prisma.booking.findMany({
       where: finalWhere,
-      include: {
-        titular: true,
-        user: true,
-        agency: true,
-        clients: true,
-        simple_companions: { include: { category: true } },
-        services: { include: { operator: true } },
-        invoices: true,
-        Receipt: true,
-      },
+      include,
       orderBy,
       take: take + 1,
     });
