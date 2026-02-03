@@ -2,7 +2,7 @@
 import React from "react";
 import { Text, Font } from "@react-pdf/renderer";
 import type { TextProps } from "@react-pdf/renderer";
-import { NBSP, stripZeroWidth, expandTabs } from "@/lib/whitespace";
+import { NBSP, stripZeroWidth, expandTabs, preserveSpaces } from "@/lib/whitespace";
 
 // Desactiva hyphenation (evita cortes raros)
 type FontHyph = {
@@ -61,6 +61,7 @@ export default function PdfSafeText({ text, style }: PdfSafeTextProps) {
   t = t.replace(/\r\n?/g, "\n").replace(/\n+/g, " ");
   t = stripZeroWidth(t);
   t = expandTabs(t);
+  t = preserveSpaces(t);
   if (t.length > MAX_LEN) t = t.slice(0, MAX_LEN);
 
   if (process.env.NODE_ENV !== "production" && /\n/.test(text || "")) {

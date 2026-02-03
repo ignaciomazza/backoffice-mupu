@@ -40,6 +40,52 @@ function sanitizeText(raw: string): string {
   return s;
 }
 
+const BLOCK_TAGS = new Set(["DIV", "P"]);
+
+function serializeEditable(el: HTMLElement): string {
+  const out: string[] = [];
+  const pushNewline = () => {
+    const last = out[out.length - 1];
+    if (!last) {
+      out.push("\n");
+      return;
+    }
+    if (last.endsWith("\n")) return;
+    out.push("\n");
+  };
+
+  const walk = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      out.push(node.nodeValue ?? "");
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const elNode = node as HTMLElement;
+    const tag = elNode.tagName;
+
+    if (tag === "BR") {
+      pushNewline();
+      return;
+    }
+
+    const isBlock = BLOCK_TAGS.has(tag);
+    node.childNodes.forEach(walk);
+    if (isBlock) pushNewline();
+  };
+
+  el.childNodes.forEach(walk);
+  let text = out.join("");
+  text = text.replace(/\n+$/g, "");
+  return text;
+}
+
+function readEditableText(el: HTMLDivElement, multiline: boolean): string {
+  const raw = (el.textContent ?? "").toString();
+  if (!multiline) return raw;
+  const serialized = serializeEditable(el);
+  return serialized.length ? serialized : raw;
+}
+
 function placeCaretAtEnd(el: HTMLElement) {
   try {
     el.focus();
@@ -207,9 +253,9 @@ const EditableText = forwardRef<HTMLDivElement, EditableProps>(
     useEffect(() => {
       const el = localRef.current;
       if (!el) return;
-      const domText = sanitizeText(el.textContent || "");
+      const domText = sanitizeText(readEditableText(el, !!multiline));
       if (domText !== value) el.textContent = value || "";
-    }, [value]);
+    }, [value, multiline]);
 
     const setRefs = (el: HTMLDivElement | null): void => {
       localRef.current = el;
@@ -222,7 +268,7 @@ const EditableText = forwardRef<HTMLDivElement, EditableProps>(
 
     const handleInput: React.FormEventHandler<HTMLDivElement> = (e) => {
       if (readOnly) return;
-      let raw = (e.currentTarget.textContent ?? "").toString();
+      let raw = readEditableText(e.currentTarget, !!multiline);
       if (!multiline) raw = raw.replace(/\n+/g, " "); // fuerza single-line
       onChange(sanitizeText(raw));
     };
@@ -239,10 +285,23 @@ const EditableText = forwardRef<HTMLDivElement, EditableProps>(
       const el = localRef.current!;
       if (!el) return;
 
+      const syncAfterInput = () => {
+        requestAnimationFrame(() => {
+          let next = sanitizeText(readEditableText(el, !!multiline));
+          if (!multiline) next = next.replace(/\n+/g, " ");
+          onChange(next);
+        });
+      };
+      const insertAndSync = (text: string) => {
+        document.execCommand?.("insertText", false, text);
+        syncAfterInput();
+      };
+
       if (e.key === "Enter") {
         if (e.shiftKey && onShiftEnter) {
           e.preventDefault();
           onShiftEnter();
+          if (multiline) syncAfterInput();
           return;
         }
         if (!multiline || onEnter) {
@@ -252,7 +311,7 @@ const EditableText = forwardRef<HTMLDivElement, EditableProps>(
         }
         // default multiline
         e.preventDefault();
-        document.execCommand?.("insertText", false, "\n");
+        insertAndSync("\n");
         return;
       }
 
@@ -287,7 +346,7 @@ const EditableText = forwardRef<HTMLDivElement, EditableProps>(
 
       if (e.key === "Tab") {
         e.preventDefault();
-        document.execCommand("insertText", false, "\t");
+        insertAndSync("\t");
       }
     };
 

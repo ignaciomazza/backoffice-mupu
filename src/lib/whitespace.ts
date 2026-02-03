@@ -53,6 +53,19 @@ export function expandTabs(s: string, width = 4): string {
   return s.replace(/\t/g, NBSP.repeat(width));
 }
 
+/**
+ * Preserva espacios múltiples y leading spaces usando NBSP.
+ * - Convierte espacios iniciales de cada línea a NBSP.
+ * - Para runs de 2+ espacios, mantiene 1 espacio normal y el resto NBSP
+ *   (para no romper el wrapping).
+ */
+export function preserveSpaces(s: string): string {
+  if (!s) return s;
+  let out = s.replace(/^ +/gm, (m) => NBSP.repeat(m.length));
+  out = out.replace(/ {2,}/g, (m) => NBSP.repeat(m.length - 1) + " ");
+  return out;
+}
+
 /** Normaliza saltos a `\n` y aplica limpieza básica. No toca tabs. */
 export function baseNormalize(s?: string | null): string {
   let t = String(s ?? "");

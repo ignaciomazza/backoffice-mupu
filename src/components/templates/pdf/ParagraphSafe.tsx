@@ -2,7 +2,12 @@
 import React from "react";
 import { View, Text } from "@react-pdf/renderer";
 import type { TextProps } from "@react-pdf/renderer";
-import { NBSP, stripZeroWidth, expandTabs } from "@/lib/whitespace";
+import {
+  NBSP,
+  stripZeroWidth,
+  expandTabs,
+  preserveSpaces,
+} from "@/lib/whitespace";
 
 type PdfTextStyle = TextProps["style"];
 
@@ -54,7 +59,7 @@ export default function ParagraphSafe({
   const raw = String(text ?? "")
     .replace(/\r\n?/g, "\n")
     .slice(0, MAX_TEXT_LEN);
-  const normalized = expandTabs(stripZeroWidth(raw));
+  const normalized = preserveSpaces(expandTabs(stripZeroWidth(raw)));
   const lines = normalized.split("\n");
 
   const styleArray: object[] = Array.isArray(style)
