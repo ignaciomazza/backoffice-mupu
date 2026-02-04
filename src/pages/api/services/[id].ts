@@ -59,6 +59,7 @@ export default async function handler(
     const {
       type,
       description,
+      note,
       sale_price,
       cost_price,
       destination,
@@ -128,10 +129,11 @@ export default async function handler(
 
       const service = await prisma.service.update({
         where: { id_service: serviceId },
-        data: {
-          type,
-          description: description || null,
-          sale_price,
+          data: {
+            type,
+            description: description || null,
+            note: note || null,
+            sale_price,
           cost_price,
           destination: destination || "",
           reference: reference || "",

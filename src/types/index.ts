@@ -220,6 +220,7 @@ export interface Service {
   agency_service_id?: number | null;
   type: string;
   description: string;
+  note?: string | null;
   sale_price: number;
   cost_price: number;
   destination: string;

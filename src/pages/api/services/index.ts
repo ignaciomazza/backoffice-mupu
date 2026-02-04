@@ -141,6 +141,7 @@ export default async function handler(
     const {
       type,
       description,
+      note,
       sale_price,
       cost_price,
       destination,
@@ -224,6 +225,7 @@ export default async function handler(
             agency_service_id: agencyServiceId,
             type,
             description: description || null,
+            note: note || null,
             sale_price,
             cost_price,
             destination: destination || "",

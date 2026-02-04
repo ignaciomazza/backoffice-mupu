@@ -24,6 +24,7 @@ import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 import DestinationPicker, {
   DestinationOption,
 } from "@/components/DestinationPicker";
+import NoteComposer from "@/components/notes/NoteComposer";
 import Spinner from "@/components/Spinner";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import { authFetch } from "@/utils/authFetch";
@@ -34,6 +35,7 @@ import { authFetch } from "@/utils/authFetch";
 export type ServiceFormData = {
   type: string;
   description?: string;
+  note?: string;
   sale_price: number;
   cost_price: number;
   destination?: string;
@@ -1497,6 +1499,25 @@ export default function ServiceForm({
                     ))}
                   </select>
                 </Field>
+              </Section>
+
+              {/* NOTAS INTERNAS */}
+              <Section
+                title="Notas internas"
+                desc="Solo para uso interno del equipo."
+              >
+                <div className="md:col-span-2">
+                  <Field id="note" label="Nota">
+                    <NoteComposer
+                      id="note"
+                      name="note"
+                      value={formData.note || ""}
+                      onChange={(next) => updateField("note", next)}
+                      placeholder="Notas internas del servicio…"
+                      rows={3}
+                    />
+                  </Field>
+                </div>
               </Section>
 
               {/* PRECIOS */}

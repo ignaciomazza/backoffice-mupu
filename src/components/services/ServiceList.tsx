@@ -4,6 +4,8 @@ import React, { useMemo, useCallback } from "react";
 import ServiceCard from "./ServiceCard";
 import SummaryCard from "./SummaryCard";
 import { Service, Receipt } from "@/types";
+import RichNote from "@/components/notes/RichNote";
+import { extractLinks, extractListItems } from "@/utils/notes";
 
 interface Totals {
   sale_price: number;
@@ -186,6 +188,12 @@ export default function ServiceList({
     }, {});
   }, [services, agencyTransferFeePct]);
 
+  const servicesWithNotes = useMemo(
+    () =>
+      services.filter((s) => String(s.note ?? "").trim().length > 0),
+    [services],
+  );
+
   return (
     <div className="space-y-8">
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -206,6 +214,61 @@ export default function ServiceList({
       </div>
 
       {bookingSaleTotalsForm}
+
+      <div className="rounded-3xl border border-sky-200/40 bg-white/40 p-4 text-sky-950 shadow-md shadow-sky-950/5 backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-white">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold">Notas por servicio</p>
+          <span className="rounded-full border border-sky-200/50 bg-sky-100/60 px-3 py-1 text-[11px] font-semibold text-sky-900 dark:border-white/10 dark:bg-white/10 dark:text-white">
+            {servicesWithNotes.length > 0
+              ? `${servicesWithNotes.length} con notas`
+              : "Sin notas"}
+          </span>
+        </div>
+
+        {servicesWithNotes.length === 0 ? (
+          <p className="mt-3 text-xs text-sky-900/60 dark:text-white/60">
+            No hay notas internas cargadas en los servicios.
+          </p>
+        ) : (
+          <div className="mt-3 space-y-3">
+            {servicesWithNotes.map((service) => {
+              const links = extractLinks(service.note);
+              const items = extractListItems(service.note);
+              return (
+                <div
+                  key={`note-${service.id_service}`}
+                  className="rounded-2xl border border-sky-200/40 bg-white/70 p-3 shadow-sm shadow-sky-950/5 dark:border-white/10 dark:bg-white/5"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-sky-950/80 dark:text-white/80">
+                      Servicio N° {service.agency_service_id ?? service.id_service}
+                      {service.type ? ` · ${service.type}` : ""}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold">
+                      {links.length > 0 && (
+                        <span className="rounded-full border border-emerald-200/60 bg-emerald-500/10 px-2 py-1 text-emerald-900 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-100">
+                          {links.length} links
+                        </span>
+                      )}
+                      {items.length > 0 && (
+                        <span className="rounded-full border border-sky-200/60 bg-white/70 px-2 py-1 text-sky-900 dark:border-white/10 dark:bg-white/5 dark:text-white">
+                          {items.length} ítems
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-2 rounded-xl bg-white/50 p-2 dark:bg-white/5">
+                    <RichNote
+                      text={service.note}
+                      className="space-y-2 text-sm text-sky-900/80 dark:text-white/80"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       <div>
         <div className="mb-4 mt-8 flex justify-center">

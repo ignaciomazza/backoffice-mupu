@@ -21,6 +21,8 @@ import CreditNoteForm, {
   type CreditNoteFormData,
 } from "@/components/credit-notes/CreditNoteForm";
 import CreditNoteCard from "@/components/credit-notes/CreditNoteCard";
+import NoteComposer from "@/components/notes/NoteComposer";
+import RichNote from "@/components/notes/RichNote";
 import OperatorPaymentForm from "@/components/investments/OperatorPaymentForm";
 import OperatorPaymentList from "@/components/investments/OperatorPaymentList";
 import ClientPaymentForm from "@/components/client-payments/ClientPaymentForm";
@@ -65,6 +67,7 @@ import type {
 export type ServiceFormData = {
   type: string;
   description?: string;
+  note?: string;
   sale_price: number;
   cost_price: number;
   destination?: string;
@@ -1577,12 +1580,16 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                           transition={{ duration: 0.2 }}
                           className="flex w-full flex-col gap-3"
                         >
-                          <textarea
-                            className="w-full flex-1 rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
-                            rows={3}
+                          <NoteComposer
+                            id="booking-observation"
                             value={invObsDraft}
-                            onChange={(e) => setInvObsDraft(e.target.value)}
-                            aria-label="Editar observación de administración"
+                            onChange={setInvObsDraft}
+                            placeholder="Notas internas de la reserva…"
+                            rows={3}
+                            className="flex-1"
+                            textareaClassName="w-full rounded-2xl border border-sky-950/10 bg-white/50 p-2 px-3 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
+                            inputClassName="w-full rounded-2xl border border-sky-950/10 bg-white/40 p-2 px-3 text-sm shadow-sm shadow-sky-950/10 outline-none placeholder:text-xs placeholder:font-light dark:border-white/10 dark:bg-white/10"
+                            addButtonClassName="rounded-full bg-sky-100 px-4 py-2 text-xs font-medium text-sky-950 shadow-sm shadow-sky-950/10 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
                           />
                           <div className="flex gap-2">
                             <button
@@ -1653,9 +1660,13 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                           transition={{ duration: 0.2 }}
                           className="flex items-start justify-between gap-2"
                         >
-                          <p className="min-h-[28px] min-w-0 flex-1 whitespace-pre-wrap break-words rounded-xl bg-white/30 p-2 text-sm font-light dark:bg-white/5">
-                            {booking.observation || "Sin observaciones"}
-                          </p>
+                          <div className="min-h-[28px] min-w-0 flex-1 rounded-xl bg-white/30 p-2 dark:bg-white/5">
+                            <RichNote
+                              text={booking.observation}
+                              emptyLabel="Sin observaciones"
+                              className="space-y-2 text-sm font-light text-sky-900/80 dark:text-white/80"
+                            />
+                          </div>
                           {canAdminLike && (
                             <button
                               onClick={() => {
@@ -1737,6 +1748,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                       setEditingServiceId(service.id_service);
                       setFormData({
                         ...service,
+                        note: service.note ?? "",
                         departure_date: service.departure_date
                           ? new Date(service.departure_date)
                               .toISOString()
