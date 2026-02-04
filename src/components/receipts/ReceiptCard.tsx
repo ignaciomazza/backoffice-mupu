@@ -3,7 +3,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Receipt, Booking } from "@/types";
+import { Receipt, Booking, Service } from "@/types";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
@@ -50,6 +50,37 @@ const slugify = (s: string) =>
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
 
+const MAX_SERVICE_DESC = 64;
+const MAX_SERVICE_LINES = 3;
+
+const truncate = (value: string, max: number) => {
+  const text = String(value || "").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+};
+
+const cleanServiceLabel = (value: unknown) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const withoutPrefix = raw.replace(/^n[°º]?\s*/i, "");
+  return withoutPrefix.replace(/[,\s]+$/g, "");
+};
+
+const cleanServiceDescription = (value: unknown) => {
+  const raw = String(value ?? "");
+  const flattened = raw
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[•]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!flattened) return "";
+  const withoutNumberList = flattened.replace(
+    /^(n[°º]?\s*\d+([,;]\s*n[°º]?\s*\d+)*)[,\s-]*/i,
+    "",
+  );
+  return withoutNumberList.replace(/[,\s-]+$/g, "").trim();
+};
+
 /* ======================== Micro-componentes ======================== */
 
 const Chip: React.FC<{
@@ -95,6 +126,7 @@ interface ReceiptCardProps {
   token: string | null;
   receipt: Receipt;
   booking: Booking;
+  services: Service[];
   role: string;
   onReceiptDeleted?: (id: number) => void;
 }
@@ -105,6 +137,7 @@ export default function ReceiptCard({
   token,
   receipt,
   booking,
+  services,
   role,
   onReceiptDeleted,
 }: ReceiptCardProps) {
@@ -130,11 +163,74 @@ export default function ReceiptCard({
     return receipt.clientIds?.length
       ? receipt.clientIds.map(getClientName).join(", ")
       : booking.titular
-      ? `${booking.titular.first_name} ${booking.titular.last_name} · N°${
-          booking.titular.agency_client_id ?? booking.titular.id_client
-        }`
+        ? `${booking.titular.first_name} ${booking.titular.last_name} · N°${
+            booking.titular.agency_client_id ?? booking.titular.id_client
+          }`
         : "—";
   }, [receipt.clientIds, getClientName, booking.titular]);
+
+  const servicesPool = useMemo(
+    () => (services?.length ? services : (booking.services ?? [])),
+    [services, booking.services],
+  );
+  const serviceMap = useMemo(() => {
+    const map = new Map<number, Service>();
+    for (const svc of servicesPool || []) {
+      map.set(svc.id_service, svc);
+    }
+    return map;
+  }, [servicesPool]);
+
+  const serviceDetails = useMemo(() => {
+    const ids = receipt.serviceIds ?? [];
+    if (!ids.length) return [];
+    return ids.map((id) => {
+      const svc = serviceMap.get(id);
+      const labelId = cleanServiceLabel(svc?.agency_service_id ?? id);
+      const rawDescription =
+        svc?.description || svc?.type || (id ? `Servicio ${id}` : "Servicio");
+      const description = truncate(
+        cleanServiceDescription(rawDescription),
+        MAX_SERVICE_DESC,
+      );
+      const hasMeta = Boolean(description);
+      return {
+        id,
+        labelId,
+        description,
+        hasMeta,
+      };
+    });
+  }, [receipt.serviceIds, serviceMap]);
+
+  const serviceNumbers = useMemo(() => {
+    const ids = receipt.serviceIds ?? [];
+    if (!ids.length) return [];
+    const labels = ids
+      .map((id) =>
+        cleanServiceLabel(serviceMap.get(id)?.agency_service_id ?? id),
+      )
+      .filter((id) => id && id !== "0");
+    return Array.from(new Set(labels));
+  }, [receipt.serviceIds, serviceMap]);
+
+  const serviceDescriptions = useMemo(
+    () => serviceDetails.map((svc) => svc.description).filter(Boolean),
+    [serviceDetails],
+  );
+
+  const serviceDescriptionPreview = useMemo(
+    () => serviceDescriptions.slice(0, MAX_SERVICE_LINES),
+    [serviceDescriptions],
+  );
+  const serviceDescriptionExtra =
+    serviceDescriptions.length - serviceDescriptionPreview.length;
+
+  const serviceNumbersLabel = useMemo(() => {
+    if (!serviceNumbers.length) return "—";
+    const base = serviceNumbers.map((id) => `N° ${id}`).join(", ");
+    return serviceDescriptions.length ? `${base}:` : base;
+  }, [serviceNumbers, serviceDescriptions.length]);
 
   const hasBase =
     receipt.base_amount !== null &&
@@ -170,8 +266,7 @@ export default function ReceiptCard({
     : receipt.amount_currency;
   const showCounter =
     hasCounter ||
-    (hasBase &&
-      normCurrency(cashCurrency) !== normCurrency(displayCurrency));
+    (hasBase && normCurrency(cashCurrency) !== normCurrency(displayCurrency));
 
   if (!receipt?.id_receipt) {
     return (
@@ -250,6 +345,84 @@ export default function ReceiptCard({
         ? "Dólares"
         : amountCurrency;
 
+  const compactTotalsLayout = !showCounter && !hasPaymentFee;
+
+  const amountCard = (
+    <div className="rounded-2xl border border-sky-200/40 bg-sky-50/60 p-3 shadow-sm shadow-sky-950/10 dark:border-sky-400/10 dark:bg-sky-400/10">
+      <p className="text-xs opacity-70">
+        {hasBase ? "Valor aplicado" : "Monto"}
+      </p>
+      <p className="text-base font-semibold tabular-nums">
+        {fmtMoney(displayAmount, displayCurrency)}
+      </p>
+    </div>
+  );
+
+  const paymentFeeCard = hasPaymentFee ? (
+    <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
+      <p className="text-xs opacity-70">Costo financiero método</p>
+      <p className="text-sm font-medium tabular-nums">
+        {fmtMoney(
+          receipt.payment_fee_amount,
+          receipt.amount_currency || amountCurrency,
+        )}
+      </p>
+    </div>
+  ) : null;
+
+  const methodCard = (
+    <div
+      className={`rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10 ${
+        compactTotalsLayout ? "col-span-2" : "col-span-1"
+      }`}
+    >
+      <p className="text-xs opacity-70">Método de pago</p>
+      <p className="mt-1 text-sm font-medium">
+        {/* currency = detalle legado / texto para PDF; payment_method = nombre corto */}
+        {receipt.currency || receipt.payment_method || "—"}
+      </p>
+    </div>
+  );
+
+  const counterCard = showCounter ? (
+    <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
+      <p className="text-xs opacity-70">Contravalor</p>
+      <p className="text-sm font-medium tabular-nums">
+        {fmtMoney(cashAmount, cashCurrency)}
+      </p>
+    </div>
+  ) : null;
+
+  const servicesCard = (
+    <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
+      <p className="text-xs opacity-70">Servicios</p>
+      {serviceNumbers.length || serviceDescriptions.length ? (
+        <div className="mt-1 text-xs">
+          <p className="font-semibold">{serviceNumbersLabel}</p>
+          {serviceDescriptionPreview.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {serviceDescriptionPreview.map((desc, idx) => (
+                <p
+                  key={`${receipt.id_receipt}-svc-${idx}`}
+                  className="leading-snug"
+                >
+                  • {desc}
+                </p>
+              ))}
+              {serviceDescriptionExtra > 0 && (
+                <p className="text-[11px] opacity-70">
+                  +{serviceDescriptionExtra} más
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="text-sm font-medium">—</p>
+      )}
+    </div>
+  );
+
   /* ====== UI ====== */
   return (
     <div className="group h-fit rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur transition-[transform,box-shadow] hover:scale-[0.999] dark:text-white">
@@ -287,54 +460,12 @@ export default function ReceiptCard({
 
       {/* Totales / info principal */}
       <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl border border-sky-200/40 bg-sky-50/60 p-3 shadow-sm shadow-sky-950/10 dark:border-sky-400/10 dark:bg-sky-400/10">
-          <p className="text-xs opacity-70">
-            {hasBase ? "Valor aplicado" : "Monto"}
-          </p>
-          <p className="text-base font-semibold tabular-nums">
-            {fmtMoney(displayAmount, displayCurrency)}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
-          <p className="text-xs opacity-70">Servicios (N°)</p>
-          <p className="text-sm font-medium">
-            {receipt.serviceIds?.length ? receipt.serviceIds.join(", ") : "—"}
-          </p>
-        </div>
-
-        <div
-          className={`rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10 ${
-            !showCounter && !hasPaymentFee ? "col-span-2" : "col-span-1"
-          }`}
-        >
-          <p className="text-xs opacity-70">Método de pago</p>
-          <p className="mt-1 text-sm font-medium">
-            {/* currency = detalle legado / texto para PDF; payment_method = nombre corto */}
-            {receipt.currency || receipt.payment_method || "—"}
-          </p>
-        </div>
-
-        {showCounter && (
-          <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
-            <p className="text-xs opacity-70">Contravalor</p>
-            <p className="text-sm font-medium tabular-nums">
-              {fmtMoney(cashAmount, cashCurrency)}
-            </p>
-          </div>
-        )}
-
-        {hasPaymentFee && (
-          <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
-            <p className="text-xs opacity-70">Costo financiero método</p>
-            <p className="text-sm font-medium tabular-nums">
-              {fmtMoney(
-                receipt.payment_fee_amount,
-                receipt.amount_currency || amountCurrency,
-              )}
-            </p>
-          </div>
-        )}
+        {amountCard}
+        {compactTotalsLayout && servicesCard}
+        {paymentFeeCard}
+        {methodCard}
+        {counterCard}
+        {!compactTotalsLayout && servicesCard}
       </section>
 
       {/* Concepto y Monto en letras */}
@@ -342,10 +473,6 @@ export default function ReceiptCard({
         <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
           <p className="text-xs opacity-70">Concepto</p>
           <p className="mt-1 text-sm">{receipt.concept}</p>
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-white/20 p-3 shadow-sm shadow-sky-950/10 dark:bg-white/10">
-          <p className="text-xs opacity-70">Monto en letras</p>
-          <p className="mt-1 text-sm">{receipt.amount_string}</p>
         </div>
       </section>
 

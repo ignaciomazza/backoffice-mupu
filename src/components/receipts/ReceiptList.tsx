@@ -1,6 +1,6 @@
 // src/components/receipts/ReceiptList.tsx
 
-import { Receipt, Booking } from "@/types";
+import { Receipt, Booking, Service } from "@/types";
 import ReceiptCard from "./ReceiptCard";
 import Spinner from "@/components/Spinner";
 import "react-toastify/dist/ReactToastify.css";
@@ -9,6 +9,7 @@ interface ReceiptListProps {
   token: string | null;
   receipts: Receipt[];
   booking: Booking;
+  services: Service[];
   role: string;
   onReceiptDeleted?: (id: number) => void;
 }
@@ -17,6 +18,7 @@ export default function ReceiptList({
   token,
   receipts,
   booking,
+  services,
   role,
   onReceiptDeleted,
 }: ReceiptListProps) {
@@ -38,6 +40,7 @@ export default function ReceiptList({
             token={token}
             receipt={receipt}
             booking={booking}
+            services={services}
             role={role}
             onReceiptDeleted={onReceiptDeleted}
           />

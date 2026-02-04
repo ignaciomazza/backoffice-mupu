@@ -225,6 +225,8 @@ type BookingServiceItem = {
   card_interest?: number | string | null;
   taxableCardInterest?: number | string | null;
   vatOnCardInterest?: number | string | null;
+  departure_date?: string | null;
+  return_date?: string | null;
 };
 
 /* ================= Page ================= */
@@ -275,6 +277,10 @@ export default function ReceiptsPage() {
   const [editingReceipt, setEditingReceipt] = useState<ReceiptRow | null>(null);
   const [formVisible, setFormVisible] = useState(false);
   const lastAssociationFilter = useRef(associationFilter);
+  const [servicesByBooking, setServicesByBooking] = useState<
+    Record<number, ServiceLite[]>
+  >({});
+  const loadingServicesByBooking = useRef<Set<number>>(new Set());
 
   /* ---------- Config financiera (para opciones de filtros) ---------- */
   const [finance, setFinance] = useState<FinancePickBundle | null>(null);
@@ -375,6 +381,26 @@ export default function ReceiptsPage() {
       })}`;
     }
   }, []);
+
+  const fmtDate = useCallback((value?: string | null) => {
+    if (!value) return "";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("es-AR", { timeZone: "UTC" });
+  }, []);
+
+  const formatServiceRange = useCallback(
+    (svc?: ServiceLite | null) => {
+      if (!svc) return "";
+      const dep = fmtDate(svc.departure_date ?? null);
+      const ret = fmtDate(svc.return_date ?? null);
+      if (dep && ret) return dep === ret ? dep : `${dep} - ${ret}`;
+      if (dep) return dep;
+      if (ret) return ret;
+      return "";
+    },
+    [fmtDate],
+  );
 
   const getReceiptDisplayNumber = useCallback(
     (r: Pick<ReceiptRow, "agency_receipt_id" | "receipt_number">) => {
@@ -614,6 +640,35 @@ export default function ReceiptsPage() {
 
     return Array.from(map.values()).sort((a, b) => b.key.localeCompare(a.key));
   }, [displayRows]);
+
+  const buildServiceDateLines = useCallback(
+    (r: NormalizedReceipt) => {
+      const bookingId = r.booking?.id_booking;
+      if (!bookingId) return [] as string[];
+      const services = servicesByBooking[bookingId] || [];
+      if (!services.length) return [] as string[];
+      const byId = new Map(services.map((s) => [s.id_service, s]));
+      const ids = Array.isArray(r.serviceIds) ? r.serviceIds : [];
+      if (!ids.length) return [] as string[];
+
+      return ids.map((id) => {
+        const svc = byId.get(id);
+        const labelId = svc?.agency_service_id ?? id;
+        const description =
+          svc?.description ||
+          svc?.type ||
+          (Number.isFinite(id) ? `Servicio ${id}` : "Servicio");
+        const dateLabel = svc ? formatServiceRange(svc) : "";
+        const parts = [
+          `N° ${labelId}`,
+          description,
+          dateLabel || null,
+        ].filter(Boolean);
+        return parts.join(" · ");
+      });
+    },
+    [servicesByBooking, formatServiceRange],
+  );
 
   /* ---------- KPIs ---------- */
   const kpis = useMemo(() => {
@@ -918,9 +973,8 @@ export default function ReceiptsPage() {
     return Array.from(uniq.values());
   };
 
-  const loadServicesForBooking = async (
-    bId: number,
-  ): Promise<ServiceLite[]> => {
+  const loadServicesForBooking = useCallback(
+    async (bId: number): Promise<ServiceLite[]> => {
     const mapArr = (arr: ReadonlyArray<BookingServiceItem>): ServiceLite[] =>
       (arr || []).map((s) => {
         const rawId = s?.id_service ?? s?.id ?? 0;
@@ -968,6 +1022,8 @@ export default function ReceiptsPage() {
             Number.isFinite(cardVat) && cardVat > 0 ? cardVat : undefined,
           type: s?.type ?? undefined,
           destination: s?.destination ?? s?.destino ?? undefined,
+          departure_date: s?.departure_date ?? null,
+          return_date: s?.return_date ?? null,
         };
       });
 
@@ -1010,7 +1066,41 @@ export default function ReceiptsPage() {
 
     if (!arr) arr = [];
     return mapArr(arr);
-  };
+  },
+  [token],
+  );
+
+  useEffect(() => {
+    if (viewMode !== "cards") return;
+    const bookingIds = Array.from(
+      new Set(
+        displayRows
+          .map((r) => r.booking?.id_booking)
+          .filter((id): id is number => typeof id === "number" && id > 0),
+      ),
+    );
+
+    for (const id of bookingIds) {
+      if (servicesByBooking[id]) continue;
+      if (loadingServicesByBooking.current.has(id)) continue;
+      loadingServicesByBooking.current.add(id);
+      loadServicesForBooking(id)
+        .then((services) => {
+          setServicesByBooking((prev) => ({
+            ...prev,
+            [id]: services || [],
+          }));
+        })
+        .finally(() => {
+          loadingServicesByBooking.current.delete(id);
+        });
+    }
+  }, [
+    viewMode,
+    displayRows,
+    loadServicesForBooking,
+    servicesByBooking,
+  ]);
 
   /* ---------- Diálogo de Integración (attach) ---------- */
   const [attachOpen, setAttachOpen] = useState(false);
@@ -1953,6 +2043,10 @@ export default function ReceiptsPage() {
                   const associationClass = isUnlinked
                     ? ASSOCIATION_BADGE.unlinked
                     : ASSOCIATION_BADGE.linked;
+                  const serviceDateLines = buildServiceDateLines(r);
+                  const serviceDatePreview = serviceDateLines.slice(0, 3);
+                  const serviceDateExtra =
+                    serviceDateLines.length - serviceDatePreview.length;
 
                   return (
                     <article
@@ -2089,6 +2183,26 @@ export default function ReceiptsPage() {
                           <b>Pasajeros:</b> {clientsCount}
                         </span>
                       </div>
+
+                      {serviceDatePreview.length > 0 && (
+                        <div className="mt-3 rounded-2xl border border-white/10 bg-white/10 p-3 text-xs text-sky-950/80 dark:text-white/80">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
+                            Fechas de servicios
+                          </div>
+                          <div className="mt-2 space-y-1">
+                            {serviceDatePreview.map((line, idx) => (
+                              <div key={`${r.id_receipt}-svc-${idx}`}>
+                                {line}
+                              </div>
+                            ))}
+                            {serviceDateExtra > 0 && (
+                              <div className="opacity-70">
+                                +{serviceDateExtra} más
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </article>
                   );
                 })}

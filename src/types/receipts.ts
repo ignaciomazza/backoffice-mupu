@@ -22,6 +22,8 @@ export type ServiceLite = {
   vatOnCardInterest?: number;
   type?: string;
   destination?: string;
+  departure_date?: string | null;
+  return_date?: string | null;
 };
 
 export type FinanceAccount = {

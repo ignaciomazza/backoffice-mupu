@@ -529,6 +529,8 @@ export default async function handler(
       salePrice: s.sale_price,
       cardInterest: s.card_interest ?? 0,
       currency: s.currency,
+      departureDate: s.departure_date ?? null,
+      returnDate: s.return_date ?? null,
     })),
 
     booking: {

@@ -2021,6 +2021,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                     token={token}
                     receipts={receipts}
                     booking={booking}
+                    services={services}
                     role={role}
                     onReceiptDeleted={onReceiptDeleted}
                   />

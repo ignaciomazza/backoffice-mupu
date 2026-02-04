@@ -52,6 +52,8 @@ export interface ReceiptPdfData {
     salePrice: number;
     cardInterest: number;
     currency: string;
+    departureDate?: string | Date | null;
+    returnDate?: string | Date | null;
   }>;
 
   booking: {
@@ -132,6 +134,28 @@ const fmtDate = (d: Date) =>
     month: "2-digit",
     year: "numeric",
   }).format(d);
+
+const toValidDate = (value?: string | Date | null) => {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const formatServiceRange = (svc: {
+  departureDate?: string | Date | null;
+  returnDate?: string | Date | null;
+}) => {
+  const dep = toValidDate(svc.departureDate);
+  const ret = toValidDate(svc.returnDate);
+  if (dep && ret) {
+    const depLabel = fmtDate(dep);
+    const retLabel = fmtDate(ret);
+    return depLabel === retLabel ? depLabel : `${depLabel} - ${retLabel}`;
+  }
+  if (dep) return fmtDate(dep);
+  if (ret) return fmtDate(ret);
+  return "—";
+};
 
 const CREDIT_METHOD_LABEL = "Crédito operador";
 const VIRTUAL_CREDIT_METHOD_ID = 999000000;
@@ -252,7 +276,14 @@ const styles = StyleSheet.create({
     borderColor: "#eee",
   },
   rowAlt: { backgroundColor: "#fcfcfc" },
-  cellDesc: { width: "100%", padding: 6, fontSize: 9 },
+  cellDesc: { width: "70%", padding: 6, fontSize: 9 },
+  cellDate: {
+    width: "30%",
+    padding: 6,
+    fontSize: 9,
+    textAlign: "right",
+    color: "#333",
+  },
 
   divider: {
     height: 1,
@@ -395,6 +426,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
         <View style={styles.table}>
           <View style={styles.headerCell}>
             <Text style={styles.cellDesc}>Descripción</Text>
+            <Text style={styles.cellDate}>Fecha</Text>
           </View>
           {services.map((svc, i) => (
             <View
@@ -402,6 +434,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
               style={i % 2 ? [styles.row, styles.rowAlt] : styles.row}
             >
               <Text style={styles.cellDesc}>{svc.description}</Text>
+              <Text style={styles.cellDate}>{formatServiceRange(svc)}</Text>
             </View>
           ))}
         </View>
