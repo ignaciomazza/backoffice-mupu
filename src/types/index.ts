@@ -1,6 +1,15 @@
+import type { CommissionOverrides } from "./commission";
+
 // ===================== Tipos base compartidos =====================
 
 export type Currency = "ARS" | "USD";
+
+export type {
+  CommissionLeader,
+  CommissionOverrides,
+  CommissionRule,
+  CommissionScope,
+} from "./commission";
 
 // DocType es solo TypeScript (NO prisma enum). Podés extender con strings.
 export type DocType =
@@ -179,6 +188,7 @@ export interface Booking {
   status: string;
   details: string;
   sale_totals?: Record<string, number> | null;
+  commission_overrides?: CommissionOverrides | null;
   invoice_type: "Factura A" | "Factura B" | "Coordinar con administracion";
   observation?: string;
   invoice_observation?: string;

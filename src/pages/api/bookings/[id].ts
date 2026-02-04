@@ -6,6 +6,7 @@ import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 import { getBookingComponentGrants } from "@/lib/accessControl";
 import { canAccessBookingComponent } from "@/utils/permissions";
+import { normalizeCommissionOverrides } from "@/utils/commissionOverrides";
 
 /* ================== Tipos ================== */
 type DecodedUser = {
@@ -151,6 +152,161 @@ function normalizeSaleTotals(
   return out;
 }
 
+type CommissionValidationResult = {
+  value:
+    | ReturnType<typeof normalizeCommissionOverrides>
+    | null
+    | undefined;
+  error?: string;
+  status?: number;
+};
+
+async function normalizeAndValidateCommissionOverrides(args: {
+  commission_overrides: unknown;
+  role: string;
+  authAgencyId: number;
+  existing: { id_booking: number; id_user: number; creation_date: Date };
+}): Promise<CommissionValidationResult> {
+  const { commission_overrides, role, authAgencyId, existing } = args;
+  if (commission_overrides === undefined) return { value: undefined };
+
+  const canEditCommission = ["gerente", "administrativo", "desarrollador"].includes(
+    role,
+  );
+  if (!canEditCommission) {
+    return {
+      error: "Sin permisos para modificar comisiones.",
+      status: 403,
+      value: undefined,
+    };
+  }
+
+  if (commission_overrides === null) return { value: null };
+
+  const normalized = normalizeCommissionOverrides(commission_overrides);
+  const rawIsObject =
+    !!commission_overrides &&
+    typeof commission_overrides === "object" &&
+    !Array.isArray(commission_overrides);
+
+  if (!normalized) {
+    if (rawIsObject && Object.keys(commission_overrides as object).length) {
+      return { error: "Comisiones inválidas.", status: 400, value: undefined };
+    }
+    return { value: null };
+  }
+
+  const ruleSets = await prisma.commissionRuleSet.findMany({
+    where: {
+      id_agency: authAgencyId,
+      owner_user_id: existing.id_user,
+    },
+    include: { shares: true },
+    orderBy: { valid_from: "asc" },
+  });
+
+  const createdAt = existing.creation_date;
+  let chosen: (typeof ruleSets)[number] | null = ruleSets[0] ?? null;
+  for (const r of ruleSets) {
+    if (r.valid_from <= createdAt) chosen = r;
+    else break;
+  }
+  if (chosen && chosen.valid_from > createdAt) chosen = null;
+
+  const leaderIds = (chosen?.shares || []).map((s) =>
+    Number(s.beneficiary_user_id),
+  );
+  const leaderSet = new Set(leaderIds.map((id) => String(id)));
+
+  if (normalized.service) {
+    const serviceIds = Object.keys(normalized.service)
+      .map((k) => Number(k))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (serviceIds.length > 0) {
+      const existingServices = await prisma.service.findMany({
+        where: {
+          id_service: { in: serviceIds },
+          booking_id: existing.id_booking,
+        },
+        select: { id_service: true },
+      });
+      const existingSet = new Set(
+        existingServices.map((s) => s.id_service),
+      );
+      if (existingSet.size !== serviceIds.length) {
+        return {
+          error: "Servicio inválido en comisión personalizada.",
+          status: 400,
+          value: undefined,
+        };
+      }
+    }
+  }
+
+  const validateScope = (
+    scope:
+      | {
+          sellerPct?: number | null;
+          leaders?: Record<string, number>;
+        }
+      | undefined,
+    label: string,
+  ) => {
+    if (!scope) return;
+    if (typeof scope.sellerPct !== "number") {
+      throw new Error(`Falta el % del vendedor (${label}).`);
+    }
+    if (scope.sellerPct < 0 || scope.sellerPct > 100) {
+      throw new Error(`% del vendedor inválido (${label}).`);
+    }
+    const leaders = scope.leaders || {};
+    for (const key of Object.keys(leaders)) {
+      if (!leaderSet.has(String(key))) {
+        throw new Error(`Líder inválido (${label}).`);
+      }
+      const pct = leaders[key];
+      if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+        throw new Error(`% de líder inválido (${label}).`);
+      }
+    }
+    if (leaderIds.length > 0) {
+      for (const id of leaderIds) {
+        if (!(String(id) in leaders)) {
+          throw new Error(`Falta % para líderes (${label}).`);
+        }
+      }
+    }
+    const sum = Object.values(leaders).reduce(
+      (acc, val) => acc + Number(val || 0),
+      scope.sellerPct,
+    );
+    if (sum > 100.0001) {
+      throw new Error(
+        `La suma de porcentajes no puede superar 100% (${label}).`,
+      );
+    }
+  };
+
+  try {
+    validateScope(normalized.booking, "reserva");
+    if (normalized.currency) {
+      for (const [cur, scope] of Object.entries(normalized.currency)) {
+        validateScope(scope, `moneda ${cur}`);
+      }
+    }
+    if (normalized.service) {
+      for (const [sid, scope] of Object.entries(normalized.service)) {
+        validateScope(scope, `servicio ${sid}`);
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Comisiones inválidas.";
+    return { error: msg, status: 400, value: undefined };
+  }
+
+  return { value: normalized };
+}
+
 // equipos que lidera + ids de usuarios alcanzables
 async function getLeaderScope(authUserId: number, authAgencyId?: number) {
   const teams = await prisma.salesTeam.findMany({
@@ -270,6 +426,59 @@ export default async function handler(
     }
   }
 
+  if (req.method === "PATCH") {
+    const { commission_overrides } = req.body ?? {};
+
+    if (commission_overrides === undefined) {
+      return res.status(400).json({
+        error: "commission_overrides requerido.",
+      });
+    }
+
+    const commissionValidation = await normalizeAndValidateCommissionOverrides({
+      commission_overrides,
+      role,
+      authAgencyId,
+      existing,
+    });
+    if (commissionValidation.error) {
+      return res
+        .status(commissionValidation.status ?? 400)
+        .json({ error: commissionValidation.error });
+    }
+
+    const normalizedCommissionOverrides = commissionValidation.value;
+    if (normalizedCommissionOverrides === undefined) {
+      return res.status(400).json({ error: "Comisiones inválidas." });
+    }
+
+    try {
+      const booking = await prisma.booking.update({
+        where: { id_booking: existing.id_booking },
+        data: {
+          commission_overrides:
+            normalizedCommissionOverrides === null
+              ? Prisma.DbNull
+              : normalizedCommissionOverrides,
+        },
+        include: {
+          titular: true,
+          user: true,
+          agency: true,
+          clients: true,
+          simple_companions: { include: { category: true } },
+        },
+      });
+      return res.status(200).json(booking);
+    } catch (error) {
+      console.error(
+        "[bookings][PATCH commission] Error:",
+        error instanceof Error ? error.message : error,
+      );
+      return res.status(500).json({ error: "Error actualizando la reserva." });
+    }
+  }
+
   if (req.method === "PUT") {
     const {
       clientStatus,
@@ -283,6 +492,7 @@ export default async function handler(
       departure_date,
       return_date,
       sale_totals,
+      commission_overrides,
       // pax_count (se recalcula abajo, no se usa del body)
       clients_ids,
       simple_companions,
@@ -325,6 +535,19 @@ export default async function handler(
     }
     const saleTotalsValue =
       normalizedSaleTotals === null ? Prisma.DbNull : normalizedSaleTotals;
+
+    const commissionValidation = await normalizeAndValidateCommissionOverrides({
+      commission_overrides,
+      role,
+      authAgencyId,
+      existing,
+    });
+    if (commissionValidation.error) {
+      return res
+        .status(commissionValidation.status ?? 400)
+        .json({ error: commissionValidation.error });
+    }
+    const normalizedCommissionOverrides = commissionValidation.value;
 
     const bookingGrants = await getBookingComponentGrants(
       authAgencyId,
@@ -562,6 +785,14 @@ export default async function handler(
             ...(parsedCreationDate ? { creation_date: parsedCreationDate } : {}),
             ...(normalizedSaleTotals !== undefined
               ? { sale_totals: saleTotalsValue }
+              : {}),
+            ...(normalizedCommissionOverrides !== undefined
+              ? {
+                  commission_overrides:
+                    normalizedCommissionOverrides === null
+                      ? Prisma.DbNull
+                      : normalizedCommissionOverrides,
+                }
               : {}),
             titular: { connect: { id_client: Number(titular_id) } },
             user: { connect: { id_user: usedUserId } },

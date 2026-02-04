@@ -3,7 +3,7 @@
 import React, { useMemo, useCallback } from "react";
 import ServiceCard from "./ServiceCard";
 import SummaryCard from "./SummaryCard";
-import { Service, Receipt } from "@/types";
+import { Service, Receipt, CommissionOverrides } from "@/types";
 import RichNote from "@/components/notes/RichNote";
 import { extractLinks, extractListItems } from "@/utils/notes";
 
@@ -91,6 +91,7 @@ interface ServiceListProps {
   useBookingSaleTotal?: boolean;
   bookingSaleTotals?: Record<string, number>;
   bookingSaleTotalsForm?: React.ReactNode;
+  onSaveCommission?: (overrides: CommissionOverrides | null) => Promise<boolean>;
 }
 
 export default function ServiceList({
@@ -106,6 +107,7 @@ export default function ServiceList({
   useBookingSaleTotal,
   bookingSaleTotals,
   bookingSaleTotalsForm,
+  onSaveCommission,
 }: ServiceListProps) {
   const formatDate = useCallback(
     (dateString?: string) =>
@@ -281,6 +283,8 @@ export default function ServiceList({
           receipts={receipts}
           useBookingSaleTotal={useBookingSaleTotal}
           bookingSaleTotals={bookingSaleTotals}
+          role={role}
+          onSaveCommission={onSaveCommission}
         />
       </div>
     </div>

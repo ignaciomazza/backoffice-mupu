@@ -4,9 +4,16 @@ import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 import type { BillingAdjustmentConfig } from "@/types";
+import type { CommissionRule } from "@/types/commission";
 import { getFinanceSectionGrants } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import {
+  normalizeCommissionOverridesLenient,
+  pruneOverridesByLeaderIds,
+  resolveCommissionForContext,
+  sanitizeCommissionOverrides,
+} from "@/utils/commissionOverrides";
 
 interface EarningItem {
   currency: string;
@@ -305,6 +312,7 @@ export default async function handler(
         },
       },
       select: {
+        id_service: true,
         booking_id: true,
         currency: true,
         sale_price: true,
@@ -400,6 +408,7 @@ export default async function handler(
       id_booking: number;
       creation_date: Date;
       sale_totals: unknown | null;
+      commission_overrides: unknown | null;
       user: { id_user: number; first_name: string; last_name: string };
     }> = [];
     const bookingIds = Array.from(
@@ -412,6 +421,7 @@ export default async function handler(
           id_booking: true,
           creation_date: true,
           sale_totals: true,
+          commission_overrides: true,
           user: { select: { id_user: true, first_name: true, last_name: true } },
         },
       });
@@ -423,6 +433,17 @@ export default async function handler(
         });
       });
     }
+
+    const overridesByBooking = new Map<
+      number,
+      ReturnType<typeof normalizeCommissionOverridesLenient>
+    >();
+    bookings.forEach((b) => {
+      overridesByBooking.set(
+        b.id_booking,
+        normalizeCommissionOverridesLenient(b.commission_overrides),
+      );
+    });
 
     const matchesTeamFilter = (userId: number): boolean => {
       if (!Number.isFinite(parsedTeamId) || parsedTeamId <= 0) return true;
@@ -563,13 +584,12 @@ export default async function handler(
       rulesByOwner.set(rs.owner_user_id, arr);
     });
 
-    function resolveRule(ownerId: number, bookingCreatedAt: Date) {
+    function resolveRule(
+      ownerId: number,
+      bookingCreatedAt: Date,
+    ): CommissionRule {
       const list = rulesByOwner.get(ownerId);
-      if (!list || list.length === 0)
-        return {
-          ownPct: 100,
-          shares: [] as Array<{ uid: number; pct: number }>,
-        };
+      if (!list || list.length === 0) return { sellerPct: 100, leaders: [] };
       // tomamos la última con valid_from <= bookingCreatedAt
       let chosen = list[0];
       for (const r of list) {
@@ -578,15 +598,12 @@ export default async function handler(
       }
       if (chosen.valid_from > bookingCreatedAt) {
         // todas empiezan después → usar default 100
-        return {
-          ownPct: 100,
-          shares: [] as Array<{ uid: number; pct: number }>,
-        };
+        return { sellerPct: 100, leaders: [] };
       }
       return {
-        ownPct: Number(chosen.own_pct),
-        shares: chosen.shares.map((s) => ({
-          uid: s.beneficiary_user_id,
+        sellerPct: Number(chosen.own_pct),
+        leaders: chosen.shares.map((s) => ({
+          userId: s.beneficiary_user_id,
           pct: Number(s.percent),
         })),
       };
@@ -769,13 +786,25 @@ export default async function handler(
           bookingCreatedAt,
         } = owner;
 
-        const { ownPct, shares } = resolveRule(sellerId, bookingCreatedAt);
+        const rule = resolveRule(sellerId, bookingCreatedAt);
+        const overrides = sanitizeCommissionOverrides(
+          pruneOverridesByLeaderIds(
+            overridesByBooking.get(bid) || null,
+            rule.leaders.map((l) => l.userId),
+          ),
+        );
 
         for (const [cur, commissionBase] of Object.entries(baseByCur)) {
           if (!validBookingCurrency.has(`${bid}-${cur}`)) continue;
-          const sellerComm = commissionBase * (ownPct / 100);
-          const leaderComm = shares.reduce(
-            (sum, s) => sum + commissionBase * (s.pct / 100),
+          const { sellerPct, leaderPcts } = resolveCommissionForContext({
+            rule,
+            overrides,
+            currency: cur,
+            allowService: false,
+          });
+          const sellerComm = commissionBase * (sellerPct / 100);
+          const leaderComm = Object.values(leaderPcts).reduce(
+            (sum, pct) => sum + commissionBase * (pct / 100),
             0,
           );
           const agencyShareAmt = Math.max(
@@ -833,11 +862,24 @@ export default async function handler(
         );
 
         // regla efectiva por fecha de creación de la reserva
-        const { ownPct, shares } = resolveRule(sellerId, bookingCreatedAt);
+        const rule = resolveRule(sellerId, bookingCreatedAt);
+        const overrides = sanitizeCommissionOverrides(
+          pruneOverridesByLeaderIds(
+            overridesByBooking.get(bid) || null,
+            rule.leaders.map((l) => l.userId),
+          ),
+        );
+        const { sellerPct, leaderPcts } = resolveCommissionForContext({
+          rule,
+          overrides,
+          currency: cur,
+          serviceId: svc.id_service,
+          allowService: true,
+        });
 
-        const sellerComm = commissionBase * (ownPct / 100);
-        const leaderComm = shares.reduce(
-          (sum, s) => sum + commissionBase * (s.pct / 100),
+        const sellerComm = commissionBase * (sellerPct / 100);
+        const leaderComm = Object.values(leaderPcts).reduce(
+          (sum, pct) => sum + commissionBase * (pct / 100),
           0,
         );
         const agencyShareAmt = Math.max(

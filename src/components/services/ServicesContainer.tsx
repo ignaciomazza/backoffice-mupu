@@ -59,6 +59,7 @@ import type {
   PassengerCategory,
   Receipt,
   Service,
+  CommissionOverrides,
 } from "@/types";
 
 /* =========================================================
@@ -1158,6 +1159,40 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     }
   };
 
+  const handleCommissionOverridesSave = async (
+    overrides: CommissionOverrides | null,
+  ): Promise<boolean> => {
+    if (!booking || !token) return false;
+    try {
+      const res = await authFetch(
+        `/api/bookings/${booking.id_booking}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            commission_overrides: overrides,
+          }),
+        },
+        token ?? undefined,
+      );
+      if (!res.ok) {
+        let msg = "Error al guardar comisión";
+        try {
+          const err = await res.json();
+          if (typeof (err as { error?: unknown })?.error === "string")
+            msg = (err as { error: string }).error;
+        } catch {}
+        throw new Error(msg);
+      }
+      const updated = (await res.json()) as Booking;
+      onBookingUpdated?.(updated);
+      return true;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error al guardar comisión";
+      toast.error(msg);
+      return false;
+    }
+  };
+
   /* ================= Créditos ================= */
   const handleLocalCreditNoteSubmit = async (e: React.FormEvent) => {
     await handleCreditNoteSubmit(e);
@@ -1771,6 +1806,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                     agencyTransferFeePct={agencyTransferFeePct}
                     useBookingSaleTotal={useBookingSaleTotal}
                     bookingSaleTotals={bookingSaleTotals}
+                    onSaveCommission={handleCommissionOverridesSave}
                     bookingSaleTotalsForm={
                       useBookingSaleTotal ? (
                         <div className="mt-8 rounded-3xl border border-emerald-200/40 bg-emerald-100/20 p-4 text-sky-950 shadow-md shadow-emerald-900/10 backdrop-blur dark:border-emerald-300/20 dark:bg-emerald-500/10 dark:text-white">

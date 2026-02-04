@@ -212,6 +212,7 @@ model Booking {
   status              String
   details             String
   sale_totals         Json?
+  commission_overrides Json?
   invoice_type        String
   invoice_observation String?
   observation         String?

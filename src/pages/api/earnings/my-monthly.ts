@@ -4,9 +4,16 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 import type { BillingAdjustmentConfig } from "@/types";
+import type { CommissionRule } from "@/types/commission";
 import { jwtVerify, type JWTPayload } from "jose";
 import { getFinanceSectionGrants } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
+import {
+  normalizeCommissionOverridesLenient,
+  pruneOverridesByLeaderIds,
+  resolveCommissionForContext,
+  sanitizeCommissionOverrides,
+} from "@/utils/commissionOverrides";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
 /* ============ Auth helpers ============ */
@@ -285,6 +292,7 @@ export default async function handler(
         },
       },
       select: {
+        id_service: true,
         booking_id: true,
         sale_price: true,
         cost_price: true,
@@ -355,6 +363,7 @@ export default async function handler(
       creation_date: Date;
       departure_date: Date;
       sale_totals: unknown | null;
+      commission_overrides: unknown | null;
       user: { id_user: number; first_name: string; last_name: string };
     }> = [];
 
@@ -369,6 +378,7 @@ export default async function handler(
           creation_date: true,
           departure_date: true,
           sale_totals: true,
+          commission_overrides: true,
           user: { select: { id_user: true, first_name: true, last_name: true } },
         },
       });
@@ -381,6 +391,17 @@ export default async function handler(
         });
       }
     }
+
+    const overridesByBooking = new Map<
+      number,
+      ReturnType<typeof normalizeCommissionOverridesLenient>
+    >();
+    bookings.forEach((b) => {
+      overridesByBooking.set(
+        b.id_booking,
+        normalizeCommissionOverridesLenient(b.commission_overrides),
+      );
+    });
 
     if (useBookingSaleTotal) {
       bookings.forEach((b) => {
@@ -464,14 +485,9 @@ export default async function handler(
       rulesByOwner.set(rs.owner_user_id, arr);
     }
 
-    function resolveRule(
-      ownerId: number,
-      createdAt: Date,
-      meId: number,
-    ): { ownPct: number; beneficiaryPctForMe: number } {
+    function resolveRule(ownerId: number, createdAt: Date): CommissionRule {
       const list = rulesByOwner.get(ownerId);
-      if (!list || list.length === 0)
-        return { ownPct: 100, beneficiaryPctForMe: 0 };
+      if (!list || list.length === 0) return { sellerPct: 100, leaders: [] };
 
       let chosen = list[0];
       for (const r of list) {
@@ -479,13 +495,15 @@ export default async function handler(
         else break;
       }
       if (chosen.valid_from > createdAt)
-        return { ownPct: 100, beneficiaryPctForMe: 0 };
+        return { sellerPct: 100, leaders: [] };
 
-      const myShare = chosen.shares
-        .filter((s) => s.beneficiary_user_id === meId)
-        .reduce((a, s) => a + Number(s.percent), 0);
-
-      return { ownPct: Number(chosen.own_pct), beneficiaryPctForMe: myShare };
+      return {
+        sellerPct: Number(chosen.own_pct),
+        leaders: chosen.shares.map((s) => ({
+          userId: s.beneficiary_user_id as number,
+          pct: Number(s.percent),
+        })),
+      };
     }
 
     // 5) Agregar por MES (tz BA) y MONEDA
@@ -539,23 +557,32 @@ export default async function handler(
         const month = monthKeyInTz(groupDate, timeZone);
         const ownerId = owner.id;
 
-        const { ownPct, beneficiaryPctForMe } = resolveRule(
-          ownerId,
-          createdAt,
-          auth.id_user,
-        );
+        const rule = resolveRule(ownerId, createdAt);
+          const overrides = sanitizeCommissionOverrides(
+            pruneOverridesByLeaderIds(
+              overridesByBooking.get(bid) || null,
+              rule.leaders.map((l) => l.userId),
+            ),
+          );
 
         for (const [cur, commissionBase] of Object.entries(baseByCur)) {
           if (!validBookingCurrency.has(`${bid}-${cur}`)) continue;
+          const { sellerPct, leaderPcts } = resolveCommissionForContext({
+            rule,
+            overrides,
+            currency: cur,
+            allowService: false,
+          });
 
           let sellerAmt = 0;
           let beneficiaryAmt = 0;
 
           if (ownerId === auth.id_user) {
-            sellerAmt = commissionBase * (ownPct / 100);
+            sellerAmt = commissionBase * (sellerPct / 100);
           }
-          if (beneficiaryPctForMe > 0) {
-            beneficiaryAmt = commissionBase * (beneficiaryPctForMe / 100);
+          const leaderPct = leaderPcts[auth.id_user] || 0;
+          if (leaderPct > 0) {
+            beneficiaryAmt = commissionBase * (leaderPct / 100);
           }
 
           const totalAmt = sellerAmt + beneficiaryAmt;
@@ -615,20 +642,30 @@ export default async function handler(
           0,
         );
 
-        const { ownPct, beneficiaryPctForMe } = resolveRule(
-          ownerId,
-          createdAt,
-          auth.id_user,
+        const rule = resolveRule(ownerId, createdAt);
+        const overrides = sanitizeCommissionOverrides(
+          pruneOverridesByLeaderIds(
+            overridesByBooking.get(bid) || null,
+            rule.leaders.map((l) => l.userId),
+          ),
         );
+        const { sellerPct, leaderPcts } = resolveCommissionForContext({
+          rule,
+          overrides,
+          currency: cur,
+          serviceId: svc.id_service,
+          allowService: true,
+        });
 
         let sellerAmt = 0;
         let beneficiaryAmt = 0;
 
         if (ownerId === auth.id_user) {
-          sellerAmt = commissionBase * (ownPct / 100);
+          sellerAmt = commissionBase * (sellerPct / 100);
         }
-        if (beneficiaryPctForMe > 0) {
-          beneficiaryAmt = commissionBase * (beneficiaryPctForMe / 100);
+        const leaderPct = leaderPcts[auth.id_user] || 0;
+        if (leaderPct > 0) {
+          beneficiaryAmt = commissionBase * (leaderPct / 100);
         }
 
         const totalAmt = sellerAmt + beneficiaryAmt;

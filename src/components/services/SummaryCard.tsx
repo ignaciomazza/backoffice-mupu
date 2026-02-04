@@ -2,16 +2,20 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "react-toastify";
 import type {
   Service,
   Receipt,
   BillingAdjustmentConfig,
   BillingAdjustmentComputed,
+  CommissionOverrides,
+  CommissionRule,
 } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import Spinner from "@/components/Spinner";
 import { computeBillingAdjustments } from "@/utils/billingAdjustments";
+import { resolveCommissionForContext } from "@/utils/commissionOverrides";
 
 /* ===== Tipos ===== */
 interface Totals {
@@ -46,6 +50,10 @@ interface SummaryCardProps {
   useBookingSaleTotal?: boolean;
   bookingSaleTotals?: Record<string, number | string> | null;
   ownerPctOverride?: number | null;
+  role?: string;
+  onSaveCommission?: (
+    overrides: CommissionOverrides | null,
+  ) => Promise<boolean>;
 }
 
 /** Campos adicionales que pueden venir en Service */
@@ -96,6 +104,8 @@ type CalcConfigResponse = {
 
 type EarningsByBookingResponse = {
   ownerPct: number;
+  rule?: CommissionRule;
+  custom?: CommissionOverrides | null;
   commissionBaseByCurrency: Record<string, number>;
   sellerEarningsByCurrency: Record<string, number>;
 };
@@ -122,6 +132,54 @@ const Chip: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-sm font-medium text-sky-900 dark:border-sky-800/40 dark:bg-sky-900/30 dark:text-sky-100">
     {children}
   </span>
+);
+
+const PencilSquareIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.6}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden="true"
+  >
+    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4 10.5-10.5Z" />
+    <path d="M13.5 5.5 18.5 10.5" />
+  </svg>
+);
+
+const TrashIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.5}
+    className={className}
+    aria-hidden="true"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+    />
+  </svg>
+);
+
+const CheckIcon = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 20 20"
+    fill="currentColor"
+    className={className}
+    aria-hidden="true"
+  >
+    <path
+      fillRule="evenodd"
+      d="M16.704 5.29a1 1 0 0 1 .006 1.414l-7.25 7.3a1 1 0 0 1-1.42.002l-3.25-3.25a1 1 0 1 1 1.414-1.414l2.54 2.54 6.54-6.592a1 1 0 0 1 1.42 0Z"
+      clipRule="evenodd"
+    />
+  </svg>
 );
 
 /* ---------- helpers de datos ---------- */
@@ -203,6 +261,8 @@ export default function SummaryCard({
   useBookingSaleTotal = false,
   bookingSaleTotals,
   ownerPctOverride = null,
+  role,
+  onSaveCommission,
 }: SummaryCardProps) {
   const labels: Record<string, string> = {
     ARS: "Pesos",
@@ -219,7 +279,9 @@ export default function SummaryCard({
   >([]);
   const [useBookingSaleTotalCfg, setUseBookingSaleTotalCfg] =
     useState<boolean>(false);
-  const [ownerPct, setOwnerPct] = useState<number | null>(null);
+  const [rule, setRule] = useState<CommissionRule | null>(null);
+  const [commissionCustom, setCommissionCustom] =
+    useState<CommissionOverrides | null>(null);
   const [apiCommissionBaseByCurrency, setApiCommissionBaseByCurrency] =
     useState<Record<string, number>>({});
   const [apiSellerEarningsByCurrency, setApiSellerEarningsByCurrency] =
@@ -227,6 +289,23 @@ export default function SummaryCard({
   const [loadingCalc, setLoadingCalc] = useState(false);
   const [loadingEarnings, setLoadingEarnings] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [commissionEditorOpen, setCommissionEditorOpen] = useState(false);
+  const [commissionEditorAnchorCurrency, setCommissionEditorAnchorCurrency] =
+    useState<string>("");
+  const [commissionScope, setCommissionScope] = useState<
+    "booking" | "currency" | "service"
+  >("booking");
+  const [commissionScopeCurrency, setCommissionScopeCurrency] =
+    useState<string>("");
+  const [commissionScopeServiceId, setCommissionScopeServiceId] = useState<
+    number | null
+  >(null);
+  const [commissionDraftSeller, setCommissionDraftSeller] =
+    useState<string>("");
+  const [commissionDraftLeaders, setCommissionDraftLeaders] = useState<
+    Record<number, string>
+  >({});
+  const [commissionSaving, setCommissionSaving] = useState(false);
 
   const bookingId = useMemo(
     () => pickBookingId(services as ServiceWithCalcs[]),
@@ -250,7 +329,8 @@ export default function SummaryCard({
     if (!token) {
       setAgencyMode("auto");
       setTransferPct(0.024);
-      setOwnerPct(null);
+      setRule(null);
+      setCommissionCustom(null);
       setApiCommissionBaseByCurrency({});
       setApiSellerEarningsByCurrency({});
       setLoadingCalc(true);
@@ -272,7 +352,8 @@ export default function SummaryCard({
 
     setLoadingCalc(true);
     setLoadingEarnings(Boolean(bookingId));
-    setOwnerPct(null);
+    setRule(null);
+    setCommissionCustom(null);
     setApiCommissionBaseByCurrency({});
     setApiSellerEarningsByCurrency({});
 
@@ -316,7 +397,6 @@ export default function SummaryCard({
       if (!isActive()) return;
       if (!bookingId) {
         if (isActive()) {
-          setOwnerPct(null);
           setLoadingEarnings(false);
         }
         return;
@@ -331,7 +411,15 @@ export default function SummaryCard({
         if (!r.ok) throw new Error("fetch failed");
         const json: EarningsByBookingResponse = await r.json();
         if (isActive()) {
-          setOwnerPct(Number.isFinite(json.ownerPct) ? json.ownerPct : 100);
+          if (json.rule) {
+            setRule(json.rule);
+          } else {
+            const fallbackPct = Number.isFinite(json.ownerPct)
+              ? Number(json.ownerPct)
+              : 100;
+            setRule({ sellerPct: fallbackPct, leaders: [] });
+          }
+          setCommissionCustom(json.custom ?? null);
           setApiCommissionBaseByCurrency(
             upperKeys(json.commissionBaseByCurrency || {}),
           );
@@ -341,7 +429,8 @@ export default function SummaryCard({
         }
       } catch {
         if (isActive()) {
-          setOwnerPct(null);
+          setRule(null);
+          setCommissionCustom(null);
         }
       } finally {
         if (isActive()) {
@@ -557,7 +646,63 @@ export default function SummaryCard({
     Object.keys(saleTotalsByCurrency).forEach((c) => a.add(c));
     Object.keys(paidByCurrency).forEach((c) => a.add(c));
     return Array.from(a);
-  }, [totalsNorm, salesWithInterestByCurrency, saleTotalsByCurrency, paidByCurrency]);
+  }, [
+    totalsNorm,
+    salesWithInterestByCurrency,
+    saleTotalsByCurrency,
+    paidByCurrency,
+  ]);
+
+  const serviceOptions = useMemo(() => {
+    return services.map((svc) => {
+      const cur = normalizeCurrencyCode(svc.currency || "ARS");
+      const label =
+        (svc.description || svc.type || "Servicio").trim() ||
+        `Servicio #${svc.id_service}`;
+      return {
+        id: svc.id_service,
+        currency: cur,
+        label: `${label} (${cur})`,
+      };
+    });
+  }, [services]);
+
+  const serviceById = useMemo(() => {
+    return new Map(services.map((svc) => [svc.id_service, svc]));
+  }, [services]);
+
+  useEffect(() => {
+    if (currencies.length === 0) return;
+    if (
+      !commissionScopeCurrency ||
+      !currencies.includes(commissionScopeCurrency)
+    ) {
+      setCommissionScopeCurrency(currencies[0]);
+    }
+  }, [commissionScopeCurrency, currencies]);
+
+  useEffect(() => {
+    if (!commissionEditorOpen) return;
+    const normalized = normalizeCurrencyCode(
+      commissionEditorAnchorCurrency || commissionScopeCurrency || "",
+    );
+    if (!normalized || !currencies.includes(normalized)) {
+      if (currencies[0]) setCommissionEditorAnchorCurrency(currencies[0]);
+    }
+  }, [
+    commissionEditorOpen,
+    commissionEditorAnchorCurrency,
+    commissionScopeCurrency,
+    currencies,
+  ]);
+
+  useEffect(() => {
+    if (serviceOptions.length === 0) return;
+    const exists = serviceOptions.some(
+      (opt) => opt.id === commissionScopeServiceId,
+    );
+    if (!exists) setCommissionScopeServiceId(serviceOptions[0].id);
+  }, [commissionScopeServiceId, serviceOptions]);
 
   /** ====== cálculo local de comisión base por moneda (fallback) ======
    * commissionBase = max(totalCommissionWithoutVAT - sale_price*transferPct, 0)
@@ -569,8 +714,7 @@ export default function SummaryCard({
         const cost = costTotalsByCurrency[cur] || 0;
         const taxes = taxTotalsByCurrency[cur] || 0;
         const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
-        const fee =
-          sale * (Number.isFinite(transferPct) ? transferPct : 0.024);
+        const fee = sale * (Number.isFinite(transferPct) ? transferPct : 0.024);
         const adjustments = bookingAdjustmentsByCurrency[cur]?.total || 0;
         out[cur] = Math.max(commissionBeforeFee - fee - adjustments, 0);
       }
@@ -604,26 +748,346 @@ export default function SummaryCard({
   const commissionBaseFor = (cur: string) =>
     apiCommissionBaseByCurrency[cur] ?? localCommissionBaseByCurrency[cur] ?? 0;
 
-  const effectiveOwnerPct = Number.isFinite(ownerPctOverride as number)
+  const baseRule = useMemo<CommissionRule>(
+    () => rule ?? { sellerPct: 100, leaders: [] },
+    [rule],
+  );
+  const forcedSellerPct = Number.isFinite(ownerPctOverride as number)
     ? Math.min(Math.max(Number(ownerPctOverride), 0), 100)
-    : ownerPct;
-  const ownerPctLoading =
-    !Number.isFinite(ownerPctOverride as number) && loadingEarnings;
-  const ownerPctReady =
-    Number.isFinite(ownerPctOverride as number) ||
-    (!ownerPctLoading && typeof effectiveOwnerPct === "number");
+    : null;
+  const commissionLoading = forcedSellerPct == null && loadingEarnings;
+  const commissionReady = forcedSellerPct != null || !!rule;
 
   const sellerEarningFor = (cur: string) => {
     if (apiSellerEarningsByCurrency[cur] != null)
       return apiSellerEarningsByCurrency[cur];
     const base = commissionBaseFor(cur);
-    return typeof effectiveOwnerPct === "number"
-      ? base * (effectiveOwnerPct / 100)
-      : 0;
+    const pct = forcedSellerPct ?? baseRule.sellerPct;
+    return base * (pct / 100);
+  };
+
+  const fmtPct = (value: number) =>
+    new Intl.NumberFormat("es-AR", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(value);
+
+  const resolveSellerPctForService = (svc: ServiceWithCalcs) => {
+    if (forcedSellerPct != null) return forcedSellerPct;
+    const cur = normalizeCurrencyCode(svc.currency || "ARS");
+    const { sellerPct } = resolveCommissionForContext({
+      rule: baseRule,
+      overrides: commissionCustom,
+      currency: cur,
+      serviceId: svc.id_service,
+      allowService: !bookingSaleMode,
+    });
+    return sellerPct;
+  };
+
+  const sellerPctLabelForCurrency = (code: string) => {
+    if (forcedSellerPct != null) return `${fmtPct(forcedSellerPct)}%`;
+    if (!commissionReady) return "--";
+
+    if (bookingSaleMode) {
+      const { sellerPct } = resolveCommissionForContext({
+        rule: baseRule,
+        overrides: commissionCustom,
+        currency: code,
+        allowService: false,
+      });
+      return `${fmtPct(sellerPct)}%`;
+    }
+
+    const relevant = services.filter(
+      (svc) => normalizeCurrencyCode(svc.currency || "ARS") === code,
+    );
+    if (relevant.length === 0) return `${fmtPct(baseRule.sellerPct)}%`;
+
+    const pcts = relevant.map((svc) =>
+      resolveSellerPctForService(svc as ServiceWithCalcs),
+    );
+    const first = pcts[0];
+    const same = pcts.every((p) => Math.abs(p - first) < 0.0001);
+    return same ? `${fmtPct(first)}%` : "Personalizada";
+  };
+
+  const canEditCommission = [
+    "gerente",
+    "administrativo",
+    "desarrollador",
+  ].includes(String(role || "").toLowerCase());
+
+  const openEditorForCurrency = (code: string) => {
+    if (!canEditCommission) return;
+    setCommissionEditorAnchorCurrency(code);
+    setCommissionScope("currency");
+    setCommissionScopeCurrency(code);
+    setCommissionEditorOpen(true);
+  };
+
+  useEffect(() => {
+    if (!canEditCommission && commissionEditorOpen) {
+      setCommissionEditorOpen(false);
+    }
+  }, [canEditCommission, commissionEditorOpen]);
+
+  useEffect(() => {
+    if (!commissionEditorOpen) return;
+    if (bookingSaleMode && commissionScope === "service") {
+      setCommissionScope("currency");
+    }
+  }, [bookingSaleMode, commissionScope, commissionEditorOpen]);
+
+  useEffect(() => {
+    if (!commissionEditorOpen) return;
+    if (commissionScope === "currency" && commissionScopeCurrency) {
+      setCommissionEditorAnchorCurrency(commissionScopeCurrency);
+    }
+  }, [commissionEditorOpen, commissionScope, commissionScopeCurrency]);
+
+  const currentService = useMemo(() => {
+    if (commissionScopeServiceId == null) return null;
+    return (
+      services.find((s) => s.id_service === commissionScopeServiceId) || null
+    );
+  }, [commissionScopeServiceId, services]);
+
+  const currentScopeOverride = useMemo(() => {
+    if (!commissionCustom) return null;
+    if (commissionScope === "booking") return commissionCustom.booking ?? null;
+    if (commissionScope === "currency")
+      return commissionCustom.currency?.[commissionScopeCurrency] ?? null;
+    if (commissionScope === "service") {
+      if (commissionScopeServiceId == null) return null;
+      return (
+        commissionCustom.service?.[String(commissionScopeServiceId)] ?? null
+      );
+    }
+    return null;
+  }, [
+    commissionCustom,
+    commissionScope,
+    commissionScopeCurrency,
+    commissionScopeServiceId,
+  ]);
+
+  useEffect(() => {
+    if (!commissionEditorOpen || !commissionReady) return;
+
+    const leaders = baseRule.leaders ?? [];
+    const leaderDefaults: Record<number, number> = {};
+    leaders.forEach((l) => {
+      leaderDefaults[l.userId] = l.pct;
+    });
+
+    let sellerPct = baseRule.sellerPct;
+    let leaderPcts = leaderDefaults;
+
+    if (currentScopeOverride) {
+      if (typeof currentScopeOverride.sellerPct === "number") {
+        sellerPct = currentScopeOverride.sellerPct;
+      }
+      if (currentScopeOverride.leaders) {
+        leaderPcts = {
+          ...leaderDefaults,
+          ...Object.fromEntries(
+            Object.entries(currentScopeOverride.leaders).map(([id, pct]) => [
+              Number(id),
+              pct,
+            ]),
+          ),
+        };
+      }
+    } else if (commissionScope === "currency") {
+      const { sellerPct: resolvedSeller, leaderPcts: resolvedLeaders } =
+        resolveCommissionForContext({
+          rule: baseRule,
+          overrides: commissionCustom,
+          currency: commissionScopeCurrency,
+          allowService: false,
+        });
+      sellerPct = resolvedSeller;
+      leaderPcts = resolvedLeaders;
+    } else if (commissionScope === "service") {
+      const cur = normalizeCurrencyCode(currentService?.currency || "ARS");
+      const { sellerPct: resolvedSeller, leaderPcts: resolvedLeaders } =
+        resolveCommissionForContext({
+          rule: baseRule,
+          overrides: commissionCustom,
+          currency: cur,
+          allowService: false,
+        });
+      sellerPct = resolvedSeller;
+      leaderPcts = resolvedLeaders;
+    }
+
+    setCommissionDraftSeller(String(sellerPct));
+    const nextLeaders: Record<number, string> = {};
+    leaders.forEach((l) => {
+      nextLeaders[l.userId] = String(leaderPcts[l.userId] ?? 0);
+    });
+    setCommissionDraftLeaders(nextLeaders);
+  }, [
+    commissionEditorOpen,
+    commissionReady,
+    baseRule,
+    commissionCustom,
+    commissionScope,
+    commissionScopeCurrency,
+    commissionScopeServiceId,
+    currentScopeOverride,
+    currentService,
+  ]);
+
+  const leaderList = baseRule.leaders ?? [];
+
+  const parseDraftPct = (value: string) => {
+    const raw = Number(String(value).replace(",", "."));
+    if (!Number.isFinite(raw)) return null;
+    if (raw < 0 || raw > 100) return null;
+    return raw;
+  };
+
+  const sellerPctValue = parseDraftPct(commissionDraftSeller);
+  const leaderPctValues = leaderList.map((l) => ({
+    id: l.userId,
+    value: parseDraftPct(commissionDraftLeaders[l.userId] ?? ""),
+  }));
+  const invalidPct =
+    sellerPctValue == null || leaderPctValues.some((l) => l.value == null);
+  const leadersSum = leaderPctValues.reduce(
+    (sum, l) => sum + (l.value ?? 0),
+    0,
+  );
+  const totalAssigned = (sellerPctValue ?? 0) + leadersSum;
+  const overLimit = totalAssigned > 100.0001;
+  const remainder = Math.max(0, 100 - totalAssigned);
+
+  const canSaveCommission =
+    commissionReady &&
+    !commissionSaving &&
+    !invalidPct &&
+    !overLimit &&
+    typeof onSaveCommission === "function";
+  const hasScopeCustom = !!currentScopeOverride;
+
+  const buildScopePayload = () => {
+    const leaders: Record<string, number> = {};
+    leaderPctValues.forEach((l) => {
+      if (typeof l.value === "number") leaders[String(l.id)] = l.value;
+    });
+    return {
+      sellerPct: sellerPctValue ?? 0,
+      leaders,
+    };
+  };
+
+  const cloneOverrides = (): CommissionOverrides => {
+    return commissionCustom
+      ? (JSON.parse(JSON.stringify(commissionCustom)) as CommissionOverrides)
+      : {};
+  };
+
+  const removeEmptyBranches = (
+    data: CommissionOverrides,
+  ): CommissionOverrides | null => {
+    const next = { ...data };
+    if (next.currency && Object.keys(next.currency).length === 0) {
+      delete next.currency;
+    }
+    if (next.service && Object.keys(next.service).length === 0) {
+      delete next.service;
+    }
+    if (!next.booking && !next.currency && !next.service) return null;
+    return next;
+  };
+
+  const saveCommissionScope = async () => {
+    if (!canSaveCommission) return;
+    if (commissionScope === "currency" && !commissionScopeCurrency) {
+      toast.error("Seleccioná una moneda");
+      return;
+    }
+    if (commissionScope === "service" && !commissionScopeServiceId) {
+      toast.error("Seleccioná un servicio");
+      return;
+    }
+    setCommissionSaving(true);
+    try {
+      const next = cloneOverrides();
+      const payload = buildScopePayload();
+
+      if (commissionScope === "booking") {
+        next.booking = payload;
+      } else if (commissionScope === "currency") {
+        const key = String(commissionScopeCurrency || "").toUpperCase();
+        next.currency = { ...(next.currency || {}), [key]: payload };
+      } else if (commissionScope === "service") {
+        const key = String(commissionScopeServiceId || "");
+        next.service = { ...(next.service || {}), [key]: payload };
+      }
+
+      const cleaned = removeEmptyBranches(next);
+      const ok = await onSaveCommission?.(cleaned);
+      if (ok) {
+        setCommissionCustom(cleaned);
+        setRefreshKey((prev) => prev + 1);
+        toast.success("Comisión guardada");
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error al guardar comisión";
+      toast.error(msg);
+    } finally {
+      setCommissionSaving(false);
+    }
+  };
+
+  const removeCommissionScope = async () => {
+    if (!onSaveCommission || commissionSaving) return;
+    if (commissionScope === "currency" && !commissionScopeCurrency) return;
+    if (commissionScope === "service" && !commissionScopeServiceId) return;
+    setCommissionSaving(true);
+    try {
+      const next = cloneOverrides();
+      if (commissionScope === "booking") {
+        delete next.booking;
+      } else if (commissionScope === "currency") {
+        const key = String(commissionScopeCurrency || "").toUpperCase();
+        if (next.currency) delete next.currency[key];
+      } else if (commissionScope === "service") {
+        const key = String(commissionScopeServiceId || "");
+        if (next.service) delete next.service[key];
+      }
+
+      const cleaned = removeEmptyBranches(next);
+      const ok = await onSaveCommission(cleaned);
+      if (ok) {
+        setCommissionCustom(cleaned);
+        setRefreshKey((prev) => prev + 1);
+        toast.success("Comisión personalizada eliminada");
+      }
+    } catch (e) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : "Error al quitar comisión personalizada";
+      toast.error(msg);
+    } finally {
+      setCommissionSaving(false);
+    }
   };
 
   const colsClass =
     currencies.length === 1 ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2";
+  const showEditor = canEditCommission && commissionEditorOpen;
+  const editorAnchor = useMemo(
+    () =>
+      normalizeCurrencyCode(
+        commissionEditorAnchorCurrency || commissionScopeCurrency || "",
+      ),
+    [commissionEditorAnchorCurrency, commissionScopeCurrency],
+  );
 
   // Formateador efectivo (usa prop si existe; si no, el interno seguro)
   const fmt = (value: number, currency: string) =>
@@ -639,9 +1103,7 @@ export default function SummaryCard({
           <div>
             <Spinner />
           </div>
-          <span>
-            Calculando impuestos, costos bancarios y ganancias…
-          </span>
+          <span>Calculando impuestos, costos bancarios y ganancias…</span>
         </div>
       </div>
     );
@@ -649,7 +1111,7 @@ export default function SummaryCard({
 
   return (
     <div
-      className={`mb-6 space-y-3 rounded-3xl ${
+      className={`mb-6 space-y-3 rounded-3xl transition-all duration-300 ${
         currencies.length > 1 ? "border border-white/10 bg-white/10 p-6" : ""
       } text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white`}
     >
@@ -664,6 +1126,7 @@ export default function SummaryCard({
           Actualizar
         </button>
       </div>
+
       <div className={`grid ${colsClass} gap-6`}>
         {currencies.map((currency) => {
           const code = normalizeCurrencyCode(currency);
@@ -860,34 +1323,365 @@ export default function SummaryCard({
               </div>
 
               {/* Footer */}
-              <footer className="mt-4 flex justify-between rounded-2xl border border-white/5 bg-white/10 p-3">
-                <div>
-                  <p className="text-sm opacity-70">
-                    Total Comisión neta (Costos Bancarios + ajustes)
-                  </p>
-                  <p className="text-lg font-semibold tabular-nums">
-                    {fmt(netCommission, code)}
-                  </p>
-                </div>
-                <div>
-                  {ownerPctReady ? (
-                    <>
+              <footer className="mt-4">
+                <div className="rounded-2xl border border-white/5 bg-white/10">
+                  <div className="flex flex-wrap justify-between gap-3 p-3">
+                    <div>
                       <p className="text-sm opacity-70">
-                        Ganancia del vendedor{" "}
-                        {`(${Number(effectiveOwnerPct ?? 0).toFixed(0)}%)`}
+                        Total Comisión neta (Costos Bancarios + ajustes)
                       </p>
-                      <p className="text-end text-lg font-semibold tabular-nums">
-                        {fmt(myEarning, code)}
+                      <p className="text-lg font-semibold tabular-nums">
+                        {fmt(netCommission, code)}
                       </p>
-                    </>
-                  ) : ownerPctLoading ? (
-                    <div className="flex items-center justify-end gap-2 text-sm opacity-70">
-                      <Spinner />
-                      <span>Cargando comisión…</span>
                     </div>
-                  ) : (
-                    <div className="text-sm opacity-70">Comisión no disponible</div>
-                  )}
+                    <div>
+                      {commissionReady ? (
+                        <>
+                          <div className="flex items-center justify-end gap-2 text-sm opacity-70">
+                            <span>
+                              Ganancia del vendedor (
+                              {sellerPctLabelForCurrency(code)})
+                            </span>
+                            {canEditCommission && (
+                              <button
+                                type="button"
+                                onClick={() => openEditorForCurrency(code)}
+                                className="rounded-full border border-white/10 bg-white/20 p-1.5 text-sky-900 shadow-sm shadow-sky-950/10 transition hover:scale-105 dark:text-white"
+                                aria-label="Editar comisión"
+                                title="Editar comisión"
+                              >
+                                <PencilSquareIcon className="size-4" />
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-end text-lg font-semibold tabular-nums">
+                            {fmt(myEarning, code)}
+                          </p>
+                        </>
+                      ) : commissionLoading ? (
+                        <div className="flex items-center justify-end gap-2 text-sm opacity-70">
+                          <Spinner />
+                          <span>Cargando comisión…</span>
+                        </div>
+                      ) : (
+                        <div className="text-sm opacity-70">
+                          Comisión no disponible
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const isEditorHere = showEditor && editorAnchor === code;
+                    return (
+                      <div
+                        className={`overflow-hidden transition-all duration-300 ${
+                          isEditorHere
+                            ? "max-h-[1400px] opacity-100"
+                            : "max-h-0 opacity-0"
+                        }`}
+                        aria-hidden={!isEditorHere}
+                      >
+                        <div className="border-t border-sky-200/40 p-4 dark:border-sky-800/40">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold">
+                                Comisión personalizada
+                              </p>
+                              <p className="text-xs opacity-70">
+                                Ajustá el porcentaje del vendedor y líderes
+                                según el alcance.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setCommissionEditorOpen(false)}
+                              className="rounded-full border border-sky-200/40 bg-white/40 px-3 py-1 text-xs font-medium shadow-sm shadow-sky-950/10 transition active:scale-95 dark:border-sky-400/20 dark:bg-white/10"
+                            >
+                              Cerrar
+                            </button>
+                          </div>
+
+                          <div className="mt-4 space-y-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setCommissionScope("booking")}
+                                className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                  commissionScope === "booking"
+                                    ? "border-sky-400/60 bg-sky-200/70 text-sky-900"
+                                    : "border-sky-200/40 bg-white/40 text-sky-900/70 dark:border-sky-400/20 dark:bg-white/10 dark:text-white/70"
+                                }`}
+                              >
+                                Toda la reserva
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCommissionScope("currency")}
+                                className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                  commissionScope === "currency"
+                                    ? "border-sky-400/60 bg-sky-200/70 text-sky-900"
+                                    : "border-sky-200/40 bg-white/40 text-sky-900/70 dark:border-sky-400/20 dark:bg-white/10 dark:text-white/70"
+                                }`}
+                              >
+                                Esta moneda
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCommissionScope("service")}
+                                disabled={bookingSaleMode}
+                                className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                  commissionScope === "service"
+                                    ? "border-sky-400/60 bg-sky-200/70 text-sky-900"
+                                    : "border-sky-200/40 bg-white/40 text-sky-900/70 dark:border-sky-400/20 dark:bg-white/10 dark:text-white/70"
+                                } ${bookingSaleMode ? "cursor-not-allowed opacity-50" : ""}`}
+                              >
+                                Un servicio
+                              </button>
+                            </div>
+
+                            {bookingSaleMode && (
+                              <p className="text-xs opacity-70">
+                                La edición por servicio se desactiva cuando se
+                                usa la venta total por reserva.
+                              </p>
+                            )}
+
+                            {commissionScope === "currency" && (
+                              <div>
+                                <p className="mb-2 text-sm font-medium">
+                                  Moneda
+                                </p>
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  {currencies.map((cur) => {
+                                    const selected =
+                                      commissionScopeCurrency === cur;
+                                    const base = commissionBaseFor(cur);
+                                    return (
+                                      <button
+                                        key={cur}
+                                        type="button"
+                                        onClick={() =>
+                                          setCommissionScopeCurrency(cur)
+                                        }
+                                        className={`flex items-start justify-between gap-3 rounded-2xl border p-3 text-left text-sm transition ${
+                                          selected
+                                            ? "border-sky-300/70 bg-sky-200/20 shadow-sm shadow-sky-900/10"
+                                            : "border-sky-300/70 bg-sky-200/5 shadow-sm shadow-sky-900/10 transition-colors hover:bg-sky-200/20"
+                                        }`}
+                                      >
+                                        <div>
+                                          <p className="font-semibold">{cur}</p>
+                                          <p className="text-xs opacity-70">
+                                            Base comisión: {fmt(base, cur)}
+                                          </p>
+                                        </div>
+                                        <div
+                                          className={`flex size-5 items-center justify-center rounded border ${
+                                            selected
+                                              ? "border-sky-500 bg-sky-500 text-white"
+                                              : "border-sky-200/60 text-transparent dark:border-sky-400/30"
+                                          }`}
+                                        >
+                                          <CheckIcon className="size-3.5" />
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {commissionScope === "service" && (
+                              <div>
+                                <p className="mb-2 text-sm font-medium">
+                                  Servicio
+                                </p>
+                                <div className="max-h-52 space-y-2 overflow-auto pr-1">
+                                  {serviceOptions.map((opt) => {
+                                    const selected =
+                                      commissionScopeServiceId === opt.id;
+                                    const svc = serviceById.get(opt.id);
+                                    const sale =
+                                      svc && typeof svc.sale_price === "number"
+                                        ? fmt(svc.sale_price, opt.currency)
+                                        : null;
+                                    return (
+                                      <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() =>
+                                          setCommissionScopeServiceId(opt.id)
+                                        }
+                                        className={`flex w-full items-start justify-between gap-3 rounded-2xl border p-3 text-left text-sm transition ${
+                                          selected
+                                            ? "border-sky-300/70 bg-sky-200/20 shadow-sm shadow-sky-900/10"
+                                            : "border-sky-300/70 bg-sky-200/5 shadow-sm shadow-sky-900/10 transition-colors hover:bg-sky-200/20"
+                                        }`}
+                                      >
+                                        <div>
+                                          <p className="font-semibold">
+                                            {opt.label}
+                                          </p>
+                                          {sale ? (
+                                            <p className="text-xs opacity-70">
+                                              Venta: {sale}
+                                            </p>
+                                          ) : (
+                                            <p className="text-xs opacity-70">
+                                              Moneda: {opt.currency}
+                                            </p>
+                                          )}
+                                        </div>
+                                        <div
+                                          className={`flex size-5 items-center justify-center rounded border ${
+                                            selected
+                                              ? "border-sky-500 bg-sky-500 text-white"
+                                              : "border-sky-200/60 text-transparent dark:border-sky-400/30"
+                                          }`}
+                                        >
+                                          <CheckIcon className="size-3.5" />
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div>
+                                <label className="mb-1 block text-sm">
+                                  Vendedor
+                                </label>
+                                <div className="relative">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    step={0.01}
+                                    inputMode="decimal"
+                                    value={commissionDraftSeller}
+                                    onChange={(e) =>
+                                      setCommissionDraftSeller(e.target.value)
+                                    }
+                                    className="w-full rounded-2xl border border-sky-200/70 bg-white/60 px-3 py-2 pr-8 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200/60 dark:border-sky-400/20 dark:bg-white/10 dark:text-white"
+                                  />
+                                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-sky-500/80 dark:text-sky-200/70">
+                                    %
+                                  </span>
+                                </div>
+                              </div>
+
+                              {leaderList.map((leader) => (
+                                <div key={leader.userId}>
+                                  <label className="mb-1 block text-sm">
+                                    {leader.name || `Líder ${leader.userId}`}
+                                  </label>
+                                  <div className="relative">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      step={0.01}
+                                      inputMode="decimal"
+                                      value={
+                                        commissionDraftLeaders[leader.userId] ??
+                                        ""
+                                      }
+                                      onChange={(e) =>
+                                        setCommissionDraftLeaders((prev) => ({
+                                          ...prev,
+                                          [leader.userId]: e.target.value,
+                                        }))
+                                      }
+                                      className="w-full rounded-2xl border border-sky-200/70 bg-white/60 px-3 py-2 pr-8 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200/60 dark:border-sky-400/20 dark:bg-white/10 dark:text-white"
+                                    />
+                                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-sky-500/80 dark:text-sky-200/70">
+                                      %
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            {leaderList.length === 0 && (
+                              <p className="text-xs opacity-70">
+                                No hay líderes asociados a esta regla.
+                              </p>
+                            )}
+
+                            <div className="grid gap-3 sm:grid-cols-3">
+                              <div className="rounded-2xl border border-sky-200/40 bg-white/50 p-3 dark:border-sky-400/20 dark:bg-white/10">
+                                <p className="text-xs opacity-70">Vendedor</p>
+                                <p className="text-lg font-semibold">
+                                  {sellerPctValue != null
+                                    ? `${fmtPct(sellerPctValue)}%`
+                                    : "--"}
+                                </p>
+                              </div>
+                              <div className="rounded-2xl border border-sky-200/40 bg-white/50 p-3 dark:border-sky-400/20 dark:bg-white/10">
+                                <p className="text-xs opacity-70">Líderes</p>
+                                <p className="text-lg font-semibold">
+                                  {Number.isFinite(leadersSum)
+                                    ? `${fmtPct(leadersSum)}%`
+                                    : "--"}
+                                </p>
+                              </div>
+                              <div
+                                className={`rounded-2xl border p-3 ${
+                                  overLimit
+                                    ? "border-red-400/40 bg-red-100/20"
+                                    : "border-sky-200/40 bg-white/50 dark:border-sky-400/20 dark:bg-white/10"
+                                }`}
+                              >
+                                <p className="text-xs opacity-70">
+                                  Resto agencia
+                                </p>
+                                <p className="text-lg font-semibold">
+                                  {overLimit
+                                    ? "0.00%"
+                                    : `${fmtPct(remainder)}%`}
+                                </p>
+                              </div>
+                            </div>
+
+                            {overLimit ? (
+                              <p className="text-xs text-red-600">
+                                La suma no puede superar 100%.
+                              </p>
+                            ) : null}
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={saveCommissionScope}
+                                disabled={!canSaveCommission}
+                                className="rounded-full border border-sky-500/70 bg-sky-50 px-4 py-2 text-xs font-semibold text-sky-700 shadow-sm shadow-sky-900/10 transition hover:bg-sky-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-400/40 dark:bg-sky-500/10 dark:text-sky-100"
+                              >
+                                {commissionSaving ? "Guardando..." : "Guardar"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={removeCommissionScope}
+                                disabled={commissionSaving || !hasScopeCustom}
+                                className="rounded-full bg-red-600 p-2 text-red-100 shadow-sm shadow-red-900/10 transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label="Quitar comisión personalizada"
+                                title="Quitar comisión personalizada"
+                              >
+                                <TrashIcon className="size-4" />
+                              </button>
+                              <span className="text-xs opacity-70">
+                                {hasScopeCustom
+                                  ? "Comisión personalizada activa"
+                                  : "Sin comisión personalizada"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </footer>
             </section>

@@ -3,12 +3,19 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 import type { BillingAdjustmentConfig } from "@/types";
+import type { CommissionOverrides, CommissionRule } from "@/types/commission";
 import {
   canAccessBookingByRole,
   getFinanceSectionGrants,
 } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
 import { resolveAuth } from "@/lib/auth";
+import {
+  normalizeCommissionOverridesLenient,
+  pruneOverridesByLeaderIds,
+  resolveCommissionForContext,
+  sanitizeCommissionOverrides,
+} from "@/utils/commissionOverrides";
 
 function normalizeSaleTotals(
   input: unknown,
@@ -43,6 +50,8 @@ export default async function handler(
   res: NextApiResponse<
     | {
         ownerPct: number;
+        rule?: CommissionRule;
+        custom?: CommissionOverrides | null;
         commissionBaseByCurrency: Record<string, number>;
         sellerEarningsByCurrency: Record<string, number>;
       }
@@ -81,6 +90,7 @@ export default async function handler(
         id_user: true,
         creation_date: true,
         sale_totals: true,
+        commission_overrides: true,
       },
     });
     if (!booking || booking.id_agency !== auth.id_agency) {
@@ -130,6 +140,7 @@ export default async function handler(
       // ⬇️ filtrar por la relación booking
       where: { booking: { id_booking: bookingId } },
       select: {
+        id_service: true,
         currency: true,
         sale_price: true,
         cost_price: true,
@@ -217,31 +228,93 @@ export default async function handler(
     // Resolver regla efectiva (última con valid_from <= createdAt; null = -∞)
     const rules = await prisma.commissionRuleSet.findMany({
       where: { id_agency: auth.id_agency, owner_user_id: ownerId },
-      select: { valid_from: true, own_pct: true },
+      include: {
+        shares: {
+          select: {
+            beneficiary_user_id: true,
+            percent: true,
+            beneficiary: { select: { first_name: true, last_name: true } },
+          },
+        },
+      },
       orderBy: { valid_from: "asc" },
     });
 
     const createdTs = createdAt.getTime();
-    let ownerPct = 100;
-    let bestTs = Number.NEGATIVE_INFINITY;
+    let chosenRule: (typeof rules)[number] | null = rules[0] ?? null;
     for (const r of rules) {
       const ts = r.valid_from
         ? r.valid_from.getTime()
         : Number.NEGATIVE_INFINITY;
-      if (ts <= createdTs && ts >= bestTs) {
-        bestTs = ts;
-        ownerPct = Number(r.own_pct);
+      if (ts <= createdTs) chosenRule = r;
+      else break;
+    }
+    if (chosenRule && chosenRule.valid_from.getTime() > createdTs) {
+      chosenRule = null;
+    }
+
+    const rule: CommissionRule = {
+      sellerPct: chosenRule ? Number(chosenRule.own_pct) : 100,
+      leaders: chosenRule
+        ? chosenRule.shares.map((s) => ({
+            userId: Number(s.beneficiary_user_id),
+            pct: Number(s.percent),
+            name: `${s.beneficiary.first_name} ${s.beneficiary.last_name}`,
+          }))
+        : [],
+    };
+
+    const customRaw = normalizeCommissionOverridesLenient(
+      booking.commission_overrides,
+    );
+    const custom = sanitizeCommissionOverrides(
+      pruneOverridesByLeaderIds(customRaw, rule.leaders.map((l) => l.userId)),
+    );
+
+    const sellerEarningsByCurrency: Record<string, number> = {};
+
+    if (useBookingSaleTotal) {
+      for (const [cur, base] of Object.entries(commissionBaseByCurrency)) {
+        const { sellerPct } = resolveCommissionForContext({
+          rule,
+          overrides: custom,
+          currency: cur,
+          allowService: false,
+        });
+        sellerEarningsByCurrency[cur] = base * (sellerPct / 100);
+      }
+    } else {
+      for (const s of services) {
+        const cur = String(s.currency || "").trim().toUpperCase();
+        if (!cur) continue;
+        if (!isCurrencyAllowed(cur)) continue;
+        const sale = Number(s.sale_price) || 0;
+        const pct =
+          s.transfer_fee_pct != null ? Number(s.transfer_fee_pct) : agencyFeePct;
+        const fee =
+          s.transfer_fee_amount != null
+            ? Number(s.transfer_fee_amount)
+            : sale * (Number.isFinite(pct) ? pct : 0.024);
+        const dbCommission = Number(s.totalCommissionWithoutVAT ?? 0);
+        const extraCosts = Number(s.extra_costs_amount ?? 0);
+        const extraTaxes = Number(s.extra_taxes_amount ?? 0);
+        const base = Math.max(dbCommission - fee - extraCosts - extraTaxes, 0);
+        const { sellerPct } = resolveCommissionForContext({
+          rule,
+          overrides: custom,
+          currency: cur,
+          serviceId: s.id_service,
+          allowService: true,
+        });
+        sellerEarningsByCurrency[cur] =
+          (sellerEarningsByCurrency[cur] || 0) + base * (sellerPct / 100);
       }
     }
 
-    const factor = (ownerPct || 0) / 100;
-    const sellerEarningsByCurrency: Record<string, number> = {};
-    for (const [cur, base] of Object.entries(commissionBaseByCurrency)) {
-      sellerEarningsByCurrency[cur] = base * factor;
-    }
-
     return res.status(200).json({
-      ownerPct,
+      ownerPct: rule.sellerPct,
+      rule,
+      custom,
       commissionBaseByCurrency,
       sellerEarningsByCurrency,
     });
