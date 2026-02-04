@@ -299,6 +299,24 @@ function pickMoney(
   return { cur, val };
 }
 
+function pickInvestmentAmount(inv: {
+  amount: unknown;
+  currency: unknown;
+  base_amount?: unknown;
+  base_currency?: unknown;
+  allocations?: { amount_payment: unknown; payment_currency: unknown }[] | null;
+}) {
+  if (inv.allocations && inv.allocations.length > 0) {
+    const cur = String(inv.currency || inv.allocations[0]?.payment_currency || "ARS").toUpperCase();
+    const val = inv.allocations.reduce(
+      (sum, a) => sum + Number(a.amount_payment ?? 0),
+      0,
+    );
+    return { cur, val };
+  }
+  return pickMoney(inv.amount, inv.currency, inv.base_amount, inv.base_currency);
+}
+
 function parseDateMode(raw: unknown): DateMode {
   return raw === "travel" ? "travel" : "creation";
 }
@@ -714,6 +732,9 @@ export default async function handler(
         base_currency: true,
         booking_id: true,
         booking: { select: { agency_booking_id: true } },
+        allocations: {
+          select: { amount_payment: true, payment_currency: true },
+        },
       },
       orderBy: { created_at: "desc" },
     });
@@ -736,6 +757,9 @@ export default async function handler(
         base_currency: true,
         booking_id: true,
         booking: { select: { agency_booking_id: true } },
+        allocations: {
+          select: { amount_payment: true, payment_currency: true },
+        },
       },
       orderBy: { created_at: "desc" },
     });
@@ -767,23 +791,13 @@ export default async function handler(
 
     const expensesByCurrency: MoneyMap = {};
     investmentsWithBooking.forEach((inv) => {
-      const { cur, val } = pickMoney(
-        inv.amount,
-        inv.currency,
-        inv.base_amount,
-        inv.base_currency,
-      );
+      const { cur, val } = pickInvestmentAmount(inv);
       addMoney(expensesByCurrency, cur, val);
     });
 
     const expensesUnlinkedByCurrency: MoneyMap = {};
     investmentsUnlinked.forEach((inv) => {
-      const { cur, val } = pickMoney(
-        inv.amount,
-        inv.currency,
-        inv.base_amount,
-        inv.base_currency,
-      );
+      const { cur, val } = pickInvestmentAmount(inv);
       addMoney(expensesUnlinkedByCurrency, cur, val);
     });
 
@@ -822,12 +836,7 @@ export default async function handler(
     });
 
     const recentInvestments = investmentsWithBooking.slice(0, 10).map((inv) => {
-      const { cur, val } = pickMoney(
-        inv.amount,
-        inv.currency,
-        inv.base_amount,
-        inv.base_currency,
-      );
+      const { cur, val } = pickInvestmentAmount(inv);
       return {
         id_investment: inv.id_investment,
         agency_investment_id: inv.agency_investment_id ?? null,
@@ -843,12 +852,7 @@ export default async function handler(
     const recentInvestmentsUnlinked = investmentsUnlinked
       .slice(0, 8)
       .map((inv) => {
-        const { cur, val } = pickMoney(
-          inv.amount,
-          inv.currency,
-          inv.base_amount,
-          inv.base_currency,
-        );
+        const { cur, val } = pickInvestmentAmount(inv);
         return {
           id_investment: inv.id_investment,
           agency_investment_id: inv.agency_investment_id ?? null,

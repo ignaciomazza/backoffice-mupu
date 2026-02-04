@@ -12,6 +12,11 @@ import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import InvestmentsForm from "./InvestmentsForm";
 import InvestmentsList from "./InvestmentsList";
 import OperatorPaymentServicesSection from "@/components/investments/OperatorPaymentServicesSection";
+import type {
+  AllocationPayload,
+  ExcessAction,
+  ExcessMissingAccountAction,
+} from "@/components/investments/ServiceAllocationsEditor";
 import type { PlanKey } from "@/lib/billing/pricing";
 import type {
   Investment,
@@ -43,6 +48,8 @@ const uniqSorted = (arr: string[]) => {
   }
   return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, "es"));
 };
+
+const EXCESS_TOLERANCE = 0.01;
 
 async function safeJson<T>(res: Response): Promise<T | null> {
   try {
@@ -185,6 +192,14 @@ type ServiceSelectionSummary = {
   operatorId: number | null;
   currency: string | null;
   bookingIds: number[];
+  allocations: AllocationPayload[];
+  assignedTotal: number;
+  missingAmountCount: number;
+  missingFxCount: number;
+  overAssigned: boolean;
+  excess: number;
+  excessAction: ExcessAction;
+  excessMissingAccountAction: ExcessMissingAccountAction;
   services?: unknown[];
 };
 
@@ -300,7 +315,6 @@ export default function Page() {
     amount: "",
     currency: "",
     paid_at: "",
-    booking_number: "",
     user_id: null,
     operator_id: null,
     paid_today: false,
@@ -320,6 +334,13 @@ export default function Page() {
   const [associateServices, setAssociateServices] = useState(false);
   const [serviceResetKey, setServiceResetKey] = useState(0);
   const [initialServiceIds, setInitialServiceIds] = useState<number[]>([]);
+  const [initialAllocations, setInitialAllocations] = useState<
+    AllocationPayload[]
+  >([]);
+  const [initialExcessAction, setInitialExcessAction] =
+    useState<ExcessAction>("carry");
+  const [initialExcessMissingAccountAction, setInitialExcessMissingAccountAction] =
+    useState<ExcessMissingAccountAction>("carry");
   const [serviceSelection, setServiceSelection] =
     useState<ServiceSelectionSummary>({
       serviceIds: [],
@@ -327,16 +348,35 @@ export default function Page() {
       operatorId: null,
       currency: null,
       bookingIds: [],
+      allocations: [],
+      assignedTotal: 0,
+      missingAmountCount: 0,
+      missingFxCount: 0,
+      overAssigned: false,
+      excess: 0,
+      excessAction: "carry",
+      excessMissingAccountAction: "carry",
     });
 
   const clearServiceSelection = useCallback(() => {
     setInitialServiceIds([]);
+    setInitialAllocations([]);
+    setInitialExcessAction("carry");
+    setInitialExcessMissingAccountAction("carry");
     setServiceSelection({
       serviceIds: [],
       totalCost: 0,
       operatorId: null,
       currency: null,
       bookingIds: [],
+      allocations: [],
+      assignedTotal: 0,
+      missingAmountCount: 0,
+      missingFxCount: 0,
+      overAssigned: false,
+      excess: 0,
+      excessAction: "carry",
+      excessMissingAccountAction: "carry",
     });
     setServiceResetKey((k) => k + 1);
   }, []);
@@ -418,43 +458,6 @@ export default function Page() {
     return () => ac.abort();
   }, [token]);
 
-  // ==== Helpers de sincronización de cuenta corriente (fuera de onSubmit)
-  const fetchLinkedCreditIds = useCallback(
-    async (invId: number): Promise<number[]> => {
-      if (!token) return [];
-      const res = await authFetch(
-        // sin doc_type, y con un take grande por las dudas
-        `/api/credit/entry?investment_id=${invId}&take=500`,
-        { cache: "no-store" },
-        token,
-      );
-      if (!res.ok) return [];
-      const data = (await safeJson<{ items: { id_entry: number }[] }>(res)) ?? {
-        items: [],
-      };
-      return (data.items || []).map((i) => i.id_entry);
-    },
-    [token],
-  );
-
-  const deleteLinkedCreditEntries = useCallback(
-    async (invId: number): Promise<number> => {
-      if (!token) return 0;
-      const ids = await fetchLinkedCreditIds(invId);
-      let ok = 0;
-      for (const id of ids) {
-        const del = await authFetch(
-          `/api/credit/entry/${id}?allowLinked=1`,
-          { method: "DELETE" },
-          token,
-        );
-        if (del.ok) ok++;
-      }
-      return ok;
-    },
-    [token, fetchLinkedCreditIds],
-  );
-
   const operatorCategorySet = useMemo(() => {
     const set = new Set<string>();
     for (const c of finance?.categories || []) {
@@ -476,49 +479,6 @@ export default function Page() {
     [operatorCategorySet],
   );
 
-  const createCreditEntryForInvestment = useCallback(
-    async (inv: Investment) => {
-      if (!token) return;
-      if (!isOperatorCategory(inv.category) || !inv.operator_id) return;
-
-      const payload = {
-        subject_type: "OPERATOR",
-        operator_id: Number(inv.operator_id),
-        currency: (inv.currency || "").toUpperCase(),
-        amount: Math.abs(Number(inv.amount || 0)), // la API aplica el signo por doc_type
-        concept:
-          inv.description || `${itemLabelCap} Operador N° ${inv.id_investment}`,
-        doc_type: "investment",
-        investment_id: inv.id_investment,
-        value_date: inv.paid_at ? inv.paid_at.slice(0, 10) : undefined,
-        reference: `INV-${inv.id_investment}`,
-      };
-
-      await authFetch(
-        `/api/credit/entry`,
-        { method: "POST", body: JSON.stringify(payload) },
-        token,
-      );
-    },
-    [token, isOperatorCategory, itemLabelCap],
-  );
-
-  const syncCreditEntry = useCallback(
-    async (inv: Investment, wantCredit: boolean) => {
-      const removed = await deleteLinkedCreditEntries(inv.id_investment);
-      if (removed > 0) {
-        toast.info(
-          `Se eliminaron ${removed} movimiento(s) vinculado(s) a la cuenta corriente.`,
-        );
-      }
-      if (wantCredit) {
-        await createCreditEntryForInvestment(inv);
-        toast.success("Movimiento de cuenta corriente sincronizado.");
-      }
-    },
-    [deleteLinkedCreditEntries, createCreditEntryForInvestment],
-  );
-
   function resetForm() {
     setForm({
       category: operatorOnly ? operatorCategory : "",
@@ -526,7 +486,6 @@ export default function Page() {
       amount: "",
       currency: "",
       paid_at: "",
-      booking_number: "",
       user_id: null,
       operator_id: null,
       paid_today: false,
@@ -575,18 +534,21 @@ export default function Page() {
   }
 
   function beginEdit(inv: Investment) {
+    const nextExcessAction: ExcessAction =
+      inv.excess_action === "credit_entry" ? "credit_entry" : "carry";
+    const nextMissingAction: ExcessMissingAccountAction =
+      inv.excess_missing_account_action === "block" ||
+      inv.excess_missing_account_action === "create" ||
+      inv.excess_missing_account_action === "carry"
+        ? inv.excess_missing_account_action
+        : "carry";
+
     setForm({
       category: inv.category ?? "",
       description: inv.description ?? "",
       amount: String(inv.amount ?? ""),
       currency: (inv.currency ?? "").toUpperCase(),
       paid_at: inv.paid_at ? inv.paid_at.slice(0, 10) : "",
-      booking_number:
-        inv.booking?.agency_booking_id != null
-          ? String(inv.booking.agency_booking_id)
-          : inv.booking_id != null
-            ? String(inv.booking_id)
-            : "",
       user_id: inv.user_id ?? null,
       operator_id: inv.operator_id ?? null,
       paid_today: false,
@@ -613,14 +575,51 @@ export default function Page() {
         : [];
       setAssociateServices(currentServiceIds.length > 0);
       setInitialServiceIds(currentServiceIds);
+      setInitialAllocations([]);
+      setInitialExcessAction(nextExcessAction);
+      setInitialExcessMissingAccountAction(nextMissingAction);
       setServiceSelection({
         serviceIds: [],
         totalCost: 0,
         operatorId: null,
         currency: null,
         bookingIds: [],
+        allocations: [],
+        assignedTotal: 0,
+        missingAmountCount: 0,
+        missingFxCount: 0,
+        overAssigned: false,
+        excess: 0,
+        excessAction: "carry",
+        excessMissingAccountAction: "carry",
       });
       setServiceResetKey((k) => k + 1);
+
+      if (token) {
+        authFetch(
+          `/api/investments/${inv.id_investment}?includeAllocations=1`,
+          { cache: "no-store" },
+          token,
+        )
+          .then(async (res) => {
+            if (!res.ok) return null;
+            return (await res.json()) as { allocations?: AllocationPayload[] };
+          })
+          .then((data) => {
+            if (!data?.allocations) return;
+            const allocs = data.allocations;
+            const allocServiceIds = allocs.map((a) => a.service_id);
+            if (allocServiceIds.length > 0) {
+              setAssociateServices(true);
+              setInitialServiceIds(allocServiceIds);
+            }
+            setInitialAllocations(allocs);
+            setServiceResetKey((k) => k + 1);
+          })
+          .catch(() => {
+            // silencioso
+          });
+      }
     } else {
       setAssociateServices(false);
       clearServiceSelection();
@@ -673,15 +672,7 @@ export default function Page() {
   async function deleteCurrent() {
     if (!editingId || !token) return;
     try {
-      // 1) borrar entries vinculados ANTES de eliminar el gasto
-      const removed = await deleteLinkedCreditEntries(editingId);
-      if (removed) {
-        toast.info(
-          `Se eliminaron ${removed} movimiento(s) de cuenta corriente asociado(s).`,
-        );
-      }
-
-      // 2) ahora sí, eliminar el gasto
+      // El backend elimina movimientos vinculados si existen
       const res = await authFetch(
         `/api/investments/${editingId}`,
         { method: "DELETE" },
@@ -1241,6 +1232,104 @@ export default function Page() {
     return { ok: true };
   };
 
+  const checkOperatorCreditAccount = useCallback(
+    async (opId: number, cur: string) => {
+      if (!token || !opId || !cur) return "missing" as const;
+      const C = cur.toUpperCase();
+      try {
+        const url = `/api/credit/account?operator_id=${encodeURIComponent(
+          String(opId),
+        )}&currency=${encodeURIComponent(C)}&take=1`;
+        const res = await authFetch(url, { cache: "no-store" }, token);
+        if (!res.ok) {
+          return res.status >= 500 ? ("error" as const) : ("missing" as const);
+        }
+        const data = await safeJson<unknown>(res);
+        const items: unknown[] = Array.isArray(
+          (data as { items?: unknown[] })?.items,
+        )
+          ? (data as { items?: unknown[] }).items ?? []
+          : Array.isArray(data)
+            ? (data as unknown[])
+            : [];
+        return items.length > 0 ? ("exists" as const) : ("missing" as const);
+      } catch {
+        return "error" as const;
+      }
+    },
+    [token],
+  );
+
+  const createOperatorCreditAccount = useCallback(
+    async (opId: number, cur: string) => {
+      if (!token || !opId || !cur) return false;
+      try {
+        const payload = {
+          operator_id: Number(opId),
+          currency: cur.toUpperCase(),
+          enabled: true,
+        };
+        const res = await authFetch(
+          `/api/credit/account`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          token,
+        );
+        if (!res.ok) {
+          const err = (await safeJson<ApiError>(res)) ?? {};
+          toast.error(err.error || err.message || "No se pudo crear la cuenta.");
+          return false;
+        }
+        const status = await checkOperatorCreditAccount(opId, cur);
+        if (status === "exists") {
+          toast.success(`Cuenta de crédito en ${cur} creada.`);
+          return true;
+        }
+        toast.warn(
+          `La cuenta fue creada, pero no la detectamos aún en ${cur}.`,
+        );
+        return false;
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Error al crear la cuenta.",
+        );
+        return false;
+      }
+    },
+    [token, checkOperatorCreditAccount],
+  );
+
+  const precheckExcessCreditAccount = useCallback(
+    async (
+      opId: number | null,
+      cur: string | null,
+      missingAction: ExcessMissingAccountAction,
+    ) => {
+      if (!opId || !cur) return true;
+      const status = await checkOperatorCreditAccount(opId, cur);
+      if (status === "exists") return true;
+
+      if (missingAction === "block") {
+        toast.error(
+          "No hay cuenta corriente del operador en la moneda del pago. Creala o elegí otra opción.",
+        );
+        return false;
+      }
+      if (missingAction === "create") {
+        return await createOperatorCreditAccount(opId, cur);
+      }
+
+      toast.warn(
+        "No hay cuenta corriente del operador en la moneda del pago. El excedente se guardará como saldo a favor.",
+      );
+      return true;
+    },
+    [checkOperatorCreditAccount, createOperatorCreditAccount],
+  );
+
   const validateRecurringConversion = (): { ok: boolean; msg?: string } => {
     if (!recurringForm.use_conversion) return { ok: true };
     const bAmt = Number(recurringForm.base_amount);
@@ -1303,36 +1392,33 @@ export default function Page() {
         ? new Date().toISOString().slice(0, 10)
         : form.paid_at || undefined;
 
-    const allowBookingLink = !operatorOnly;
-    const bookingRaw = allowBookingLink ? form.booking_number.trim() : "";
-    let bookingAgencyId: number | null = null;
-    if (bookingRaw) {
-      const num = Number(bookingRaw);
-      if (!Number.isFinite(num) || num <= 0) {
-        toast.error("Ingresá un N° de reserva válido");
-        return;
-      }
-      bookingAgencyId = num;
-    }
-
     const shouldAssociateServices = operatorOnly && associateServices;
     if (shouldAssociateServices) {
       if (serviceSelection.serviceIds.length === 0) {
         toast.error("Seleccioná al menos un servicio o desactivá la asociación.");
         return;
       }
-      if (serviceSelection.totalCost > amountNum) {
-        toast.error(
-          "El costo total de los servicios no puede superar el monto del pago.",
-        );
+      if (serviceSelection.overAssigned) {
+        toast.error("El total asignado supera el monto del pago.");
         return;
       }
-      if (serviceSelection.bookingIds.length > 1 && bookingAgencyId) {
-        toast.error(
-          "No podés fijar una reserva si asociás servicios de múltiples reservas.",
-        );
-        return;
-      }
+    }
+
+    if (
+      shouldAssociateServices &&
+      !payingWithCredit &&
+      serviceSelection.excessAction === "credit_entry" &&
+      serviceSelection.excess > EXCESS_TOLERANCE
+    ) {
+      const opId =
+        form.operator_id ?? serviceSelection.operatorId ?? null;
+      const cur = form.currency ? form.currency.toUpperCase() : null;
+      const ok = await precheckExcessCreditAccount(
+        opId,
+        cur,
+        serviceSelection.excessMissingAccountAction,
+      );
+      if (!ok) return;
     }
 
     const payload: Record<string, unknown> = {
@@ -1351,17 +1437,14 @@ export default function Page() {
           : undefined,
     };
 
-    if (editingId && !bookingRaw && !shouldAssociateServices) {
-      payload.booking_id = null;
-    } else if (bookingAgencyId) {
-      payload.booking_agency_id = bookingAgencyId;
-    }
-
     if (operatorOnly) {
       if (shouldAssociateServices) {
-        payload.serviceIds = serviceSelection.serviceIds;
+        payload.allocations = serviceSelection.allocations;
+        payload.excess_action = serviceSelection.excessAction;
+        payload.excess_missing_account_action =
+          serviceSelection.excessMissingAccountAction;
       } else if (editingId) {
-        payload.serviceIds = [];
+        payload.allocations = [];
       }
     }
 
@@ -1414,22 +1497,7 @@ export default function Page() {
           ),
         );
         toast.success(`${itemLabelCap} actualizado`);
-
-        // 👇 Ya no llamamos a syncCreditEntry en edición (lo maneja el backend)
         resetForm();
-      }
-
-      // ==== SYNC con cuenta corriente del Operador (sin helpers duplicados, sin doble POST)
-      try {
-        if (created) {
-          const wantCredit =
-            isOperatorCategory(created.category) &&
-            !!created.operator_id &&
-            form.use_credit;
-          await syncCreditEntry(created, wantCredit);
-        }
-      } catch {
-        toast.error("No se pudo sincronizar la cuenta corriente del Operador.");
       }
 
       resetForm();
@@ -2074,6 +2142,9 @@ export default function Page() {
       enabled={associateServices}
       onToggle={handleToggleAssociateServices}
       initialServiceIds={initialServiceIds}
+      initialAllocations={initialAllocations}
+      initialExcessAction={initialExcessAction}
+      initialExcessMissingAccountAction={initialExcessMissingAccountAction}
       resetKey={serviceResetKey}
       operatorId={form.operator_id ?? null}
       currency={form.currency}
@@ -2112,7 +2183,6 @@ export default function Page() {
         {/* FORM */}
         <InvestmentsForm
           operatorOnly={operatorOnly}
-          showBookingLink={!operatorOnly}
           operatorServicesSection={operatorServicesSection}
           isFormOpen={isFormOpen}
           setIsFormOpen={setIsFormOpen}

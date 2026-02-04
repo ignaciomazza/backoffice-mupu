@@ -7,6 +7,12 @@ import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
 import { useBookingSearch } from "@/hooks/receipts/useBookingSearch";
 import { useServicesForBooking } from "@/hooks/receipts/useServicesForBooking";
+import ServiceAllocationsEditor, {
+  type AllocationSummary,
+  type AllocationPayload,
+  type ExcessAction,
+  type ExcessMissingAccountAction,
+} from "@/components/investments/ServiceAllocationsEditor";
 import type { BookingOption } from "@/types/receipts";
 type OperatorLite = { id_operator: number; name: string };
 
@@ -30,6 +36,14 @@ type SelectionSummary = {
   operatorId: number | null;
   currency: string | null;
   bookingIds: number[];
+  allocations: AllocationPayload[];
+  assignedTotal: number;
+  missingAmountCount: number;
+  missingFxCount: number;
+  overAssigned: boolean;
+  excess: number;
+  excessAction: ExcessAction;
+  excessMissingAccountAction: ExcessMissingAccountAction;
 };
 
 type Props = {
@@ -37,6 +51,9 @@ type Props = {
   enabled: boolean;
   onToggle: (next: boolean) => void;
   initialServiceIds: number[];
+  initialAllocations?: AllocationPayload[];
+  initialExcessAction?: ExcessAction;
+  initialExcessMissingAccountAction?: ExcessMissingAccountAction;
   resetKey: number;
   operatorId: number | null;
   currency: string;
@@ -133,7 +150,6 @@ const inputBase =
 const pillBase = "rounded-full px-3 py-1 text-xs font-medium";
 const pillNeutral = "bg-white/30 dark:bg-white/10";
 const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
-const pillWarn = "bg-rose-500/15 text-rose-700 dark:text-rose-300";
 
 function formatMoney(n: number, cur = "ARS") {
   try {
@@ -152,6 +168,9 @@ export default function OperatorPaymentServicesSection({
   enabled,
   onToggle,
   initialServiceIds,
+  initialAllocations,
+  initialExcessAction,
+  initialExcessMissingAccountAction,
   resetKey,
   operatorId,
   currency,
@@ -163,6 +182,32 @@ export default function OperatorPaymentServicesSection({
     null,
   );
   const [selectedServices, setSelectedServices] = useState<OperatorServiceLite[]>([]);
+  const [allocationSummary, setAllocationSummary] = useState<AllocationSummary>({
+    allocations: [],
+    assignedTotal: 0,
+    missingAmountCount: 0,
+    missingFxCount: 0,
+    overAssigned: false,
+    excess: 0,
+  });
+  const [excessAction, setExcessAction] = useState<ExcessAction>("carry");
+  const [excessMissingAccountAction, setExcessMissingAccountAction] =
+    useState<ExcessMissingAccountAction>("carry");
+
+  useEffect(() => {
+    if (selectedServices.length === 0) {
+      setAllocationSummary({
+        allocations: [],
+        assignedTotal: 0,
+        missingAmountCount: 0,
+        missingFxCount: 0,
+        overAssigned: false,
+        excess: 0,
+      });
+      setExcessAction("carry");
+      setExcessMissingAccountAction("carry");
+    }
+  }, [selectedServices.length]);
 
   const { bookingQuery, setBookingQuery, bookingOptions, loadingBookings } =
     useBookingSearch({ token, enabled });
@@ -206,6 +251,16 @@ export default function OperatorPaymentServicesSection({
     let alive = true;
     setSelectedServices([]);
     setSelectedBookingId(null);
+    setAllocationSummary({
+      allocations: [],
+      assignedTotal: 0,
+      missingAmountCount: 0,
+      missingFxCount: 0,
+      overAssigned: false,
+      excess: 0,
+    });
+    setExcessAction(initialExcessAction ?? "carry");
+    setExcessMissingAccountAction(initialExcessMissingAccountAction ?? "carry");
     if (!enabled) {
       onSelectionChange({
         serviceIds: [],
@@ -214,6 +269,14 @@ export default function OperatorPaymentServicesSection({
         operatorId: null,
         currency: null,
         bookingIds: [],
+        allocations: [],
+        assignedTotal: 0,
+        missingAmountCount: 0,
+        missingFxCount: 0,
+        overAssigned: false,
+        excess: 0,
+        excessAction: initialExcessAction ?? "carry",
+        excessMissingAccountAction: initialExcessMissingAccountAction ?? "carry",
       });
       return () => {
         alive = false;
@@ -227,6 +290,14 @@ export default function OperatorPaymentServicesSection({
         operatorId: null,
         currency: null,
         bookingIds: [],
+        allocations: [],
+        assignedTotal: 0,
+        missingAmountCount: 0,
+        missingFxCount: 0,
+        overAssigned: false,
+        excess: 0,
+        excessAction: initialExcessAction ?? "carry",
+        excessMissingAccountAction: initialExcessMissingAccountAction ?? "carry",
       });
       return () => {
         alive = false;
@@ -244,35 +315,43 @@ export default function OperatorPaymentServicesSection({
     return () => {
       alive = false;
     };
-  }, [resetKey, enabled, token, initialServiceIds, loadServicesByIds, onSelectionChange]);
+  }, [
+    resetKey,
+    enabled,
+    token,
+    initialServiceIds,
+    initialExcessAction,
+    initialExcessMissingAccountAction,
+    loadServicesByIds,
+    onSelectionChange,
+  ]);
 
   const lockOperatorId = useMemo(() => {
     if (selectedServices.length > 0) return selectedServices[0].id_operator;
     return operatorId ?? null;
   }, [selectedServices, operatorId]);
 
-  const lockCurrency = useMemo(() => {
-    const raw =
-      selectedServices.length > 0
-        ? selectedServices[0].currency || ""
-        : currency || "";
-    const upper = raw.toUpperCase();
-    return upper || null;
-  }, [selectedServices, currency]);
+  const selectedCurrencies = useMemo(() => {
+    const set = new Set(
+      selectedServices.map((s) => (s.currency || "").toUpperCase()),
+    );
+    return Array.from(set).filter(Boolean);
+  }, [selectedServices]);
+  const lockCurrency =
+    selectedCurrencies.length === 1 ? selectedCurrencies[0] : null;
 
   const selectedServiceIds = useMemo(
     () => selectedServices.map((s) => s.id_service),
     [selectedServices],
   );
 
-  const totalCost = useMemo(
-    () =>
-      selectedServices.reduce(
-        (sum, s) => sum + Number(s.cost_price || 0),
-        0,
-      ),
-    [selectedServices],
-  );
+  const totalCost = useMemo(() => {
+    if (!lockCurrency) return 0;
+    return selectedServices.reduce(
+      (sum, s) => sum + Number(s.cost_price || 0),
+      0,
+    );
+  }, [selectedServices, lockCurrency]);
 
   const bookingIds = useMemo(
     () => Array.from(new Set(selectedServices.map((s) => s.booking_id))),
@@ -282,19 +361,33 @@ export default function OperatorPaymentServicesSection({
   useEffect(() => {
     const operatorIdFromSelection =
       selectedServices.length > 0 ? selectedServices[0].id_operator : null;
-    const currencyFromSelection =
-      selectedServices.length > 0
-        ? (selectedServices[0].currency || "").toUpperCase()
-        : null;
     onSelectionChange({
       serviceIds: selectedServiceIds,
       services: selectedServices,
       totalCost,
       operatorId: operatorIdFromSelection,
-      currency: currencyFromSelection,
+      currency: lockCurrency,
       bookingIds,
+      allocations: allocationSummary.allocations,
+      assignedTotal: allocationSummary.assignedTotal,
+      missingAmountCount: allocationSummary.missingAmountCount,
+      missingFxCount: allocationSummary.missingFxCount,
+      overAssigned: allocationSummary.overAssigned,
+      excess: allocationSummary.excess,
+      excessAction,
+      excessMissingAccountAction,
     });
-  }, [selectedServiceIds, selectedServices, totalCost, bookingIds, onSelectionChange]);
+  }, [
+    selectedServiceIds,
+    selectedServices,
+    totalCost,
+    bookingIds,
+    lockCurrency,
+    allocationSummary,
+    excessAction,
+    excessMissingAccountAction,
+    onSelectionChange,
+  ]);
 
   const toggleService = (svc: OperatorServiceLite) => {
     const isSelected = selectedServiceIds.includes(svc.id_service);
@@ -310,24 +403,13 @@ export default function OperatorPaymentServicesSection({
       );
       return;
     }
-    const svcCurrency = (svc.currency || "").toUpperCase();
-    if (lockCurrency && svcCurrency !== lockCurrency) {
-      toast.error(
-        "No podés mezclar servicios de monedas distintas en un mismo pago.",
-      );
-      return;
-    }
     setSelectedServices((prev) => [...prev, svc]);
   };
-
-  const amountNum = Number(amount);
-  const exceedsAmount =
-    Number.isFinite(amountNum) && amountNum > 0 && totalCost > amountNum;
 
   return (
     <Section
       title="Servicios asociados"
-      desc="Podés asociar el pago a uno o más servicios (misma moneda y mismo operador)."
+      desc="Podés asociar el pago a uno o más servicios del mismo operador."
     >
       <div className="md:col-span-2">
         <Toggle
@@ -408,12 +490,9 @@ export default function OperatorPaymentServicesSection({
                   {services.map((svc) => {
                     const checked = selectedServiceIds.includes(svc.id_service);
                     const disabled =
-                      (!!lockOperatorId &&
-                        svc.id_operator !== lockOperatorId &&
-                        !checked) ||
-                      (!!lockCurrency &&
-                        (svc.currency || "").toUpperCase() !== lockCurrency &&
-                        !checked);
+                      !!lockOperatorId &&
+                      svc.id_operator !== lockOperatorId &&
+                      !checked;
 
                     const opName =
                       operators.find(
@@ -468,9 +547,9 @@ export default function OperatorPaymentServicesSection({
                 Seleccionados: {selectedServices.length}
               </span>
               <span
-                className={`${pillBase} ${lockCurrency ? pillOk : pillNeutral}`}
+                className={`${pillBase} ${selectedCurrencies.length ? pillOk : pillNeutral}`}
               >
-                Moneda {lockCurrency || "—"}
+                Monedas: {selectedCurrencies.length ? selectedCurrencies.join(", ") : "—"}
               </span>
               {lockOperatorId && (
                 <span className={`${pillBase} ${pillNeutral}`}>
@@ -483,16 +562,14 @@ export default function OperatorPaymentServicesSection({
                 </span>
               )}
               {selectedServices.length > 0 && (
-                <span className={`${pillBase} ${exceedsAmount ? pillWarn : pillOk}`}>
-                  Total costos: {formatMoney(totalCost, lockCurrency || "ARS")}
+                <span className={`${pillBase} ${pillNeutral}`}>
+                  Total costos:{" "}
+                  {lockCurrency
+                    ? formatMoney(totalCost, lockCurrency)
+                    : "Múltiples monedas"}
                 </span>
               )}
             </div>
-            {exceedsAmount && (
-              <p className="mt-2 text-xs text-rose-600">
-                El costo total de los servicios supera el monto del pago.
-              </p>
-            )}
           </div>
 
           {selectedServices.length > 0 && (
@@ -512,12 +589,29 @@ export default function OperatorPaymentServicesSection({
                       className="rounded-full border border-white/10 bg-white/40 px-3 py-1 text-xs text-sky-900 transition hover:bg-white/60 dark:bg-white/10 dark:text-white"
                       title="Quitar servicio"
                     >
-                      Res. {bookingNumber} · Svc{" "}
+                      Reserva {bookingNumber} · Servicio{" "}
                       {svc.agency_service_id ?? svc.id_service}
                     </button>
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {selectedServices.length > 0 && (
+            <div className="md:col-span-2">
+              <ServiceAllocationsEditor
+                services={selectedServices}
+                paymentCurrency={currency}
+                paymentAmount={Number(amount) || 0}
+                initialAllocations={initialAllocations}
+                resetKey={resetKey}
+                excessAction={excessAction}
+                onExcessActionChange={setExcessAction}
+                excessMissingAccountAction={excessMissingAccountAction}
+                onExcessMissingAccountActionChange={setExcessMissingAccountAction}
+                onSummaryChange={setAllocationSummary}
+              />
             </div>
           )}
         </>

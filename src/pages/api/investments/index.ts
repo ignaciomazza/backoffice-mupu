@@ -183,6 +183,83 @@ function parseServiceIds(raw: unknown): number[] {
   return Array.from(new Set(ids));
 }
 
+const ASSIGNMENT_TOLERANCE = 0.01;
+
+type AllocationInput = {
+  service_id: number;
+  booking_id?: number | null;
+  payment_currency?: string;
+  service_currency?: string;
+  amount_payment?: number;
+  amount_service?: number;
+  fx_rate?: number | null;
+};
+
+type AllocationNormalized = {
+  service_id: number;
+  booking_id: number;
+  payment_currency: string;
+  service_currency: string;
+  amount_payment: number;
+  amount_service: number;
+  fx_rate: number | null;
+};
+
+function parseAllocations(raw: unknown): AllocationInput[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AllocationInput[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const serviceIdRaw =
+      rec.service_id ?? rec.serviceId ?? rec.id_service ?? rec.idService;
+    const service_id = Number(serviceIdRaw);
+    if (!Number.isFinite(service_id) || service_id <= 0) continue;
+    const amount_payment = Number(
+      rec.amount_payment ?? rec.amountPayment ?? 0,
+    );
+    const amount_service = Number(
+      rec.amount_service ?? rec.amountService ?? 0,
+    );
+    const fx_rate_raw = rec.fx_rate ?? rec.fxRate;
+    const fx_rate =
+      fx_rate_raw === null || fx_rate_raw === undefined || fx_rate_raw === ""
+        ? null
+        : Number(fx_rate_raw);
+    const booking_raw = rec.booking_id ?? rec.bookingId;
+    const booking_id =
+      booking_raw === null || booking_raw === undefined || booking_raw === ""
+        ? undefined
+        : Number(booking_raw);
+    const payment_currency =
+      typeof rec.payment_currency === "string"
+        ? rec.payment_currency
+        : typeof rec.paymentCurrency === "string"
+          ? rec.paymentCurrency
+          : undefined;
+    const service_currency =
+      typeof rec.service_currency === "string"
+        ? rec.service_currency
+        : typeof rec.serviceCurrency === "string"
+          ? rec.serviceCurrency
+          : undefined;
+
+    out.push({
+      service_id: Math.trunc(service_id),
+      booking_id:
+        Number.isFinite(Number(booking_id)) && Number(booking_id) > 0
+          ? Math.trunc(Number(booking_id))
+          : undefined,
+      payment_currency,
+      service_currency,
+      amount_payment: Number.isFinite(amount_payment) ? amount_payment : 0,
+      amount_service: Number.isFinite(amount_service) ? amount_service : 0,
+      fx_rate: Number.isFinite(fx_rate as number) ? Number(fx_rate) : null,
+    });
+  }
+  return out;
+}
+
 type ServicePick = {
   id_service: number;
   booking_id: number;
@@ -251,6 +328,24 @@ async function findOrCreateOperatorCreditAccount(
   return created.id_credit_account;
 }
 
+async function findOperatorCreditAccount(
+  tx: Prisma.TransactionClient,
+  agencyId: number,
+  operatorId: number,
+  currency: string,
+): Promise<number | null> {
+  const existing = await tx.creditAccount.findFirst({
+    where: {
+      id_agency: agencyId,
+      operator_id: operatorId,
+      client_id: null,
+      currency,
+    },
+    select: { id_credit_account: true },
+  });
+  return existing?.id_credit_account ?? null;
+}
+
 async function createCreditEntryForInvestment(
   tx: Prisma.TransactionClient,
   agencyId: number,
@@ -309,6 +404,63 @@ async function createCreditEntryForInvestment(
   });
   if (acc) {
     const next = acc.balance.add(deltaDecimal(amountAbs, "investment"));
+    await tx.creditAccount.update({
+      where: { id_credit_account: account_id },
+      data: { balance: next },
+    });
+  }
+
+  return entry;
+}
+
+async function createCreditEntryForInvestmentAmount(
+  tx: Prisma.TransactionClient,
+  agencyId: number,
+  userId: number,
+  account_id: number,
+  inv: {
+    id_investment: number;
+    agency_investment_id?: number | null;
+    operator_id: number;
+    currency: string;
+    description: string | null;
+    paid_at: Date | null;
+  },
+  amountAbs: number,
+  opts?: { concept?: string; reference?: string; doc_type?: string },
+) {
+  const displayId = inv.agency_investment_id ?? inv.id_investment;
+  const agencyEntryId = await getNextAgencyCounter(
+    tx,
+    agencyId,
+    "credit_entry",
+  );
+  const entry = await tx.creditEntry.create({
+    data: {
+      id_agency: agencyId,
+      agency_credit_entry_id: agencyEntryId,
+      account_id,
+      created_by: userId,
+      concept:
+        opts?.concept ||
+        inv.description ||
+        `Gasto Operador N° ${displayId}`,
+      amount: new Prisma.Decimal(Math.abs(amountAbs)),
+      currency: inv.currency,
+      doc_type: opts?.doc_type || "investment",
+      reference: opts?.reference || `INV-${inv.id_investment}`,
+      value_date: inv.paid_at,
+      investment_id: inv.id_investment,
+    },
+    select: { id_entry: true },
+  });
+
+  const acc = await tx.creditAccount.findUnique({
+    where: { id_credit_account: account_id },
+    select: { balance: true },
+  });
+  if (acc) {
+    const next = acc.balance.add(deltaDecimal(Math.abs(amountAbs), opts?.doc_type || "investment"));
     await tx.creditAccount.update({
       where: { id_credit_account: account_id },
       data: { balance: next },
@@ -944,6 +1096,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       ? Number(b.booking_agency_id)
       : undefined;
     const serviceIds = parseServiceIds(b.serviceIds);
+    const hasAllocations = Object.prototype.hasOwnProperty.call(
+      b,
+      "allocations",
+    );
+    if (hasAllocations && !Array.isArray(b.allocations)) {
+      return res.status(400).json({ error: "allocations inválidas" });
+    }
+    const allocations = hasAllocations ? parseAllocations(b.allocations) : [];
 
     // 👇 NUEVO: método de pago / cuenta (opcionales)
     const payment_method =
@@ -965,8 +1125,30 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         ? b.counter_currency.toUpperCase()
         : undefined;
 
+    const rawExcessAction =
+      typeof b.excess_action === "string" ? b.excess_action.trim() : undefined;
+    const rawExcessMissing =
+      typeof b.excess_missing_account_action === "string"
+        ? b.excess_missing_account_action.trim()
+        : undefined;
+    const excess_action =
+      rawExcessAction === "credit_entry" || rawExcessAction === "carry"
+        ? rawExcessAction
+        : undefined;
+    const excess_missing_account_action =
+      rawExcessMissing === "carry" ||
+      rawExcessMissing === "block" ||
+      rawExcessMissing === "create"
+        ? rawExcessMissing
+        : undefined;
+
     // Reglas según categoría
-    if (categoryIsOperator && !operator_id && serviceIds.length === 0) {
+    if (
+      categoryIsOperator &&
+      !operator_id &&
+      serviceIds.length === 0 &&
+      allocations.length === 0
+    ) {
       return res
         .status(400)
         .json({
@@ -1008,8 +1190,131 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       bookingIdToSave = bkg.id_booking;
     }
 
-    // Validar servicios asociados (si vienen)
-    if (serviceIds.length > 0) {
+    let allocationServiceIds: number[] = [];
+    let normalizedAllocations: AllocationNormalized[] = [];
+
+    // Validar asignaciones (si vienen)
+    if (allocations.length > 0) {
+      if (!categoryIsOperator) {
+        return res.status(400).json({
+          error: "Solo podés asociar servicios a pagos de operador",
+        });
+      }
+
+      allocationServiceIds = allocations.map((a) => a.service_id);
+      const uniqueAllocationIds = new Set(allocationServiceIds);
+      if (uniqueAllocationIds.size !== allocationServiceIds.length) {
+        return res.status(400).json({
+          error: "No podés repetir servicios en las asignaciones",
+        });
+      }
+
+      const services = await getServicesByIds(
+        auth.id_agency,
+        allocationServiceIds,
+      );
+      if (services.length !== allocationServiceIds.length) {
+        return res.status(400).json({
+          error: "Algún servicio no existe o no pertenece a tu agencia",
+        });
+      }
+
+      const operatorIds = new Set(services.map((s) => s.id_operator));
+      if (operatorIds.size !== 1) {
+        return res.status(400).json({
+          error: "No podés mezclar servicios de distintos operadores",
+        });
+      }
+      const serviceOperatorId = services[0].id_operator;
+      if (operator_id && operator_id !== serviceOperatorId) {
+        return res.status(400).json({
+          error: "El operador no coincide con los servicios seleccionados",
+        });
+      }
+      if (!operator_id) operator_id = serviceOperatorId;
+
+      const serviceMap = new Map(
+        services.map((s) => [s.id_service, s]),
+      );
+      const payCur = currency.toUpperCase();
+
+      normalizedAllocations = allocations.map((a) => {
+        const svc = serviceMap.get(a.service_id)!;
+        const svcCurrency = (svc.currency || "").toUpperCase();
+        const payment_currency = (a.payment_currency || payCur).toUpperCase();
+        const service_currency = (
+          a.service_currency || svcCurrency
+        ).toUpperCase();
+        return {
+          service_id: a.service_id,
+          booking_id: svc.booking_id,
+          payment_currency,
+          service_currency,
+          amount_payment: Number(a.amount_payment || 0),
+          amount_service: Number(a.amount_service || 0),
+          fx_rate: a.fx_rate ?? null,
+        };
+      });
+
+      for (const alloc of normalizedAllocations) {
+        if (!Number.isFinite(alloc.amount_payment) || alloc.amount_payment < 0) {
+          return res
+            .status(400)
+            .json({ error: "Monto asignado inválido" });
+        }
+        if (!Number.isFinite(alloc.amount_service) || alloc.amount_service < 0) {
+          return res
+            .status(400)
+            .json({ error: "Monto por servicio inválido" });
+        }
+        if (
+          alloc.fx_rate != null &&
+          (!Number.isFinite(alloc.fx_rate) || alloc.fx_rate <= 0)
+        ) {
+          return res.status(400).json({ error: "Tipo de cambio inválido" });
+        }
+        if (alloc.payment_currency !== payCur) {
+          return res.status(400).json({
+            error: "La moneda del pago no coincide con las asignaciones",
+          });
+        }
+        const svc = serviceMap.get(alloc.service_id)!;
+        const svcCurrency = (svc.currency || "").toUpperCase();
+        if (alloc.service_currency !== svcCurrency) {
+          return res.status(400).json({
+            error: "La moneda del servicio no coincide con las asignaciones",
+          });
+        }
+      }
+
+      const assignedTotal = normalizedAllocations.reduce(
+        (sum, a) => sum + Number(a.amount_payment || 0),
+        0,
+      );
+      if (assignedTotal - amount > ASSIGNMENT_TOLERANCE) {
+        return res.status(400).json({
+          error: "El total asignado supera el monto del pago.",
+        });
+      }
+
+      const bookingIds = new Set(services.map((s) => s.booking_id));
+      if (bookingIds.size === 1) {
+        const onlyBookingId = services[0].booking_id;
+        if (bookingIdToSave && bookingIdToSave !== onlyBookingId) {
+          return res.status(400).json({
+            error: "La reserva no coincide con los servicios seleccionados",
+          });
+        }
+        bookingIdToSave = onlyBookingId;
+      } else if (bookingIdToSave) {
+        return res.status(400).json({
+          error:
+            "No podés asociar servicios de múltiples reservas y fijar una reserva",
+        });
+      } else {
+        bookingIdToSave = null;
+      }
+    } else if (serviceIds.length > 0) {
       if (!categoryIsOperator) {
         return res.status(400).json({
           error: "Solo podés asociar servicios a pagos de operador",
@@ -1042,24 +1347,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       );
       if (currencies.size !== 1) {
         return res.status(400).json({
-          error: "No podés mezclar servicios de monedas distintas",
+          error:
+            "No podés mezclar servicios de monedas distintas sin conversión (usá asignaciones).",
         });
       }
       const serviceCurrency = (services[0].currency || "").toUpperCase();
       if (currency.toUpperCase() !== serviceCurrency) {
         return res.status(400).json({
           error: "La moneda del pago debe coincidir con la de los servicios",
-        });
-      }
-
-      const totalCost = services.reduce(
-        (sum, s) => sum + Number(s.cost_price || 0),
-        0,
-      );
-      if (Number.isFinite(totalCost) && totalCost > amount) {
-        return res.status(400).json({
-          error:
-            "El costo total de los servicios no puede superar el monto del pago",
         });
       }
 
@@ -1080,6 +1375,21 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    const assignedTotal = normalizedAllocations.reduce(
+      (sum, a) => sum + Number(a.amount_payment || 0),
+      0,
+    );
+    const hasAssignments = normalizedAllocations.length > 0;
+    const excessAmount = hasAssignments ? amount - assignedTotal : 0;
+    const hasExcess = hasAssignments && excessAmount > ASSIGNMENT_TOLERANCE;
+    const finalExcessAction = hasExcess
+      ? excess_action ?? "carry"
+      : excess_action;
+    const finalMissingAction =
+      finalExcessAction === "credit_entry"
+        ? excess_missing_account_action ?? "carry"
+        : undefined;
+
     const created = await prisma.$transaction(async (tx) => {
       const agencyInvestmentId = await getNextAgencyCounter(
         tx,
@@ -1087,7 +1397,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         "investment",
       );
 
-      return tx.investment.create({
+      const investment = await tx.investment.create({
         data: {
           agency_investment_id: agencyInvestmentId,
           id_agency: auth.id_agency,
@@ -1100,7 +1410,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           user_id: user_id ?? null,
           created_by: auth.id_user,
           booking_id: bookingIdToSave,
-          serviceIds,
+          serviceIds: hasAllocations ? allocationServiceIds : serviceIds,
+          ...(finalExcessAction ? { excess_action: finalExcessAction } : {}),
+          ...(finalMissingAction
+            ? { excess_missing_account_action: finalMissingAction }
+            : {}),
 
           // 👇 NUEVO: guardar método de pago / cuenta si vienen
           ...(payment_method ? { payment_method } : {}),
@@ -1119,11 +1433,152 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           booking: { select: { id_booking: true } },
         },
       });
+
+      if (normalizedAllocations.length > 0) {
+        await tx.investmentServiceAllocation.createMany({
+          data: normalizedAllocations.map((alloc) => ({
+            investment_id: investment.id_investment,
+            service_id: alloc.service_id,
+            booking_id: alloc.booking_id,
+            payment_currency: alloc.payment_currency,
+            service_currency: alloc.service_currency,
+            amount_payment: new Prisma.Decimal(alloc.amount_payment || 0),
+            amount_service: new Prisma.Decimal(alloc.amount_service || 0),
+            fx_rate:
+              alloc.fx_rate != null
+                ? new Prisma.Decimal(alloc.fx_rate)
+                : null,
+          })),
+        });
+      }
+
+      const wantCredit = shouldHaveCreditEntry(
+        {
+          category: investment.category,
+          operator_id: investment.operator_id ?? undefined,
+          payment_method: investment.payment_method ?? undefined,
+        },
+        operatorCategorySet,
+      );
+
+      if (wantCredit && investment.operator_id) {
+        await createCreditEntryForInvestment(tx, auth.id_agency, auth.id_user, {
+          id_investment: investment.id_investment,
+          agency_investment_id: investment.agency_investment_id,
+          operator_id: investment.operator_id,
+          currency: investment.currency,
+          amount: investment.amount,
+          description: investment.description,
+          paid_at: investment.paid_at,
+        });
+      }
+
+      if (
+        hasExcess &&
+        finalExcessAction === "credit_entry" &&
+        !wantCredit
+      ) {
+        if (!investment.operator_id) {
+          throw new Error(
+            "Para generar un movimiento en cuenta corriente se requiere operador.",
+          );
+        }
+        const existingAccount = await findOperatorCreditAccount(
+          tx,
+          auth.id_agency,
+          investment.operator_id,
+          investment.currency,
+        );
+        let accountId = existingAccount;
+        if (!accountId) {
+          if (finalMissingAction === "block") {
+            throw new Error(
+              "No hay cuenta corriente del operador en la moneda del pago. Creala o elegí otra opción.",
+            );
+          }
+          if (finalMissingAction === "create") {
+            accountId = await findOrCreateOperatorCreditAccount(
+              tx,
+              auth.id_agency,
+              investment.operator_id,
+              investment.currency,
+            );
+          }
+        }
+        if (accountId) {
+          await createCreditEntryForInvestmentAmount(
+            tx,
+            auth.id_agency,
+            auth.id_user,
+            accountId,
+            {
+              id_investment: investment.id_investment,
+              agency_investment_id: investment.agency_investment_id,
+              operator_id: investment.operator_id,
+              currency: investment.currency,
+              description: investment.description,
+              paid_at: investment.paid_at,
+            },
+            Math.abs(excessAmount),
+            {
+              concept: `Excedente pago operador N° ${
+                investment.agency_investment_id ?? investment.id_investment
+              }`,
+              reference: `INV-${investment.id_investment}-EXCESS`,
+            },
+          );
+        }
+      }
+
+      if (hasExcess && finalExcessAction === "carry" && !wantCredit) {
+        if (investment.operator_id) {
+          const existingAccount = await findOperatorCreditAccount(
+            tx,
+            auth.id_agency,
+            investment.operator_id,
+            investment.currency,
+          );
+          if (existingAccount) {
+            await createCreditEntryForInvestmentAmount(
+              tx,
+              auth.id_agency,
+              auth.id_user,
+              existingAccount,
+              {
+                id_investment: investment.id_investment,
+                agency_investment_id: investment.agency_investment_id,
+                operator_id: investment.operator_id,
+                currency: investment.currency,
+                description: investment.description,
+                paid_at: investment.paid_at,
+              },
+              Math.abs(excessAmount),
+              {
+                concept: `Saldo a favor pago operador N° ${
+                  investment.agency_investment_id ?? investment.id_investment
+                }`,
+                reference: `INV-${investment.id_investment}-CARRY`,
+              },
+            );
+          }
+        }
+      }
+
+      return investment;
     });
 
     return res.status(201).json(created);
   } catch (e: unknown) {
     console.error("[investments][POST]", e);
+    if (e instanceof Error) {
+      if (
+        e.message ===
+          "No hay cuenta corriente del operador en la moneda del pago. Creala o elegí otra opción." ||
+        e.message.includes("movimiento en cuenta corriente")
+      ) {
+        return res.status(400).json({ error: e.message });
+      }
+    }
     return res.status(500).json({ error: "Error al crear gasto" });
   }
 }

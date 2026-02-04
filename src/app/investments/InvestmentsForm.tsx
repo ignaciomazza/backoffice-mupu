@@ -76,7 +76,6 @@ type InvestmentsFormProps = {
   editingId: number | null;
   headerPills: ReactNode;
   operatorOnly?: boolean;
-  showBookingLink?: boolean;
   operatorServicesSection?: ReactNode;
   onSubmit: (e: FormEvent<HTMLFormElement>) => void | Promise<void>;
   loading: boolean;
@@ -131,7 +130,6 @@ export default function InvestmentsForm({
   editingId,
   headerPills,
   operatorOnly = false,
-  showBookingLink = false,
   operatorServicesSection,
   onSubmit,
   loading,
@@ -312,30 +310,6 @@ export default function InvestmentsForm({
                     }
                   />
                 </Field>
-
-                {showBookingLink && (
-                  <Field
-                    id="booking_number"
-                    label="Reserva (opcional)"
-                    hint="N° de reserva (agencia)"
-                  >
-                    <input
-                      id="booking_number"
-                      type="number"
-                      min="1"
-                      inputMode="numeric"
-                      className={inputClass}
-                      value={form.booking_number}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          booking_number: e.target.value,
-                        }))
-                      }
-                      placeholder="Ej: 1234"
-                    />
-                  </Field>
-                )}
 
                 <Field
                   id="description"

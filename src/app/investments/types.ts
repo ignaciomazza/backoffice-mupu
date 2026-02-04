@@ -8,6 +8,8 @@ export type Investment = {
   currency: string;
   created_at: string;
   paid_at?: string | null;
+  excess_action?: string | null;
+  excess_missing_account_action?: string | null;
   user_id?: number | null;
   operator_id?: number | null;
   user?: { id_user: number; first_name: string; last_name: string } | null;
@@ -27,6 +29,18 @@ export type Investment = {
   base_currency?: string | null;
   counter_amount?: number | null;
   counter_currency?: string | null;
+  allocations?: InvestmentServiceAllocation[] | null;
+};
+
+export type InvestmentServiceAllocation = {
+  id_allocation?: number;
+  service_id: number;
+  booking_id?: number | null;
+  payment_currency: string;
+  service_currency: string;
+  amount_payment: number;
+  amount_service: number;
+  fx_rate?: number | null;
 };
 
 export type RecurringInvestment = {
@@ -63,7 +77,6 @@ export type InvestmentFormState = {
   amount: string;
   currency: string;
   paid_at: string;
-  booking_number: string;
   user_id: number | null;
   operator_id: number | null;
   paid_today: boolean;

@@ -8,6 +8,11 @@ import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
+import ServiceAllocationsEditor, {
+  type AllocationSummary,
+  type ExcessAction,
+  type ExcessMissingAccountAction,
+} from "@/components/investments/ServiceAllocationsEditor";
 
 /* ========= Helpers ========= */
 const norm = (s: string) =>
@@ -218,6 +223,8 @@ const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 const inputBase =
   "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
 
+const EXCESS_TOLERANCE = 0.01;
+
 /* ========= Categorías ========= */
 function parseCategories(raw: unknown): FinanceCategory[] {
   const arr: unknown[] = Array.isArray(raw)
@@ -328,6 +335,20 @@ export default function OperatorPaymentForm({
   const [loadingPayments, setLoadingPayments] = useState(false);
   const [selectedPayment, setSelectedPayment] =
     useState<OperatorPaymentOption | null>(null);
+
+  useEffect(() => {
+    setAllocationSummary({
+      allocations: [],
+      assignedTotal: 0,
+      missingAmountCount: 0,
+      missingFxCount: 0,
+      overAssigned: false,
+      excess: 0,
+    });
+    setExcessAction("carry");
+    setExcessMissingAccountAction("carry");
+    setAllocationResetKey((k) => k + 1);
+  }, [action, selectedPayment?.id_investment]);
 
   // ====== Finance config + categorías
   const [finance, setFinance] = useState<FinanceConfig | null>(null);
@@ -557,6 +578,34 @@ export default function OperatorPaymentForm({
     () => servicesFromBooking.filter((s) => selectedIds.includes(s.id_service)),
     [servicesFromBooking, selectedIds],
   );
+  const [allocationSummary, setAllocationSummary] = useState<AllocationSummary>({
+    allocations: [],
+    assignedTotal: 0,
+    missingAmountCount: 0,
+    missingFxCount: 0,
+    overAssigned: false,
+    excess: 0,
+  });
+  const [excessAction, setExcessAction] = useState<ExcessAction>("carry");
+  const [excessMissingAccountAction, setExcessMissingAccountAction] =
+    useState<ExcessMissingAccountAction>("carry");
+  const [allocationResetKey, setAllocationResetKey] = useState(0);
+
+  useEffect(() => {
+    if (selectedServices.length === 0) {
+      setAllocationSummary({
+        allocations: [],
+        assignedTotal: 0,
+        missingAmountCount: 0,
+        missingFxCount: 0,
+        overAssigned: false,
+        excess: 0,
+      });
+      setExcessAction("carry");
+      setExcessMissingAccountAction("carry");
+      setAllocationResetKey((k) => k + 1);
+    }
+  }, [selectedServices.length]);
 
   /* ========= Sugeridos / locks ========= */
   const operatorIdFromSelection = useMemo<number | null>(() => {
@@ -579,6 +628,13 @@ export default function OperatorPaymentForm({
     const code = (selectedServices[0].currency || "").toUpperCase();
     return code || null;
   }, [selectedServices, allSameCurrency]);
+
+  const selectedCurrencies = useMemo(() => {
+    const set = new Set(
+      selectedServices.map((s) => (s.currency || "").toUpperCase()),
+    );
+    return Array.from(set).filter(Boolean);
+  }, [selectedServices]);
 
   const suggestedAmount = useMemo<number>(() => {
     return selectedServices.reduce((sum, s) => sum + (s.cost_price ?? 0), 0);
@@ -648,17 +704,19 @@ export default function OperatorPaymentForm({
     }
 
     // moneda
-    if (lockedSvcCurrency && currencyOptions.includes(lockedSvcCurrency)) {
+    if (!currency && lockedSvcCurrency && currencyOptions.includes(lockedSvcCurrency)) {
       setCurrency(lockedSvcCurrency);
     }
 
-    // monto
+    // monto (solo sugerir si hay una sola moneda y no hay monto cargado)
     if (selectedServices.length > 0) {
-      setAmount(
-        Number.isFinite(suggestedAmount) && suggestedAmount > 0
-          ? String(suggestedAmount)
-          : "",
-      );
+      if (!amount && allSameCurrency) {
+        setAmount(
+          Number.isFinite(suggestedAmount) && suggestedAmount > 0
+            ? String(suggestedAmount)
+            : "",
+        );
+      }
     } else {
       setAmount("");
     }
@@ -688,6 +746,9 @@ export default function OperatorPaymentForm({
     booking.agency_booking_id,
     booking.id_booking,
     currencyOptions,
+    currency,
+    amount,
+    allSameCurrency,
   ]);
 
   // Inyección método virtual si se usa crédito
@@ -766,14 +827,6 @@ export default function OperatorPaymentForm({
         );
         return;
       }
-      const baseCur = (selectedServices[0].currency || "").toUpperCase();
-      const cur = (svc.currency || "").toUpperCase();
-      if (baseCur && cur && baseCur !== cur) {
-        toast.error(
-          "No podés mezclar servicios de monedas distintas en un mismo pago.",
-        );
-        return;
-      }
     }
     setSelectedIds((prev) => [...prev, svc.id_service]);
   };
@@ -836,6 +889,11 @@ export default function OperatorPaymentForm({
       return `${n.toFixed(2)} ${counterCurrency}`;
     }
   }, [useConversion, counterAmount, counterCurrency]);
+
+  const editorPaymentCurrency =
+    action === "attach" ? selectedPayment?.currency || "" : currency;
+  const editorPaymentAmount =
+    action === "attach" ? Number(selectedPayment?.amount || 0) : Number(amount || 0);
 
   /* ========= Detección de moneda de cuenta ========= */
   const guessAccountCurrency = useCallback(
@@ -957,25 +1015,6 @@ export default function OperatorPaymentForm({
     return true;
   };
 
-  const assertSameCurrencyAcross = (): boolean => {
-    if (!allSameCurrency) {
-      toast.error("Los servicios seleccionados deben ser de la misma moneda.");
-      return false;
-    }
-    // el pago debería quedar en la misma moneda que los servicios
-    if (
-      lockedSvcCurrency &&
-      currency &&
-      currency.toUpperCase() !== lockedSvcCurrency
-    ) {
-      toast.error(
-        `La moneda del pago (${currency}) debe coincidir con la moneda de los servicios (${lockedSvcCurrency}).`,
-      );
-      return false;
-    }
-    return true;
-  };
-
   const assertAccountMatchesCurrency = (): boolean => {
     if (!requiresAccount || !account) return true;
     const accCur = guessAccountCurrency(account);
@@ -985,14 +1024,7 @@ export default function OperatorPaymentForm({
       );
       return true; // warning, no bloquea
     }
-    // por requerimiento: que la cuenta esté en la MISMA moneda que el servicio
-    if (lockedSvcCurrency && accCur !== lockedSvcCurrency) {
-      toast.error(
-        `La cuenta seleccionada parece ser ${accCur}, pero los servicios están en ${lockedSvcCurrency}. Cambiá la cuenta o la selección.`,
-      );
-      return false;
-    }
-    // además chequeamos contra la moneda del pago
+    // chequeamos contra la moneda del pago
     if (currency && accCur !== currency.toUpperCase()) {
       toast.error(
         `La cuenta es ${accCur} y la moneda del pago es ${currency}. Deben coincidir.`,
@@ -1059,6 +1091,77 @@ export default function OperatorPaymentForm({
     }
   }, [token, operatorId, currency, checkCreditAccount]);
 
+  // Crear cuenta para excedente (sin afectar estado UI de crédito)
+  const createCreditAccountForExcess = useCallback(
+    async (opId: number, cur: string): Promise<boolean> => {
+      if (!token || !opId || !cur) return false;
+      try {
+        const payload = {
+          operator_id: Number(opId),
+          currency: cur.toUpperCase(),
+          enabled: true,
+        };
+        const res = await authFetch(
+          `/api/credit/account`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          token,
+        );
+        if (!res.ok) {
+          const err = await safeJson<ApiError>(res);
+          const msg =
+            err?.message || err?.error || "No se pudo crear la cuenta.";
+          toast.error(msg);
+          return false;
+        }
+        const status = await checkCreditAccount(opId, cur);
+        if (status === "exists") {
+          toast.success(`Cuenta de crédito en ${cur} creada.`);
+          return true;
+        }
+        toast.warn(
+          `La cuenta fue creada, pero no la detectamos aún en ${cur}.`,
+        );
+        return false;
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : "Error al crear la cuenta.";
+        toast.error(msg);
+        return false;
+      }
+    },
+    [token, checkCreditAccount],
+  );
+
+  const precheckExcessCreditAccount = useCallback(
+    async (opId: number | null, cur: string | null): Promise<boolean> => {
+      if (!opId || !cur) return true;
+      const status = await checkCreditAccount(opId, cur);
+      if (status === "exists") return true;
+
+      if (excessMissingAccountAction === "block") {
+        toast.error(
+          "No hay cuenta corriente del operador en la moneda del pago. Creala o elegí otra opción.",
+        );
+        return false;
+      }
+
+      if (excessMissingAccountAction === "create") {
+        const ok = await createCreditAccountForExcess(opId, cur);
+        return ok;
+      }
+
+      toast.warn(
+        "No hay cuenta corriente del operador en la moneda del pago. El excedente se guardará como saldo a favor.",
+      );
+      return true;
+    },
+    [checkCreditAccount, excessMissingAccountAction, createCreditAccountForExcess],
+  );
+
   // Si el método requiere cuenta bancaria/financiera, filtrar por la moneda del pago
   const filteredAccounts = useMemo(() => {
     if (!requiresAccount) return accounts;
@@ -1074,34 +1177,6 @@ export default function OperatorPaymentForm({
     });
   }, [accounts, requiresAccount, currency, guessAccountCurrency]);
 
-  /* ========= Crear crédito vinculado ========= */
-  const createCreditEntryForInvestment = useCallback(
-    async (inv: InvestmentLite) => {
-      if (!token) return;
-      if (!isOperatorCategory(inv.category) || !inv.operator_id) return;
-
-      const payload = {
-        subject_type: "OPERATOR",
-        operator_id: Number(inv.operator_id),
-        currency: (inv.currency || "").toUpperCase(),
-        amount: Math.abs(Number(inv.amount || 0)),
-        concept: inv.description || `Gasto Operador N° ${inv.id_investment}`,
-        doc_type: "investment",
-        investment_id: inv.id_investment,
-        value_date: inv.paid_at ? inv.paid_at.slice(0, 10) : undefined,
-        reference: `INV-${inv.id_investment}`,
-        booking_id: booking.id_booking,
-      };
-
-      await authFetch(
-        `/api/credit/entry`,
-        { method: "POST", body: JSON.stringify(payload) },
-        token,
-      );
-    },
-    [token, booking.id_booking, isOperatorCategory],
-  );
-
   /* ========= Submit ========= */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1116,39 +1191,6 @@ export default function OperatorPaymentForm({
         toast.error("Seleccioná al menos un servicio de la reserva.");
         return;
       }
-      if (!allSameCurrency) {
-        toast.error(
-          "Los servicios seleccionados deben ser de la misma moneda.",
-        );
-        return;
-      }
-
-      const totalCost = selectedServices.reduce(
-        (sum, s) => sum + Number(s.cost_price || 0),
-        0,
-      );
-      if (
-        Number.isFinite(selectedPayment.amount) &&
-        selectedPayment.amount > 0 &&
-        totalCost > selectedPayment.amount
-      ) {
-        toast.error(
-          "El costo total de los servicios no puede superar el monto del pago.",
-        );
-        return;
-      }
-
-      const paymentCurrency = (selectedPayment.currency || "").toUpperCase();
-      if (
-        lockedSvcCurrency &&
-        paymentCurrency &&
-        paymentCurrency !== lockedSvcCurrency
-      ) {
-        toast.error(
-          `La moneda del pago (${paymentCurrency}) debe coincidir con la moneda de los servicios (${lockedSvcCurrency}).`,
-        );
-        return;
-      }
 
       if (
         selectedPayment.operator_id &&
@@ -1161,6 +1203,25 @@ export default function OperatorPaymentForm({
         return;
       }
 
+      if (allocationSummary.overAssigned) {
+        toast.error("El total asignado supera el monto del pago.");
+        return;
+      }
+
+      if (
+        excessAction === "credit_entry" &&
+        allocationSummary.excess > EXCESS_TOLERANCE
+      ) {
+        const opId =
+          selectedPayment?.operator_id ??
+          operatorIdFromSelection ??
+          (operatorId ? Number(operatorId) : null);
+        const cur =
+          editorPaymentCurrency?.toUpperCase() || currency?.toUpperCase() || "";
+        const ok = await precheckExcessCreditAccount(opId, cur || null);
+        if (!ok) return;
+      }
+
       setLoading(true);
       try {
         const res = await authFetch(
@@ -1168,7 +1229,9 @@ export default function OperatorPaymentForm({
           {
             method: "PUT",
             body: JSON.stringify({
-              serviceIds: selectedServices.map((s) => s.id_service),
+              allocations: allocationSummary.allocations,
+              excess_action: excessAction,
+              excess_missing_account_action: excessMissingAccountAction,
             }),
           },
           token,
@@ -1188,6 +1251,17 @@ export default function OperatorPaymentForm({
         setPaymentQuery("");
         setPaymentOptions([]);
         setSelectedPayment(null);
+        setAllocationSummary({
+          allocations: [],
+          assignedTotal: 0,
+          missingAmountCount: 0,
+          missingFxCount: 0,
+          overAssigned: false,
+          excess: 0,
+        });
+        setExcessAction("carry");
+        setExcessMissingAccountAction("carry");
+        setAllocationResetKey((k) => k + 1);
       } catch (err) {
         const msg =
           err instanceof Error ? err.message : "Error al asociar el pago.";
@@ -1211,7 +1285,6 @@ export default function OperatorPaymentForm({
       return;
     }
     if (!assertSameOperator()) return;
-    if (!assertSameCurrencyAcross()) return;
 
     const payingWithCredit = isOperatorCategory(category) && useCredit;
 
@@ -1233,17 +1306,10 @@ export default function OperatorPaymentForm({
       toast.error("El monto debe ser un número positivo.");
       return;
     }
-    const totalCost = selectedServices.reduce(
-      (sum, s) => sum + Number(s.cost_price || 0),
-      0,
-    );
-    if (Number.isFinite(totalCost) && totalCost > amountNum) {
-      toast.error(
-        "El costo total de los servicios no puede superar el monto del pago.",
-      );
+    if (allocationSummary.overAssigned) {
+      toast.error("El total asignado supera el monto del pago.");
       return;
     }
-
     const conv = validateConversion();
     if (!conv.ok) {
       toast.error(conv.msg || "Revisá los datos de Valor/Contravalor");
@@ -1251,6 +1317,20 @@ export default function OperatorPaymentForm({
     }
 
     if (!assertAccountMatchesCurrency()) return;
+
+    if (
+      !payingWithCredit &&
+      excessAction === "credit_entry" &&
+      allocationSummary.excess > EXCESS_TOLERANCE
+    ) {
+      const opId =
+        operatorId != null
+          ? Number(operatorId)
+          : operatorIdFromSelection ?? null;
+      const cur = currency?.toUpperCase() || "";
+      const ok = await precheckExcessCreditAccount(opId, cur || null);
+      if (!ok) return;
+    }
 
     setLoading(true);
 
@@ -1292,7 +1372,9 @@ export default function OperatorPaymentForm({
         operator_id: Number(operatorId),
         paid_at: paidAt || undefined,
         booking_id: booking.id_booking,
-        serviceIds: selectedServices.map((s) => s.id_service),
+        allocations: allocationSummary.allocations,
+        excess_action: excessAction,
+        excess_missing_account_action: excessMissingAccountAction,
         payment_method: payingWithCredit ? CREDIT_METHOD : paymentMethod,
         account: payingWithCredit
           ? undefined
@@ -1329,19 +1411,8 @@ export default function OperatorPaymentForm({
         throw new Error(msg);
       }
 
-      const created = (await safeJson<InvestmentLite>(res))!;
+      await safeJson<InvestmentLite>(res);
       toast.success("Pago al operador cargado en Investments.");
-
-      if (payingWithCredit && created?.id_investment) {
-        try {
-          await createCreditEntryForInvestment(created);
-          toast.success("Movimiento de cuenta corriente sincronizado.");
-        } catch {
-          toast.error(
-            "No se pudo sincronizar la cuenta corriente del Operador.",
-          );
-        }
-      }
 
       onCreated?.();
 
@@ -1360,6 +1431,17 @@ export default function OperatorPaymentForm({
       setBaseCurrency("");
       setCounterAmount("");
       setCounterCurrency("");
+      setAllocationSummary({
+        allocations: [],
+        assignedTotal: 0,
+        missingAmountCount: 0,
+        missingFxCount: 0,
+        overAssigned: false,
+        excess: 0,
+      });
+      setExcessAction("carry");
+      setExcessMissingAccountAction("carry");
+      setAllocationResetKey((k) => k + 1);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Error al cargar el pago.";
@@ -1403,12 +1485,12 @@ export default function OperatorPaymentForm({
           className={`${pillBase} ${lockedSvcCurrency ? pillOk : pillNeutral}`}
           title={
             lockedSvcCurrency
-              ? "Moneda bloqueada por servicios"
-              : "Moneda libre"
+              ? "Moneda sugerida por servicios"
+              : "Moneda del pago"
           }
         >
           {cur}
-          {lockedSvcCurrency ? " (lock)" : ""}
+          {lockedSvcCurrency ? " (srv)" : ""}
         </span>,
       );
     }
@@ -1548,7 +1630,7 @@ export default function OperatorPaymentForm({
               {/* CONTEXTO */}
               <Section
                 title="Contexto"
-                desc="Elegí los servicios (misma moneda y mismo operador)."
+                desc="Elegí los servicios (mismo operador)."
               >
                 <div className="md:col-span-2">
                   {servicesFromBooking.length === 0 ? (
@@ -1561,12 +1643,8 @@ export default function OperatorPaymentForm({
                         const checked = selectedIds.includes(svc.id_service);
                         const disabled =
                           selectedServices.length > 0 &&
-                          ((selectedServices[0].id_operator ?? 0) !==
-                            (svc.id_operator ?? 0) ||
-                            (
-                              selectedServices[0].currency || ""
-                            ).toUpperCase() !==
-                              (svc.currency || "").toUpperCase()) &&
+                          (selectedServices[0].id_operator ?? 0) !==
+                            (svc.id_operator ?? 0) &&
                           !checked;
 
                         const opName =
@@ -1618,10 +1696,12 @@ export default function OperatorPaymentForm({
                       Seleccionados: {selectedServices.length}
                     </span>
                     <span
-                      className={`${pillBase} ${lockedSvcCurrency ? pillOk : pillNeutral}`}
+                      className={`${pillBase} ${selectedCurrencies.length ? pillOk : pillNeutral}`}
                     >
-                      Moneda{" "}
-                      {lockedSvcCurrency ? `${lockedSvcCurrency} (lock)` : "—"}
+                      Monedas:{" "}
+                      {selectedCurrencies.length
+                        ? selectedCurrencies.join(", ")
+                        : "—"}
                     </span>
                     {operatorIdFromSelection != null && (
                       <span className={`${pillBase} ${pillNeutral}`}>
@@ -1630,6 +1710,25 @@ export default function OperatorPaymentForm({
                     )}
                   </div>
                 </div>
+
+                {selectedServices.length > 0 &&
+                  (action === "create" || selectedPayment) && (
+                  <div className="md:col-span-2">
+                    <ServiceAllocationsEditor
+                      services={selectedServices}
+                      paymentCurrency={editorPaymentCurrency}
+                      paymentAmount={editorPaymentAmount}
+                      resetKey={allocationResetKey}
+                      excessAction={excessAction}
+                      onExcessActionChange={setExcessAction}
+                      excessMissingAccountAction={excessMissingAccountAction}
+                      onExcessMissingAccountActionChange={
+                        setExcessMissingAccountAction
+                      }
+                      onSummaryChange={setAllocationSummary}
+                    />
+                  </div>
+                )}
               </Section>
 
               {action === "attach" && (
@@ -1833,7 +1932,7 @@ export default function OperatorPaymentForm({
                         {previewAmount}
                       </p>
                     )}
-                    {selectedServices.length > 0 && (
+                    {selectedServices.length > 0 && allSameCurrency && (
                       <button
                         type="button"
                         onClick={useSuggested}
@@ -1853,11 +1952,7 @@ export default function OperatorPaymentForm({
                   </Field>
 
                   <Field id="currency" label="Moneda" required>
-                    {lockedSvcCurrency ? (
-                      <div className="rounded-2xl border border-white/10 bg-white/10 p-2 text-sm">
-                        {lockedSvcCurrency} (bloqueada por servicios)
-                      </div>
-                    ) : loadingPicks ? (
+                    {loadingPicks ? (
                       <div className="flex h-[42px] items-center">
                         <Spinner />
                       </div>
