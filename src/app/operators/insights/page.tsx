@@ -16,7 +16,7 @@ import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { useAgencyOperators } from "@/hooks/receipts/useAgencyOperators";
 
-type PeriodType = "month" | "quarter" | "semester" | "year";
+type PeriodType = "day" | "week" | "month" | "quarter" | "semester" | "year";
 type DateMode = "creation" | "travel";
 type InsightsView =
   | "all"
@@ -32,6 +32,8 @@ type MoneyMap = Record<string, number>;
 type StatTone = "sky" | "emerald" | "rose" | "amber" | "slate";
 
 const PERIOD_OPTIONS: { value: PeriodType; label: string }[] = [
+  { value: "day", label: "Dia" },
+  { value: "week", label: "Semana" },
   { value: "month", label: "Mes" },
   { value: "quarter", label: "Trimestre" },
   { value: "semester", label: "Semestre" },
@@ -186,9 +188,27 @@ function toYmd(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+function fromYmd(value?: string | null): Date | null {
+  if (!value) return null;
+  const [y, m, d] = value.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const date = new Date(y, m - 1, d);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function startOfWeek(date: Date): Date {
+  const start = new Date(date);
+  const day = start.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + diff);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
 function formatDate(value?: string | null): string {
   if (!value) return "-";
-  const d = new Date(value);
+  const d = fromYmd(value) ?? new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleDateString("es-AR", {
     day: "2-digit",
@@ -316,6 +336,9 @@ export default function OperatorInsightsPage() {
   const [view, setView] = useState<InsightsView>("all");
 
   const now = useMemo(() => new Date(), []);
+  const todayYmd = useMemo(() => toYmd(now), [now]);
+  const [dayValue, setDayValue] = useState<string>(todayYmd);
+  const [weekValue, setWeekValue] = useState<string>(todayYmd);
   const [monthValue, setMonthValue] = useState<string>(
     `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
   );
@@ -353,6 +376,20 @@ export default function OperatorInsightsPage() {
   }, [operators, selectedOperatorId]);
 
   const range = useMemo(() => {
+    if (periodType === "day") {
+      const day = fromYmd(dayValue) ?? now;
+      const ymd = toYmd(day);
+      return { from: ymd, to: ymd };
+    }
+
+    if (periodType === "week") {
+      const base = fromYmd(weekValue) ?? now;
+      const start = startOfWeek(base);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      return { from: toYmd(start), to: toYmd(end) };
+    }
+
     if (periodType === "month") {
       const [y, m] = monthValue.split("-").map(Number);
       const start = new Date(y, (m || 1) - 1, 1);
@@ -379,15 +416,24 @@ export default function OperatorInsightsPage() {
     return { from: toYmd(start), to: toYmd(end) };
   }, [
     periodType,
+    dayValue,
+    weekValue,
     monthValue,
     quarter,
     quarterYear,
     semester,
     semesterYear,
     yearValue,
+    now,
   ]);
 
   const periodLabel = useMemo(() => {
+    if (periodType === "day") {
+      return `Dia ${formatDate(range.from)}`;
+    }
+    if (periodType === "week") {
+      return `Semana ${formatDate(range.from)} - ${formatDate(range.to)}`;
+    }
     if (periodType === "month") {
       return `Mes ${monthValue}`;
     }
@@ -400,6 +446,7 @@ export default function OperatorInsightsPage() {
     return `Ano ${yearValue}`;
   }, [
     periodType,
+    range,
     monthValue,
     quarter,
     quarterYear,
@@ -685,6 +732,36 @@ export default function OperatorInsightsPage() {
                   <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     Detalle del periodo
                   </div>
+                  {periodType === "day" && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Dia
+                      </label>
+                      <input
+                        type="date"
+                        value={dayValue}
+                        onChange={(event) => setDayValue(event.target.value)}
+                        className="w-full rounded-2xl border border-white/20 bg-white/80 px-4 py-2 text-sm shadow-sm outline-none transition focus:border-sky-300 dark:bg-slate-900/60"
+                      />
+                    </div>
+                  )}
+
+                  {periodType === "week" && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Semana
+                      </label>
+                      <input
+                        type="date"
+                        value={weekValue}
+                        onChange={(event) => setWeekValue(event.target.value)}
+                        className="w-full rounded-2xl border border-white/20 bg-white/80 px-4 py-2 text-sm shadow-sm outline-none transition focus:border-sky-300 dark:bg-slate-900/60"
+                      />
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Selecciona un dia de la semana a consultar.
+                      </p>
+                    </div>
+                  )}
                   {periodType === "month" && (
                     <div className="space-y-2">
                       <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
