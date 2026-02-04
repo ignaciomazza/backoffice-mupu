@@ -652,7 +652,7 @@ export default function CashboxPage() {
                                 {label ? ` — ${label}` : ""}
                               </p>
                               <p className="text-[11px] text-emerald-800/80 dark:text-emerald-100/80">
-                                Ingresos − egresos del mes
+                                Ingresos − egresos + saldo inicial
                               </p>
                             </div>
                             <span
@@ -673,8 +673,9 @@ export default function CashboxPage() {
 
                   <p className="mt-3 text-[11px] text-emerald-700/80 dark:text-emerald-100/80">
                     El resultado se calcula por moneda, sin mezclar distintos
-                    tipos de cambio. Usalo como termómetro rápido de cómo viene
-                    el mes en cada moneda.
+                    tipos de cambio. Si hay saldo inicial cargado en cuentas, se
+                    suma al resultado. Usalo como termómetro rápido de cómo
+                    viene el mes en cada moneda.
                   </p>
                 </div>
 
@@ -720,7 +721,8 @@ export default function CashboxPage() {
                                   : "bg-rose-500/10 text-rose-700 dark:bg-rose-500/20 dark:text-rose-100"
                               }`}
                             >
-                              Neto: {formatAmount(t.net, code)}
+                              Neto (incluye saldo inicial):{" "}
+                              {formatAmount(t.net, code)}
                             </span>
                           </div>
                         </div>

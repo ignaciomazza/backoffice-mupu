@@ -280,6 +280,7 @@ function aggregateCashbox(
       opening?: number;
     }
   >();
+  const openingByCurrencyMap = new Map<string, number>();
 
   const clientDebtByCurrencyMap = new Map<string, number>();
   const operatorDebtByCurrencyMap = new Map<string, number>();
@@ -372,6 +373,9 @@ function aggregateCashbox(
 
   // === Saldos iniciales por cuenta (si existen) ===
   for (const ob of openingBalancesByAccount) {
+    const currentOpening = openingByCurrencyMap.get(ob.currency) ?? 0;
+    openingByCurrencyMap.set(ob.currency, currentOpening + ob.amount);
+
     const accLabel = ob.account?.trim() || "Sin cuenta";
     const accKey = `${accLabel.toLowerCase()}::${ob.currency}`;
     if (!totalsByAccountMap.has(accKey)) {
@@ -390,14 +394,28 @@ function aggregateCashbox(
     }
   }
 
+  // Si hay saldos iniciales sin movimientos, aseguramos la moneda en el resumen
+  for (const [currency] of openingByCurrencyMap.entries()) {
+    if (!totalsByCurrencyMap.has(currency)) {
+      totalsByCurrencyMap.set(currency, {
+        currency,
+        income: 0,
+        expenses: 0,
+      });
+    }
+  }
+
   // Totales caja por moneda
   const totalsByCurrency: CurrencySummary[] = Array.from(
     totalsByCurrencyMap.values(),
   )
-    .map((t) => ({
-      ...t,
-      net: t.income - t.expenses,
-    }))
+    .map((t) => {
+      const opening = openingByCurrencyMap.get(t.currency) ?? 0;
+      return {
+        ...t,
+        net: t.income - t.expenses + opening,
+      };
+    })
     .sort((a, b) => a.currency.localeCompare(b.currency, "es"));
 
   // Totales por medio de pago
