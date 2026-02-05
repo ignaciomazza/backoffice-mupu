@@ -8,9 +8,11 @@ export type PlanFeatureKey =
   | "client_stats"
   | "cashbox"
   | "investments"
+  | "other_incomes"
   | "balances"
   | "earnings"
   | "receipts_verify"
+  | "other_incomes_verify"
   | "credits"
   | "operators_insights";
 
@@ -28,9 +30,11 @@ export const PLAN_FEATURE_MIN: Record<PlanFeatureKey, PlanKey> = {
   client_stats: "medio",
   cashbox: "medio",
   investments: "medio",
+  other_incomes: "medio",
   balances: "medio",
   earnings: "medio",
   receipts_verify: "medio",
+  other_incomes_verify: "medio",
   credits: "medio",
   operators_insights: "medio",
 };
@@ -39,11 +43,13 @@ const PLAN_ROUTE_FEATURES: Array<{ prefix: string; feature: PlanFeatureKey }> = 
   { prefix: "/operators/panel", feature: "operators_insights" },
   { prefix: "/operators/insights", feature: "operators_insights" },
   { prefix: "/receipts/verify", feature: "receipts_verify" },
+  { prefix: "/other-incomes/verify", feature: "other_incomes_verify" },
   { prefix: "/earnings/my", feature: "earnings" },
   { prefix: "/earnings", feature: "earnings" },
   { prefix: "/balances", feature: "balances" },
   { prefix: "/cashbox", feature: "cashbox" },
   { prefix: "/credits", feature: "credits" },
+  { prefix: "/other-incomes", feature: "other_incomes" },
   { prefix: "/insights", feature: "insights" },
   { prefix: "/client-stats", feature: "client_stats" },
   { prefix: "/calendar", feature: "calendar" },

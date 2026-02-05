@@ -59,6 +59,7 @@ model Agency {
   files                        FileAsset[]
   Lead                         Lead[]
   Receipt                      Receipt[]
+  otherIncomes                 OtherIncome[]
   invoices                     Invoice[]
   creditNotes                  CreditNote[]
   services                     Service[]
@@ -158,7 +159,9 @@ model User {
   serviceDestinationsAdded ServiceDestination[] @relation("ServiceDestinationAddedBy")
   creditEntries            CreditEntry[]
   verifiedReceipts         Receipt[]            @relation("ReceiptVerifiedBy")
+  verifiedOtherIncomes     OtherIncome[]        @relation("OtherIncomeVerifiedBy")
   createdFiles             FileAsset[]          @relation("FileCreatedBy")
+  createdOtherIncomes      OtherIncome[]        @relation("OtherIncomeCreatedBy")
 
   @@unique([id_agency, agency_user_id], name: "agency_user_id_unique")
 }
@@ -550,6 +553,51 @@ model ReceiptPayment {
   receipt Receipt @relation(fields: [receipt_id], references: [id_receipt], onDelete: Cascade)
 
   @@index([receipt_id])
+}
+
+model OtherIncome {
+  id_other_income         Int      @id @default(autoincrement())
+  agency_other_income_id  Int?
+  id_agency               Int
+  agency                  Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  description             String
+  amount                  Decimal  @db.Decimal(18, 2)
+  currency                String
+  issue_date              DateTime @default(now())
+  payment_fee_amount      Decimal? @db.Decimal(18, 2)
+
+  payment_method_id       Int?
+  account_id              Int?
+
+  verification_status     String   @default("PENDING")
+  verified_at             DateTime?
+  verified_by             Int?
+  verifiedBy              User?    @relation("OtherIncomeVerifiedBy", fields: [verified_by], references: [id_user], onDelete: SetNull)
+
+  created_at              DateTime @default(now())
+  created_by              Int?
+  createdBy               User?    @relation("OtherIncomeCreatedBy", fields: [created_by], references: [id_user], onDelete: SetNull)
+
+  payments                OtherIncomePayment[]
+
+  @@unique([id_agency, agency_other_income_id], name: "agency_other_income_id_unique")
+  @@index([id_agency])
+  @@index([issue_date])
+  @@index([verification_status])
+  @@index([verified_by])
+}
+
+model OtherIncomePayment {
+  id_other_income_payment Int     @id @default(autoincrement())
+  other_income_id         Int
+  amount                  Decimal @db.Decimal(18, 2)
+  payment_method_id       Int
+  account_id              Int?
+
+  otherIncome OtherIncome @relation(fields: [other_income_id], references: [id_other_income], onDelete: Cascade)
+
+  @@index([other_income_id])
 }
 
 model Resources {

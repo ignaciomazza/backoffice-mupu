@@ -40,8 +40,20 @@ export const FINANCE_SECTIONS = [
     defaultRoles: ADMIN_ROLES,
   },
   {
+    key: "other_incomes",
+    label: "Ingresos",
+    route: "/other-incomes",
+    defaultRoles: ADMIN_ROLES,
+  },
+  {
     key: "receipts_verify",
-    label: "Verificacion de ingresos",
+    label: "Verificacion recibos",
+    route: "/receipts/verify",
+    defaultRoles: ADMIN_ROLES,
+  },
+  {
+    key: "other_incomes_verify",
+    label: "Verificacion ingresos",
     route: "/receipts/verify",
     defaultRoles: ADMIN_ROLES,
   },

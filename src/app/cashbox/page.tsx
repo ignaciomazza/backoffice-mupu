@@ -23,12 +23,19 @@ type MovementKind =
 
 type MovementSource =
   | "receipt"
+  | "other_income"
   | "investment"
   | "client_payment"
   | "operator_due"
   | "credit_entry"
   | "manual"
   | "other";
+
+type PaymentBreakdown = {
+  amount: number;
+  paymentMethod?: string | null;
+  account?: string | null;
+};
 
 type CashboxMovement = {
   id: string;
@@ -46,6 +53,9 @@ type CashboxMovement = {
   // Nuevos campos
   paymentMethod?: string | null;
   account?: string | null;
+
+  // Detalle de cobros múltiples (si aplica)
+  payments?: PaymentBreakdown[];
 };
 
 type CurrencySummary = {
@@ -380,8 +390,15 @@ export default function CashboxPage() {
     const set = new Set<string>();
     movements.forEach((m) => {
       if (m.type === "income" || m.type === "expense") {
-        const label = (m.paymentMethod ?? "Sin método").trim();
-        if (label) set.add(label);
+        if (Array.isArray(m.payments) && m.payments.length > 0) {
+          m.payments.forEach((p) => {
+            const label = (p.paymentMethod ?? "Sin método").trim();
+            if (label) set.add(label);
+          });
+        } else {
+          const label = (m.paymentMethod ?? "Sin método").trim();
+          if (label) set.add(label);
+        }
       }
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
@@ -393,10 +410,19 @@ export default function CashboxPage() {
     const set = new Set<string>();
     movements.forEach((m) => {
       if (m.type !== "income" && m.type !== "expense") return;
-      const pmLabel = (m.paymentMethod ?? "Sin método").trim();
-      if (pmLabel !== filterPaymentMethod) return;
-      const accLabel = (m.account ?? "Sin cuenta").trim();
-      if (accLabel) set.add(accLabel);
+      if (Array.isArray(m.payments) && m.payments.length > 0) {
+        m.payments.forEach((p) => {
+          const pmLabel = (p.paymentMethod ?? "Sin método").trim();
+          if (pmLabel !== filterPaymentMethod) return;
+          const accLabel = (p.account ?? "Sin cuenta").trim();
+          if (accLabel) set.add(accLabel);
+        });
+      } else {
+        const pmLabel = (m.paymentMethod ?? "Sin método").trim();
+        if (pmLabel !== filterPaymentMethod) return;
+        const accLabel = (m.account ?? "Sin cuenta").trim();
+        if (accLabel) set.add(accLabel);
+      }
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
   }, [movements, filterPaymentMethod]);
@@ -484,15 +510,31 @@ export default function CashboxPage() {
 
       const matchType = filterType === "ALL" || m.type === filterType;
 
-      const pmLabel = (m.paymentMethod ?? "Sin método").trim();
-      const matchPaymentMethod =
-        filterPaymentMethod === "ALL" || pmLabel === filterPaymentMethod;
+      const paymentCandidates =
+        Array.isArray(m.payments) && m.payments.length > 0
+          ? m.payments
+          : [
+              {
+                paymentMethod: m.paymentMethod,
+                account: m.account,
+              },
+            ];
 
-      const accLabel = (m.account ?? "Sin cuenta").trim();
-      const matchAccount =
-        filterAccount === "ALL" || accLabel === filterAccount;
+      const matchPaymentAccount =
+        filterPaymentMethod === "ALL" && filterAccount === "ALL"
+          ? true
+          : paymentCandidates.some((p) => {
+              const pmLabel = (p.paymentMethod ?? "Sin método").trim();
+              const accLabel = (p.account ?? "Sin cuenta").trim();
+              const matchPm =
+                filterPaymentMethod === "ALL" ||
+                pmLabel === filterPaymentMethod;
+              const matchAcc =
+                filterAccount === "ALL" || accLabel === filterAccount;
+              return matchPm && matchAcc;
+            });
 
-      return matchCurrency && matchType && matchPaymentMethod && matchAccount;
+      return matchCurrency && matchType && matchPaymentAccount;
     });
   }, [
     movements,
@@ -1143,6 +1185,29 @@ export default function CashboxPage() {
                                         )}
                                       </div>
                                     )}
+                                    {Array.isArray(m.payments) &&
+                                      m.payments.length > 0 && (
+                                        <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-zinc-600 dark:text-zinc-300">
+                                          {m.payments.map((p, idx) => (
+                                            <span
+                                              key={`${m.id}-pay-${idx}`}
+                                              className="rounded-full bg-zinc-900/5 px-2 py-0.5 text-zinc-700 dark:bg-white/10 dark:text-zinc-200"
+                                            >
+                                              {(p.paymentMethod ?? "Sin método").trim()}
+                                              {p.account
+                                                ? ` • ${p.account}`
+                                                : ""}
+                                              {" • "}
+                                              {formatAmount(
+                                                Number.isFinite(p.amount)
+                                                  ? p.amount
+                                                  : 0,
+                                                m.currency,
+                                              )}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      )}
                                   </div>
                                 </td>
                                 <td className="whitespace-nowrap px-3 py-2 align-top text-[11px] font-semibold">

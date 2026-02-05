@@ -1,0 +1,424 @@
+// src/pages/api/other-incomes/[id].ts
+import type { NextApiRequest, NextApiResponse } from "next";
+import prisma, { Prisma } from "@/lib/prisma";
+import { jwtVerify, type JWTPayload } from "jose";
+import { getFinanceSectionGrants } from "@/lib/accessControl";
+import { canAccessFinanceSection } from "@/utils/permissions";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+
+type TokenPayload = JWTPayload & {
+  id_user?: number;
+  userId?: number;
+  uid?: number;
+  id_agency?: number;
+  agencyId?: number;
+  aid?: number;
+  role?: string;
+  email?: string;
+};
+
+type DecodedAuth = {
+  id_user: number;
+  id_agency: number;
+  role: string;
+  email?: string;
+};
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
+
+function getTokenFromRequest(req: NextApiRequest): string | null {
+  if (req.cookies?.token) return req.cookies.token;
+
+  const a = req.headers.authorization || "";
+  if (a.startsWith("Bearer ")) return a.slice(7);
+
+  const c = req.cookies || {};
+  for (const k of [
+    "session",
+    "auth_token",
+    "access_token",
+    "next-auth.session-token",
+  ]) {
+    const v = c[k];
+    if (typeof v === "string" && v) return v;
+  }
+  return null;
+}
+
+async function getUserFromAuth(
+  req: NextApiRequest,
+): Promise<DecodedAuth | null> {
+  try {
+    const tok = getTokenFromRequest(req);
+    if (!tok) return null;
+
+    const { payload } = await jwtVerify(
+      tok,
+      new TextEncoder().encode(JWT_SECRET),
+    );
+    const p = payload as TokenPayload;
+
+    const id_user = Number(p.id_user ?? p.userId ?? p.uid) || undefined;
+    const id_agency = Number(p.id_agency ?? p.agencyId ?? p.aid) || undefined;
+    const role = String(p.role || "").toLowerCase();
+    const email = p.email;
+
+    if (id_user && !id_agency) {
+      const u = await prisma.user.findUnique({
+        where: { id_user },
+        select: { id_agency: true, role: true, email: true },
+      });
+      if (u)
+        return {
+          id_user,
+          id_agency: u.id_agency,
+          role: role || u.role.toLowerCase(),
+          email: email ?? u.email ?? undefined,
+        };
+    }
+
+    if (!id_user && email) {
+      const u = await prisma.user.findUnique({
+        where: { email },
+        select: { id_user: true, id_agency: true, role: true },
+      });
+      if (u)
+        return {
+          id_user: u.id_user,
+          id_agency: u.id_agency,
+          role: u.role.toLowerCase(),
+          email,
+        };
+    }
+
+    if (!id_user || !id_agency) return null;
+    return { id_user, id_agency, role, email: email ?? undefined };
+  } catch {
+    return null;
+  }
+}
+
+function safeNumber(v: unknown): number | undefined {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function toLocalDate(v?: string): Date | undefined {
+  if (!v) return undefined;
+  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m)
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? undefined : d;
+}
+
+const toDec = (v: unknown) =>
+  v === undefined || v === null || v === ""
+    ? undefined
+    : new Prisma.Decimal(typeof v === "number" ? v : String(v));
+
+type PaymentLineInput = {
+  amount: unknown;
+  payment_method_id: unknown;
+  account_id?: unknown;
+};
+
+type PaymentLineNormalized = {
+  amount: number;
+  payment_method_id: number;
+  account_id?: number;
+};
+
+function parsePayments(raw: unknown): PaymentLineNormalized[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PaymentLineNormalized[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as PaymentLineInput;
+    const amount = Number(rec.amount ?? 0);
+    const payment_method_id = Number(rec.payment_method_id);
+    const account_id =
+      rec.account_id === null || rec.account_id === undefined || rec.account_id === ""
+        ? undefined
+        : Number(rec.account_id);
+
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    if (!Number.isFinite(payment_method_id) || payment_method_id <= 0) continue;
+
+    out.push({
+      amount,
+      payment_method_id: Math.trunc(payment_method_id),
+      account_id:
+        Number.isFinite(account_id as number) && Number(account_id) > 0
+          ? Math.trunc(Number(account_id))
+          : undefined,
+    });
+  }
+  return out;
+}
+
+async function handleGet(req: NextApiRequest, res: NextApiResponse) {
+  const auth = await getUserFromAuth(req);
+  if (!auth) return res.status(401).json({ error: "No autenticado" });
+
+  const planAccess = await ensurePlanFeatureAccess(
+    auth.id_agency,
+    "other_incomes",
+  );
+  if (!planAccess.allowed) {
+    return res.status(403).json({ error: "Plan insuficiente" });
+  }
+
+  const financeGrants = await getFinanceSectionGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canOtherIncomes = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "other_incomes",
+  );
+  const canVerify = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "other_incomes_verify",
+  );
+  if (!canOtherIncomes && !canVerify) {
+    return res.status(403).json({ error: "Sin permisos" });
+  }
+
+  const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+  const id = safeNumber(rawId);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+
+  const item = await prisma.otherIncome.findFirst({
+    where: { id_other_income: id, id_agency: auth.id_agency },
+    include: {
+      payments: true,
+      verifiedBy: {
+        select: { id_user: true, first_name: true, last_name: true },
+      },
+      createdBy: {
+        select: { id_user: true, first_name: true, last_name: true },
+      },
+    },
+  });
+
+  if (!item) return res.status(404).json({ error: "No encontrado" });
+
+  return res.status(200).json({ item });
+}
+
+async function handlePut(req: NextApiRequest, res: NextApiResponse) {
+  const auth = await getUserFromAuth(req);
+  if (!auth) return res.status(401).json({ error: "No autenticado" });
+
+  const planAccess = await ensurePlanFeatureAccess(
+    auth.id_agency,
+    "other_incomes",
+  );
+  if (!planAccess.allowed) {
+    return res.status(403).json({ error: "Plan insuficiente" });
+  }
+
+  const financeGrants = await getFinanceSectionGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canOtherIncomes = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "other_incomes",
+  );
+  if (!canOtherIncomes) {
+    return res.status(403).json({ error: "Sin permisos" });
+  }
+
+  const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+  const id = safeNumber(rawId);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+
+  const existing = await prisma.otherIncome.findFirst({
+    where: { id_other_income: id, id_agency: auth.id_agency },
+    select: { id_other_income: true, verification_status: true },
+  });
+  if (!existing) return res.status(404).json({ error: "No encontrado" });
+
+  if (existing.verification_status === "VERIFIED") {
+    return res
+      .status(409)
+      .json({ error: "Desverificá el ingreso antes de editarlo." });
+  }
+
+  const b = req.body ?? {};
+
+  const descriptionRaw =
+    typeof b.description === "string" ? b.description.trim() : undefined;
+  if (b.description !== undefined && !descriptionRaw) {
+    return res.status(400).json({ error: "description inválido" });
+  }
+
+  const currencyRaw =
+    typeof b.currency === "string" ? b.currency.trim().toUpperCase() : undefined;
+  if (b.currency !== undefined && !currencyRaw) {
+    return res.status(400).json({ error: "currency inválido" });
+  }
+
+  const issueDate = b.issue_date ? toLocalDate(b.issue_date) : undefined;
+  if (b.issue_date && !issueDate) {
+    return res.status(400).json({ error: "issue_date inválida" });
+  }
+
+  const paymentFee = toDec(b.payment_fee_amount);
+  if (paymentFee && paymentFee.toNumber() < 0) {
+    return res.status(400).json({ error: "payment_fee_amount inválido" });
+  }
+
+  const hasPayments = Object.prototype.hasOwnProperty.call(b, "payments");
+  if (hasPayments && !Array.isArray(b.payments)) {
+    return res.status(400).json({ error: "payments inválidos" });
+  }
+  const payments = hasPayments ? parsePayments(b.payments) : [];
+  if (hasPayments && payments.length === 0) {
+    return res.status(400).json({ error: "payments inválidos" });
+  }
+
+  const amountRaw = safeNumber(b.amount);
+  const amount = hasPayments
+    ? payments.reduce((acc, p) => acc + Number(p.amount || 0), 0)
+    : amountRaw;
+
+  if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) {
+    return res.status(400).json({ error: "amount inválido" });
+  }
+
+  const rawPmId = hasPayments
+    ? payments[0]?.payment_method_id
+    : safeNumber(b.payment_method_id);
+  const legacyPmId = rawPmId && rawPmId > 0 ? rawPmId : undefined;
+
+  const rawAccId = hasPayments
+    ? payments[0]?.account_id
+    : safeNumber(b.account_id);
+  const legacyAccId = rawAccId && rawAccId > 0 ? rawAccId : undefined;
+
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const data: Prisma.OtherIncomeUncheckedUpdateInput = {};
+      if (descriptionRaw !== undefined) data.description = descriptionRaw;
+      if (currencyRaw !== undefined) data.currency = currencyRaw;
+      if (issueDate !== undefined) data.issue_date = issueDate;
+      if (b.payment_fee_amount === null) {
+        data.payment_fee_amount = null;
+      } else if (paymentFee !== undefined) {
+        data.payment_fee_amount = paymentFee;
+      }
+      if (amount !== undefined) data.amount = amount;
+
+      if (hasPayments) {
+        data.payment_method_id = legacyPmId ?? null;
+        data.account_id = legacyAccId ?? null;
+      } else {
+        if (b.payment_method_id !== undefined)
+          data.payment_method_id = legacyPmId ?? null;
+        if (b.account_id !== undefined) data.account_id = legacyAccId ?? null;
+      }
+
+      const after = await tx.otherIncome.update({
+        where: { id_other_income: id },
+        data,
+      });
+
+      if (hasPayments) {
+        await tx.otherIncomePayment.deleteMany({
+          where: { other_income_id: id },
+        });
+        await tx.otherIncomePayment.createMany({
+          data: payments.map((p) => ({
+            other_income_id: id,
+            amount: new Prisma.Decimal(p.amount),
+            payment_method_id: p.payment_method_id,
+            account_id: p.account_id ?? null,
+          })),
+        });
+      }
+
+      return tx.otherIncome.findUnique({
+        where: { id_other_income: after.id_other_income },
+        include: {
+          payments: true,
+          verifiedBy: {
+            select: { id_user: true, first_name: true, last_name: true },
+          },
+          createdBy: {
+            select: { id_user: true, first_name: true, last_name: true },
+          },
+        },
+      });
+    });
+
+    return res.status(200).json({ item: updated });
+  } catch (e) {
+    console.error("[other-incomes][PUT]", e);
+    return res
+      .status(500)
+      .json({ error: "Error al actualizar ingresos" });
+  }
+}
+
+async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
+  const auth = await getUserFromAuth(req);
+  if (!auth) return res.status(401).json({ error: "No autenticado" });
+
+  const planAccess = await ensurePlanFeatureAccess(
+    auth.id_agency,
+    "other_incomes",
+  );
+  if (!planAccess.allowed) {
+    return res.status(403).json({ error: "Plan insuficiente" });
+  }
+
+  const financeGrants = await getFinanceSectionGrants(
+    auth.id_agency,
+    auth.id_user,
+  );
+  const canOtherIncomes = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "other_incomes",
+  );
+  if (!canOtherIncomes) {
+    return res.status(403).json({ error: "Sin permisos" });
+  }
+
+  const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+  const id = safeNumber(rawId);
+  if (!id) return res.status(400).json({ error: "ID inválido" });
+
+  const existing = await prisma.otherIncome.findFirst({
+    where: { id_other_income: id, id_agency: auth.id_agency },
+    select: { id_other_income: true, verification_status: true },
+  });
+  if (!existing) return res.status(404).json({ error: "No encontrado" });
+
+  if (existing.verification_status === "VERIFIED") {
+    return res
+      .status(409)
+      .json({ error: "Desverificá el ingreso antes de eliminarlo." });
+  }
+
+  await prisma.otherIncome.delete({ where: { id_other_income: id } });
+  return res.status(200).json({ ok: true });
+}
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse,
+) {
+  if (req.method === "GET") return handleGet(req, res);
+  if (req.method === "PUT") return handlePut(req, res);
+  if (req.method === "DELETE") return handleDelete(req, res);
+  res.setHeader("Allow", ["GET", "PUT", "DELETE"]);
+  return res.status(405).end(`Method ${req.method} Not Allowed`);
+}

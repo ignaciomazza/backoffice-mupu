@@ -5,6 +5,7 @@ export const COUNTER_KEYS = [
   "client",
   "service",
   "receipt",
+  "other_income",
   "client_payment",
   "investment",
   "operator_due",

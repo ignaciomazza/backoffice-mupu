@@ -40,6 +40,11 @@ export default async function handler(
     financeGrants,
     "receipts_verify",
   );
+  const canVerifyOther = canAccessFinanceSection(
+    auth.role,
+    financeGrants,
+    "other_incomes_verify",
+  );
   const canConfig = canAccessFinanceSection(
     auth.role,
     financeGrants,
@@ -47,7 +52,7 @@ export default async function handler(
   );
 
   if (req.method === "GET") {
-    if (!canVerify && !canConfig) {
+    if (!canVerify && !canVerifyOther && !canConfig) {
       return res.status(403).json({ error: "Sin permisos" });
     }
     try {

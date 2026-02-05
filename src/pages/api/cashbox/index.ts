@@ -22,12 +22,19 @@ type MovementKind =
 
 type MovementSource =
   | "receipt"
+  | "other_income"
   | "investment"
   | "client_payment"
   | "operator_due"
   | "credit_entry"
   | "manual"
   | "other";
+
+type PaymentBreakdown = {
+  amount: number;
+  paymentMethod?: string | null;
+  account?: string | null;
+};
 
 export type CashboxMovement = {
   id: string; // ej: "receipt:123", "investment:45"
@@ -49,6 +56,9 @@ export type CashboxMovement = {
   // NUEVO: clasificación de caja
   paymentMethod?: string | null; // Efectivo, Transferencia, MP, etc.
   account?: string | null; // Banco / billetera / caja física, etc.
+
+  // Detalle de cobros múltiples (si aplica)
+  payments?: PaymentBreakdown[];
 };
 
 type CurrencySummary = {
@@ -308,45 +318,61 @@ function aggregateCashbox(
         }
       }
 
-      // === NUEVO: totales por medio de pago ===
-      const pmLabel = m.paymentMethod?.trim() || "Sin método";
-      const pmKey = `${pmLabel.toLowerCase()}::${m.currency}`;
+      const paymentEntries =
+        Array.isArray(m.payments) && m.payments.length > 0
+          ? m.payments
+          : [
+              {
+                amount: m.amount,
+                paymentMethod: m.paymentMethod,
+                account: m.account,
+              },
+            ];
 
-      if (!totalsByPaymentMethodMap.has(pmKey)) {
-        totalsByPaymentMethodMap.set(pmKey, {
-          paymentMethod: pmLabel,
-          currency: m.currency,
-          income: 0,
-          expenses: 0,
-        });
-      }
-      const pmTotals = totalsByPaymentMethodMap.get(pmKey);
-      if (pmTotals) {
-        if (m.type === "income") {
-          pmTotals.income += m.amount;
-        } else if (m.type === "expense") {
-          pmTotals.expenses += m.amount;
+      for (const entry of paymentEntries) {
+        const entryAmount = Number(entry.amount);
+        if (!Number.isFinite(entryAmount) || entryAmount <= 0) continue;
+
+        // === NUEVO: totales por medio de pago ===
+        const pmLabel = entry.paymentMethod?.trim() || "Sin método";
+        const pmKey = `${pmLabel.toLowerCase()}::${m.currency}`;
+
+        if (!totalsByPaymentMethodMap.has(pmKey)) {
+          totalsByPaymentMethodMap.set(pmKey, {
+            paymentMethod: pmLabel,
+            currency: m.currency,
+            income: 0,
+            expenses: 0,
+          });
         }
-      }
+        const pmTotals = totalsByPaymentMethodMap.get(pmKey);
+        if (pmTotals) {
+          if (m.type === "income") {
+            pmTotals.income += entryAmount;
+          } else if (m.type === "expense") {
+            pmTotals.expenses += entryAmount;
+          }
+        }
 
-      // === NUEVO: totales por cuenta ===
-      const accLabel = m.account?.trim() || "Sin cuenta";
-      const accKey = `${accLabel.toLowerCase()}::${m.currency}`;
+        // === NUEVO: totales por cuenta ===
+        const accLabel = entry.account?.trim() || "Sin cuenta";
+        const accKey = `${accLabel.toLowerCase()}::${m.currency}`;
 
-      if (!totalsByAccountMap.has(accKey)) {
-        totalsByAccountMap.set(accKey, {
-          account: accLabel,
-          currency: m.currency,
-          income: 0,
-          expenses: 0,
-        });
-      }
-      const accTotals = totalsByAccountMap.get(accKey);
-      if (accTotals) {
-        if (m.type === "income") {
-          accTotals.income += m.amount;
-        } else if (m.type === "expense") {
-          accTotals.expenses += m.amount;
+        if (!totalsByAccountMap.has(accKey)) {
+          totalsByAccountMap.set(accKey, {
+            account: accLabel,
+            currency: m.currency,
+            income: 0,
+            expenses: 0,
+          });
+        }
+        const accTotals = totalsByAccountMap.get(accKey);
+        if (accTotals) {
+          if (m.type === "income") {
+            accTotals.income += entryAmount;
+          } else if (m.type === "expense") {
+            accTotals.expenses += entryAmount;
+          }
         }
       }
     }
@@ -504,11 +530,13 @@ function aggregateCashbox(
 type GetMonthlyMovementsOptions = {
   hideOperatorExpenses?: boolean;
   accountNameById?: Map<number, string>;
+  methodNameById?: Map<number, string>;
 };
 
 /**
  * Movimientos mensuales para Caja:
  * - Receipt (ingresos)
+ * - OtherIncome (ingresos varios)
  * - Investment (egresos)
  * - ClientPayment (deuda de pasajeros + vencimientos)
  * - OperatorDue (deuda con operadores + vencimientos)
@@ -519,7 +547,7 @@ async function getMonthlyMovements(
   to: Date,
   options: GetMonthlyMovementsOptions = {},
 ): Promise<CashboxMovement[]> {
-  const { hideOperatorExpenses, accountNameById } = options;
+  const { hideOperatorExpenses, accountNameById, methodNameById } = options;
 
   /* ----------------------------
    * 1) INGRESOS: Recibos
@@ -607,7 +635,76 @@ async function getMonthlyMovements(
   });
 
   /* ----------------------------
-   * 2) EGRESOS: Investments
+   * 2) INGRESOS: Ingresos
+   * ---------------------------- */
+  const otherIncomes = await prisma.otherIncome.findMany({
+    where: {
+      id_agency: agencyId,
+      issue_date: {
+        gte: from,
+        lte: to,
+      },
+    },
+    include: {
+      payments: {
+        select: {
+          amount: true,
+          payment_method_id: true,
+          account_id: true,
+        },
+      },
+    },
+  });
+
+  const otherIncomeMovements: CashboxMovement[] = otherIncomes.map((inc) => {
+    const rawPayments = Array.isArray(inc.payments) ? inc.payments : [];
+    const payments = rawPayments.map((p) => ({
+      amount: decimalToNumber(p.amount),
+      paymentMethod: p.payment_method_id
+        ? methodNameById?.get(p.payment_method_id) ?? null
+        : null,
+      account: p.account_id
+        ? accountNameById?.get(p.account_id) ?? null
+        : null,
+    }));
+
+    const fallbackMethod =
+      inc.payment_method_id && methodNameById
+        ? methodNameById.get(inc.payment_method_id) ?? null
+        : null;
+    const fallbackAccount =
+      inc.account_id && accountNameById
+        ? accountNameById.get(inc.account_id) ?? null
+        : null;
+
+    const useSingle = payments.length === 1;
+    const useMultiple = payments.length > 1;
+
+    return {
+      id: `other_income:${inc.id_other_income}`,
+      date: inc.issue_date.toISOString(),
+      type: "income",
+      source: "other_income",
+      description: inc.description || "Ingresos",
+      currency: inc.currency,
+      amount: decimalToNumber(inc.amount),
+      dueDate: null,
+      paymentMethod: useSingle
+        ? payments[0]?.paymentMethod ?? null
+        : useMultiple
+          ? "Varios"
+          : fallbackMethod,
+      account: useSingle
+        ? payments[0]?.account ?? null
+        : useMultiple
+          ? null
+          : fallbackAccount,
+      payments: payments.length > 0 ? payments : undefined,
+    };
+  });
+
+  /* ----------------------------
+   * 3) EGRESOS: Investments
    * ---------------------------- */
 
   const investmentWhere: Prisma.InvestmentWhereInput = {
@@ -683,7 +780,7 @@ async function getMonthlyMovements(
   });
 
   /* ----------------------------
-   * 3) DEUDA CLIENTES: ClientPayment
+   * 4) DEUDA CLIENTES: ClientPayment
    * ---------------------------- */
 
   const clientPayments = await prisma.clientPayment.findMany({
@@ -735,7 +832,7 @@ async function getMonthlyMovements(
   });
 
   /* ----------------------------
-   * 4) DEUDA OPERADORES: OperatorDue
+   * 5) DEUDA OPERADORES: OperatorDue
    * ---------------------------- */
 
   const operatorDues = await prisma.operatorDue.findMany({
@@ -800,6 +897,7 @@ async function getMonthlyMovements(
 
   return [
     ...receiptMovements,
+    ...otherIncomeMovements,
     ...investmentMovements,
     ...clientPaymentMovements,
     ...operatorDueMovements,
@@ -1008,10 +1106,20 @@ export default async function handler(
       accountNameById.set(acc.id_account, acc.name);
     }
 
+    const methods = await prisma.financePaymentMethod.findMany({
+      where: { id_agency: agencyId },
+      select: { id_method: true, name: true },
+    });
+    const methodNameById = new Map<number, string>();
+    for (const method of methods) {
+      methodNameById.set(method.id_method, method.name);
+    }
+
     // 4) Movimientos del mes
     const movements = await getMonthlyMovements(agencyId, from, to, {
       hideOperatorExpenses,
       accountNameById,
+      methodNameById,
     });
 
     // 5) Saldos globales de deuda (pasajeros / operadores)
