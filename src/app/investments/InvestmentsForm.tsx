@@ -94,6 +94,7 @@ type InvestmentsFormProps = {
   isOperador: boolean;
   isSueldo: boolean;
   isComision: boolean;
+  isUserCategory: boolean;
   users: User[];
   operators: Operator[];
   inputClass: string;
@@ -121,6 +122,7 @@ type InvestmentsFormProps = {
   isRecurringOperador: boolean;
   isRecurringSueldo: boolean;
   isRecurringComision: boolean;
+  isRecurringUserCategory: boolean;
   nextRecurringRun: (rule: RecurringInvestment) => Date;
 };
 
@@ -148,6 +150,7 @@ export default function InvestmentsForm({
   isOperador,
   isSueldo,
   isComision,
+  isUserCategory,
   users,
   operators,
   inputClass,
@@ -175,6 +178,7 @@ export default function InvestmentsForm({
   isRecurringOperador,
   isRecurringSueldo,
   isRecurringComision,
+  isRecurringUserCategory,
   nextRecurringRun,
 }: InvestmentsFormProps) {
   const itemLabel = operatorOnly ? "pago" : "gasto";
@@ -624,10 +628,12 @@ export default function InvestmentsForm({
                   </div>
                 )}
 
-                {(isSueldo || isComision) && (
+                {isUserCategory && (
                   <Field
                     id="user_id"
-                    label={isSueldo ? "Empleado" : "Vendedor"}
+                    label={
+                      isSueldo ? "Empleado" : isComision ? "Vendedor" : "Usuario"
+                    }
                     required
                     className="md:col-span-2"
                   >
@@ -658,7 +664,7 @@ export default function InvestmentsForm({
                   </Field>
                 )}
 
-                {!isOperador && !isSueldo && !isComision && (
+                {!isOperador && !isUserCategory && (
                   <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-xs opacity-70 md:col-span-2">
                     Sin referencias adicionales para esta categoría.
                   </div>
@@ -1132,10 +1138,14 @@ export default function InvestmentsForm({
                       </div>
                     )}
 
-                    {(isRecurringSueldo || isRecurringComision) && (
+                    {isRecurringUserCategory && (
                       <div className="md:col-span-2">
                         <label className="ml-2 block">
-                          {isRecurringSueldo ? "Empleado" : "Vendedor"}
+                          {isRecurringSueldo
+                            ? "Empleado"
+                            : isRecurringComision
+                              ? "Vendedor"
+                              : "Usuario"}
                         </label>
                         <select
                           className={`${inputClass} cursor-pointer appearance-none`}

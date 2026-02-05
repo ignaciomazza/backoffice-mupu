@@ -162,7 +162,24 @@ async function getOperatorCategoryNames(
   return rows.map((r) => r.name).filter((n) => typeof n === "string");
 }
 
+async function getUserCategoryNames(agencyId: number): Promise<string[]> {
+  const rows = await prisma.expenseCategory.findMany({
+    where: { id_agency: agencyId, requires_user: true },
+    select: { name: true },
+  });
+  return rows.map((r) => r.name).filter((n) => typeof n === "string");
+}
+
 function buildOperatorCategorySet(names: string[]): Set<string> {
+  const set = new Set<string>();
+  for (const name of names) {
+    const n = normSoft(name);
+    if (n) set.add(n);
+  }
+  return set;
+}
+
+function buildUserCategorySet(names: string[]): Set<string> {
   const set = new Set<string>();
   for (const name of names) {
     const n = normSoft(name);
@@ -179,6 +196,19 @@ function isOperatorCategoryName(
   if (!n) return false;
   if (n.startsWith("operador")) return true;
   return operatorCategorySet ? operatorCategorySet.has(n) : false;
+}
+
+function isUserCategoryName(name: string, userCategorySet?: Set<string>) {
+  const n = normSoft(name);
+  if (!n) return false;
+  if (
+    n === "sueldo" ||
+    n === "sueldos" ||
+    n === "comision" ||
+    n === "comisiones"
+  )
+    return true;
+  return userCategorySet ? userCategorySet.has(n) : false;
 }
 
 function parseServiceIds(raw: unknown): number[] {
@@ -620,6 +650,12 @@ export default async function handler(
     const names = await getOperatorCategoryNames(auth.id_agency);
     operatorCategorySet = buildOperatorCategorySet(names);
   };
+  let userCategorySet: Set<string> | undefined;
+  const loadUserCategories = async () => {
+    if (userCategorySet) return;
+    const names = await getUserCategoryNames(auth.id_agency);
+    userCategorySet = buildUserCategorySet(names);
+  };
 
   const idParam = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   const id = safeNumber(idParam);
@@ -837,14 +873,17 @@ export default async function handler(
           error: "Para categoría Operador, operator_id es obligatorio",
         });
       }
+      if (b.user_id !== undefined && !userCategorySet) {
+        await loadUserCategories();
+      }
       if (
-        ["sueldo", "comision"].includes((nextCategory || "").toLowerCase()) &&
+        isUserCategoryName(nextCategory || "", userCategorySet) &&
         b.user_id !== undefined &&
         user_id == null
       ) {
         return res
           .status(400)
-          .json({ error: "Para Sueldo/Comision, user_id es obligatorio" });
+          .json({ error: "Para categorías con usuario, user_id es obligatorio" });
       }
 
       if (!operatorCategorySet) {

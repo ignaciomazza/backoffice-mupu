@@ -137,7 +137,24 @@ async function getOperatorCategoryNames(
   return rows.map((r) => r.name).filter((n) => typeof n === "string");
 }
 
+async function getUserCategoryNames(agencyId: number): Promise<string[]> {
+  const rows = await prisma.expenseCategory.findMany({
+    where: { id_agency: agencyId, requires_user: true },
+    select: { name: true },
+  });
+  return rows.map((r) => r.name).filter((n) => typeof n === "string");
+}
+
 function buildOperatorCategorySet(names: string[]): Set<string> {
+  const set = new Set<string>();
+  for (const name of names) {
+    const n = normSoft(name);
+    if (n) set.add(n);
+  }
+  return set;
+}
+
+function buildUserCategorySet(names: string[]): Set<string> {
   const set = new Set<string>();
   for (const name of names) {
     const n = normSoft(name);
@@ -154,6 +171,19 @@ function isOperatorCategoryName(
   if (!n) return false;
   if (n.startsWith("operador")) return true;
   return operatorCategorySet ? operatorCategorySet.has(n) : false;
+}
+
+function isUserCategoryName(name: string, userCategorySet?: Set<string>) {
+  const n = normSoft(name);
+  if (!n) return false;
+  if (
+    n === "sueldo" ||
+    n === "sueldos" ||
+    n === "comision" ||
+    n === "comisiones"
+  )
+    return true;
+  return userCategorySet ? userCategorySet.has(n) : false;
 }
 
 function parseDayOfMonth(v: unknown): number | undefined {
@@ -305,16 +335,19 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       category,
       operatorCategorySet,
     );
+    const userCategoryNames = await getUserCategoryNames(auth.id_agency);
+    const userCategorySet = buildUserCategorySet(userCategoryNames);
+    const categoryIsUser = isUserCategoryName(category, userCategorySet);
 
     if (categoryIsOperator && !operator_id) {
       return res
         .status(400)
         .json({ error: "Para categoría Operador, operator_id es obligatorio" });
     }
-    if (["sueldo", "comision"].includes(category.toLowerCase()) && !user_id) {
-      return res
-        .status(400)
-        .json({ error: "Para Sueldo/Comision, user_id es obligatorio" });
+    if (categoryIsUser && !user_id) {
+      return res.status(400).json({
+        error: "Para categorías con usuario, user_id es obligatorio",
+      });
     }
 
     const active = typeof b.active === "boolean" ? b.active : true;

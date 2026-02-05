@@ -38,6 +38,15 @@ const norm = (s: string) =>
 
 const isOperatorCategoryLegacy = (name: string) =>
   norm(name).startsWith("operador");
+const isUserCategoryLegacy = (name: string) => {
+  const n = norm(name);
+  return (
+    n === "sueldo" ||
+    n === "sueldos" ||
+    n === "comision" ||
+    n === "comisiones"
+  );
+};
 
 const uniqSorted = (arr: string[]) => {
   const seen = new Map<string, string>();
@@ -469,6 +478,17 @@ export default function Page() {
     return set;
   }, [finance?.categories]);
 
+  const userCategorySet = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of finance?.categories || []) {
+      if (c.requires_user) {
+        const n = norm(c.name);
+        if (n) set.add(n);
+      }
+    }
+    return set;
+  }, [finance?.categories]);
+
   const isOperatorCategory = useCallback(
     (name?: string | null) => {
       const n = norm(name || "");
@@ -477,6 +497,16 @@ export default function Page() {
       return operatorCategorySet.has(n);
     },
     [operatorCategorySet],
+  );
+
+  const isUserCategory = useCallback(
+    (name?: string | null) => {
+      const n = norm(name || "");
+      if (!n) return false;
+      if (isUserCategoryLegacy(n)) return true;
+      return userCategorySet.has(n);
+    },
+    [userCategorySet],
   );
 
   function resetForm() {
@@ -1349,8 +1379,8 @@ export default function Page() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const categoryLower = norm(form.category);
     const amountNum = Number(form.amount);
+    const needsUser = isUserCategory(form.category);
 
     if (!form.category || !form.description || !form.currency) {
       toast.error("Completá categoría, descripción y moneda");
@@ -1376,8 +1406,12 @@ export default function Page() {
       toast.error("El monto debe ser un número positivo");
       return;
     }
-    if (["sueldo", "comision"].includes(categoryLower) && !form.user_id) {
-      toast.error("Para SUELDO/COMISION, seleccioná un usuario");
+    if (needsUser && !form.user_id) {
+      toast.error(
+        isSueldo || isComision
+          ? "Para SUELDO/COMISION, seleccioná un usuario"
+          : "Para esta categoría, seleccioná un usuario",
+      );
       return;
     }
 
@@ -1512,10 +1546,10 @@ export default function Page() {
     e.preventDefault();
     if (!token) return;
 
-    const categoryLower = norm(recurringForm.category);
     const amountNum = Number(recurringForm.amount);
     const dayNum = Number(recurringForm.day_of_month);
     const intervalNum = Number(recurringForm.interval_months);
+    const needsUser = isUserCategory(recurringForm.category);
 
     if (!recurringForm.category || !recurringForm.description) {
       toast.error("Completá categoría y descripción");
@@ -1543,11 +1577,12 @@ export default function Page() {
       );
       return;
     }
-    if (
-      ["sueldo", "comision"].includes(categoryLower) &&
-      !recurringForm.user_id
-    ) {
-      toast.error("Para SUELDO/COMISION, seleccioná un usuario");
+    if (needsUser && !recurringForm.user_id) {
+      toast.error(
+        isRecurringSueldo || isRecurringComision
+          ? "Para SUELDO/COMISION, seleccioná un usuario"
+          : "Para esta categoría, seleccioná un usuario",
+      );
       return;
     }
 
@@ -1650,11 +1685,17 @@ export default function Page() {
 
   /* ========= Helpers UI ========= */
   const isOperador = isOperatorCategory(form.category);
-  const isSueldo = norm(form.category) === "sueldo";
-  const isComision = norm(form.category) === "comision";
+  const isSueldo = ["sueldo", "sueldos"].includes(norm(form.category));
+  const isComision = ["comision", "comisiones"].includes(norm(form.category));
+  const isUser = isUserCategory(form.category);
   const isRecurringOperador = isOperatorCategory(recurringForm.category);
-  const isRecurringSueldo = norm(recurringForm.category) === "sueldo";
-  const isRecurringComision = norm(recurringForm.category) === "comision";
+  const isRecurringSueldo = ["sueldo", "sueldos"].includes(
+    norm(recurringForm.category),
+  );
+  const isRecurringComision = ["comision", "comisiones"].includes(
+    norm(recurringForm.category),
+  );
+  const isRecurringUser = isUserCategory(recurringForm.category);
 
   const pillBase =
     "rounded-full px-3 py-1 text-xs font-medium transition-colors";
@@ -2205,6 +2246,7 @@ export default function Page() {
           isOperador={isOperador}
           isSueldo={isSueldo}
           isComision={isComision}
+          isUserCategory={isUser}
           users={users}
           operators={operators}
           inputClass={input}
@@ -2232,6 +2274,7 @@ export default function Page() {
           isRecurringOperador={isRecurringOperador}
           isRecurringSueldo={isRecurringSueldo}
           isRecurringComision={isRecurringComision}
+          isRecurringUserCategory={isRecurringUser}
           nextRecurringRun={nextRecurringRun}
         />
 
