@@ -1,5 +1,5 @@
 // src/components/bookings/BookingForm.tsx
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Spinner from "@/components/Spinner";
 import ClientPicker from "@/components/clients/ClientPicker";
@@ -36,6 +36,7 @@ export interface BookingFormData {
     notes?: string | null;
   }>;
   creation_date?: string; // aaaa-mm-dd
+  use_admin_adjustments?: boolean;
 }
 
 interface BookingFormProps {
@@ -151,10 +152,11 @@ export default function BookingForm({
   allowSimpleCompanions = false,
 }: BookingFormProps) {
   const [loading, setLoading] = useState(false);
-  const [useAdminAdjust, setUseAdminAdjust] = useState(false);
   const [useSimpleMode, setUseSimpleMode] = useState<boolean>(
     allowSimpleCompanions,
   );
+  const creatorBeforeAdminAdjustRef = useRef<number | null>(null);
+  const creationDateBeforeAdminAdjustRef = useRef<string>("");
   const [relatedClients, setRelatedClients] = useState<Client[]>([]);
   const [savedCompanions, setSavedCompanions] = useState<
     ClientSimpleCompanion[]
@@ -244,6 +246,44 @@ export default function BookingForm({
   };
 
   const canShowAdminBox = canPickCreator || canEditCreationDate;
+  const useAdminAdjust = Boolean(formData.use_admin_adjustments);
+
+  const toggleAdminAdjustments = (checked: boolean) => {
+    setFormData((prev) => {
+      if (checked) {
+        creatorBeforeAdminAdjustRef.current = isValidId(prev.id_user)
+          ? prev.id_user
+          : null;
+        creationDateBeforeAdminAdjustRef.current = prev.creation_date || "";
+        return {
+          ...prev,
+          use_admin_adjustments: true,
+          ...(canPickCreator ? { id_user: 0 } : {}),
+        };
+      }
+
+      const next = {
+        ...prev,
+        use_admin_adjustments: false,
+      };
+
+      if (canPickCreator && !isValidId(prev.id_user)) {
+        if (isValidId(creatorBeforeAdminAdjustRef.current)) {
+          next.id_user = creatorBeforeAdminAdjustRef.current;
+        }
+      }
+
+      if (
+        canEditCreationDate &&
+        !prev.creation_date &&
+        creationDateBeforeAdminAdjustRef.current
+      ) {
+        next.creation_date = creationDateBeforeAdminAdjustRef.current;
+      }
+
+      return next;
+    });
+  };
 
   const totalPax = formData.pax_count;
   const hasTitular = isValidId(formData.titular_id);
@@ -988,14 +1028,7 @@ export default function BookingForm({
                       <input
                         type="checkbox"
                         checked={useAdminAdjust}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setUseAdminAdjust(checked);
-                          // 👉 Al habilitar, forzamos la selección del creador a "Seleccionar…"
-                          if (checked && canPickCreator) {
-                            setFormData((prev) => ({ ...prev, id_user: 0 }));
-                          }
-                        }}
+                        onChange={(e) => toggleAdminAdjustments(e.target.checked)}
                         className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
                       />
                       Habilitar ajustes de creador/fecha de creación

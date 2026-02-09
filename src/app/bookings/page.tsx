@@ -48,6 +48,8 @@ type BookingFormData = {
   }>;
   /** fecha de creación editable por admin/gerente/dev (YYYY-MM-DD) */
   creation_date?: string;
+  /** si está activo, aplica ajustes administrativos (creador/fecha) */
+  use_admin_adjustments?: boolean;
 };
 
 const VIEW_MODE_STORAGE_KEY = "bookings-view-mode";
@@ -78,6 +80,66 @@ const isAbortError = (e: unknown): e is AbortErrorLike => {
 // IDs válidos (>0, número finito)
 const isValidId = (v: unknown): v is number =>
   typeof v === "number" && Number.isFinite(v) && v > 0;
+
+const formatBookingErrorMessage = (raw: string): string => {
+  const msg = (raw || "").trim();
+  const lower = msg.toLowerCase();
+  if (!msg) return "No se pudo guardar la reserva.";
+
+  if (lower.includes("todos los campos obligatorios")) {
+    return "Faltan campos obligatorios para guardar la reserva.";
+  }
+  if (lower.includes("el titular no puede estar en la lista de acompañantes")) {
+    return "El titular no puede estar incluido como acompañante.";
+  }
+  if (lower.includes("ids duplicados en los acompañantes")) {
+    return "Hay acompañantes repetidos. Dejá cada pax una sola vez.";
+  }
+  if (lower.includes("titular inválido para tu agencia")) {
+    return "El titular seleccionado no pertenece a tu agencia.";
+  }
+  if (lower.includes("hay acompañantes que no pertenecen a tu agencia")) {
+    return "Uno o más acompañantes no pertenecen a tu agencia.";
+  }
+  if (lower.includes("usuario asignado inválido para tu agencia")) {
+    return "El creador seleccionado no pertenece a tu agencia.";
+  }
+  if (lower.includes("no podés asignar fuera de tu equipo")) {
+    return "No podés asignar como creador a un usuario fuera de tu equipo.";
+  }
+  if (lower.includes("no autorizado para reasignar usuario")) {
+    return "No tenés permisos para cambiar el creador de la reserva.";
+  }
+  if (lower.includes("no autorizado para esta reserva")) {
+    return "No tenés permisos para editar esta reserva.";
+  }
+  if (lower.includes("sin permisos para modificar el estado")) {
+    return "No tenés permisos para modificar el estado de la reserva.";
+  }
+  if (lower.includes("no autenticado o token inválido")) {
+    return "Tu sesión expiró. Iniciá sesión nuevamente.";
+  }
+  if (lower.includes("creation_date inválida")) {
+    return "La fecha de creación no es válida.";
+  }
+  if (lower.includes("fechas inválidas")) {
+    return "Revisá la fecha de salida, regreso y creación.";
+  }
+  if (lower.includes("hay categorías inválidas")) {
+    return "Hay categorías de acompañantes inválidas para esta agencia.";
+  }
+  if (lower.includes("datos duplicados detectados")) {
+    return "Se detectaron datos duplicados al guardar la reserva.";
+  }
+  if (lower.includes("error creando la reserva")) {
+    return "No se pudo crear la reserva. Intentá de nuevo.";
+  }
+  if (lower.includes("error actualizando la reserva")) {
+    return "No se pudieron guardar los cambios de la reserva.";
+  }
+
+  return msg;
+};
 
 export default function Page() {
   const { token } = useAuth();
@@ -209,6 +271,7 @@ export default function Page() {
     clients_ids: [],
     simple_companions: [],
     creation_date: todayYMD(),
+    use_admin_adjustments: false,
   });
 
   const scrollToBookingForm = useCallback((behavior: ScrollBehavior) => {
@@ -482,19 +545,32 @@ export default function Page() {
           .filter(Boolean)
       : [];
 
+    const roleLower = (profile?.role || "").toLowerCase();
+    const canPickCreator =
+      roleLower === "gerente" ||
+      roleLower === "administrativo" ||
+      roleLower === "desarrollador";
+    const canEditCreationDate =
+      roleLower === "gerente" ||
+      roleLower === "administrativo" ||
+      roleLower === "desarrollador";
+    const adminAdjustEnabled = Boolean(formData.use_admin_adjustments);
+
     // ✅ Validaciones front mínimas (invoice_observation AHORA OPCIONAL)
-    if (
-      !formData.details.trim() ||
-      !formData.invoice_type.trim() ||
-      formData.titular_id === 0 ||
-      !formData.departure_date ||
-      !formData.return_date ||
-      !formData.clientStatus ||
-      !formData.operatorStatus ||
-      !formData.status ||
-      !formData.id_user
-    ) {
-      toast.error("Completá los campos obligatorios de la reserva.");
+    const missing: string[] = [];
+    if (!formData.details.trim()) missing.push("Detalle");
+    if (!formData.invoice_type.trim()) missing.push("Tipo de factura");
+    if (!isValidId(formData.titular_id)) missing.push("Titular");
+    if (!formData.departure_date) missing.push("Salida");
+    if (!formData.return_date) missing.push("Regreso");
+    if (!formData.clientStatus) missing.push("Estado pax");
+    if (!formData.operatorStatus) missing.push("Estado operador");
+    if (!formData.status) missing.push("Estado reserva");
+    if (adminAdjustEnabled && canPickCreator && !isValidId(formData.id_user)) {
+      missing.push("Creador de la reserva");
+    }
+    if (missing.length) {
+      toast.error(`Faltan campos obligatorios: ${missing.join(", ")}.`);
       return;
     }
 
@@ -540,21 +616,14 @@ export default function Page() {
         : "/api/bookings";
       const method = editingBookingId ? "PUT" : "POST";
 
-      // Permisos calculados con el rol actual
-      const roleLower = (profile?.role || "").toLowerCase();
-      const canPickCreator =
-        roleLower === "gerente" ||
-        roleLower === "administrativo" ||
-        roleLower === "desarrollador";
-      const canEditCreationDate =
-        roleLower === "gerente" ||
-        roleLower === "administrativo" ||
-        roleLower === "desarrollador";
-
       // ---- TIPADO del payload sin `any` ----
       type BookingPayload = Omit<
         BookingFormData,
-        "id_booking" | "id_agency" | "id_user" | "creation_date"
+        | "id_booking"
+        | "id_agency"
+        | "id_user"
+        | "creation_date"
+        | "use_admin_adjustments"
       > & { pax_count: number; clients_ids: number[]; simple_companions?: BookingFormData["simple_companions"] } & Partial<
           Pick<BookingFormData, "id_user" | "creation_date">
         >;
@@ -574,8 +643,10 @@ export default function Page() {
           1 + sanitizedCompanions.length + sanitizedSimpleCompanions.length,
         clients_ids: sanitizedCompanions,
         simple_companions: sanitizedSimpleCompanions as BookingPayload["simple_companions"],
-        ...(canPickCreator ? { id_user: formData.id_user } : {}),
-        ...(canEditCreationDate && formData.creation_date
+        ...(adminAdjustEnabled && canPickCreator && isValidId(formData.id_user)
+          ? { id_user: formData.id_user }
+          : {}),
+        ...(adminAdjustEnabled && canEditCreationDate && formData.creation_date
           ? { creation_date: formData.creation_date }
           : {}),
       };
@@ -595,7 +666,7 @@ export default function Page() {
         } catch {
           /* ignore */
         }
-        throw new Error(msg);
+        throw new Error(formatBookingErrorMessage(msg));
       }
 
       // Refrescar primera página con los filtros actuales
@@ -614,8 +685,9 @@ export default function Page() {
       toast.success("¡Reserva guardada con éxito!");
       resetForm();
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : "Error inesperado.";
-      console.error(msg);
+      const msg = formatBookingErrorMessage(
+        error instanceof Error ? error.message : "Error inesperado.",
+      );
       toast.error(msg);
     }
   };
@@ -663,6 +735,7 @@ export default function Page() {
       clients_ids: [],
       simple_companions: [],
       creation_date: todayYMD(),
+      use_admin_adjustments: false,
     }));
     setIsFormVisible(false);
     setEditingBookingId(null);
@@ -703,6 +776,7 @@ export default function Page() {
       creation_date:
         (booking.creation_date as unknown as string)?.split("T")[0] ||
         todayYMD(),
+      use_admin_adjustments: false,
     });
     setEditingBookingId(booking.id_booking || null);
     setIsFormVisible(true);
