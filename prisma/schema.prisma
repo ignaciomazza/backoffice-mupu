@@ -35,6 +35,7 @@ model Agency {
   arcaConnectionJobs           ArcaConnectionJob[]
   users                        User[]
   bookings                     Booking[]
+  quotes                       Quote[]
   Client                       Client[]
   SalesTeam                    SalesTeam[]
   Resources                    Resources[]
@@ -67,6 +68,7 @@ model Agency {
   clientPayments               ClientPayment[]
   ServiceType                  ServiceType[]
   ServiceCalcConfig            ServiceCalcConfig?
+  QuoteConfig                  QuoteConfig?
   PassengerCategory            PassengerCategory[]
   ServiceTypePreset            ServiceTypePreset[]
   ClientRelation               ClientRelation[]
@@ -143,6 +145,7 @@ model User {
   agency         Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
   bookings                          Booking[]
+  quotes                            Quote[]
   sales_teams                       UserTeam[]
   clients                           Client[]
   CalendarNote                      CalendarNote[]
@@ -243,6 +246,29 @@ model Booking {
 
   @@unique([id_agency, agency_booking_id], name: "agency_booking_id_unique")
   @@index([id_agency, id_booking], name: "agency_booking_idx")
+}
+
+model Quote {
+  id_quote         Int      @id @default(autoincrement())
+  agency_quote_id  Int?
+  id_agency        Int
+  agency           Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  id_user          Int
+  user             User     @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
+  lead_name        String?
+  lead_phone       String?
+  lead_email       String?
+  note             String?
+  booking_draft    Json?
+  pax_drafts       Json?
+  service_drafts   Json?
+  custom_values    Json?
+  creation_date    DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  @@unique([id_agency, agency_quote_id], name: "agency_quote_id_unique")
+  @@index([id_agency, id_quote], name: "agency_quote_idx")
+  @@index([id_agency, id_user], name: "agency_quote_owner_idx")
 }
 
 model Service {
@@ -906,6 +932,23 @@ model ClientConfig {
   updated_at DateTime @updatedAt
 
   @@unique([id_agency, agency_client_config_id], name: "agency_client_config_id_unique")
+  @@index([id_agency])
+}
+
+model QuoteConfig {
+  id_config               Int    @id @default(autoincrement())
+  agency_quote_config_id  Int
+  id_agency               Int    @unique
+  agency                  Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  required_fields Json?
+  hidden_fields   Json?
+  custom_fields   Json?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([id_agency, agency_quote_config_id], name: "agency_quote_config_id_unique")
   @@index([id_agency])
 }
 

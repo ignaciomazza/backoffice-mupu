@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 
 export const COUNTER_KEYS = [
   "booking",
+  "quote",
   "client",
   "service",
   "receipt",
@@ -20,6 +21,7 @@ export const COUNTER_KEYS = [
   "commission_rule_set",
   "finance_config",
   "client_config",
+  "quote_config",
   "agency_billing_config",
   "agency_billing_adjustment",
   "agency_billing_charge",

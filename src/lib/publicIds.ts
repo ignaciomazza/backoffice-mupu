@@ -4,6 +4,7 @@ const TOKEN_VERSION = "v1";
 
 export type PublicIdType =
   | "booking"
+  | "quote"
   | "receipt"
   | "invoice"
   | "credit_note"

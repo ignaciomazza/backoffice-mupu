@@ -211,6 +211,7 @@ export default function SideBar({
       "/arca": devMgr,
       "/teams": devMgr,
       "/invoices": adm,
+      "/quotes/config": adm,
       "/bookings/config": adm,
       "/balances": adm,
       "/earnings": adm,
@@ -313,6 +314,16 @@ export default function SideBar({
             : null,
           hasAccess("/bookings/config")
             ? { href: "/bookings/config", label: "Configuración" }
+            : null,
+        ].filter(Boolean) as { href: string; label: string }[],
+      },
+      {
+        id: "cotizaciones",
+        title: "Cotizaciones",
+        items: [
+          { href: "/quotes", label: "Cotizaciones" },
+          hasAccess("/quotes/config")
+            ? { href: "/quotes/config", label: "Configuración" }
             : null,
         ].filter(Boolean) as { href: string; label: string }[],
       },
