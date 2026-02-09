@@ -241,16 +241,21 @@ export default async function handler(
     where: { id_investment: id, id_agency: authAgencyId },
     include: {
       operator: true,
+      user: true,
       booking: { select: { id_booking: true, agency_booking_id: true } },
     },
   });
 
-  if (!investment) return res.status(404).end("Pago no encontrado");
+  if (!investment) return res.status(404).end("Egreso no encontrado");
 
   const operatorCategoryNames = await getOperatorCategoryNames(authAgencyId);
   const operatorCategorySet = buildOperatorCategorySet(operatorCategoryNames);
-  if (!isOperatorCategoryName(investment.category, operatorCategorySet)) {
-    return res.status(403).end("Solo disponible para pagos a operador");
+  const categoryIsOperator = isOperatorCategoryName(
+    investment.category,
+    operatorCategorySet,
+  );
+  if (restrictToOperatorPayments && !categoryIsOperator) {
+    return res.status(403).end("Tu plan solo permite pagos a operador");
   }
 
   const agency = (await prisma.agency.findUnique({
@@ -362,9 +367,23 @@ export default async function handler(
         ? toNum(investment.counter_amount, 0)
         : null,
     counter_currency: investment.counter_currency ?? null,
-    operator: {
-      id: investment.operator?.id_operator ?? investment.operator_id ?? null,
-      name: investment.operator?.name || "Operador",
+    recipient: {
+      id:
+        investment.operator?.id_operator ??
+        investment.user?.id_user ??
+        investment.operator_id ??
+        investment.user_id ??
+        null,
+      label: investment.operator
+        ? "Operador"
+        : investment.user
+          ? "Usuario"
+          : "Sin destinatario",
+      name: investment.operator?.name
+        ? investment.operator.name
+        : investment.user
+          ? `${investment.user.first_name} ${investment.user.last_name}`.trim()
+          : "Sin destinatario asociado",
     },
     bookingNumbers,
     services: services.map((s) => ({
@@ -390,7 +409,7 @@ export default async function handler(
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader(
     "Content-Disposition",
-    `attachment; filename=pago_operador_${paymentNumber}.pdf`,
+    `attachment; filename=comprobante_pago_${paymentNumber}.pdf`,
   );
   stream.pipe(res);
 }

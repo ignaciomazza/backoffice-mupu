@@ -26,8 +26,9 @@ export type OperatorPaymentPdfData = {
   base_currency?: string | null;
   counter_amount?: number | null;
   counter_currency?: string | null;
-  operator: {
+  recipient: {
     id?: number | null;
+    label?: string | null;
     name: string;
   };
   bookingNumbers?: string[];
@@ -178,7 +179,7 @@ export default function OperatorPaymentDocument(props: OperatorPaymentPdfData) {
     base_currency,
     counter_amount,
     counter_currency,
-    operator,
+    recipient,
     bookingNumbers,
     services = [],
     agency,
@@ -223,7 +224,7 @@ export default function OperatorPaymentDocument(props: OperatorPaymentPdfData) {
           </View>
           <View style={styles.headerRightRow}>
             <Text style={styles.title}>Comprobante de pago</Text>
-            <Text style={styles.subtitle}>Operador</Text>
+            <Text style={styles.subtitle}>Categoría: {category}</Text>
             <Text style={styles.subtitle}>N° {paymentNumber}</Text>
             <Text style={styles.subtitle}>Fecha: {fmtDate(issueDate)}</Text>
             {paidDate ? (
@@ -233,10 +234,13 @@ export default function OperatorPaymentDocument(props: OperatorPaymentPdfData) {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Operador</Text>
-          <Text style={styles.listItem}>{operator.name}</Text>
-          {operator.id ? (
-            <Text style={styles.listItem}>ID: {operator.id}</Text>
+          <Text style={styles.sectionTitle}>Destinatario</Text>
+          <Text style={styles.listItem}>{recipient.name}</Text>
+          {recipient.label ? (
+            <Text style={styles.listItem}>Tipo: {recipient.label}</Text>
+          ) : null}
+          {recipient.id ? (
+            <Text style={styles.listItem}>ID: {recipient.id}</Text>
           ) : null}
         </View>
 

@@ -2330,7 +2330,7 @@ export default function Page() {
           formatDate={formatDate}
           onEdit={beginEdit}
           token={token ?? null}
-          showOperatorPaymentPdf={operatorOnly}
+          showOperatorPaymentPdf
         />
 
         <ToastContainer />

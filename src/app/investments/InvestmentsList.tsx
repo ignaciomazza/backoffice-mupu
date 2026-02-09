@@ -66,6 +66,7 @@ type InvestmentsListProps = {
   onEdit: (it: Investment) => void;
   token?: string | null;
   showOperatorPaymentPdf?: boolean;
+  canDownloadOperatorPaymentPdf?: (it: Investment) => boolean;
 };
 
 const slugify = (s: string) =>
@@ -87,7 +88,11 @@ function PaymentPdfButton({
 }) {
   const [loading, setLoading] = useState(false);
   const paymentDisplayId = item.agency_investment_id ?? item.id_investment;
-  const operatorName = item.operator?.name || "Operador";
+  const recipientName = item.operator?.name
+    ? item.operator.name
+    : item.user
+      ? `${item.user.first_name} ${item.user.last_name}`
+      : item.category || "Egreso";
 
   const downloadPDF = async () => {
     if (!token) {
@@ -106,7 +111,7 @@ function PaymentPdfButton({
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Pago_Operador_${slugify(operatorName)}_${paymentDisplayId}.pdf`;
+      a.download = `Comprobante_Pago_${slugify(recipientName)}_${paymentDisplayId}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -133,7 +138,25 @@ function PaymentPdfButton({
       title="Descargar comprobante"
       aria-label="Descargar comprobante"
     >
-      {loading ? <Spinner /> : "PDF"}
+      {loading ? (
+        <Spinner />
+      ) : (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          strokeWidth={1.5}
+          stroke="currentColor"
+          className="size-4"
+          aria-hidden="true"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+          />
+        </svg>
+      )}
     </button>
   );
 }
@@ -145,6 +168,7 @@ function InvestmentCard({
   itemLabel,
   token,
   showOperatorPaymentPdf,
+  canDownloadOperatorPaymentPdf,
 }: {
   item: Investment;
   onEdit: (it: Investment) => void;
@@ -152,8 +176,13 @@ function InvestmentCard({
   itemLabel: string;
   token?: string | null;
   showOperatorPaymentPdf?: boolean;
+  canDownloadOperatorPaymentPdf?: (it: Investment) => boolean;
 }) {
   const bookingNumber = item.booking?.agency_booking_id ?? item.booking_id;
+  const showPdf =
+    typeof canDownloadOperatorPaymentPdf === "function"
+      ? canDownloadOperatorPaymentPdf(item)
+      : !!showOperatorPaymentPdf;
   return (
     <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
       <div className="flex items-center justify-between gap-3">
@@ -169,7 +198,7 @@ function InvestmentCard({
           <div className="text-sm opacity-70">
             N° {item.agency_investment_id ?? item.id_investment}
           </div>
-          {showOperatorPaymentPdf && (
+          {showPdf && (
             <PaymentPdfButton token={token} item={item} />
           )}
           <button
@@ -296,6 +325,7 @@ function InvestmentsCardsList({
   itemLabel,
   token,
   showOperatorPaymentPdf,
+  canDownloadOperatorPaymentPdf,
 }: {
   items: Investment[];
   onEdit: (it: Investment) => void;
@@ -303,6 +333,7 @@ function InvestmentsCardsList({
   itemLabel: string;
   token?: string | null;
   showOperatorPaymentPdf?: boolean;
+  canDownloadOperatorPaymentPdf?: (it: Investment) => boolean;
 }) {
   return (
     <div className="space-y-3">
@@ -315,6 +346,7 @@ function InvestmentsCardsList({
           itemLabel={itemLabel}
           token={token}
           showOperatorPaymentPdf={showOperatorPaymentPdf}
+          canDownloadOperatorPaymentPdf={canDownloadOperatorPaymentPdf}
         />
       ))}
     </div>
@@ -365,6 +397,7 @@ export default function InvestmentsList({
   onEdit,
   token,
   showOperatorPaymentPdf,
+  canDownloadOperatorPaymentPdf,
 }: InvestmentsListProps) {
   const itemLabelPlural = itemLabel.endsWith("s") ? itemLabel : `${itemLabel}s`;
   return (
@@ -649,6 +682,10 @@ export default function InvestmentsList({
                 </thead>
                 <tbody>
                   {filteredItems.map((it) => {
+                    const showPdf =
+                      typeof canDownloadOperatorPaymentPdf === "function"
+                        ? canDownloadOperatorPaymentPdf(it)
+                        : !!showOperatorPaymentPdf;
                     const amountLabel = new Intl.NumberFormat("es-AR", {
                       style: "currency",
                       currency: it.currency,
@@ -693,7 +730,7 @@ export default function InvestmentsList({
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            {showOperatorPaymentPdf && (
+                            {showPdf && (
                               <PaymentPdfButton
                                 token={token}
                                 item={it}
@@ -740,35 +777,46 @@ export default function InvestmentsList({
                     </div>
                   </div>
                   <div className="mt-3 divide-y divide-white/10">
-                    {group.items.map((it) => (
-                      <div
-                        key={it.id_investment}
-                        className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
-                      >
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">
-                              {it.description}
-                            </span>
-                            {it.recurring_id && (
-                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-800">
-                                Auto
+                    {group.items.map((it) => {
+                      const showPdf =
+                        typeof canDownloadOperatorPaymentPdf === "function"
+                          ? canDownloadOperatorPaymentPdf(it)
+                          : !!showOperatorPaymentPdf;
+                      return (
+                        <div
+                          key={it.id_investment}
+                          className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">
+                                {it.description}
                               </span>
+                              {it.recurring_id && (
+                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-800">
+                                  Auto
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs opacity-70">
+                              {formatDate(it.paid_at ?? it.created_at)} ·{" "}
+                              {it.category}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {showPdf && (
+                              <PaymentPdfButton token={token} item={it} />
                             )}
-                          </div>
-                          <div className="text-xs opacity-70">
-                            {formatDate(it.paid_at ?? it.created_at)} ·{" "}
-                            {it.category}
+                            <div className="text-sm font-semibold">
+                              {new Intl.NumberFormat("es-AR", {
+                                style: "currency",
+                                currency: it.currency,
+                              }).format(it.amount)}
+                            </div>
                           </div>
                         </div>
-                        <div className="text-sm font-semibold">
-                          {new Intl.NumberFormat("es-AR", {
-                            style: "currency",
-                            currency: it.currency,
-                          }).format(it.amount)}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}
@@ -781,6 +829,7 @@ export default function InvestmentsList({
               itemLabel={itemLabel}
               token={token}
               showOperatorPaymentPdf={showOperatorPaymentPdf}
+              canDownloadOperatorPaymentPdf={canDownloadOperatorPaymentPdf}
             />
           )}
 

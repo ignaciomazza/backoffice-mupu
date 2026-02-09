@@ -239,6 +239,45 @@ function formatName(first?: string | null, last?: string | null): string {
   return parts.length > 0 ? parts.join(" ") : "Sin titular";
 }
 
+const slugify = (value: string): string =>
+  value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+function DownloadIcon({ className = "size-4" }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      className={className}
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+      />
+    </svg>
+  );
+}
+
 function MoneyLines({ data }: { data?: MoneyMap }) {
   const entries = Object.entries(data || {}).filter(
     ([, value]) => Number.isFinite(value) && Math.abs(value) > 0.0001,
@@ -352,6 +391,12 @@ export default function OperatorInsightsPage() {
 
   const [data, setData] = useState<OperatorInsightsResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [downloadingReceiptId, setDownloadingReceiptId] = useState<
+    number | null
+  >(null);
+  const [downloadingInvestmentId, setDownloadingInvestmentId] = useState<
+    number | null
+  >(null);
 
   const operatorName = useMemo(() => {
     if (data?.operator?.name) return data.operator.name;
@@ -474,6 +519,82 @@ export default function OperatorInsightsPage() {
       return String(item.id_receipt);
     },
     [],
+  );
+
+  const downloadReceiptPdf = useCallback(
+    async (item: {
+      id_receipt: number;
+      agency_receipt_id?: number | null;
+      issue_date: string;
+    }) => {
+      if (!token) {
+        toast.error("Sesion no iniciada");
+        return;
+      }
+
+      setDownloadingReceiptId(item.id_receipt);
+      try {
+        const res = await authFetch(
+          `/api/receipts/${item.id_receipt}/pdf`,
+          { headers: { Accept: "application/pdf" } },
+          token,
+        );
+        if (!res.ok) throw new Error();
+        const blob = await res.blob();
+        const displayId = getReceiptDisplayNumber(item);
+        downloadBlob(
+          blob,
+          `Recibo_${slugify(displayId)}_${item.issue_date || "sin_fecha"}.pdf`,
+        );
+        toast.success("Comprobante de recibo descargado.");
+      } catch {
+        toast.error("No se pudo descargar el recibo.");
+      } finally {
+        setDownloadingReceiptId((prev) =>
+          prev === item.id_receipt ? null : prev,
+        );
+      }
+    },
+    [getReceiptDisplayNumber, token],
+  );
+
+  const downloadInvestmentPdf = useCallback(
+    async (item: {
+      id_investment: number;
+      agency_investment_id?: number | null;
+      created_at: string;
+    }) => {
+      if (!token) {
+        toast.error("Sesion no iniciada");
+        return;
+      }
+
+      setDownloadingInvestmentId(item.id_investment);
+      try {
+        const res = await authFetch(
+          `/api/investments/${item.id_investment}/pdf`,
+          { headers: { Accept: "application/pdf" } },
+          token,
+        );
+        if (!res.ok) throw new Error();
+        const blob = await res.blob();
+        const displayId = String(
+          item.agency_investment_id ?? item.id_investment,
+        );
+        downloadBlob(
+          blob,
+          `Pago_Operador_${slugify(displayId)}_${item.created_at || "sin_fecha"}.pdf`,
+        );
+        toast.success("Comprobante de pago descargado.");
+      } catch {
+        toast.error("No se pudo descargar el comprobante de pago.");
+      } finally {
+        setDownloadingInvestmentId((prev) =>
+          prev === item.id_investment ? null : prev,
+        );
+      }
+    },
+    [token],
   );
   const sharedBookings = useMemo(() => {
     if (!data?.lists.bookings) return 0;
@@ -1416,7 +1537,23 @@ export default function OperatorInsightsPage() {
                                 <span>
                                   Recibo N° {getReceiptDisplayNumber(item)}
                                 </span>
-                                <span>{formatDate(item.issue_date)}</span>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadReceiptPdf(item)}
+                                    disabled={
+                                      downloadingReceiptId === item.id_receipt
+                                    }
+                                    className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-semibold text-sky-900 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-sky-500/20 dark:text-sky-100"
+                                    title="Descargar comprobante"
+                                    aria-label="Descargar comprobante"
+                                  >
+                                    {downloadingReceiptId === item.id_receipt
+                                      ? "..."
+                                      : <DownloadIcon />}
+                                  </button>
+                                  <span>{formatDate(item.issue_date)}</span>
+                                </div>
                               </div>
                               <div className="mt-1 font-medium">
                                 {item.concept}
@@ -1473,7 +1610,25 @@ export default function OperatorInsightsPage() {
                                   {item.agency_investment_id ??
                                     item.id_investment}
                                 </span>
-                                <span>{formatDate(item.created_at)}</span>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadInvestmentPdf(item)}
+                                    disabled={
+                                      downloadingInvestmentId ===
+                                      item.id_investment
+                                    }
+                                    className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-semibold text-rose-900 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-rose-500/20 dark:text-rose-100"
+                                    title="Descargar comprobante"
+                                    aria-label="Descargar comprobante"
+                                  >
+                                    {downloadingInvestmentId ===
+                                    item.id_investment
+                                      ? "..."
+                                      : <DownloadIcon />}
+                                  </button>
+                                  <span>{formatDate(item.created_at)}</span>
+                                </div>
                               </div>
                               <div className="mt-1 font-medium">
                                 {item.description}
@@ -1522,7 +1677,27 @@ export default function OperatorInsightsPage() {
                                     {item.agency_investment_id ??
                                       item.id_investment}
                                   </span>
-                                  <span>{formatDate(item.created_at)}</span>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        downloadInvestmentPdf(item)
+                                      }
+                                      disabled={
+                                        downloadingInvestmentId ===
+                                        item.id_investment
+                                      }
+                                      className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-semibold text-rose-900 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:bg-rose-500/20 dark:text-rose-100"
+                                      title="Descargar comprobante"
+                                      aria-label="Descargar comprobante"
+                                    >
+                                      {downloadingInvestmentId ===
+                                      item.id_investment
+                                        ? "..."
+                                        : <DownloadIcon />}
+                                    </button>
+                                    <span>{formatDate(item.created_at)}</span>
+                                  </div>
                                 </div>
                                 <div className="mt-1 font-medium">
                                   {item.description}
