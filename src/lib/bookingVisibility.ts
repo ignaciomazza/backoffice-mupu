@@ -90,9 +90,16 @@ export async function resolveBookingVisibilityMode(auth: {
   role?: string | null;
 }): Promise<BookingVisibilityMode> {
   const role = normalizeRole(auth.role);
+  if (
+    role === "gerente" ||
+    role === "administrativo" ||
+    role === "desarrollador"
+  ) {
+    return "all";
+  }
   if (role === "lider") return "team";
   if (role === "vendedor") return getBookingVisibilityMode(auth.id_agency);
-  return "all";
+  return "own";
 }
 
 export async function canAccessBookingOwnerByVisibility(auth: {
