@@ -9,6 +9,10 @@ import {
   normalizeRequiredFields,
   DOC_REQUIRED_FIELDS,
 } from "@/utils/clientConfig";
+import {
+  buildClientDuplicateResponse,
+  findClientDuplicate,
+} from "@/utils/clientDuplicate";
 
 // ==== Tipos auxiliares ====
 type TokenPayload = JWTPayload & {
@@ -134,6 +138,17 @@ const userSelectSafe = {
   role: true,
   id_agency: true,
   email: true,
+} as const;
+
+const duplicateSelectSafe = {
+  id_client: true,
+  agency_client_id: true,
+  first_name: true,
+  last_name: true,
+  birth_date: true,
+  dni_number: true,
+  passport_number: true,
+  tax_id: true,
 } as const;
 
 type VisibilityMode = "all" | "team" | "own";
@@ -438,31 +453,24 @@ export default async function handler(
       }
 
       // Chequeo de duplicados (en la misma agencia), excluyendo este pax
-      const duplicate = await prisma.client.findFirst({
+      const duplicateCandidates = await prisma.client.findMany({
         where: {
           id_client: { not: clientId },
           id_agency: auth.id_agency,
-          OR: [
-            ...(dni ? [{ dni_number: dni }] : []),
-            ...(pass ? [{ passport_number: pass }] : []),
-            ...(taxId ? [{ tax_id: taxId }] : []),
-            ...(birth
-              ? [
-                  {
-                    first_name,
-                    last_name,
-                    birth_date: birth,
-                  },
-                ]
-              : []),
-          ],
         },
-        select: { id_client: true },
+        select: duplicateSelectSafe,
+        orderBy: { id_client: "desc" },
+      });
+      const duplicate = findClientDuplicate(duplicateCandidates, {
+        first_name,
+        last_name,
+        birth_date: birth ?? null,
+        dni_number: dni,
+        passport_number: pass,
+        tax_id: taxId,
       });
       if (duplicate) {
-        return res
-          .status(409)
-          .json({ error: "Esa información ya pertenece a un pax." });
+        return res.status(409).json(buildClientDuplicateResponse(duplicate));
       }
 
       const updated = await prisma.client.update({
@@ -499,11 +507,24 @@ export default async function handler(
 
       return res.status(200).json(updated);
     } catch (e: unknown) {
-      if (typeof e === "object" && e !== null && "code" in e) {
-        const err = e as { code?: string };
-        if (err.code === "P2002") {
-          return res.status(409).json({ error: "Datos duplicados detectados" });
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        const targetRaw = (
+          e.meta as { target?: string[] | string } | undefined
+        )?.target;
+        const target = Array.isArray(targetRaw)
+          ? targetRaw.join(",")
+          : String(targetRaw ?? "");
+        if (target.includes("agency_client_id")) {
+          return res.status(409).json({
+            error:
+              "No se pudo guardar el pax por un conflicto con el numero interno. Reintenta.",
+            code: "CLIENT_NUMBER_CONFLICT",
+          });
         }
+        return res.status(409).json({
+          error: "No se pudo guardar el pax por un dato unico duplicado.",
+          code: "CLIENT_UNIQUE_CONFLICT",
+        });
       }
       console.error("[clients/:id][PUT]", e);
       return res.status(500).json({ error: "Error updating client" });

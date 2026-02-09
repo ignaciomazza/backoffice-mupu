@@ -28,98 +28,10 @@ import {
   normalizeCustomFields,
   normalizeRequiredFields,
 } from "@/utils/clientConfig";
+import { rankClientsBySimilarity } from "@/utils/clientSearch";
 
-/* =========================================================
- * NUEVO: helpers de búsqueda flexible
- * ========================================================= */
-
-/** Saca tildes, baja a minúsculas, colapsa espacios */
-function norm(s: string | undefined | null): string {
-  return (s || "")
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "") // saca acentos
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Distancia de Levenshtein básica (cuántos cambios necesito para convertir a -> b) */
-function levenshtein(aRaw: string, bRaw: string): number {
-  const a = aRaw;
-  const b = bRaw;
-  const m = a.length;
-  const n = b.length;
-  if (!m) return n;
-  if (!n) return m;
-
-  // ⬇⬇⬇ cambio acá: ya no usamos (_, i)
-  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
-
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1, // borrado
-        dp[i][j - 1] + 1, // inserción
-        dp[i - 1][j - 1] + cost, // reemplazo
-      );
-    }
-  }
-  return dp[m][n];
-}
-
-/** score entre una query normalizada y un string candidato */
-function matchScore(queryNorm: string, candidateRaw: string): number {
-  if (!candidateRaw) return 9999;
-  const cand = norm(candidateRaw);
-  if (!cand) return 9999;
-
-  // prioridad 0: arranca igual
-  if (cand.startsWith(queryNorm)) return 0;
-
-  // prioridad 1: lo contiene en algún lado
-  if (cand.includes(queryNorm)) return 1;
-
-  // prioridad 2+: parecido (typo). Mientras más cerca, mejor.
-  // sumamos 2 para que sea siempre peor que startsWith/includes
-  const dist = levenshtein(queryNorm, cand);
-  return 2 + dist;
-}
-
-/** Saca el mejor score de un pax comparando varios campos */
-function scoreClient(c: Client, queryNorm: string): number {
-  const combos = [
-    `${c.first_name || ""} ${c.last_name || ""}`,
-    `${c.last_name || ""} ${c.first_name || ""}`,
-    c.dni_number || "",
-    c.passport_number || "",
-    c.tax_id || "",
-    c.phone || "",
-    c.email || "",
-    c.company_name || "",
-    c.locality || "",
-  ];
-
-  let best = Infinity;
-  for (const field of combos) {
-    const s = matchScore(queryNorm, field);
-    if (s < best) best = s;
-  }
-  return best;
-}
-
-/** Ordena la lista de pasajeros de "mejor match" → "peor match" */
 function rankClients(list: Client[], query: string): Client[] {
-  const qn = norm(query);
-  if (!qn) return list; // sin búsqueda → dejamos el orden del server
-  return [...list].sort((a, b) => scoreClient(a, qn) - scoreClient(b, qn));
-}
-
-function primaryToken(q: string): string {
-  return q.trim().split(/\s+/)[0] || "";
+  return rankClientsBySimilarity(list, query);
 }
 
 /* =========================================================
@@ -177,8 +89,7 @@ export default function Page() {
   const [viewMode, setViewMode] = useState<"grid" | "list" | "table">("grid");
 
   // Paginación (API ahora retorna { items, nextCursor })
-  const take =
-    viewMode === "list" ? 40 : viewMode === "table" ? 60 : 24;
+  const take = viewMode === "list" ? 40 : viewMode === "table" ? 60 : 24;
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
 
@@ -407,12 +318,9 @@ export default function Page() {
       if (selectedGender) qs.append("gender", selectedGender);
       if (relatedClientId) qs.append("related_to", String(relatedClientId));
 
-      // 👇 cambio clave:
-      // en vez de mandar TODA la búsqueda al backend,
-      // le mandamos SOLO la primera palabra (apellido o nombre).
-      const tokenQ = primaryToken(debouncedSearch);
-      if (tokenQ) {
-        qs.append("q", tokenQ);
+      const queryText = debouncedSearch.trim();
+      if (queryText) {
+        qs.append("q", queryText);
       }
 
       qs.append("take", String(take));
@@ -540,13 +448,61 @@ export default function Page() {
     }));
   };
 
+  const openClientInEditor = useCallback((client: Client) => {
+    setFormData({
+      first_name: client.first_name,
+      last_name: client.last_name,
+      phone: client.phone || "",
+      address: client.address || "",
+      postal_code: client.postal_code || "",
+      locality: client.locality || "",
+      company_name: client.company_name || "",
+      tax_id: client.tax_id || "",
+      commercial_address: client.commercial_address || "",
+      dni_number: client.dni_number || "",
+      passport_number: client.passport_number || "",
+      birth_date: client.birth_date
+        ? new Date(client.birth_date).toISOString().split("T")[0]
+        : "",
+      nationality: client.nationality || "",
+      gender: client.gender || "",
+      category_id: client.category_id ?? null,
+      email: client.email || "",
+      custom_fields: client.custom_fields || {},
+      id_user: client.user.id_user,
+      id_agency: client.user.id_agency,
+    });
+    setEditingClientId(client.id_client);
+    setIsFormVisible(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const openDuplicateClient = useCallback(
+    async (duplicateId: number) => {
+      if (!token) return;
+      try {
+        const res = await authFetch(
+          `/api/clients/${duplicateId}`,
+          { cache: "no-store" },
+          token,
+        );
+        const body = await res.json().catch(() => null);
+        if (!res.ok || !body) {
+          throw new Error("No se pudo abrir el pax duplicado");
+        }
+        openClientInEditor(body as Client);
+      } catch (err) {
+        console.error("Error al abrir pax duplicado:", err);
+        toast.error("No se pudo abrir el pax duplicado.");
+      }
+    },
+    [token, openClientInEditor],
+  );
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const isFilled = (val: unknown) =>
-      String(val ?? "")
-        .trim()
-        .length > 0;
+    const isFilled = (val: unknown) => String(val ?? "").trim().length > 0;
 
     const missingBase = requiredFields.filter((field) => {
       if (field === DOCUMENT_ANY_KEY) return false;
@@ -588,6 +544,7 @@ export default function Page() {
         ? formData.birth_date.split("T")[0]
         : formData.birth_date;
 
+    let shouldResetForm = false;
     try {
       const url = editingClientId
         ? `/api/clients/${editingClientId}`
@@ -610,9 +567,42 @@ export default function Page() {
         token,
       );
 
-      const body = await res.json();
-      if (!res.ok)
-        throw new Error(body?.error || "Error al guardar el pax");
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const duplicateIdRaw = (body as { duplicate?: { id_client?: unknown } })
+          ?.duplicate?.id_client;
+        const duplicateClientId = Number(duplicateIdRaw);
+        const apiError =
+          (body as { error?: string })?.error || "Error al guardar el pax";
+
+        if (Number.isFinite(duplicateClientId) && duplicateClientId > 0) {
+          const duplicateId = Number(duplicateClientId);
+          toast.error(
+            ({ closeToast }: { closeToast?: () => void }) => (
+              <div className="space-y-3">
+                <p className="text-sm leading-relaxed text-sky-950">
+                  {apiError}
+                </p>
+                <button
+                  type="button"
+                  className="inline-flex w-fit items-center justify-center rounded-full border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950 shadow-sm transition-colors hover:bg-sky-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60"
+                  onClick={() => {
+                    closeToast?.();
+                    void openDuplicateClient(duplicateId);
+                  }}
+                >
+                  Abrir pax duplicado
+                </button>
+              </div>
+            ),
+            { autoClose: false, closeOnClick: false },
+          );
+          return;
+        }
+
+        toast.error(apiError);
+        return;
+      }
 
       // Refrescar primera página con filtros actuales
       const qs = buildClientsQuery();
@@ -632,6 +622,7 @@ export default function Page() {
       setExpandedClientId(null);
 
       toast.success("Pax guardado con éxito!");
+      shouldResetForm = true;
     } catch (err: unknown) {
       console.error("Error al guardar el pax:", err);
       toast.error(
@@ -639,6 +630,7 @@ export default function Page() {
           "Error al guardar el pax. Intente nuevamente.",
       );
     } finally {
+      if (!shouldResetForm) return;
       setFormData((prev) => ({
         first_name: "",
         last_name: "",
@@ -698,32 +690,7 @@ export default function Page() {
   };
 
   const startEditingClient = (client: Client) => {
-    setFormData({
-      first_name: client.first_name,
-      last_name: client.last_name,
-      phone: client.phone || "",
-      address: client.address || "",
-      postal_code: client.postal_code || "",
-      locality: client.locality || "",
-      company_name: client.company_name || "",
-      tax_id: client.tax_id || "",
-      commercial_address: client.commercial_address || "",
-      dni_number: client.dni_number || "",
-      passport_number: client.passport_number || "",
-      birth_date: client.birth_date
-        ? new Date(client.birth_date).toISOString().split("T")[0]
-        : "",
-      nationality: client.nationality || "",
-      gender: client.gender || "",
-      category_id: client.category_id ?? null,
-      email: client.email || "",
-      custom_fields: client.custom_fields || {},
-      id_user: client.user.id_user,
-      id_agency: client.user.id_agency,
-    });
-    setEditingClientId(client.id_client);
-    setIsFormVisible(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    openClientInEditor(client);
   };
 
   const formatDate = (dateString?: string) => {
@@ -788,7 +755,8 @@ export default function Page() {
               }`}
               title="Resultados actuales"
             >
-              {clients.length} {clients.length === 1 ? "resultado" : "resultados"}
+              {clients.length}{" "}
+              {clients.length === 1 ? "resultado" : "resultados"}
             </span>
           </h2>
 

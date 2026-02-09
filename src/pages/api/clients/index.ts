@@ -11,6 +11,11 @@ import {
   normalizeRequiredFields,
   DOC_REQUIRED_FIELDS,
 } from "@/utils/clientConfig";
+import { rankClientsBySimilarity } from "@/utils/clientSearch";
+import {
+  buildClientDuplicateResponse,
+  findClientDuplicate,
+} from "@/utils/clientDuplicate";
 
 // ==== Tipos auxiliares ====
 type TokenPayload = JWTPayload & {
@@ -141,6 +146,17 @@ const userSelectSafe = {
   email: true,
 } as const;
 
+const duplicateSelectSafe = {
+  id_client: true,
+  agency_client_id: true,
+  first_name: true,
+  last_name: true,
+  birth_date: true,
+  dni_number: true,
+  passport_number: true,
+  tax_id: true,
+} as const;
+
 type VisibilityMode = "all" | "team" | "own";
 
 function normalizeVisibilityMode(v: unknown): VisibilityMode {
@@ -231,7 +247,7 @@ export default async function handler(
           ? req.query.cursor[0]
           : req.query.cursor,
       );
-      const cursor = cursorParam;
+      const cursor = cursorParam && cursorParam > 0 ? cursorParam : undefined;
 
       const userIdParam = safeNumber(
         Array.isArray(req.query.userId)
@@ -338,27 +354,24 @@ export default async function handler(
           : [relFilter];
       }
 
-      // Búsqueda simple
       if (q) {
-        const or: Prisma.ClientWhereInput[] = [];
-        const qNum = Number(q);
-        if (!isNaN(qNum)) {
-          or.push({ id_client: qNum });
-          or.push({ agency_client_id: qNum });
-        }
+        // Cuando hay búsqueda por texto usamos ranking por similitud
+        // en memoria para cubrir typo tolerance y campos custom.
+        const offset = Math.max(cursorParam ?? 0, 0);
+        const candidates = await prisma.client.findMany({
+          where,
+          include: {
+            user: { select: userSelectSafe },
+          },
+          orderBy: { id_client: "desc" },
+        });
 
-        const qLike = q;
-        or.push({ first_name: { contains: qLike, mode: "insensitive" } });
-        or.push({ last_name: { contains: qLike, mode: "insensitive" } });
-        or.push({ dni_number: { contains: qLike } });
-        or.push({ passport_number: { contains: qLike } });
-        or.push({ email: { contains: qLike, mode: "insensitive" } });
-        or.push({ tax_id: { contains: qLike, mode: "insensitive" } });
-        or.push({ company_name: { contains: qLike, mode: "insensitive" } });
+        const ranked = rankClientsBySimilarity(candidates, q);
+        const paged = ranked.slice(offset, offset + take);
+        const nextCursor =
+          offset + paged.length < ranked.length ? offset + paged.length : null;
 
-        where.AND = Array.isArray(where.AND)
-          ? [...where.AND, { OR: or }]
-          : [{ OR: or }];
+        return res.status(200).json({ items: paged, nextCursor });
       }
 
       // Query con cursor
@@ -507,24 +520,22 @@ export default async function handler(
         }
       }
 
-      // Duplicados (en el scope de la agencia)
-      const duplicate = await prisma.client.findFirst({
-        where: {
-          id_agency: auth.id_agency,
-          OR: [
-            ...(dni ? [{ dni_number: dni }] : []),
-            ...(pass ? [{ passport_number: pass }] : []),
-            ...(taxId ? [{ tax_id: taxId }] : []),
-            ...(birth
-              ? [{ first_name, last_name, birth_date: birth }]
-              : []),
-          ],
-        },
+      // Duplicados (en el scope de la agencia) con detalle de campo en conflicto
+      const duplicateCandidates = await prisma.client.findMany({
+        where: { id_agency: auth.id_agency },
+        select: duplicateSelectSafe,
+        orderBy: { id_client: "desc" },
+      });
+      const duplicate = findClientDuplicate(duplicateCandidates, {
+        first_name,
+        last_name,
+        birth_date: birth ?? null,
+        dni_number: dni || null,
+        passport_number: pass || null,
+        tax_id: taxId || null,
       });
       if (duplicate) {
-        return res
-          .status(409)
-          .json({ error: "Esa información ya pertenece a un pax." });
+        return res.status(409).json(buildClientDuplicateResponse(duplicate));
       }
 
       const created = await prisma.$transaction(async (tx) => {
@@ -566,11 +577,24 @@ export default async function handler(
 
       return res.status(201).json(created);
     } catch (e: unknown) {
-      if (typeof e === "object" && e !== null && "code" in e) {
-        const err = e as { code?: string };
-        if (err.code === "P2002") {
-          return res.status(409).json({ error: "Datos duplicados detectados" });
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        const targetRaw = (
+          e.meta as { target?: string[] | string } | undefined
+        )?.target;
+        const target = Array.isArray(targetRaw)
+          ? targetRaw.join(",")
+          : String(targetRaw ?? "");
+        if (target.includes("agency_client_id")) {
+          return res.status(409).json({
+            error:
+              "No se pudo guardar el pax por un conflicto con el numero interno. Reintenta.",
+            code: "CLIENT_NUMBER_CONFLICT",
+          });
         }
+        return res.status(409).json({
+          error: "No se pudo guardar el pax por un dato unico duplicado.",
+          code: "CLIENT_UNIQUE_CONFLICT",
+        });
       }
       console.error("[clients][POST]", e);
       return res.status(500).json({ error: "Error al crear pax" });
