@@ -23,6 +23,14 @@ const FILTROS = [
   "desarrollador",
 ] as const;
 type FilterRole = (typeof FILTROS)[number];
+type BookingVisibilityMode = "all" | "team" | "own";
+
+const parseBookingVisibilityMode = (
+  value: unknown,
+): BookingVisibilityMode => {
+  if (value === "all" || value === "team" || value === "own") return value;
+  return "own";
+};
 
 type BookingFormData = {
   id_booking?: number;
@@ -259,9 +267,33 @@ export default function Page() {
         setProfile(p);
         const roleLower = (p.role || "").toLowerCase();
         setFormData((prev) => ({ ...prev, id_user: p.id_user }));
-        setSelectedUserId(
-          FILTROS.includes(roleLower as FilterRole) ? 0 : p.id_user,
-        );
+        let initialSelectedUserId = FILTROS.includes(roleLower as FilterRole)
+          ? 0
+          : p.id_user;
+        if (roleLower === "vendedor") {
+          try {
+            const cfgRes = await authFetch(
+              "/api/service-calc-config",
+              { signal: abort.signal, cache: "no-store" },
+              token || undefined,
+            );
+            if (cfgRes.ok) {
+              const cfg = (await cfgRes.json().catch(() => null)) as {
+                booking_visibility_mode?: BookingVisibilityMode;
+              } | null;
+              const visibilityMode = parseBookingVisibilityMode(
+                cfg?.booking_visibility_mode,
+              );
+              initialSelectedUserId = visibilityMode === "own" ? p.id_user : 0;
+            } else {
+              initialSelectedUserId = p.id_user;
+            }
+          } catch (error: unknown) {
+            if (isAbortError(error)) return;
+            initialSelectedUserId = p.id_user;
+          }
+        }
+        setSelectedUserId(initialSelectedUserId);
         setSelectedTeamId(0);
 
         // 1) Equipos de la agencia
