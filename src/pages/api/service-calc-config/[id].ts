@@ -12,6 +12,7 @@ type ServiceCalcConfigRow = {
   billing_breakdown_mode: string; // "auto" | "manual"
   billing_adjustments: unknown | null;
   use_booking_sale_total: boolean | null;
+  booking_visibility_mode: string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -263,11 +264,29 @@ function parseBool(input: unknown): boolean | null {
   return null;
 }
 
+type BookingVisibilityMode = "all" | "team" | "own";
+
+function parseBookingVisibilityMode(
+  input: unknown,
+): BookingVisibilityMode | null {
+  if (typeof input !== "string") return null;
+  const normalized = input.trim().toLowerCase();
+  if (
+    normalized === "all" ||
+    normalized === "team" ||
+    normalized === "own"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
 type CalcConfigResponse = {
   billing_breakdown_mode: string; // "auto" | "manual"
   transfer_fee_pct: number; // proporción (0.024 = 2.4%)
   billing_adjustments: BillingAdjustment[];
   use_booking_sale_total: boolean;
+  booking_visibility_mode: BookingVisibilityMode;
 };
 
 type BillingAdjustment = {
@@ -312,6 +331,7 @@ export default async function handler(
             billing_breakdown_mode: true,
             billing_adjustments: true,
             use_booking_sale_total: true,
+            booking_visibility_mode: true,
           },
         }),
         db.agency.findUnique({
@@ -331,6 +351,8 @@ export default async function handler(
           ? (cfg?.billing_adjustments as BillingAdjustment[])
           : [],
         use_booking_sale_total: Boolean(cfg?.use_booking_sale_total),
+        booking_visibility_mode:
+          parseBookingVisibilityMode(cfg?.booking_visibility_mode) ?? "own",
       };
       return res.status(200).json(payload);
     }
@@ -345,6 +367,7 @@ export default async function handler(
         transfer_fee_pct?: unknown;
         billing_adjustments?: unknown;
         use_booking_sale_total?: unknown;
+        booking_visibility_mode?: unknown;
       };
 
       let mode: string | undefined;
@@ -393,11 +416,25 @@ export default async function handler(
         });
       }
 
+      const visibilityMode =
+        body.booking_visibility_mode !== undefined
+          ? parseBookingVisibilityMode(body.booking_visibility_mode)
+          : undefined;
+      if (
+        body.booking_visibility_mode !== undefined &&
+        visibilityMode == null
+      ) {
+        return res.status(400).json({
+          error: 'booking_visibility_mode debe ser "all", "team" o "own"',
+        });
+      }
+
       if (
         mode === undefined &&
         pct === undefined &&
         adjustments === undefined &&
-        useBookingSaleTotal === undefined
+        useBookingSaleTotal === undefined &&
+        visibilityMode === undefined
       ) {
         return res
           .status(400)
@@ -410,7 +447,8 @@ export default async function handler(
         if (
           mode !== undefined ||
           adjustments !== undefined ||
-          useBookingSaleTotal !== undefined
+          useBookingSaleTotal !== undefined ||
+          visibilityMode !== undefined
         ) {
           // upsert manual con clave única id_agency:
           const existing = await tx.serviceCalcConfig.findUnique({
@@ -426,6 +464,9 @@ export default async function handler(
             if (useBookingSaleTotal !== undefined) {
               data.use_booking_sale_total = useBookingSaleTotal;
             }
+            if (visibilityMode !== undefined) {
+              data.booking_visibility_mode = visibilityMode;
+            }
             await tx.serviceCalcConfig.update({
               where: { id_agency: id },
               data,
@@ -439,6 +480,8 @@ export default async function handler(
                   adjustments !== undefined ? adjustments : undefined,
                 use_booking_sale_total:
                   useBookingSaleTotal !== undefined ? useBookingSaleTotal : false,
+                booking_visibility_mode:
+                  visibilityMode !== undefined ? visibilityMode : "own",
               },
             });
           }
@@ -459,6 +502,7 @@ export default async function handler(
             billing_breakdown_mode: true,
             billing_adjustments: true,
             use_booking_sale_total: true,
+            booking_visibility_mode: true,
           },
         }),
         db.agency.findUnique({
@@ -478,6 +522,8 @@ export default async function handler(
           ? (cfg?.billing_adjustments as BillingAdjustment[])
           : [],
         use_booking_sale_total: Boolean(cfg?.use_booking_sale_total),
+        booking_visibility_mode:
+          parseBookingVisibilityMode(cfg?.booking_visibility_mode) ?? "own",
       };
       return res.status(200).json(payload);
     }

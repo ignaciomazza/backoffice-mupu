@@ -4,40 +4,7 @@ import prisma from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { Prisma } from "@prisma/client";
 import { resolveAuth } from "@/lib/auth";
-
-type BookingAccessContext = {
-  id_user: number;
-  id_agency: number;
-  role: string;
-};
-
-const ADMIN_ROLES = new Set(["gerente", "administrativo", "desarrollador"]);
-
-async function getLeaderScope(authUserId: number, authAgencyId: number) {
-  const teams = await prisma.salesTeam.findMany({
-    where: {
-      id_agency: authAgencyId,
-      user_teams: { some: { user: { id_user: authUserId, role: "lider" } } },
-    },
-    include: { user_teams: { select: { id_user: true } } },
-  });
-  const userIds = new Set<number>([authUserId]);
-  teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
-  return { userIds: Array.from(userIds) };
-}
-
-async function canAccessBooking(
-  auth: BookingAccessContext,
-  ownerId: number,
-): Promise<boolean> {
-  if (ADMIN_ROLES.has(auth.role)) return true;
-  if (auth.role === "vendedor") return ownerId === auth.id_user;
-  if (auth.role === "lider") {
-    const scope = await getLeaderScope(auth.id_user, auth.id_agency);
-    return scope.userIds.includes(ownerId);
-  }
-  return false;
-}
+import { canAccessBookingByRole } from "@/lib/accessControl";
 
 export default async function handler(
   req: NextApiRequest,
@@ -77,6 +44,7 @@ export default async function handler(
               select: {
                 id_booking: true,
                 agency_booking_id: true,
+                id_agency: true,
                 id_user: true,
               },
             },
@@ -87,8 +55,14 @@ export default async function handler(
         });
 
         for (const svc of services) {
-          const ownerId = svc.booking?.id_user;
-          if (ownerId && !(await canAccessBooking(auth, ownerId))) {
+          const booking = svc.booking;
+          if (
+            !booking ||
+            !(await canAccessBookingByRole(auth, {
+              id_user: booking.id_user,
+              id_agency: booking.id_agency,
+            }))
+          ) {
             return res.status(403).json({ error: "No autorizado." });
           }
         }
@@ -117,7 +91,7 @@ export default async function handler(
       if (!booking || booking.id_agency !== auth.id_agency) {
         return res.status(404).json({ error: "Reserva no encontrada." });
       }
-      const allowed = await canAccessBooking(auth, booking.id_user);
+      const allowed = await canAccessBookingByRole(auth, booking);
       if (!allowed) {
         return res.status(403).json({ error: "No autorizado." });
       }
@@ -199,7 +173,7 @@ export default async function handler(
     if (!bookingExists || bookingExists.id_agency !== auth.id_agency) {
       return res.status(404).json({ error: "Reserva no encontrada." });
     }
-    const canAccess = await canAccessBooking(auth, bookingExists.id_user);
+    const canAccess = await canAccessBookingByRole(auth, bookingExists);
     if (!canAccess) {
       return res.status(403).json({ error: "No autorizado." });
     }

@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { resolveAuth } from "@/lib/auth";
 import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
+import { canAccessBookingByRole } from "@/lib/accessControl";
 import { normalizeRole } from "@/utils/permissions";
 import { S3, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -96,19 +97,6 @@ function pickTarget(body: Record<string, unknown>) {
   return null;
 }
 
-async function getLeaderScope(authUserId: number, authAgencyId?: number) {
-  const teams = await prisma.salesTeam.findMany({
-    where: {
-      ...(authAgencyId ? { id_agency: authAgencyId } : {}),
-      user_teams: { some: { user: { id_user: authUserId, role: "lider" } } },
-    },
-    include: { user_teams: { select: { id_user: true } } },
-  });
-  const userIds = new Set<number>([authUserId]);
-  teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
-  return { userIds: Array.from(userIds) };
-}
-
 async function canAccessBooking(
   bookingId: number,
   auth: { id_user: number; id_agency: number; role: string },
@@ -118,15 +106,7 @@ async function canAccessBooking(
     select: { id_booking: true, id_agency: true, id_user: true },
   });
   if (!booking || booking.id_agency !== auth.id_agency) return false;
-
-  const role = normalizeRole(auth.role);
-  if (role === "vendedor") return booking.id_user === auth.id_user;
-  if (role === "lider") {
-    if (booking.id_user === auth.id_user) return true;
-    const scope = await getLeaderScope(auth.id_user, auth.id_agency);
-    return scope.userIds.includes(booking.id_user);
-  }
-  return true;
+  return canAccessBookingByRole(auth, booking);
 }
 
 function isBlocked(status?: string | null): boolean {

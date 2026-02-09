@@ -3,42 +3,9 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { resolveAuth } from "@/lib/auth";
+import { canAccessBookingByRole } from "@/lib/accessControl";
 
 export const config = { api: { bodyParser: { sizeLimit: "4mb" } } };
-
-type BookingAccessContext = {
-  id_user: number;
-  id_agency: number;
-  role: string;
-};
-
-const ADMIN_ROLES = new Set(["gerente", "administrativo", "desarrollador"]);
-
-async function getLeaderScope(authUserId: number, authAgencyId: number) {
-  const teams = await prisma.salesTeam.findMany({
-    where: {
-      id_agency: authAgencyId,
-      user_teams: { some: { user: { id_user: authUserId, role: "lider" } } },
-    },
-    include: { user_teams: { select: { id_user: true } } },
-  });
-  const userIds = new Set<number>([authUserId]);
-  teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
-  return { userIds: Array.from(userIds) };
-}
-
-async function canAccessBooking(
-  auth: BookingAccessContext,
-  ownerId: number,
-): Promise<boolean> {
-  if (ADMIN_ROLES.has(auth.role)) return true;
-  if (auth.role === "vendedor") return ownerId === auth.id_user;
-  if (auth.role === "lider") {
-    const scope = await getLeaderScope(auth.id_user, auth.id_agency);
-    return scope.userIds.includes(ownerId);
-  }
-  return false;
-}
 
 const ItemRef = z
   .object({
@@ -82,7 +49,10 @@ export default async function handler(
     });
     if (!service)
       return res.status(404).json({ error: "Servicio no encontrado" });
-    const allowed = await canAccessBooking(auth, service.booking.id_user);
+    const allowed = await canAccessBookingByRole(auth, {
+      id_user: service.booking.id_user,
+      id_agency: auth.id_agency,
+    });
     if (!allowed) return res.status(403).json({ error: "No autorizado." });
     const userId = auth.id_user;
 

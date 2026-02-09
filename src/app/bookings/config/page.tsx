@@ -56,9 +56,37 @@ type CalcConfigResponse = {
   transfer_fee_pct: number; // proporción (0.024 = 2.4%)
   billing_adjustments: BillingAdjustmentConfig[];
   use_booking_sale_total: boolean;
+  booking_visibility_mode: "all" | "team" | "own";
 };
 
 type RoleResponse = { role?: string };
+type BookingVisibilityMode = "all" | "team" | "own";
+
+const VISIBILITY_OPTIONS: Array<{
+  key: BookingVisibilityMode;
+  label: string;
+  desc: string;
+}> = [
+  {
+    key: "all",
+    label: "Todos",
+    desc: "Vendedores y líderes pueden ver reservas de toda la agencia.",
+  },
+  {
+    key: "team",
+    label: "Por equipo",
+    desc: "Cada usuario ve reservas de su equipo. Si no tiene equipo, ve solo las suyas.",
+  },
+  {
+    key: "own",
+    label: "Solo propias",
+    desc: "Cada usuario ve únicamente sus reservas.",
+  },
+];
+
+function normalizeBookingVisibilityMode(v: unknown): BookingVisibilityMode {
+  return v === "all" || v === "team" || v === "own" ? v : "own";
+}
 
 /* =========================================================
  * Estilos compartidos (alineados con Finanzas)
@@ -231,7 +259,7 @@ function Modal({
 /* =========================================================
  * Page
  * ========================================================= */
-type TabKey = "types" | "calc" | "permissions";
+type TabKey = "types" | "visibility" | "calc" | "permissions";
 
 export default function BookingsConfigPage() {
   const { token } = useAuth();
@@ -322,6 +350,10 @@ export default function BookingsConfigPage() {
   const [useBookingSaleTotal, setUseBookingSaleTotal] = useState(false);
   const [serverUseBookingSaleTotal, setServerUseBookingSaleTotal] =
     useState(false);
+  const [visibilityMode, setVisibilityMode] =
+    useState<BookingVisibilityMode>("own");
+  const [serverVisibilityMode, setServerVisibilityMode] =
+    useState<BookingVisibilityMode>("own");
   const [adjModalOpen, setAdjModalOpen] = useState(false);
   const [editingAdj, setEditingAdj] = useState<BillingAdjustmentConfig | null>(
     null,
@@ -414,6 +446,11 @@ export default function BookingsConfigPage() {
         setServerAdjustments(adj);
         setUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
         setServerUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
+        const nextVisibility = normalizeBookingVisibilityMode(
+          data.booking_visibility_mode,
+        );
+        setVisibilityMode(nextVisibility);
+        setServerVisibilityMode(nextVisibility);
       } catch (e) {
         console.error("[bookings/config] calc-config", e);
         toast.error("No se pudo cargar Cálculo & Comisiones");
@@ -1021,7 +1058,8 @@ export default function BookingsConfigPage() {
     mode !== serverMode ||
     pctStr.trim() !== serverPctStr.trim() ||
     adjustmentsDirty ||
-    useBookingSaleTotal !== serverUseBookingSaleTotal;
+    useBookingSaleTotal !== serverUseBookingSaleTotal ||
+    visibilityMode !== serverVisibilityMode;
 
   const saveCalcConfig = useCallback(async () => {
     if (!token) return;
@@ -1037,6 +1075,7 @@ export default function BookingsConfigPage() {
     body.transfer_fee_pct = p;
     body.billing_adjustments = adjustments;
     body.use_booking_sale_total = useBookingSaleTotal;
+    body.booking_visibility_mode = visibilityMode;
 
     setSavingCfg(true);
     try {
@@ -1070,6 +1109,11 @@ export default function BookingsConfigPage() {
       setServerAdjustments(adj);
       setUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
       setServerUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
+      const nextVisibility = normalizeBookingVisibilityMode(
+        data.booking_visibility_mode,
+      );
+      setVisibilityMode(nextVisibility);
+      setServerVisibilityMode(nextVisibility);
       toast.success("Configuración guardada");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error al guardar";
@@ -1077,7 +1121,7 @@ export default function BookingsConfigPage() {
     } finally {
       setSavingCfg(false);
     }
-  }, [adjustments, mode, pctStr, token, useBookingSaleTotal]);
+  }, [adjustments, mode, pctStr, token, useBookingSaleTotal, visibilityMode]);
 
   /* Ctrl/Cmd+S para guardar config cuando hay cambios */
   useEffect(() => {
@@ -1139,13 +1183,14 @@ export default function BookingsConfigPage() {
               Configuración de Reservas
             </h1>
             <p className="mt-1 text-sm text-sky-950/70 dark:text-white/70">
-              Gestioná los <b>Tipos de Servicio</b> y el modo de{" "}
+              Gestioná <b>Tipos de Servicio</b>, <b>Visibilidad</b> y{" "}
               <b>Cálculo &amp; Comisiones</b> por agencia.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {[
               { key: "types", label: "Tipos" },
+              { key: "visibility", label: "Visibilidad" },
               { key: "calc", label: "Cálculo" },
               { key: "permissions", label: "Permisos" },
             ].map((t) => (
@@ -1316,6 +1361,84 @@ export default function BookingsConfigPage() {
                     </ul>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* ===================== TAB: Visibilidad ===================== */}
+            {active === "visibility" && (
+              <div className={`${GLASS} p-6`}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-lg font-medium">Visibilidad</h2>
+                  {!canEdit && (
+                    <span className="text-xs text-sky-950/60 dark:text-white/60">
+                      Solo lectura
+                    </span>
+                  )}
+                </div>
+
+                {cfgLoading ? (
+                  <div className="space-y-3">
+                    <div className="h-4 w-full animate-pulse rounded bg-white/20 dark:bg-white/10" />
+                    <div className="h-4 w-full animate-pulse rounded bg-white/20 dark:bg-white/10" />
+                    <div className="h-4 w-full animate-pulse rounded bg-white/20 dark:bg-white/10" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="mb-4">
+                      <Label>Alcance de reservas</Label>
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        {VISIBILITY_OPTIONS.map((opt) => (
+                          <label
+                            key={opt.key}
+                            className="flex cursor-pointer items-center gap-2 rounded-2xl border border-white/10 bg-white/30 p-3 dark:bg-white/10"
+                          >
+                            <input
+                              type="radio"
+                              name="booking_visibility_mode"
+                              value={opt.key}
+                              disabled={!canEdit}
+                              checked={visibilityMode === opt.key}
+                              onChange={() => setVisibilityMode(opt.key)}
+                            />
+                            <div className="text-sm">
+                              <div className="font-medium">{opt.label}</div>
+                              <div className="text-xs opacity-70">
+                                {opt.desc}
+                              </div>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-xs text-sky-950/70 dark:text-white/70">
+                        Gerencia, administración y desarrollo mantienen acceso
+                        total por rol.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setVisibilityMode(serverVisibilityMode)}
+                        disabled={visibilityMode === serverVisibilityMode}
+                        className="rounded-full bg-white/50 px-4 py-2 text-sky-950 shadow-sm transition hover:scale-[.98] active:scale-95 disabled:opacity-50 dark:bg-white/10 dark:text-white"
+                      >
+                        Restablecer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveCalcConfig}
+                        disabled={
+                          !canEdit ||
+                          savingCfg ||
+                          visibilityMode === serverVisibilityMode
+                        }
+                        className={ICON_BTN}
+                      >
+                        {savingCfg ? <Spinner /> : "Guardar cambios"}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -1554,6 +1677,7 @@ export default function BookingsConfigPage() {
                           setPctStr(serverPctStr);
                           setAdjustments(serverAdjustments);
                           setUseBookingSaleTotal(serverUseBookingSaleTotal);
+                          setVisibilityMode(serverVisibilityMode);
                         }}
                         disabled={!configDirty}
                         className="rounded-full bg-white/50 px-4 py-2 text-sky-950 shadow-sm transition hover:scale-[.98] active:scale-95 disabled:opacity-50 dark:bg-white/10 dark:text-white"

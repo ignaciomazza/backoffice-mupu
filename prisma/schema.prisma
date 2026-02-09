@@ -1339,6 +1339,8 @@ model ServiceCalcConfig {
   billing_breakdown_mode String  @default("auto")
   billing_adjustments    Json?
   use_booking_sale_total Boolean @default(false)
+  // "all" (toda la agencia), "team" (por equipo), "own" (solo propias)
+  booking_visibility_mode String @default("own")
   booking_access_rules   Json?
 
   created_at DateTime @default(now())

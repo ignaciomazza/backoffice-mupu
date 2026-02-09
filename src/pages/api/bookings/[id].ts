@@ -5,7 +5,11 @@ import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 import { getBookingComponentGrants } from "@/lib/accessControl";
-import { canAccessBookingComponent } from "@/utils/permissions";
+import {
+  canAccessBookingOwnerByVisibility,
+  getBookingLeaderScope,
+} from "@/lib/bookingVisibility";
+import { canAccessBookingComponent, normalizeRole } from "@/utils/permissions";
 import { normalizeCommissionOverrides } from "@/utils/commissionOverrides";
 
 /* ================== Tipos ================== */
@@ -307,21 +311,6 @@ async function normalizeAndValidateCommissionOverrides(args: {
   return { value: normalized };
 }
 
-// equipos que lidera + ids de usuarios alcanzables
-async function getLeaderScope(authUserId: number, authAgencyId?: number) {
-  const teams = await prisma.salesTeam.findMany({
-    where: {
-      ...(authAgencyId ? { id_agency: authAgencyId } : {}),
-      user_teams: { some: { user: { id_user: authUserId, role: "lider" } } },
-    },
-    include: { user_teams: { select: { id_user: true } } },
-  });
-  const teamIds = teams.map((t) => t.id_team);
-  const userIds = new Set<number>([authUserId]);
-  teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
-  return { teamIds, userIds: Array.from(userIds) };
-}
-
 /* ================== Handler ================== */
 export default async function handler(
   req: NextApiRequest,
@@ -343,8 +332,8 @@ export default async function handler(
 
   // auth
   const auth = await getUserFromAuth(req);
-  const roleFromCookie = (req.cookies?.role || "").toLowerCase();
-  const role = (auth?.role || roleFromCookie || "").toLowerCase();
+  const roleFromCookie = normalizeRole(req.cookies?.role || "");
+  const role = normalizeRole(auth?.role || roleFromCookie || "");
   const authUserId = auth?.id_user;
   const authAgencyId = auth?.id_agency;
 
@@ -373,20 +362,18 @@ export default async function handler(
     return res.status(403).json({ error: "No autorizado para esta agencia." });
   }
 
+  const canAccessBooking = await canAccessBookingOwnerByVisibility({
+    id_user: authUserId,
+    id_agency: authAgencyId,
+    role,
+    owner_user_id: existing.id_user,
+  });
+  if (!canAccessBooking) {
+    return res.status(403).json({ error: "No autorizado para esta reserva." });
+  }
+
   // Reglas de lectura/alcance por rol
   if (req.method === "GET") {
-    // vendedor: solo propias
-    if (role === "vendedor" && existing.id_user !== authUserId) {
-      return res.status(403).json({ error: "No autorizado." });
-    }
-    // líder: sólo reservas de su equipo
-    if (role === "lider" && existing.id_user !== authUserId) {
-      const scope = await getLeaderScope(authUserId, authAgencyId);
-      if (!scope.userIds.includes(existing.id_user)) {
-        return res.status(403).json({ error: "Fuera de tu equipo." });
-      }
-    }
-
     try {
       const booking = await prisma.booking.findUnique({
         where: { id_booking: existing.id_booking },
@@ -566,19 +553,6 @@ export default async function handler(
         .json({ error: "Sin permisos para modificar el estado." });
     }
 
-    // vendedor: solo puede editar las propias
-    if (role === "vendedor" && existing.id_user !== authUserId) {
-      return res.status(403).json({ error: "No autorizado." });
-    }
-
-    // líder: solo su equipo
-    if (role === "lider" && existing.id_user !== authUserId) {
-      const scope = await getLeaderScope(authUserId, authAgencyId);
-      if (!scope.userIds.includes(existing.id_user)) {
-        return res.status(403).json({ error: "Fuera de tu equipo." });
-      }
-    }
-
     try {
       // ===== Acompañantes: sanitizar placeholders, evitar duplicados y conflicto con titular
       const companions: number[] = Array.isArray(clients_ids)
@@ -699,7 +673,7 @@ export default async function handler(
       if (typeof id_user === "number" && Number.isFinite(id_user)) {
         if (canAssignOthers) {
           if (role === "lider" && id_user !== authUserId) {
-            const scope = await getLeaderScope(authUserId, authAgencyId);
+            const scope = await getBookingLeaderScope(authUserId, authAgencyId);
             if (!scope.userIds.includes(id_user)) {
               return res
                 .status(403)
@@ -827,10 +801,7 @@ export default async function handler(
     if (["gerente", "administrativo", "desarrollador"].includes(role)) {
       // ok
     } else if (role === "lider") {
-      const scope = await getLeaderScope(authUserId, authAgencyId);
-      if (!scope.userIds.includes(existing.id_user)) {
-        return res.status(403).json({ error: "Fuera de tu equipo." });
-      }
+      // ok: alcance ya validado con canAccessBookingOwnerByVisibility
     } else if (role === "vendedor") {
       if (existing.id_user !== authUserId) {
         return res

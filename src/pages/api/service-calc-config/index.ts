@@ -14,6 +14,7 @@ type ServiceCalcConfigRow = {
   billing_breakdown_mode: string; // "auto" | "manual"
   billing_adjustments: unknown | null;
   use_booking_sale_total: boolean | null;
+  booking_visibility_mode: string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -28,7 +29,10 @@ type CalcConfigResponse = {
   transfer_fee_pct: number; // proporción (0.024 = 2.4%)
   billing_adjustments: BillingAdjustment[];
   use_booking_sale_total: boolean;
+  booking_visibility_mode: BookingVisibilityMode;
 };
+
+type BookingVisibilityMode = "all" | "team" | "own";
 
 /* =============================
  * Helpers comunes
@@ -131,6 +135,21 @@ function parsePct(input: unknown): number | null {
     if (n > 1) return n / 100; // "2.4" -> 0.024
     if (n < 0) return null;
     return n;
+  }
+  return null;
+}
+
+function parseBookingVisibilityMode(
+  input: unknown,
+): BookingVisibilityMode | null {
+  if (typeof input !== "string") return null;
+  const normalized = input.trim().toLowerCase();
+  if (
+    normalized === "all" ||
+    normalized === "team" ||
+    normalized === "own"
+  ) {
+    return normalized;
   }
   return null;
 }
@@ -326,6 +345,7 @@ export default async function handler(
               billing_breakdown_mode: true,
               billing_adjustments: true,
               use_booking_sale_total: true,
+              booking_visibility_mode: true,
             },
           }),
           agency.findUnique({
@@ -343,6 +363,8 @@ export default async function handler(
             ? (cfg?.billing_adjustments as BillingAdjustment[])
             : [],
           use_booking_sale_total: Boolean(cfg?.use_booking_sale_total),
+          booking_visibility_mode:
+            parseBookingVisibilityMode(cfg?.booking_visibility_mode) ?? "own",
         };
         return res.status(200).json(payload);
       } catch (e) {
@@ -367,6 +389,7 @@ export default async function handler(
           transfer_fee_pct?: unknown;
           billing_adjustments?: unknown;
           use_booking_sale_total?: unknown;
+          booking_visibility_mode?: unknown;
         };
 
         let mode: string | undefined;
@@ -415,11 +438,25 @@ export default async function handler(
           });
         }
 
+        const visibilityMode =
+          body.booking_visibility_mode !== undefined
+            ? parseBookingVisibilityMode(body.booking_visibility_mode)
+            : undefined;
+        if (
+          body.booking_visibility_mode !== undefined &&
+          visibilityMode == null
+        ) {
+          return res.status(400).json({
+            error: 'booking_visibility_mode debe ser "all", "team" o "own"',
+          });
+        }
+
         if (
           mode === undefined &&
           pct === undefined &&
           adjustments === undefined &&
-          useBookingSaleTotal === undefined
+          useBookingSaleTotal === undefined &&
+          visibilityMode === undefined
         ) {
           return res
             .status(400)
@@ -429,6 +466,8 @@ export default async function handler(
           adjustments === null ? undefined : adjustments;
         const useBookingSaleTotalValue =
           useBookingSaleTotal === null ? undefined : useBookingSaleTotal;
+        const visibilityModeValue =
+          visibilityMode === null ? undefined : visibilityMode;
 
         await prisma.$transaction(async (tx) => {
           const { serviceCalcConfig: scc, agency: ag } = requireDelegates(tx);
@@ -436,7 +475,8 @@ export default async function handler(
           if (
             mode !== undefined ||
             adjustments !== undefined ||
-            useBookingSaleTotal !== undefined
+            useBookingSaleTotal !== undefined ||
+            visibilityModeValue !== undefined
           ) {
             const existing = await scc.findUnique({
               where: { id_agency: auth.id_agency },
@@ -450,6 +490,9 @@ export default async function handler(
               }
               if (useBookingSaleTotalValue !== undefined) {
                 data.use_booking_sale_total = useBookingSaleTotalValue;
+              }
+              if (visibilityModeValue !== undefined) {
+                data.booking_visibility_mode = visibilityModeValue;
               }
               await scc.update({
                 where: { id_agency: auth.id_agency },
@@ -472,6 +515,9 @@ export default async function handler(
               if (useBookingSaleTotalValue !== undefined) {
                 data.use_booking_sale_total = useBookingSaleTotalValue;
               }
+              if (visibilityModeValue !== undefined) {
+                data.booking_visibility_mode = visibilityModeValue;
+              }
               await scc.create({
                 data,
               });
@@ -492,6 +538,7 @@ export default async function handler(
               billing_breakdown_mode: true,
               billing_adjustments: true,
               use_booking_sale_total: true,
+              booking_visibility_mode: true,
             },
           }),
           agency.findUnique({
@@ -509,6 +556,8 @@ export default async function handler(
             ? (cfg?.billing_adjustments as BillingAdjustment[])
             : [],
           use_booking_sale_total: Boolean(cfg?.use_booking_sale_total),
+          booking_visibility_mode:
+            parseBookingVisibilityMode(cfg?.booking_visibility_mode) ?? "own",
         };
         return res.status(200).json(payload);
       } catch (e) {

@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { isMissingColumnError } from "@/lib/prismaErrors";
+import { canAccessBookingOwnerByVisibility } from "@/lib/bookingVisibility";
 import {
   canAccessAnyFinanceSection,
   canAccessBookingComponent,
@@ -15,19 +16,6 @@ import {
 
 const ADMIN_ROLES = new Set(["desarrollador", "gerente", "administrativo"]);
 
-async function getLeaderScope(authUserId: number, authAgencyId: number) {
-  const teams = await prisma.salesTeam.findMany({
-    where: {
-      id_agency: authAgencyId,
-      user_teams: { some: { user: { id_user: authUserId, role: "lider" } } },
-    },
-    include: { user_teams: { select: { id_user: true } } },
-  });
-  const userIds = new Set<number>([authUserId]);
-  teams.forEach((t) => t.user_teams.forEach((ut) => userIds.add(ut.id_user)));
-  return { userIds: Array.from(userIds) };
-}
-
 export async function canAccessBookingByRole(
   auth: {
     id_user?: number | null;
@@ -41,13 +29,14 @@ export async function canAccessBookingByRole(
   if (booking.id_agency !== auth.id_agency) return false;
 
   const role = normalizeRole(auth.role);
+  if (!role) return false;
   if (ADMIN_ROLES.has(role)) return true;
-  if (role === "vendedor") return booking.id_user === auth.id_user;
-  if (role === "lider") {
-    const scope = await getLeaderScope(auth.id_user, auth.id_agency);
-    return scope.userIds.includes(booking.id_user);
-  }
-  return role !== "";
+  return canAccessBookingOwnerByVisibility({
+    id_user: auth.id_user,
+    id_agency: auth.id_agency,
+    role,
+    owner_user_id: booking.id_user,
+  });
 }
 
 export async function getFinanceSectionGrants(
