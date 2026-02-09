@@ -12,6 +12,7 @@ type ServiceTypeRow = {
   code: string;
   name: string;
   enabled: boolean;
+  allow_no_destination: boolean;
   created_at: Date;
   updated_at: Date;
 };
@@ -22,7 +23,9 @@ type ServiceTypeFindUniqueArgs = {
 };
 type ServiceTypeUpdateArgs = {
   where: Record<string, unknown>;
-  data: Partial<Pick<ServiceTypeRow, "code" | "name" | "enabled">>;
+  data: Partial<
+    Pick<ServiceTypeRow, "code" | "name" | "enabled" | "allow_no_destination">
+  >;
   select?: Partial<Record<keyof ServiceTypeRow, boolean>>;
 };
 
@@ -152,7 +155,13 @@ function hasPrismaCode(
  * ============================= */
 type ServiceTypeDTO = Pick<
   ServiceTypeRow,
-  "id_service_type" | "code" | "name" | "enabled" | "created_at" | "updated_at"
+  | "id_service_type"
+  | "code"
+  | "name"
+  | "enabled"
+  | "allow_no_destination"
+  | "created_at"
+  | "updated_at"
 >;
 
 /* =============================
@@ -184,6 +193,7 @@ export default async function handler(
         code: true,
         name: true,
         enabled: true,
+        allow_no_destination: true,
         created_at: true,
         updated_at: true,
       },
@@ -199,6 +209,7 @@ export default async function handler(
         code: current.code,
         name: current.name,
         enabled: current.enabled,
+        allow_no_destination: current.allow_no_destination,
         created_at: current.created_at,
         updated_at: current.updated_at,
       };
@@ -214,10 +225,13 @@ export default async function handler(
         name?: unknown;
         code?: unknown;
         enabled?: unknown;
+        allow_no_destination?: unknown;
+        allowNoDestination?: unknown;
       };
 
-      const patch: Partial<Pick<ServiceTypeRow, "name" | "code" | "enabled">> =
-        {};
+      const patch: Partial<
+        Pick<ServiceTypeRow, "name" | "code" | "enabled" | "allow_no_destination">
+      > = {};
 
       if (typeof body.name === "string") {
         const name = body.name.trim();
@@ -256,10 +270,28 @@ export default async function handler(
         }
       }
 
+      const allowNoDestinationInput =
+        body.allow_no_destination ?? body.allowNoDestination;
+      if (typeof allowNoDestinationInput === "boolean") {
+        patch.allow_no_destination = allowNoDestinationInput;
+      } else if (typeof allowNoDestinationInput === "string") {
+        if (allowNoDestinationInput === "true") {
+          patch.allow_no_destination = true;
+        } else if (allowNoDestinationInput === "false") {
+          patch.allow_no_destination = false;
+        } else {
+          return res.status(400).json({
+            error:
+              "allow_no_destination debe ser booleano o 'true'/'false'",
+          });
+        }
+      }
+
       if (
         typeof patch.name === "undefined" &&
         typeof patch.code === "undefined" &&
-        typeof patch.enabled === "undefined"
+        typeof patch.enabled === "undefined" &&
+        typeof patch.allow_no_destination === "undefined"
       ) {
         return res
           .status(400)
@@ -275,6 +307,7 @@ export default async function handler(
             code: true,
             name: true,
             enabled: true,
+            allow_no_destination: true,
             created_at: true,
             updated_at: true,
           },

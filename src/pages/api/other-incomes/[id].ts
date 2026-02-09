@@ -118,6 +118,34 @@ const toDec = (v: unknown) =>
     ? undefined
     : new Prisma.Decimal(typeof v === "number" ? v : String(v));
 
+type ParsedUpdateText = {
+  present: boolean;
+  value: string | null;
+  error?: string;
+};
+
+function parseUpdateOptionalText(
+  raw: unknown,
+  field: string,
+  maxLen: number,
+): ParsedUpdateText {
+  if (raw === undefined) return { present: false, value: null };
+  if (raw === null) return { present: true, value: null };
+  if (typeof raw !== "string") {
+    return { present: true, value: null, error: `${field} inválido` };
+  }
+  const value = raw.trim();
+  if (!value) return { present: true, value: null };
+  if (value.length > maxLen) {
+    return {
+      present: true,
+      value: null,
+      error: `${field} supera ${maxLen} caracteres`,
+    };
+  }
+  return { present: true, value };
+}
+
 type PaymentLineInput = {
   amount: unknown;
   payment_method_id: unknown;
@@ -275,6 +303,35 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
     return res.status(400).json({ error: "payment_fee_amount inválido" });
   }
 
+  const counterpartyType = parseUpdateOptionalText(
+    b.counterparty_type,
+    "counterparty_type",
+    60,
+  );
+  if (counterpartyType.error) {
+    return res.status(400).json({ error: counterpartyType.error });
+  }
+  const counterpartyName = parseUpdateOptionalText(
+    b.counterparty_name,
+    "counterparty_name",
+    160,
+  );
+  if (counterpartyName.error) {
+    return res.status(400).json({ error: counterpartyName.error });
+  }
+  const receiptTo = parseUpdateOptionalText(b.receipt_to, "receipt_to", 160);
+  if (receiptTo.error) {
+    return res.status(400).json({ error: receiptTo.error });
+  }
+  const referenceNote = parseUpdateOptionalText(
+    b.reference_note,
+    "reference_note",
+    500,
+  );
+  if (referenceNote.error) {
+    return res.status(400).json({ error: referenceNote.error });
+  }
+
   const hasPayments = Object.prototype.hasOwnProperty.call(b, "payments");
   if (hasPayments && !Array.isArray(b.payments)) {
     return res.status(400).json({ error: "payments inválidos" });
@@ -309,6 +366,10 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
       if (descriptionRaw !== undefined) data.description = descriptionRaw;
       if (currencyRaw !== undefined) data.currency = currencyRaw;
       if (issueDate !== undefined) data.issue_date = issueDate;
+      if (counterpartyType.present) data.counterparty_type = counterpartyType.value;
+      if (counterpartyName.present) data.counterparty_name = counterpartyName.value;
+      if (receiptTo.present) data.receipt_to = receiptTo.value;
+      if (referenceNote.present) data.reference_note = referenceNote.value;
       if (b.payment_fee_amount === null) {
         data.payment_fee_amount = null;
       } else if (paymentFee !== undefined) {

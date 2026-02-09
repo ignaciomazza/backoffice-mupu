@@ -16,13 +16,20 @@ type ServiceTypeRow = {
   code: string;
   name: string;
   enabled: boolean;
+  allow_no_destination: boolean;
   created_at: Date;
   updated_at: Date;
 };
 
 type ServiceTypeDTO = Pick<
   ServiceTypeRow,
-  "id_service_type" | "code" | "name" | "enabled" | "created_at" | "updated_at"
+  | "id_service_type"
+  | "code"
+  | "name"
+  | "enabled"
+  | "allow_no_destination"
+  | "created_at"
+  | "updated_at"
 >;
 
 /* =============================
@@ -197,6 +204,7 @@ export default async function handler(
             code: true,
             name: true,
             enabled: true,
+            allow_no_destination: true,
             created_at: true,
             updated_at: true,
           },
@@ -217,6 +225,8 @@ export default async function handler(
           name?: unknown;
           code?: unknown;
           enabled?: unknown;
+          allow_no_destination?: unknown;
+          allowNoDestination?: unknown;
         };
 
         const rawName = typeof body.name === "string" ? body.name.trim() : "";
@@ -228,6 +238,16 @@ export default async function handler(
             : typeof body.enabled === "string"
               ? body.enabled === "true"
               : true;
+        const rawAllowNoDestination =
+          typeof body.allow_no_destination === "boolean"
+            ? body.allow_no_destination
+            : typeof body.allow_no_destination === "string"
+              ? body.allow_no_destination === "true"
+              : typeof body.allowNoDestination === "boolean"
+                ? body.allowNoDestination
+                : typeof body.allowNoDestination === "string"
+                  ? body.allowNoDestination === "true"
+                  : false;
 
         if (!rawName) {
           return res.status(400).json({ error: "name es requerido" });
@@ -258,6 +278,7 @@ export default async function handler(
               name: rawName,
               code: slugify(rawCode),
               enabled: Boolean(rawEnabled),
+              allow_no_destination: Boolean(rawAllowNoDestination),
             },
             select: {
               id_service_type: true,
@@ -265,6 +286,7 @@ export default async function handler(
               code: true,
               name: true,
               enabled: true,
+              allow_no_destination: true,
               created_at: true,
               updated_at: true,
             },

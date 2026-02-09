@@ -119,6 +119,23 @@ const toDec = (v: unknown) =>
     ? undefined
     : new Prisma.Decimal(typeof v === "number" ? v : String(v));
 
+function parseCreateOptionalText(
+  raw: unknown,
+  field: string,
+  maxLen: number,
+): { value?: string; error?: string } {
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== "string") {
+    return { error: `${field} inválido` };
+  }
+  const value = raw.trim();
+  if (!value) return {};
+  if (value.length > maxLen) {
+    return { error: `${field} supera ${maxLen} caracteres` };
+  }
+  return { value };
+}
+
 type PaymentLineInput = {
   amount: unknown;
   payment_method_id: unknown;
@@ -296,6 +313,10 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         ...(Number.isFinite(qNum) ? [{ id_other_income: qNum }] : []),
         ...(Number.isFinite(qNum) ? [{ agency_other_income_id: qNum }] : []),
         { description: { contains: q, mode: "insensitive" } },
+        { counterparty_type: { contains: q, mode: "insensitive" } },
+        { counterparty_name: { contains: q, mode: "insensitive" } },
+        { receipt_to: { contains: q, mode: "insensitive" } },
+        { reference_note: { contains: q, mode: "insensitive" } },
       ];
       andFilters.push({ OR: or });
     }
@@ -363,6 +384,38 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     const description = String(b.description ?? "").trim();
     const currency = String(b.currency ?? "").trim().toUpperCase();
+    const counterpartyTypeResult = parseCreateOptionalText(
+      b.counterparty_type,
+      "counterparty_type",
+      60,
+    );
+    if (counterpartyTypeResult.error) {
+      return res.status(400).json({ error: counterpartyTypeResult.error });
+    }
+    const counterpartyNameResult = parseCreateOptionalText(
+      b.counterparty_name,
+      "counterparty_name",
+      160,
+    );
+    if (counterpartyNameResult.error) {
+      return res.status(400).json({ error: counterpartyNameResult.error });
+    }
+    const receiptToResult = parseCreateOptionalText(
+      b.receipt_to,
+      "receipt_to",
+      160,
+    );
+    if (receiptToResult.error) {
+      return res.status(400).json({ error: receiptToResult.error });
+    }
+    const referenceNoteResult = parseCreateOptionalText(
+      b.reference_note,
+      "reference_note",
+      500,
+    );
+    if (referenceNoteResult.error) {
+      return res.status(400).json({ error: referenceNoteResult.error });
+    }
 
     const parsedIssueDate = b.issue_date ? toLocalDate(b.issue_date) : undefined;
     if (b.issue_date && !parsedIssueDate) {
@@ -427,6 +480,16 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           agency_other_income_id: agencyOtherIncomeId,
           id_agency: auth.id_agency,
           description,
+          ...(counterpartyTypeResult.value
+            ? { counterparty_type: counterpartyTypeResult.value }
+            : {}),
+          ...(counterpartyNameResult.value
+            ? { counterparty_name: counterpartyNameResult.value }
+            : {}),
+          ...(receiptToResult.value ? { receipt_to: receiptToResult.value } : {}),
+          ...(referenceNoteResult.value
+            ? { reference_note: referenceNoteResult.value }
+            : {}),
           amount,
           currency,
           issue_date: parsedIssueDate ?? new Date(),

@@ -254,6 +254,10 @@ export default async function handler(
         ...(Number.isFinite(qNum) ? [{ id_other_income: qNum }] : []),
         ...(Number.isFinite(qNum) ? [{ agency_other_income_id: qNum }] : []),
         { description: { contains: q, mode: "insensitive" } },
+        { counterparty_type: { contains: q, mode: "insensitive" } },
+        { counterparty_name: { contains: q, mode: "insensitive" } },
+        { receipt_to: { contains: q, mode: "insensitive" } },
+        { reference_note: { contains: q, mode: "insensitive" } },
       ];
       andFilters.push({ OR: or });
     }

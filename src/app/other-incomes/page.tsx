@@ -39,6 +39,10 @@ type OtherIncomeItem = {
   id_other_income: number;
   agency_other_income_id?: number | null;
   description: string;
+  counterparty_type?: string | null;
+  counterparty_name?: string | null;
+  receipt_to?: string | null;
+  reference_note?: string | null;
   amount: number;
   currency: string;
   issue_date: string;
@@ -98,8 +102,43 @@ const emptyLine = (): PaymentFormLine => ({
   account_id: "",
 });
 
-const toNumber = (v: string) => {
-  const n = Number(String(v).replace(",", "."));
+const toNumber = (raw: string | number | null | undefined) => {
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : 0;
+  const value = String(raw || "").trim();
+  if (!value) return 0;
+
+  const cleaned = value.replace(/[^\d.,]/g, "");
+  if (!cleaned) return 0;
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  let decimalSep: "," | "." | null = null;
+
+  if (lastComma >= 0 && lastDot >= 0) {
+    decimalSep = lastComma > lastDot ? "," : ".";
+  } else if (lastComma >= 0) {
+    const decimals = cleaned.length - lastComma - 1;
+    decimalSep = decimals > 0 && decimals <= 2 ? "," : null;
+  } else if (lastDot >= 0) {
+    const decimals = cleaned.length - lastDot - 1;
+    decimalSep = decimals > 0 && decimals <= 2 ? "." : null;
+  }
+
+  let normalized = cleaned;
+  if (decimalSep) {
+    normalized =
+      decimalSep === ","
+        ? normalized.replace(/\./g, "")
+        : normalized.replace(/,/g, "");
+    const parts = normalized.split(decimalSep);
+    const intPart = (parts.shift() || "0").replace(/[^\d]/g, "") || "0";
+    const decPart = parts.join("").replace(/[^\d]/g, "").slice(0, 2);
+    normalized = decPart ? `${intPart}.${decPart}` : intPart;
+  } else {
+    normalized = normalized.replace(/[.,]/g, "");
+  }
+
+  const n = Number(normalized);
   return Number.isFinite(n) ? n : 0;
 };
 
@@ -119,6 +158,64 @@ const fmtMoney = (v?: number | string | null, curr?: string | null) => {
   } catch {
     return `${currency} ${Number.isFinite(n) ? n.toFixed(2) : "0.00"}`;
   }
+};
+
+const moneyPrefix = (curr?: string | null) => {
+  const code = normCurrency(curr) || "ARS";
+  if (code === "ARS") return "$";
+  if (code === "USD") return "US$";
+  return code;
+};
+
+const formatIntegerEs = (digits: string) => {
+  const normalized = digits.replace(/^0+(?=\d)/, "") || "0";
+  return normalized.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+};
+
+const formatMoneyInput = (
+  raw: string,
+  curr?: string | null,
+  options?: { preferDotDecimal?: boolean },
+) => {
+  const cleaned = String(raw || "").replace(/[^\d.,]/g, "");
+  if (!/\d/.test(cleaned)) return "";
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  const hasComma = lastComma >= 0;
+  const hasDot = lastDot >= 0;
+  const preferDotDecimal = Boolean(options?.preferDotDecimal);
+
+  let sepIndex = -1;
+
+  let intDigits = cleaned.replace(/[^\d]/g, "");
+  let decDigits = "";
+  let hasDecimal = false;
+
+  if (hasComma) {
+    sepIndex = lastComma;
+  } else if (hasDot && preferDotDecimal) {
+    sepIndex = lastDot;
+  }
+
+  if (sepIndex >= 0) {
+    const before = cleaned.slice(0, sepIndex).replace(/[^\d]/g, "");
+    const afterRaw = cleaned.slice(sepIndex + 1).replace(/[^\d]/g, "");
+    hasDecimal = true;
+    intDigits = before || "0";
+    decDigits = afterRaw.slice(0, 2);
+  }
+
+  const intPart = formatIntegerEs(intDigits);
+  const decPart = hasDecimal ? `,${decDigits}` : "";
+  return `${moneyPrefix(curr)} ${intPart}${decPart}`;
+};
+
+const shouldPreferDotDecimal = (ev: React.ChangeEvent<HTMLInputElement>) => {
+  const native = ev.nativeEvent as InputEvent | undefined;
+  const char = typeof native?.data === "string" ? native.data : "";
+  if (char === "." || char === ",") return true;
+  return native?.inputType === "insertFromPaste";
 };
 
 const fmtDate = (iso?: string | null) => {
@@ -155,6 +252,15 @@ const formatMonthLabel = (key: string) => {
   }).format(date);
 };
 
+const textOrEmpty = (v?: string | null) => String(v || "").trim();
+
+const getIncomeCounterparty = (item: OtherIncomeItem) => {
+  const name = textOrEmpty(item.counterparty_name);
+  const receiptTo = textOrEmpty(item.receipt_to);
+  const legacyType = textOrEmpty(item.counterparty_type);
+  return name || receiptTo || legacyType;
+};
+
 export default function OtherIncomesPage() {
   const { token } = useAuth() as { token?: string | null };
 
@@ -175,6 +281,8 @@ export default function OtherIncomesPage() {
 
   const [form, setForm] = useState(() => ({
     description: "",
+    counterparty_name: "",
+    reference_note: "",
     currency: "ARS",
     issue_date: ymdToday(),
     payment_fee_amount: "",
@@ -184,6 +292,8 @@ export default function OtherIncomesPage() {
   const [editingItem, setEditingItem] = useState<OtherIncomeItem | null>(null);
   const [editForm, setEditForm] = useState(() => ({
     description: "",
+    counterparty_name: "",
+    reference_note: "",
     currency: "ARS",
     issue_date: ymdToday(),
     payment_fee_amount: "",
@@ -446,9 +556,15 @@ export default function OtherIncomesPage() {
 
     const payload = {
       description: form.description.trim(),
+      counterparty_name: form.counterparty_name.trim() || undefined,
+      receipt_to: form.counterparty_name.trim() || undefined,
+      reference_note: form.reference_note.trim() || undefined,
       currency: form.currency,
       issue_date: form.issue_date,
-      payment_fee_amount: form.payment_fee_amount || undefined,
+      payment_fee_amount:
+        form.payment_fee_amount !== ""
+          ? toNumber(form.payment_fee_amount)
+          : undefined,
       amount: totalAmount,
       payments: normalizedPayments,
     };
@@ -473,6 +589,8 @@ export default function OtherIncomesPage() {
       }
       setForm({
         description: "",
+        counterparty_name: "",
+        reference_note: "",
         currency: form.currency,
         issue_date: ymdToday(),
         payment_fee_amount: "",
@@ -498,14 +616,18 @@ export default function OtherIncomesPage() {
 
     setEditForm({
       description: item.description || "",
+      counterparty_name: item.counterparty_name || item.receipt_to || "",
+      reference_note: item.reference_note || "",
       currency: item.currency || "ARS",
       issue_date: toYmd(item.issue_date) || ymdToday(),
       payment_fee_amount:
-        item.payment_fee_amount != null ? String(item.payment_fee_amount) : "",
+        item.payment_fee_amount != null
+          ? formatMoneyInput(String(item.payment_fee_amount), item.currency)
+          : "",
       payments:
         payments.length > 0
           ? payments.map((p) => ({
-              amount: String(p.amount ?? ""),
+              amount: formatMoneyInput(String(p.amount ?? ""), item.currency),
               payment_method_id: String(p.payment_method_id ?? ""),
               account_id: p.account_id ? String(p.account_id) : "",
             }))
@@ -544,10 +666,16 @@ export default function OtherIncomesPage() {
 
     const payload = {
       description: editForm.description.trim(),
+      counterparty_name: editForm.counterparty_name.trim() || null,
+      receipt_to: editForm.counterparty_name.trim() || null,
+      counterparty_type: null,
+      reference_note: editForm.reference_note.trim() || null,
       currency: editForm.currency,
       issue_date: editForm.issue_date,
       payment_fee_amount:
-        editForm.payment_fee_amount !== "" ? editForm.payment_fee_amount : null,
+        editForm.payment_fee_amount !== ""
+          ? toNumber(editForm.payment_fee_amount)
+          : null,
       amount: totalEditAmount,
       payments: normalizedPayments,
     };
@@ -620,12 +748,14 @@ export default function OtherIncomesPage() {
       const headers = [
         "Fecha",
         "N°",
-        "Descripción",
+        "Concepto",
+        "Quién paga",
+        "Nota interna",
         "Moneda",
         "Monto",
-        "Fee",
+        "Costo financiero",
         "Estado",
-        "Pagos",
+        "Cobros",
       ].join(";");
 
       let next: number | null = null;
@@ -642,6 +772,7 @@ export default function OtherIncomesPage() {
         if (!res.ok) throw new Error(json?.error || "Error al exportar CSV");
 
         for (const row of json.items) {
+          const counterparty = getIncomeCounterparty(row);
           const payments = Array.isArray(row.payments) ? row.payments : [];
           const paymentsLabel = payments
             .map((p) => {
@@ -659,6 +790,8 @@ export default function OtherIncomesPage() {
             fmtDate(row.issue_date),
             String(row.agency_other_income_id ?? row.id_other_income),
             row.description,
+            counterparty,
+            textOrEmpty(row.reference_note),
             row.currency,
             fmtMoney(row.amount, row.currency),
             row.payment_fee_amount != null
@@ -725,7 +858,7 @@ export default function OtherIncomesPage() {
       const label =
         accountMap.get(Number(appliedFilters.accountId)) ||
         `ID ${appliedFilters.accountId}`;
-      chips.push({ key: "account", label: `Cuenta: ${label}` });
+      chips.push({ key: "account", label: `Cuenta de ingreso: ${label}` });
     }
     return chips;
   }, [appliedFilters, methodMap, accountMap]);
@@ -780,8 +913,8 @@ export default function OtherIncomesPage() {
             <div>
               <h1 className="text-2xl font-semibold">Ingresos</h1>
               <p className="text-sm text-zinc-500 dark:text-zinc-300">
-                Ingresos no vinculados a reservas, con medios de cobro y
-                verificación.
+                Ingresos adicionales (fuera de reservas) con trazabilidad de
+                cobro y verificación.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -839,7 +972,7 @@ export default function OtherIncomesPage() {
                       onChange={(e) =>
                         setFilters((prev) => ({ ...prev, q: e.target.value }))
                       }
-                      placeholder="Descripción o número"
+                      placeholder="Buscá por concepto, número, cliente o empresa"
                     />
                   </div>
                   <button
@@ -914,7 +1047,7 @@ export default function OtherIncomesPage() {
 
                   <div className={SUBPANEL}>
                     <p className="text-xs font-semibold text-zinc-500">
-                      Medio de pago
+                      Medio de cobro
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <button
@@ -953,37 +1086,34 @@ export default function OtherIncomesPage() {
 
                   <div className={SUBPANEL}>
                     <p className="text-xs font-semibold text-zinc-500">
-                      Cuenta
+                      Cuenta de ingreso
                     </p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setFilters((prev) => ({ ...prev, accountId: "ALL" }))
+                    <div className="mt-2 space-y-1">
+                      <select
+                        className="w-full rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
+                        value={filters.accountId}
+                        onChange={(e) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            accountId: e.target.value,
+                          }))
                         }
-                        className={pillClass(filters.accountId === "ALL")}
                       >
-                        Todas
-                      </button>
-                      {(finance?.accounts || [])
+                        <option value="ALL">Todas</option>
+                        {(finance?.accounts || [])
                         .filter((a) => a.enabled)
                         .map((a) => (
-                          <button
+                          <option
                             key={a.id_account}
-                            type="button"
-                            onClick={() =>
-                              setFilters((prev) => ({
-                                ...prev,
-                                accountId: String(a.id_account),
-                              }))
-                            }
-                            className={pillClass(
-                              filters.accountId === String(a.id_account),
-                            )}
+                            value={String(a.id_account)}
                           >
                             {a.name}
-                          </button>
+                          </option>
                         ))}
+                      </select>
+                      <p className="text-[11px] text-zinc-500">
+                        Elegí una cuenta puntual o dejá todas.
+                      </p>
                     </div>
                   </div>
 
@@ -1054,7 +1184,7 @@ export default function OtherIncomesPage() {
                   </span>
                   {(report?.totalsByCurrency || []).map((row) => (
                     <span key={`cur-${row.currency}`} className={CHIP}>
-                      {row.currency}: {fmtMoney(row.amount, row.currency)} · Fee{" "}
+                      {row.currency}: {fmtMoney(row.amount, row.currency)} · Costo{" "}
                       {fmtMoney(row.fees, row.currency)}
                     </span>
                   ))}
@@ -1063,7 +1193,7 @@ export default function OtherIncomesPage() {
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className={SUBPANEL}>
                     <p className="text-xs font-semibold text-zinc-500">
-                      Por medio
+                      Por medio de cobro
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2 text-xs">
                       {(report?.totalsByPaymentMethod || []).map((row) => (
@@ -1090,7 +1220,7 @@ export default function OtherIncomesPage() {
 
                   <div className={SUBPANEL}>
                     <p className="text-xs font-semibold text-zinc-500">
-                      Por cuenta
+                      Por cuenta de ingreso
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2 text-xs">
                       {(report?.totalsByAccount || []).map((row) => (
@@ -1177,7 +1307,7 @@ export default function OtherIncomesPage() {
                   <div>
                     <p className="text-lg font-semibold">Nuevo ingreso</p>
                     <p className="text-xs text-zinc-500 dark:text-zinc-300">
-                      Registrá ingresos no vinculados a reservas.
+                      Cargá un ingreso extra y dejá claro quién paga.
                     </p>
                   </div>
                 </div>
@@ -1204,7 +1334,7 @@ export default function OtherIncomesPage() {
                   >
                     <div className="grid gap-3 md:grid-cols-2">
                       <label className="flex flex-col gap-1 text-sm">
-                        Descripción
+                        Concepto del ingreso
                         <input
                           className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
                           value={form.description}
@@ -1214,7 +1344,7 @@ export default function OtherIncomesPage() {
                               description: e.target.value,
                             }))
                           }
-                          placeholder="Ingreso por intereses, reintegro, venta, etc."
+                          placeholder="Ej: reintegro bancario, ajuste, diferencia, etc."
                         />
                       </label>
                       <label className="flex flex-col gap-1 text-sm">
@@ -1233,6 +1363,38 @@ export default function OtherIncomesPage() {
                       </label>
                     </div>
 
+                    <div className="flex flex-col gap-3">
+                      <label className="flex flex-col gap-1 text-sm">
+                        Quién paga (Nombre de empresa o cliente)
+                        <input
+                          className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
+                          value={form.counterparty_name}
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              counterparty_name: e.target.value,
+                            }))
+                          }
+                          placeholder="Nombre de empresa o cliente"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                        Nota interna
+                        <textarea
+                          className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
+                          value={form.reference_note}
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              reference_note: e.target.value,
+                            }))
+                          }
+                          placeholder="Observación breve"
+                          rows={3}
+                        />
+                      </label>
+                    </div>
+
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="flex flex-col gap-1 text-sm">
                         Moneda
@@ -1242,7 +1404,19 @@ export default function OtherIncomesPage() {
                               key={code}
                               type="button"
                               onClick={() =>
-                                setForm((prev) => ({ ...prev, currency: code }))
+                                setForm((prev) => ({
+                                  ...prev,
+                                  currency: code,
+                                  payment_fee_amount: prev.payment_fee_amount
+                                    ? formatMoneyInput(prev.payment_fee_amount, code)
+                                    : "",
+                                  payments: prev.payments.map((line) => ({
+                                    ...line,
+                                    amount: line.amount
+                                      ? formatMoneyInput(line.amount, code)
+                                      : "",
+                                  })),
+                                }))
                               }
                               className={pillClass(form.currency === code)}
                             >
@@ -1252,31 +1426,39 @@ export default function OtherIncomesPage() {
                         </div>
                       </div>
                       <label className="flex flex-col gap-1 text-sm">
-                        Costo financiero (retención del medio. Ej: Intereses de
-                        tarjeta)
+                        Costo financiero
                         <input
                           className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
                           value={form.payment_fee_amount}
                           onChange={(e) =>
                             setForm((prev) => ({
                               ...prev,
-                              payment_fee_amount: e.target.value,
+                              payment_fee_amount: formatMoneyInput(
+                                e.target.value,
+                                prev.currency,
+                                {
+                                  preferDotDecimal:
+                                    shouldPreferDotDecimal(e),
+                                },
+                              ),
                             }))
                           }
-                          placeholder="0.00"
+                          placeholder={fmtMoney(0, form.currency)}
                         />
                       </label>
                     </div>
 
                     <div className="grid gap-3">
                       <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-semibold">Pagos</h3>
+                        <h3 className="text-sm font-semibold">
+                          Cómo ingresó el dinero
+                        </h3>
                         <button
                           type="button"
                           onClick={addLine}
                           className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-100"
                         >
-                          Agregar línea
+                          Agregar cobro
                         </button>
                       </div>
 
@@ -1287,20 +1469,27 @@ export default function OtherIncomesPage() {
                             className="grid gap-3 rounded-xl border border-white/20 bg-white/40 p-3 shadow-inner dark:bg-zinc-900/40 md:grid-cols-4"
                           >
                             <label className="flex flex-col gap-1 text-xs">
-                              Monto
+                              Monto cobrado
                               <input
                                 className="rounded-lg border border-white/30 bg-white/70 px-2 py-1 text-sm outline-none dark:bg-zinc-900/60"
                                 value={line.amount}
                                 onChange={(e) =>
                                   updateLine(index, {
-                                    amount: e.target.value,
+                                    amount: formatMoneyInput(
+                                      e.target.value,
+                                      form.currency,
+                                      {
+                                        preferDotDecimal:
+                                          shouldPreferDotDecimal(e),
+                                      },
+                                    ),
                                   })
                                 }
-                                placeholder="0.00"
+                                placeholder={fmtMoney(0, form.currency)}
                               />
                             </label>
                             <div className="flex flex-col gap-1 text-xs">
-                              Medio de pago
+                              Medio de cobro
                               <div className="flex flex-wrap gap-2">
                                 {(finance?.paymentMethods || [])
                                   .filter((m) => m.enabled)
@@ -1327,40 +1516,30 @@ export default function OtherIncomesPage() {
                                   })}
                               </div>
                             </div>
-                            <div className="flex flex-col gap-1 text-xs">
-                              Cuenta (opcional)
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    updateLine(index, { account_id: "" })
-                                  }
-                                  className={pillSm(line.account_id === "")}
-                                >
-                                  Sin cuenta
-                                </button>
+                            <label className="flex flex-col gap-1 text-xs">
+                              Cuenta de ingreso
+                              <select
+                                className="rounded-lg border border-white/30 bg-white/70 px-2 py-1 text-sm outline-none dark:bg-zinc-900/60"
+                                value={line.account_id}
+                                onChange={(e) =>
+                                  updateLine(index, {
+                                    account_id: e.target.value,
+                                  })
+                                }
+                              >
+                                <option value="">Sin cuenta</option>
                                 {(finance?.accounts || [])
                                   .filter((a) => a.enabled)
-                                  .map((a) => {
-                                    const value = String(a.id_account);
-                                    const active = line.account_id === value;
-                                    return (
-                                      <button
-                                        key={a.id_account}
-                                        type="button"
-                                        onClick={() =>
-                                          updateLine(index, {
-                                            account_id: active ? "" : value,
-                                          })
-                                        }
-                                        className={pillSm(active)}
-                                      >
-                                        {a.name}
-                                      </button>
-                                    );
-                                  })}
-                              </div>
-                            </div>
+                                  .map((a) => (
+                                    <option
+                                      key={a.id_account}
+                                      value={String(a.id_account)}
+                                    >
+                                      {a.name}
+                                    </option>
+                                  ))}
+                              </select>
+                            </label>
                             <div className="flex items-end justify-end">
                               <button
                                 type="button"
@@ -1376,7 +1555,7 @@ export default function OtherIncomesPage() {
 
                       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                         <span className="text-zinc-500 dark:text-zinc-300">
-                          Total cobrado
+                          Total registrado
                         </span>
                         <span className="font-semibold">
                           {fmtMoney(totalAmount, form.currency)}
@@ -1443,10 +1622,10 @@ export default function OtherIncomesPage() {
                     <tr>
                       <th className="px-3 py-2">Fecha</th>
                       <th className="px-3 py-2">N°</th>
-                      <th className="px-3 py-2">Descripción</th>
+                      <th className="px-3 py-2">Concepto</th>
                       <th className="px-3 py-2">Monto</th>
                       <th className="px-3 py-2">Estado</th>
-                      <th className="px-3 py-2">Pagos</th>
+                      <th className="px-3 py-2">Cobros</th>
                       <th className="px-3 py-2 text-right">Acciones</th>
                     </tr>
                   </thead>
@@ -1466,9 +1645,19 @@ export default function OtherIncomesPage() {
                           <div className="font-semibold">
                             {item.description}
                           </div>
+                          {getIncomeCounterparty(item) && (
+                            <div className="text-xs text-zinc-500">
+                              Quién paga: {getIncomeCounterparty(item)}
+                            </div>
+                          )}
+                          {textOrEmpty(item.reference_note) && (
+                            <div className="text-xs text-zinc-500">
+                              Nota: {textOrEmpty(item.reference_note)}
+                            </div>
+                          )}
                           {item.payment_fee_amount != null && (
                             <div className="text-xs text-zinc-500">
-                              Fee:{" "}
+                              Costo financiero:{" "}
                               {fmtMoney(item.payment_fee_amount, item.currency)}
                             </div>
                           )}
@@ -1557,6 +1746,16 @@ export default function OtherIncomesPage() {
                               {item.agency_other_income_id ??
                                 item.id_other_income}
                             </div>
+                            {getIncomeCounterparty(item) && (
+                              <div className="text-xs text-zinc-500">
+                                Quién paga: {getIncomeCounterparty(item)}
+                              </div>
+                            )}
+                            {textOrEmpty(item.reference_note) && (
+                              <div className="text-xs text-zinc-500">
+                                Nota: {textOrEmpty(item.reference_note)}
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold">
@@ -1593,6 +1792,16 @@ export default function OtherIncomesPage() {
                           {fmtDate(item.issue_date)} · N°{" "}
                           {item.agency_other_income_id ?? item.id_other_income}
                         </p>
+                        {getIncomeCounterparty(item) && (
+                          <p className="text-xs text-zinc-500 dark:text-zinc-300">
+                            Quién paga: {getIncomeCounterparty(item)}
+                          </p>
+                        )}
+                        {textOrEmpty(item.reference_note) && (
+                          <p className="text-xs text-zinc-500 dark:text-zinc-300">
+                            Nota: {textOrEmpty(item.reference_note)}
+                          </p>
+                        )}
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-semibold">
@@ -1612,7 +1821,8 @@ export default function OtherIncomesPage() {
 
                     {item.payment_fee_amount != null && (
                       <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-300">
-                        Fee: {fmtMoney(item.payment_fee_amount, item.currency)}
+                        Costo financiero:{" "}
+                        {fmtMoney(item.payment_fee_amount, item.currency)}
                       </p>
                     )}
 
@@ -1691,7 +1901,7 @@ export default function OtherIncomesPage() {
               <form className="mt-4 grid gap-4" onSubmit={handleEditSubmit}>
                 <div className="grid gap-3 md:grid-cols-2">
                   <label className="flex flex-col gap-1 text-sm">
-                    Descripción
+                    Concepto del ingreso
                     <input
                       className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
                       value={editForm.description}
@@ -1720,6 +1930,38 @@ export default function OtherIncomesPage() {
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-sm">
+                    Quién paga (Nombre de empresa o cliente)
+                    <input
+                      className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
+                      value={editForm.counterparty_name}
+                      onChange={(e) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          counterparty_name: e.target.value,
+                        }))
+                      }
+                      placeholder="Nombre de empresa o cliente"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                    Nota interna
+                    <textarea
+                      className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
+                      value={editForm.reference_note}
+                      onChange={(e) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          reference_note: e.target.value,
+                        }))
+                      }
+                      placeholder="Observación breve"
+                      rows={3}
+                    />
+                  </label>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
                   <div className="flex flex-col gap-1 text-sm">
                     Moneda
                     <div className="mt-1 flex flex-wrap gap-2">
@@ -1728,7 +1970,19 @@ export default function OtherIncomesPage() {
                           key={code}
                           type="button"
                           onClick={() =>
-                            setEditForm((prev) => ({ ...prev, currency: code }))
+                            setEditForm((prev) => ({
+                              ...prev,
+                              currency: code,
+                              payment_fee_amount: prev.payment_fee_amount
+                                ? formatMoneyInput(prev.payment_fee_amount, code)
+                                : "",
+                              payments: prev.payments.map((line) => ({
+                                ...line,
+                                amount: line.amount
+                                  ? formatMoneyInput(line.amount, code)
+                                  : "",
+                              })),
+                            }))
                           }
                           className={pillClass(editForm.currency === code)}
                         >
@@ -1738,30 +1992,38 @@ export default function OtherIncomesPage() {
                     </div>
                   </div>
                   <label className="flex flex-col gap-1 text-sm">
-                    Fee financiero (opcional)
+                    Costo financiero
                     <input
                       className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
                       value={editForm.payment_fee_amount}
                       onChange={(e) =>
                         setEditForm((prev) => ({
                           ...prev,
-                          payment_fee_amount: e.target.value,
+                          payment_fee_amount: formatMoneyInput(
+                            e.target.value,
+                            prev.currency,
+                            {
+                              preferDotDecimal: shouldPreferDotDecimal(e),
+                            },
+                          ),
                         }))
                       }
-                      placeholder="0.00"
+                      placeholder={fmtMoney(0, editForm.currency)}
                     />
                   </label>
                 </div>
 
                 <div className="grid gap-3">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold">Pagos</h3>
+                    <h3 className="text-sm font-semibold">
+                      Cómo ingresó el dinero
+                    </h3>
                     <button
                       type="button"
                       onClick={addEditLine}
                       className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-100"
                     >
-                      Agregar línea
+                      Agregar cobro
                     </button>
                   </div>
 
@@ -1772,18 +2034,27 @@ export default function OtherIncomesPage() {
                         className="grid gap-3 rounded-xl border border-white/20 bg-white/40 p-3 shadow-inner dark:bg-zinc-900/40 md:grid-cols-4"
                       >
                         <label className="flex flex-col gap-1 text-xs">
-                          Monto
+                          Monto cobrado
                           <input
                             className="rounded-lg border border-white/30 bg-white/70 px-2 py-1 text-sm outline-none dark:bg-zinc-900/60"
                             value={line.amount}
                             onChange={(e) =>
-                              updateEditLine(index, { amount: e.target.value })
+                              updateEditLine(index, {
+                                amount: formatMoneyInput(
+                                  e.target.value,
+                                  editForm.currency,
+                                  {
+                                    preferDotDecimal:
+                                      shouldPreferDotDecimal(e),
+                                  },
+                                ),
+                              })
                             }
-                            placeholder="0.00"
+                            placeholder={fmtMoney(0, editForm.currency)}
                           />
                         </label>
                         <div className="flex flex-col gap-1 text-xs">
-                          Medio de pago
+                          Medio de cobro
                           <div className="flex flex-wrap gap-2">
                             {(finance?.paymentMethods || [])
                               .filter((m) => m.enabled)
@@ -1807,40 +2078,30 @@ export default function OtherIncomesPage() {
                               })}
                           </div>
                         </div>
-                        <div className="flex flex-col gap-1 text-xs">
-                          Cuenta (opcional)
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                updateEditLine(index, { account_id: "" })
-                              }
-                              className={pillSm(line.account_id === "")}
-                            >
-                              Sin cuenta
-                            </button>
+                        <label className="flex flex-col gap-1 text-xs">
+                          Cuenta de ingreso
+                          <select
+                            className="rounded-lg border border-white/30 bg-white/70 px-2 py-1 text-sm outline-none dark:bg-zinc-900/60"
+                            value={line.account_id}
+                            onChange={(e) =>
+                              updateEditLine(index, {
+                                account_id: e.target.value,
+                              })
+                            }
+                          >
+                            <option value="">Sin cuenta</option>
                             {(finance?.accounts || [])
                               .filter((a) => a.enabled)
-                              .map((a) => {
-                                const value = String(a.id_account);
-                                const active = line.account_id === value;
-                                return (
-                                  <button
-                                    key={a.id_account}
-                                    type="button"
-                                    onClick={() =>
-                                      updateEditLine(index, {
-                                        account_id: active ? "" : value,
-                                      })
-                                    }
-                                    className={pillSm(active)}
-                                  >
-                                    {a.name}
-                                  </button>
-                                );
-                              })}
-                          </div>
-                        </div>
+                              .map((a) => (
+                                <option
+                                  key={a.id_account}
+                                  value={String(a.id_account)}
+                                >
+                                  {a.name}
+                                </option>
+                              ))}
+                          </select>
+                        </label>
                         <div className="flex items-end justify-end">
                           <button
                             type="button"
@@ -1856,7 +2117,7 @@ export default function OtherIncomesPage() {
 
                   <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                     <span className="text-zinc-500 dark:text-zinc-300">
-                      Total cobrado
+                      Total registrado
                     </span>
                     <span className="font-semibold">
                       {fmtMoney(totalEditAmount, editForm.currency)}

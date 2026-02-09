@@ -213,6 +213,7 @@ const uniqSorted = (arr: string[]) =>
   Array.from(new Set(arr.filter(Boolean))).sort((a, b) =>
     a.localeCompare(b, "es"),
   );
+const NO_DESTINATION_LABEL = "Sin destino";
 
 type FinanceCurrency = { code: string; name: string; enabled: boolean };
 
@@ -227,6 +228,8 @@ type RawServiceType = {
   value?: string | null;
   countryOnly?: boolean | number | string | null;
   multiDestDefault?: boolean | number | string | null;
+  allowNoDestination?: boolean | number | string | null;
+  allow_no_destination?: boolean | number | string | null;
   is_active?: boolean | number | string | null;
 };
 
@@ -236,6 +239,7 @@ type NormalizedServiceType = {
   label: string;
   countryOnly?: boolean;
   multiDestDefault?: boolean;
+  allowNoDestination?: boolean;
 };
 
 type RawServiceCalcCfg = {
@@ -316,7 +320,17 @@ function normalizeServiceType(
     rawId != null && Number.isFinite(Number(rawId)) ? Number(rawId) : null;
   const countryOnly = toBool(raw.countryOnly);
   const multiDestDefault = toBool(raw.multiDestDefault);
-  return { id, value, label, countryOnly, multiDestDefault };
+  const allowNoDestination = toBool(
+    raw.allowNoDestination ?? raw.allow_no_destination,
+  );
+  return {
+    id,
+    value,
+    label,
+    countryOnly,
+    multiDestDefault,
+    allowNoDestination,
+  };
 }
 
 function normalizeCalcCfg(raw: RawServiceCalcCfg): ServiceCalcCfg | null {
@@ -933,6 +947,15 @@ export default function ServiceForm({
   /* ========== DESTINATION PICKER ========== */
   const [countryMode, setCountryMode] = useState(false);
   const [multiMode, setMultiMode] = useState(false);
+  const selectedTypeAllowsNoDestination = Boolean(
+    selectedTypeFromList?.allowNoDestination,
+  );
+  const noDestination = useMemo(
+    () =>
+      (formData.destination || "").trim().toLowerCase() ===
+      NO_DESTINATION_LABEL.toLowerCase(),
+    [formData.destination],
+  );
 
   useEffect(() => {
     const t = formData.type;
@@ -957,6 +980,25 @@ export default function ServiceForm({
   >(null);
   const [destValid, setDestValid] = useState(false);
 
+  useEffect(() => {
+    if (!formData.type) return;
+    if (loadingTypes || selectedTypeAllowsNoDestination) return;
+    if (noDestination) {
+      setDestValid(false);
+      setDestSelection(null);
+      handleChange({
+        target: { name: "destination", value: "" },
+      } as ChangeEvent<HTMLInputElement>);
+    }
+  }, [
+    selectedTypeAllowsNoDestination,
+    noDestination,
+    formData.type,
+    formData.destination,
+    loadingTypes,
+    handleChange,
+  ]);
+
   // Si cambiás entre "solo país" / "múltiples destinos", reseteamos el picker,
   // pero NO tocamos el valor de destination en formData.
   useEffect(() => {
@@ -964,9 +1006,28 @@ export default function ServiceForm({
     setDestValid(false);
   }, [countryMode, multiMode]);
 
+  const handleNoDestinationToggle = useCallback(
+    (checked: boolean) => {
+      setDestSelection(null);
+      if (checked) {
+        setDestValid(true);
+        handleChange({
+          target: { name: "destination", value: NO_DESTINATION_LABEL },
+        } as ChangeEvent<HTMLInputElement>);
+        return;
+      }
+      setDestValid(false);
+      handleChange({
+        target: { name: "destination", value: "" },
+      } as ChangeEvent<HTMLInputElement>);
+    },
+    [handleChange],
+  );
+
   const handleDestinationChange = (
     val: DestinationOption | DestinationOption[] | null,
   ) => {
+    if (noDestination) return;
     setDestSelection(val);
 
     let text = "";
@@ -1143,8 +1204,9 @@ export default function ServiceForm({
     loadingCfg ||
     !transferFeeReady;
 
-  const submitDisabled =
-    submitting || waitingConfig || (!destValid && !destinationHasText);
+  const missingDestination =
+    !noDestination && !destValid && !destinationHasText;
+  const submitDisabled = submitting || waitingConfig || missingDestination;
 
   return (
     <motion.div
@@ -1341,11 +1403,25 @@ export default function ServiceForm({
 
                 {/* Destination controls */}
                 <div className="col-span-full -mb-1 flex flex-wrap items-center gap-4 px-1">
+                  {selectedTypeAllowsNoDestination && (
+                    <label className="inline-flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={noDestination}
+                        onChange={(e) =>
+                          handleNoDestinationToggle(e.target.checked)
+                        }
+                        className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
+                      />
+                      Sin destino
+                    </label>
+                  )}
                   <label className="inline-flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
                       checked={countryMode}
                       onChange={(e) => setCountryMode(e.target.checked)}
+                      disabled={noDestination}
                       className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
                     />
                     Solo país
@@ -1355,6 +1431,7 @@ export default function ServiceForm({
                       type="checkbox"
                       checked={multiMode}
                       onChange={(e) => setMultiMode(e.target.checked)}
+                      disabled={noDestination}
                       className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
                     />
                     Múltiples destinos
@@ -1362,32 +1439,38 @@ export default function ServiceForm({
                 </div>
 
                 {/* DestinationPicker */}
-                <div className="space-y-1">
-                  <DestinationPicker
-                    type={countryMode ? "country" : "destination"}
-                    multiple={multiMode}
-                    value={destSelection}
-                    onChange={handleDestinationChange}
-                    onValidChange={setDestValid}
-                    placeholder={
-                      countryMode
-                        ? "Ej.: Italia, Peru..."
-                        : "Ej.: París, Salta…"
-                    }
-                    hint={
-                      multiMode
-                        ? "Podés sumar varios destinos/países. Se guardan como texto."
-                        : countryMode
-                          ? "Elegí el país correspondiente."
-                          : "Elegí un destino habilitado."
-                    }
-                  />
-                  {formData.destination ? (
-                    <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
-                      Guardará como: <b>{formData.destination}</b>
-                    </p>
-                  ) : null}
-                </div>
+                {noDestination ? (
+                  <div className="rounded-2xl border border-amber-200/40 bg-amber-100/30 px-3 py-2 text-xs text-amber-900/90 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-100">
+                    Este servicio se guardará como <b>{NO_DESTINATION_LABEL}</b>.
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <DestinationPicker
+                      type={countryMode ? "country" : "destination"}
+                      multiple={multiMode}
+                      value={destSelection}
+                      onChange={handleDestinationChange}
+                      onValidChange={setDestValid}
+                      placeholder={
+                        countryMode
+                          ? "Ej.: Italia, Peru..."
+                          : "Ej.: París, Salta…"
+                      }
+                      hint={
+                        multiMode
+                          ? "Podés sumar varios destinos/países. Se guardan como texto."
+                          : countryMode
+                            ? "Elegí el país correspondiente."
+                            : "Elegí un destino habilitado."
+                      }
+                    />
+                    {formData.destination ? (
+                      <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
+                        Guardará como: <b>{formData.destination}</b>
+                      </p>
+                    ) : null}
+                  </div>
+                )}
 
                 <Field
                   id="reference"

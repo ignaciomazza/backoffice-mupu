@@ -27,6 +27,7 @@ type ServiceTypeDTO = {
   code: string;
   name: string;
   enabled: boolean;
+  allow_no_destination: boolean;
   created_at: string | Date;
   updated_at: string | Date;
 };
@@ -298,7 +299,8 @@ export default function BookingsConfigPage() {
     name: string;
     code: string;
     enabled: boolean;
-  }>({ name: "", code: "", enabled: true });
+    allow_no_destination: boolean;
+  }>({ name: "", code: "", enabled: true, allow_no_destination: false });
   const [savingType, setSavingType] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
@@ -560,7 +562,12 @@ export default function BookingsConfigPage() {
    * ========================================================= */
   const openNewType = useCallback(() => {
     setEditingType(null);
-    setTypeForm({ name: "", code: "", enabled: true });
+    setTypeForm({
+      name: "",
+      code: "",
+      enabled: true,
+      allow_no_destination: false,
+    });
     setTypeModalOpen(true);
   }, []);
 
@@ -570,6 +577,7 @@ export default function BookingsConfigPage() {
       name: row.name,
       code: row.code,
       enabled: row.enabled,
+      allow_no_destination: row.allow_no_destination ?? false,
     });
     setTypeModalOpen(true);
   }, []);
@@ -580,6 +588,7 @@ export default function BookingsConfigPage() {
       name: typeForm.name.trim(),
       code: (typeForm.code.trim() || slugify(typeForm.name)).trim(),
       enabled: !!typeForm.enabled,
+      allow_no_destination: !!typeForm.allow_no_destination,
     };
     if (!payload.name) {
       toast.error("Ingresá un nombre.");
@@ -1301,6 +1310,9 @@ export default function BookingsConfigPage() {
                                 {!row.enabled && (
                                   <span className={BADGE}>Deshabilitado</span>
                                 )}
+                                {row.allow_no_destination && (
+                                  <span className={BADGE}>Sin destino</span>
+                                )}
                               </div>
                               <div className="truncate text-sm opacity-80">
                                 {row.code}
@@ -1761,6 +1773,16 @@ export default function BookingsConfigPage() {
                 checked={!!typeForm.enabled}
                 onChange={(v) => setTypeForm((f) => ({ ...f, enabled: v }))}
                 label="Habilitado"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Switch
+                checked={!!typeForm.allow_no_destination}
+                onChange={(v) =>
+                  setTypeForm((f) => ({ ...f, allow_no_destination: v }))
+                }
+                label="Permitir sin destino"
+                title="Si está activo, en el formulario de servicios se puede marcar 'Sin destino'."
               />
             </div>
           </div>

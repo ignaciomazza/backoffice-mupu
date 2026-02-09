@@ -588,6 +588,10 @@ model OtherIncome {
   agency                  Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
   description             String
+  counterparty_type       String?
+  counterparty_name       String?
+  receipt_to              String?
+  reference_note          String?
   amount                  Decimal  @db.Decimal(18, 2)
   currency                String
   issue_date              DateTime @default(now())
@@ -1315,10 +1319,11 @@ model ServiceType {
   id_agency              Int
   agency                 Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
 
-  code    String // slug único por agencia (ej: "aereos-nacional")
-  name    String // nombre visible (ej: "Aéreos Nacional")
-  enabled Boolean             @default(true)
-  presets ServiceTypePreset[]
+  code                 String // slug único por agencia (ej: "aereos-nacional")
+  name                 String // nombre visible (ej: "Aéreos Nacional")
+  enabled              Boolean             @default(true)
+  allow_no_destination Boolean             @default(false)
+  presets              ServiceTypePreset[]
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
