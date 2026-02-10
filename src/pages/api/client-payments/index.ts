@@ -1,10 +1,14 @@
-// src/pages/api/client-payments/index.ts
-import { NextApiRequest, NextApiResponse } from "next";
+import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
-import { jwtVerify, JWTPayload } from "jose";
+import { jwtVerify, type JWTPayload } from "jose";
+import {
+  canAccessBookingByRole,
+  getFinanceSectionGrants,
+} from "@/lib/accessControl";
+import { canAccessFinanceSection } from "@/utils/permissions";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
-// ========= Tipos =========
 type TokenPayload = JWTPayload & {
   id_user?: number;
   userId?: number;
@@ -23,25 +27,28 @@ type DecodedUser = {
   email?: string;
 };
 
+type PersistedStatus = "PENDIENTE" | "PAGADA" | "CANCELADA";
+type DerivedStatus = PersistedStatus | "VENCIDA";
+
 type ClientPaymentsPostBody = {
   bookingId: number;
   clientId: number;
-  count?: number; // si no se envían 'amounts', usamos esto
-  amount: number | string; // total
-  currency: string; // "ARS" | "USD" (o libre)
-  amounts?: Array<number | string>; // montos por cuota (length = n)
-  dueDates: string[]; // ISO o "YYYY-MM-DD" (length = n) -> NUEVO OBLIGATORIO
+  serviceId?: number | null;
+  count?: number;
+  amount: number | string;
+  currency: string;
+  amounts?: Array<number | string>;
+  dueDates: string[];
 };
 
-// ========= Roles =========
 const RO_CREATE = new Set([
   "vendedor",
   "administrativo",
   "gerente",
   "desarrollador",
+  "lider",
 ]);
 
-// ========= JWT =========
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
 
@@ -115,32 +122,31 @@ async function getUserFromAuth(
   }
 }
 
-// ========= Helpers =========
-async function ensureBookingInAgency(bookingId: number, agencyId: number) {
-  const b = await prisma.booking.findUnique({
-    where: { id_booking: bookingId },
-    select: { id_booking: true, id_agency: true },
-  });
-  if (!b) throw new Error("La reserva no existe.");
-  if (b.id_agency !== agencyId)
-    throw new Error("La reserva no pertenece a tu agencia.");
+function normalizePersistedStatus(v: unknown): PersistedStatus {
+  const s = String(v || "").trim().toUpperCase();
+  if (s === "PAGADA") return "PAGADA";
+  if (s === "CANCELADA") return "CANCELADA";
+  return "PENDIENTE";
 }
 
-async function ensureClientInAgency(clientId: number, agencyId: number) {
-  const c = await prisma.client.findUnique({
-    where: { id_client: clientId },
-    select: { id_client: true, id_agency: true },
-  });
-  if (!c) throw new Error("El pax no existe.");
-  if (c.id_agency !== agencyId)
-    throw new Error("El pax no pertenece a tu agencia.");
+function dateKeyUtc(d: Date): string {
+  return d.toISOString().slice(0, 10);
 }
 
-/** Acepta "YYYY-MM-DD" o cualquier ISO Date string válido. Devuelve Date UTC a medianoche si es date-only. */
+function deriveStatus(status: PersistedStatus, dueDate: Date): {
+  derivedStatus: DerivedStatus;
+  isOverdue: boolean;
+} {
+  if (status !== "PENDIENTE") {
+    return { derivedStatus: status, isOverdue: false };
+  }
+  const isOverdue = dateKeyUtc(dueDate) < dateKeyUtc(new Date());
+  return { derivedStatus: isOverdue ? "VENCIDA" : "PENDIENTE", isOverdue };
+}
+
 function parseDueDate(input: string): Date | null {
   const s = String(input ?? "").trim();
   if (!s) return null;
-  // "YYYY-MM-DD" -> medianoche UTC
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
     const d = new Date(`${s}T00:00:00.000Z`);
     return Number.isFinite(d.getTime()) ? d : null;
@@ -149,109 +155,414 @@ function parseDueDate(input: string): Date | null {
   return Number.isFinite(d.getTime()) ? d : null;
 }
 
-// ========= GET =========
+function parseDateStart(input: unknown): Date | null {
+  if (typeof input !== "string" || !input.trim()) return null;
+  const parsed = parseDueDate(input);
+  if (!parsed) return null;
+  parsed.setUTCHours(0, 0, 0, 0);
+  return parsed;
+}
+
+function parseDateEnd(input: unknown): Date | null {
+  if (typeof input !== "string" || !input.trim()) return null;
+  const parsed = parseDueDate(input);
+  if (!parsed) return null;
+  parsed.setUTCHours(23, 59, 59, 999);
+  return parsed;
+}
+
+async function ensureBookingInAgency(
+  bookingId: number,
+  agencyId: number,
+): Promise<{ id_booking: number; id_agency: number; id_user: number }> {
+  const booking = await prisma.booking.findUnique({
+    where: { id_booking: bookingId },
+    select: { id_booking: true, id_agency: true, id_user: true },
+  });
+  if (!booking) throw new Error("La reserva no existe.");
+  if (booking.id_agency !== agencyId) {
+    throw new Error("La reserva no pertenece a tu agencia.");
+  }
+  return booking;
+}
+
+async function ensureClientInBooking(
+  clientId: number,
+  bookingId: number,
+  agencyId: number,
+): Promise<void> {
+  const booking = await prisma.booking.findUnique({
+    where: { id_booking: bookingId },
+    select: {
+      id_agency: true,
+      titular_id: true,
+      clients: { select: { id_client: true } },
+    },
+  });
+
+  if (!booking) throw new Error("La reserva no existe.");
+  if (booking.id_agency !== agencyId) {
+    throw new Error("La reserva no pertenece a tu agencia.");
+  }
+
+  const allowed = new Set<number>([
+    booking.titular_id,
+    ...booking.clients.map((c) => c.id_client),
+  ]);
+
+  if (!allowed.has(clientId)) {
+    throw new Error("El pax no pertenece a la reserva.");
+  }
+}
+
+async function ensureServiceInBooking(
+  serviceId: number,
+  bookingId: number,
+  agencyId: number,
+): Promise<void> {
+  const service = await prisma.service.findFirst({
+    where: {
+      id_service: serviceId,
+      booking_id: bookingId,
+      id_agency: agencyId,
+    },
+    select: { id_service: true },
+  });
+
+  if (!service) {
+    throw new Error("El servicio no pertenece a la reserva.");
+  }
+}
+
+async function ensureCanUseModule(authUser: Required<DecodedUser>): Promise<void> {
+  const planAccess = await ensurePlanFeatureAccess(
+    authUser.id_agency,
+    "payment_plans",
+  );
+  if (!planAccess.allowed) {
+    throw new Error("PLAN_INSUFICIENTE");
+  }
+}
+
+async function canAccessFinanceModule(
+  authUser: Required<DecodedUser>,
+): Promise<boolean> {
+  const grants = await getFinanceSectionGrants(
+    authUser.id_agency,
+    authUser.id_user,
+  );
+  return canAccessFinanceSection(authUser.role, grants, "payment_plans");
+}
+
+async function canAccessBookingScope(
+  authUser: Required<DecodedUser>,
+  booking: { id_user: number; id_agency: number },
+): Promise<boolean> {
+  return canAccessBookingByRole(authUser, booking);
+}
+
+function mapPaymentWithDerived<T extends { status: string; due_date: Date }>(
+  payment: T,
+): T & {
+  status: PersistedStatus;
+  derived_status: DerivedStatus;
+  is_overdue: boolean;
+} {
+  const status = normalizePersistedStatus(payment.status);
+  const { derivedStatus, isOverdue } = deriveStatus(status, payment.due_date);
+  return {
+    ...payment,
+    status,
+    derived_status: derivedStatus,
+    is_overdue: isOverdue,
+  };
+}
+
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const authUser = await getUserFromAuth(req);
-    const authUserId = authUser?.id_user;
-    const authAgencyId = authUser?.id_agency;
-    if (!authUserId || !authAgencyId)
+    const authUserRaw = await getUserFromAuth(req);
+    const authUser = authUserRaw as Required<DecodedUser> | null;
+
+    if (!authUser?.id_user || !authUser?.id_agency || !authUser?.role) {
       return res.status(401).json({ error: "No autenticado" });
+    }
+
+    await ensureCanUseModule(authUser);
 
     const bookingId = Number(
       Array.isArray(req.query.bookingId)
         ? req.query.bookingId[0]
         : req.query.bookingId,
     );
-    if (!Number.isFinite(bookingId))
-      return res.status(400).json({ error: "bookingId inválido" });
 
-    await ensureBookingInAgency(bookingId, authAgencyId);
-
-    const payments = await prisma.clientPayment.findMany({
-      where: { booking_id: bookingId },
-      orderBy: [{ due_date: "asc" }, { id_payment: "asc" }],
-      include: {
-        client: {
-          select: {
-            id_client: true,
-            first_name: true,
-            last_name: true,
-          },
+    const include = {
+      client: {
+        select: {
+          id_client: true,
+          agency_client_id: true,
+          first_name: true,
+          last_name: true,
         },
       },
+      booking: {
+        select: {
+          id_booking: true,
+          agency_booking_id: true,
+          details: true,
+          status: true,
+          id_user: true,
+        },
+      },
+      service: {
+        select: {
+          id_service: true,
+          agency_service_id: true,
+          description: true,
+          type: true,
+        },
+      },
+      receipt: {
+        select: {
+          id_receipt: true,
+          receipt_number: true,
+          issue_date: true,
+          amount: true,
+          amount_currency: true,
+        },
+      },
+    } satisfies Prisma.ClientPaymentInclude;
+
+    if (Number.isFinite(bookingId) && bookingId > 0) {
+      const booking = await ensureBookingInAgency(bookingId, authUser.id_agency);
+      const canFinance = await canAccessFinanceModule(authUser);
+      const canBooking = await canAccessBookingScope(authUser, booking);
+
+      if (!canFinance && !canBooking) {
+        return res.status(403).json({ error: "Sin permisos" });
+      }
+
+      const payments = await prisma.clientPayment.findMany({
+        where: { booking_id: bookingId, id_agency: authUser.id_agency },
+        orderBy: [{ due_date: "asc" }, { id_payment: "asc" }],
+        include,
+      });
+
+      return res.status(200).json({
+        payments: payments.map((payment) => mapPaymentWithDerived(payment)),
+      });
+    }
+
+    const canFinance = await canAccessFinanceModule(authUser);
+    if (!canFinance) {
+      return res.status(403).json({ error: "Sin permisos" });
+    }
+
+    const takeRaw = Number(
+      Array.isArray(req.query.take) ? req.query.take[0] : req.query.take,
+    );
+    const take = Math.max(1, Math.min(200, Number.isFinite(takeRaw) ? takeRaw : 80));
+
+    const cursorRaw = Number(
+      Array.isArray(req.query.cursor) ? req.query.cursor[0] : req.query.cursor,
+    );
+
+    const q = String(
+      Array.isArray(req.query.q) ? req.query.q[0] : req.query.q || "",
+    ).trim();
+
+    const statusFilter = String(
+      Array.isArray(req.query.status) ? req.query.status[0] : req.query.status || "ALL",
+    )
+      .trim()
+      .toUpperCase();
+
+    const currency = String(
+      Array.isArray(req.query.currency)
+        ? req.query.currency[0]
+        : req.query.currency || "",
+    )
+      .trim()
+      .toUpperCase();
+
+    const clientId = Number(
+      Array.isArray(req.query.clientId) ? req.query.clientId[0] : req.query.clientId,
+    );
+    const serviceId = Number(
+      Array.isArray(req.query.serviceId)
+        ? req.query.serviceId[0]
+        : req.query.serviceId,
+    );
+    const filterBookingId = Number(
+      Array.isArray(req.query.bookingId) ? req.query.bookingId[0] : req.query.bookingId,
+    );
+
+    const dueFrom = parseDateStart(
+      Array.isArray(req.query.dueFrom) ? req.query.dueFrom[0] : req.query.dueFrom,
+    );
+    const dueTo = parseDateEnd(
+      Array.isArray(req.query.dueTo) ? req.query.dueTo[0] : req.query.dueTo,
+    );
+
+    const where: Prisma.ClientPaymentWhereInput = {
+      id_agency: authUser.id_agency,
+    };
+
+    if (Number.isFinite(cursorRaw) && cursorRaw > 0) {
+      where.id_payment = { lt: cursorRaw };
+    }
+
+    if (Number.isFinite(filterBookingId) && filterBookingId > 0) {
+      where.booking_id = filterBookingId;
+    }
+
+    if (Number.isFinite(clientId) && clientId > 0) {
+      where.client_id = clientId;
+    }
+
+    if (Number.isFinite(serviceId) && serviceId > 0) {
+      where.service_id = serviceId;
+    }
+
+    if (currency) {
+      where.currency = currency;
+    }
+
+    if (dueFrom || dueTo) {
+      where.due_date = {
+        ...(dueFrom ? { gte: dueFrom } : {}),
+        ...(dueTo ? { lte: dueTo } : {}),
+      };
+    }
+
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+
+    if (statusFilter === "PAGADA" || statusFilter === "CANCELADA" || statusFilter === "PENDIENTE") {
+      where.status = statusFilter;
+    } else if (statusFilter === "VENCIDA") {
+      where.status = "PENDIENTE";
+      const dueFilterBase =
+        where.due_date &&
+        typeof where.due_date === "object" &&
+        !Array.isArray(where.due_date)
+          ? (where.due_date as Prisma.DateTimeFilter)
+          : {};
+      where.due_date = {
+        ...dueFilterBase,
+        lt: todayStart,
+      };
+    }
+
+    if (q) {
+      const maybeNumber = Number(q);
+      where.OR = [
+        { client: { first_name: { contains: q, mode: "insensitive" } } },
+        { client: { last_name: { contains: q, mode: "insensitive" } } },
+        { booking: { details: { contains: q, mode: "insensitive" } } },
+        ...(Number.isFinite(maybeNumber)
+          ? [
+              { id_payment: maybeNumber },
+              { agency_client_payment_id: maybeNumber },
+              { booking: { agency_booking_id: maybeNumber } },
+            ]
+          : []),
+      ];
+    }
+
+    const rows = await prisma.clientPayment.findMany({
+      where,
+      take: take + 1,
+      orderBy: [{ id_payment: "desc" }],
+      include,
     });
 
-    return res.status(200).json({ payments });
+    const hasMore = rows.length > take;
+    const items = hasMore ? rows.slice(0, take) : rows;
+    const nextCursor = hasMore ? items[items.length - 1]?.id_payment ?? null : null;
+
+    return res.status(200).json({
+      items: items.map((payment) => mapPaymentWithDerived(payment)),
+      nextCursor,
+    });
   } catch (error: unknown) {
-    const msg =
-      error instanceof Error ? error.message : "Error obteniendo pagos";
+    const msg = error instanceof Error ? error.message : "Error obteniendo cuotas";
+    if (msg === "PLAN_INSUFICIENTE") {
+      return res.status(403).json({ error: "Plan insuficiente" });
+    }
     return res.status(500).json({ error: msg });
   }
 }
 
-// ========= POST =========
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const authUser = await getUserFromAuth(req);
-    const authUserId = authUser?.id_user;
-    const authAgencyId = authUser?.id_agency;
-    const role = String(authUser?.role || "").toLowerCase();
-    if (!authUserId || !authAgencyId)
-      return res.status(401).json({ error: "No autenticado" });
+    const authUserRaw = await getUserFromAuth(req);
+    const authUser = authUserRaw as Required<DecodedUser> | null;
 
-    // Permisos: vendedores también pueden crear
+    if (!authUser?.id_user || !authUser?.id_agency || !authUser?.role) {
+      return res.status(401).json({ error: "No autenticado" });
+    }
+
+    await ensureCanUseModule(authUser);
+
+    const role = String(authUser.role || "").toLowerCase();
     if (!RO_CREATE.has(role)) {
       return res
         .status(403)
-        .json({ error: "No autorizado a crear pagos del pax." });
+        .json({ error: "No autorizado a crear cuotas del pax." });
     }
 
     if (!req.body || typeof req.body !== "object") {
       return res.status(400).json({ error: "Body inválido o vacío" });
     }
 
-    const {
-      bookingId,
-      clientId,
-      count = 1,
-      amount,
-      currency,
-      amounts,
-      dueDates, // <<< nuevo requerido
-    } = req.body as ClientPaymentsPostBody;
+    const { bookingId, clientId, serviceId, count = 1, amount, currency, amounts, dueDates } =
+      req.body as ClientPaymentsPostBody;
 
     const bId = Number(bookingId);
     const cId = Number(clientId);
-    if (!Number.isFinite(bId))
+    const sId =
+      serviceId === null || serviceId === undefined ? undefined : Number(serviceId);
+
+    if (!Number.isFinite(bId) || bId <= 0) {
       return res.status(400).json({ error: "bookingId es requerido" });
-    if (!Number.isFinite(cId))
+    }
+    if (!Number.isFinite(cId) || cId <= 0) {
       return res.status(400).json({ error: "clientId es requerido" });
+    }
 
-    if (amount === undefined || amount === null || amount === "")
+    const booking = await ensureBookingInAgency(bId, authUser.id_agency);
+    const canFinance = await canAccessFinanceModule(authUser);
+    const canBooking = await canAccessBookingScope(authUser, booking);
+
+    if (!canFinance && !canBooking) {
+      return res.status(403).json({ error: "Sin permisos" });
+    }
+
+    await ensureClientInBooking(cId, bId, authUser.id_agency);
+
+    if (Number.isFinite(sId) && (sId as number) > 0) {
+      await ensureServiceInBooking(Number(sId), bId, authUser.id_agency);
+    }
+
+    if (amount === undefined || amount === null || amount === "") {
       return res.status(400).json({ error: "amount es requerido" });
+    }
 
-    if (!currency || typeof currency !== "string")
+    if (!currency || typeof currency !== "string") {
       return res.status(400).json({ error: "currency es requerido" });
+    }
 
-    // Seguridad: reserva y pax deben ser de la misma agencia
-    await ensureBookingInAgency(bId, authAgencyId);
-    await ensureClientInAgency(cId, authAgencyId);
-
-    // Determinar n (cantidad de cuotas)
     const hasAmounts = Array.isArray(amounts);
     const n = hasAmounts
       ? (amounts as unknown[]).length
       : Math.max(1, Number(count || 1));
 
-    // dueDates requerido y debe tener n elementos
     if (!Array.isArray(dueDates) || dueDates.length !== n) {
       return res.status(400).json({
-        error: "Debés enviar 'dueDates' con exactamente una fecha por cuota.",
+        error: "Debés enviar dueDates con exactamente una fecha por cuota.",
       });
     }
 
-    // Parseo de fechas
     const dueDatesParsed: Date[] = [];
     for (let i = 0; i < n; i++) {
       const parsed = parseDueDate(dueDates[i]);
@@ -265,13 +576,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     const cur = currency.trim().toUpperCase();
 
-    // =========================
-    // Distribución de montos
-    // =========================
     let perInstallmentDecimals: Prisma.Decimal[] = [];
 
     if (hasAmounts) {
-      // Usamos montos personalizados
       const parsed = (amounts as Array<number | string>).map((x, i) => {
         const d = new Prisma.Decimal(typeof x === "number" ? x : String(x));
         if (d.lte(0)) {
@@ -280,7 +587,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         return d.toDecimalPlaces(2);
       });
 
-      // Validamos contra el total (tolerancia 1 centavo)
       const totalFromArray = parsed.reduce(
         (acc, d) => acc.plus(d),
         new Prisma.Decimal(0),
@@ -297,21 +603,19 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
       if (diffCents >= 1) {
         return res.status(400).json({
-          error:
-            "La suma de los montos por cuota no coincide con el monto total.",
+          error: "La suma de los montos por cuota no coincide con el monto total.",
         });
       }
 
       perInstallmentDecimals = parsed;
     } else {
-      // Reparto equitativo sin pérdida por redondeo
       const total = new Prisma.Decimal(
         typeof amount === "number" ? amount : String(amount),
       ).toDecimalPlaces(2);
 
-      const totalCents = total.mul(100); // en centavos
-      const base = totalCents.div(n).floor(); // centavos base por cuota
-      const remainder = totalCents.minus(base.mul(n)).toNumber(); // 0..n-1
+      const totalCents = total.mul(100);
+      const base = totalCents.div(n).floor();
+      const remainder = totalCents.minus(base.mul(n)).toNumber();
 
       perInstallmentDecimals = Array.from({ length: n }, (_, i) => {
         const cents = base.plus(i < remainder ? 1 : 0);
@@ -319,41 +623,95 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
-    // =========================
-    // Persistencia
-    // =========================
     const created = await prisma.$transaction(async (tx) => {
       const items = [];
+
       for (let i = 0; i < n; i++) {
         const agencyPaymentId = await getNextAgencyCounter(
           tx,
-          authAgencyId,
+          authUser.id_agency,
           "client_payment",
         );
-        const it = await tx.clientPayment.create({
+
+        const payment = await tx.clientPayment.create({
           data: {
             agency_client_payment_id: agencyPaymentId,
-            id_agency: authAgencyId,
+            id_agency: authUser.id_agency,
             booking_id: bId,
             client_id: cId,
-            amount: perInstallmentDecimals[i], // Decimal(18,2)
+            service_id:
+              Number.isFinite(sId) && (sId as number) > 0 ? Number(sId) : null,
+            amount: perInstallmentDecimals[i],
             currency: cur,
             due_date: dueDatesParsed[i],
+            status: "PENDIENTE",
+          },
+          include: {
+            client: {
+              select: {
+                id_client: true,
+                agency_client_id: true,
+                first_name: true,
+                last_name: true,
+              },
+            },
+            service: {
+              select: {
+                id_service: true,
+                agency_service_id: true,
+                description: true,
+                type: true,
+              },
+            },
+            booking: {
+              select: {
+                id_booking: true,
+                agency_booking_id: true,
+                details: true,
+                status: true,
+                id_user: true,
+              },
+            },
           },
         });
-        items.push(it);
+
+        await tx.clientPaymentAudit.create({
+          data: {
+            client_payment_id: payment.id_payment,
+            id_agency: authUser.id_agency,
+            action: "CREATED",
+            from_status: null,
+            to_status: "PENDIENTE",
+            reason: "Cuota creada",
+            changed_by: authUser.id_user,
+            data: {
+              amount: payment.amount.toString(),
+              currency: payment.currency,
+              due_date: payment.due_date.toISOString(),
+              service_id: payment.service_id,
+            },
+          },
+        });
+
+        items.push(payment);
       }
+
       return items;
     });
 
-    return res.status(201).json({ payments: created, success: true });
+    return res.status(201).json({
+      payments: created.map((payment) => mapPaymentWithDerived(payment)),
+      success: true,
+    });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : "Error creando pagos";
+    const msg = error instanceof Error ? error.message : "Error creando cuotas";
+    if (msg === "PLAN_INSUFICIENTE") {
+      return res.status(403).json({ error: "Plan insuficiente" });
+    }
     return res.status(500).json({ error: msg });
   }
 }
 
-// ========= Router =========
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,

@@ -14,7 +14,8 @@ export type PlanFeatureKey =
   | "receipts_verify"
   | "other_incomes_verify"
   | "credits"
-  | "operators_insights";
+  | "operators_insights"
+  | "payment_plans";
 
 const PLAN_RANK: Record<PlanKey, number> = {
   basico: 0,
@@ -37,6 +38,7 @@ export const PLAN_FEATURE_MIN: Record<PlanFeatureKey, PlanKey> = {
   other_incomes_verify: "medio",
   credits: "medio",
   operators_insights: "medio",
+  payment_plans: "medio",
 };
 
 const PLAN_ROUTE_FEATURES: Array<{ prefix: string; feature: PlanFeatureKey }> = [
@@ -49,6 +51,7 @@ const PLAN_ROUTE_FEATURES: Array<{ prefix: string; feature: PlanFeatureKey }> = 
   { prefix: "/balances", feature: "balances" },
   { prefix: "/cashbox", feature: "cashbox" },
   { prefix: "/credits", feature: "credits" },
+  { prefix: "/finance/payment-plans", feature: "payment_plans" },
   { prefix: "/other-incomes", feature: "other_incomes" },
   { prefix: "/insights", feature: "insights" },
   { prefix: "/client-stats", feature: "client_stats" },

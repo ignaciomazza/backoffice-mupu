@@ -400,6 +400,27 @@ export interface OperatorDue {
   currency: Currency | string;
 }
 
+export type ClientPaymentStatus = "PENDIENTE" | "PAGADA" | "CANCELADA";
+export type ClientPaymentDisplayStatus = ClientPaymentStatus | "VENCIDA";
+
+export interface ClientPaymentAudit {
+  id_audit: number;
+  client_payment_id: number;
+  id_agency: number;
+  action: string;
+  from_status?: string | null;
+  to_status?: string | null;
+  reason?: string | null;
+  changed_by?: number | null;
+  changedBy?: {
+    id_user: number;
+    first_name: string;
+    last_name: string;
+  } | null;
+  changed_at: string;
+  data?: Record<string, unknown> | null;
+}
+
 export interface ClientPayment {
   id_payment: number;
   agency_client_payment_id?: number | null;
@@ -411,6 +432,17 @@ export interface ClientPayment {
   amount: number | string;
   currency: Currency | string;
   due_date: string;
+  status: ClientPaymentStatus | string;
+  derived_status?: ClientPaymentDisplayStatus | string;
+  is_overdue?: boolean;
+  paid_at?: string | null;
+  paid_by?: number | null;
+  status_reason?: string | null;
+  receipt_id?: number | null;
+  receipt?: Receipt | null;
+  service_id?: number | null;
+  service?: Service | null;
+  audits?: ClientPaymentAudit[];
 }
 
 export interface BillingData {

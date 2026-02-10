@@ -9,11 +9,10 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import type { Booking, Client } from "@/types";
+import type { Booking } from "@/types";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 import { authFetch } from "@/utils/authFetch";
-import ClientPicker from "@/components/clients/ClientPicker";
 
 type Props = {
   token: string | null;
@@ -113,6 +112,34 @@ export default function ClientPaymentForm({
 
   // Pax que paga (prefill: titular al abrir)
   const [payerClientId, setPayerClientId] = useState<number | null>(null);
+  const [serviceId, setServiceId] = useState<number | null>(null);
+
+  const bookingPaxOptions = useMemo(() => {
+    const items = [booking.titular, ...(booking.clients ?? [])];
+    const unique = new Map<number, { id: number; label: string }>();
+
+    for (const pax of items) {
+      if (!pax?.id_client) continue;
+      if (unique.has(pax.id_client)) continue;
+      const fullName = `${pax.first_name ?? ""} ${pax.last_name ?? ""}`.trim();
+      const paxCode = pax.agency_client_id ?? pax.id_client;
+      unique.set(pax.id_client, {
+        id: pax.id_client,
+        label: `${fullName || `Pax ${pax.id_client}`} · N° ${paxCode}`,
+      });
+    }
+
+    return Array.from(unique.values());
+  }, [booking.titular, booking.clients]);
+
+  const bookingServiceOptions = useMemo(() => {
+    const services = Array.isArray(booking.services) ? booking.services : [];
+    return services.map((svc) => {
+      const code = svc.agency_service_id ?? svc.id_service;
+      const title = svc.description || svc.type || `Servicio ${code}`;
+      return { id: svc.id_service, label: `${title} · N° ${code}` };
+    });
+  }, [booking.services]);
 
   // Cantidad de pagos
   const [count, setCount] = useState<number>(1);
@@ -139,6 +166,20 @@ export default function ClientPaymentForm({
       setPayerClientId(booking.titular.id_client);
     }
   }, [isFormVisible, payerClientId, booking?.titular?.id_client]);
+
+  useEffect(() => {
+    if (payerClientId == null) return;
+    const exists = bookingPaxOptions.some((opt) => opt.id === payerClientId);
+    if (!exists) {
+      setPayerClientId(booking.titular?.id_client ?? null);
+    }
+  }, [payerClientId, bookingPaxOptions, booking.titular?.id_client]);
+
+  useEffect(() => {
+    if (serviceId == null) return;
+    const exists = bookingServiceOptions.some((opt) => opt.id === serviceId);
+    if (!exists) setServiceId(null);
+  }, [serviceId, bookingServiceOptions]);
 
   // Mantener arrays en sync con 'count'
   useEffect(() => {
@@ -260,6 +301,7 @@ export default function ClientPaymentForm({
 
   const resetForm = () => {
     setPayerClientId(null);
+    setServiceId(null);
     setCount(1);
     setAmountMode("total");
     setAmountInput("");
@@ -291,6 +333,10 @@ export default function ClientPaymentForm({
     // Validaciones básicas
     if (!payerClientId) {
       toast.error("Seleccioná el pax que paga.");
+      return;
+    }
+    if (!bookingPaxOptions.some((opt) => opt.id === payerClientId)) {
+      toast.error("El pax seleccionado no pertenece a la reserva.");
       return;
     }
     if (!count || count < 1) {
@@ -357,6 +403,7 @@ export default function ClientPaymentForm({
       const payload: Record<string, unknown> = {
         bookingId: booking.id_booking,
         clientId: Number(payerClientId),
+        ...(serviceId ? { serviceId: Number(serviceId) } : {}),
         count,
         amount: amountTotal,
         currency: cur,
@@ -481,21 +528,50 @@ export default function ClientPaymentForm({
             >
               <Section
                 title="Pax que paga"
-                desc="Podés seleccionar cualquier pax, no se limita a la reserva."
+                desc="Solo se pueden seleccionar pasajeros de esta reserva. Opcionalmente podés asociar la cuota a un servicio."
               >
-                <div className="md:col-span-2">
-                  <ClientPicker
-                    token={token}
-                    label=""
-                    placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
-                    valueId={payerClientId}
-                    excludeIds={[]}
-                    onSelect={(c: Client | null) =>
-                      setPayerClientId(c ? c.id_client : null)
+                <Field id="payer_client_id" label="Pax" required>
+                  <select
+                    id="payer_client_id"
+                    className={`${inputBase} cursor-pointer`}
+                    value={payerClientId ?? ""}
+                    onChange={(e) =>
+                      setPayerClientId(
+                        e.target.value ? Number(e.target.value) : null,
+                      )
                     }
-                    onClear={() => setPayerClientId(null)}
-                  />
-                </div>
+                    required
+                  >
+                    <option value="">Seleccionar pax...</option>
+                    {bookingPaxOptions.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field
+                  id="service_id"
+                  label="Servicio asociado (opcional)"
+                  hint="Si la cuota no corresponde a un servicio puntual, dejalo en General."
+                >
+                  <select
+                    id="service_id"
+                    className={`${inputBase} cursor-pointer`}
+                    value={serviceId ?? ""}
+                    onChange={(e) =>
+                      setServiceId(e.target.value ? Number(e.target.value) : null)
+                    }
+                  >
+                    <option value="">General de la reserva</option>
+                    {bookingServiceOptions.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
               </Section>
 
               <Section

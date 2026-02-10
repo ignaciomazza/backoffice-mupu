@@ -67,6 +67,13 @@ function formatMoney(value: number, currency: string): string {
   }
 }
 
+function normalizeStatus(status?: string): "PENDIENTE" | "PAGADA" | "CANCELADA" {
+  const normalized = String(status || "").trim().toUpperCase();
+  if (normalized === "PAGADA") return "PAGADA";
+  if (normalized === "CANCELADA") return "CANCELADA";
+  return "PENDIENTE";
+}
+
 export default function ClientPaymentList({
   payments,
   booking,
@@ -95,15 +102,30 @@ export default function ClientPaymentList({
   const overdueCount = useMemo(() => {
     const today = todayKey();
     return validPayments.reduce((count, payment) => {
+      if (normalizeStatus(payment.status) !== "PENDIENTE") return count;
       const dueKey = dateKeyFrom(payment.due_date);
       if (!dueKey) return count;
       return dueKey < today ? count + 1 : count;
     }, 0);
   }, [validPayments]);
 
+  const statusCounts = useMemo(() => {
+    return validPayments.reduce(
+      (acc, payment) => {
+        const status = normalizeStatus(payment.status);
+        if (status === "PAGADA") acc.paid += 1;
+        else if (status === "CANCELADA") acc.cancelled += 1;
+        else acc.pending += 1;
+        return acc;
+      },
+      { pending: 0, paid: 0, cancelled: 0 },
+    );
+  }, [validPayments]);
+
   const nextDueKey = useMemo(() => {
     const today = todayKey();
     const keys = validPayments
+      .filter((payment) => normalizeStatus(payment.status) === "PENDIENTE")
       .map((payment) => dateKeyFrom(payment.due_date))
       .filter((key): key is string => !!key)
       .sort();
@@ -146,11 +168,29 @@ export default function ClientPaymentList({
           <p className="text-2xl font-medium">Resumen</p>
         </div>
         <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md shadow-sky-950/10 dark:text-white">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
             <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
-              <p className="text-xs opacity-70">Pagos</p>
+              <p className="text-xs opacity-70">Cuotas</p>
               <p className="text-base font-medium tabular-nums">
                 {validPayments.length}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+              <p className="text-xs opacity-70">Pendientes</p>
+              <p className="text-base font-medium tabular-nums">
+                {statusCounts.pending}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+              <p className="text-xs opacity-70">Pagadas</p>
+              <p className="text-base font-medium tabular-nums">
+                {statusCounts.paid}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+              <p className="text-xs opacity-70">Canceladas</p>
+              <p className="text-base font-medium tabular-nums">
+                {statusCounts.cancelled}
               </p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/10 p-3">

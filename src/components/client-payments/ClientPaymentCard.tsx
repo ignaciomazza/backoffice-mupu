@@ -73,6 +73,13 @@ const formatDateKey = (key: string | null): string => {
   return dt.toLocaleDateString("es-AR", { timeZone: "UTC" });
 };
 
+const normalizeStatus = (status?: string) => {
+  const normalized = String(status || "").trim().toUpperCase();
+  if (normalized === "PAGADA") return "PAGADA";
+  if (normalized === "CANCELADA") return "CANCELADA";
+  return "PENDIENTE";
+};
+
 export default function ClientPaymentCard({
   payment,
   booking,
@@ -110,13 +117,15 @@ export default function ClientPaymentCard({
 
   const isOverdue = useMemo(() => {
     if (!dueKey) return false;
+    if (normalizeStatus(payment?.status) !== "PENDIENTE") return false;
     return dueKey < todayKey();
-  }, [dueKey]);
+  }, [dueKey, payment?.status]);
 
   const isDueToday = useMemo(() => {
     if (!dueKey) return false;
+    if (normalizeStatus(payment?.status) !== "PENDIENTE") return false;
     return dueKey === todayKey();
-  }, [dueKey]);
+  }, [dueKey, payment?.status]);
 
   const dueLabel = useMemo(() => formatDateKey(dueKey), [dueKey]);
   const createdLabel = useMemo(
@@ -158,17 +167,46 @@ export default function ClientPaymentCard({
     [payment?.currency],
   );
 
+  const persistedStatus = useMemo(
+    () => normalizeStatus(payment?.status),
+    [payment?.status],
+  );
+
+  const derivedStatus = useMemo(() => {
+    const rawDerived = String(payment?.derived_status || "")
+      .trim()
+      .toUpperCase();
+    if (rawDerived === "VENCIDA") return "VENCIDA";
+    if (rawDerived === "PAGADA") return "PAGADA";
+    if (rawDerived === "CANCELADA") return "CANCELADA";
+    if (persistedStatus === "PAGADA") return "PAGADA";
+    if (persistedStatus === "CANCELADA") return "CANCELADA";
+    return isOverdue ? "VENCIDA" : "PENDIENTE";
+  }, [payment?.derived_status, persistedStatus, isOverdue]);
+
   const statusBadge = useMemo(() => {
-    if (!dueKey) {
+    if (derivedStatus === "PAGADA") {
       return {
-        label: "Sin vencimiento",
+        label: "Pagada",
+        tone: "success" as const,
+      };
+    }
+    if (derivedStatus === "CANCELADA") {
+      return {
+        label: "Cancelada",
         tone: "neutral" as const,
       };
     }
-    if (isOverdue) {
+    if (derivedStatus === "VENCIDA") {
       return {
-        label: "Vencido",
+        label: "Vencida",
         tone: "danger" as const,
+      };
+    }
+    if (!dueKey) {
+      return {
+        label: "Pendiente",
+        tone: "warn" as const,
       };
     }
     if (isDueToday) {
@@ -178,10 +216,10 @@ export default function ClientPaymentCard({
       };
     }
     return {
-      label: "En termino",
-      tone: "success" as const,
+      label: "Pendiente",
+      tone: "warn" as const,
     };
-  }, [dueKey, isOverdue, isDueToday]);
+  }, [derivedStatus, dueKey, isDueToday]);
 
   if (typeof payment?.id_payment !== "number") {
     return (
@@ -244,10 +282,32 @@ export default function ClientPaymentCard({
         <Stat label="Moneda" value={currencyCode} />
       </div>
 
+      {(payment.service || payment.receipt || payment.paid_at) && (
+        <div className="space-y-1 rounded-2xl border border-white/10 bg-white/10 p-3 text-xs">
+          {payment.service && (
+            <p>
+              Servicio: {payment.service.description || payment.service.type || "—"}
+            </p>
+          )}
+          {payment.receipt && (
+            <p>Recibo: {payment.receipt.receipt_number || payment.receipt.id_receipt}</p>
+          )}
+          {payment.paid_at && (
+            <p>
+              Pagada:{" "}
+              {new Date(payment.paid_at).toLocaleDateString("es-AR", {
+                timeZone: "UTC",
+              })}
+            </p>
+          )}
+        </div>
+      )}
+
       <footer className="flex justify-end">
         {(role === "administrativo" ||
           role === "desarrollador" ||
-          role === "gerente") && (
+          role === "gerente") &&
+          persistedStatus !== "PAGADA" && (
           <button
             onClick={deletePayment}
             disabled={loadingDelete}

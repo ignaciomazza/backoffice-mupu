@@ -224,6 +224,7 @@ export default function SideBar({
       ],
       "/investments": adm,
       "/receipts": adm,
+      "/finance/payment-plans": adm,
       "/receipts/verify": adm,
       "/other-incomes": adm,
       "/other-incomes/verify": adm,
@@ -340,6 +341,9 @@ export default function SideBar({
             : null,
           hasAccess("/receipts")
             ? { href: "/receipts", label: "Recibos" }
+            : null,
+          hasAccess("/finance/payment-plans")
+            ? { href: "/finance/payment-plans", label: "Planes de pago" }
             : null,
           hasAccess("/other-incomes")
             ? { href: "/other-incomes", label: "Ingresos" }

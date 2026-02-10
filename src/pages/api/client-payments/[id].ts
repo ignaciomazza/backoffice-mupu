@@ -1,12 +1,13 @@
-// src/pages/api/client-payments/[id].ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
+import {
+  canAccessBookingByRole,
+  getFinanceSectionGrants,
+} from "@/lib/accessControl";
+import { canAccessFinanceSection } from "@/utils/permissions";
+import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 
-/** ===== Roles ===== */
-const RO_WRITE = new Set(["administrativo", "gerente", "desarrollador"]);
-
-/** ===== Auth helpers (idéntico criterio) ===== */
 type TokenPayload = JWTPayload & {
   id_user?: number;
   userId?: number;
@@ -17,12 +18,25 @@ type TokenPayload = JWTPayload & {
   role?: string;
   email?: string;
 };
+
 type DecodedAuth = {
   id_user: number;
   id_agency: number;
   role: string;
   email?: string;
 };
+
+type PersistedStatus = "PENDIENTE" | "PAGADA" | "CANCELADA";
+type DerivedStatus = PersistedStatus | "VENCIDA";
+
+const RO_MUTATE = new Set([
+  "vendedor",
+  "administrativo",
+  "gerente",
+  "desarrollador",
+  "lider",
+]);
+const RO_DELETE = new Set(["administrativo", "gerente", "desarrollador"]);
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
@@ -101,30 +115,11 @@ async function getUserFromAuth(
   }
 }
 
-/** ===== Utils ===== */
 function safeNumber(v: unknown): number | undefined {
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
 }
-const toDec = (v: unknown) =>
-  v === undefined || v === null || v === ""
-    ? undefined
-    : new Prisma.Decimal(typeof v === "number" ? v : String(v));
 
-const normStrUpdateNN = (
-  v: unknown,
-  opts?: { upper?: boolean; allowEmpty?: boolean },
-): string | undefined => {
-  if (v === null) return undefined;
-  if (typeof v === "string") {
-    const t = v.trim();
-    if (!t && !opts?.allowEmpty) return undefined;
-    return opts?.upper ? t.toUpperCase() : t;
-  }
-  return undefined;
-};
-
-/** Acepta "YYYY-MM-DD" o ISO; si es date-only, setea medianoche UTC */
 function parseDueDate(input: unknown): Date | undefined {
   if (input === null || input === undefined) return undefined;
   const s = String(input).trim();
@@ -137,45 +132,212 @@ function parseDueDate(input: unknown): Date | undefined {
   return Number.isFinite(d.getTime()) ? d : undefined;
 }
 
-/** ===== Scoped getters ===== */
-function getPaymentLite(id_payment: number, id_agency: number) {
-  return prisma.clientPayment.findFirst({
-    where: { id_payment, booking: { id_agency } },
-    select: { id_payment: true, booking_id: true, client_id: true },
-  });
+function toDec(v: unknown): Prisma.Decimal | undefined {
+  if (v === undefined || v === null || v === "") return undefined;
+  return new Prisma.Decimal(typeof v === "number" ? v : String(v));
 }
-function getPaymentFull(id_payment: number, id_agency: number) {
+
+function normalizePersistedStatus(v: unknown): PersistedStatus {
+  const s = String(v || "").trim().toUpperCase();
+  if (s === "PAGADA") return "PAGADA";
+  if (s === "CANCELADA") return "CANCELADA";
+  return "PENDIENTE";
+}
+
+function parseStatusForUpdate(v: unknown): PersistedStatus | undefined {
+  if (v === undefined || v === null) return undefined;
+  const s = String(v).trim().toUpperCase();
+  if (!s) return undefined;
+  if (s === "VENCIDA") {
+    throw new Error("El estado VENCIDA es derivado y no se puede guardar.");
+  }
+  if (s !== "PENDIENTE" && s !== "PAGADA" && s !== "CANCELADA") {
+    throw new Error("Estado inválido.");
+  }
+  return s as PersistedStatus;
+}
+
+function dateKeyUtc(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function deriveStatus(status: PersistedStatus, dueDate: Date): {
+  derivedStatus: DerivedStatus;
+  isOverdue: boolean;
+} {
+  if (status !== "PENDIENTE") {
+    return { derivedStatus: status, isOverdue: false };
+  }
+  const isOverdue = dateKeyUtc(dueDate) < dateKeyUtc(new Date());
+  return { derivedStatus: isOverdue ? "VENCIDA" : "PENDIENTE", isOverdue };
+}
+
+function mapPaymentWithDerived<T extends { status: string; due_date: Date }>(
+  payment: T,
+): T & {
+  status: PersistedStatus;
+  derived_status: DerivedStatus;
+  is_overdue: boolean;
+} {
+  const status = normalizePersistedStatus(payment.status);
+  const { derivedStatus, isOverdue } = deriveStatus(status, payment.due_date);
+  return {
+    ...payment,
+    status,
+    derived_status: derivedStatus,
+    is_overdue: isOverdue,
+  };
+}
+
+async function ensurePlanAccess(agencyId: number): Promise<void> {
+  const planAccess = await ensurePlanFeatureAccess(agencyId, "payment_plans");
+  if (!planAccess.allowed) {
+    throw new Error("PLAN_INSUFICIENTE");
+  }
+}
+
+async function canAccessFinanceModule(auth: DecodedAuth): Promise<boolean> {
+  const grants = await getFinanceSectionGrants(auth.id_agency, auth.id_user);
+  return canAccessFinanceSection(auth.role, grants, "payment_plans");
+}
+
+async function getPaymentFull(id_payment: number, id_agency: number) {
   return prisma.clientPayment.findFirst({
-    where: { id_payment, booking: { id_agency } },
+    where: { id_payment, id_agency },
     include: {
       booking: {
         select: {
           id_booking: true,
+          agency_booking_id: true,
+          details: true,
+          status: true,
+          id_user: true,
           id_agency: true,
-          titular: {
-            select: { id_client: true, first_name: true, last_name: true },
-          },
+          titular_id: true,
+          clients: { select: { id_client: true } },
         },
       },
       client: {
-        select: { id_client: true, first_name: true, last_name: true },
+        select: {
+          id_client: true,
+          agency_client_id: true,
+          first_name: true,
+          last_name: true,
+        },
+      },
+      service: {
+        select: {
+          id_service: true,
+          agency_service_id: true,
+          description: true,
+          type: true,
+          booking_id: true,
+        },
+      },
+      receipt: {
+        select: {
+          id_receipt: true,
+          receipt_number: true,
+          issue_date: true,
+          amount: true,
+          amount_currency: true,
+          bookingId_booking: true,
+        },
+      },
+      audits: {
+        orderBy: { changed_at: "desc" },
+        include: {
+          changedBy: {
+            select: { id_user: true, first_name: true, last_name: true },
+          },
+        },
       },
     },
   });
 }
 
-/** Validación: pax debe pertenecer a la MISMA AGENCIA */
-async function ensureClientInAgency(clientId: number, agencyId: number) {
-  const c = await prisma.client.findUnique({
-    where: { id_client: clientId },
-    select: { id_client: true, id_agency: true },
+async function ensureClientInBooking(
+  clientId: number,
+  bookingId: number,
+  agencyId: number,
+): Promise<void> {
+  const booking = await prisma.booking.findUnique({
+    where: { id_booking: bookingId },
+    select: {
+      id_agency: true,
+      titular_id: true,
+      clients: { select: { id_client: true } },
+    },
   });
-  if (!c) throw new Error("Pax no encontrado");
-  if (c.id_agency !== agencyId)
-    throw new Error("El pax no pertenece a tu agencia.");
+
+  if (!booking) throw new Error("La reserva no existe.");
+  if (booking.id_agency !== agencyId) {
+    throw new Error("La reserva no pertenece a tu agencia.");
+  }
+
+  const allowed = new Set<number>([
+    booking.titular_id,
+    ...booking.clients.map((c) => c.id_client),
+  ]);
+
+  if (!allowed.has(clientId)) {
+    throw new Error("El pax no pertenece a la reserva.");
+  }
 }
 
-/** ===== Handler ===== */
+async function ensureServiceInBooking(
+  serviceId: number,
+  bookingId: number,
+  agencyId: number,
+): Promise<void> {
+  const service = await prisma.service.findFirst({
+    where: {
+      id_service: serviceId,
+      booking_id: bookingId,
+      id_agency: agencyId,
+    },
+    select: { id_service: true },
+  });
+
+  if (!service) {
+    throw new Error("El servicio no pertenece a la reserva.");
+  }
+}
+
+async function ensureReceiptInAgency(
+  receiptId: number,
+  agencyId: number,
+): Promise<{
+  id_receipt: number;
+  id_agency: number | null;
+  bookingId_booking: number | null;
+}> {
+  const receipt = await prisma.receipt.findUnique({
+    where: { id_receipt: receiptId },
+    select: {
+      id_receipt: true,
+      id_agency: true,
+      bookingId_booking: true,
+      booking: { select: { id_agency: true } },
+    },
+  });
+
+  if (!receipt) {
+    throw new Error("Recibo no encontrado.");
+  }
+
+  const receiptAgency = receipt.booking?.id_agency ?? receipt.id_agency;
+  if (receiptAgency !== agencyId) {
+    throw new Error("El recibo no pertenece a tu agencia.");
+  }
+
+  return {
+    id_receipt: receipt.id_receipt,
+    id_agency: receipt.id_agency,
+    bookingId_booking: receipt.bookingId_booking,
+  };
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -183,79 +345,157 @@ export default async function handler(
   const auth = await getUserFromAuth(req);
   if (!auth) return res.status(401).json({ error: "No autenticado" });
 
+  try {
+    await ensurePlanAccess(auth.id_agency);
+  } catch (error) {
+    if (error instanceof Error && error.message === "PLAN_INSUFICIENTE") {
+      return res.status(403).json({ error: "Plan insuficiente" });
+    }
+    return res.status(500).json({ error: "Error validando plan" });
+  }
+
   const idParam = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   const id = safeNumber(idParam);
   if (!id) return res.status(400).json({ error: "ID inválido" });
 
+  const payment = await getPaymentFull(id, auth.id_agency);
+  if (!payment) {
+    return res.status(404).json({ error: "Cuota no encontrada" });
+  }
+
+  const canFinance = await canAccessFinanceModule(auth);
+  const canBooking = await canAccessBookingByRole(auth, {
+    id_user: payment.booking.id_user,
+    id_agency: payment.booking.id_agency,
+  });
+
   if (req.method === "GET") {
-    try {
-      const pay = await getPaymentFull(id, auth.id_agency);
-      if (!pay) return res.status(404).json({ error: "Pago no encontrado" });
-      return res.status(200).json(pay);
-    } catch (e) {
-      console.error("[client-payments/:id][GET]", e);
-      return res.status(500).json({ error: "Error al obtener el pago" });
+    if (!canFinance && !canBooking) {
+      return res.status(403).json({ error: "Sin permisos" });
     }
+
+    return res.status(200).json(mapPaymentWithDerived(payment));
   }
 
   if (req.method === "PUT") {
     try {
-      // Permisos: solo administración/gerencia/desarrollo pueden modificar
-      if (!RO_WRITE.has(auth.role)) {
+      if (!RO_MUTATE.has(auth.role.toLowerCase())) {
         return res
           .status(403)
-          .json({ error: "No autorizado a modificar pagos del pax." });
+          .json({ error: "No autorizado a modificar cuotas." });
       }
 
-      const exists = await getPaymentLite(id, auth.id_agency);
-      if (!exists) return res.status(404).json({ error: "Pago no encontrado" });
+      if (!canFinance && !canBooking) {
+        return res.status(403).json({ error: "Sin permisos" });
+      }
 
-      const b = req.body ?? {};
+      const body = req.body ?? {};
 
-      // ❌ Campos no-null: si viene null => 400
-      if (b.currency === null)
+      if (body.currency === null) {
         return res.status(400).json({ error: "currency no puede ser null" });
-      if (b.amount === null)
+      }
+      if (body.amount === null) {
         return res.status(400).json({ error: "amount no puede ser null" });
-      if (b.client_id === null)
+      }
+      if (body.client_id === null) {
         return res.status(400).json({ error: "client_id no puede ser null" });
-      if (b.booking_id === null)
+      }
+      if (body.booking_id === null) {
         return res.status(400).json({ error: "booking_id no puede ser null" });
-      if (b.due_date === null)
+      }
+      if (body.due_date === null) {
         return res.status(400).json({ error: "due_date no puede ser null" });
+      }
 
-      // Normalizaciones
-      const currency = normStrUpdateNN(b.currency, { upper: true });
-      const amount = toDec(b.amount); // Decimal | undefined
-      const due_date = parseDueDate(b.due_date); // Date | undefined
+      const currency =
+        typeof body.currency === "string" && body.currency.trim()
+          ? body.currency.trim().toUpperCase()
+          : undefined;
 
-      // booking_id (si cambia, validar por agencia)
+      const amount = toDec(body.amount);
+      const due_date = parseDueDate(body.due_date);
+      const nextStatus = parseStatusForUpdate(body.status);
+
+      const reason =
+        typeof body.reason === "string" && body.reason.trim()
+          ? body.reason.trim()
+          : typeof body.status_reason === "string" && body.status_reason.trim()
+            ? body.status_reason.trim()
+            : undefined;
+
+      const paidAtFromBody =
+        body.paid_at === null
+          ? null
+          : body.paid_at !== undefined
+            ? parseDueDate(body.paid_at)
+            : undefined;
+
+      if (body.paid_at !== undefined && body.paid_at !== null && !paidAtFromBody) {
+        return res.status(400).json({ error: "paid_at inválida" });
+      }
+
       let booking_id: number | undefined;
-      if (b.booking_id !== undefined) {
-        const bid = safeNumber(b.booking_id);
+      if (body.booking_id !== undefined) {
+        const bid = safeNumber(body.booking_id);
         if (!bid) return res.status(400).json({ error: "booking_id inválido" });
-        const bkg = await prisma.booking.findFirst({
+
+        const booking = await prisma.booking.findFirst({
           where: { id_booking: bid, id_agency: auth.id_agency },
           select: { id_booking: true },
         });
-        if (!bkg) {
+
+        if (!booking) {
           return res.status(400).json({
             error: "La reserva no existe o no pertenece a tu agencia",
           });
         }
+
         booking_id = bid;
       }
 
-      // client_id (si cambia, validar por agencia)
+      const targetBookingId = booking_id ?? payment.booking_id;
+
       let client_id: number | undefined;
-      if (b.client_id !== undefined) {
-        const cid = safeNumber(b.client_id);
+      if (body.client_id !== undefined) {
+        const cid = safeNumber(body.client_id);
         if (!cid) return res.status(400).json({ error: "client_id inválido" });
-        await ensureClientInAgency(cid, auth.id_agency);
+        await ensureClientInBooking(cid, targetBookingId, auth.id_agency);
         client_id = cid;
       }
 
-      // Validaciones de valores
+      let service_id: number | null | undefined;
+      if (body.service_id !== undefined) {
+        if (body.service_id === null || body.service_id === "") {
+          service_id = null;
+        } else {
+          const sid = safeNumber(body.service_id);
+          if (!sid) {
+            return res.status(400).json({ error: "service_id inválido" });
+          }
+          await ensureServiceInBooking(sid, targetBookingId, auth.id_agency);
+          service_id = sid;
+        }
+      }
+
+      let receipt_id: number | null | undefined;
+      if (body.receipt_id !== undefined) {
+        if (body.receipt_id === null || body.receipt_id === "") {
+          receipt_id = null;
+        } else {
+          const rid = safeNumber(body.receipt_id);
+          if (!rid) {
+            return res.status(400).json({ error: "receipt_id inválido" });
+          }
+          const receipt = await ensureReceiptInAgency(rid, auth.id_agency);
+          if (receipt.bookingId_booking && receipt.bookingId_booking !== targetBookingId) {
+            return res.status(400).json({
+              error: "El recibo pertenece a otra reserva.",
+            });
+          }
+          receipt_id = rid;
+        }
+      }
+
       if (amount !== undefined && amount.lte(0)) {
         return res.status(400).json({ error: "El monto debe ser positivo" });
       }
@@ -263,50 +503,185 @@ export default async function handler(
         return res.status(400).json({ error: "due_date inválida" });
       }
 
-      const data: Prisma.ClientPaymentUncheckedUpdateInput = {};
-      if (currency !== undefined) data.currency = currency;
-      if (amount !== undefined) data.amount = amount.toDecimalPlaces(2);
-      if (client_id !== undefined) data.client_id = client_id;
-      if (booking_id !== undefined) data.booking_id = booking_id;
-      if (due_date !== undefined) data.due_date = due_date;
+      const currentStatus = normalizePersistedStatus(payment.status);
+      const statusToSave = nextStatus ?? currentStatus;
 
-      const updated = await prisma.clientPayment.update({
-        where: { id_payment: id },
-        data,
-        include: {
-          booking: { select: { id_booking: true } },
-          client: {
-            select: { id_client: true, first_name: true, last_name: true },
+      const effectiveReceiptId =
+        receipt_id === undefined ? payment.receipt_id : receipt_id;
+
+      if (statusToSave === "PAGADA" && !effectiveReceiptId) {
+        return res.status(400).json({
+          error: "Para marcar una cuota como pagada debés vincular un recibo.",
+        });
+      }
+
+      if (statusToSave !== "PAGADA" && receipt_id !== undefined && receipt_id !== null) {
+        return res.status(400).json({
+          error: "Solo podés vincular recibo cuando la cuota está en estado PAGADA.",
+        });
+      }
+
+      const updateData: Prisma.ClientPaymentUncheckedUpdateInput = {};
+
+      if (currency !== undefined) updateData.currency = currency;
+      if (amount !== undefined) updateData.amount = amount.toDecimalPlaces(2);
+      if (client_id !== undefined) updateData.client_id = client_id;
+      if (booking_id !== undefined) updateData.booking_id = booking_id;
+      if (due_date !== undefined) updateData.due_date = due_date;
+      if (service_id !== undefined) updateData.service_id = service_id;
+      if (receipt_id !== undefined) updateData.receipt_id = receipt_id;
+
+      if (nextStatus !== undefined) {
+        updateData.status = nextStatus;
+      }
+
+      if (statusToSave === "PAGADA") {
+        updateData.paid_at =
+          paidAtFromBody === null
+            ? null
+            : paidAtFromBody === undefined
+              ? new Date()
+              : paidAtFromBody;
+        updateData.paid_by = auth.id_user;
+      } else {
+        if (paidAtFromBody !== undefined) {
+          updateData.paid_at = paidAtFromBody;
+        } else if (nextStatus !== undefined) {
+          updateData.paid_at = null;
+        }
+        if (nextStatus !== undefined) {
+          updateData.paid_by = null;
+        }
+      }
+
+      if (reason !== undefined) {
+        updateData.status_reason = reason;
+      }
+
+      const updated = await prisma.$transaction(async (tx) => {
+        const up = await tx.clientPayment.update({
+          where: { id_payment: id },
+          data: updateData,
+        });
+
+        const statusChanged = currentStatus !== normalizePersistedStatus(up.status);
+        const action = statusChanged ? "STATUS_CHANGE" : "UPDATED";
+
+        await tx.clientPaymentAudit.create({
+          data: {
+            client_payment_id: id,
+            id_agency: auth.id_agency,
+            action,
+            from_status: statusChanged ? currentStatus : null,
+            to_status: statusChanged ? normalizePersistedStatus(up.status) : null,
+            reason:
+              reason ??
+              (statusChanged
+                ? `Cambio de estado a ${normalizePersistedStatus(up.status)}`
+                : "Cuota actualizada"),
+            changed_by: auth.id_user,
+            data: {
+              updated_fields: Object.keys(updateData),
+              receipt_id: up.receipt_id,
+              service_id: up.service_id,
+            },
           },
-        },
+        });
+
+        return tx.clientPayment.findUnique({
+          where: { id_payment: id },
+          include: {
+            booking: {
+              select: {
+                id_booking: true,
+                agency_booking_id: true,
+                details: true,
+                status: true,
+                id_user: true,
+                id_agency: true,
+              },
+            },
+            client: {
+              select: {
+                id_client: true,
+                agency_client_id: true,
+                first_name: true,
+                last_name: true,
+              },
+            },
+            service: {
+              select: {
+                id_service: true,
+                agency_service_id: true,
+                description: true,
+                type: true,
+                booking_id: true,
+              },
+            },
+            receipt: {
+              select: {
+                id_receipt: true,
+                receipt_number: true,
+                issue_date: true,
+                amount: true,
+                amount_currency: true,
+                bookingId_booking: true,
+              },
+            },
+            audits: {
+              orderBy: { changed_at: "desc" },
+              include: {
+                changedBy: {
+                  select: { id_user: true, first_name: true, last_name: true },
+                },
+              },
+            },
+          },
+        });
       });
 
-      return res.status(200).json(updated);
-    } catch (e) {
-      console.error("[client-payments/:id][PUT]", e);
+      if (!updated) {
+        return res.status(404).json({ error: "Cuota no encontrada" });
+      }
+
+      return res.status(200).json(mapPaymentWithDerived(updated));
+    } catch (error) {
+      console.error("[client-payments/:id][PUT]", error);
       const msg =
-        e instanceof Error ? e.message : "Error al actualizar el pago";
-      return res.status(500).json({ error: msg });
+        error instanceof Error ? error.message : "Error al actualizar la cuota";
+      const badRequest =
+        msg.includes("inválido") ||
+        msg.includes("inválida") ||
+        msg.includes("derivado") ||
+        msg.includes("no puede") ||
+        msg.includes("Solo podés");
+      return res.status(badRequest ? 400 : 500).json({ error: msg });
     }
   }
 
   if (req.method === "DELETE") {
     try {
-      // Permisos: solo administración/gerencia/desarrollo pueden eliminar
-      if (!RO_WRITE.has(auth.role)) {
+      if (!RO_DELETE.has(auth.role.toLowerCase())) {
         return res
           .status(403)
-          .json({ error: "No autorizado a eliminar pagos del pax." });
+          .json({ error: "No autorizado a eliminar cuotas." });
       }
 
-      const exists = await getPaymentLite(id, auth.id_agency);
-      if (!exists) return res.status(404).json({ error: "Pago no encontrado" });
+      if (!canFinance) {
+        return res.status(403).json({ error: "Sin permisos" });
+      }
+
+      if (normalizePersistedStatus(payment.status) === "PAGADA") {
+        return res.status(400).json({
+          error: "No se puede eliminar una cuota pagada.",
+        });
+      }
 
       await prisma.clientPayment.delete({ where: { id_payment: id } });
       return res.status(204).end();
-    } catch (e) {
-      console.error("[client-payments/:id][DELETE]", e);
-      return res.status(500).json({ error: "Error al eliminar el pago" });
+    } catch (error) {
+      console.error("[client-payments/:id][DELETE]", error);
+      return res.status(500).json({ error: "Error al eliminar la cuota" });
     }
   }
 

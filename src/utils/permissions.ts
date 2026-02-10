@@ -40,6 +40,12 @@ export const FINANCE_SECTIONS = [
     defaultRoles: ADMIN_ROLES,
   },
   {
+    key: "payment_plans",
+    label: "Planes de pago",
+    route: "/finance/payment-plans",
+    defaultRoles: ADMIN_ROLES,
+  },
+  {
     key: "other_incomes",
     label: "Ingresos",
     route: "/other-incomes",

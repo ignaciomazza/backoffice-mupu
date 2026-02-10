@@ -725,6 +725,10 @@ export default async function handler(
         ? simpleCompanions.length
         : currentSimpleCount;
       const nextPax = 1 + companions.length + nextSimpleCount;
+      const shouldCancelPendingClientPayments =
+        String(status || "")
+          .trim()
+          .toLowerCase() === "cancelada";
 
       const booking = await prisma.$transaction(async (tx) => {
         if (shouldUpdateSimpleCompanions) {
@@ -743,7 +747,7 @@ export default async function handler(
           }
         }
 
-        return tx.booking.update({
+        const updatedBooking = await tx.booking.update({
           where: { id_booking: existing.id_booking },
           data: {
             clientStatus,
@@ -781,6 +785,43 @@ export default async function handler(
             simple_companions: { include: { category: true } },
           },
         });
+
+        if (shouldCancelPendingClientPayments) {
+          const pendingPayments = await tx.clientPayment.findMany({
+            where: {
+              booking_id: existing.id_booking,
+              id_agency: authAgencyId,
+              status: "PENDIENTE",
+            },
+            select: { id_payment: true },
+          });
+
+          if (pendingPayments.length > 0) {
+            const paymentIds = pendingPayments.map((p) => p.id_payment);
+            await tx.clientPayment.updateMany({
+              where: { id_payment: { in: paymentIds } },
+              data: {
+                status: "CANCELADA",
+                status_reason: "Reserva cancelada",
+              },
+            });
+
+            await tx.clientPaymentAudit.createMany({
+              data: paymentIds.map((id_payment) => ({
+                client_payment_id: id_payment,
+                id_agency: authAgencyId,
+                action: "AUTO_CANCEL_BOOKING",
+                from_status: "PENDIENTE",
+                to_status: "CANCELADA",
+                reason: "Reserva cancelada",
+                changed_by: authUserId,
+                data: { booking_id: existing.id_booking },
+              })),
+            });
+          }
+        }
+
+        return updatedBooking;
       });
 
       return res.status(200).json(booking);

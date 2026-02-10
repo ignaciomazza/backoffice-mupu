@@ -788,6 +788,7 @@ async function getMonthlyMovements(
       booking: {
         id_agency: agencyId,
       },
+      status: { in: ["PENDIENTE", "pendiente"] },
       due_date: {
         gte: from,
         lte: to,

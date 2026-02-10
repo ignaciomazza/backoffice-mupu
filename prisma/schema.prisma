@@ -66,6 +66,7 @@ model Agency {
   services                     Service[]
   operatorDues                 OperatorDue[]
   clientPayments               ClientPayment[]
+  clientPaymentAudits          ClientPaymentAudit[]
   ServiceType                  ServiceType[]
   ServiceCalcConfig            ServiceCalcConfig?
   QuoteConfig                  QuoteConfig?
@@ -165,6 +166,8 @@ model User {
   verifiedOtherIncomes     OtherIncome[]        @relation("OtherIncomeVerifiedBy")
   createdFiles             FileAsset[]          @relation("FileCreatedBy")
   createdOtherIncomes      OtherIncome[]        @relation("OtherIncomeCreatedBy")
+  paidClientPayments       ClientPayment[]      @relation("ClientPaymentPaidBy")
+  clientPaymentAudits      ClientPaymentAudit[] @relation("ClientPaymentAuditChangedBy")
 
   @@unique([id_agency, agency_user_id], name: "agency_user_id_unique")
 }
@@ -317,6 +320,7 @@ model Service {
   operator                  Operator             @relation(fields: [id_operator], references: [id_operator], onDelete: Cascade)
   InvoiceItem               InvoiceItem[]
   OperatorDue               OperatorDue[]
+  clientPayments           ClientPayment[]
   investmentAllocations     InvestmentServiceAllocation[]
   files                     FileAsset[]          @relation("ServiceFiles")
 
@@ -553,6 +557,7 @@ model Receipt {
   account_id        Int?
 
   payments          ReceiptPayment[]
+  clientPayments    ClientPayment[]
   bookingId_booking Int?
   booking           Booking?         @relation("BookingReceipt", fields: [bookingId_booking], references: [id_booking], onDelete: SetNull)
   id_agency         Int?
@@ -825,11 +830,46 @@ model ClientPayment {
   amount                   Decimal  @db.Decimal(18, 2)
   currency                 String
   due_date                 DateTime
+  status                   String   @default("PENDIENTE")
+  paid_at                  DateTime?
+  paid_by                  Int?
+  paidBy                   User?    @relation("ClientPaymentPaidBy", fields: [paid_by], references: [id_user], onDelete: SetNull)
+  status_reason            String?
+  receipt_id               Int?
+  receipt                  Receipt? @relation(fields: [receipt_id], references: [id_receipt], onDelete: SetNull)
+  service_id               Int?
+  service                  Service? @relation(fields: [service_id], references: [id_service], onDelete: SetNull)
+  audits                   ClientPaymentAudit[]
 
   @@unique([id_agency, agency_client_payment_id], name: "agency_client_payment_id_unique")
   @@index([booking_id])
   @@index([client_id])
   @@index([id_agency])
+  @@index([due_date])
+  @@index([status])
+  @@index([receipt_id])
+  @@index([service_id])
+  @@index([booking_id, status])
+}
+
+model ClientPaymentAudit {
+  id_audit           Int      @id @default(autoincrement())
+  client_payment_id  Int
+  clientPayment      ClientPayment @relation(fields: [client_payment_id], references: [id_payment], onDelete: Cascade)
+  id_agency          Int
+  agency             Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  action             String
+  from_status        String?
+  to_status          String?
+  reason             String?
+  changed_by         Int?
+  changedBy          User?    @relation("ClientPaymentAuditChangedBy", fields: [changed_by], references: [id_user], onDelete: SetNull)
+  changed_at         DateTime @default(now())
+  data               Json?
+
+  @@index([client_payment_id, changed_at])
+  @@index([id_agency, changed_at])
+  @@index([changed_by])
 }
 
 model TemplateConfig {

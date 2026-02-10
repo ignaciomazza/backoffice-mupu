@@ -442,6 +442,42 @@ export default async function handler(
       await ensureReceiptInAgency(id, authAgencyId);
       await prisma.$transaction(async (tx) => {
         await deleteCreditEntriesForReceipt(tx, id, authAgencyId);
+
+        const linkedPayments = await tx.clientPayment.findMany({
+          where: { id_agency: authAgencyId, receipt_id: id },
+          select: { id_payment: true, status: true },
+        });
+
+        if (linkedPayments.length > 0) {
+          const linkedIds = linkedPayments.map((p) => p.id_payment);
+
+          await tx.clientPayment.updateMany({
+            where: { id_payment: { in: linkedIds } },
+            data: {
+              status: "PENDIENTE",
+              paid_at: null,
+              paid_by: null,
+              receipt_id: null,
+              status_reason: `Recibo ${id} eliminado. Cuota reabierta.`,
+            },
+          });
+
+          await tx.clientPaymentAudit.createMany({
+            data: linkedPayments.map((p) => ({
+              client_payment_id: p.id_payment,
+              id_agency: authAgencyId,
+              action: "RECEIPT_DELETED_REOPEN",
+              from_status: p.status,
+              to_status: "PENDIENTE",
+              reason: `Se elimino el recibo #${id}. Cuota reabierta.`,
+              changed_by: authUserId,
+              data: {
+                receipt_id: id,
+              },
+            })),
+          });
+        }
+
         await tx.receipt.delete({ where: { id_receipt: id } });
       });
       return res.status(204).end();
