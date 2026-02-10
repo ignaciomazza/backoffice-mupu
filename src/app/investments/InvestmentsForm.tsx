@@ -337,8 +337,6 @@ export default function InvestmentsForm({
                 </Field>
               </Section>
 
-              {operatorServicesSection}
-
               <Section title="Pago" desc="Monto, moneda y método de pago.">
                 <Field id="amount" label="Monto" required>
                   <input
@@ -670,6 +668,8 @@ export default function InvestmentsForm({
                   </div>
                 )}
               </Section>
+
+              {operatorServicesSection}
 
               <div className="sticky bottom-2 z-10 flex justify-end gap-3">
                 <button

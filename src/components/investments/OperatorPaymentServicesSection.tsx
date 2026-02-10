@@ -14,7 +14,9 @@ import ServiceAllocationsEditor, {
   type ExcessMissingAccountAction,
 } from "@/components/investments/ServiceAllocationsEditor";
 import type { BookingOption } from "@/types/receipts";
+
 type OperatorLite = { id_operator: number; name: string };
+type SelectionMode = "pending" | "booking";
 
 type OperatorServiceLite = {
   id_service: number;
@@ -25,7 +27,15 @@ type OperatorServiceLite = {
   cost_price?: number | null;
   type?: string;
   destination?: string;
-  booking?: { id_booking: number; agency_booking_id?: number | null } | null;
+  paid_amount?: number | null;
+  pending_amount?: number | null;
+  overpaid_amount?: number | null;
+  booking?: {
+    id_booking: number;
+    agency_booking_id?: number | null;
+    details?: string | null;
+    titular?: { first_name?: string | null; last_name?: string | null } | null;
+  } | null;
   operator?: { id_operator: number; name?: string | null } | null;
 };
 
@@ -163,6 +173,8 @@ function formatMoney(n: number, cur = "ARS") {
   }
 }
 
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
 export default function OperatorPaymentServicesSection({
   token,
   enabled,
@@ -178,10 +190,15 @@ export default function OperatorPaymentServicesSection({
   operators,
   onSelectionChange,
 }: Props) {
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>("pending");
   const [selectedBookingId, setSelectedBookingId] = useState<number | null>(
     null,
   );
   const [selectedServices, setSelectedServices] = useState<OperatorServiceLite[]>([]);
+  const [pendingQuery, setPendingQuery] = useState("");
+  const [pendingServices, setPendingServices] = useState<OperatorServiceLite[]>([]);
+  const [loadingPendingServices, setLoadingPendingServices] = useState(false);
+
   const [allocationSummary, setAllocationSummary] = useState<AllocationSummary>({
     allocations: [],
     assignedTotal: 0,
@@ -209,8 +226,15 @@ export default function OperatorPaymentServicesSection({
     }
   }, [selectedServices.length]);
 
-  const { bookingQuery, setBookingQuery, bookingOptions, loadingBookings } =
-    useBookingSearch({ token, enabled });
+  const {
+    bookingQuery,
+    setBookingQuery,
+    bookingOptions,
+    loadingBookings,
+  } = useBookingSearch({
+    token,
+    enabled: enabled && selectionMode === "booking",
+  });
 
   const loadServicesForBooking = useCallback(
     async (bookingId: number) => {
@@ -249,6 +273,9 @@ export default function OperatorPaymentServicesSection({
 
   useEffect(() => {
     let alive = true;
+    setSelectionMode("pending");
+    setPendingQuery("");
+    setPendingServices([]);
     setSelectedServices([]);
     setSelectedBookingId(null);
     setAllocationSummary({
@@ -331,6 +358,58 @@ export default function OperatorPaymentServicesSection({
     return operatorId ?? null;
   }, [selectedServices, operatorId]);
 
+  useEffect(() => {
+    if (!enabled || selectionMode !== "pending") {
+      setLoadingPendingServices(false);
+      return;
+    }
+    if (!token || !lockOperatorId) {
+      setPendingServices([]);
+      return;
+    }
+
+    let alive = true;
+    const controller = new AbortController();
+    setLoadingPendingServices(true);
+
+    const t = setTimeout(() => {
+      const qs = new URLSearchParams();
+      qs.set("operatorId", String(lockOperatorId));
+      qs.set("pendingOnly", "1");
+      qs.set("take", "160");
+      if (pendingQuery.trim()) {
+        qs.set("q", pendingQuery.trim());
+      }
+
+      authFetch(
+        `/api/services?${qs.toString()}`,
+        { cache: "no-store", signal: controller.signal },
+        token,
+      )
+        .then(async (res) => {
+          if (!res.ok) throw new Error("pending_services");
+          const data = (await res.json()) as { services?: OperatorServiceLite[] };
+          if (!alive) return;
+          setPendingServices(Array.isArray(data.services) ? data.services : []);
+        })
+        .catch((error) => {
+          if (!alive) return;
+          if ((error as { name?: string }).name === "AbortError") return;
+          setPendingServices([]);
+          toast.error("No se pudieron cargar los servicios pendientes.");
+        })
+        .finally(() => {
+          if (alive) setLoadingPendingServices(false);
+        });
+    }, 250);
+
+    return () => {
+      alive = false;
+      controller.abort();
+      clearTimeout(t);
+    };
+  }, [enabled, selectionMode, token, lockOperatorId, pendingQuery]);
+
   const selectedCurrencies = useMemo(() => {
     const set = new Set(
       selectedServices.map((s) => (s.currency || "").toUpperCase()),
@@ -357,6 +436,21 @@ export default function OperatorPaymentServicesSection({
     () => Array.from(new Set(selectedServices.map((s) => s.booking_id))),
     [selectedServices],
   );
+
+  const operatorLabel = useMemo(() => {
+    if (!lockOperatorId) return null;
+    const found = operators.find((o) => o.id_operator === lockOperatorId);
+    return found?.name || `N° ${lockOperatorId}`;
+  }, [lockOperatorId, operators]);
+
+  const bookingServicesFiltered = useMemo(() => {
+    if (!lockOperatorId) return services;
+    return services.filter(
+      (svc) =>
+        svc.id_operator === lockOperatorId ||
+        selectedServiceIds.includes(svc.id_service),
+    );
+  }, [services, lockOperatorId, selectedServiceIds]);
 
   useEffect(() => {
     const operatorIdFromSelection =
@@ -406,6 +500,94 @@ export default function OperatorPaymentServicesSection({
     setSelectedServices((prev) => [...prev, svc]);
   };
 
+  const renderServicesList = (list: OperatorServiceLite[]) => {
+    return (
+      <div className="space-y-2">
+        {list.map((svc) => {
+          const checked = selectedServiceIds.includes(svc.id_service);
+          const disabled =
+            !!lockOperatorId &&
+            svc.id_operator !== lockOperatorId &&
+            !checked;
+
+          const opName =
+            operators.find((o) => o.id_operator === svc.id_operator)?.name ||
+            svc.operator?.name ||
+            "Operador";
+
+          const pendingAmount = round2(Number(svc.pending_amount || 0));
+          const paidAmount = round2(Number(svc.paid_amount || 0));
+          const hasPendingInfo =
+            Number.isFinite(Number(svc.pending_amount)) ||
+            Number.isFinite(Number(svc.paid_amount));
+          const bookingNumber = svc.booking?.agency_booking_id ?? svc.booking_id;
+          const bookingTitular = [
+            svc.booking?.titular?.first_name || "",
+            svc.booking?.titular?.last_name || "",
+          ]
+            .join(" ")
+            .trim();
+
+          return (
+            <label
+              key={svc.id_service}
+              className={`flex items-start gap-3 rounded-2xl border px-3 py-2 ${
+                checked ? "border-white/20 bg-white/10" : "border-white/10"
+              } ${disabled ? "opacity-50" : ""}`}
+            >
+              <input
+                type="checkbox"
+                className="mt-1 size-4"
+                checked={checked}
+                disabled={disabled}
+                onChange={() => toggleService(svc)}
+              />
+              <div className="flex-1">
+                <div className="text-sm font-medium">
+                  Reserva {bookingNumber} · Servicio{" "}
+                  {svc.agency_service_id ?? svc.id_service} · {svc.type}
+                  {svc.destination ? ` · ${svc.destination}` : ""}
+                </div>
+                <div className="text-xs text-sky-950/70 dark:text-white/70">
+                  Operador: <b>{opName}</b> • Moneda:{" "}
+                  <b>{(svc.currency || "ARS").toUpperCase()}</b> • Costo:{" "}
+                  {formatMoney(
+                    Number(svc.cost_price || 0),
+                    (svc.currency || "ARS").toUpperCase(),
+                  )}
+                  {hasPendingInfo && (
+                    <>
+                      {" "}
+                      • Pagado:{" "}
+                      <b>
+                        {formatMoney(
+                          paidAmount,
+                          (svc.currency || "ARS").toUpperCase(),
+                        )}
+                      </b>{" "}
+                      • Pendiente:{" "}
+                      <b>
+                        {formatMoney(
+                          pendingAmount,
+                          (svc.currency || "ARS").toUpperCase(),
+                        )}
+                      </b>
+                    </>
+                  )}
+                </div>
+                {bookingTitular && (
+                  <div className="text-xs text-sky-950/70 dark:text-white/70">
+                    Titular: {bookingTitular}
+                  </div>
+                )}
+              </div>
+            </label>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <Section
       title="Servicios asociados"
@@ -421,124 +603,148 @@ export default function OperatorPaymentServicesSection({
 
       {enabled && (
         <>
-          <Field
-            id="booking_search"
-            label="Buscar reserva"
-            hint="Por número o titular…"
-          >
-            <input
-              id="booking_search"
-              value={bookingQuery}
-              onChange={(e) => setBookingQuery(e.target.value)}
-              placeholder="Escribí al menos 2 caracteres"
-              className={inputBase}
-              autoComplete="off"
-            />
-          </Field>
-
           <div className="md:col-span-2">
-            {loadingBookings ? (
-              <div className="py-2">
-                <Spinner />
-              </div>
-            ) : bookingOptions.length > 0 ? (
-              <div className="max-h-56 overflow-auto rounded-2xl border border-white/10">
-                {bookingOptions.map((opt: BookingOption) => {
-                  const active = selectedBookingId === opt.id_booking;
-                  return (
-                    <button
-                      key={opt.id_booking}
-                      type="button"
-                      className={`w-full px-3 py-2 text-left transition hover:bg-white/5 ${
-                        active ? "bg-white/10" : ""
-                      }`}
-                      onClick={() => setSelectedBookingId(opt.id_booking)}
-                    >
-                      <div className="text-sm font-medium">{opt.label}</div>
-                      {opt.subtitle && (
-                        <div className="text-xs text-sky-950/70 dark:text-white/70">
-                          {opt.subtitle}
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : bookingQuery && bookingQuery.length >= 2 ? (
-              <p className="text-sm text-sky-950/70 dark:text-white/70">
-                Sin resultados.
-              </p>
-            ) : null}
+            <div className="mb-2 text-xs text-sky-950/70 dark:text-white/70">
+              Modo de selección
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectionMode("pending")}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                  selectionMode === "pending"
+                    ? "bg-emerald-500/20 text-emerald-800 dark:text-emerald-200"
+                    : "bg-white/20 text-sky-950 hover:bg-white/30 dark:bg-white/10 dark:text-white"
+                }`}
+              >
+                Pendientes por operador
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectionMode("booking")}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                  selectionMode === "booking"
+                    ? "bg-emerald-500/20 text-emerald-800 dark:text-emerald-200"
+                    : "bg-white/20 text-sky-950 hover:bg-white/30 dark:bg-white/10 dark:text-white"
+                }`}
+              >
+                Buscar por reserva
+              </button>
+            </div>
           </div>
 
-          {selectedBookingId && (
-            <div className="md:col-span-2">
-              <label className="mb-1 ml-1 block text-sm font-medium text-sky-950 dark:text-white">
-                Servicios de la reserva
-              </label>
-
-              {loadingServices ? (
-                <div className="py-2">
-                  <Spinner />
+          {selectionMode === "pending" && (
+            <>
+              {!lockOperatorId ? (
+                <div className="rounded-2xl border border-amber-200/40 bg-amber-100/30 p-3 text-xs text-amber-900 dark:border-amber-200/20 dark:bg-amber-100/10 dark:text-amber-100 md:col-span-2">
+                  Seleccioná un operador para listar servicios pendientes.
                 </div>
-              ) : services.length === 0 ? (
-                <p className="text-sm text-sky-950/70 dark:text-white/70">
-                  No hay servicios para esta reserva.
-                </p>
               ) : (
-                <div className="space-y-2">
-                  {services.map((svc) => {
-                    const checked = selectedServiceIds.includes(svc.id_service);
-                    const disabled =
-                      !!lockOperatorId &&
-                      svc.id_operator !== lockOperatorId &&
-                      !checked;
+                <>
+                  <Field
+                    id="pending_service_search"
+                    label="Buscar en pendientes"
+                    hint="Por reserva, titular, tipo o destino..."
+                  >
+                    <input
+                      id="pending_service_search"
+                      value={pendingQuery}
+                      onChange={(e) => setPendingQuery(e.target.value)}
+                      placeholder="Opcional"
+                      className={inputBase}
+                      autoComplete="off"
+                    />
+                  </Field>
 
-                    const opName =
-                      operators.find(
-                        (o) => o.id_operator === svc.id_operator,
-                      )?.name ||
-                      svc.operator?.name ||
-                      "Operador";
+                  <div className="md:col-span-2">
+                    {loadingPendingServices ? (
+                      <div className="py-2">
+                        <Spinner />
+                      </div>
+                    ) : pendingServices.length === 0 ? (
+                      <p className="text-sm text-sky-950/70 dark:text-white/70">
+                        No hay servicios pendientes para este operador.
+                      </p>
+                    ) : (
+                      renderServicesList(pendingServices)
+                    )}
+                  </div>
+                </>
+              )}
+            </>
+          )}
 
-                    return (
-                      <label
-                        key={svc.id_service}
-                        className={`flex items-start gap-3 rounded-2xl border px-3 py-2 ${
-                          checked
-                            ? "border-white/20 bg-white/10"
-                            : "border-white/10"
-                        } ${disabled ? "opacity-50" : ""}`}
-                      >
-                        <input
-                          type="checkbox"
-                          className="mt-1 size-4"
-                          checked={checked}
-                          disabled={disabled}
-                          onChange={() => toggleService(svc)}
-                        />
-                        <div className="flex-1">
-                          <div className="text-sm font-medium">
-                            N° {svc.agency_service_id ?? svc.id_service} ·{" "}
-                            {svc.type}
-                            {svc.destination ? ` · ${svc.destination}` : ""}
-                          </div>
-                          <div className="text-xs text-sky-950/70 dark:text-white/70">
-                            Operador: <b>{opName}</b> • Moneda:{" "}
-                            <b>{(svc.currency || "ARS").toUpperCase()}</b> •
-                            Costo:{" "}
-                            {formatMoney(
-                              Number(svc.cost_price || 0),
-                              (svc.currency || "ARS").toUpperCase(),
-                            )}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
+          {selectionMode === "booking" && (
+            <>
+              <Field
+                id="booking_search"
+                label="Buscar reserva"
+                hint="Por número o titular..."
+              >
+                <input
+                  id="booking_search"
+                  value={bookingQuery}
+                  onChange={(e) => setBookingQuery(e.target.value)}
+                  placeholder="Escribí al menos 2 caracteres"
+                  className={inputBase}
+                  autoComplete="off"
+                />
+              </Field>
+
+              <div className="md:col-span-2">
+                {loadingBookings ? (
+                  <div className="py-2">
+                    <Spinner />
+                  </div>
+                ) : bookingOptions.length > 0 ? (
+                  <div className="max-h-56 overflow-auto rounded-2xl border border-white/10">
+                    {bookingOptions.map((opt: BookingOption) => {
+                      const active = selectedBookingId === opt.id_booking;
+                      return (
+                        <button
+                          key={opt.id_booking}
+                          type="button"
+                          className={`w-full px-3 py-2 text-left transition hover:bg-white/5 ${
+                            active ? "bg-white/10" : ""
+                          }`}
+                          onClick={() => setSelectedBookingId(opt.id_booking)}
+                        >
+                          <div className="text-sm font-medium">{opt.label}</div>
+                          {opt.subtitle && (
+                            <div className="text-xs text-sky-950/70 dark:text-white/70">
+                              {opt.subtitle}
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : bookingQuery && bookingQuery.length >= 2 ? (
+                  <p className="text-sm text-sky-950/70 dark:text-white/70">
+                    Sin resultados.
+                  </p>
+                ) : null}
+              </div>
+
+              {selectedBookingId && (
+                <div className="md:col-span-2">
+                  <label className="mb-1 ml-1 block text-sm font-medium text-sky-950 dark:text-white">
+                    Servicios de la reserva
+                  </label>
+                  {loadingServices ? (
+                    <div className="py-2">
+                      <Spinner />
+                    </div>
+                  ) : bookingServicesFiltered.length === 0 ? (
+                    <p className="text-sm text-sky-950/70 dark:text-white/70">
+                      No hay servicios para esta reserva.
+                    </p>
+                  ) : (
+                    renderServicesList(bookingServicesFiltered)
+                  )}
                 </div>
               )}
-            </div>
+            </>
           )}
 
           <div className="md:col-span-2">
@@ -547,13 +753,16 @@ export default function OperatorPaymentServicesSection({
                 Seleccionados: {selectedServices.length}
               </span>
               <span
-                className={`${pillBase} ${selectedCurrencies.length ? pillOk : pillNeutral}`}
+                className={`${pillBase} ${
+                  selectedCurrencies.length ? pillOk : pillNeutral
+                }`}
               >
-                Monedas: {selectedCurrencies.length ? selectedCurrencies.join(", ") : "—"}
+                Monedas:{" "}
+                {selectedCurrencies.length ? selectedCurrencies.join(", ") : "—"}
               </span>
-              {lockOperatorId && (
+              {operatorLabel && (
                 <span className={`${pillBase} ${pillNeutral}`}>
-                  Operador N° {lockOperatorId}
+                  Operador: {operatorLabel}
                 </span>
               )}
               {bookingIds.length > 0 && (
