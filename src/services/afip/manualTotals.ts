@@ -209,3 +209,62 @@ export function splitManualTotalsByClient(
 
   return entries;
 }
+
+function normalizeShares(shares: number[]): number[] {
+  if (!Array.isArray(shares) || shares.length === 0) return [1];
+  const cleaned = shares.map((s) =>
+    Number.isFinite(s) && s > 0 ? Number(s) : 0,
+  );
+  const sum = cleaned.reduce((acc, s) => acc + s, 0);
+  if (sum <= 0) {
+    const fallback = 1 / cleaned.length;
+    return cleaned.map(() => fallback);
+  }
+  return cleaned.map((s) => s / sum);
+}
+
+function splitNumberByShares(value: number, shares: number[]): number[] {
+  const normalized = normalizeShares(shares);
+  if (normalized.length === 1) return [round2(value)];
+
+  const out = normalized.map((share) => round2(value * share));
+  const sum = round2(out.reduce((acc, n) => acc + n, 0));
+  const diff = round2(value - sum);
+  if (Math.abs(diff) >= 0.01) {
+    out[out.length - 1] = round2(out[out.length - 1] + diff);
+  }
+  return out;
+}
+
+export function splitManualTotalsByShares(
+  input: ManualTotalsInput,
+  shares: number[],
+): ManualTotalsInput[] {
+  const normalized = normalizeShares(shares);
+  if (normalized.length <= 1) return [input];
+
+  const entries: ManualTotalsInput[] = Array.from(
+    { length: normalized.length },
+    () => ({}),
+  );
+
+  const keys: Array<keyof ManualTotalsInput> = [
+    "total",
+    "base21",
+    "iva21",
+    "base10_5",
+    "iva10_5",
+    "exempt",
+  ];
+
+  keys.forEach((key) => {
+    const raw = input[key];
+    if (typeof raw !== "number" || !Number.isFinite(raw)) return;
+    const chunks = splitNumberByShares(raw, normalized);
+    chunks.forEach((value, idx) => {
+      entries[idx][key] = value;
+    });
+  });
+
+  return entries;
+}

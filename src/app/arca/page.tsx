@@ -45,8 +45,17 @@ type ArcaStatusPayload = {
 };
 
 const AVAILABLE_SERVICES = [
-  { id: "wsfe", label: "WSFE (Facturación electrónica)" },
-];
+  {
+    id: "wsfe",
+    label: "WSFE (Facturación electrónica)",
+    required: true,
+  },
+  {
+    id: "ws_sr_padron_a13",
+    label: "Padrón A13 (consulta por DNI/CUIT)",
+    required: false,
+  },
+] as const;
 
 function Tooltip({ label, text }: { label: string; text: string }) {
   return (
@@ -80,6 +89,17 @@ function formatDate(value?: string | null) {
 
 function sanitizeAlias(value: string) {
   return value.replace(/[^a-zA-Z0-9]/g, "");
+}
+
+function normalizeServices(services: string[]): string[] {
+  const allowed = new Set(AVAILABLE_SERVICES.map((s) => s.id));
+  const set = new Set(
+    (services || [])
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => allowed.has(s as (typeof AVAILABLE_SERVICES)[number]["id"])),
+  );
+  set.add("wsfe");
+  return Array.from(set);
 }
 
 async function safeJson<T>(res: Response): Promise<T | null> {
@@ -225,7 +245,7 @@ export default function ArcaPage() {
       cuitRepresentado: config.taxIdRepresentado || prev.cuitRepresentado,
       cuitLogin: config.taxIdLogin || prev.cuitLogin,
       alias: sanitizeAlias(config.alias || prev.alias),
-      services: ["wsfe"],
+      services: normalizeServices(config.authorizedServices ?? prev.services),
     }));
     setAliasHadInvalid(false);
   }, [config]);
@@ -305,6 +325,17 @@ export default function ArcaPage() {
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const toggleService = (serviceId: string) => {
+    if (serviceId === "wsfe") return;
+    setForm((prev) => {
+      const exists = prev.services.includes(serviceId);
+      const next = exists
+        ? prev.services.filter((s) => s !== serviceId)
+        : [...prev.services, serviceId];
+      return { ...prev, services: normalizeServices(next) };
+    });
   };
 
   const handleTest = async (selected?: number | null) => {
@@ -611,16 +642,17 @@ export default function ArcaPage() {
                       className="mt-6 space-y-4"
                     >
                       <p className="text-sm text-sky-950/70 dark:text-white/70">
-                        Actualmente solo usamos WSFE (facturación electrónica).
+                        Elegí los servicios ARCA a autorizar. `WSFE` es obligatorio.
                       </p>
                       <div className="grid gap-3 md:grid-cols-2">
                         {AVAILABLE_SERVICES.map((svc) => {
-                          const checked = true;
+                          const checked = form.services.includes(svc.id);
                           return (
                             <button
                               type="button"
                               key={svc.id}
-                              disabled
+                              onClick={() => toggleService(svc.id)}
+                              disabled={svc.required}
                               className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${
                                 checked
                                   ? "border-emerald-700/60 bg-emerald-200/40 text-emerald-950 dark:border-emerald-400/40 dark:bg-emerald-500/10 dark:text-white"
@@ -643,6 +675,11 @@ export default function ArcaPage() {
                                 <p className="text-xs text-sky-950/60 dark:text-white/60">
                                   {svc.label}
                                 </p>
+                                {svc.required && (
+                                  <p className="text-[11px] text-sky-950/60 dark:text-white/60">
+                                    Obligatorio
+                                  </p>
+                                )}
                               </div>
                             </button>
                           );

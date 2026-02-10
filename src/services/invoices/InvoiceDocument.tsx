@@ -53,6 +53,13 @@ export interface VoucherData {
   description21?: string[];
   description10_5?: string[];
   descriptionNonComputable?: string[];
+
+  /** Items personalizados opcionales */
+  customItems?: Array<{
+    description: string;
+    taxCategory: "21" | "10_5" | "EXEMPT";
+    amount?: number;
+  }>;
 }
 
 /* ====== Fuente (servidor) ====== */
@@ -238,13 +245,30 @@ const InvoiceDocument: React.FC<{
     description21 = [],
     description10_5 = [],
     descriptionNonComputable = [],
+    customItems = [],
   } = voucherData;
 
   const fechaEm = fmtDate(CbteFch);
   const caeVto = fmtDate(CAEFchVto);
 
-  // Ítems sintéticos (uno por alícuota presente)
-  const items = Iva.map((e) => {
+  const customItemsWithAmount = customItems.filter(
+    (item) => typeof item.amount === "number" && item.amount > 0,
+  );
+
+  // Ítems personalizados (si hay monto) o sintéticos por alícuota.
+  const items =
+    customItemsWithAmount.length > 0
+      ? customItemsWithAmount.map((item) => {
+          const amount = Number(item.amount ?? 0);
+          return {
+            code: "-",
+            description: item.description,
+            quantity: 1,
+            unitPrice: amount,
+            subtotal: amount,
+          };
+        })
+      : Iva.map((e) => {
     const rate = e.Id === 5 ? 21 : e.Id === 4 ? 10.5 : 0;
     const desc =
       rate === 21

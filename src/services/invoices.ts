@@ -8,7 +8,7 @@ import {
   buildInvoiceNumberLegacy,
 } from "@/utils/invoiceNumbers";
 import {
-  splitManualTotalsByClient,
+  splitManualTotalsByShares,
   type ManualTotalsInput,
 } from "@/services/afip/manualTotals";
 import type { Invoice, InvoiceItem, Prisma } from "@prisma/client";
@@ -51,15 +51,40 @@ interface ServiceDetail {
   return_date: Date;
 }
 
+type CustomItemTaxCategory = "21" | "10_5" | "EXEMPT";
+
+interface InvoiceCustomItem {
+  description: string;
+  taxCategory: CustomItemTaxCategory;
+  amount?: number;
+}
+
+interface PaxDataInput {
+  clientId: number;
+  dni?: string;
+  cuit?: string;
+  persistLookup?: boolean;
+  first_name?: string;
+  last_name?: string;
+  company_name?: string;
+  address?: string;
+  locality?: string;
+  postal_code?: string;
+  commercial_address?: string;
+}
+
 interface InvoiceRequestBody {
   bookingId: number;
   services: number[];
   clientIds: number[];
+  clientShares?: number[];
   tipoFactura: number;
   exchangeRate?: number;
   description21?: string[];
   description10_5?: string[];
   descriptionNonComputable?: string[];
+  paxData?: PaxDataInput[];
+  customItems?: InvoiceCustomItem[];
   invoiceDate?: string;
   manualTotals?: ManualTotalsInput;
 }
@@ -70,6 +95,156 @@ interface CreateResult {
   invoices?: InvoiceWithItems[];
 }
 
+const round2 = (value: number) => Number(value.toFixed(2));
+
+const SERVICE_SPLIT_KEYS: Array<keyof ServiceDetail> = [
+  "sale_price",
+  "taxableBase21",
+  "commission21",
+  "tax_21",
+  "vatOnCommission21",
+  "taxableBase10_5",
+  "commission10_5",
+  "tax_105",
+  "vatOnCommission10_5",
+  "taxableCardInterest",
+  "vatOnCardInterest",
+  "nonComputable",
+];
+
+function normalizeShares(shares: number[]): number[] {
+  if (!Array.isArray(shares) || shares.length === 0) return [1];
+  const sanitized = shares.map((s) =>
+    Number.isFinite(s) && s > 0 ? Number(s) : 0,
+  );
+  const sum = sanitized.reduce((acc, n) => acc + n, 0);
+  if (sum <= 0) {
+    const fallback = 1 / sanitized.length;
+    return sanitized.map(() => fallback);
+  }
+  return sanitized.map((s) => s / sum);
+}
+
+function splitAmountByShares(value: number, shares: number[]): number[] {
+  const normalized = normalizeShares(shares);
+  if (normalized.length <= 1) return [round2(value)];
+  const out = normalized.map((share) => round2(value * share));
+  const sum = round2(out.reduce((acc, n) => acc + n, 0));
+  const diff = round2(value - sum);
+  if (Math.abs(diff) >= 0.01) {
+    out[out.length - 1] = round2(out[out.length - 1] + diff);
+  }
+  return out;
+}
+
+function splitServiceDetailsByShares(
+  source: ServiceDetail[],
+  shares: number[],
+): ServiceDetail[][] {
+  const normalized = normalizeShares(shares);
+  const out: ServiceDetail[][] = Array.from({ length: normalized.length }, () =>
+    [],
+  );
+
+  source.forEach((svc) => {
+    const chunksByKey = SERVICE_SPLIT_KEYS.reduce(
+      (acc, key) => {
+        acc[key] = splitAmountByShares(Number(svc[key] ?? 0), normalized);
+        return acc;
+      },
+      {} as Record<keyof ServiceDetail, number[]>,
+    );
+
+    for (let idx = 0; idx < normalized.length; idx += 1) {
+      const nextSvc: ServiceDetail = {
+        ...svc,
+        sale_price: chunksByKey.sale_price[idx] ?? 0,
+        taxableBase21: chunksByKey.taxableBase21[idx] ?? 0,
+        commission21: chunksByKey.commission21[idx] ?? 0,
+        tax_21: chunksByKey.tax_21[idx] ?? 0,
+        vatOnCommission21: chunksByKey.vatOnCommission21[idx] ?? 0,
+        taxableBase10_5: chunksByKey.taxableBase10_5[idx] ?? 0,
+        commission10_5: chunksByKey.commission10_5[idx] ?? 0,
+        tax_105: chunksByKey.tax_105[idx] ?? 0,
+        vatOnCommission10_5: chunksByKey.vatOnCommission10_5[idx] ?? 0,
+        taxableCardInterest: chunksByKey.taxableCardInterest[idx] ?? 0,
+        vatOnCardInterest: chunksByKey.vatOnCardInterest[idx] ?? 0,
+        nonComputable: chunksByKey.nonComputable[idx] ?? 0,
+      };
+      out[idx].push(nextSvc);
+    }
+  });
+
+  return out;
+}
+
+function splitCustomItemsByShares(
+  items: InvoiceCustomItem[],
+  shares: number[],
+): InvoiceCustomItem[][] {
+  const normalized = normalizeShares(shares);
+  const out: InvoiceCustomItem[][] = Array.from(
+    { length: normalized.length },
+    () => [],
+  );
+  if (!items.length) return out;
+
+  items.forEach((item) => {
+    const cleanDescription = String(item.description ?? "").trim();
+    if (!cleanDescription) return;
+
+    const chunks =
+      typeof item.amount === "number" && Number.isFinite(item.amount)
+        ? splitAmountByShares(item.amount, normalized)
+        : null;
+
+    for (let idx = 0; idx < normalized.length; idx += 1) {
+      const amount = chunks ? chunks[idx] : undefined;
+      out[idx].push({
+        description: cleanDescription,
+        taxCategory: item.taxCategory,
+        ...(typeof amount === "number" ? { amount } : {}),
+      });
+    }
+  });
+
+  return out;
+}
+
+function digits(value?: string | null): string {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+function normalizeDni(value?: string | null): string | null {
+  const d = digits(value);
+  return d.length >= 7 && d.length <= 9 ? d : null;
+}
+
+function normalizeCuit(value?: string | null): string | null {
+  const d = digits(value);
+  return d.length === 11 ? d : null;
+}
+
+function displayRecipient(
+  client: {
+    first_name?: string | null;
+    last_name?: string | null;
+    company_name?: string | null;
+  },
+  pax?: PaxDataInput,
+): string {
+  const companyOverride = String(pax?.company_name ?? "").trim();
+  if (companyOverride) return companyOverride;
+
+  const company = String(client.company_name ?? "").trim();
+  if (company) return company;
+
+  const first = String(pax?.first_name ?? client.first_name ?? "").trim();
+  const last = String(pax?.last_name ?? client.last_name ?? "").trim();
+  const full = `${first} ${last}`.trim();
+  return full || "Consumidor Final";
+}
+
 export async function createInvoices(
   req: NextApiRequest,
   data: InvoiceRequestBody,
@@ -78,14 +253,48 @@ export async function createInvoices(
     bookingId,
     services,
     clientIds,
+    clientShares,
     tipoFactura,
     exchangeRate,
     description21 = [],
     description10_5 = [],
     descriptionNonComputable = [],
+    paxData = [],
+    customItems = [],
     invoiceDate,
     manualTotals,
   } = data;
+
+  if (!clientIds.length) {
+    return { success: false, message: "Debe haber al menos un pax." };
+  }
+
+  const paxDataByClient = new Map<number, PaxDataInput>();
+  paxData.forEach((p) => {
+    if (!p?.clientId) return;
+    paxDataByClient.set(p.clientId, p);
+  });
+
+  let shares: number[] = Array.from({ length: clientIds.length }, () => 1);
+  if (Array.isArray(clientShares) && clientShares.length > 0) {
+    if (clientShares.length !== clientIds.length) {
+      return {
+        success: false,
+        message: "La distribución por pax no coincide con la cantidad de pax.",
+      };
+    }
+    const hasInvalid = clientShares.some(
+      (v) => !Number.isFinite(v) || Number(v) <= 0,
+    );
+    if (hasInvalid) {
+      return {
+        success: false,
+        message: "La distribución por pax debe contener valores positivos.",
+      };
+    }
+    shares = clientShares.map(Number);
+  }
+  shares = normalizeShares(shares);
 
   const booking = await prisma.booking.findUnique({
     where: { id_booking: bookingId },
@@ -96,6 +305,12 @@ export async function createInvoices(
   const rawServices = await prisma.service.findMany({
     where: { id_service: { in: services } },
   });
+  if (rawServices.length !== services.length) {
+    return {
+      success: false,
+      message: "No se encontraron todos los servicios seleccionados.",
+    };
+  }
   const serviceDetails: ServiceDetail[] = services.map((sid) => {
     const s = rawServices.find((r) => r.id_service === sid)!;
     return {
@@ -119,45 +334,15 @@ export async function createInvoices(
     };
   });
 
-  const numClients = clientIds.length;
-  const splitDetails: ServiceDetail[] = serviceDetails.map((s) => ({
-    ...s,
-    sale_price: parseFloat((s.sale_price / numClients).toFixed(2)),
-    taxableBase21: parseFloat((s.taxableBase21 / numClients).toFixed(2)),
-    commission21: parseFloat((s.commission21 / numClients).toFixed(2)),
-    tax_21: parseFloat((s.tax_21 / numClients).toFixed(2)),
-    vatOnCommission21: parseFloat(
-      (s.vatOnCommission21 / numClients).toFixed(2),
-    ),
-    taxableBase10_5: parseFloat(
-      ((s.taxableBase10_5 ?? 0) / numClients).toFixed(2),
-    ),
-    commission10_5: parseFloat(
-      ((s.commission10_5 ?? 0) / numClients).toFixed(2),
-    ),
-    tax_105: parseFloat(((s.tax_105 ?? 0) / numClients).toFixed(2)),
-    vatOnCommission10_5: parseFloat(
-      ((s.vatOnCommission10_5 ?? 0) / numClients).toFixed(2),
-    ),
-    taxableCardInterest: parseFloat(
-      ((s.taxableCardInterest ?? 0) / numClients).toFixed(2),
-    ),
-    vatOnCardInterest: parseFloat(
-      ((s.vatOnCardInterest ?? 0) / numClients).toFixed(2),
-    ),
-    nonComputable: parseFloat(((s.nonComputable ?? 0) / numClients).toFixed(2)),
-  }));
-
-  const grouped: Record<string, ServiceDetail[]> = {};
-  splitDetails.forEach((svc) => {
-    const cur = svc.currency.toUpperCase();
-    grouped[cur] = grouped[cur] ?? [];
-    grouped[cur].push(svc);
-  });
+  const splitDetailsByClient = splitServiceDetailsByShares(serviceDetails, shares);
   const mapCurrency = (m: string) =>
     m === "ARS" ? "PES" : m === "USD" ? "DOL" : m;
 
-  if (manualTotals && Object.keys(grouped).length > 1) {
+  const currencies = new Set(
+    serviceDetails.map((svc) => String(svc.currency || "").toUpperCase()),
+  );
+
+  if (manualTotals && currencies.size > 1) {
     return {
       success: false,
       message:
@@ -169,25 +354,81 @@ export async function createInvoices(
   const errorMessages = new Set<string>();
 
   const manualTotalsByClient = manualTotals
-    ? splitManualTotalsByClient(manualTotals, numClients)
+    ? splitManualTotalsByShares(manualTotals, shares)
     : undefined;
+  const customItemsByClient = splitCustomItemsByShares(customItems, shares);
 
-  for (const m in grouped) {
-    const svcs = grouped[m];
-    const afipCurrency = mapCurrency(m);
+  for (let idx = 0; idx < clientIds.length; idx += 1) {
+    const cid = clientIds[idx];
+    let client = await prisma.client.findUnique({
+      where: { id_client: cid },
+    });
+    if (!client) {
+      errorMessages.add("No se encontró el pax seleccionado.");
+      continue;
+    }
 
-    for (let idx = 0; idx < clientIds.length; idx += 1) {
-      const cid = clientIds[idx];
-      const client = await prisma.client.findUnique({
-        where: { id_client: cid },
-      });
-      if (!client) {
-        errorMessages.add("No se encontró el pax seleccionado.");
-        continue;
+    const pax = paxDataByClient.get(cid);
+    const overrideDni = normalizeDni(pax?.dni);
+    const overrideCuit = normalizeCuit(pax?.cuit);
+
+    if (pax?.persistLookup) {
+      const updateData: Prisma.ClientUpdateInput = {};
+      const paxCompanyName = String(pax.company_name ?? "").trim();
+      const paxFirstName = String(pax.first_name ?? "").trim();
+      const paxLastName = String(pax.last_name ?? "").trim();
+      const paxAddress = String(pax.address ?? "").trim();
+      const paxLocality = String(pax.locality ?? "").trim();
+      const paxPostalCode = String(pax.postal_code ?? "").trim();
+      const paxCommercialAddress = String(pax.commercial_address ?? "").trim();
+
+      if (overrideDni && !client.dni_number) updateData.dni_number = overrideDni;
+      if (overrideCuit && !client.tax_id) updateData.tax_id = overrideCuit;
+      if (paxCompanyName && !client.company_name) {
+        updateData.company_name = paxCompanyName;
       }
+      if (paxFirstName && !client.first_name) {
+        updateData.first_name = paxFirstName;
+      }
+      if (paxLastName && !client.last_name) {
+        updateData.last_name = paxLastName;
+      }
+      if (paxAddress && !client.address) {
+        updateData.address = paxAddress;
+      }
+      if (paxLocality && !client.locality) {
+        updateData.locality = paxLocality;
+      }
+      if (paxPostalCode && !client.postal_code) {
+        updateData.postal_code = paxPostalCode;
+      }
+      if (paxCommercialAddress && !client.commercial_address) {
+        updateData.commercial_address = paxCommercialAddress;
+      }
+      if (Object.keys(updateData).length) {
+        client = await prisma.client.update({
+          where: { id_client: cid },
+          data: updateData,
+        });
+      }
+    }
+
+    const splitForClient = splitDetailsByClient[idx] ?? [];
+    const grouped: Record<string, ServiceDetail[]> = {};
+    splitForClient.forEach((svc) => {
+      const cur = String(svc.currency || "").toUpperCase();
+      grouped[cur] = grouped[cur] ?? [];
+      grouped[cur].push(svc);
+    });
+
+    for (const m in grouped) {
+      const svcs = grouped[m];
+      const afipCurrency = mapCurrency(m);
 
       const isFactB = tipoFactura === 6;
-      const docNumber = isFactB ? client.dni_number : client.tax_id;
+      const docNumber = isFactB
+        ? normalizeDni(client.dni_number) ?? overrideDni
+        : normalizeCuit(client.tax_id) ?? overrideCuit;
       const docType = isFactB ? 96 : 80;
       if (!docNumber) {
         errorMessages.add(
@@ -201,7 +442,7 @@ export async function createInvoices(
       const resp = await createVoucherService(
         req,
         tipoFactura,
-        docNumber!,
+        docNumber,
         docType,
         svcs,
         afipCurrency,
@@ -256,6 +497,12 @@ export async function createInvoices(
         description21,
         description10_5,
         descriptionNonComputable,
+        customItems: (customItemsByClient[idx] ?? []).map((item) => ({
+          description: item.description,
+          taxCategory: item.taxCategory,
+          ...(typeof item.amount === "number" ? { amount: item.amount } : {}),
+        })) as Prisma.JsonArray,
+        distributionShare: shares[idx],
         ...(manualTotalsByClient
           ? { manualTotals: manualTotalsByClient[idx] }
           : {}),
@@ -286,9 +533,7 @@ export async function createInvoices(
               currency: afipCurrency,
               status: "Autorizada",
               type: tipoFactura === 1 ? "Factura A" : "Factura B",
-              recipient:
-                client.company_name ||
-                `${client.first_name} ${client.last_name}`,
+              recipient: displayRecipient(client, pax),
               payloadAfip,
               bookingId_booking: bookingId,
               client_id: cid,

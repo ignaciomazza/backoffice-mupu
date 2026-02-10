@@ -158,6 +158,33 @@ const bodySchema = z.object({
       exempt: z.number().nonnegative().optional(),
     })
     .optional(),
+  clientShares: z.array(z.number().positive()).optional(),
+  paxData: z
+    .array(
+      z.object({
+        clientId: z.number().int().positive(),
+        dni: z.string().optional(),
+        cuit: z.string().optional(),
+        persistLookup: z.boolean().optional(),
+        first_name: z.string().optional(),
+        last_name: z.string().optional(),
+        company_name: z.string().optional(),
+        address: z.string().optional(),
+        locality: z.string().optional(),
+        postal_code: z.string().optional(),
+        commercial_address: z.string().optional(),
+      }),
+    )
+    .optional(),
+  customItems: z
+    .array(
+      z.object({
+        description: z.string().trim().min(1, "Descripción de item requerida"),
+        taxCategory: z.enum(["21", "10_5", "EXEMPT"]),
+        amount: z.number().nonnegative().optional(),
+      }),
+    )
+    .optional(),
   invoiceDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Formato de fecha inválido (YYYY-MM-DD)")

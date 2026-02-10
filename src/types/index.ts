@@ -314,6 +314,11 @@ export interface Invoice {
       ImpIVA: number;
       Iva: { Id: number; BaseImp: number; Importe: number }[];
     };
+    customItems?: Array<{
+      description: string;
+      taxCategory: "21" | "10_5" | "EXEMPT";
+      amount?: number;
+    }>;
   };
 }
 

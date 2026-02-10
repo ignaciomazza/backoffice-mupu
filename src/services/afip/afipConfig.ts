@@ -43,6 +43,20 @@ export interface AfipClient {
       voucherData: Record<string, unknown>,
     ): Promise<Record<string, unknown> & { CAE?: string }>;
   };
+  RegisterScopeThirteen: {
+    getServerStatus(): Promise<ServerStatus>;
+    getTaxpayerDetails(identifier: number | string): Promise<unknown>;
+    getTaxIDByDocument(
+      documentNumber: number | string,
+    ): Promise<number | string | Array<number | string> | null>;
+  };
+  RegisterInscriptionProof: {
+    getServerStatus(): Promise<ServerStatus>;
+    getTaxpayerDetails(identifier: number | string): Promise<unknown>;
+    getTaxpayersDetails(
+      identifiers: Array<number | string>,
+    ): Promise<unknown[]>;
+  };
 }
 
 type AfipCtor = new (opts: AfipCtorOptions) => AfipClient;
@@ -402,6 +416,28 @@ function makeThrowingAfip(reason: string): AfipClient {
       async createVoucher(): Promise<
         Record<string, unknown> & { CAE?: string }
       > {
+        throw new Error(reason);
+      },
+    },
+    RegisterScopeThirteen: {
+      async getServerStatus(): Promise<ServerStatus> {
+        throw new Error(reason);
+      },
+      async getTaxpayerDetails(): Promise<unknown> {
+        throw new Error(reason);
+      },
+      async getTaxIDByDocument(): Promise<null> {
+        throw new Error(reason);
+      },
+    },
+    RegisterInscriptionProof: {
+      async getServerStatus(): Promise<ServerStatus> {
+        throw new Error(reason);
+      },
+      async getTaxpayerDetails(): Promise<unknown> {
+        throw new Error(reason);
+      },
+      async getTaxpayersDetails(): Promise<unknown[]> {
         throw new Error(reason);
       },
     },

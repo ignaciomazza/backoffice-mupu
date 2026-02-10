@@ -153,7 +153,7 @@ export default function ServicesPage() {
   const { token } = useAuth();
 
   const [invoiceFormData, setInvoiceFormData] = useState<InvoiceFormData>({
-    tipoFactura: "",
+    tipoFactura: "6",
     clientIds: [],
     services: [],
     exchangeRate: "",
@@ -168,6 +168,13 @@ export default function ServicesPage() {
     manualBase10_5: "",
     manualIva10_5: "",
     manualExempt: "",
+    distributionMode: "percentage",
+    distributionValues: [],
+    paxDocTypes: [],
+    paxDocNumbers: [],
+    paxLookupData: [],
+    paxLookupPersist: [],
+    customItems: [],
   });
 
   const [formData, setFormData] = useState<ServiceFormData>({
@@ -827,17 +834,214 @@ export default function ServicesPage() {
       return;
     }
 
+    const normalizedClients = (invoiceFormData.clientIds || [])
+      .map((raw, idx) => ({
+        clientId: Number(raw),
+        idx,
+      }))
+      .filter(
+        (entry) => Number.isFinite(entry.clientId) && Number(entry.clientId) > 0,
+      );
+
+    if (!normalizedClients.length) {
+      toast.error("Seleccioná al menos un pax válido.");
+      return;
+    }
+
+    const distributionMode = invoiceFormData.distributionMode || "percentage";
+    const selectedServiceIds = new Set(
+      invoiceFormData.services
+        .map((raw) => Number(raw))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    );
+    let distributionReferenceTotal = Number(
+      services
+        .filter((svc) => selectedServiceIds.has(svc.id_service))
+        .reduce(
+          (sum, svc) =>
+            sum +
+            (svc.sale_price ?? 0) +
+            (svc.taxableCardInterest ?? 0) +
+            (svc.vatOnCardInterest ?? 0),
+          0,
+        )
+        .toFixed(2),
+    );
+
+    if (manualBuild.manualTotals) {
+      const manualResult = computeManualTotals(manualBuild.manualTotals);
+      if (manualResult.ok) {
+        distributionReferenceTotal = Number(
+          manualResult.result.impTotal.toFixed(2),
+        );
+      }
+    }
+
+    let clientShares: number[] | undefined;
+    if (normalizedClients.length > 1) {
+      const parseDistributionValue = (raw: string | undefined) => {
+        const parsed = Number(String(raw ?? "").trim().replace(",", "."));
+        return Number.isFinite(parsed) ? parsed : NaN;
+      };
+
+      const distributionValues = normalizedClients.map((entry) => {
+        const raw = String(
+          invoiceFormData.distributionValues?.[entry.idx] ?? "",
+        ).trim();
+        return parseDistributionValue(raw);
+      });
+
+      if (
+        distributionValues.some((value) => !Number.isFinite(value) || value <= 0)
+      ) {
+        toast.error("Completá la distribución por pax con valores válidos.");
+        return;
+      }
+
+      const distributionSum = distributionValues.reduce((acc, n) => acc + n, 0);
+      if (!Number.isFinite(distributionSum) || distributionSum <= 0) {
+        toast.error("La distribución por pax es inválida.");
+        return;
+      }
+
+      if (distributionMode === "percentage") {
+        if (distributionSum > 100.01) {
+          toast.error("La suma de porcentajes no puede superar 100%.");
+          return;
+        }
+        const diff = Number((100 - distributionSum).toFixed(2));
+        if (Math.abs(diff) > 0.01) {
+          toast.error(
+            diff > 0
+              ? `Falta asignar ${diff.toFixed(2)}% entre los pax.`
+              : `Excediste ${Math.abs(diff).toFixed(2)}% en la distribución.`,
+          );
+          return;
+        }
+      } else {
+        if (distributionReferenceTotal <= 0) {
+          toast.error("Seleccioná servicios válidos para distribuir montos.");
+          return;
+        }
+        const diff = Number(
+          (distributionReferenceTotal - distributionSum).toFixed(2),
+        );
+        if (diff < -0.01) {
+          toast.error("El total asignado supera el total de referencia.");
+          return;
+        }
+        if (diff > 0.01) {
+          toast.error(`Falta asignar ${diff.toFixed(2)} para completar.`);
+          return;
+        }
+      }
+
+      clientShares = distributionValues.map((value) => value / distributionSum);
+      if (clientShares.length > 0) {
+        const currentSum = clientShares.reduce((acc, n) => acc + n, 0);
+        const diff = Number((1 - currentSum).toFixed(10));
+        clientShares[clientShares.length - 1] = Number(
+          (clientShares[clientShares.length - 1] + diff).toFixed(10),
+        );
+      }
+    }
+
+    const onlyDigits = (value?: string | null) =>
+      String(value ?? "").replace(/\D/g, "");
+
+    const paxData = normalizedClients.map((entry) => {
+      const docType = invoiceFormData.paxDocTypes?.[entry.idx] || "";
+      const docNumber = onlyDigits(invoiceFormData.paxDocNumbers?.[entry.idx]);
+      const lookup = invoiceFormData.paxLookupData?.[entry.idx] || null;
+      const lookupDni = onlyDigits(lookup?.dni);
+      const lookupCuit = onlyDigits(lookup?.cuit);
+
+      return {
+        clientId: entry.clientId,
+        dni:
+          docType === "DNI"
+            ? docNumber || lookupDni || undefined
+            : lookupDni || undefined,
+        cuit:
+          docType === "CUIT"
+            ? docNumber || lookupCuit || undefined
+            : lookupCuit || undefined,
+        persistLookup: Boolean(invoiceFormData.paxLookupPersist?.[entry.idx]),
+        first_name: lookup?.first_name || undefined,
+        last_name: lookup?.last_name || undefined,
+        company_name: lookup?.company_name || undefined,
+        address: lookup?.address || undefined,
+        locality: lookup?.locality || undefined,
+        postal_code: lookup?.postal_code || undefined,
+        commercial_address: lookup?.commercial_address || undefined,
+      };
+    });
+
+    const customItems = (invoiceFormData.customItems || [])
+      .map((item) => {
+        const description = String(item.description || "").trim();
+        const amountRaw = String(item.amount || "").trim();
+        const amountParsed = amountRaw
+          ? Number(amountRaw.replace(",", "."))
+          : undefined;
+        return {
+          description,
+          taxCategory: item.taxCategory,
+          amount:
+            typeof amountParsed === "number" &&
+            Number.isFinite(amountParsed) &&
+            amountParsed > 0
+              ? amountParsed
+              : undefined,
+        };
+      })
+      .filter((item) => item.description.length > 0);
+
+    const derivedDescriptions = customItems.reduce(
+      (acc, item) => {
+        if (item.taxCategory === "21") {
+          acc.description21.push(item.description);
+        } else if (item.taxCategory === "10_5") {
+          acc.description10_5.push(item.description);
+        } else {
+          acc.descriptionNonComputable.push(item.description);
+        }
+        return acc;
+      },
+      {
+        description21: [] as string[],
+        description10_5: [] as string[],
+        descriptionNonComputable: [] as string[],
+      },
+    );
+
     const payload = {
       bookingId: booking.id_booking,
       services: invoiceFormData.services.map((s) => Number(s)),
-      clientIds: invoiceFormData.clientIds.map((c) => Number(c)),
+      clientIds: normalizedClients.map((entry) => entry.clientId),
+      clientShares,
       tipoFactura: parseInt(invoiceFormData.tipoFactura, 10),
       exchangeRate: invoiceFormData.exchangeRate
         ? parseFloat(invoiceFormData.exchangeRate)
         : undefined,
-      description21: invoiceFormData.description21,
-      description10_5: invoiceFormData.description10_5,
-      descriptionNonComputable: invoiceFormData.descriptionNonComputable,
+      description21:
+        derivedDescriptions.description21.length > 0
+          ? derivedDescriptions.description21
+          : (invoiceFormData.description21 || []).filter((d) => d.trim().length > 0),
+      description10_5:
+        derivedDescriptions.description10_5.length > 0
+          ? derivedDescriptions.description10_5
+          : (invoiceFormData.description10_5 || []).filter(
+              (d) => d.trim().length > 0,
+            ),
+      descriptionNonComputable:
+        derivedDescriptions.descriptionNonComputable.length > 0
+          ? derivedDescriptions.descriptionNonComputable
+          : (invoiceFormData.descriptionNonComputable || []).filter(
+              (d) => d.trim().length > 0,
+            ),
+      paxData,
+      customItems,
       invoiceDate: invoiceFormData.invoiceDate,
       manualTotals: manualBuild.manualTotals,
     };

@@ -67,6 +67,57 @@ const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 const inputBase =
   "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
 
+const toMoney = (value: number) => Number(value.toFixed(2));
+
+const parseDistributionNumber = (value: string | number | undefined) => {
+  const parsed = Number(
+    String(value ?? "")
+      .trim()
+      .replace(",", "."),
+  );
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(Math.max(value, min), max);
+
+const formatDistributionNumber = (value: number) =>
+  String(Number(value.toFixed(2)));
+
+function splitAmountByShares(value: number, shares: number[]): number[] {
+  if (shares.length <= 1) return [toMoney(value)];
+  const out = shares.map((share) => toMoney(value * share));
+  const sum = toMoney(out.reduce((acc, n) => acc + n, 0));
+  const diff = toMoney(value - sum);
+  if (Math.abs(diff) >= 0.01) {
+    out[out.length - 1] = toMoney(out[out.length - 1] + diff);
+  }
+  return out;
+}
+
+export type PaxDocType = "" | "DNI" | "CUIT";
+
+export type PaxLookupData = {
+  dni?: string | null;
+  cuit?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  company_name?: string | null;
+  address?: string | null;
+  locality?: string | null;
+  postal_code?: string | null;
+  commercial_address?: string | null;
+};
+
+export type InvoiceCustomItemForm = {
+  id: string;
+  description: string;
+  taxCategory: "21" | "10_5" | "EXEMPT";
+  amount: string;
+};
+
+export type InvoiceDistributionMode = "percentage" | "amount";
+
 export type InvoiceFormData = {
   tipoFactura: string;
   clientIds: string[]; // ids de pasajeros como string
@@ -83,6 +134,13 @@ export type InvoiceFormData = {
   manualBase10_5: string;
   manualIva10_5: string;
   manualExempt: string;
+  distributionMode: InvoiceDistributionMode;
+  distributionValues: string[];
+  paxDocTypes: PaxDocType[];
+  paxDocNumbers: string[];
+  paxLookupData: Array<PaxLookupData | null>;
+  paxLookupPersist: boolean[];
+  customItems: InvoiceCustomItemForm[];
 };
 
 interface InvoiceFormProps {
@@ -119,6 +177,12 @@ export default function InvoiceForm({
 }: InvoiceFormProps) {
   const showForm = collapsible ? isFormVisible : true;
 
+  useEffect(() => {
+    if (!formData.tipoFactura) {
+      updateFormData("tipoFactura", "6");
+    }
+  }, [formData.tipoFactura, updateFormData]);
+
   /* ========= Cotización (lazy con cache TTL) ========= */
   const [fetchedExchangeRate, setFetchedExchangeRate] = useState<string>("");
   const [rateStatus, setRateStatus] = useState<
@@ -127,6 +191,7 @@ export default function InvoiceForm({
 
   // Cache en memoria para evitar re-fetch por 5 min sin depender de estado
   const rateCacheRef = useRef<{ ts: number; value: string } | null>(null);
+  const itemsSeededRef = useRef(false);
 
   useEffect(() => {
     if (!token || !isFormVisible) return; // solo cuando se abre el form
@@ -181,6 +246,22 @@ export default function InvoiceForm({
   /* ========= Helpers ========= */
   const arraysEqual = (a: string[], b: string[]) =>
     a.length === b.length && a.every((v, i) => v === b[i]);
+  const boolArraysEqual = (a: boolean[], b: boolean[]) =>
+    a.length === b.length && a.every((v, i) => v === b[i]);
+
+  const resizeStringArray = (arr: string[] | undefined, count: number) => {
+    const copy = [...(arr || [])];
+    while (copy.length < count) copy.push("");
+    copy.length = count;
+    return copy;
+  };
+
+  const resizeBoolArray = (arr: boolean[] | undefined, count: number) => {
+    const copy = [...(arr || [])];
+    while (copy.length < count) copy.push(false);
+    copy.length = count;
+    return copy;
+  };
 
   /* ========= Servicios (picker múltiple) ========= */
   const [selectedServiceIds, setSelectedServiceIds] = useState<number[]>(
@@ -228,42 +309,9 @@ export default function InvoiceForm({
     );
   };
 
-  // Ajustar longitudes de descripciones según cantidad de servicios seleccionados
-  useEffect(() => {
-    const count = selectedServiceIds.length;
-
-    const resize = (arr: string[]) => {
-      const copy = [...(arr || [])];
-      while (copy.length < count) copy.push("");
-      copy.length = count;
-      return copy;
-    };
-
-    const next21 = resize(formData.description21 || []);
-    const next10 = resize(formData.description10_5 || []);
-    const nextNon = resize(formData.descriptionNonComputable || []);
-
-    if ((formData.description21 || []).length !== next21.length) {
-      updateFormData("description21", next21);
-    }
-    if ((formData.description10_5 || []).length !== next10.length) {
-      updateFormData("description10_5", next10);
-    }
-    if ((formData.descriptionNonComputable || []).length !== nextNon.length) {
-      updateFormData("descriptionNonComputable", nextNon);
-    }
-  }, [
-    selectedServiceIds.length,
-    formData.description21,
-    formData.description10_5,
-    formData.descriptionNonComputable,
-    updateFormData,
-  ]);
-
-  // accesos cortos (siempre seguros)
-  const desc21 = formData.description21 || [];
-  const desc10 = formData.description10_5 || [];
-  const descNon = formData.descriptionNonComputable || [];
+  const [lookupStatus, setLookupStatus] = useState<
+    Array<{ state: "idle" | "loading" | "ok" | "error"; message?: string }>
+  >([]);
 
   /* ========= Pasajeros (picker múltiple) ========= */
   const [clientCount, setClientCount] = useState<number>(
@@ -280,10 +328,85 @@ export default function InvoiceForm({
     }
   }, [clientCount, formData.clientIds, updateFormData]);
 
+  useEffect(() => {
+    const nextDistribution = resizeStringArray(
+      formData.distributionValues,
+      clientCount,
+    );
+    if (!arraysEqual(nextDistribution, formData.distributionValues || [])) {
+      updateFormData("distributionValues", nextDistribution);
+    }
+
+    const nextDocTypes = resizeStringArray(formData.paxDocTypes, clientCount);
+    if (!arraysEqual(nextDocTypes, formData.paxDocTypes || [])) {
+      updateFormData("paxDocTypes", nextDocTypes as PaxDocType[]);
+    }
+
+    const nextDocNumbers = resizeStringArray(
+      formData.paxDocNumbers,
+      clientCount,
+    );
+    if (!arraysEqual(nextDocNumbers, formData.paxDocNumbers || [])) {
+      updateFormData("paxDocNumbers", nextDocNumbers);
+    }
+
+    const nextPersist = resizeBoolArray(formData.paxLookupPersist, clientCount);
+    if (!boolArraysEqual(nextPersist, formData.paxLookupPersist || [])) {
+      updateFormData("paxLookupPersist", nextPersist);
+    }
+
+    const lookupArr = [...(formData.paxLookupData || [])];
+    while (lookupArr.length < clientCount) lookupArr.push(null);
+    lookupArr.length = clientCount;
+    const hasLookupChange =
+      lookupArr.length !== (formData.paxLookupData || []).length ||
+      lookupArr.some((v, i) => v !== (formData.paxLookupData || [])[i]);
+    if (hasLookupChange) {
+      updateFormData("paxLookupData", lookupArr);
+    }
+
+    setLookupStatus((prev) => {
+      const copy = [...prev];
+      while (copy.length < clientCount) copy.push({ state: "idle" });
+      copy.length = clientCount;
+      return copy;
+    });
+  }, [
+    clientCount,
+    formData.distributionValues,
+    formData.paxDocTypes,
+    formData.paxDocNumbers,
+    formData.paxLookupPersist,
+    formData.paxLookupData,
+    updateFormData,
+  ]);
+
   const setClientAt = (idx: number, c: Client | null) => {
     const arr = [...(formData.clientIds || [])];
     arr[idx] = c ? String(c.id_client) : "";
     updateFormData("clientIds", arr);
+
+    if (c) {
+      const docTypes = resizeStringArray(formData.paxDocTypes, clientCount);
+      const docNumbers = resizeStringArray(formData.paxDocNumbers, clientCount);
+      if (!docNumbers[idx]) {
+        if (c.tax_id) {
+          docTypes[idx] = "CUIT";
+          docNumbers[idx] = String(c.tax_id);
+        } else if (c.dni_number) {
+          docTypes[idx] = "DNI";
+          docNumbers[idx] = String(c.dni_number);
+        }
+      }
+      updateFormData("paxDocTypes", docTypes as PaxDocType[]);
+      updateFormData("paxDocNumbers", docNumbers);
+    } else {
+      setDocTypeAt(idx, "");
+      setDocNumberAt(idx, "");
+      setLookupDataAt(idx, null);
+      setPersistAt(idx, false);
+      setLookupStatusAt(idx, { state: "idle" });
+    }
   };
 
   const excludeForIndex = (idx: number) =>
@@ -315,6 +438,220 @@ export default function InvoiceForm({
       (formData.clientIds || []).filter((v) => String(v || "").trim()).length,
     [formData.clientIds],
   );
+
+  const selectedServicesTotal = useMemo(
+    () =>
+      selectedServices.reduce(
+        (sum, svc) =>
+          sum +
+          (svc.sale_price ?? 0) +
+          (svc.taxableCardInterest ?? 0) +
+          (svc.vatOnCardInterest ?? 0),
+        0,
+      ),
+    [selectedServices],
+  );
+
+  const manualDistributionTotal = useMemo(() => {
+    if (!formData.manualTotalsEnabled) return null;
+    const parse = (value?: string) => {
+      if (!value) return undefined;
+      const trimmed = value.trim();
+      if (!trimmed) return undefined;
+      const num = Number(trimmed.replace(",", "."));
+      return Number.isFinite(num) ? num : undefined;
+    };
+    const validation = computeManualTotals({
+      total: parse(formData.manualTotal),
+      base21: parse(formData.manualBase21),
+      iva21: parse(formData.manualIva21),
+      base10_5: parse(formData.manualBase10_5),
+      iva10_5: parse(formData.manualIva10_5),
+      exempt: parse(formData.manualExempt),
+    });
+    if (!validation.ok) return null;
+    return Number(validation.result.impTotal.toFixed(2));
+  }, [
+    formData.manualTotalsEnabled,
+    formData.manualTotal,
+    formData.manualBase21,
+    formData.manualIva21,
+    formData.manualBase10_5,
+    formData.manualIva10_5,
+    formData.manualExempt,
+  ]);
+
+  const distributionReferenceTotal = useMemo(
+    () =>
+      toMoney(Math.max(0, manualDistributionTotal ?? selectedServicesTotal)),
+    [manualDistributionTotal, selectedServicesTotal],
+  );
+
+  const parsedDistributionValues = useMemo(
+    () =>
+      resizeStringArray(formData.distributionValues, clientCount).map((raw) =>
+        Math.max(0, parseDistributionNumber(raw)),
+      ),
+    [formData.distributionValues, clientCount],
+  );
+
+  const distributionAssigned = useMemo(
+    () =>
+      Number(
+        parsedDistributionValues.reduce((acc, n) => acc + n, 0).toFixed(2),
+      ),
+    [parsedDistributionValues],
+  );
+
+  const distributionRemaining = useMemo(() => {
+    const target =
+      formData.distributionMode === "percentage"
+        ? 100
+        : distributionReferenceTotal;
+    return Number((target - distributionAssigned).toFixed(2));
+  }, [
+    formData.distributionMode,
+    distributionReferenceTotal,
+    distributionAssigned,
+  ]);
+
+  useEffect(() => {
+    if (clientCount <= 0) return;
+    const values = resizeStringArray(formData.distributionValues, clientCount);
+    const hasAny = values.some((v) => String(v).trim().length > 0);
+    if (hasAny) return;
+
+    if (formData.distributionMode === "amount") {
+      const equal = splitAmountByShares(
+        distributionReferenceTotal,
+        Array.from({ length: clientCount }, () => 1),
+      ).map((v) => formatDistributionNumber(v));
+      updateFormData("distributionValues", equal);
+      return;
+    }
+
+    const raw = 100 / clientCount;
+    const base = Number(raw.toFixed(2));
+    const next = Array.from({ length: clientCount }, () => base);
+    const sum = Number(next.reduce((acc, n) => acc + n, 0).toFixed(2));
+    const diff = Number((100 - sum).toFixed(2));
+    next[next.length - 1] = Number((next[next.length - 1] + diff).toFixed(2));
+    updateFormData(
+      "distributionValues",
+      next.map((v) => formatDistributionNumber(v)),
+    );
+  }, [
+    clientCount,
+    formData.distributionMode,
+    formData.distributionValues,
+    distributionReferenceTotal,
+    updateFormData,
+  ]);
+
+  const distributionValidation = useMemo(() => {
+    const values = parsedDistributionValues;
+    const hasInvalid = values.some((v) => !Number.isFinite(v) || v <= 0);
+    if (hasInvalid) {
+      return { ok: false as const, error: "Completá la distribución por pax." };
+    }
+    const sum = Number(values.reduce((acc, n) => acc + n, 0).toFixed(2));
+    if (!Number.isFinite(sum) || sum <= 0) {
+      return {
+        ok: false as const,
+        error: "La distribución por pax debe ser mayor a cero.",
+      };
+    }
+
+    if (formData.distributionMode === "percentage") {
+      if (sum > 100.01) {
+        return {
+          ok: false as const,
+          error: "La suma de porcentajes no puede superar 100%.",
+        };
+      }
+      const diff = Number((100 - sum).toFixed(2));
+      if (Math.abs(diff) > 0.01) {
+        return {
+          ok: false as const,
+          error:
+            diff > 0
+              ? `Falta asignar ${diff.toFixed(2)}% entre los pax.`
+              : `Excediste ${Math.abs(diff).toFixed(2)}% en la distribución.`,
+        };
+      }
+      return {
+        ok: true as const,
+        shares: values.map((v) => v / 100),
+        values,
+        sum,
+      };
+    }
+
+    if (distributionReferenceTotal <= 0) {
+      return {
+        ok: false as const,
+        error: "Seleccioná servicios para distribuir montos por pax.",
+      };
+    }
+    const amountDiff = Number((distributionReferenceTotal - sum).toFixed(2));
+    if (amountDiff < -0.01) {
+      return {
+        ok: false as const,
+        error: `El total asignado supera el total de referencia (${distributionReferenceTotal.toFixed(2)}).`,
+      };
+    }
+    if (amountDiff > 0.01) {
+      return {
+        ok: false as const,
+        error: `Falta asignar ${amountDiff.toFixed(2)} para completar la distribución.`,
+      };
+    }
+
+    const shares = values.map((v) => v / sum);
+    return {
+      ok: true as const,
+      shares,
+      values,
+      sum,
+    };
+  }, [
+    parsedDistributionValues,
+    formData.distributionMode,
+    distributionReferenceTotal,
+  ]);
+
+  const perClientAmountsPreview = useMemo(() => {
+    if (!distributionValidation.ok) return [];
+    return splitAmountByShares(
+      distributionReferenceTotal,
+      distributionValidation.shares,
+    );
+  }, [distributionValidation, distributionReferenceTotal]);
+
+  const customItems = formData.customItems || [];
+
+  useEffect(() => {
+    if (customItems.length > 0) {
+      itemsSeededRef.current = true;
+      return;
+    }
+    if (itemsSeededRef.current || selectedServices.length === 0) return;
+    const defaults: InvoiceCustomItemForm[] = selectedServices.map((svc) => ({
+      id: `svc-${svc.id_service}`,
+      description:
+        svc.description ||
+        `${svc.type}${svc.destination ? ` · ${svc.destination}` : ""}`,
+      taxCategory:
+        (svc?.vatOnCommission21 ?? 0) > 0
+          ? "21"
+          : (svc?.vatOnCommission10_5 ?? 0) > 0
+            ? "10_5"
+            : "EXEMPT",
+      amount: "",
+    }));
+    itemsSeededRef.current = true;
+    updateFormData("customItems", defaults);
+  }, [customItems.length, selectedServices, updateFormData]);
 
   const formatDateLabel = (raw?: string) => {
     if (!raw) return "";
@@ -369,17 +706,6 @@ export default function InvoiceForm({
     formData.invoiceDate,
     formData.exchangeRate,
   ]);
-
-  const hasDescriptionFields = useMemo(
-    () =>
-      selectedServices.some(
-        (svc) =>
-          (svc?.vatOnCommission21 ?? 0) > 0 ||
-          (svc?.vatOnCommission10_5 ?? 0) > 0 ||
-          (svc?.nonComputable ?? 0) > 0,
-      ),
-    [selectedServices],
-  );
 
   const selectedCurrencies = useMemo(() => {
     const set = new Set<string>();
@@ -469,6 +795,287 @@ export default function InvoiceForm({
       }),
     [manualCurrency],
   );
+
+  const setLookupStatusAt = (
+    idx: number,
+    next: { state: "idle" | "loading" | "ok" | "error"; message?: string },
+  ) => {
+    setLookupStatus((prev) => {
+      const copy = [...prev];
+      while (copy.length < clientCount) copy.push({ state: "idle" });
+      copy[idx] = next;
+      return copy;
+    });
+  };
+
+  const setDocTypeAt = (idx: number, value: PaxDocType) => {
+    const arr = resizeStringArray(formData.paxDocTypes, clientCount);
+    arr[idx] = value;
+    updateFormData("paxDocTypes", arr as PaxDocType[]);
+  };
+
+  const setDocNumberAt = (idx: number, value: string) => {
+    const arr = resizeStringArray(formData.paxDocNumbers, clientCount);
+    arr[idx] = value;
+    updateFormData("paxDocNumbers", arr);
+  };
+
+  const setPersistAt = (idx: number, value: boolean) => {
+    const arr = resizeBoolArray(formData.paxLookupPersist, clientCount);
+    arr[idx] = value;
+    updateFormData("paxLookupPersist", arr);
+  };
+
+  const setLookupDataAt = (idx: number, value: PaxLookupData | null) => {
+    const arr = [...(formData.paxLookupData || [])];
+    while (arr.length < clientCount) arr.push(null);
+    arr[idx] = value;
+    updateFormData("paxLookupData", arr);
+  };
+
+  const handleLookupAfip = async (idx: number) => {
+    if (!token) {
+      toast.error("Sesión inválida. Volvé a iniciar sesión.");
+      return;
+    }
+    const clientIdRaw = formData.clientIds?.[idx];
+    const clientId = clientIdRaw ? Number(clientIdRaw) : NaN;
+    const documentType = (formData.paxDocTypes?.[idx] || "") as PaxDocType;
+    const documentNumber = String(formData.paxDocNumbers?.[idx] || "").trim();
+    if (!Number.isFinite(clientId) && !documentNumber) {
+      toast.error("Seleccioná un pax o ingresá DNI/CUIT para consultar.");
+      return;
+    }
+
+    setLookupStatusAt(idx, { state: "loading" });
+    try {
+      const payload = {
+        clientId: Number.isFinite(clientId) ? clientId : undefined,
+        documentType: documentType || undefined,
+        documentNumber: documentNumber || undefined,
+        persist: Boolean(formData.paxLookupPersist?.[idx]),
+      };
+      const res = await authFetch(
+        "/api/afip/taxpayer-lookup",
+        { method: "POST", body: JSON.stringify(payload) },
+        token,
+      );
+      const raw = await res.text();
+      let data: {
+        success?: boolean;
+        message?: string;
+        lookup?: PaxLookupData;
+      } = {};
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = { success: false, message: raw };
+      }
+
+      if (!res.ok || !data.success || !data.lookup) {
+        const msg = data.message || "No se pudo consultar AFIP.";
+        setLookupStatusAt(idx, { state: "error", message: msg });
+        toast.error(msg);
+        return;
+      }
+
+      setLookupDataAt(idx, data.lookup);
+      setLookupStatusAt(idx, {
+        state: "ok",
+        message: "Datos obtenidos de AFIP.",
+      });
+
+      const nextType = formData.tipoFactura === "1" ? "CUIT" : "DNI";
+      if (nextType === "CUIT" && data.lookup.cuit) {
+        setDocTypeAt(idx, "CUIT");
+        setDocNumberAt(idx, String(data.lookup.cuit));
+      }
+      if (nextType === "DNI" && data.lookup.dni) {
+        setDocTypeAt(idx, "DNI");
+        setDocNumberAt(idx, String(data.lookup.dni));
+      }
+
+      if (formData.paxLookupPersist?.[idx]) {
+        toast.success("Datos AFIP guardados en el pax.");
+      } else {
+        toast.success("Datos AFIP listos para previsualizar y emitir.");
+      }
+    } catch {
+      setLookupStatusAt(idx, {
+        state: "error",
+        message: "Error consultando AFIP.",
+      });
+      toast.error("Error consultando AFIP.");
+    }
+  };
+
+  const getDistributionMaxAt = (idx: number) => {
+    const others = parsedDistributionValues.reduce(
+      (acc, n, i) => (i === idx ? acc : acc + n),
+      0,
+    );
+    if (formData.distributionMode === "percentage") {
+      return Math.max(0, Number((100 - others).toFixed(2)));
+    }
+    return Math.max(
+      0,
+      Number((distributionReferenceTotal - others).toFixed(2)),
+    );
+  };
+
+  const setDistributionValueAt = (idx: number, value: string) => {
+    const arr = resizeStringArray(formData.distributionValues, clientCount);
+    const trimmed = String(value || "").trim();
+    if (trimmed === "") {
+      arr[idx] = "";
+      updateFormData("distributionValues", arr);
+      return;
+    }
+
+    const parsed = Math.max(0, parseDistributionNumber(trimmed));
+    const maxAllowed = getDistributionMaxAt(idx);
+    const clamped = clamp(parsed, 0, maxAllowed);
+    arr[idx] = formatDistributionNumber(clamped);
+    updateFormData("distributionValues", arr);
+  };
+
+  const setEqualDistribution = () => {
+    if (clientCount <= 0) return;
+
+    if (formData.distributionMode === "percentage") {
+      const raw = 100 / clientCount;
+      const base = Number(raw.toFixed(2));
+      const next = Array.from({ length: clientCount }, () => base);
+      const sum = Number(next.reduce((acc, n) => acc + n, 0).toFixed(2));
+      const diff = Number((100 - sum).toFixed(2));
+      next[next.length - 1] = Number((next[next.length - 1] + diff).toFixed(2));
+      updateFormData(
+        "distributionValues",
+        next.map((v) => formatDistributionNumber(v)),
+      );
+      return;
+    }
+
+    const equal = splitAmountByShares(
+      distributionReferenceTotal,
+      Array.from({ length: clientCount }, () => 1),
+    ).map((v) => formatDistributionNumber(v));
+    updateFormData("distributionValues", equal);
+  };
+
+  const completeDistributionAtLastPax = () => {
+    if (clientCount <= 0) return;
+    const lastIdx = clientCount - 1;
+    const arr = resizeStringArray(formData.distributionValues, clientCount);
+    const values = parsedDistributionValues;
+
+    const others = Number(
+      values
+        .reduce((acc, n, idx) => (idx === lastIdx ? acc : acc + n), 0)
+        .toFixed(2),
+    );
+
+    const target =
+      formData.distributionMode === "percentage"
+        ? 100
+        : distributionReferenceTotal;
+    const remaining = Number((target - others).toFixed(2));
+    arr[lastIdx] = formatDistributionNumber(clamp(remaining, 0, target));
+    updateFormData("distributionValues", arr);
+  };
+
+  const handleDistributionModeChange = (nextMode: InvoiceDistributionMode) => {
+    if (nextMode === formData.distributionMode) return;
+    const values = parsedDistributionValues;
+    const sum = Number(values.reduce((acc, n) => acc + n, 0).toFixed(2));
+    let next: number[] = [];
+
+    if (nextMode === "percentage") {
+      if (sum > 0) {
+        next = values.map((value) => Number(((value / sum) * 100).toFixed(2)));
+      } else {
+        const base = Number((100 / clientCount).toFixed(2));
+        next = Array.from({ length: clientCount }, () => base);
+      }
+      const nextSum = Number(next.reduce((acc, n) => acc + n, 0).toFixed(2));
+      const diff = Number((100 - nextSum).toFixed(2));
+      if (next.length > 0) {
+        next[next.length - 1] = Number(
+          (next[next.length - 1] + diff).toFixed(2),
+        );
+      }
+    } else {
+      if (sum > 0 && distributionReferenceTotal > 0) {
+        next = values.map((value) =>
+          Number(((value / sum) * distributionReferenceTotal).toFixed(2)),
+        );
+      } else {
+        next = splitAmountByShares(
+          distributionReferenceTotal,
+          Array.from({ length: clientCount }, () => 1),
+        );
+      }
+      const nextSum = Number(next.reduce((acc, n) => acc + n, 0).toFixed(2));
+      const diff = Number((distributionReferenceTotal - nextSum).toFixed(2));
+      if (next.length > 0) {
+        next[next.length - 1] = Number(
+          (next[next.length - 1] + diff).toFixed(2),
+        );
+      }
+    }
+
+    updateFormData("distributionMode", nextMode);
+    updateFormData(
+      "distributionValues",
+      next.map((value) => formatDistributionNumber(Math.max(0, value))),
+    );
+  };
+
+  const setCustomItems = (next: InvoiceCustomItemForm[]) => {
+    updateFormData("customItems", next);
+  };
+
+  const updateCustomItem = (
+    id: string,
+    patch: Partial<InvoiceCustomItemForm>,
+  ) => {
+    const next = customItems.map((item) =>
+      item.id === id ? { ...item, ...patch } : item,
+    );
+    setCustomItems(next);
+  };
+
+  const removeCustomItem = (id: string) => {
+    const next = customItems.filter((item) => item.id !== id);
+    setCustomItems(next);
+  };
+
+  const addCustomItem = () => {
+    const next: InvoiceCustomItemForm = {
+      id: `manual-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      description: "",
+      taxCategory: "EXEMPT",
+      amount: "",
+    };
+    setCustomItems([...(customItems || []), next]);
+  };
+
+  const regenerateItemsFromServices = () => {
+    const defaults: InvoiceCustomItemForm[] = selectedServices.map((svc) => ({
+      id: `svc-${svc.id_service}`,
+      description:
+        svc.description ||
+        `${svc.type}${svc.destination ? ` · ${svc.destination}` : ""}`,
+      taxCategory:
+        (svc?.vatOnCommission21 ?? 0) > 0
+          ? "21"
+          : (svc?.vatOnCommission10_5 ?? 0) > 0
+            ? "10_5"
+            : "EXEMPT",
+      amount: "",
+    }));
+    setCustomItems(defaults);
+  };
 
   return (
     <motion.div
@@ -591,9 +1198,26 @@ export default function InvoiceForm({
                 );
                 return;
               }
+              if (selectedClientsCount > 1 && !distributionValidation.ok) {
+                toast.error(distributionValidation.error);
+                return;
+              }
               if (manualEnabled && hasMultipleCurrencies) {
                 toast.error(
                   "Los importes manuales solo se permiten con una única moneda.",
+                );
+                return;
+              }
+              const invalidItem = (formData.customItems || []).find((it) => {
+                const amount = Number(
+                  String(it.amount || "").replace(",", "."),
+                );
+                if (!Number.isFinite(amount) || amount <= 0) return false;
+                return !String(it.description || "").trim();
+              });
+              if (invalidItem) {
+                toast.error(
+                  "Si cargás monto en un ítem, completá su descripción.",
                 );
                 return;
               }
@@ -603,18 +1227,38 @@ export default function InvoiceForm({
           >
             <Section title="Comprobante" desc="Definí tipo y fecha de emisión.">
               <Field id="tipoFactura" label="Tipo de factura" required>
-                <select
+                <div
                   id="tipoFactura"
-                  name="tipoFactura"
-                  value={formData.tipoFactura}
-                  onChange={handleChange}
-                  className={`${inputBase} cursor-pointer appearance-none`}
-                  required
+                  className="inline-flex rounded-full border border-white/15 bg-white/20 p-1 dark:bg-white/5"
                 >
-                  <option value="">Seleccionar</option>
-                  <option value="1">Factura A</option>
-                  <option value="6">Factura B</option>
-                </select>
+                  <button
+                    type="button"
+                    onClick={() => updateFormData("tipoFactura", "1")}
+                    className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
+                      formData.tipoFactura === "1"
+                        ? "bg-sky-100 text-sky-900 dark:bg-sky-500/30 dark:text-white"
+                        : "text-sky-950/70 dark:text-white/70"
+                    }`}
+                  >
+                    Factura A
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateFormData("tipoFactura", "6")}
+                    className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
+                      formData.tipoFactura === "6"
+                        ? "bg-sky-100 text-sky-900 dark:bg-sky-500/30 dark:text-white"
+                        : "text-sky-950/70 dark:text-white/70"
+                    }`}
+                  >
+                    Factura B
+                  </button>
+                </div>
+                <input
+                  type="hidden"
+                  name="tipoFactura"
+                  value={formData.tipoFactura || "6"}
+                />
               </Field>
 
               <Field id="invoiceDate" label="Fecha de factura" required>
@@ -649,7 +1293,10 @@ export default function InvoiceForm({
 
               <div className="grid grid-cols-1 gap-3 md:col-span-2">
                 {Array.from({ length: clientCount }).map((_, idx) => (
-                  <div key={idx}>
+                  <div
+                    key={idx}
+                    className="rounded-2xl border border-white/10 bg-white/5 p-3"
+                  >
                     <ClientPicker
                       token={token}
                       label={`Pax ${idx + 1}`}
@@ -664,16 +1311,345 @@ export default function InvoiceForm({
                       onClear={() => setClientAt(idx, null)}
                       required
                     />
+
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                      <Field id={`paxDocType-${idx}`} label="Tipo doc">
+                        <select
+                          id={`paxDocType-${idx}`}
+                          value={formData.paxDocTypes?.[idx] || ""}
+                          onChange={(e) =>
+                            setDocTypeAt(idx, e.target.value as PaxDocType)
+                          }
+                          className={`${inputBase} cursor-pointer`}
+                        >
+                          <option value="">Seleccionar</option>
+                          <option value="DNI">DNI</option>
+                          <option value="CUIT">CUIT</option>
+                        </select>
+                      </Field>
+
+                      <Field
+                        id={`paxDocNumber-${idx}`}
+                        label="Número"
+                        hint="Podés cargar DNI/CUIT manual para AFIP."
+                      >
+                        <input
+                          id={`paxDocNumber-${idx}`}
+                          type="text"
+                          value={formData.paxDocNumbers?.[idx] || ""}
+                          onChange={(e) => setDocNumberAt(idx, e.target.value)}
+                          placeholder="Ej: 20300111222 o 30111222"
+                          className={inputBase}
+                        />
+                      </Field>
+
+                      <div className="flex flex-col justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleLookupAfip(idx)}
+                          disabled={lookupStatus[idx]?.state === "loading"}
+                          className="rounded-2xl border border-sky-300/50 bg-sky-100/70 px-4 py-2 text-sm font-medium text-sky-900 shadow-sm transition hover:scale-[0.99] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-300/20 dark:bg-sky-500/20 dark:text-sky-100"
+                        >
+                          {lookupStatus[idx]?.state === "loading"
+                            ? "Consultando AFIP..."
+                            : "Traer datos AFIP"}
+                        </button>
+                        <label className="inline-flex items-center gap-2 text-xs text-sky-950/70 dark:text-white/70">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(formData.paxLookupPersist?.[idx])}
+                            onChange={(e) =>
+                              setPersistAt(idx, e.target.checked)
+                            }
+                            className="size-4 rounded border border-sky-300/60"
+                          />
+                          Guardar datos en el pax
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 text-xs">
+                      {lookupStatus[idx]?.state === "ok" && (
+                        <p className="text-emerald-700 dark:text-emerald-200">
+                          {lookupStatus[idx]?.message || "Datos AFIP listos."}
+                        </p>
+                      )}
+                      {lookupStatus[idx]?.state === "error" && (
+                        <p className="text-rose-700 dark:text-rose-200">
+                          {lookupStatus[idx]?.message ||
+                            "No se pudieron obtener datos AFIP."}
+                        </p>
+                      )}
+                    </div>
+
+                    {formData.paxLookupData?.[idx] && (
+                      <div className="mt-2 rounded-xl border border-white/10 bg-white/5 p-2 text-xs text-sky-950/80 dark:text-white/80">
+                        <p className="font-medium">Previsualización AFIP</p>
+                        <p>
+                          {formData.paxLookupData[idx]?.company_name ||
+                            `${formData.paxLookupData[idx]?.first_name || ""} ${formData.paxLookupData[idx]?.last_name || ""}`.trim() ||
+                            "Sin nombre"}
+                        </p>
+                        <p>
+                          DNI: {formData.paxLookupData[idx]?.dni || "—"} · CUIT:{" "}
+                          {formData.paxLookupData[idx]?.cuit || "—"}
+                        </p>
+                        <p>
+                          Domicilio:{" "}
+                          {formData.paxLookupData[idx]?.address || "—"}
+                          {formData.paxLookupData[idx]?.locality
+                            ? ` · ${formData.paxLookupData[idx]?.locality}`
+                            : ""}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
-              {selectedClientsCount > 1 && (
-                <div className="text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
-                  Se emite una factura por pax y se prorratea en partes
-                  iguales.
-                </div>
-              )}
             </Section>
+
+            {clientCount > 1 && (
+              <Section
+                title="Distribución entre pax"
+                desc="Elegí si distribuís por porcentaje o por monto. La asignación debe cerrarse completa antes de emitir."
+              >
+                <div className="md:col-span-2">
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <div className="inline-flex rounded-full border border-white/15 bg-white/20 p-1 dark:bg-white/5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDistributionModeChange("percentage")
+                        }
+                        className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
+                          formData.distributionMode === "percentage"
+                            ? "bg-sky-100 text-sky-900 dark:bg-sky-500/30 dark:text-white"
+                            : "text-sky-950/70 dark:text-white/70"
+                        }`}
+                      >
+                        Porcentaje
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDistributionModeChange("amount")}
+                        className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
+                          formData.distributionMode === "amount"
+                            ? "bg-sky-100 text-sky-900 dark:bg-sky-500/30 dark:text-white"
+                            : "text-sky-950/70 dark:text-white/70"
+                        }`}
+                      >
+                        Monto
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={setEqualDistribution}
+                      className="rounded-full border border-white/20 bg-white/20 px-3 py-1.5 text-xs font-medium text-sky-950/80 transition hover:scale-[0.98] active:scale-[0.96] dark:bg-white/5 dark:text-white/80"
+                    >
+                      Repartir en partes iguales
+                    </button>
+                    <button
+                      type="button"
+                      onClick={completeDistributionAtLastPax}
+                      disabled={clientCount < 2}
+                      className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-medium text-sky-950/70 transition hover:scale-[0.98] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 dark:text-white/80"
+                    >
+                      Completar faltante en último pax
+                    </button>
+                  </div>
+
+                  <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+                        Asignado
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-sky-950 dark:text-white">
+                        {formData.distributionMode === "percentage"
+                          ? `${distributionAssigned.toFixed(2)}%`
+                          : manualFormatter.format(distributionAssigned)}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+                        Restante
+                      </p>
+                      <p
+                        className={`mt-1 text-sm font-semibold ${
+                          distributionRemaining < 0
+                            ? "text-rose-700 dark:text-rose-200"
+                            : "text-emerald-700 dark:text-emerald-200"
+                        }`}
+                      >
+                        {formData.distributionMode === "percentage"
+                          ? `${distributionRemaining.toFixed(2)}%`
+                          : manualFormatter.format(distributionRemaining)}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                      <p className="text-[11px] uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+                        Total referencia
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-sky-950 dark:text-white">
+                        {formData.distributionMode === "percentage"
+                          ? "100.00%"
+                          : manualFormatter.format(distributionReferenceTotal)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    {Array.from({ length: clientCount }).map((_, idx) => {
+                      const current = parsedDistributionValues[idx] ?? 0;
+                      const maxAllowed = getDistributionMaxAt(idx);
+                      return (
+                        <div
+                          key={`distribution-${idx}`}
+                          className="rounded-2xl border border-white/10 bg-white/5 p-3"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-medium text-sky-950/70 dark:text-white/70">
+                              Pax {idx + 1}
+                            </p>
+                            <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-medium text-sky-900 dark:bg-white/10 dark:text-white">
+                              {formData.distributionMode === "percentage"
+                                ? `${current.toFixed(2)}%`
+                                : manualFormatter.format(current)}
+                            </span>
+                          </div>
+
+                          {formData.distributionMode === "percentage" ? (
+                            <>
+                              <input
+                                type="range"
+                                min={0}
+                                max={Math.max(0, maxAllowed)}
+                                step={0.1}
+                                value={Math.min(
+                                  current,
+                                  Math.max(0, maxAllowed),
+                                )}
+                                onChange={(e) =>
+                                  setDistributionValueAt(idx, e.target.value)
+                                }
+                                className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full bg-sky-200 accent-sky-700 dark:bg-white/20"
+                              />
+                              <div className="mt-2 flex items-center justify-between text-[11px] text-sky-950/60 dark:text-white/60">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDistributionValueAt(
+                                      idx,
+                                      String(Math.max(0, current - 5)),
+                                    )
+                                  }
+                                  className="rounded-full border border-white/20 px-2 py-0.5 font-medium transition hover:bg-white/20"
+                                >
+                                  -5%
+                                </button>
+                                <span>Máximo: {maxAllowed.toFixed(2)}%</span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDistributionValueAt(
+                                      idx,
+                                      String(current + 5),
+                                    )
+                                  }
+                                  disabled={current >= maxAllowed}
+                                  className="rounded-full border border-white/20 px-2 py-0.5 font-medium transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  +5%
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max={Math.max(0, maxAllowed)}
+                                value={formData.distributionValues?.[idx] || ""}
+                                onChange={(e) =>
+                                  setDistributionValueAt(idx, e.target.value)
+                                }
+                                placeholder="0.00"
+                                className={`${inputBase} mt-3`}
+                              />
+                              <p className="mt-1 text-[11px] text-sky-950/60 dark:text-white/60">
+                                Máximo disponible para este pax:{" "}
+                                {manualFormatter.format(
+                                  Math.max(0, maxAllowed),
+                                )}
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {distributionValidation.ok ? (
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-sky-950/80 dark:text-white/80">
+                      <p className="font-medium">Previsualización por pax</p>
+                      <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                        {distributionValidation.shares.map(
+                          (distribution, idx) => {
+                            const amount = perClientAmountsPreview[idx] ?? 0;
+                            const lookup = formData.paxLookupData?.[idx];
+                            const doc =
+                              formData.tipoFactura === "1"
+                                ? lookup?.cuit ||
+                                  (formData.paxDocTypes?.[idx] === "CUIT"
+                                    ? formData.paxDocNumbers?.[idx]
+                                    : "")
+                                : lookup?.dni ||
+                                  (formData.paxDocTypes?.[idx] === "DNI"
+                                    ? formData.paxDocNumbers?.[idx]
+                                    : "");
+                            return (
+                              <div
+                                key={`preview-${idx}`}
+                                className="rounded-xl border border-white/10 bg-white/10 p-2"
+                              >
+                                <p className="font-medium">Pax {idx + 1}</p>
+                                <p>
+                                  Distribución:{" "}
+                                  {(distribution * 100).toFixed(2)}%
+                                </p>
+                                <p>
+                                  Total estimado:{" "}
+                                  {manualFormatter.format(amount)}
+                                </p>
+                                <p>
+                                  {formData.tipoFactura === "1"
+                                    ? "CUIT"
+                                    : "DNI"}
+                                  : {doc || "Sin completar"}
+                                </p>
+                              </div>
+                            );
+                          },
+                        )}
+                      </div>
+                      <p className="mt-2">
+                        Total referencia servicios:{" "}
+                        {manualFormatter.format(distributionReferenceTotal)}
+                      </p>
+                      {manualDistributionTotal != null && (
+                        <p className="mt-1 text-[11px] text-sky-950/70 dark:text-white/70">
+                          Referencia tomada de importes manuales.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-xs text-rose-700 dark:text-rose-200">
+                      {distributionValidation.error}
+                    </div>
+                  )}
+                </div>
+              </Section>
+            )}
 
             <Section
               title="Servicios"
@@ -747,6 +1723,104 @@ export default function InvoiceForm({
                     Seleccioná al menos un servicio para emitir la factura.
                   </div>
                 ) : null}
+              </div>
+            </Section>
+
+            <Section
+              title="Items de factura"
+              desc="Definí acá todas las descripciones y montos visibles en el PDF. Si un ítem no tiene monto, no se muestra."
+            >
+              <div className="space-y-3 md:col-span-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={addCustomItem}
+                    className="rounded-full border border-sky-300/50 bg-sky-100/70 px-3 py-1.5 text-xs font-medium text-sky-900 transition hover:scale-[0.98] active:scale-[0.96] dark:border-sky-300/20 dark:bg-sky-500/20 dark:text-sky-100"
+                  >
+                    Agregar ítem
+                  </button>
+                  <button
+                    type="button"
+                    onClick={regenerateItemsFromServices}
+                    className="rounded-full border border-white/20 bg-white/20 px-3 py-1.5 text-xs font-medium text-sky-950/80 transition hover:scale-[0.98] active:scale-[0.96] dark:bg-white/5 dark:text-white/80"
+                  >
+                    Regenerar desde servicios
+                  </button>
+                </div>
+
+                {(customItems || []).length === 0 ? (
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-sky-950/70 dark:text-white/70">
+                    No hay ítems cargados. Podés agregar uno manual o regenerar
+                    desde servicios.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-sky-950/70 dark:text-white/70">
+                      El tratamiento fiscal se determina automáticamente al
+                      emitir.
+                    </p>
+                    {(customItems || []).map((item) => (
+                      <div
+                        key={item.id}
+                        className="grid grid-cols-1 gap-2 rounded-2xl border border-white/10 bg-white/5 p-3 md:grid-cols-12"
+                      >
+                        <div className="md:col-span-8">
+                          <input
+                            type="text"
+                            value={item.description}
+                            onChange={(e) =>
+                              updateCustomItem(item.id, {
+                                description: e.target.value,
+                              })
+                            }
+                            placeholder="Descripción del ítem"
+                            className={inputBase}
+                          />
+                        </div>
+                        <div className="md:col-span-3">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={item.amount}
+                            onChange={(e) =>
+                              updateCustomItem(item.id, {
+                                amount: e.target.value,
+                              })
+                            }
+                            placeholder="Monto"
+                            className={inputBase}
+                          />
+                        </div>
+                        <div className="md:col-span-1">
+                          <button
+                            type="button"
+                            onClick={() => removeCustomItem(item.id)}
+                            className="w-full rounded-2xl border border-rose-300/50 bg-rose-100/70 px-3 py-2 text-xs font-medium text-rose-900 transition hover:scale-[0.98] active:scale-[0.96] dark:border-rose-300/20 dark:bg-rose-500/20 dark:text-rose-100"
+                          >
+                            Quitar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-sky-950/70 dark:text-white/70">
+                  <p className="font-medium">Detalle de reserva seleccionado</p>
+                  {selectedServices.length === 0 ? (
+                    <p className="mt-1">No hay servicios seleccionados.</p>
+                  ) : (
+                    <ul className="mt-2 space-y-1">
+                      {selectedServices.map((svc) => (
+                        <li key={`reservation-detail-${svc.id_service}`}>
+                          N° {svc.agency_service_id ?? svc.id_service} ·{" "}
+                          {svc.type} · {svc.description || "Sin descripción"}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
             </Section>
 
@@ -887,9 +1961,9 @@ export default function InvoiceForm({
 
                   {selectedClientsCount > 1 && (
                     <div className="text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
-                      Se emite una factura por pax y se prorratea en partes
-                      iguales. Si querés importes distintos, emití facturas por
-                      separado.
+                      Se emite una factura por pax usando la distribución
+                      definida arriba. Si activás importes manuales válidos, la
+                      distribución por monto usa ese total manual.
                     </div>
                   )}
 
@@ -915,87 +1989,6 @@ export default function InvoiceForm({
                 </div>
               )}
             </Section>
-
-            {hasDescriptionFields && (
-              <Section
-                title="Descripciones por servicio"
-                desc="Solo aplica a servicios con conceptos impositivos."
-              >
-                <div className="space-y-3 md:col-span-2">
-                  {selectedServices.map((svc, idx) => (
-                    <div
-                      key={svc.id_service}
-                      className="rounded-2xl border border-white/10 bg-white/5 p-3"
-                    >
-                      <div className="text-sm font-medium text-sky-950 dark:text-white">
-                        Servicio N° {svc.agency_service_id ?? svc.id_service}
-                      </div>
-                      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                        {(svc?.vatOnCommission21 ?? 0) > 0 && (
-                          <Field
-                            id={`desc21-${svc.id_service}`}
-                            label={`Descripción IVA 21% (servicio ${idx + 1})`}
-                          >
-                            <input
-                              id={`desc21-${svc.id_service}`}
-                              type="text"
-                              value={desc21[idx] || ""}
-                              onChange={(e) => {
-                                const arr = [...desc21];
-                                arr[idx] = e.target.value;
-                                updateFormData("description21", arr);
-                              }}
-                              placeholder="Ej: Excursión guiada 21%"
-                              className={inputBase}
-                            />
-                          </Field>
-                        )}
-
-                        {(svc?.vatOnCommission10_5 ?? 0) > 0 && (
-                          <Field
-                            id={`desc10-${svc.id_service}`}
-                            label={`Descripción IVA 10.5% (servicio ${idx + 1})`}
-                          >
-                            <input
-                              id={`desc10-${svc.id_service}`}
-                              type="text"
-                              value={desc10[idx] || ""}
-                              onChange={(e) => {
-                                const arr = [...desc10];
-                                arr[idx] = e.target.value;
-                                updateFormData("description10_5", arr);
-                              }}
-                              placeholder="Ej: Servicio terrestre 10.5%"
-                              className={inputBase}
-                            />
-                          </Field>
-                        )}
-
-                        {(svc?.nonComputable ?? 0) > 0 && (
-                          <Field
-                            id={`descNon-${svc.id_service}`}
-                            label="Descripción No Computable"
-                          >
-                            <input
-                              id={`descNon-${svc.id_service}`}
-                              type="text"
-                              value={descNon[idx] || ""}
-                              onChange={(e) => {
-                                const arr = [...descNon];
-                                arr[idx] = e.target.value;
-                                updateFormData("descriptionNonComputable", arr);
-                              }}
-                              placeholder="Ej: Cargo no computable"
-                              className={inputBase}
-                            />
-                          </Field>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
 
             <Section
               title="Cotización"

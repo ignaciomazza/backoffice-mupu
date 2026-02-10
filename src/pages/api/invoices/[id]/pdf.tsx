@@ -26,6 +26,11 @@ interface PayloadAfip {
   description21?: string[];
   description10_5?: string[];
   descriptionNonComputable?: string[];
+  customItems?: Array<{
+    description: string;
+    taxCategory: "21" | "10_5" | "EXEMPT";
+    amount?: number;
+  }>;
   serviceDates?: { from: string; to: string }[];
 }
 
@@ -303,6 +308,7 @@ export default async function handler(
     description21,
     description10_5,
     descriptionNonComputable,
+    customItems,
     serviceDates = [],
   } = payload;
 
@@ -348,6 +354,11 @@ export default async function handler(
     description21?: string[];
     description10_5?: string[];
     descriptionNonComputable?: string[];
+    customItems?: Array<{
+      description: string;
+      taxCategory: "21" | "10_5" | "EXEMPT";
+      amount?: number;
+    }>;
   } = {
     ...voucherData,
     emitterName: ag.name ?? "Agencia",
@@ -360,6 +371,7 @@ export default async function handler(
     description21,
     description10_5,
     descriptionNonComputable,
+    customItems,
   };
 
   // 6) Render y envío del PDF
