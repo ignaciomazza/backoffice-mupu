@@ -235,6 +235,76 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: "tax_total", label: "Total imp." },
 ];
 
+type TaxColumnKey =
+  | "tax_iva21"
+  | "tax_iva105"
+  | "tax_iva21_comm"
+  | "tax_iva105_comm"
+  | "tax_base21"
+  | "tax_base105"
+  | "tax_exento"
+  | "tax_otros"
+  | "tax_noComp"
+  | "tax_transf"
+  | "tax_cardBase"
+  | "tax_cardIVA"
+  | "tax_commNoVAT"
+  | "tax_commNet"
+  | "tax_commWithVAT"
+  | "tax_total";
+
+type NumericColumnKey =
+  | "sale_total"
+  | "paid_total"
+  | "debt_total"
+  | "operator_debt"
+  | TaxColumnKey;
+
+const TAX_FIELD_BY_COLUMN: Record<TaxColumnKey, keyof TaxBucket> = {
+  tax_iva21: "iva21",
+  tax_iva105: "iva105",
+  tax_iva21_comm: "iva21Comm",
+  tax_iva105_comm: "iva105Comm",
+  tax_base21: "base21",
+  tax_base105: "base105",
+  tax_exento: "exento",
+  tax_otros: "otros",
+  tax_noComp: "noComp",
+  tax_transf: "transf",
+  tax_cardBase: "cardIntBase",
+  tax_cardIVA: "cardIntIVA",
+  tax_commNoVAT: "commSinIVA",
+  tax_commNet: "commNet",
+  tax_commWithVAT: "commWithVAT",
+  tax_total: "total",
+};
+
+const NUMERIC_COLUMN_KEYS: NumericColumnKey[] = [
+  "sale_total",
+  "paid_total",
+  "debt_total",
+  "operator_debt",
+  "tax_iva21",
+  "tax_iva105",
+  "tax_iva21_comm",
+  "tax_iva105_comm",
+  "tax_base21",
+  "tax_base105",
+  "tax_exento",
+  "tax_otros",
+  "tax_noComp",
+  "tax_transf",
+  "tax_cardBase",
+  "tax_cardIVA",
+  "tax_commNoVAT",
+  "tax_commNet",
+  "tax_commWithVAT",
+  "tax_total",
+];
+const NUMERIC_COLUMN_SET = new Set<VisibleKey>(NUMERIC_COLUMN_KEYS);
+const isNumericColumnKey = (key: VisibleKey): key is NumericColumnKey =>
+  NUMERIC_COLUMN_SET.has(key);
+
 /* ================= Utilidades ================= */
 function formatDateAR(iso?: string | null) {
   if (!iso) return "—";
@@ -1076,38 +1146,6 @@ export default function BalancesPage() {
     return rows;
   }, [normalized, sortKey, sortDir]);
 
-  /* ---------- KPIs rápidos (sobre lo cargado) ---------- */
-  const kpis = useMemo(() => {
-    const count = sortedRows.length;
-    let saleARS = 0,
-      saleUSD = 0,
-      paidARS = 0,
-      paidUSD = 0,
-      debtARS = 0,
-      debtUSD = 0,
-      operatorDebtARS = 0,
-      operatorDebtUSD = 0;
-
-    for (const r of sortedRows) {
-      saleARS += r._saleNoInt.ARS || 0;
-      saleUSD += r._saleNoInt.USD || 0;
-      paidARS += r._paid.ARS || 0;
-      paidUSD += r._paid.USD || 0;
-      debtARS += r._debt.ARS || 0;
-      debtUSD += r._debt.USD || 0;
-      operatorDebtARS += r._operatorDebt.ARS || 0;
-      operatorDebtUSD += r._operatorDebt.USD || 0;
-    }
-
-    return {
-      count,
-      sale: { ARS: saleARS, USD: saleUSD },
-      paid: { ARS: paidARS, USD: paidUSD },
-      debt: { ARS: debtARS, USD: debtUSD },
-      operatorDebt: { ARS: operatorDebtARS, USD: operatorDebtUSD },
-    };
-  }, [sortedRows]);
-
   const [fullKpis, setFullKpis] = useState<BalanceKpis | null>(null);
   const [fullKpisLoading, setFullKpisLoading] = useState(false);
   const totalsAbortRef = useRef<AbortController | null>(null);
@@ -1318,6 +1356,55 @@ export default function BalancesPage() {
       </td>
     );
   };
+
+  const formatCurrencyTotals = useCallback(
+    (values: Record<CurrencyCode, number>) =>
+      (
+        [values.ARS ? fmtARS(values.ARS) : "", values.USD ? fmtUSD(values.USD) : ""]
+      )
+        .filter(Boolean)
+        .join(" y ") || "—",
+    [fmtARS, fmtUSD],
+  );
+
+  const getNumericColumnValues = useCallback(
+    (b: NormalizedBooking, key: NumericColumnKey): Record<CurrencyCode, number> => {
+      if (key === "sale_total") return b._saleNoInt;
+      if (key === "paid_total") return b._paid;
+      if (key === "debt_total") return b._debt;
+      if (key === "operator_debt") return b._operatorDebt;
+
+      const taxField = TAX_FIELD_BY_COLUMN[key as TaxColumnKey];
+      return {
+        ARS: b._taxByCurrency.ARS[taxField] || 0,
+        USD: b._taxByCurrency.USD[taxField] || 0,
+      };
+    },
+    [],
+  );
+
+  const totalsByColumn = useMemo(() => {
+    const out = new Map<VisibleKey, Record<CurrencyCode, number>>();
+    const numericVisible = visibleCols
+      .map((col) => col.key)
+      .filter(isNumericColumnKey);
+
+    for (const key of numericVisible) {
+      out.set(key, { ARS: 0, USD: 0 });
+    }
+
+    for (const row of sortedRows) {
+      for (const key of numericVisible) {
+        const values = getNumericColumnValues(row, key);
+        const totals = out.get(key);
+        if (!totals) continue;
+        totals.ARS += values.ARS || 0;
+        totals.USD += values.USD || 0;
+      }
+    }
+
+    return out;
+  }, [getNumericColumnValues, sortedRows, visibleCols]);
 
   /* ---------- CSV (full-scan, no sólo lo cargado) ---------- */
   const toCell = (col: VisibleKey, b: NormalizedBooking): string => {
@@ -2032,76 +2119,36 @@ export default function BalancesPage() {
               )}
             </tbody>
 
-            {/* Totales de lo visible (ventas / cobros / deuda) */}
+            {/* Totales de lo visible por columna numérica */}
             {sortedRows.length > 0 && (
               <tfoot className="border-t border-white/20 bg-white/10 backdrop-blur dark:border-white/10">
                 <tr>
-                  <td
-                    className={`px-4 ${rowPad} text-left font-medium`}
-                    colSpan={Math.max(
-                      1,
-                      visibleCols.findIndex((c) => c.key === "sale_total"),
-                    )}
-                  >
-                    Totales (cargado/visible)
-                  </td>
-                  {visible.includes("sale_total") && (
-                    <td className={`px-4 ${rowPad} text-center font-medium`}>
-                      {[
-                        kpis.sale.ARS ? fmtARS(kpis.sale.ARS) : "",
-                        kpis.sale.USD ? fmtUSD(kpis.sale.USD) : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" y ") || "—"}
-                    </td>
-                  )}
-                  {visible.includes("paid_total") && (
-                    <td className={`px-4 ${rowPad} text-center font-medium`}>
-                      {[
-                        kpis.paid.ARS ? fmtARS(kpis.paid.ARS) : "",
-                        kpis.paid.USD ? fmtUSD(kpis.paid.USD) : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" y ") || "—"}
-                    </td>
-                  )}
-                  {visible.includes("debt_total") && (
-                    <td className={`px-4 ${rowPad} text-center font-medium`}>
-                      {[
-                        kpis.debt.ARS ? fmtARS(kpis.debt.ARS) : "",
-                        kpis.debt.USD ? fmtUSD(kpis.debt.USD) : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" y ") || "—"}
-                    </td>
-                  )}
-                  {visible.includes("operator_debt") && (
-                    <td className={`px-4 ${rowPad} text-center font-medium`}>
-                      {[
-                        kpis.operatorDebt.ARS
-                          ? fmtARS(kpis.operatorDebt.ARS)
-                          : "",
-                        kpis.operatorDebt.USD
-                          ? fmtUSD(kpis.operatorDebt.USD)
-                          : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" y ") || "—"}
-                    </td>
-                  )}
-                  {/* Completar con celdas vacías si faltan */}
-                  {(() => {
-                    const printed = [
-                      visible.includes("sale_total"),
-                      visible.includes("paid_total"),
-                      visible.includes("debt_total"),
-                      visible.includes("operator_debt"),
-                    ].filter(Boolean).length;
-                    const missing = visibleCols.length - 1 - printed; // -1 por el colSpan de la etiqueta
-                    return Array.from({ length: Math.max(0, missing) }).map(
-                      (_, i) => <td key={`pad-${i}`} />,
+                  {visibleCols.map((col, idx) => {
+                    if (idx === 0) {
+                      return (
+                        <td
+                          key={col.key}
+                          className={`px-4 ${rowPad} text-left font-medium`}
+                        >
+                          Totales (cargado/visible)
+                        </td>
+                      );
+                    }
+
+                    if (!isNumericColumnKey(col.key)) {
+                      return <td key={col.key} className={`px-4 ${rowPad}`} />;
+                    }
+
+                    const totals = totalsByColumn.get(col.key);
+                    return (
+                      <td
+                        key={col.key}
+                        className={`px-4 ${rowPad} text-center font-medium`}
+                      >
+                        {formatCurrencyTotals(totals || { ARS: 0, USD: 0 })}
+                      </td>
                     );
-                  })()}
+                  })}
                 </tr>
               </tfoot>
             )}
