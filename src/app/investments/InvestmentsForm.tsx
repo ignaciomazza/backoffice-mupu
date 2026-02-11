@@ -337,6 +337,84 @@ export default function InvestmentsForm({
                 </Field>
               </Section>
 
+              <Section
+                title="Referencias"
+                desc="Operador o usuario según la categoría."
+              >
+                {isOperador && (
+                  <Field id="operator_id" label="Operador" required className="md:col-span-2">
+                    <select
+                      id="operator_id"
+                      className={`${inputClass} cursor-pointer appearance-none`}
+                      value={form.operator_id ?? ""}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          operator_id: e.target.value
+                            ? Number(e.target.value)
+                            : null,
+                        }))
+                      }
+                      required
+                      disabled={operators.length === 0}
+                    >
+                      <option value="" disabled>
+                        {operators.length
+                          ? "Seleccionar operador…"
+                          : "Sin operadores"}
+                      </option>
+                      {operators.map((o) => (
+                        <option key={o.id_operator} value={o.id_operator}>
+                          {o.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
+
+                {isUserCategory && (
+                  <Field
+                    id="user_id"
+                    label={
+                      isSueldo ? "Empleado" : isComision ? "Vendedor" : "Usuario"
+                    }
+                    required
+                    className="md:col-span-2"
+                  >
+                    <select
+                      id="user_id"
+                      className={`${inputClass} cursor-pointer appearance-none`}
+                      value={form.user_id ?? ""}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          user_id: e.target.value
+                            ? Number(e.target.value)
+                            : null,
+                        }))
+                      }
+                      required
+                      disabled={users.length === 0}
+                    >
+                      <option value="" disabled>
+                        {users.length ? "Seleccionar usuario…" : "Sin usuarios"}
+                      </option>
+                      {users.map((u) => (
+                        <option key={u.id_user} value={u.id_user}>
+                          {u.first_name} {u.last_name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
+
+                {!isOperador && !isUserCategory && (
+                  <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-xs opacity-70 md:col-span-2">
+                    Sin referencias adicionales para esta categoría.
+                  </div>
+                )}
+              </Section>
+
               <Section title="Pago" desc="Monto, moneda y método de pago.">
                 <Field id="amount" label="Monto" required>
                   <input
@@ -398,10 +476,7 @@ export default function InvestmentsForm({
                       }))
                     }
                     required
-                    disabled={
-                      uiPaymentMethodOptions.length === 0 ||
-                      (isOperador && form.use_credit)
-                    }
+                    disabled={uiPaymentMethodOptions.length === 0}
                   >
                     <option value="" disabled>
                       {uiPaymentMethodOptions.length
@@ -564,108 +639,6 @@ export default function InvestmentsForm({
                       otra.
                     </div>
                   </>
-                )}
-              </Section>
-
-              <Section
-                title="Referencias"
-                desc="Operador o usuario según la categoría."
-              >
-                {isOperador && (
-                  <div className="space-y-3 md:col-span-2">
-                    <Field id="operator_id" label="Operador" required>
-                      <select
-                        id="operator_id"
-                        className={`${inputClass} cursor-pointer appearance-none`}
-                        value={form.operator_id ?? ""}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            operator_id: e.target.value
-                              ? Number(e.target.value)
-                              : null,
-                          }))
-                        }
-                        required
-                        disabled={operators.length === 0}
-                      >
-                        <option value="" disabled>
-                          {operators.length
-                            ? "Seleccionar operador…"
-                            : "Sin operadores"}
-                        </option>
-                        {operators.map((o) => (
-                          <option key={o.id_operator} value={o.id_operator}>
-                            {o.name}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-
-                    <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
-                      <label className="flex cursor-pointer items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
-                          checked={form.use_credit}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              use_credit: e.target.checked,
-                            }))
-                          }
-                        />
-                        Usar <b>cuenta de crédito</b> del Operador para este
-                        pago
-                      </label>
-                      <div className="ml-1 mt-1 text-xs opacity-70">
-                        Se registrará un <i>entry</i> en la cuenta del Operador
-                        con monto negativo.
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {isUserCategory && (
-                  <Field
-                    id="user_id"
-                    label={
-                      isSueldo ? "Empleado" : isComision ? "Vendedor" : "Usuario"
-                    }
-                    required
-                    className="md:col-span-2"
-                  >
-                    <select
-                      id="user_id"
-                      className={`${inputClass} cursor-pointer appearance-none`}
-                      value={form.user_id ?? ""}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          user_id: e.target.value
-                            ? Number(e.target.value)
-                            : null,
-                        }))
-                      }
-                      required
-                      disabled={users.length === 0}
-                    >
-                      <option value="" disabled>
-                        {users.length ? "Seleccionar usuario…" : "Sin usuarios"}
-                      </option>
-                      {users.map((u) => (
-                        <option key={u.id_user} value={u.id_user}>
-                          {u.first_name} {u.last_name}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                )}
-
-                {!isOperador && !isUserCategory && (
-                  <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-xs opacity-70 md:col-span-2">
-                    Sin referencias adicionales para esta categoría.
-                  </div>
                 )}
               </Section>
 
@@ -920,10 +893,7 @@ export default function InvestmentsForm({
                           }))
                         }
                         required
-                        disabled={
-                          recurringPaymentMethodOptions.length === 0 ||
-                          (isRecurringOperador && recurringForm.use_credit)
-                        }
+                        disabled={recurringPaymentMethodOptions.length === 0}
                       >
                         <option value="" disabled>
                           {recurringPaymentMethodOptions.length
@@ -1118,23 +1088,6 @@ export default function InvestmentsForm({
                             </option>
                           ))}
                         </select>
-
-                        <div className="mt-3 rounded-2xl border border-white/10 bg-white/10 p-3">
-                          <label className="flex cursor-pointer items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
-                              checked={recurringForm.use_credit}
-                              onChange={(e) =>
-                                setRecurringForm((f) => ({
-                                  ...f,
-                                  use_credit: e.target.checked,
-                                }))
-                              }
-                            />
-                            Usar <b>cuenta de crédito</b> del Operador
-                          </label>
-                        </div>
                       </div>
                     )}
 

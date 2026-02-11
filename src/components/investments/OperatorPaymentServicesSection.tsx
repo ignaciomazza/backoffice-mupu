@@ -56,6 +56,8 @@ type SelectionSummary = {
   excessMissingAccountAction: ExcessMissingAccountAction;
 };
 
+type ApiError = { error?: string; message?: string; details?: string };
+
 type Props = {
   token: string | null;
   enabled: boolean;
@@ -175,6 +177,19 @@ function formatMoney(n: number, cur = "ARS") {
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
+const getApiErrorMessage = (
+  body: ApiError | null,
+  fallback: string,
+): string => {
+  if (!body) return fallback;
+  const error = typeof body.error === "string" ? body.error.trim() : "";
+  const message = typeof body.message === "string" ? body.message.trim() : "";
+  const details = typeof body.details === "string" ? body.details.trim() : "";
+  if (error && details && details !== error) return `${error} (${details})`;
+  if (message && details && details !== message) return `${message} (${details})`;
+  return error || message || details || fallback;
+};
+
 export default function OperatorPaymentServicesSection({
   token,
   enabled,
@@ -244,7 +259,12 @@ export default function OperatorPaymentServicesSection({
         { cache: "no-store" },
         token,
       );
-      if (!res.ok) return [];
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as ApiError | null;
+        throw new Error(
+          getApiErrorMessage(body, "No se pudieron cargar los servicios de la reserva."),
+        );
+      }
       const data = (await res.json()) as { services?: OperatorServiceLite[] };
       return data.services ?? [];
     },
@@ -264,7 +284,12 @@ export default function OperatorPaymentServicesSection({
         { cache: "no-store" },
         token,
       );
-      if (!res.ok) return [];
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as ApiError | null;
+        throw new Error(
+          getApiErrorMessage(body, "No se pudieron cargar los servicios asociados."),
+        );
+      }
       const data = (await res.json()) as { services?: OperatorServiceLite[] };
       return data.services ?? [];
     },
@@ -335,9 +360,13 @@ export default function OperatorPaymentServicesSection({
         if (!alive) return;
         setSelectedServices(list);
       })
-      .catch(() => {
+      .catch((error) => {
         if (!alive) return;
-        toast.error("No se pudieron cargar los servicios asociados.");
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "No se pudieron cargar los servicios asociados.",
+        );
       });
     return () => {
       alive = false;
@@ -387,7 +416,17 @@ export default function OperatorPaymentServicesSection({
         token,
       )
         .then(async (res) => {
-          if (!res.ok) throw new Error("pending_services");
+          if (!res.ok) {
+            const body = (await res
+              .json()
+              .catch(() => null)) as ApiError | null;
+            throw new Error(
+              getApiErrorMessage(
+                body,
+                "No se pudieron cargar los servicios pendientes.",
+              ),
+            );
+          }
           const data = (await res.json()) as { services?: OperatorServiceLite[] };
           if (!alive) return;
           setPendingServices(Array.isArray(data.services) ? data.services : []);
@@ -396,7 +435,11 @@ export default function OperatorPaymentServicesSection({
           if (!alive) return;
           if ((error as { name?: string }).name === "AbortError") return;
           setPendingServices([]);
-          toast.error("No se pudieron cargar los servicios pendientes.");
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "No se pudieron cargar los servicios pendientes.",
+          );
         })
         .finally(() => {
           if (alive) setLoadingPendingServices(false);

@@ -12,6 +12,7 @@ interface ReceiptListProps {
   services: Service[];
   role: string;
   onReceiptDeleted?: (id: number) => void;
+  onReceiptEdit?: (receipt: Receipt) => void;
 }
 
 export default function ReceiptList({
@@ -21,6 +22,7 @@ export default function ReceiptList({
   services,
   role,
   onReceiptDeleted,
+  onReceiptEdit,
 }: ReceiptListProps) {
   if (!receipts || receipts.length === 0) {
     return (
@@ -43,6 +45,7 @@ export default function ReceiptList({
             services={services}
             role={role}
             onReceiptDeleted={onReceiptDeleted}
+            onReceiptEdit={onReceiptEdit}
           />
         ))}
     </div>

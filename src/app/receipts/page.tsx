@@ -1335,9 +1335,9 @@ export default function ReceiptsPage() {
     const canAttach =
       !r.booking?.id_booking ||
       (Array.isArray(r.serviceIds) && r.serviceIds.length === 0);
-    const canEdit = isUnlinked;
+    const canEdit = true;
     const canDelete = isUnlinked;
-    const canDownload = isUnlinked;
+    const canDownload = true;
     const btnClass = variant === "compact" ? ACTION_ICON_BTN : ACTION_BTN;
     const iconClass = variant === "compact" ? "size-4" : "size-4";
     const tonePdf =

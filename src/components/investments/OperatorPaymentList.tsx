@@ -17,6 +17,21 @@ type Props = {
   reloadKey?: number; // forzar refetch al cambiar
 };
 
+type ApiError = { error?: string; message?: string; details?: string };
+
+const getApiErrorMessage = (
+  body: ApiError | null,
+  fallback: string,
+): string => {
+  if (!body) return fallback;
+  const error = typeof body.error === "string" ? body.error.trim() : "";
+  const message = typeof body.message === "string" ? body.message.trim() : "";
+  const details = typeof body.details === "string" ? body.details.trim() : "";
+  if (error && details && details !== error) return `${error} (${details})`;
+  if (message && details && details !== message) return `${message} (${details})`;
+  return error || message || details || fallback;
+};
+
 export default function OperatorPaymentList({
   token,
   bookingId,
@@ -66,7 +81,14 @@ export default function OperatorPaymentList({
           { cache: "no-store", signal: controller.signal, credentials: "omit" },
           token,
         );
-        if (!onlyCategory.ok) throw new Error("No se pudo obtener la lista");
+        if (!onlyCategory.ok) {
+          const body = (await onlyCategory
+            .json()
+            .catch(() => null)) as ApiError | null;
+          throw new Error(
+            getApiErrorMessage(body, "No se pudo obtener la lista"),
+          );
+        }
         const { items, nextCursor } = (await onlyCategory.json()) as {
           items: InvestmentItem[];
           nextCursor: number | null;
@@ -90,7 +112,9 @@ export default function OperatorPaymentList({
     } catch (e) {
       if ((e as { name?: string }).name === "AbortError") return;
       console.error(e);
-      toast.error("Error cargando pagos al operador");
+      toast.error(
+        e instanceof Error ? e.message : "Error cargando pagos al operador",
+      );
       setItems([]);
       setNextCursor(null);
     } finally {
@@ -122,7 +146,12 @@ export default function OperatorPaymentList({
         { cache: "no-store", credentials: "omit" },
         token,
       );
-      if (!res.ok) throw new Error("No se pudieron cargar más");
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as ApiError | null;
+        throw new Error(
+          getApiErrorMessage(body, "No se pudieron cargar más"),
+        );
+      }
       const { items: more, nextCursor: c } = (await res.json()) as {
         items: InvestmentItem[];
         nextCursor: number | null;
@@ -137,7 +166,9 @@ export default function OperatorPaymentList({
       setNextCursor(c ?? null);
     } catch (e) {
       console.error(e);
-      toast.error("No se pudieron cargar más registros");
+      toast.error(
+        e instanceof Error ? e.message : "No se pudieron cargar más registros",
+      );
     } finally {
       setLoadingMore(false);
     }

@@ -1491,9 +1491,11 @@ export default function ReceiptForm({
         return;
       }
 
-      const entryErrors: string[] = [];
+      const creditEntryErrors: string[] = [];
+      const financeEntryErrors: string[] = [];
 
-      for (const p of normalizedPayments) {
+      for (const [idx, p] of normalizedPayments.entries()) {
+        const lineLabel = `línea ${idx + 1}`;
         const isCredit = p.payment_method_id === Number(creditMethodId);
 
         if (isCredit) {
@@ -1501,12 +1503,12 @@ export default function ReceiptForm({
           const caId = p.credit_account_id ?? null;
 
           if (!opId) {
-            entryErrors.push(
-              "Falta operador en una línea de Crédito operador.",
+            creditEntryErrors.push(
+              `Crédito operador (${lineLabel}): falta operador.`,
             );
           } else if (!caId) {
-            entryErrors.push(
-              "Falta cuenta crédito en una línea de Crédito operador.",
+            creditEntryErrors.push(
+              `Crédito operador (${lineLabel}): falta cuenta crédito.`,
             );
           } else {
             try {
@@ -1522,16 +1524,18 @@ export default function ReceiptForm({
                 creditAccountId: caId,
               });
             } catch (err) {
-              entryErrors.push(
-                err instanceof Error
-                  ? err.message
-                  : "Error creando movimiento de crédito.",
+              creditEntryErrors.push(
+                `Crédito operador (${lineLabel}): ${
+                  err instanceof Error
+                    ? err.message
+                    : "error creando movimiento de crédito."
+                }`,
               );
             }
           }
         }
 
-        if (p.account_id != null) {
+        if (!isCredit && p.account_id != null) {
           try {
             await createFinanceEntryForReceipt({
               token: token!,
@@ -1544,21 +1548,34 @@ export default function ReceiptForm({
               agencyId,
             });
           } catch (err) {
-            entryErrors.push(
-              err instanceof Error
-                ? err.message
-                : "Error creando movimiento de cuenta.",
+            financeEntryErrors.push(
+              `Cuenta financiera (${lineLabel}): ${
+                err instanceof Error
+                  ? err.message
+                  : "error creando movimiento de cuenta."
+              }`,
             );
           }
         }
       }
 
-      if (entryErrors.length) {
-        toast.warn(
-          `Recibo creado, pero hubo problemas al impactar movimientos: ${entryErrors.join(
-            " | ",
-          )}`,
-        );
+      if (creditEntryErrors.length || financeEntryErrors.length) {
+        const creditDetails = creditEntryErrors.join(" | ");
+        const financeDetails = financeEntryErrors.join(" | ");
+
+        if (creditEntryErrors.length && financeEntryErrors.length) {
+          toast.warn(
+            `Recibo creado, pero hubo problemas al impactar movimientos de crédito y de cuenta financiera: ${creditDetails} | ${financeDetails}`,
+          );
+        } else if (creditEntryErrors.length) {
+          toast.warn(
+            `Recibo creado, pero no se pudieron impactar movimientos de crédito operador: ${creditDetails}`,
+          );
+        } else {
+          toast.warn(
+            `Recibo creado, pero no se pudieron impactar movimientos de cuenta financiera: ${financeDetails}`,
+          );
+        }
       } else {
         toast.success("Recibo creado correctamente.");
       }

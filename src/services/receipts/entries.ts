@@ -84,7 +84,7 @@ export async function createFinanceEntryForReceipt(args: {
     args.token,
   );
 
-  if (res.status === 404) {
+  if (res.status === 404 || res.status === 405) {
     // Financias no disponible en esta instancia (modo legacy)
     return;
   }

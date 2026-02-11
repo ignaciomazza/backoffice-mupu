@@ -205,6 +205,10 @@ function addMoney(target: MoneyMap, currency: string, amount: number) {
   target[code] = (target[code] ?? 0) + amount;
 }
 
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
 function sumSalesWithInterest(services: {
   currency: string;
   sale_price: unknown;
@@ -508,13 +512,26 @@ export default async function handler(
     const serviceIds = services.map((svc) => svc.id_service);
     const serviceIdSet = new Set(serviceIds);
     const bookingIdList = Array.from(bookingIds);
+    const serviceMetaById = new Map(
+      services.map((svc) => [
+        svc.id_service,
+        {
+          booking_id: svc.booking_id,
+          currency: String(svc.currency || "ARS").toUpperCase(),
+          cost_price: Math.max(Number(svc.cost_price) || 0, 0),
+        },
+      ]),
+    );
 
     const operatorPayments = bookingIdList.length
       ? await prisma.investment.findMany({
           where: {
             id_agency: auth.id_agency,
             operator_id: operatorId,
-            booking_id: { in: bookingIdList },
+            OR: [
+              { booking_id: { in: bookingIdList } },
+              { serviceIds: { hasSome: serviceIds } },
+            ],
           },
           select: {
             booking_id: true,
@@ -522,12 +539,91 @@ export default async function handler(
             currency: true,
             base_amount: true,
             base_currency: true,
+            serviceIds: true,
+            allocations: {
+              select: {
+                booking_id: true,
+                service_id: true,
+                amount_payment: true,
+                payment_currency: true,
+              },
+            },
           },
         })
       : [];
 
     const operatorPaymentsByBooking = new Map<number, MoneyMap>();
+    const addPaymentByBooking = (
+      bookingId: number,
+      currencyCode: string,
+      amountValue: number,
+    ) => {
+      if (!bookingIds.has(bookingId)) return;
+      const amount = Number(amountValue || 0);
+      if (!Number.isFinite(amount)) return;
+      const map = operatorPaymentsByBooking.get(bookingId) ?? {};
+      addMoney(map, currencyCode, amount);
+      operatorPaymentsByBooking.set(bookingId, map);
+    };
+
     operatorPayments.forEach((inv) => {
+      if (inv.allocations && inv.allocations.length > 0) {
+        inv.allocations.forEach((alloc) => {
+          const allocServiceId = Number(alloc.service_id || 0);
+          const allocBookingId =
+            Number(alloc.booking_id || 0) ||
+            serviceMetaById.get(allocServiceId)?.booking_id ||
+            0;
+          if (!allocBookingId) return;
+          const allocCur = String(
+            alloc.payment_currency || inv.currency || "ARS",
+          ).toUpperCase();
+          const allocAmount = Number(alloc.amount_payment || 0);
+          addPaymentByBooking(allocBookingId, allocCur, allocAmount);
+        });
+        return;
+      }
+
+      const legacyServiceIds = Array.from(
+        new Set(
+          (inv.serviceIds || [])
+            .map((sid) => Number(sid))
+            .filter((sid) => Number.isFinite(sid) && sid > 0),
+        ),
+      ).filter((sid) => serviceMetaById.has(sid));
+
+      if (legacyServiceIds.length > 0) {
+        const invCur = String(inv.currency || "").toUpperCase();
+        const sameCurrency =
+          !!invCur &&
+          legacyServiceIds.every(
+            (sid) => serviceMetaById.get(sid)?.currency === invCur,
+          );
+
+        if (sameCurrency) {
+          const invAmount = Number(inv.amount || 0);
+          const weights = legacyServiceIds.map(
+            (sid) => serviceMetaById.get(sid)?.cost_price || 0,
+          );
+          const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+          let remaining = round2(invAmount);
+
+          legacyServiceIds.forEach((sid, idx) => {
+            const isLast = idx === legacyServiceIds.length - 1;
+            const ratio =
+              totalWeight > 0
+                ? weights[idx] / totalWeight
+                : 1 / legacyServiceIds.length;
+            const allocated = isLast ? remaining : round2(invAmount * ratio);
+            if (!isLast) remaining = round2(remaining - allocated);
+            const bookingId = serviceMetaById.get(sid)?.booking_id;
+            if (!bookingId) return;
+            addPaymentByBooking(bookingId, invCur, allocated);
+          });
+          return;
+        }
+      }
+
       if (!inv.booking_id) return;
       const { cur, val } = pickMoney(
         inv.amount,
@@ -535,9 +631,7 @@ export default async function handler(
         inv.base_amount,
         inv.base_currency,
       );
-      const map = operatorPaymentsByBooking.get(inv.booking_id) ?? {};
-      addMoney(map, cur, val);
-      operatorPaymentsByBooking.set(inv.booking_id, map);
+      addPaymentByBooking(inv.booking_id, cur, val);
     });
 
     const bookings = bookingIdList.length

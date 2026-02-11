@@ -1,7 +1,7 @@
 // src/components/operator-dues/OperatorDueForm.tsx
 "use client";
 import { AnimatePresence, motion } from "framer-motion";
-import { useMemo, useState, useEffect, type ReactNode } from "react";
+import { useMemo, useState, useEffect, useRef, type ReactNode } from "react";
 import { Booking, Service } from "@/types";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
@@ -111,14 +111,20 @@ export default function OperatorDueForm({
   const [currency, setCurrency] = useState<string>("ARS");
 
   const [loading, setLoading] = useState(false);
+  const lastSuggestedServiceIdRef = useRef<number | null>(null);
 
   // Autocomplete desde servicio + concepto sugerido
   useEffect(() => {
     if (!selectedService) {
       setAmount("");
       setCurrency("ARS");
+      lastSuggestedServiceIdRef.current = null;
       return;
     }
+    const serviceChanged = lastSuggestedServiceIdRef.current !== selectedService.id_service;
+    if (!serviceChanged) return;
+    lastSuggestedServiceIdRef.current = selectedService.id_service;
+
     const sugAmount = Number(selectedService.cost_price ?? 0);
     setAmount(sugAmount > 0 ? String(sugAmount) : "");
     setCurrency(selectedService.currency || "ARS");
@@ -135,7 +141,7 @@ export default function OperatorDueForm({
       ].filter(Boolean);
       setConcept(parts.join(" "));
     }
-  }, [selectedService, booking.id_booking]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedService, booking.id_booking, booking.agency_booking_id, concept]);
 
   // === Helpers UI ===
   const inputBase =

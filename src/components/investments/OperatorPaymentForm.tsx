@@ -158,7 +158,19 @@ type FinanceConfig = {
   categories?: FinanceCategory[];
 };
 
-type ApiError = { error?: string; message?: string };
+type ApiError = { error?: string; message?: string; details?: string };
+
+const getApiErrorMessage = (
+  err: ApiError | null | undefined,
+  fallback: string,
+): string => {
+  const error = typeof err?.error === "string" ? err.error.trim() : "";
+  const message = typeof err?.message === "string" ? err.message.trim() : "";
+  const details = typeof err?.details === "string" ? err.details.trim() : "";
+  if (error && details && details !== error) return `${error} (${details})`;
+  if (message && details && details !== message) return `${message} (${details})`;
+  return error || message || details || fallback;
+};
 
 // Estado de verificación de cuenta de crédito del Operador (por moneda)
 type CreditAccStatus =
@@ -653,7 +665,6 @@ export default function OperatorPaymentForm({
   /* ========= Campos ========= */
   const [category, setCategory] = useState<string>("");
   const [operatorId, setOperatorId] = useState<number | "">("");
-  const [useCredit, setUseCredit] = useState(false);
 
   const [amount, setAmount] = useState<string>("");
   const [currency, setCurrency] = useState<string>("");
@@ -751,13 +762,16 @@ export default function OperatorPaymentForm({
     allSameCurrency,
   ]);
 
-  // Inyección método virtual si se usa crédito
+  // Si es categoría Operador, incluir el método virtual de crédito.
   const uiPaymentMethodOptions = useMemo(() => {
-    const needCredit = isOperatorCategory(category) && useCredit;
-    return needCredit
-      ? uniqSorted([...paymentMethodOptions, CREDIT_METHOD])
-      : paymentMethodOptions;
-  }, [paymentMethodOptions, useCredit, category, isOperatorCategory]);
+    if (!isOperatorCategory(category)) return paymentMethodOptions;
+    return uniqSorted([...paymentMethodOptions, CREDIT_METHOD]);
+  }, [paymentMethodOptions, category, isOperatorCategory]);
+
+  const payingWithCredit = useMemo(
+    () => isOperatorCategory(category) && paymentMethod === CREDIT_METHOD,
+    [category, paymentMethod, isOperatorCategory],
+  );
 
   const requiresAccount = useMemo(() => {
     if (!paymentMethod) return false;
@@ -791,26 +805,21 @@ export default function OperatorPaymentForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currency, amount, currencyOptions]);
 
-  // Forzar/limpiar método al alternar crédito
+  // Restringir método de crédito a categorías de Operador.
   useEffect(() => {
     setPaymentMethod((pm) => {
       const isOperador = isOperatorCategory(category);
-      if (isOperador && useCredit) {
-        if (pm !== CREDIT_METHOD) setAccount("");
-        return CREDIT_METHOD;
-      }
-      if (!isOperador && (useCredit || pm === CREDIT_METHOD)) {
-        setUseCredit(false);
+      if (!isOperador && pm === CREDIT_METHOD) {
         setAccount("");
         return "";
       }
-      if (!useCredit && pm === CREDIT_METHOD) {
+      if (isOperador && pm === CREDIT_METHOD && account) {
         setAccount("");
-        return "";
+        return pm;
       }
       return pm;
     });
-  }, [category, useCredit, isOperatorCategory]);
+  }, [category, account, isOperatorCategory]);
 
   // Toggle selección con validación operador y moneda homogéneos
   const toggleService = (svc: Service) => {
@@ -962,7 +971,7 @@ export default function OperatorPaymentForm({
   );
 
   useEffect(() => {
-    if (!useCredit) {
+    if (!payingWithCredit) {
       setCreditAccStatus("idle");
       setCreditAccMsg("");
       return;
@@ -983,7 +992,7 @@ export default function OperatorPaymentForm({
     return () => {
       alive = false;
     };
-  }, [useCredit, operatorId, currency, checkCreditAccount]);
+  }, [payingWithCredit, operatorId, currency, checkCreditAccount]);
 
   /* ========= Validaciones ========= */
   const validateConversion = (): { ok: boolean; msg?: string } => {
@@ -1063,8 +1072,10 @@ export default function OperatorPaymentForm({
 
       if (!res.ok) {
         const err = await safeJson<ApiError>(res);
-        const msg =
-          err?.message || err?.error || `No se pudo crear la cuenta en ${C}.`;
+        const msg = getApiErrorMessage(
+          err,
+          `No se pudo crear la cuenta en ${C}.`,
+        );
         throw new Error(msg);
       }
 
@@ -1112,8 +1123,7 @@ export default function OperatorPaymentForm({
         );
         if (!res.ok) {
           const err = await safeJson<ApiError>(res);
-          const msg =
-            err?.message || err?.error || "No se pudo crear la cuenta.";
+          const msg = getApiErrorMessage(err, "No se pudo crear la cuenta.");
           toast.error(msg);
           return false;
         }
@@ -1238,10 +1248,10 @@ export default function OperatorPaymentForm({
         );
         if (!res.ok) {
           const err = await safeJson<ApiError>(res);
-          const msg =
-            err?.error ||
-            err?.message ||
-            "No se pudo asociar el pago al operador.";
+          const msg = getApiErrorMessage(
+            err,
+            "No se pudo asociar el pago al operador.",
+          );
           throw new Error(msg);
         }
 
@@ -1286,8 +1296,6 @@ export default function OperatorPaymentForm({
     }
     if (!assertSameOperator()) return;
 
-    const payingWithCredit = isOperatorCategory(category) && useCredit;
-
     if (!payingWithCredit && !paymentMethod) {
       toast.error("Seleccioná el método de pago.");
       return;
@@ -1296,7 +1304,7 @@ export default function OperatorPaymentForm({
       toast.error("Seleccioná una moneda.");
       return;
     }
-    if (requiresAccount && !account && !payingWithCredit) {
+    if (requiresAccount && !account) {
       toast.error("Seleccioná la cuenta para este método.");
       return;
     }
@@ -1406,8 +1414,10 @@ export default function OperatorPaymentForm({
 
       if (!res.ok) {
         const err = await safeJson<ApiError>(res);
-        const msg =
-          err?.error || err?.message || "No se pudo crear el pago al operador.";
+        const msg = getApiErrorMessage(
+          err,
+          "No se pudo crear el pago al operador.",
+        );
         throw new Error(msg);
       }
 
@@ -1425,7 +1435,6 @@ export default function OperatorPaymentForm({
       setDescription("");
       setPaymentMethod("");
       setAccount("");
-      setUseCredit(false);
       setUseConversion(false);
       setBaseAmount("");
       setBaseCurrency("");
@@ -1495,7 +1504,7 @@ export default function OperatorPaymentForm({
       );
     }
 
-    if (useCredit) {
+    if (payingWithCredit) {
       pills.push(
         <span key="cred" className={`${pillBase} ${pillOk}`}>
           Crédito operador
@@ -1826,7 +1835,7 @@ export default function OperatorPaymentForm({
               {action === "create" && (
                 <Section
                   title="Pago"
-                  desc="Definí categoría, operador y si usás crédito."
+                  desc="Definí categoría y operador."
                 >
                   <Field id="category" label="Categoría" required>
                     {loadingPicks ? (
@@ -1886,25 +1895,7 @@ export default function OperatorPaymentForm({
                       )}
                   </Field>
 
-                  {isOperatorCategory(category) ? (
-                    <div className="md:col-span-2">
-                      <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
-                          checked={useCredit}
-                          onChange={(e) => setUseCredit(e.target.checked)}
-                        />
-                        Usar <b>cuenta de crédito</b> del Operador
-                      </label>
-                      <p className="ml-1 mt-1 text-xs opacity-70">
-                        Se registrará un movimiento en la cuenta corriente del
-                        Operador vinculado a este pago.
-                      </p>
-                    </div>
-                  ) : (
-                    <div />
-                  )}
+                  <div />
                 </Section>
               )}
 
@@ -1992,7 +1983,7 @@ export default function OperatorPaymentForm({
                   <Field
                     id="payment_method"
                     label="Método de pago"
-                    required={!useCredit}
+                    required
                   >
                     {loadingPicks ? (
                       <div className="flex h-[42px] items-center">
@@ -2004,11 +1995,8 @@ export default function OperatorPaymentForm({
                         value={paymentMethod}
                         onChange={(e) => setPaymentMethod(e.target.value)}
                         className={`${inputBase} cursor-pointer appearance-none`}
-                        required={!useCredit}
-                        disabled={
-                          uiPaymentMethodOptions.length === 0 ||
-                          (isOperatorCategory(category) && useCredit)
-                        }
+                        required
+                        disabled={uiPaymentMethodOptions.length === 0}
                       >
                         <option value="" disabled>
                           {uiPaymentMethodOptions.length
@@ -2067,7 +2055,7 @@ export default function OperatorPaymentForm({
               {/* INFO CRÉDITO (si está activo) */}
               {action === "create" &&
                 isOperatorCategory(category) &&
-                useCredit && (
+                payingWithCredit && (
                   <div
                     className="rounded-2xl border border-white/10 bg-white/10 p-3 text-xs md:col-span-2"
                     role="status"

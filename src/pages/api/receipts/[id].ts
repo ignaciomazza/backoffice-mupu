@@ -503,11 +503,38 @@ export default async function handler(
       const serviceIds = Array.isArray(body.serviceIds) ? body.serviceIds : [];
       const isAttach = Number.isFinite(bookingId) || serviceIds.length > 0;
 
-      if (!canReceipts && !(canReceiptsForm && isAttach)) {
+      if (!canReceipts && !canReceiptsForm) {
         return res.status(403).json({ error: "Sin permisos" });
       }
 
       await ensureReceiptInAgency(id, authAgencyId);
+
+      if (!canReceipts && !isAttach) {
+        const linkedReceipt = await prisma.receipt.findUnique({
+          where: { id_receipt: id },
+          select: {
+            bookingId_booking: true,
+            booking: {
+              select: {
+                id_user: true,
+                id_agency: true,
+              },
+            },
+          },
+        });
+
+        if (!linkedReceipt?.bookingId_booking || !linkedReceipt.booking) {
+          return res.status(403).json({ error: "Sin permisos" });
+        }
+
+        const canEditByRole = await canAccessBookingByRole(auth, {
+          id_user: linkedReceipt.booking.id_user,
+          id_agency: linkedReceipt.booking.id_agency,
+        });
+        if (!canEditByRole) {
+          return res.status(403).json({ error: "Sin permisos" });
+        }
+      }
 
       if (isAttach) {
         if (!Number.isFinite(bookingId) || bookingId <= 0)
@@ -581,10 +608,6 @@ export default async function handler(
 
       if (!existing)
         return res.status(404).json({ error: "Recibo no encontrado" });
-      if (existing.bookingId_booking)
-        return res.status(400).json({
-          error: "Solo se pueden editar recibos sin reserva asociada.",
-        });
 
       const {
         concept,
@@ -605,6 +628,37 @@ export default async function handler(
         clientIds,
         issue_date,
       } = body;
+
+      let nextClientIds: number[] | undefined = undefined;
+      if (Array.isArray(clientIds)) {
+        if (existing.bookingId_booking && clientIds.length > 0) {
+          const bk = await prisma.booking.findUnique({
+            where: { id_booking: existing.bookingId_booking },
+            select: {
+              titular_id: true,
+              clients: { select: { id_client: true } },
+            },
+          });
+
+          if (!bk) {
+            return res.status(400).json({
+              error: "La reserva asociada al recibo no existe.",
+            });
+          }
+
+          const allowed = new Set<number>([
+            bk.titular_id,
+            ...bk.clients.map((c) => c.id_client),
+          ]);
+          const invalid = clientIds.filter((cid) => !allowed.has(cid));
+          if (invalid.length) {
+            return res
+              .status(400)
+              .json({ error: "Algún pax no pertenece a la reserva" });
+          }
+        }
+        nextClientIds = clientIds;
+      }
 
       const amountCurrencyISO = (amountCurrency || "").toUpperCase();
       const baseCurrencyISO = base_currency
@@ -704,7 +758,7 @@ export default async function handler(
           : {}),
 
         ...(parsedIssueDate ? { issue_date: parsedIssueDate } : {}),
-        ...(Array.isArray(clientIds) ? { clientIds } : {}),
+        ...(nextClientIds !== undefined ? { clientIds: nextClientIds } : {}),
       };
 
       const updated = await prisma.$transaction(async (tx) => {

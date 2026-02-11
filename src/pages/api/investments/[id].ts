@@ -1394,6 +1394,10 @@ export default async function handler(
         ) {
           return res.status(400).json({ error: e.message });
         }
+        return res.status(500).json({
+          error: "Error al actualizar la inversión",
+          details: e.message,
+        });
       }
       return res
         .status(500)

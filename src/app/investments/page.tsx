@@ -193,7 +193,7 @@ type ListResponse = {
   totalCount?: number;
   filteredCount?: number;
 };
-type ApiError = { error?: string; message?: string };
+type ApiError = { error?: string; message?: string; details?: string };
 type PlanApiResponse = { has_plan?: boolean; plan_key?: PlanKey | null };
 type ServiceSelectionSummary = {
   serviceIds: number[];
@@ -235,6 +235,17 @@ type FinanceConfig = {
   currencies: FinanceCurrency[];
   categories?: FinanceCategory[];
 };
+
+function getApiErrorMessage(body: ApiError | null, fallback: string): string {
+  if (!body) return fallback;
+  const error = typeof body.error === "string" ? body.error.trim() : "";
+  const message = typeof body.message === "string" ? body.message.trim() : "";
+  const details = typeof body.details === "string" ? body.details.trim() : "";
+
+  if (error && details && details !== error) return `${error} (${details})`;
+  if (message && details && details !== message) return `${message} (${details})`;
+  return error || message || details || fallback;
+}
 
 /* ==== Debounce simple ==== */
 function useDebounced<T>(value: T, delay = 350) {
@@ -597,7 +608,7 @@ export default function Page() {
         inv.counter_amount != null ? String(inv.counter_amount) : "",
       counter_currency: (inv.counter_currency ?? "").toUpperCase(),
 
-      use_credit: false, // no agregar crédito automáticamente al editar salvo que el usuario tildé
+      use_credit: false,
     });
     if (operatorOnly) {
       const currentServiceIds = Array.isArray(inv.serviceIds)
@@ -688,9 +699,7 @@ export default function Page() {
         rule.counter_amount != null ? String(rule.counter_amount) : "",
       counter_currency: (rule.counter_currency ?? "").toUpperCase(),
 
-      use_credit:
-        isOperatorCategory(rule.category) &&
-        rule.payment_method === CREDIT_METHOD,
+      use_credit: false,
     });
     setRecurringEditingId(rule.id_recurring);
     setRecurringOpen(true);
@@ -710,7 +719,9 @@ export default function Page() {
       );
       if (!res.ok) {
         const body = (await safeJson<ApiError>(res)) ?? {};
-        throw new Error(body.error || `No se pudo eliminar el ${itemLabel}`);
+        throw new Error(
+          getApiErrorMessage(body, `No se pudo eliminar el ${itemLabel}`),
+        );
       }
 
       setItems((prev) => prev.filter((i) => i.id_investment !== editingId));
@@ -731,7 +742,9 @@ export default function Page() {
       );
       if (!res.ok && res.status !== 204) {
         const body = (await safeJson<ApiError>(res)) ?? {};
-        throw new Error(body.error || "No se pudo eliminar el automático");
+        throw new Error(
+          getApiErrorMessage(body, "No se pudo eliminar el automático"),
+        );
       }
       setRecurring((prev) => prev.filter((r) => r.id_recurring !== id));
       if (recurringEditingId === id) {
@@ -773,7 +786,9 @@ export default function Page() {
       );
       if (!res.ok) {
         const body = (await safeJson<ApiError>(res)) ?? {};
-        throw new Error(body.error || "No se pudo actualizar el automático");
+        throw new Error(
+          getApiErrorMessage(body, "No se pudo actualizar el automático"),
+        );
       }
       const updated = (await safeJson<RecurringInvestment>(res))!;
       setRecurring((prev) =>
@@ -1014,9 +1029,14 @@ export default function Page() {
         const body = (await safeJson<ApiError>(res)) ?? {};
         if (res.status === 403) {
           const msg = operatorOnly
-            ? body.error || "No tenés permisos para ver pagos a operadores."
-            : body.error ||
-              "Tu plan o permisos no permiten ver inversiones. Usá Operadores > Pagos.";
+            ? getApiErrorMessage(
+                body,
+                "No tenés permisos para ver pagos a operadores.",
+              )
+            : getApiErrorMessage(
+                body,
+                "Tu plan o permisos no permiten ver inversiones. Usá Operadores > Pagos.",
+              );
           if (myId !== reqIdRef.current) return;
           setListError(msg);
           setItems([]);
@@ -1024,7 +1044,7 @@ export default function Page() {
           setListCounts({ total: null, filtered: null });
           return;
         }
-        throw new Error(body.error || "No se pudo obtener la lista");
+        throw new Error(getApiErrorMessage(body, "No se pudo obtener la lista"));
       }
       const data = (await safeJson<ListResponse>(res)) ?? {
         items: [],
@@ -1042,7 +1062,9 @@ export default function Page() {
     } catch (e) {
       if ((e as { name?: string }).name === "AbortError") return;
       console.error(e);
-      toast.error(`Error cargando ${itemLabel}s`);
+      toast.error(
+        e instanceof Error ? e.message : `Error cargando ${itemLabel}s`,
+      );
       setItems([]);
       setNextCursor(null);
       setListCounts({ total: null, filtered: null });
@@ -1068,7 +1090,12 @@ export default function Page() {
         { cache: "no-store" },
         token,
       );
-      if (!res.ok) throw new Error("No se pudieron cargar más");
+      if (!res.ok) {
+        const body = (await safeJson<ApiError>(res)) ?? {};
+        throw new Error(
+          getApiErrorMessage(body, "No se pudieron cargar más"),
+        );
+      }
       const data = (await safeJson<ListResponse>(res)) ?? {
         items: [],
         nextCursor: null,
@@ -1077,7 +1104,9 @@ export default function Page() {
       setNextCursor(data.nextCursor ?? null);
     } catch (e) {
       console.error(e);
-      toast.error("No se pudieron cargar más registros");
+      toast.error(
+        e instanceof Error ? e.message : "No se pudieron cargar más registros",
+      );
     } finally {
       setLoadingMore(false);
     }
@@ -1136,23 +1165,16 @@ export default function Page() {
     [finance?.paymentMethods],
   );
 
-  // Si está activo "usar crédito" en categoría Operador, inyectamos el método virtual
   const uiPaymentMethodOptions = useMemo(() => {
-    const needCredit = isOperatorCategory(form.category) && form.use_credit;
-    return needCredit
-      ? uniqSorted([...paymentMethodOptions, CREDIT_METHOD])
-      : paymentMethodOptions;
-  }, [paymentMethodOptions, form.use_credit, form.category, isOperatorCategory]);
+    if (!isOperatorCategory(form.category)) return paymentMethodOptions;
+    return uniqSorted([...paymentMethodOptions, CREDIT_METHOD]);
+  }, [paymentMethodOptions, form.category, isOperatorCategory]);
 
   const recurringPaymentMethodOptions = useMemo(() => {
-    const needCredit =
-      isOperatorCategory(recurringForm.category) && recurringForm.use_credit;
-    return needCredit
-      ? uniqSorted([...paymentMethodOptions, CREDIT_METHOD])
-      : paymentMethodOptions;
+    if (!isOperatorCategory(recurringForm.category)) return paymentMethodOptions;
+    return uniqSorted([...paymentMethodOptions, CREDIT_METHOD]);
   }, [
     paymentMethodOptions,
-    recurringForm.use_credit,
     recurringForm.category,
     isOperatorCategory,
   ]);
@@ -1310,7 +1332,9 @@ export default function Page() {
         );
         if (!res.ok) {
           const err = (await safeJson<ApiError>(res)) ?? {};
-          toast.error(err.error || err.message || "No se pudo crear la cuenta.");
+          toast.error(
+            getApiErrorMessage(err, "No se pudo crear la cuenta."),
+          );
           return false;
         }
         const status = await checkOperatorCreditAccount(opId, cur);
@@ -1392,13 +1416,15 @@ export default function Page() {
       );
       return;
     }
-    const payingWithCredit = isOperatorCategory(form.category) && form.use_credit;
+    const payingWithCredit =
+      isOperatorCategory(form.category) &&
+      form.payment_method === CREDIT_METHOD;
 
-    if (!form.payment_method && !payingWithCredit) {
+    if (!form.payment_method) {
       toast.error("Seleccioná el método de pago");
       return;
     }
-    if (showAccount && !form.account && !payingWithCredit) {
+    if (showAccount && !form.account) {
       toast.error("Seleccioná la cuenta para este método");
       return;
     }
@@ -1463,12 +1489,8 @@ export default function Page() {
       paid_at,
       user_id: form.user_id ?? undefined,
       operator_id: form.operator_id ?? undefined,
-      payment_method: payingWithCredit ? CREDIT_METHOD : form.payment_method,
-      account: payingWithCredit
-        ? undefined
-        : showAccount
-          ? form.account
-          : undefined,
+      payment_method: form.payment_method,
+      account: showAccount ? form.account : undefined,
     };
 
     if (operatorOnly) {
@@ -1505,7 +1527,9 @@ export default function Page() {
         );
         if (!res.ok) {
           const body = (await safeJson<ApiError>(res)) ?? {};
-          throw new Error(body.error || `No se pudo crear el ${itemLabel}`);
+          throw new Error(
+            getApiErrorMessage(body, `No se pudo crear el ${itemLabel}`),
+          );
         }
         created = await safeJson<Investment>(res);
         if (created) {
@@ -1522,7 +1546,9 @@ export default function Page() {
         );
         if (!res.ok) {
           const body = (await safeJson<ApiError>(res)) ?? {};
-          throw new Error(body.error || `No se pudo actualizar el ${itemLabel}`);
+          throw new Error(
+            getApiErrorMessage(body, `No se pudo actualizar el ${itemLabel}`),
+          );
         }
         const updated = (await safeJson<Investment>(res))!;
         setItems((prev) =>
@@ -1586,14 +1612,11 @@ export default function Page() {
       return;
     }
 
-    const payingWithCredit =
-      isOperatorCategory(recurringForm.category) && recurringForm.use_credit;
-
-    if (!recurringForm.payment_method && !payingWithCredit) {
+    if (!recurringForm.payment_method) {
       toast.error("Seleccioná el método de pago");
       return;
     }
-    if (showRecurringAccount && !recurringForm.account && !payingWithCredit) {
+    if (showRecurringAccount && !recurringForm.account) {
       toast.error("Seleccioná la cuenta para este método");
       return;
     }
@@ -1615,14 +1638,8 @@ export default function Page() {
       active: recurringForm.active,
       user_id: recurringForm.user_id ?? undefined,
       operator_id: recurringForm.operator_id ?? undefined,
-      payment_method: payingWithCredit
-        ? CREDIT_METHOD
-        : recurringForm.payment_method,
-      account: payingWithCredit
-        ? undefined
-        : showRecurringAccount
-          ? recurringForm.account
-          : undefined,
+      payment_method: recurringForm.payment_method,
+      account: showRecurringAccount ? recurringForm.account : undefined,
     };
 
     if (recurringForm.use_conversion) {
@@ -1646,7 +1663,9 @@ export default function Page() {
         );
         if (!res.ok) {
           const body = (await safeJson<ApiError>(res)) ?? {};
-          throw new Error(body.error || "No se pudo crear el gasto automático");
+          throw new Error(
+            getApiErrorMessage(body, "No se pudo crear el gasto automático"),
+          );
         }
         const created = await safeJson<RecurringInvestment>(res);
         if (created) {
@@ -1663,7 +1682,9 @@ export default function Page() {
         );
         if (!res.ok) {
           const body = (await safeJson<ApiError>(res)) ?? {};
-          throw new Error(body.error || "No se pudo actualizar el automático");
+          throw new Error(
+            getApiErrorMessage(body, "No se pudo actualizar el automático"),
+          );
         }
         const updated = (await safeJson<RecurringInvestment>(res))!;
         setRecurring((prev) =>
@@ -1969,55 +1990,34 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recurringForm.currency, recurringForm.amount, currencyOptions]);
 
-  // Fijar/limpiar método según crédito y categoría
+  // Restringir método "Crédito operador" sólo a categorías de Operador
   useEffect(() => {
     setForm((f) => {
       const isOperador = isOperatorCategory(f.category);
-
-      // Caso 1: operador + crédito → fijar método y limpiar cuenta
-      if (isOperador && f.use_credit) {
-        if (f.payment_method !== CREDIT_METHOD || f.account) {
-          return { ...f, payment_method: CREDIT_METHOD, account: "" };
-        }
-        return f;
+      if (!isOperador && f.payment_method === CREDIT_METHOD) {
+        return { ...f, payment_method: "", account: "", use_credit: false };
       }
-
-      // Caso 2: dejó de ser operador → apagar crédito y limpiar método si era el virtual
-      if (!isOperador && (f.use_credit || f.payment_method === CREDIT_METHOD)) {
-        return { ...f, use_credit: false, payment_method: "", account: "" };
+      if (isOperador && f.payment_method === CREDIT_METHOD && f.account) {
+        return { ...f, account: "", use_credit: false };
       }
-
-      // Caso 3: operador pero crédito apagado y el método quedó en el virtual → limpiar
-      if (!f.use_credit && f.payment_method === CREDIT_METHOD) {
-        return { ...f, payment_method: "", account: "" };
-      }
-
+      if (f.use_credit) return { ...f, use_credit: false };
       return f;
     });
-  }, [form.category, form.use_credit, isOperatorCategory]);
+  }, [form.category, isOperatorCategory]);
 
   useEffect(() => {
     setRecurringForm((f) => {
       const isOperador = isOperatorCategory(f.category);
-
-      if (isOperador && f.use_credit) {
-        if (f.payment_method !== CREDIT_METHOD || f.account) {
-          return { ...f, payment_method: CREDIT_METHOD, account: "" };
-        }
-        return f;
+      if (!isOperador && f.payment_method === CREDIT_METHOD) {
+        return { ...f, payment_method: "", account: "", use_credit: false };
       }
-
-      if (!isOperador && (f.use_credit || f.payment_method === CREDIT_METHOD)) {
-        return { ...f, use_credit: false, payment_method: "", account: "" };
+      if (isOperador && f.payment_method === CREDIT_METHOD && f.account) {
+        return { ...f, account: "", use_credit: false };
       }
-
-      if (!f.use_credit && f.payment_method === CREDIT_METHOD) {
-        return { ...f, payment_method: "", account: "" };
-      }
-
+      if (f.use_credit) return { ...f, use_credit: false };
       return f;
     });
-  }, [recurringForm.category, recurringForm.use_credit, isOperatorCategory]);
+  }, [recurringForm.category, isOperatorCategory]);
 
   const nextRecurringRun = useCallback((rule: RecurringInvestment) => {
     const day = Math.min(Math.max(rule.day_of_month || 1, 1), 31);

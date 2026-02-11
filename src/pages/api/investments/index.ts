@@ -1611,6 +1611,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       ) {
         return res.status(400).json({ error: e.message });
       }
+      return res.status(500).json({
+        error: "Error al crear gasto",
+        details: e.message,
+      });
     }
     return res.status(500).json({ error: "Error al crear gasto" });
   }

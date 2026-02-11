@@ -48,7 +48,11 @@ import {
   type BookingComponentKey,
 } from "@/utils/permissions";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
-import type { ServiceLite, SubmitResult } from "@/types/receipts";
+import type {
+  ReceiptPaymentLine,
+  ServiceLite,
+  SubmitResult,
+} from "@/types/receipts";
 import type {
   BillingData,
   Booking,
@@ -208,6 +212,30 @@ function submitResultFromReceipt(receipt: Receipt): SubmitResult {
     },
   };
 }
+
+function toInputDate(value?: string | null): string {
+  if (!value) return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )}`;
+}
+
+type ReceiptWithPayments = Receipt & {
+  payment_method_id?: number | null;
+  account_id?: number | null;
+  payments?: Array<{
+    amount?: number | string | null;
+    payment_method_id?: number | null;
+    account_id?: number | null;
+  }>;
+};
 
 const STATUS_PILL_BASE =
   "rounded-full border px-3 py-1 text-xs font-medium shadow-sm shadow-sky-950/10";
@@ -855,6 +883,8 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   /* ================= Cuotas/Débitos al Operador ================= */
   const [operatorDues, setOperatorDues] = useState<OperatorDue[]>([]);
   const [operatorDuesLoading, setOperatorDuesLoading] = useState(false);
+  const [editingReceipt, setEditingReceipt] = useState<Receipt | null>(null);
+  const [receiptFormVisible, setReceiptFormVisible] = useState(false);
 
   const fetchOperatorDues = useCallback(
     async (signal?: AbortSignal) => {
@@ -904,6 +934,68 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       prev.map((d) => (d.id_due === id_due ? { ...d, status } : d)),
     );
   };
+
+  const buildInitialReceiptPayments = useCallback(
+    (receipt: Receipt): ReceiptPaymentLine[] => {
+      const normalized = receipt as ReceiptWithPayments;
+      if (
+        Array.isArray(normalized.payments) &&
+        normalized.payments.length > 0
+      ) {
+        return normalized.payments.map((p) => ({
+          amount: toFiniteNumber(p.amount, 0),
+          payment_method_id:
+            p.payment_method_id != null ? Number(p.payment_method_id) : null,
+          account_id: p.account_id != null ? Number(p.account_id) : null,
+          operator_id: null,
+          credit_account_id: null,
+        }));
+      }
+
+      const paymentMethodId =
+        normalized.payment_method_id != null
+          ? Number(normalized.payment_method_id)
+          : NaN;
+      const accountId =
+        normalized.account_id != null ? Number(normalized.account_id) : NaN;
+      const hasPaymentMethod =
+        Number.isFinite(paymentMethodId) && paymentMethodId > 0;
+      const hasAccount = Number.isFinite(accountId) && accountId > 0;
+
+      if (!hasPaymentMethod && !hasAccount) return [];
+
+      return [
+        {
+          amount: toFiniteNumber(receipt.amount, 0),
+          payment_method_id: hasPaymentMethod ? paymentMethodId : null,
+          account_id: hasAccount ? accountId : null,
+          operator_id: null,
+          credit_account_id: null,
+        },
+      ];
+    },
+    [],
+  );
+
+  const startEditReceipt = useCallback((receipt: Receipt) => {
+    setEditingReceipt(receipt);
+    setReceiptFormVisible(true);
+  }, []);
+
+  const cancelEditReceipt = useCallback(() => {
+    setEditingReceipt(null);
+    setReceiptFormVisible(false);
+  }, []);
+
+  useEffect(() => {
+    if (!editingReceipt) return;
+    const stillExists = receipts.some(
+      (r) => r.id_receipt === editingReceipt.id_receipt,
+    );
+    if (stillExists) return;
+    setEditingReceipt(null);
+    setReceiptFormVisible(false);
+  }, [editingReceipt, receipts]);
 
   /* ================== Pipeline secuencial ==================
      Ejecuta: 1) transfer-fee → 2) client-payments → 3) operator-dues */
@@ -1872,10 +1964,49 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 {canUseReceiptsForm &&
                   (services.length > 0 || receipts.length > 0) && (
                     <ReceiptForm
+                      key={editingReceipt?.id_receipt ?? "booking-receipt-new"}
                       token={token || null}
-                      bookingId={booking.id_booking}
+                      editingReceiptId={editingReceipt?.id_receipt ?? null}
+                      isFormVisible={receiptFormVisible}
+                      setIsFormVisible={setReceiptFormVisible}
+                      bookingId={editingReceipt ? undefined : booking.id_booking}
                       allowAgency={false}
-                      enableAttachAction={true}
+                      enableAttachAction={!editingReceipt}
+                      initialServiceIds={editingReceipt?.serviceIds ?? []}
+                      initialConcept={editingReceipt?.concept ?? ""}
+                      initialAmount={
+                        editingReceipt
+                          ? toFiniteNumber(editingReceipt.amount, 0)
+                          : undefined
+                      }
+                      initialCurrency={editingReceipt?.amount_currency ?? undefined}
+                      initialAmountWords={editingReceipt?.amount_string ?? ""}
+                      initialAmountWordsCurrency={
+                        editingReceipt?.base_currency ||
+                        editingReceipt?.amount_currency ||
+                        undefined
+                      }
+                      initialPaymentDescription={editingReceipt?.currency ?? ""}
+                      initialFeeAmount={
+                        editingReceipt?.payment_fee_amount != null
+                          ? toFiniteNumber(editingReceipt.payment_fee_amount, 0)
+                          : undefined
+                      }
+                      initialIssueDate={toInputDate(editingReceipt?.issue_date)}
+                      initialBaseAmount={editingReceipt?.base_amount ?? null}
+                      initialBaseCurrency={editingReceipt?.base_currency ?? null}
+                      initialCounterAmount={
+                        editingReceipt?.counter_amount ?? null
+                      }
+                      initialCounterCurrency={
+                        editingReceipt?.counter_currency ?? null
+                      }
+                      initialClientIds={editingReceipt?.clientIds ?? []}
+                      initialPayments={
+                        editingReceipt
+                          ? buildInitialReceiptPayments(editingReceipt)
+                          : []
+                      }
                       loadServicesForBooking={async (
                         bId,
                       ): Promise<ServiceLite[]> => {
@@ -2002,6 +2133,73 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                       }}
                       onAttachExisting={handleAttachExistingReceipt}
                       onSubmit={async (payload) => {
+                        const receiptToEdit = editingReceipt;
+                        if (receiptToEdit?.id_receipt) {
+                          const res = await authFetch(
+                            `/api/receipts/${
+                              receiptToEdit.public_id ?? receiptToEdit.id_receipt
+                            }`,
+                            {
+                              method: "PATCH",
+                              body: JSON.stringify(payload),
+                            },
+                            token ?? undefined,
+                          );
+
+                          const json: unknown = await res
+                            .json()
+                            .catch(() => null);
+
+                          if (!res.ok) {
+                            let msg = "No se pudo actualizar el recibo.";
+                            const picked = pickApiMessage(json);
+                            if (picked) msg = picked;
+                            throw new Error(msg);
+                          }
+                          const submitResult = isSubmitResultLike(json)
+                            ? json
+                            : null;
+
+                          const updatedRaw =
+                            (isRecord(json) && isRecord(json.receipt)
+                              ? json.receipt
+                              : null) ||
+                            (isRecord(json) &&
+                            isRecord(json.data) &&
+                            isRecord(json.data.receipt)
+                              ? json.data.receipt
+                              : null);
+
+                          if (updatedRaw) {
+                            const updatedObj = isRecord(updatedRaw)
+                              ? updatedRaw
+                              : {};
+                            const updatedReceipt = {
+                              ...receiptToEdit,
+                              ...(updatedRaw as Partial<Receipt>),
+                              id_receipt: Number(
+                                updatedObj.id_receipt ??
+                                  updatedObj.id ??
+                                  receiptToEdit.id_receipt,
+                              ),
+                              receipt_number: String(
+                                updatedObj.receipt_number ??
+                                  updatedObj.number ??
+                                  receiptToEdit.receipt_number ??
+                                  "",
+                              ),
+                            } as Receipt;
+                            onReceiptCreated?.(updatedReceipt);
+                          } else {
+                            onReceiptCreated?.(receiptToEdit);
+                          }
+
+                          setEditingReceipt(null);
+                          setReceiptFormVisible(false);
+                          router.refresh();
+                          return submitResult;
+                        }
+
                         const res = await authFetch(
                           "/api/receipts",
                           { method: "POST", body: JSON.stringify(payload) },
@@ -2049,6 +2247,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                         router.refresh();
                         return submitResult ?? submitResultFromReceipt(receipt);
                       }}
+                      onCancel={editingReceipt ? cancelEditReceipt : undefined}
                     />
                   )}
 
@@ -2060,6 +2259,9 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                     services={services}
                     role={role}
                     onReceiptDeleted={onReceiptDeleted}
+                    onReceiptEdit={
+                      canUseReceiptsForm ? startEditReceipt : undefined
+                    }
                   />
                 )}
               </div>
