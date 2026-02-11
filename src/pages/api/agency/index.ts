@@ -213,15 +213,29 @@ function errorName(e: unknown) {
   return undefined;
 }
 
-function firstZodIssueMessage(e: unknown) {
+function parseZodIssue(e: unknown): { message?: string; field?: string } {
   if (typeof e === "object" && e !== null) {
     const issues = (e as Record<string, unknown>).issues;
     if (Array.isArray(issues) && issues.length > 0) {
-      const msg = (issues[0] as Record<string, unknown>).message;
-      if (typeof msg === "string") return msg;
+      const firstIssue = issues[0] as Record<string, unknown>;
+      const msg = firstIssue.message;
+      const path = firstIssue.path;
+
+      const field =
+        Array.isArray(path) && path.length > 0
+          ? path
+              .filter((p) => typeof p === "string" || typeof p === "number")
+              .map(String)
+              .join(".")
+          : undefined;
+
+      return {
+        message: typeof msg === "string" ? msg : undefined,
+        field: field || undefined,
+      };
     }
   }
-  return undefined;
+  return {};
 }
 
 /* ==== Handlers ==== */
@@ -293,9 +307,16 @@ async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
     return res.status(201).json(sanitizeAgencyForResponse(created));
   } catch (e: unknown) {
     if (errorName(e) === "ZodError") {
+      const issue = parseZodIssue(e);
       return res
         .status(400)
-        .json({ error: firstZodIssueMessage(e) || "Datos inválidos" });
+        .json({
+          error: issue.message || "Datos inválidos",
+          field: issue.field,
+          hint: issue.field
+            ? `Revisá el campo '${issue.field}' y corregí el formato solicitado.`
+            : "Revisá los datos obligatorios y volvé a intentar.",
+        });
     }
     console.error("[agency][POST]", e);
     return res.status(500).json({ error: "Error al crear la agencia" });
@@ -353,9 +374,16 @@ async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
     return res.status(200).json(sanitizeAgencyForResponse(updated));
   } catch (e: unknown) {
     if (errorName(e) === "ZodError") {
+      const issue = parseZodIssue(e);
       return res
         .status(400)
-        .json({ error: firstZodIssueMessage(e) || "Datos inválidos" });
+        .json({
+          error: issue.message || "Datos inválidos",
+          field: issue.field,
+          hint: issue.field
+            ? `Revisá el campo '${issue.field}' y corregí el formato solicitado.`
+            : "Revisá los datos obligatorios y volvé a intentar.",
+        });
     }
     console.error("[agency][PUT]", e);
     return res.status(500).json({ error: "Error al actualizar la agencia" });

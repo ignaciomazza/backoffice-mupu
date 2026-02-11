@@ -20,6 +20,82 @@ import AgencyArcaCard from "@/components/agency/AgencyArcaCard";
 
 type AgencyDTO = AgencyDTOForm;
 
+type AgencyApiError = {
+  error?: string;
+  field?: string;
+  hint?: string;
+};
+
+const AGENCY_FIELD_LABELS: Record<string, string> = {
+  name: "Nombre",
+  legal_name: "Razón social",
+  tax_id: "CUIT",
+  email: "Email",
+  website: "Sitio web",
+  foundation_date: "Fecha de fundación",
+  address: "Dirección",
+  phone: "Teléfono",
+};
+
+function fieldLabel(field?: string) {
+  if (!field) return undefined;
+  return AGENCY_FIELD_LABELS[field] ?? field;
+}
+
+async function parseAgencyApiError(res: Response): Promise<AgencyApiError> {
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const data = (await res.json().catch(() => null)) as AgencyApiError | null;
+    if (data && typeof data === "object") return data;
+  }
+
+  const rawText = await res.text().catch(() => "");
+  return rawText ? { error: rawText } : {};
+}
+
+function buildLoadErrorMessage(status: number, apiError: AgencyApiError): string {
+  if (status === 401) {
+    return "No se pudo cargar la agencia porque la sesión venció. Iniciá sesión nuevamente.";
+  }
+  if (status === 404) {
+    return "No se encontró una agencia asociada a tu usuario. Verificá la asignación de agencia.";
+  }
+
+  const detail = apiError.error?.trim();
+  if (detail) {
+    return `No se pudo cargar la agencia: ${detail}. Probá recargar la página.`;
+  }
+  return "No se pudo cargar la información de la agencia. Probá recargar la página.";
+}
+
+function buildSaveErrorMessage(status: number, apiError: AgencyApiError): string {
+  if (status === 400) {
+    const detail = apiError.error?.trim() || "Hay datos inválidos.";
+    const label = fieldLabel(apiError.field);
+    const hint =
+      apiError.hint?.trim() || "Corregí el campo indicado y volvé a guardar.";
+
+    if (label) return `Error en ${label}: ${detail}. ${hint}`;
+    return `No se pudieron guardar los cambios: ${detail}. ${hint}`;
+  }
+
+  if (status === 401) {
+    return "No se pudieron guardar los cambios porque la sesión venció. Iniciá sesión nuevamente.";
+  }
+  if (status === 403) {
+    return "No tenés permisos para editar la agencia. Solicitá acceso a un gerente o desarrollador.";
+  }
+  if (status === 404) {
+    return "No se encontró la agencia a actualizar. Verificá la configuración de la cuenta.";
+  }
+
+  const detail = apiError.error?.trim();
+  if (detail) {
+    return `No se pudieron guardar los cambios: ${detail}. Volvé a intentar.`;
+  }
+  return "No se pudieron guardar los cambios por un error inesperado. Volvé a intentar.";
+}
+
 export default function AgencyPage() {
   const { token } = useAuth();
 
@@ -73,8 +149,8 @@ export default function AgencyPage() {
         }
 
         if (!ar.ok) {
-          const errText = await ar.text().catch(() => "");
-          throw new Error(errText || "Error al obtener la agencia");
+          const apiError = await parseAgencyApiError(ar);
+          throw new Error(buildLoadErrorMessage(ar.status, apiError));
         }
         const data: AgencyDTO = await ar.json();
         setAgency(data);
@@ -85,7 +161,11 @@ export default function AgencyPage() {
           return;
         }
         console.error("[agency/page] load error:", e);
-        toast.error("No se pudo cargar la información de la agencia.");
+        const msg =
+          e instanceof Error
+            ? e.message
+            : "No se pudo cargar la información de la agencia. Probá recargar la página.";
+        toast.error(msg);
       } finally {
         if (!signal.aborted) setLoading(false);
       }
@@ -95,7 +175,12 @@ export default function AgencyPage() {
   }, [token]);
 
   async function handleSave(input: AgencyUpdateInput) {
-    if (!token) return;
+    if (!token) {
+      toast.error(
+        "No se pudieron guardar los cambios porque no hay sesión activa. Iniciá sesión nuevamente.",
+      );
+      return;
+    }
     setSaving(true);
     try {
       const res = await authFetch(
@@ -108,8 +193,8 @@ export default function AgencyPage() {
       );
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error || "Error al guardar cambios");
+        const apiError = await parseAgencyApiError(res);
+        throw new Error(buildSaveErrorMessage(res.status, apiError));
       }
 
       const updated: AgencyDTO = await res.json();

@@ -2,6 +2,7 @@
 "use client";
 
 import * as React from "react";
+import { toast } from "react-toastify";
 
 export type AgencySocialInput = {
   instagram?: string | null;
@@ -45,6 +46,19 @@ interface AgencyFormProps {
 }
 
 type Errors = Partial<Record<keyof AgencyUpdateInput, string>>;
+
+const FIELD_LABELS: Record<keyof AgencyUpdateInput, string> = {
+  name: "Nombre",
+  legal_name: "Razón social",
+  tax_id: "CUIT",
+  address: "Dirección",
+  phone: "Teléfono",
+  email: "Email",
+  website: "Sitio web",
+  foundation_date: "Fecha de fundación",
+  logo_url: "Logo",
+  social: "Redes sociales",
+};
 
 function toYMD(dateLike?: string | null): string {
   if (!dateLike) return "";
@@ -160,18 +174,32 @@ export default function AgencyForm({
     };
   function validate(current: AgencyUpdateInput): Errors {
     const e: Errors = {};
-    if (!current.name.trim()) e.name = "Obligatorio";
-    if (!current.legal_name.trim()) e.legal_name = "Obligatorio";
+    if (!current.name.trim()) {
+      e.name = "Completá el nombre comercial de la agencia.";
+    }
+    if (!current.legal_name.trim()) {
+      e.legal_name =
+        "Completá la razón social exactamente como figura en AFIP/ARCA.";
+    }
 
     const cuit = current.tax_id.trim();
-    if (!cuit) e.tax_id = "Obligatorio";
-    else if (!isValidCUIT(cuit)) e.tax_id = "CUIT inválido";
+    if (!cuit) {
+      e.tax_id = "Ingresá el CUIT (11 dígitos, sin espacios).";
+    } else if (!isValidCUIT(cuit)) {
+      e.tax_id =
+        "El CUIT no es válido. Revisá los 11 dígitos y el verificador final.";
+    }
 
-    if (!isValidEmail(current.email ?? "")) e.email = "Email inválido";
-    if (!isValidUrl(current.website ?? ""))
-      e.website = "Debe empezar con http(s)://";
+    if (!isValidEmail(current.email ?? "")) {
+      e.email = "Ingresá un email válido. Ejemplo: contacto@agencia.com.";
+    }
+    if (!isValidUrl(current.website ?? "")) {
+      e.website =
+        "El sitio web debe empezar con http:// o https:// (ej: https://miagencia.com).";
+    }
     if (!isValidYMD(current.foundation_date ?? "")) {
-      e.foundation_date = "Fecha inválida (YYYY-MM-DD)";
+      e.foundation_date =
+        "Ingresá una fecha válida en formato YYYY-MM-DD (ej: 2020-05-24).";
     }
     return e;
   }
@@ -205,10 +233,14 @@ export default function AgencyForm({
     setErrors(v);
     if (Object.values(v).some(Boolean)) {
       // focus al primer error (tipado)
-      const firstKey = (Object.keys(v) as Array<keyof Errors>).find((k) =>
-        Boolean(v[k]),
+      const firstKey = (Object.keys(v) as Array<keyof AgencyUpdateInput>).find(
+        (k) => Boolean(v[k]),
       );
       if (firstKey) {
+        const fieldName = FIELD_LABELS[firstKey] ?? firstKey;
+        const message = v[firstKey] ?? "Revisá el dato ingresado.";
+        toast.error(`Error en ${fieldName}: ${message}`);
+
         const el = document.querySelector<HTMLInputElement>(
           `[name="${String(firstKey)}"]`,
         );
