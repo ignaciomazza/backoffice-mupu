@@ -62,6 +62,33 @@ export default async function handler(
     if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
     const existing = await prisma.financeAccount.findFirst({ where });
     if (!existing) return res.status(404).json({ error: "No encontrado" });
+
+    const [transferCount, adjustmentCount, auditCount] = await Promise.all([
+      prisma.financeTransfer.count({
+        where: {
+          id_agency: auth.id_agency,
+          OR: [
+            { origin_account_id: id },
+            { destination_account_id: id },
+            { fee_account_id: id },
+          ],
+        },
+      }),
+      prisma.financeAccountAdjustment.count({
+        where: { id_agency: auth.id_agency, account_id: id },
+      }),
+      prisma.financeAccountAudit.count({
+        where: { id_agency: auth.id_agency, account_id: id },
+      }),
+    ]);
+
+    if (transferCount > 0 || adjustmentCount > 0 || auditCount > 0) {
+      return res.status(409).json({
+        error:
+          "La cuenta tiene movimientos/auditorías vinculadas. No se puede eliminar.",
+      });
+    }
+
     await prisma.financeAccount.delete({ where: { id_account: id } });
     return res.status(204).end();
   }

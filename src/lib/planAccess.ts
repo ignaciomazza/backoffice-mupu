@@ -50,6 +50,7 @@ const PLAN_ROUTE_FEATURES: Array<{ prefix: string; feature: PlanFeatureKey }> = 
   { prefix: "/earnings", feature: "earnings" },
   { prefix: "/balances", feature: "balances" },
   { prefix: "/cashbox", feature: "cashbox" },
+  { prefix: "/finance/pases-saldo", feature: "cashbox" },
   { prefix: "/credits", feature: "credits" },
   { prefix: "/finance/payment-plans", feature: "payment_plans" },
   { prefix: "/other-incomes", feature: "other_incomes" },

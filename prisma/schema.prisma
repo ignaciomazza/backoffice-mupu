@@ -48,6 +48,11 @@ model Agency {
   FinanceCurrency              FinanceCurrency[]
   FinanceAccount               FinanceAccount[]
   FinanceAccountOpeningBalance FinanceAccountOpeningBalance[]
+  FinanceTransfers             FinanceTransfer[]
+  FinanceAccountAdjustments    FinanceAccountAdjustment[]
+  FinanceAccountAudits         FinanceAccountAudit[]
+  FinanceMonthLocks            FinanceMonthLock[]
+  FinanceMonthLockEvents       FinanceMonthLockEvent[]
   FinancePaymentMethod         FinancePaymentMethod[]
   ExpenseCategory              ExpenseCategory[]
   FinanceConfig                FinanceConfig?
@@ -1305,6 +1310,134 @@ model FinanceAccountOpeningBalance {
   @@unique([id_agency, account_id, currency])
   @@index([id_agency])
   @@index([account_id])
+}
+
+model FinanceTransfer {
+  id_transfer Int    @id @default(autoincrement())
+  id_agency   Int
+  agency      Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  transfer_date DateTime
+  note          String?
+
+  origin_account_id Int?
+  origin_method_id  Int?
+  origin_currency   String
+  origin_amount     Decimal @db.Decimal(18, 2)
+
+  destination_account_id Int?
+  destination_method_id  Int?
+  destination_currency   String
+  destination_amount     Decimal @db.Decimal(18, 2)
+
+  fx_rate Decimal? @db.Decimal(18, 6)
+
+  fee_amount     Decimal? @db.Decimal(18, 2)
+  fee_currency   String?
+  fee_account_id Int?
+  fee_method_id  Int?
+  fee_note       String?
+
+  created_by Int?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  deleted_at    DateTime?
+  deleted_by    Int?
+  delete_reason String?
+
+  @@index([id_agency, transfer_date])
+  @@index([id_agency, origin_account_id])
+  @@index([id_agency, destination_account_id])
+  @@index([id_agency, deleted_at])
+}
+
+model FinanceAccountAdjustment {
+  id_adjustment Int    @id @default(autoincrement())
+  id_agency     Int
+  agency        Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  account_id Int
+  currency   String
+  amount     Decimal @db.Decimal(18, 2)
+
+  effective_date DateTime
+  reason         String
+  note           String?
+  source         String @default("manual") // manual | audit
+  audit_id       Int?
+
+  created_by Int?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([id_agency, account_id, currency, effective_date])
+  @@index([id_agency, effective_date])
+  @@index([audit_id])
+}
+
+model FinanceAccountAudit {
+  id_audit  Int    @id @default(autoincrement())
+  id_agency Int
+  agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  account_id Int
+  currency   String
+  year       Int
+  month      Int
+
+  expected_balance Decimal @db.Decimal(18, 2)
+  actual_balance   Decimal @db.Decimal(18, 2)
+  difference       Decimal @db.Decimal(18, 2)
+
+  note              String?
+  create_adjustment Boolean @default(false)
+  adjustment_id     Int?
+
+  created_by Int?
+  created_at DateTime @default(now())
+
+  @@index([id_agency, account_id, currency, year, month])
+  @@index([id_agency, year, month])
+  @@index([adjustment_id])
+}
+
+model FinanceMonthLock {
+  id_lock   Int    @id @default(autoincrement())
+  id_agency Int
+  agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  year      Int
+  month     Int
+  is_locked Boolean @default(false)
+  reason    String?
+
+  locked_by   Int?
+  locked_at   DateTime?
+  unlocked_by Int?
+  unlocked_at DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([id_agency, year, month])
+  @@index([id_agency, is_locked])
+}
+
+model FinanceMonthLockEvent {
+  id_event  Int    @id @default(autoincrement())
+  id_agency Int
+  agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  year   Int
+  month  Int
+  action String // lock | unlock
+  reason String?
+
+  acted_by Int?
+  acted_at DateTime @default(now())
+
+  @@index([id_agency, year, month, acted_at])
 }
 
 model FinancePaymentMethod {

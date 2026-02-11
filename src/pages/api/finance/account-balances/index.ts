@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { resolveAuth } from "@/lib/auth";
 import { getFinancePicksAccess } from "@/lib/accessControl";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import { isFinanceDateLocked } from "@/lib/financeLocks";
 
 const upsertSchema = z.object({
   account_id: z.number().int().positive(),
@@ -93,6 +94,13 @@ export default async function handler(
     const effectiveDate =
       parseDate(payload.effective_date) ?? new Date();
 
+    if (await isFinanceDateLocked(auth.id_agency, effectiveDate)) {
+      return res.status(409).json({
+        error:
+          "El mes del saldo base está bloqueado. Desbloquealo para editarlo.",
+      });
+    }
+
     const account = await prisma.financeAccount.findFirst({
       where: { id_account: payload.account_id, id_agency: auth.id_agency },
       select: { id_account: true, currency: true },
@@ -158,13 +166,25 @@ export default async function handler(
       return res.status(400).json({ error: "Parámetros inválidos" });
     }
 
-    await prisma.financeAccountOpeningBalance.deleteMany({
+    const existing = await prisma.financeAccountOpeningBalance.findFirst({
       where: {
         id_agency: auth.id_agency,
         account_id,
         currency: currency.toUpperCase(),
       },
     });
+
+    if (existing) {
+      if (await isFinanceDateLocked(auth.id_agency, existing.effective_date)) {
+        return res.status(409).json({
+          error:
+            "El mes del saldo base está bloqueado. Desbloquealo para eliminarlo.",
+        });
+      }
+      await prisma.financeAccountOpeningBalance.delete({
+        where: { id_opening_balance: existing.id_opening_balance },
+      });
+    }
 
     return res.status(204).end();
   }

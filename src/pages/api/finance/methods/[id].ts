@@ -60,6 +60,24 @@ export default async function handler(
     if (!canWrite) return res.status(403).json({ error: "Sin permisos" });
     const existing = await prisma.financePaymentMethod.findFirst({ where });
     if (!existing) return res.status(404).json({ error: "No encontrado" });
+
+    const transferCount = await prisma.financeTransfer.count({
+      where: {
+        id_agency: auth.id_agency,
+        OR: [
+          { origin_method_id: id },
+          { destination_method_id: id },
+          { fee_method_id: id },
+        ],
+      },
+    });
+    if (transferCount > 0) {
+      return res.status(409).json({
+        error:
+          "El método tiene transferencias vinculadas. No se puede eliminar.",
+      });
+    }
+
     await prisma.financePaymentMethod.delete({ where: { id_method: id } });
     return res.status(204).end();
   }

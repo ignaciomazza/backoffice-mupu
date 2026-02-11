@@ -780,6 +780,151 @@ async function getMonthlyMovements(
   });
 
   /* ----------------------------
+   * 3bis) MOVIMIENTOS INTERNOS: Transferencias
+   * ---------------------------- */
+  const transfers = await prisma.financeTransfer.findMany({
+    where: {
+      id_agency: agencyId,
+      deleted_at: null,
+      transfer_date: {
+        gte: from,
+        lte: to,
+      },
+    },
+    select: {
+      id_transfer: true,
+      transfer_date: true,
+      note: true,
+      origin_account_id: true,
+      origin_method_id: true,
+      origin_currency: true,
+      origin_amount: true,
+      destination_account_id: true,
+      destination_method_id: true,
+      destination_currency: true,
+      destination_amount: true,
+      fee_amount: true,
+      fee_currency: true,
+      fee_account_id: true,
+      fee_method_id: true,
+      fee_note: true,
+    },
+  });
+
+  const transferMovements: CashboxMovement[] = [];
+  for (const tf of transfers) {
+    const baseDescription = tf.note?.trim()
+      ? `Transferencia interna • ${tf.note.trim()}`
+      : `Transferencia interna #${tf.id_transfer}`;
+
+    const originAmount = decimalToNumber(tf.origin_amount);
+    if (originAmount > 0) {
+      transferMovements.push({
+        id: `finance_transfer:${tf.id_transfer}:origin`,
+        date: tf.transfer_date.toISOString(),
+        type: "expense",
+        source: "manual",
+        description: `${baseDescription} (origen)`,
+        currency: tf.origin_currency,
+        amount: originAmount,
+        dueDate: null,
+        paymentMethod:
+          (tf.origin_method_id && methodNameById?.get(tf.origin_method_id)) ||
+          null,
+        account:
+          (tf.origin_account_id && accountNameById?.get(tf.origin_account_id)) ||
+          null,
+      });
+    }
+
+    const destinationAmount = decimalToNumber(tf.destination_amount);
+    if (destinationAmount > 0) {
+      transferMovements.push({
+        id: `finance_transfer:${tf.id_transfer}:destination`,
+        date: tf.transfer_date.toISOString(),
+        type: "income",
+        source: "manual",
+        description: `${baseDescription} (destino)`,
+        currency: tf.destination_currency,
+        amount: destinationAmount,
+        dueDate: null,
+        paymentMethod:
+          (tf.destination_method_id &&
+            methodNameById?.get(tf.destination_method_id)) ||
+          null,
+        account:
+          (tf.destination_account_id &&
+            accountNameById?.get(tf.destination_account_id)) ||
+          null,
+      });
+    }
+
+    const feeAmount = decimalToNumber(tf.fee_amount);
+    if (feeAmount > 0 && tf.fee_currency) {
+      transferMovements.push({
+        id: `finance_transfer:${tf.id_transfer}:fee`,
+        date: tf.transfer_date.toISOString(),
+        type: "expense",
+        source: "manual",
+        description: tf.fee_note?.trim()
+          ? `${baseDescription} • Comisión (${tf.fee_note.trim()})`
+          : `${baseDescription} • Comisión`,
+        currency: tf.fee_currency,
+        amount: feeAmount,
+        dueDate: null,
+        paymentMethod:
+          (tf.fee_method_id && methodNameById?.get(tf.fee_method_id)) || null,
+        account:
+          (tf.fee_account_id && accountNameById?.get(tf.fee_account_id)) || null,
+      });
+    }
+  }
+
+  /* ----------------------------
+   * 3ter) AJUSTES DE SALDO
+   * ---------------------------- */
+  const adjustments = await prisma.financeAccountAdjustment.findMany({
+    where: {
+      id_agency: agencyId,
+      effective_date: {
+        gte: from,
+        lte: to,
+      },
+    },
+    select: {
+      id_adjustment: true,
+      account_id: true,
+      currency: true,
+      amount: true,
+      effective_date: true,
+      reason: true,
+      note: true,
+    },
+  });
+
+  const adjustmentMovements: CashboxMovement[] = [];
+  for (const adj of adjustments) {
+    const rawAmount = decimalToNumber(adj.amount);
+    const absAmount = Math.abs(rawAmount);
+    if (absAmount === 0) continue;
+
+    adjustmentMovements.push({
+      id: `account_adjustment:${adj.id_adjustment}`,
+      date: adj.effective_date.toISOString(),
+      type: rawAmount >= 0 ? "income" : "expense",
+      source: "manual",
+      description: adj.note?.trim()
+        ? `Ajuste de saldo • ${adj.reason} • ${adj.note.trim()}`
+        : `Ajuste de saldo • ${adj.reason}`,
+      currency: adj.currency,
+      amount: absAmount,
+      dueDate: null,
+      paymentMethod: "Ajuste de saldo",
+      account: (adj.account_id && accountNameById?.get(adj.account_id)) || null,
+    });
+  }
+
+  /* ----------------------------
    * 4) DEUDA CLIENTES: ClientPayment
    * ---------------------------- */
 
@@ -900,6 +1045,8 @@ async function getMonthlyMovements(
     ...receiptMovements,
     ...otherIncomeMovements,
     ...investmentMovements,
+    ...transferMovements,
+    ...adjustmentMovements,
     ...clientPaymentMovements,
     ...operatorDueMovements,
   ];

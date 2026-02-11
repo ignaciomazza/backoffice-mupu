@@ -1,0 +1,5 @@
+-- RenameIndex
+ALTER INDEX "FinanceAccountAdjustment_id_agency_account_id_currency_effectiv" RENAME TO "FinanceAccountAdjustment_id_agency_account_id_currency_effe_idx";
+
+-- RenameIndex
+ALTER INDEX "FinanceAccountAudit_id_agency_account_id_currency_year_month_id" RENAME TO "FinanceAccountAudit_id_agency_account_id_currency_year_mont_idx";

@@ -232,6 +232,7 @@ export default function SideBar({
       "/clients/config": adm,
       "/credits": adm,
       "/cashbox": adm,
+      "/finance/pases-saldo": adm,
       "/insights": insightsRoles,
       "/dev/agencies": devOnly,
       "/dev/agencies/leads": devOnly,
@@ -335,6 +336,9 @@ export default function SideBar({
           hasAccess("/cashbox") ? { href: "/cashbox", label: "Caja" } : null,
           hasAccess("/credits")
             ? { href: "/credits", label: "Créditos" }
+            : null,
+          hasAccess("/finance/pases-saldo")
+            ? { href: "/finance/pases-saldo", label: "Pases de saldo" }
             : null,
           hasAccess("/investments")
             ? { href: "/investments", label: "Inversión" }

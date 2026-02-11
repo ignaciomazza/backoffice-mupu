@@ -16,6 +16,12 @@ export const FINANCE_SECTIONS = [
     defaultRoles: ADMIN_ROLES,
   },
   {
+    key: "account_transfers",
+    label: "Pases de saldo",
+    route: "/finance/pases-saldo",
+    defaultRoles: ADMIN_ROLES,
+  },
+  {
     key: "investments",
     label: "Inversion",
     route: "/investments",
