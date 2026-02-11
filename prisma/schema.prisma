@@ -4,6 +4,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL") // pool (PgBouncer)
   directUrl = env("DIRECT_URL") // conexión directa
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL") // requerido para `migrate dev` en DB remota
 }
 
 generator client {
@@ -226,6 +227,7 @@ model Booking {
   status              String
   details             String
   sale_totals         Json?
+  use_booking_sale_total_override Boolean?
   commission_overrides Json?
   invoice_type        String
   invoice_observation String?
@@ -310,6 +312,7 @@ model Service {
   vatOnCardInterest         Float?
   transfer_fee_pct          Decimal?             @db.Decimal(9, 6)
   transfer_fee_amount       Decimal?             @db.Decimal(14, 2)
+  billing_override          Json?
   extra_costs_amount        Float?
   extra_taxes_amount        Float?
   extra_adjustments         Json?

@@ -301,11 +301,25 @@ const styles = StyleSheet.create({
   payLine: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "flex-start",
     gap: 8,
     marginBottom: 3,
   },
-  payLeft: { fontSize: 9.5, color: "#333" },
-  payRight: { fontSize: 9.5, color: "#333" },
+  payLeft: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 9.5,
+    color: "#333",
+    paddingRight: 6,
+  },
+  payRight: {
+    width: 118,
+    flexShrink: 0,
+    textAlign: "right",
+    fontSize: 9.5,
+    color: "#333",
+  },
   payMeta: { fontSize: 8.5, color: "#666" },
 });
 
@@ -400,10 +414,15 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
               {recipients.map((r, i) => (
                 <View key={i} style={{ marginBottom: 4 }}>
                   <Text style={styles.infoText}>
-                    {r.firstName} {r.lastName} – DNI {r.dni}
+                    {softWrapLongWords(
+                      `${r.firstName} ${r.lastName} – DNI ${r.dni}`,
+                      { breakChar: " " },
+                    )}
                   </Text>
                   <Text style={styles.infoText}>
-                    {r.address}, {r.locality}
+                    {softWrapLongWords(`${r.address}, ${r.locality}`, {
+                      breakChar: " ",
+                    })}
                   </Text>
                 </View>
               ))}
@@ -433,7 +452,9 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
               key={svc.id}
               style={i % 2 ? [styles.row, styles.rowAlt] : styles.row}
             >
-              <Text style={styles.cellDesc}>{svc.description}</Text>
+              <Text style={styles.cellDesc}>
+                {softWrapLongWords(svc.description, { breakChar: " " })}
+              </Text>
               <Text style={styles.cellDate}>{formatServiceRange(svc)}</Text>
             </View>
           ))}
@@ -472,7 +493,13 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
               {safePayments.length ? (
                 safePayments.map((p, idx) => (
                   <View key={idx} style={styles.payLine}>
-                    <Text style={styles.payLeft}>{paymentLabel(p)}</Text>
+                    <Text style={styles.payLeft}>
+                      {softWrapLongWords(paymentLabel(p), {
+                        maxWordLen: 18,
+                        chunkLen: 10,
+                        breakChar: " ",
+                      })}
+                    </Text>
                     {showPaymentAmounts ? (
                       <Text style={styles.payRight}>
                         {safeFmtCurrency(p.amount, amount_currency)}
@@ -489,7 +516,12 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
                 </Text>
               ) : null}
               {showPaymentDetail ? (
-                <Text style={styles.payMeta}>Detalle: {paymentDetail}</Text>
+                <Text style={styles.payMeta}>
+                  Detalle:{" "}
+                  {softWrapLongWords(paymentDetail, {
+                    breakChar: " ",
+                  })}
+                </Text>
               ) : null}
             </View>
           </View>
@@ -499,13 +531,17 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
           <View style={styles.col}>
             <View style={styles.infoBox}>
               <Text style={styles.infoLabel}>En concepto de</Text>
-              <Text style={styles.infoText}>{concept}</Text>
+              <Text style={styles.infoText}>
+                {softWrapLongWords(concept, { breakChar: " " })}
+              </Text>
             </View>
           </View>
           <View style={styles.col}>
             <View style={styles.infoBox}>
               <Text style={styles.infoLabel}>Monto en letras</Text>
-              <Text style={styles.infoText}>{amountString}</Text>
+              <Text style={styles.infoText}>
+                {softWrapLongWords(amountString, { breakChar: " " })}
+              </Text>
             </View>
           </View>
         </View>
@@ -516,7 +552,9 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
           <View style={styles.col}>
             <View style={styles.infoBox}>
               <Text style={styles.infoLabel}>Detalle</Text>
-              <Text style={styles.infoText}>{details}</Text>
+              <Text style={styles.infoText}>
+                {softWrapLongWords(details, { breakChar: " " })}
+              </Text>
             </View>
           </View>
           <View style={styles.col}>

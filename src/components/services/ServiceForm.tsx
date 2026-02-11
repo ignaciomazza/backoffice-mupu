@@ -15,6 +15,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Operator,
   BillingData,
+  BillingBreakdownOverride,
   BillingAdjustmentConfig,
   BillingAdjustmentComputed,
 } from "@/types";
@@ -51,6 +52,8 @@ export type ServiceFormData = {
   departure_date: string;
   return_date: string;
   transfer_fee_pct?: number | null;
+  extra_adjustments?: BillingAdjustmentComputed[] | null;
+  billing_override?: Partial<BillingBreakdownOverride> | null;
 };
 
 type ServiceFormProps = {
@@ -85,7 +88,7 @@ const Section: React.FC<{
   desc?: string;
   children: React.ReactNode;
 }> = ({ title, desc, children }) => (
-  <section className="rounded-2xl border border-white/10 bg-white/10 p-4">
+  <section className="rounded-2xl border border-sky-900/10 bg-white/35 p-4 shadow-sm shadow-sky-950/5 dark:border-white/10 dark:bg-white/[0.04]">
     <div className="mb-3">
       <h3 className="text-base font-semibold tracking-tight text-sky-950 dark:text-white">
         {title}
@@ -202,6 +205,213 @@ const AdjustmentsPanel: React.FC<{
           <div className="text-lg font-semibold tabular-nums">
             {format(netCommission)}
           </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const makeAdjustmentId = () => {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `adj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+};
+
+const formatPercentInput = (value: number) => {
+  const safe = Number.isFinite(value) ? value : 0;
+  return String(parseFloat((safe * 100).toFixed(4)));
+};
+
+const parsePercentInput = (raw: string) => {
+  const normalized = Number(String(raw).replace(",", "."));
+  if (!Number.isFinite(normalized)) return 0;
+  return normalized / 100;
+};
+
+const ServiceAdjustmentsEditor: React.FC<{
+  items: BillingAdjustmentConfig[];
+  onChange: (next: BillingAdjustmentConfig[]) => void;
+  disabled?: boolean;
+}> = ({ items, onChange, disabled = false }) => {
+  const addItem = () => {
+    const next: BillingAdjustmentConfig = {
+      id: makeAdjustmentId(),
+      label: "Ajuste servicio",
+      kind: "cost",
+      basis: "sale",
+      valueType: "percent",
+      value: 0,
+      active: true,
+      source: "service",
+    };
+    onChange([...items, next]);
+  };
+
+  const updateItem = (
+    id: string,
+    patch: Partial<BillingAdjustmentConfig>,
+  ) => {
+    onChange(items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  };
+
+  const removeItem = (id: string) => {
+    onChange(items.filter((item) => item.id !== id));
+  };
+
+  return (
+    <div className="mt-6 rounded-2xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-sm shadow-sky-950/10 dark:text-white">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold">Ajustes por servicio</h3>
+          <p className="text-[11px] opacity-70">
+            Se aplican solo al servicio actual. En venta total por reserva se
+            toman a nivel resumen.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={addItem}
+          disabled={disabled}
+          className="rounded-full border border-white/10 bg-white/20 px-3 py-1 text-xs font-semibold shadow-sm shadow-sky-950/10 transition disabled:opacity-50 dark:bg-white/10"
+        >
+          Agregar mini ajuste
+        </button>
+      </div>
+
+      {items.length === 0 ? (
+        <p className="text-xs opacity-70">No hay ajustes por servicio.</p>
+      ) : (
+        <div className="space-y-3">
+          {items.map((item) => (
+            <div
+              key={item.id}
+              className="rounded-xl border border-white/10 bg-white/5 p-3"
+            >
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="ml-1 block text-xs font-medium opacity-80">
+                    Nombre
+                  </label>
+                  <input
+                    type="text"
+                    value={item.label}
+                    disabled={disabled}
+                    onChange={(e) => updateItem(item.id, { label: e.target.value })}
+                    className="w-full rounded-xl border border-white/10 bg-white/60 px-2.5 py-1.5 text-sm outline-none dark:bg-white/10"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="ml-1 block text-xs font-medium opacity-80">
+                    Tipo
+                  </label>
+                  <select
+                    value={item.kind}
+                    disabled={disabled}
+                    onChange={(e) =>
+                      updateItem(item.id, {
+                        kind: e.target.value as BillingAdjustmentConfig["kind"],
+                      })
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-white/60 px-2.5 py-1.5 text-sm outline-none dark:bg-white/10"
+                  >
+                    <option value="cost">Costo</option>
+                    <option value="tax">Impuesto</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="ml-1 block text-xs font-medium opacity-80">
+                    Base
+                  </label>
+                  <select
+                    value={item.basis}
+                    disabled={disabled}
+                    onChange={(e) =>
+                      updateItem(item.id, {
+                        basis: e.target.value as BillingAdjustmentConfig["basis"],
+                      })
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-white/60 px-2.5 py-1.5 text-sm outline-none dark:bg-white/10"
+                  >
+                    <option value="sale">Venta</option>
+                    <option value="cost">Costo</option>
+                    <option value="margin">Ganancia</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="ml-1 block text-xs font-medium opacity-80">
+                    Modo
+                  </label>
+                  <select
+                    value={item.valueType}
+                    disabled={disabled}
+                    onChange={(e) =>
+                      updateItem(item.id, {
+                        valueType:
+                          e.target.value as BillingAdjustmentConfig["valueType"],
+                        value: item.value,
+                      })
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-white/60 px-2.5 py-1.5 text-sm outline-none dark:bg-white/10"
+                  >
+                    <option value="percent">Porcentaje</option>
+                    <option value="fixed">Monto fijo</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="ml-1 block text-xs font-medium opacity-80">
+                    {item.valueType === "percent" ? "Valor (%)" : "Valor fijo"}
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={
+                      item.valueType === "percent"
+                        ? formatPercentInput(item.value)
+                        : String(item.value)
+                    }
+                    disabled={disabled}
+                    onChange={(e) =>
+                      updateItem(item.id, {
+                        value:
+                          item.valueType === "percent"
+                            ? parsePercentInput(e.target.value)
+                            : Number(e.target.value.replace(",", ".")) || 0,
+                      })
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-white/60 px-2.5 py-1.5 text-sm outline-none dark:bg-white/10"
+                  />
+                </div>
+
+                <div className="flex items-end gap-2">
+                  <label className="inline-flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={item.active}
+                      disabled={disabled}
+                      onChange={(e) =>
+                        updateItem(item.id, { active: e.target.checked })
+                      }
+                      className="size-4 rounded border-sky-900/20 bg-white/80 text-sky-600 shadow-sm shadow-sky-950/10 focus:ring-2 focus:ring-sky-300/50 dark:border-white/20 dark:bg-white/10"
+                    />
+                    Activo
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removeItem(item.id)}
+                    disabled={disabled}
+                    className="rounded-full border border-rose-300/40 bg-rose-200/40 px-3 py-1 text-xs font-semibold text-rose-900 shadow-sm shadow-rose-900/10 disabled:opacity-50 dark:border-rose-400/30 dark:bg-rose-500/10 dark:text-rose-100"
+                  >
+                    Quitar
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -482,6 +692,24 @@ function pickDisplayCurrency(
   return isValidCurrencyCode(first) ? first : "ARS";
 }
 
+function extractServiceAdjustments(
+  source: BillingAdjustmentComputed[] | null | undefined,
+): BillingAdjustmentConfig[] {
+  if (!Array.isArray(source)) return [];
+  return source
+    .filter((item) => item && item.source === "service")
+    .map((item) => ({
+      id: item.id || makeAdjustmentId(),
+      label: item.label || "Ajuste servicio",
+      kind: item.kind,
+      basis: item.basis,
+      valueType: item.valueType,
+      value: Number.isFinite(item.value) ? Number(item.value) : 0,
+      active: item.active !== false,
+      source: "service",
+    }));
+}
+
 /* =========================
  * Componente
  * ========================= */
@@ -538,6 +766,9 @@ export default function ServiceForm({
     number | undefined
   >(undefined);
   const [agencyAdjustments, setAgencyAdjustments] = useState<
+    BillingAdjustmentConfig[]
+  >([]);
+  const [serviceAdjustments, setServiceAdjustments] = useState<
     BillingAdjustmentConfig[]
   >([]);
   const [baseBillingData, setBaseBillingData] = useState<BillingData | null>(
@@ -667,6 +898,11 @@ export default function ServiceForm({
       setManualOverride(false);
     }
   }, [agencyBillingMode, isFormVisible]);
+
+  useEffect(() => {
+    if (!isFormVisible) return;
+    setServiceAdjustments(extractServiceAdjustments(formData.extra_adjustments));
+  }, [editingServiceId, formData.extra_adjustments, isFormVisible]);
 
   /* ===================================================
    * Fetch de config por TIPO (solo si el form está abierto)
@@ -1156,17 +1392,30 @@ export default function ServiceForm({
     a.transferFeeAmount === b.transferFeeAmount &&
     a.transferFeePct === b.transferFeePct;
 
+  const combinedAdjustments = useMemo<BillingAdjustmentConfig[]>(
+    () => [
+      ...agencyAdjustments.map((item) => ({ ...item, source: "global" as const })),
+      ...serviceAdjustments.map((item) => ({ ...item, source: "service" as const })),
+    ],
+    [agencyAdjustments, serviceAdjustments],
+  );
+
   const adjustmentTotals = useMemo(() => {
     if (useBookingSaleTotal) {
-      return { items: [], totalCosts: 0, totalTaxes: 0, total: 0 };
+      return {
+        items: combinedAdjustments.map((item) => ({ ...item, amount: 0 })),
+        totalCosts: 0,
+        totalTaxes: 0,
+        total: 0,
+      };
     }
     return computeBillingAdjustments(
-      agencyAdjustments,
+      combinedAdjustments,
       Number(formData.sale_price || 0),
       Number(formData.cost_price || 0),
     );
   }, [
-    agencyAdjustments,
+    combinedAdjustments,
     formData.sale_price,
     formData.cost_price,
     useBookingSaleTotal,
@@ -1176,8 +1425,7 @@ export default function ServiceForm({
     if (!baseBillingData) return null;
     const base = Number(baseBillingData.totalCommissionWithoutVAT || 0);
     const fee = Number(baseBillingData.transferFeeAmount || 0);
-    const net = base - fee - adjustmentTotals.total;
-    return Math.max(net, 0);
+    return base - fee - adjustmentTotals.total;
   }, [adjustmentTotals.total, baseBillingData]);
 
   useEffect(() => {
@@ -1218,7 +1466,7 @@ export default function ServiceForm({
         transition: { duration: 0.35, ease: "easeInOut" },
       }}
       id="service-form"
-      className="mb-6 overflow-auto rounded-3xl border border-white/10 bg-white/10 text-sky-950 shadow-md shadow-sky-950/10 dark:text-white"
+      className="mb-6 overflow-auto rounded-3xl border border-sky-900/10 bg-white/20 text-sky-950 shadow-md shadow-sky-950/10 dark:border-white/10 dark:bg-white/[0.05] dark:text-white"
     >
       {/* HEADER */}
       <div
@@ -1347,7 +1595,7 @@ export default function ServiceForm({
                     onChange={handleChange}
                     required
                     disabled={loadingTypes}
-                    className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                     aria-describedby="type-hint"
                   >
                     {loadingTypes && (
@@ -1397,7 +1645,7 @@ export default function ServiceForm({
                     value={formData.description || ""}
                     onChange={handlePresetSensitiveChange}
                     placeholder="Detalle del servicio..."
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                   />
                 </Field>
 
@@ -1411,7 +1659,7 @@ export default function ServiceForm({
                         onChange={(e) =>
                           handleNoDestinationToggle(e.target.checked)
                         }
-                        className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
+                        className="size-4 rounded border-sky-900/20 bg-white/80 text-sky-600 shadow-sm shadow-sky-950/10 focus:ring-2 focus:ring-sky-300/50 dark:border-white/20 dark:bg-white/10"
                       />
                       Sin destino
                     </label>
@@ -1422,7 +1670,7 @@ export default function ServiceForm({
                       checked={countryMode}
                       onChange={(e) => setCountryMode(e.target.checked)}
                       disabled={noDestination}
-                      className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
+                      className="size-4 rounded border-sky-900/20 bg-white/80 text-sky-600 shadow-sm shadow-sky-950/10 focus:ring-2 focus:ring-sky-300/50 dark:border-white/20 dark:bg-white/10"
                     />
                     Solo país
                   </label>
@@ -1432,7 +1680,7 @@ export default function ServiceForm({
                       checked={multiMode}
                       onChange={(e) => setMultiMode(e.target.checked)}
                       disabled={noDestination}
-                      className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
+                      className="size-4 rounded border-sky-900/20 bg-white/80 text-sky-600 shadow-sm shadow-sky-950/10 focus:ring-2 focus:ring-sky-300/50 dark:border-white/20 dark:bg-white/10"
                     />
                     Múltiples destinos
                   </label>
@@ -1484,7 +1732,7 @@ export default function ServiceForm({
                     value={formData.reference || ""}
                     onChange={handleChange}
                     placeholder="Ej: ABC12345"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                   />
                 </Field>
               </Section>
@@ -1510,7 +1758,7 @@ export default function ServiceForm({
                     onBlur={handleDateBlur}
                     inputMode="numeric"
                     placeholder="dd/mm/aaaa"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                   />
                 </Field>
 
@@ -1533,7 +1781,7 @@ export default function ServiceForm({
                     onBlur={handleDateBlur}
                     inputMode="numeric"
                     placeholder="dd/mm/aaaa"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                   />
                 </Field>
 
@@ -1543,7 +1791,7 @@ export default function ServiceForm({
                     name="id_operator"
                     value={formData.id_operator || 0}
                     onChange={handleChange}
-                    className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                   >
                     <option value={0} disabled>
                       Seleccionar operador
@@ -1564,7 +1812,7 @@ export default function ServiceForm({
                     onChange={handlePresetSensitiveChange}
                     required
                     disabled={currencyOptions.length === 0}
-                    className="w-full cursor-pointer appearance-none rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                   >
                     <option value="" disabled>
                       {loadingCurrencies
@@ -1638,7 +1886,7 @@ export default function ServiceForm({
                             onChange={(e) =>
                               setManualOverride(e.target.checked)
                             }
-                            className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
+                            className="size-4 rounded border-sky-900/20 bg-white/80 text-sky-600 shadow-sm shadow-sky-950/10 focus:ring-2 focus:ring-sky-300/50 dark:border-white/20 dark:bg-white/10"
                           />
                           Manual
                         </label>
@@ -1662,7 +1910,7 @@ export default function ServiceForm({
                       step="0.01"
                       min="0"
                       required
-                      className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                      className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                     />
                   </div>
                   <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
@@ -1692,7 +1940,7 @@ export default function ServiceForm({
                       min="0"
                       required={!useBookingSaleTotal}
                       disabled={useBookingSaleTotal}
-                      className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                      className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                     />
                   </div>
                   <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
@@ -1713,7 +1961,7 @@ export default function ServiceForm({
                         placeholder="0,00"
                         step="0.01"
                         min="0"
-                        className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                        className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                       />
                       <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
                         {formatCurrency(formData.tax_21 || 0)}
@@ -1730,7 +1978,7 @@ export default function ServiceForm({
                         placeholder="0,00"
                         step="0.01"
                         min="0"
-                        className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                        className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                       />
                       <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
                         {formatCurrency(formData.tax_105 || 0)}
@@ -1747,7 +1995,7 @@ export default function ServiceForm({
                         placeholder="0,00"
                         step="0.01"
                         min="0"
-                        className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                        className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                       />
                       <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
                         {formatCurrency(formData.exempt || 0)}
@@ -1770,7 +2018,7 @@ export default function ServiceForm({
                     placeholder="0,00"
                     step="0.01"
                     min="0"
-                    className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                    className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                   />
                   <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
                     {formatCurrency(formData.other_taxes || 0)}
@@ -1800,7 +2048,7 @@ export default function ServiceForm({
                         placeholder="0,00"
                         step="0.01"
                         min="0"
-                        className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                        className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                       />
                       <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
                         {formatCurrency(formData.card_interest || 0)}
@@ -1817,7 +2065,7 @@ export default function ServiceForm({
                         placeholder="0,00"
                         step="0.01"
                         min="0"
-                        className="w-full rounded-2xl border border-white/10 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-white/10"
+                        className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                       />
                       <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
                         {formatCurrency(formData.card_interest_21 || 0)}
@@ -1841,6 +2089,12 @@ export default function ServiceForm({
                   </div>
                 </div>
               </Section>
+
+              <ServiceAdjustmentsEditor
+                items={serviceAdjustments}
+                onChange={setServiceAdjustments}
+                disabled={waitingConfig}
+              />
 
               {/* DESGLOSE */}
               {hasPrices &&
@@ -1866,6 +2120,8 @@ export default function ServiceForm({
                     moneda={displayCurrency}
                     onBillingUpdate={handleBaseBillingUpdate}
                     transferFeePct={pctToShow}
+                    allowBreakdownOverrideEdit={canOverrideBillingMode}
+                    initialBreakdownOverride={formData.billing_override}
                   />
                 ))}
 

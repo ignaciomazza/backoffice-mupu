@@ -1168,15 +1168,21 @@ export default function ServicesPage() {
         ? `/api/services/${editingServiceId}`
         : "/api/services";
 
+      const {
+        breakdownOverride,
+        ...billingPayload
+      } = billingData;
+
       const payload = {
         ...formData,
         booking_id: booking.id_booking,
-        ...billingData,
+        ...billingPayload,
         transfer_fee_pct: billingData.transferFeePct,
         transfer_fee_amount: billingData.transferFeeAmount,
         extra_costs_amount: billingData.extraCostsAmount,
         extra_taxes_amount: billingData.extraTaxesAmount,
         extra_adjustments: billingData.extraAdjustments,
+        billing_override: breakdownOverride ?? null,
       };
 
       const res = await authFetch(

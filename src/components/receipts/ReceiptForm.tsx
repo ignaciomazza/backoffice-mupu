@@ -1601,6 +1601,7 @@ export default function ReceiptForm({
 
   return (
     <motion.div
+      id="receipt-form"
       layout
       initial={{ maxHeight: 96, opacity: 1 }}
       animate={{

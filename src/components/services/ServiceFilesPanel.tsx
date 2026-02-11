@@ -219,13 +219,13 @@ export default function ServiceFilesPanel({
   };
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-inner shadow-sky-950/5">
+    <div className="rounded-2xl border border-sky-900/10 bg-white/30 p-4 shadow-sm shadow-sky-950/5 dark:border-white/10 dark:bg-white/[0.03]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-sky-900/70 dark:text-sky-100/70">
-            Documentos del servicio
+          <p className="text-xs uppercase tracking-[0.18em] text-sky-900/60 dark:text-sky-100/60">
+            Archivos del servicio
           </p>
-          <p className="text-sm text-sky-950/80 dark:text-white/80">
+          <p className="text-sm font-medium text-sky-950/85 dark:text-white/85">
             {fileLabel}
           </p>
         </div>
@@ -258,13 +258,13 @@ export default function ServiceFilesPanel({
           {files.map((file) => (
             <div
               key={file.id_file}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/60 px-3 py-2 dark:bg-white/5"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-900/10 bg-white/75 px-3 py-2 dark:border-white/10 dark:bg-white/[0.05]"
             >
               <div className="min-w-0">
                 <p className="truncate font-medium">
                   {file.display_name || file.original_name}
                 </p>
-                <p className="text-xs text-sky-900/60 dark:text-white/60">
+                <p className="text-xs text-sky-900/55 dark:text-white/55">
                   {formatBytes(file.size_bytes)} ·{" "}
                   {new Date(file.created_at).toLocaleDateString("es-AR")}
                 </p>

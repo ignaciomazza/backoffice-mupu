@@ -156,6 +156,25 @@ function normalizeSaleTotals(
   return out;
 }
 
+function parseNullableBool(input: unknown): boolean | null | undefined {
+  if (input === undefined) return undefined;
+  if (input === null) return null;
+  if (typeof input === "boolean") return input;
+  if (typeof input === "number") {
+    if (input === 1) return true;
+    if (input === 0) return false;
+    return undefined;
+  }
+  if (typeof input === "string") {
+    const normalized = input.trim().toLowerCase();
+    if (["1", "true", "t", "yes", "y", "on"].includes(normalized)) return true;
+    if (["0", "false", "f", "no", "n", "off"].includes(normalized))
+      return false;
+    if (["null", ""].includes(normalized)) return null;
+  }
+  return undefined;
+}
+
 type CommissionValidationResult = {
   value:
     | ReturnType<typeof normalizeCommissionOverrides>
@@ -414,39 +433,112 @@ export default async function handler(
   }
 
   if (req.method === "PATCH") {
-    const { commission_overrides } = req.body ?? {};
+    const {
+      commission_overrides,
+      sale_totals,
+      use_booking_sale_total_override,
+    } = req.body ?? {};
 
-    if (commission_overrides === undefined) {
+    if (
+      commission_overrides === undefined &&
+      sale_totals === undefined &&
+      use_booking_sale_total_override === undefined
+    ) {
       return res.status(400).json({
-        error: "commission_overrides requerido.",
+        error:
+          "Debés enviar al menos uno de estos campos: commission_overrides, sale_totals, use_booking_sale_total_override.",
       });
     }
 
-    const commissionValidation = await normalizeAndValidateCommissionOverrides({
-      commission_overrides,
+    const canEditSaleMode = ["gerente", "administrativo", "desarrollador"].includes(
       role,
-      authAgencyId,
-      existing,
-    });
-    if (commissionValidation.error) {
-      return res
-        .status(commissionValidation.status ?? 400)
-        .json({ error: commissionValidation.error });
+    );
+
+    let normalizedSaleTotals:
+      | Record<string, number>
+      | null
+      | undefined = undefined;
+    if (sale_totals !== undefined) {
+      if (sale_totals === null) {
+        normalizedSaleTotals = null;
+      } else {
+        const normalized = normalizeSaleTotals(sale_totals);
+        if (normalized == null) {
+          return res.status(400).json({
+            error: "sale_totals inválido (espera objeto {MONEDA: monto})",
+          });
+        }
+        normalizedSaleTotals = normalized;
+      }
     }
 
-    const normalizedCommissionOverrides = commissionValidation.value;
-    if (normalizedCommissionOverrides === undefined) {
-      return res.status(400).json({ error: "Comisiones inválidas." });
+    const parsedSaleTotalOverride = parseNullableBool(
+      use_booking_sale_total_override,
+    );
+    if (
+      use_booking_sale_total_override !== undefined &&
+      parsedSaleTotalOverride === undefined
+    ) {
+      return res.status(400).json({
+        error:
+          "use_booking_sale_total_override inválido (acepta true/false/null).",
+      });
+    }
+    if (
+      use_booking_sale_total_override !== undefined &&
+      !canEditSaleMode
+    ) {
+      return res.status(403).json({
+        error: "Sin permisos para modificar venta total por reserva.",
+      });
+    }
+
+    let normalizedCommissionOverrides:
+      | ReturnType<typeof normalizeCommissionOverrides>
+      | null
+      | undefined = undefined;
+    if (commission_overrides !== undefined) {
+      const commissionValidation =
+        await normalizeAndValidateCommissionOverrides({
+          commission_overrides,
+          role,
+          authAgencyId,
+          existing,
+        });
+      if (commissionValidation.error) {
+        return res
+          .status(commissionValidation.status ?? 400)
+          .json({ error: commissionValidation.error });
+      }
+      normalizedCommissionOverrides = commissionValidation.value;
+      if (normalizedCommissionOverrides === undefined) {
+        return res.status(400).json({ error: "Comisiones inválidas." });
+      }
     }
 
     try {
       const booking = await prisma.booking.update({
         where: { id_booking: existing.id_booking },
         data: {
-          commission_overrides:
-            normalizedCommissionOverrides === null
-              ? Prisma.DbNull
-              : normalizedCommissionOverrides,
+          ...(normalizedCommissionOverrides !== undefined
+            ? {
+                commission_overrides:
+                  normalizedCommissionOverrides === null
+                    ? Prisma.DbNull
+                    : normalizedCommissionOverrides,
+              }
+            : {}),
+          ...(normalizedSaleTotals !== undefined
+            ? {
+                sale_totals:
+                  normalizedSaleTotals === null
+                    ? Prisma.DbNull
+                    : normalizedSaleTotals,
+              }
+            : {}),
+          ...(parsedSaleTotalOverride !== undefined
+            ? { use_booking_sale_total_override: parsedSaleTotalOverride }
+            : {}),
         },
         include: {
           titular: true,
@@ -459,7 +551,7 @@ export default async function handler(
       return res.status(200).json(booking);
     } catch (error) {
       console.error(
-        "[bookings][PATCH commission] Error:",
+        "[bookings][PATCH] Error:",
         error instanceof Error ? error.message : error,
       );
       return res.status(500).json({ error: "Error actualizando la reserva." });
@@ -479,6 +571,7 @@ export default async function handler(
       departure_date,
       return_date,
       sale_totals,
+      use_booking_sale_total_override,
       commission_overrides,
       // pax_count (se recalcula abajo, no se usa del body)
       clients_ids,
@@ -522,6 +615,27 @@ export default async function handler(
     }
     const saleTotalsValue =
       normalizedSaleTotals === null ? Prisma.DbNull : normalizedSaleTotals;
+
+    const parsedSaleTotalOverride = parseNullableBool(
+      use_booking_sale_total_override,
+    );
+    if (
+      use_booking_sale_total_override !== undefined &&
+      parsedSaleTotalOverride === undefined
+    ) {
+      return res.status(400).json({
+        error:
+          "use_booking_sale_total_override inválido (acepta true/false/null).",
+      });
+    }
+    if (
+      use_booking_sale_total_override !== undefined &&
+      !["gerente", "administrativo", "desarrollador"].includes(role)
+    ) {
+      return res.status(403).json({
+        error: "Sin permisos para modificar venta total por reserva.",
+      });
+    }
 
     const commissionValidation = await normalizeAndValidateCommissionOverrides({
       commission_overrides,
@@ -764,6 +878,9 @@ export default async function handler(
             ...(normalizedSaleTotals !== undefined
               ? { sale_totals: saleTotalsValue }
               : {}),
+            ...(parsedSaleTotalOverride !== undefined
+              ? { use_booking_sale_total_override: parsedSaleTotalOverride }
+              : {}),
             ...(normalizedCommissionOverrides !== undefined
               ? {
                   commission_overrides:
@@ -865,6 +982,6 @@ export default async function handler(
     }
   }
 
-  res.setHeader("Allow", ["GET", "PUT", "DELETE"]);
+  res.setHeader("Allow", ["GET", "PATCH", "PUT", "DELETE"]);
   return res.status(405).end(`Method ${req.method} Not Allowed`);
 }

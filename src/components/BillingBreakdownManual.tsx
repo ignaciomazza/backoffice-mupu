@@ -54,16 +54,10 @@ export default function BillingBreakdownManual({
   const transferFee = round(importeVenta * (transferFeePct ?? 0), 2);
 
   // Comisión **antes** del fee (para respetar contrato: totalCommissionWithoutVAT = base antes del fee)
-  const commissionBeforeFee = round(
-    Math.max(importeVenta - costo - impuestos, 0),
-    2,
-  );
+  const commissionBeforeFee = round(importeVenta - costo - impuestos, 2);
 
   // Comisión **neta** (lo que verá el usuario como “sin impuestos / neta de fee”)
-  const commissionNet = round(
-    Math.max(commissionBeforeFee - transferFee, 0),
-    2,
-  );
+  const commissionNet = round(commissionBeforeFee - transferFee, 2);
 
   // En modo manual asumimos exento total → no computables y bases gravadas/IVA = 0
   useEffect(() => {

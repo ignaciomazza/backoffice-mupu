@@ -90,6 +90,7 @@ export default async function handler(
         id_user: true,
         creation_date: true,
         sale_totals: true,
+        use_booking_sale_total_override: true,
         commission_overrides: true,
       },
     });
@@ -117,7 +118,11 @@ export default async function handler(
       where: { id_agency: auth.id_agency },
       select: { use_booking_sale_total: true, billing_adjustments: true },
     });
-    const useBookingSaleTotal = Boolean(calcConfig?.use_booking_sale_total);
+    const inheritedUseBookingSaleTotal = Boolean(calcConfig?.use_booking_sale_total);
+    const useBookingSaleTotal =
+      typeof booking.use_booking_sale_total_override === "boolean"
+        ? booking.use_booking_sale_total_override
+        : inheritedUseBookingSaleTotal;
     const billingAdjustments = Array.isArray(calcConfig?.billing_adjustments)
       ? (calcConfig?.billing_adjustments as unknown[])
       : [];
@@ -150,6 +155,7 @@ export default async function handler(
         transfer_fee_pct: true,
         extra_costs_amount: true,
         extra_taxes_amount: true,
+        extra_adjustments: true,
       },
     });
 
@@ -184,23 +190,84 @@ export default async function handler(
       const totals =
         Object.keys(saleTotals).length > 0 ? saleTotals : fallbackTotals;
 
+      const serviceAdjustmentsByCurrency: Record<string, BillingAdjustmentConfig[]> =
+        {};
+      for (const s of services) {
+        const cur = String(s.currency || "").trim().toUpperCase();
+        if (!cur || !isCurrencyAllowed(cur)) continue;
+        const items = Array.isArray(s.extra_adjustments)
+          ? (s.extra_adjustments as unknown[])
+          : [];
+        if (!items.length) continue;
+        const normalized = items
+          .filter((item) => {
+            if (!item || typeof item !== "object") return false;
+            const rec = item as Record<string, unknown>;
+            return (
+              rec.active !== false &&
+              String(rec.source || "").toLowerCase() === "service"
+            );
+          })
+          .map((item, idx): BillingAdjustmentConfig => {
+            const rec = item as Record<string, unknown>;
+            const kind: BillingAdjustmentConfig["kind"] =
+              rec.kind === "tax" || rec.kind === "cost" ? rec.kind : "cost";
+            const basis: BillingAdjustmentConfig["basis"] =
+              rec.basis === "cost" ||
+              rec.basis === "margin" ||
+              rec.basis === "sale"
+                ? rec.basis
+                : "sale";
+            const valueType: BillingAdjustmentConfig["valueType"] =
+              rec.valueType === "fixed" || rec.valueType === "percent"
+                ? rec.valueType
+                : "percent";
+            const value =
+              typeof rec.value === "number"
+                ? rec.value
+                : Number(String(rec.value ?? "").replace(",", "."));
+            return {
+              id:
+                typeof rec.id === "string" && rec.id
+                  ? rec.id
+                  : `service-${s.id_service}-${idx}`,
+              label:
+                typeof rec.label === "string" && rec.label
+                  ? rec.label
+                  : "Ajuste servicio",
+              kind,
+              basis,
+              valueType,
+              value: Number.isFinite(value) ? value : 0,
+              active: rec.active !== false,
+              source: "service",
+            };
+          });
+        if (!normalized.length) continue;
+        serviceAdjustmentsByCurrency[cur] = [
+          ...(serviceAdjustmentsByCurrency[cur] || []),
+          ...normalized,
+        ];
+      }
+
       for (const [cur, total] of Object.entries(totals)) {
         if (!isCurrencyAllowed(cur)) continue;
         const sale = Number(total) || 0;
         const cost = Number(costTotals[cur] || 0);
         const taxes = Number(taxTotals[cur] || 0);
-        const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
+        const commissionBeforeFee = sale - cost - taxes;
         const fee =
           sale * (Number.isFinite(agencyFeePct) ? agencyFeePct : 0.024);
+        const combinedAdjustments = [
+          ...(billingAdjustments as BillingAdjustmentConfig[]),
+          ...(serviceAdjustmentsByCurrency[cur] || []),
+        ];
         const adjustments = computeBillingAdjustments(
-          billingAdjustments as BillingAdjustmentConfig[],
+          combinedAdjustments,
           sale,
           cost,
-        ).total;
-        commissionBaseByCurrency[cur] = Math.max(
-          commissionBeforeFee - fee - adjustments,
-          0,
         );
+        commissionBaseByCurrency[cur] = commissionBeforeFee - fee - adjustments.total;
       }
     } else {
       // Base por moneda (mismo cálculo de /api/earnings)
@@ -218,10 +285,7 @@ export default async function handler(
         const dbCommission = Number(s.totalCommissionWithoutVAT ?? 0);
         const extraCosts = Number(s.extra_costs_amount ?? 0);
         const extraTaxes = Number(s.extra_taxes_amount ?? 0);
-        inc(
-          cur,
-          Math.max(dbCommission - fee - extraCosts - extraTaxes, 0),
-        );
+        inc(cur, dbCommission - fee - extraCosts - extraTaxes);
       }
     }
 
@@ -298,7 +362,7 @@ export default async function handler(
         const dbCommission = Number(s.totalCommissionWithoutVAT ?? 0);
         const extraCosts = Number(s.extra_costs_amount ?? 0);
         const extraTaxes = Number(s.extra_taxes_amount ?? 0);
-        const base = Math.max(dbCommission - fee - extraCosts - extraTaxes, 0);
+        const base = dbCommission - fee - extraCosts - extraTaxes;
         const { sellerPct } = resolveCommissionForContext({
           rule,
           overrides: custom,

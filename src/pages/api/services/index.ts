@@ -38,6 +38,15 @@ function parseBool(input: unknown, fallback: boolean): boolean {
   return fallback;
 }
 
+function toNullableNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n =
+    typeof value === "number"
+      ? value
+      : Number(String(value).replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
 type PendingServiceLite = {
   id_service: number;
   agency_service_id: number | null;
@@ -448,6 +457,7 @@ export default async function handler(
       vatOnCardInterest,
       transfer_fee_pct,
       transfer_fee_amount,
+      billing_override,
       extra_costs_amount,
       extra_taxes_amount,
       extra_adjustments,
@@ -463,6 +473,14 @@ export default async function handler(
       return res.status(400).json({
         error:
           "Faltan campos obligatorios: tipo, precios, moneda o N° de reserva.",
+      });
+    }
+
+    const salePriceNum = toNullableNumber(sale_price);
+    const costPriceNum = toNullableNumber(cost_price);
+    if (salePriceNum == null || costPriceNum == null) {
+      return res.status(400).json({
+        error: "Precios inválidos.",
       });
     }
 
@@ -503,38 +521,40 @@ export default async function handler(
             type,
             description: description || null,
             note: note || null,
-            sale_price,
-            cost_price,
+            sale_price: salePriceNum,
+            cost_price: costPriceNum,
             destination: destination || "",
             reference: reference || "",
-            tax_21: tax_21 || null,
-            tax_105: tax_105 || null,
-            exempt: exempt || null,
-            other_taxes: other_taxes || null,
+            tax_21: toNullableNumber(tax_21),
+            tax_105: toNullableNumber(tax_105),
+            exempt: toNullableNumber(exempt),
+            other_taxes: toNullableNumber(other_taxes),
             currency,
             departure_date: parsedDepartureDate,
             return_date: parsedReturnDate,
             booking: { connect: { id_booking: Number(booking_id) } },
             agency: { connect: { id_agency: bookingExists.id_agency } },
             operator: { connect: { id_operator: Number(id_operator) } },
-            nonComputable: nonComputable || null,
-            taxableBase21: taxableBase21 || null,
-            taxableBase10_5: taxableBase10_5 || null,
-            commissionExempt: commissionExempt || null,
-            commission21: commission21 || null,
-            commission10_5: commission10_5 || null,
-            vatOnCommission21: vatOnCommission21 || null,
-            vatOnCommission10_5: vatOnCommission10_5 || null,
-            totalCommissionWithoutVAT: totalCommissionWithoutVAT || null,
-            impIVA: impIVA || null,
-            card_interest: card_interest || null,
-            card_interest_21: card_interest_21 || null,
-            taxableCardInterest: taxableCardInterest || null,
-            vatOnCardInterest: vatOnCardInterest || null,
-            transfer_fee_pct: transfer_fee_pct ?? null,
-            transfer_fee_amount: transfer_fee_amount ?? null,
-            extra_costs_amount: extra_costs_amount ?? null,
-            extra_taxes_amount: extra_taxes_amount ?? null,
+            nonComputable: toNullableNumber(nonComputable),
+            taxableBase21: toNullableNumber(taxableBase21),
+            taxableBase10_5: toNullableNumber(taxableBase10_5),
+            commissionExempt: toNullableNumber(commissionExempt),
+            commission21: toNullableNumber(commission21),
+            commission10_5: toNullableNumber(commission10_5),
+            vatOnCommission21: toNullableNumber(vatOnCommission21),
+            vatOnCommission10_5: toNullableNumber(vatOnCommission10_5),
+            totalCommissionWithoutVAT: toNullableNumber(totalCommissionWithoutVAT),
+            impIVA: toNullableNumber(impIVA),
+            card_interest: toNullableNumber(card_interest),
+            card_interest_21: toNullableNumber(card_interest_21),
+            taxableCardInterest: toNullableNumber(taxableCardInterest),
+            vatOnCardInterest: toNullableNumber(vatOnCardInterest),
+            transfer_fee_pct: toNullableNumber(transfer_fee_pct),
+            transfer_fee_amount: toNullableNumber(transfer_fee_amount),
+            billing_override:
+              billing_override == null ? Prisma.DbNull : billing_override,
+            extra_costs_amount: toNullableNumber(extra_costs_amount),
+            extra_taxes_amount: toNullableNumber(extra_taxes_amount),
             extra_adjustments: extra_adjustments ?? null,
           },
           include: { booking: true, operator: true },

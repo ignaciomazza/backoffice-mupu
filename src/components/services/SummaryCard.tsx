@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 import type {
   Service,
   Receipt,
+  OperatorDue,
   BillingAdjustmentConfig,
   BillingAdjustmentComputed,
   CommissionOverrides,
@@ -47,6 +48,7 @@ interface SummaryCardProps {
   /** Datos crudos para calcular deuda y comisión */
   services: Service[];
   receipts: Receipt[];
+  operatorDues?: OperatorDue[];
   useBookingSaleTotal?: boolean;
   bookingSaleTotals?: Record<string, number | string> | null;
   ownerPctOverride?: number | null;
@@ -93,6 +95,22 @@ type AdjustmentLabelTotal = {
   amount: number;
 };
 
+type ServiceDebtBreakdownRow = {
+  serviceId: number;
+  currency: string;
+  label: string;
+  sale: number;
+  paid: number;
+  debt: number;
+};
+
+type OperatorDebtBreakdownRow = {
+  serviceId: number | null;
+  currency: string;
+  label: string;
+  amount: number;
+};
+
 /** Config API */
 type CalcConfigResponse = {
   billing_breakdown_mode: "auto" | "manual";
@@ -111,11 +129,14 @@ type EarningsByBookingResponse = {
 };
 
 /* ---------- UI helpers ---------- */
-const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
-  title,
-  children,
-}) => (
-  <section className="rounded-2xl border border-white/5 bg-white/5 p-3 shadow-sm shadow-sky-950/10">
+const Section: React.FC<{
+  title: string;
+  children: React.ReactNode;
+  className?: string;
+}> = ({ title, children, className }) => (
+  <section
+    className={`rounded-2xl border border-white/5 bg-white/5 p-3 shadow-sm shadow-sky-950/10 ${className || ""}`}
+  >
     <h4 className="mb-2 text-sm font-semibold tracking-tight">{title}</h4>
     <dl className="divide-y divide-white/10">{children}</dl>
   </section>
@@ -206,6 +227,14 @@ const upperKeys = (obj: Record<string, number>) =>
     Object.entries(obj || {}).map(([k, v]) => [String(k).toUpperCase(), v]),
   );
 
+function normalizeStatusKey(value: unknown): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase();
+}
+
 /* ---------- helpers de moneda ---------- */
 function isValidCurrencyCode(code: string): boolean {
   const c = (code || "").trim().toUpperCase();
@@ -258,7 +287,8 @@ export default function SummaryCard({
   fmtCurrency,
   services,
   receipts,
-  useBookingSaleTotal = false,
+  operatorDues = [],
+  useBookingSaleTotal,
   bookingSaleTotals,
   ownerPctOverride = null,
   role,
@@ -442,7 +472,10 @@ export default function SummaryCard({
     return () => ac.abort();
   }, [token, bookingId, refreshKey]);
 
-  const bookingSaleMode = useBookingSaleTotal || useBookingSaleTotalCfg;
+  const bookingSaleMode =
+    typeof useBookingSaleTotal === "boolean"
+      ? useBookingSaleTotal
+      : useBookingSaleTotalCfg;
   const manualMode = agencyMode === "manual" || bookingSaleMode;
 
   /** Normaliza totales por moneda (clave) para evitar códigos no-ISO. */
@@ -566,6 +599,33 @@ export default function SummaryCard({
     }, {});
   }, [services]);
 
+  const serviceAdjustmentsByCurrency = useMemo(() => {
+    const out: Record<string, BillingAdjustmentConfig[]> = {};
+    services.forEach((raw) => {
+      const s = raw as ServiceWithCalcs;
+      const cur = normalizeCurrencyCode(s.currency || "ARS");
+      const items = Array.isArray(s.extra_adjustments)
+        ? s.extra_adjustments
+        : [];
+      if (!items.length) return;
+      const normalized = items
+        .filter((item) => item && item.source === "service" && item.active !== false)
+        .map((item, idx) => ({
+          id: item.id || `service-${s.id_service}-${idx}`,
+          label: item.label || "Ajuste servicio",
+          kind: item.kind,
+          basis: item.basis,
+          valueType: item.valueType,
+          value: toNum(item.value),
+          active: item.active !== false,
+          source: "service" as const,
+        }));
+      if (!normalized.length) return;
+      out[cur] = [...(out[cur] || []), ...normalized];
+    });
+    return out;
+  }, [services]);
+
   const bookingAdjustmentsByCurrency = useMemo(() => {
     if (!bookingSaleMode) return {};
     const out: Record<
@@ -574,7 +634,11 @@ export default function SummaryCard({
     > = {};
     for (const [cur, sale] of Object.entries(saleTotalsByCurrency)) {
       const cost = costTotalsByCurrency[cur] || 0;
-      const totals = computeBillingAdjustments(billingAdjustments, sale, cost);
+      const combinedAdjustments = [
+        ...billingAdjustments,
+        ...(serviceAdjustmentsByCurrency[cur] || []),
+      ];
+      const totals = computeBillingAdjustments(combinedAdjustments, sale, cost);
       out[cur] = totals;
     }
     return out;
@@ -583,6 +647,7 @@ export default function SummaryCard({
     billingAdjustments,
     saleTotalsByCurrency,
     costTotalsByCurrency,
+    serviceAdjustmentsByCurrency,
   ]);
 
   const adjustmentsByCurrency = useMemo(() => {
@@ -591,8 +656,12 @@ export default function SummaryCard({
     if (bookingSaleMode) {
       for (const [cur, sale] of Object.entries(saleTotalsByCurrency)) {
         const cost = costTotalsByCurrency[cur] || 0;
+        const combinedAdjustments = [
+          ...billingAdjustments,
+          ...(serviceAdjustmentsByCurrency[cur] || []),
+        ];
         const items = computeBillingAdjustments(
-          billingAdjustments,
+          combinedAdjustments,
           sale,
           cost,
         ).items;
@@ -636,6 +705,7 @@ export default function SummaryCard({
     bookingSaleMode,
     costTotalsByCurrency,
     saleTotalsByCurrency,
+    serviceAdjustmentsByCurrency,
     services,
   ]);
 
@@ -645,12 +715,18 @@ export default function SummaryCard({
     Object.keys(salesWithInterestByCurrency).forEach((c) => a.add(c));
     Object.keys(saleTotalsByCurrency).forEach((c) => a.add(c));
     Object.keys(paidByCurrency).forEach((c) => a.add(c));
+    operatorDues.forEach((due) => {
+      if (!String(normalizeStatusKey(due?.status)).startsWith("PEND")) return;
+      const cur = normalizeCurrencyCode(String(due?.currency || "ARS"));
+      a.add(cur);
+    });
     return Array.from(a);
   }, [
     totalsNorm,
     salesWithInterestByCurrency,
     saleTotalsByCurrency,
     paidByCurrency,
+    operatorDues,
   ]);
 
   const serviceOptions = useMemo(() => {
@@ -670,6 +746,261 @@ export default function SummaryCard({
   const serviceById = useMemo(() => {
     return new Map(services.map((svc) => [svc.id_service, svc]));
   }, [services]);
+
+  const { paxDebtBreakdownByCurrency, paxUnallocatedPaidByCurrency } = useMemo(
+    () => {
+      const rowsByCurrency: Record<string, ServiceDebtBreakdownRow[]> = {};
+      const unallocatedByCurrency: Record<string, number> = {};
+      const svcList = services as ServiceWithCalcs[];
+
+      const serviceIds = svcList
+        .map((svc) => Number(svc.id_service))
+        .filter((id) => Number.isFinite(id) && id > 0);
+      if (!serviceIds.length) {
+        return {
+          paxDebtBreakdownByCurrency: rowsByCurrency,
+          paxUnallocatedPaidByCurrency: unallocatedByCurrency,
+        };
+      }
+
+      const serviceMap = new Map<number, ServiceWithCalcs>();
+      const serviceCurrency = new Map<number, string>();
+      const serviceLabel = new Map<number, string>();
+      const servicesByCurrency = new Map<string, number[]>();
+      const saleByService = new Map<number, number>();
+
+      svcList.forEach((svc) => {
+        const id = Number(svc.id_service);
+        if (!Number.isFinite(id) || id <= 0) return;
+        serviceMap.set(id, svc);
+
+        const cur = normalizeCurrencyCode(svc.currency || "ARS");
+        serviceCurrency.set(id, cur);
+        const numberLabel = svc.agency_service_id ?? id;
+        const desc = (svc.description || svc.type || "").trim();
+        serviceLabel.set(
+          id,
+          desc ? `N° ${numberLabel} · ${desc}` : `N° ${numberLabel}`,
+        );
+        servicesByCurrency.set(cur, [...(servicesByCurrency.get(cur) || []), id]);
+      });
+
+      if (bookingSaleMode) {
+        for (const [cur, totalSale] of Object.entries(saleTotalsByCurrency)) {
+          const ids = servicesByCurrency.get(cur) || [];
+          if (!ids.length) continue;
+          const weights = ids.map((id) =>
+            Math.max(0, toNum(serviceMap.get(id)?.sale_price)),
+          );
+          const weightSum = weights.reduce((sum, val) => sum + val, 0);
+          ids.forEach((id, idx) => {
+            const share =
+              weightSum > 0
+                ? (toNum(totalSale) * weights[idx]) / weightSum
+                : toNum(totalSale) / ids.length;
+            saleByService.set(id, share);
+          });
+        }
+      } else {
+        serviceMap.forEach((svc, id) => {
+          const sale = toNum(svc.sale_price);
+          const split =
+            toNum(svc.taxableCardInterest) + toNum(svc.vatOnCardInterest);
+          const interest = split > 0 ? split : toNum(svc.card_interest);
+          saleByService.set(id, manualMode ? sale : sale + interest);
+        });
+      }
+
+      const paidByService = new Map<number, number>();
+      serviceIds.forEach((id) => paidByService.set(id, 0));
+
+      const extractReceiptAmounts = (raw: ReceiptWithConversion) => {
+        const out: Record<string, number> = {};
+        const baseCur = raw.base_currency
+          ? normalizeCurrencyCode(String(raw.base_currency))
+          : null;
+        const baseVal = toNum(raw.base_amount ?? 0);
+
+        const amountCur = raw.amount_currency
+          ? normalizeCurrencyCode(String(raw.amount_currency))
+          : null;
+        const amountVal = toNum(raw.amount ?? 0);
+
+        const feeCurRaw = raw.payment_fee_currency;
+        const feeCur =
+          feeCurRaw && String(feeCurRaw).trim() !== ""
+            ? normalizeCurrencyCode(String(feeCurRaw))
+            : (amountCur ?? baseCur);
+        const feeVal = toNum(raw.payment_fee_amount ?? 0);
+
+        if (baseCur) {
+          const value = baseVal + (feeCur === baseCur ? feeVal : 0);
+          if (value) out[baseCur] = (out[baseCur] || 0) + value;
+        } else if (amountCur) {
+          const value = amountVal + (feeCur === amountCur ? feeVal : 0);
+          if (value) out[amountCur] = (out[amountCur] || 0) + value;
+        } else if (feeCur) {
+          if (feeVal) out[feeCur] = (out[feeCur] || 0) + feeVal;
+        }
+
+        return out;
+      };
+
+      receipts.forEach((rawReceipt) => {
+        const receipt = rawReceipt as ReceiptWithConversion;
+        const amounts = extractReceiptAmounts(receipt);
+        const selectedIds = Array.isArray(receipt.serviceIds) && receipt.serviceIds.length
+          ? receipt.serviceIds
+              .map((id) => Number(id))
+              .filter((id) => Number.isFinite(id) && id > 0)
+          : serviceIds;
+
+        Object.entries(amounts).forEach(([cur, amount]) => {
+          if (!amount) return;
+          const targetIds = selectedIds.filter(
+            (id) => serviceCurrency.get(id) === cur,
+          );
+          if (!targetIds.length) {
+            unallocatedByCurrency[cur] = (unallocatedByCurrency[cur] || 0) + amount;
+            return;
+          }
+
+          const weights = targetIds.map((id) =>
+            Math.max(0, saleByService.get(id) || 0),
+          );
+          const weightSum = weights.reduce((sum, val) => sum + val, 0);
+
+          targetIds.forEach((id, idx) => {
+            const allocated =
+              weightSum > 0
+                ? (amount * weights[idx]) / weightSum
+                : amount / targetIds.length;
+            paidByService.set(id, (paidByService.get(id) || 0) + allocated);
+          });
+        });
+      });
+
+      serviceIds.forEach((id) => {
+        const cur = serviceCurrency.get(id) || "ARS";
+        const sale = saleByService.get(id) || 0;
+        const paid = paidByService.get(id) || 0;
+        const row: ServiceDebtBreakdownRow = {
+          serviceId: id,
+          currency: cur,
+          label: serviceLabel.get(id) || `Servicio N° ${id}`,
+          sale,
+          paid,
+          debt: sale - paid,
+        };
+        rowsByCurrency[cur] = [...(rowsByCurrency[cur] || []), row];
+      });
+
+      Object.values(rowsByCurrency).forEach((rows) => {
+        rows.sort((a, b) => a.serviceId - b.serviceId);
+      });
+
+      return {
+        paxDebtBreakdownByCurrency: rowsByCurrency,
+        paxUnallocatedPaidByCurrency: unallocatedByCurrency,
+      };
+    },
+    [bookingSaleMode, manualMode, receipts, saleTotalsByCurrency, services],
+  );
+
+  const { operatorDebtBreakdownByCurrency, operatorDebtTotalsByCurrency } =
+    useMemo(() => {
+      const rowsByCurrency: Record<string, OperatorDebtBreakdownRow[]> = {};
+      const totalsByCurrency: Record<string, number> = {};
+      const grouped = new Map<string, OperatorDebtBreakdownRow>();
+
+      operatorDues.forEach((due) => {
+        if (!String(normalizeStatusKey(due?.status)).startsWith("PEND")) return;
+        const cur = normalizeCurrencyCode(String(due?.currency || "ARS"));
+        const amount = toNum(due?.amount ?? 0);
+        if (!amount) return;
+
+        const rawServiceId = Number(due?.service_id);
+        const serviceId =
+          Number.isFinite(rawServiceId) && rawServiceId > 0
+            ? rawServiceId
+            : null;
+
+        const svc = serviceId != null ? serviceById.get(serviceId) : null;
+        const numberLabel = svc?.agency_service_id ?? serviceId;
+        const desc = (svc?.description || svc?.type || "").trim();
+        const label =
+          serviceId == null
+            ? "Sin servicio asociado"
+            : desc
+              ? `N° ${numberLabel} · ${desc}`
+              : `N° ${numberLabel}`;
+
+        const key = `${cur}:${serviceId ?? "none"}`;
+        const prev = grouped.get(key);
+        if (prev) {
+          prev.amount += amount;
+        } else {
+          grouped.set(key, {
+            serviceId,
+            currency: cur,
+            label,
+            amount,
+          });
+        }
+      });
+
+      grouped.forEach((row) => {
+        rowsByCurrency[row.currency] = [...(rowsByCurrency[row.currency] || []), row];
+        totalsByCurrency[row.currency] =
+          (totalsByCurrency[row.currency] || 0) + row.amount;
+      });
+
+      Object.values(rowsByCurrency).forEach((rows) => {
+        rows.sort((a, b) => {
+          if (a.serviceId == null && b.serviceId != null) return 1;
+          if (a.serviceId != null && b.serviceId == null) return -1;
+          if (a.serviceId == null && b.serviceId == null) return 0;
+          return (a.serviceId || 0) - (b.serviceId || 0);
+        });
+      });
+
+      return {
+        operatorDebtBreakdownByCurrency: rowsByCurrency,
+        operatorDebtTotalsByCurrency: totalsByCurrency,
+      };
+    }, [operatorDues, serviceById]);
+
+  const debtSummaryByCurrency = useMemo(() => {
+    const out: Record<
+      string,
+      { saleForDebt: number; paid: number; debt: number }
+    > = {};
+
+    currencies.forEach((currency) => {
+      const code = normalizeCurrencyCode(currency);
+      const saleBase = bookingSaleMode
+        ? saleTotalsByCurrency[code] || 0
+        : totalsNorm[code]?.sale_price || 0;
+      const saleWithInterest = salesWithInterestByCurrency[code] || 0;
+      const paid = paidByCurrency[code] || 0;
+      const saleForDebt = manualMode ? saleBase : saleWithInterest;
+      out[code] = {
+        saleForDebt,
+        paid,
+        debt: saleForDebt - paid,
+      };
+    });
+
+    return out;
+  }, [
+    bookingSaleMode,
+    currencies,
+    manualMode,
+    paidByCurrency,
+    saleTotalsByCurrency,
+    salesWithInterestByCurrency,
+    totalsNorm,
+  ]);
 
   useEffect(() => {
     if (currencies.length === 0) return;
@@ -704,19 +1035,17 @@ export default function SummaryCard({
     if (!exists) setCommissionScopeServiceId(serviceOptions[0].id);
   }, [commissionScopeServiceId, serviceOptions]);
 
-  /** ====== cálculo local de comisión base por moneda (fallback) ======
-   * commissionBase = max(totalCommissionWithoutVAT - sale_price*transferPct, 0)
-   */
+  /** ====== cálculo local de comisión base por moneda (fallback) ====== */
   const localCommissionBaseByCurrency = useMemo(() => {
     if (bookingSaleMode) {
       const out: Record<string, number> = {};
       for (const [cur, sale] of Object.entries(saleTotalsByCurrency)) {
         const cost = costTotalsByCurrency[cur] || 0;
         const taxes = taxTotalsByCurrency[cur] || 0;
-        const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
+        const commissionBeforeFee = sale - cost - taxes;
         const fee = sale * (Number.isFinite(transferPct) ? transferPct : 0.024);
         const adjustments = bookingAdjustmentsByCurrency[cur]?.total || 0;
-        out[cur] = Math.max(commissionBeforeFee - fee - adjustments, 0);
+        out[cur] = commissionBeforeFee - fee - adjustments;
       }
       return out;
     }
@@ -730,7 +1059,7 @@ export default function SummaryCard({
       const extraCosts = toNum((s as ServiceWithCalcs).extra_costs_amount);
       const extraTaxes = toNum((s as ServiceWithCalcs).extra_taxes_amount);
       const adjustments = extraCosts + extraTaxes;
-      const base = Math.max(dbCommission - fee - adjustments, 0);
+      const base = dbCommission - fee - adjustments;
       acc[cur] = (acc[cur] || 0) + base;
       return acc;
     }, {});
@@ -1175,7 +1504,7 @@ export default function SummaryCard({
             ? bookingAdjustmentsByCurrency[code]?.totalTaxes || 0
             : t.extra_taxes_amount || 0;
           const extraAdjustmentsTotal = extraCosts + extraTaxes;
-          const showAdjustments = extraAdjustmentsTotal > 0;
+          const showAdjustments = Math.abs(extraAdjustmentsTotal) > 0.000001;
           const adjustmentsForCurrency = adjustmentsByCurrency[code] || [];
 
           // Chip de "Impuestos": en AUTO = IVA calculado; en MANUAL = other_taxes
@@ -1185,12 +1514,6 @@ export default function SummaryCard({
                 t.sale_price - t.cost_price - t.totalCommissionWithoutVAT,
                 code,
               );
-
-          // Deuda por moneda
-          const salesWI = salesWithInterestByCurrency[code] || 0;
-          const paid = paidByCurrency[code] || 0;
-          const ventaParaDeuda = manualMode ? saleValue : salesWI;
-          const debt = ventaParaDeuda - paid;
 
           // Comisión base + ganancia del vendedor (preferimos API, sino fallback)
           const netCommission = commissionBaseFor(code);
@@ -1284,20 +1607,6 @@ export default function SummaryCard({
                   </Section>
                 )}
 
-                {/* IVA comisiones (solo AUTO) */}
-                {!manualMode && (
-                  <Section title="IVA sobre comisiones">
-                    <Row
-                      label="IVA 21%"
-                      value={fmt(t.vatOnCommission21, code)}
-                    />
-                    <Row
-                      label="IVA 10,5%"
-                      value={fmt(t.vatOnCommission10_5, code)}
-                    />
-                  </Section>
-                )}
-
                 {showAdjustments && (
                   <Section title="Ajustes extra">
                     <Row
@@ -1311,15 +1620,20 @@ export default function SummaryCard({
                   </Section>
                 )}
 
-                {/* Deuda */}
-                <Section title="Deuda del pax">
-                  <Row
-                    label={manualMode ? "Venta" : "Venta c/ interés"}
-                    value={fmt(ventaParaDeuda, code)}
-                  />
-                  <Row label="Pagos aplicados" value={fmt(paid, code)} />
-                  <Row label="Deuda" value={fmt(debt, code)} />
-                </Section>
+                {/* IVA comisiones (solo AUTO) */}
+                {!manualMode && (
+                  <Section title="IVA sobre comisiones" className="lg:col-span-2">
+                    <Row
+                      label="IVA 21%"
+                      value={fmt(t.vatOnCommission21, code)}
+                    />
+                    <Row
+                      label="IVA 10,5%"
+                      value={fmt(t.vatOnCommission10_5, code)}
+                    />
+                  </Section>
+                )}
+
               </div>
 
               {/* Footer */}
@@ -1688,6 +2002,135 @@ export default function SummaryCard({
           );
         })}
       </div>
+
+      {currencies.length > 0 && (
+        <section className="mt-2 rounded-3xl border border-white/10 bg-white/10 p-4 shadow-sm shadow-sky-950/10">
+          <header className="mb-4 flex items-center justify-between gap-3 px-2">
+            <h3 className="text-lg font-semibold tracking-tight">Deudas</h3>
+            <span className="rounded-full border border-white/10 bg-white/20 px-2.5 py-1 text-xs font-medium">
+              Desglose por moneda y servicio
+            </span>
+          </header>
+
+          <div className={`grid ${colsClass} gap-6`}>
+            {currencies.map((currency) => {
+              const code = normalizeCurrencyCode(currency);
+              const debtSummary = debtSummaryByCurrency[code] || {
+                saleForDebt: 0,
+                paid: 0,
+                debt: 0,
+              };
+              const paxDebtRows = paxDebtBreakdownByCurrency[code] || [];
+              const paxUnallocatedPaid = paxUnallocatedPaidByCurrency[code] || 0;
+              const operatorDebtRows = operatorDebtBreakdownByCurrency[code] || [];
+              const operatorDebtTotal = operatorDebtTotalsByCurrency[code] || 0;
+
+              return (
+                <section
+                  key={`debt-${code}`}
+                  className="rounded-3xl border border-white/10 bg-white/10 p-4 shadow-sm shadow-sky-950/10"
+                >
+                  <header className="mb-3 px-1">
+                    <h4 className="text-base font-semibold">
+                      {labels[code] || code}
+                    </h4>
+                  </header>
+
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <Section title="Deuda del pax">
+                      <Row
+                        label={manualMode ? "Venta" : "Venta c/ interés"}
+                        value={fmt(debtSummary.saleForDebt, code)}
+                      />
+                      <Row
+                        label="Pagos aplicados"
+                        value={fmt(debtSummary.paid, code)}
+                      />
+                      <Row label="Deuda" value={fmt(debtSummary.debt, code)} />
+                      {paxDebtRows.length > 0 && (
+                        <div className="space-y-1 py-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide opacity-60">
+                            Por servicio
+                          </p>
+                          <div className="max-h-44 space-y-1 overflow-auto pr-1">
+                            {paxDebtRows.map((row) => (
+                              <div
+                                key={`${code}-pax-${row.serviceId}`}
+                                className="rounded-xl border border-white/10 bg-white/10 px-2.5 py-2 text-xs dark:bg-white/5"
+                              >
+                                <div className="mb-1 truncate font-medium text-sky-900/85 dark:text-white/85">
+                                  {row.label}
+                                </div>
+                                <div className="flex items-center justify-between gap-2 opacity-80">
+                                  <span>Venta</span>
+                                  <span className="tabular-nums">
+                                    {fmt(row.sale, code)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between gap-2 opacity-80">
+                                  <span>Cobrado</span>
+                                  <span className="tabular-nums">
+                                    {fmt(row.paid, code)}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between gap-2 font-semibold">
+                                  <span>Deuda</span>
+                                  <span className="tabular-nums">
+                                    {fmt(row.debt, code)}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          {Math.abs(paxUnallocatedPaid) > 0.000001 && (
+                            <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                              Cobros sin imputación por servicio:{" "}
+                              {fmt(paxUnallocatedPaid, code)}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </Section>
+
+                    <Section title="Deuda del operador">
+                      <Row
+                        label="Pendiente"
+                        value={fmt(operatorDebtTotal, code)}
+                      />
+                      {operatorDebtRows.length > 0 ? (
+                        <div className="space-y-1 py-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide opacity-60">
+                            Por servicio
+                          </p>
+                          <div className="max-h-44 space-y-1 overflow-auto pr-1">
+                            {operatorDebtRows.map((row, idx) => (
+                              <div
+                                key={`${code}-operator-${row.serviceId ?? "none"}-${idx}`}
+                                className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/10 px-2.5 py-2 text-xs dark:bg-white/5"
+                              >
+                                <span className="truncate text-sky-900/85 dark:text-white/85">
+                                  {row.label}
+                                </span>
+                                <span className="font-semibold tabular-nums">
+                                  {fmt(row.amount, code)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="py-3 text-xs opacity-65">
+                          Sin deuda pendiente al operador.
+                        </p>
+                      )}
+                    </Section>
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

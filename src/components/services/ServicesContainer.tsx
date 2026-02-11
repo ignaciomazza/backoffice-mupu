@@ -55,6 +55,8 @@ import type {
 } from "@/types/receipts";
 import type {
   BillingData,
+  BillingAdjustmentComputed,
+  BillingBreakdownOverride,
   Booking,
   ClientPayment,
   Invoice,
@@ -87,6 +89,9 @@ export type ServiceFormData = {
   id_operator: number;
   departure_date: string;
   return_date: string;
+  transfer_fee_pct?: number | null;
+  extra_adjustments?: BillingAdjustmentComputed[] | null;
+  billing_override?: Partial<BillingBreakdownOverride> | null;
 };
 
 type BookingServiceItem = {
@@ -390,8 +395,13 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     useState<number>(0.024);
   const [agencyTransferFeeReady, setAgencyTransferFeeReady] =
     useState<boolean>(false);
+  const [inheritedUseBookingSaleTotal, setInheritedUseBookingSaleTotal] =
+    useState<boolean>(false);
+  const [useBookingSaleTotalOverride, setUseBookingSaleTotalOverride] =
+    useState<boolean | null>(null);
   const [useBookingSaleTotal, setUseBookingSaleTotal] =
     useState<boolean>(false);
+  const [saleModeSaving, setSaleModeSaving] = useState(false);
   const [neighborIds, setNeighborIds] = useState<{
     prevId: string | number | null;
     nextId: string | number | null;
@@ -449,7 +459,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
             transfer_fee_pct?: unknown;
             use_booking_sale_total?: unknown;
           };
-          setUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
+          setInheritedUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
           const raw = toFiniteNumber(data.transfer_fee_pct, 0.024);
           const safe = Math.min(Math.max(raw, 0), 1); // clamp 0–1
           return safe;
@@ -471,10 +481,10 @@ export default function ServicesContainer(props: ServicesContainerProps) {
           return safe;
         }
 
-        setUseBookingSaleTotal(false);
+        setInheritedUseBookingSaleTotal(false);
         return 0.024;
       } catch {
-        setUseBookingSaleTotal(false);
+        setInheritedUseBookingSaleTotal(false);
         return 0.024;
       }
     },
@@ -492,8 +502,22 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       setSelectedClientStatus(booking.clientStatus ?? "Pendiente");
       setSelectedOperatorStatus(booking.operatorStatus ?? "Pendiente");
       setSelectedBookingStatus(booking.status ?? "Abierta");
+      const rawOverride = (
+        booking as Booking & {
+          use_booking_sale_total_override?: boolean | null;
+        }
+      ).use_booking_sale_total_override;
+      setUseBookingSaleTotalOverride(
+        typeof rawOverride === "boolean" ? rawOverride : null,
+      );
     }
   }, [booking]);
+
+  useEffect(() => {
+    setUseBookingSaleTotal(
+      useBookingSaleTotalOverride ?? inheritedUseBookingSaleTotal,
+    );
+  }, [useBookingSaleTotalOverride, inheritedUseBookingSaleTotal]);
 
   useEffect(() => {
     if (!booking || !isFormVisible || editingServiceId) return;
@@ -789,6 +813,22 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     );
   }, [bookingSaleTotals, normalizedSaleTotalsDraft]);
 
+  const effectiveUseBookingSaleTotal = useMemo(
+    () => useBookingSaleTotalOverride ?? inheritedUseBookingSaleTotal,
+    [inheritedUseBookingSaleTotal, useBookingSaleTotalOverride],
+  );
+
+  const saleModeDirty = useMemo(
+    () => useBookingSaleTotal !== effectiveUseBookingSaleTotal,
+    [effectiveUseBookingSaleTotal, useBookingSaleTotal],
+  );
+
+  const nextSaleTotalOverridePayload = useMemo(() => {
+    return useBookingSaleTotal === inheritedUseBookingSaleTotal
+      ? null
+      : useBookingSaleTotal;
+  }, [inheritedUseBookingSaleTotal, useBookingSaleTotal]);
+
   useEffect(() => {
     if (!booking?.id_booking) return;
     setFilesReady(false);
@@ -977,10 +1017,30 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     [],
   );
 
-  const startEditReceipt = useCallback((receipt: Receipt) => {
-    setEditingReceipt(receipt);
-    setReceiptFormVisible(true);
+  const scrollToReceiptForm = useCallback(() => {
+    const node = document.getElementById("receipt-form");
+    if (!node) return;
+    const y =
+      node.getBoundingClientRect().top +
+      window.pageYOffset -
+      window.innerHeight * 0.1;
+    window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
   }, []);
+
+  const startEditReceipt = useCallback(
+    (receipt: Receipt) => {
+      setEditingReceipt(receipt);
+      setReceiptFormVisible(true);
+
+      const schedule = [120, 420];
+      schedule.forEach((delay) => {
+        window.setTimeout(() => {
+          scrollToReceiptForm();
+        }, delay);
+      });
+    },
+    [scrollToReceiptForm],
+  );
 
   const cancelEditReceipt = useCallback(() => {
     setEditingReceipt(null);
@@ -1210,23 +1270,10 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       const res = await authFetch(
         `/api/bookings/${booking.id_booking}`,
         {
-          method: "PUT",
+          method: "PATCH",
           body: JSON.stringify({
-            clientStatus: booking.clientStatus,
-            operatorStatus: booking.operatorStatus,
-            status: booking.status,
-            details: booking.details,
-            invoice_type: booking.invoice_type,
-            invoice_observation: booking.invoice_observation,
-            observation: booking.observation,
-            titular_id: booking.titular.id_client,
-            id_agency: booking.agency.id_agency,
-            departure_date: booking.departure_date,
-            return_date: booking.return_date,
-            pax_count: booking.pax_count,
-            clients_ids: booking.clients.map((c) => c.id_client),
-            id_user: booking.user.id_user,
             sale_totals: normalizedSaleTotalsDraft,
+            use_booking_sale_total_override: nextSaleTotalOverridePayload,
           }),
         },
         token ?? undefined,
@@ -1248,6 +1295,40 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       toast.error(msg);
     } finally {
       setSaleTotalsSaving(false);
+    }
+  };
+
+  const handleSaleModeSave = async () => {
+    if (!booking || !token) return;
+    setSaleModeSaving(true);
+    try {
+      const res = await authFetch(
+        `/api/bookings/${booking.id_booking}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            use_booking_sale_total_override: nextSaleTotalOverridePayload,
+          }),
+        },
+        token ?? undefined,
+      );
+      if (!res.ok) {
+        let msg = "Error al guardar modo de venta";
+        try {
+          const err = await res.json();
+          if (typeof (err as { error?: unknown })?.error === "string")
+            msg = (err as { error: string }).error;
+        } catch {}
+        throw new Error(msg);
+      }
+      const updated = (await res.json()) as Booking;
+      onBookingUpdated?.(updated);
+      toast.success("Modo de venta guardado");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error al guardar modo de venta";
+      toast.error(msg);
+    } finally {
+      setSaleModeSaving(false);
     }
   };
 
@@ -1421,6 +1502,185 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   );
   const prevDisabled = neighborLoading || !neighborIds.prevId;
   const nextDisabled = neighborLoading || !neighborIds.nextId;
+  const billingSection =
+    canViewBilling &&
+    (services.length > 0 || invoices.length > 0 || creditNotes.length > 0) ? (
+      <div className="mb-16">
+        <div className="mb-4 mt-8 flex items-center justify-center gap-2">
+          <p className="text-2xl font-medium">Facturación</p>
+        </div>
+
+        <div className="mb-6 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+                Comprobantes
+              </p>
+              <p className="text-lg font-medium">Facturas y notas de crédito</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-full border border-emerald-300/40 bg-emerald-100/60 px-3 py-1 text-xs font-medium text-emerald-900 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-100">
+                Facturas {invoices.length}
+              </span>
+              <span className="rounded-full border border-rose-300/40 bg-rose-100/60 px-3 py-1 text-xs font-medium text-rose-900 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-100">
+                Notas {creditNotes.length}
+              </span>
+            </div>
+          </div>
+
+          {canUseBilling && (
+            <>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="inline-flex rounded-full border border-white/15 bg-white/30 p-1 backdrop-blur dark:bg-white/5">
+                  <button
+                    type="button"
+                    onClick={() => openBillingForm("invoice")}
+                    className={`${billingModeBase} ${
+                      billingMode === "invoice"
+                        ? billingModeInvoiceActive
+                        : billingModeInactive
+                    }`}
+                  >
+                    Factura
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openBillingForm("credit")}
+                    className={`${billingModeBase} ${
+                      billingMode === "credit"
+                        ? billingModeCreditActive
+                        : billingModeInactive
+                    }`}
+                  >
+                    Nota de crédito
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsBillingFormVisible((prev) => !prev)}
+                  className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                    billingMode === "invoice"
+                      ? "border-emerald-300/40 bg-emerald-100/60 text-emerald-900 shadow-sm shadow-emerald-900/10 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-100"
+                      : "border-rose-300/40 bg-rose-100/60 text-rose-900 shadow-sm shadow-rose-900/10 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-100"
+                  }`}
+                >
+                  {isBillingFormVisible
+                    ? "Cerrar formulario"
+                    : "Crear comprobante"}
+                </button>
+              </div>
+
+              {isBillingFormVisible && (
+                <div className="mt-4">
+                  {billingMode === "invoice" ? (
+                    <InvoiceForm
+                      formData={invoiceFormData}
+                      availableServices={availableServices}
+                      handleChange={handleInvoiceChange}
+                      handleSubmit={handleInvoiceSubmit}
+                      isFormVisible={isBillingFormVisible}
+                      setIsFormVisible={setIsBillingFormVisible}
+                      updateFormData={updateFormData}
+                      isSubmitting={isSubmitting}
+                      token={token}
+                      collapsible={false}
+                      containerClassName="mb-0"
+                    />
+                  ) : (
+                    <CreditNoteForm
+                      formData={creditNoteFormData}
+                      invoices={invoices}
+                      handleChange={handleCreditNoteChange}
+                      handleSubmit={handleLocalCreditNoteSubmit}
+                      isFormVisible={isBillingFormVisible}
+                      setIsFormVisible={setIsBillingFormVisible}
+                      updateFormData={updateCreditNoteFormData}
+                      isSubmitting={isCreditNoteSubmitting}
+                      token={token}
+                      collapsible={false}
+                      containerClassName="mb-0"
+                    />
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm font-medium text-sky-950/70 dark:text-white/70">
+            Historial
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setBillingFilter("all")}
+              className={`${billingFilterBase} ${
+                billingFilter === "all"
+                  ? billingFilterAllActive
+                  : billingFilterInactive
+              }`}
+            >
+              Todos
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingFilter("invoice")}
+              className={`${billingFilterBase} ${
+                billingFilter === "invoice"
+                  ? billingFilterInvoiceActive
+                  : billingFilterInactive
+              }`}
+            >
+              Facturas
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingFilter("credit")}
+              className={`${billingFilterBase} ${
+                billingFilter === "credit"
+                  ? billingFilterCreditActive
+                  : billingFilterInactive
+              }`}
+            >
+              Notas
+            </button>
+          </div>
+        </div>
+
+        {filteredBillingItems.length > 0 ? (
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {filteredBillingItems.map((item) => (
+              <div key={item.id} className="space-y-2">
+                <span
+                  className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                    item.kind === "invoice"
+                      ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-100"
+                      : "bg-rose-100 text-rose-900 dark:bg-rose-500/15 dark:text-rose-100"
+                  }`}
+                >
+                  {item.kind === "invoice" ? "Factura" : "Nota de crédito"}
+                </span>
+                {item.invoice ? (
+                  <InvoiceCard
+                    invoice={item.invoice}
+                    token={token}
+                    onInvoiceUpdated={onInvoiceUpdated}
+                  />
+                ) : item.creditNote ? (
+                  <CreditNoteCard creditNote={item.creditNote} />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-white/10 bg-white/10 p-4 text-center text-sm opacity-80">
+            {emptyBillingMessage}
+          </div>
+        )}
+      </div>
+    ) : null;
 
   return (
     <motion.div>
@@ -1829,16 +2089,6 @@ export default function ServicesContainer(props: ServicesContainerProps) {
             </div>
           )}
 
-          {booking && filesReady && (
-            <LazyBookingFilesSection
-              bookingId={booking.id_booking}
-              bookingKey={booking.public_id ?? booking.id_booking}
-              passengers={bookingPassengers}
-              bookingStatus={booking.status}
-              role={role}
-            />
-          )}
-
           {/* SERVICIOS */}
           {booking ? (
             <>
@@ -1869,6 +2119,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                   <ServiceList
                     services={services}
                     receipts={receipts}
+                    operatorDues={operatorDues}
                     expandedServiceId={expandedServiceId}
                     setExpandedServiceId={setExpandedServiceId}
                     startEditingService={(service) => {
@@ -1900,57 +2151,115 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                     bookingSaleTotals={bookingSaleTotals}
                     onSaveCommission={handleCommissionOverridesSave}
                     bookingSaleTotalsForm={
-                      useBookingSaleTotal ? (
-                        <div className="mt-8 rounded-3xl border border-emerald-200/40 bg-emerald-100/20 p-4 text-sky-950 shadow-md shadow-emerald-900/10 backdrop-blur dark:border-emerald-300/20 dark:bg-emerald-500/10 dark:text-white">
+                      canAdminLike ? (
+                        <div className="mt-8 rounded-3xl border border-sky-900/10 bg-white/35 p-4 text-sky-950 shadow-sm shadow-sky-950/5 backdrop-blur dark:border-white/10 dark:bg-white/[0.04] dark:text-white">
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
                               <p className="text-sm font-semibold">
                                 Venta total por reserva
                               </p>
                               <p className="text-xs text-sky-950/70 dark:text-white/70">
-                                Definí el total de venta por moneda.
+                                Local por reserva. Por defecto hereda de la
+                                configuración general.
                               </p>
                             </div>
-                            <button
-                              type="button"
-                              onClick={handleSaleTotalsSave}
-                              disabled={!saleTotalsDirty || saleTotalsSaving}
-                              className="rounded-full bg-emerald-200/70 px-4 py-2 text-xs font-medium text-emerald-950 shadow-sm shadow-emerald-900/10 transition active:scale-95 disabled:opacity-50 dark:bg-emerald-400/20 dark:text-emerald-50"
-                            >
-                              {saleTotalsSaving
-                                ? "Guardando..."
-                                : "Guardar venta"}
-                            </button>
-                          </div>
-                          <div className="mt-4 space-y-2 rounded-2xl border border-emerald-200/40 bg-emerald-50/40 p-3 dark:border-emerald-300/20 dark:bg-emerald-500/10">
-                            {saleTotalCurrencies.map((cur) => (
-                              <div
-                                key={cur}
-                                className="flex items-center gap-2"
-                              >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label className="inline-flex items-center gap-2 rounded-full border border-sky-900/15 bg-white/70 px-3 py-1 text-xs font-medium text-sky-950 dark:border-white/10 dark:bg-white/10 dark:text-white">
                                 <input
-                                  type="number"
-                                  inputMode="decimal"
-                                  step="0.01"
-                                  min="0"
-                                  value={saleTotalsDraft[cur] ?? ""}
+                                  type="checkbox"
+                                  checked={useBookingSaleTotal}
                                   onChange={(e) =>
-                                    setSaleTotalsDraft((prev) => ({
-                                      ...prev,
-                                      [cur]: e.target.value,
-                                    }))
+                                    setUseBookingSaleTotal(e.target.checked)
                                   }
-                                  className="w-full rounded-2xl border border-emerald-200/40 bg-white/70 p-2 px-3 text-sm shadow-sm shadow-emerald-900/10 outline-none placeholder:font-light dark:border-emerald-300/20 dark:bg-white/10 sm:max-w-[160px]"
+                                  className="size-4 rounded border-sky-900/20 bg-white/80 text-sky-600 dark:border-white/20 dark:bg-white/10"
                                 />
-                                <span className="rounded-full border border-emerald-200/40 bg-emerald-100/60 px-2 py-1 text-xs font-semibold text-emerald-950 dark:border-emerald-300/20 dark:bg-emerald-400/20 dark:text-emerald-100">
-                                  {cur}
-                                </span>
-                              </div>
-                            ))}
+                                {useBookingSaleTotal ? "Activo" : "Inactivo"}
+                              </label>
+                              <button
+                                type="button"
+                                onClick={handleSaleModeSave}
+                                disabled={!saleModeDirty || saleModeSaving}
+                                className="rounded-full border border-sky-900/15 bg-white/70 px-4 py-2 text-xs font-medium text-sky-950 shadow-sm shadow-sky-950/10 transition active:scale-95 disabled:opacity-50 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                              >
+                                {saleModeSaving
+                                  ? "Guardando modo..."
+                                  : "Guardar modo"}
+                              </button>
+                            </div>
                           </div>
+
+                          <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-medium">
+                            <span className="rounded-full border border-sky-900/10 bg-white/70 px-2 py-1 dark:border-white/10 dark:bg-white/10">
+                              Global:{" "}
+                              {inheritedUseBookingSaleTotal ? "Activo" : "Inactivo"}
+                            </span>
+                            <span className="rounded-full border border-sky-900/10 bg-white/70 px-2 py-1 dark:border-white/10 dark:bg-white/10">
+                              Reserva:{" "}
+                              {useBookingSaleTotalOverride == null
+                                ? "Heredado"
+                                : useBookingSaleTotalOverride
+                                  ? "Override Activo"
+                                  : "Override Inactivo"}
+                            </span>
+                          </div>
+
+                          {useBookingSaleTotal && (
+                            <>
+                              <div className="mt-4 flex items-center justify-end">
+                                <button
+                                  type="button"
+                                  onClick={handleSaleTotalsSave}
+                                  disabled={!saleTotalsDirty || saleTotalsSaving}
+                                  className="rounded-full border border-sky-900/15 bg-white/70 px-4 py-2 text-xs font-medium text-sky-950 shadow-sm shadow-sky-950/10 transition active:scale-95 disabled:opacity-50 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                                >
+                                  {saleTotalsSaving
+                                    ? "Guardando venta..."
+                                    : "Guardar venta"}
+                                </button>
+                              </div>
+                              <div className="mt-4 space-y-2 rounded-2xl border border-sky-900/10 bg-white/65 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                                {saleTotalCurrencies.map((cur) => (
+                                  <div key={cur} className="flex items-center gap-2">
+                                    <input
+                                      type="number"
+                                      inputMode="decimal"
+                                      step="0.01"
+                                      min="0"
+                                      value={saleTotalsDraft[cur] ?? ""}
+                                      onChange={(e) =>
+                                        setSaleTotalsDraft((prev) => ({
+                                          ...prev,
+                                          [cur]: e.target.value,
+                                        }))
+                                      }
+                                      className="w-full rounded-2xl border border-sky-900/10 bg-white p-2 px-3 text-sm shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 sm:max-w-[160px]"
+                                    />
+                                    <span className="rounded-full border border-sky-900/10 bg-white/75 px-2 py-1 text-xs font-semibold text-sky-900 dark:border-white/10 dark:bg-white/10 dark:text-white">
+                                      {cur}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
                         </div>
                       ) : null
                     }
+                  />
+                </div>
+              )}
+
+              {booking && filesReady && (
+                <div className="mb-16">
+                  <div className="mb-4 mt-8 flex items-center justify-center gap-2">
+                    <p className="text-2xl font-medium">Archivos</p>
+                  </div>
+                  <LazyBookingFilesSection
+                    bookingId={booking.id_booking}
+                    bookingKey={booking.public_id ?? booking.id_booking}
+                    passengers={bookingPassengers}
+                    bookingStatus={booking.status}
+                    role={role}
                   />
                 </div>
               )}
@@ -2266,194 +2575,6 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                 )}
               </div>
 
-              {/* FACTURACIÓN */}
-              {canViewBilling &&
-                (services.length > 0 ||
-                  invoices.length > 0 ||
-                  creditNotes.length > 0) && (
-                  <div className="mb-16">
-                    <div className="mb-4 mt-8 flex items-center justify-center gap-2">
-                      <p className="text-2xl font-medium">Facturación</p>
-                    </div>
-
-                    <div className="mb-6 rounded-3xl border border-white/10 bg-white/10 p-6 text-sky-950 shadow-md shadow-sky-950/10 backdrop-blur dark:text-white">
-                      <div className="flex flex-wrap items-center justify-between gap-4">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-sky-950/60 dark:text-white/60">
-                            Comprobantes
-                          </p>
-                          <p className="text-lg font-medium">
-                            Facturas y notas de crédito
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <span className="rounded-full border border-emerald-300/40 bg-emerald-100/60 px-3 py-1 text-xs font-medium text-emerald-900 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-100">
-                            Facturas {invoices.length}
-                          </span>
-                          <span className="rounded-full border border-rose-300/40 bg-rose-100/60 px-3 py-1 text-xs font-medium text-rose-900 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-100">
-                            Notas {creditNotes.length}
-                          </span>
-                        </div>
-                      </div>
-
-                      {canUseBilling && (
-                        <>
-                          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                            <div className="inline-flex rounded-full border border-white/15 bg-white/30 p-1 backdrop-blur dark:bg-white/5">
-                              <button
-                                type="button"
-                                onClick={() => openBillingForm("invoice")}
-                                className={`${billingModeBase} ${
-                                  billingMode === "invoice"
-                                    ? billingModeInvoiceActive
-                                    : billingModeInactive
-                                }`}
-                              >
-                                Factura
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => openBillingForm("credit")}
-                                className={`${billingModeBase} ${
-                                  billingMode === "credit"
-                                    ? billingModeCreditActive
-                                    : billingModeInactive
-                                }`}
-                              >
-                                Nota de crédito
-                              </button>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setIsBillingFormVisible((prev) => !prev)
-                              }
-                              className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
-                                billingMode === "invoice"
-                                  ? "border-emerald-300/40 bg-emerald-100/60 text-emerald-900 shadow-sm shadow-emerald-900/10 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-100"
-                                  : "border-rose-300/40 bg-rose-100/60 text-rose-900 shadow-sm shadow-rose-900/10 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-100"
-                              }`}
-                            >
-                              {isBillingFormVisible
-                                ? "Cerrar formulario"
-                                : "Crear comprobante"}
-                            </button>
-                          </div>
-
-                          {isBillingFormVisible && (
-                            <div className="mt-4">
-                              {billingMode === "invoice" ? (
-                                <InvoiceForm
-                                  formData={invoiceFormData}
-                                  availableServices={availableServices}
-                                  handleChange={handleInvoiceChange}
-                                  handleSubmit={handleInvoiceSubmit}
-                                  isFormVisible={isBillingFormVisible}
-                                  setIsFormVisible={setIsBillingFormVisible}
-                                  updateFormData={updateFormData}
-                                  isSubmitting={isSubmitting}
-                                  token={token}
-                                  collapsible={false}
-                                  containerClassName="mb-0"
-                                />
-                              ) : (
-                                <CreditNoteForm
-                                  formData={creditNoteFormData}
-                                  invoices={invoices}
-                                  handleChange={handleCreditNoteChange}
-                                  handleSubmit={handleLocalCreditNoteSubmit}
-                                  isFormVisible={isBillingFormVisible}
-                                  setIsFormVisible={setIsBillingFormVisible}
-                                  updateFormData={updateCreditNoteFormData}
-                                  isSubmitting={isCreditNoteSubmitting}
-                                  token={token}
-                                  collapsible={false}
-                                  containerClassName="mb-0"
-                                />
-                              )}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                      <p className="text-sm font-medium text-sky-950/70 dark:text-white/70">
-                        Historial
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setBillingFilter("all")}
-                          className={`${billingFilterBase} ${
-                            billingFilter === "all"
-                              ? billingFilterAllActive
-                              : billingFilterInactive
-                          }`}
-                        >
-                          Todos
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setBillingFilter("invoice")}
-                          className={`${billingFilterBase} ${
-                            billingFilter === "invoice"
-                              ? billingFilterInvoiceActive
-                              : billingFilterInactive
-                          }`}
-                        >
-                          Facturas
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setBillingFilter("credit")}
-                          className={`${billingFilterBase} ${
-                            billingFilter === "credit"
-                              ? billingFilterCreditActive
-                              : billingFilterInactive
-                          }`}
-                        >
-                          Notas
-                        </button>
-                      </div>
-                    </div>
-
-                    {filteredBillingItems.length > 0 ? (
-                      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-                        {filteredBillingItems.map((item) => (
-                          <div key={item.id} className="space-y-2">
-                            <span
-                              className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-                                item.kind === "invoice"
-                                  ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-100"
-                                  : "bg-rose-100 text-rose-900 dark:bg-rose-500/15 dark:text-rose-100"
-                              }`}
-                            >
-                              {item.kind === "invoice"
-                                ? "Factura"
-                                : "Nota de crédito"}
-                            </span>
-                            {item.invoice ? (
-                              <InvoiceCard
-                                invoice={item.invoice}
-                                token={token}
-                                onInvoiceUpdated={onInvoiceUpdated}
-                              />
-                            ) : item.creditNote ? (
-                              <CreditNoteCard creditNote={item.creditNote} />
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-white/10 bg-white/10 p-4 text-center text-sm opacity-80">
-                        {emptyBillingMessage}
-                      </div>
-                    )}
-                  </div>
-                )}
-
               {/* PAGOS A OPERADOR */}
               {canUseOperatorPayments && services.length > 0 && (
                 <div>
@@ -2477,6 +2598,8 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                   />
                 </div>
               )}
+
+              {billingSection}
 
               {/* ESTADOS RESERVA */}
               {canEditBookingStatus &&

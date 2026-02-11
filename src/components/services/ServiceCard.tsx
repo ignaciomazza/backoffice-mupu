@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { normalizeRole } from "@/utils/permissions";
 import ServiceFilesPanel from "./ServiceFilesPanel";
+import RichNote from "@/components/notes/RichNote";
 
 /** Config API */
 type CalcConfigResponse = {
@@ -48,6 +49,7 @@ interface ServiceCardProps {
   role: string;
   status: string;
   agencyTransferFeePct: number;
+  useBookingSaleTotal?: boolean;
 }
 
 /* ---------- UI helpers ---------- */
@@ -96,6 +98,7 @@ export default function ServiceCard({
   role,
   status,
   agencyTransferFeePct,
+  useBookingSaleTotal,
 }: ServiceCardProps) {
   const isExpanded = expandedServiceId === service.id_service;
   const serviceNumber = service.agency_service_id ?? service.id_service;
@@ -103,7 +106,7 @@ export default function ServiceCard({
 
   /* ====== leer modo (auto/manual) desde API — SOLO al expandir ====== */
   const [agencyMode, setAgencyMode] = useState<"auto" | "manual">("auto");
-  const [useBookingSaleTotal, setUseBookingSaleTotal] = useState(false);
+  const [useBookingSaleTotalCfg, setUseBookingSaleTotalCfg] = useState(false);
   const cfgRef = useRef<{ ac: AbortController; id: number } | null>(null);
   const mountedRef = useRef(true);
 
@@ -119,7 +122,7 @@ export default function ServiceCard({
     // Solo buscamos la config si la card está expandida y tenemos token
     if (!isExpanded || !token) {
       setAgencyMode("auto");
-      setUseBookingSaleTotal(false);
+      setUseBookingSaleTotalCfg(false);
       return;
     }
 
@@ -146,12 +149,12 @@ export default function ServiceCard({
           setAgencyMode(
             data.billing_breakdown_mode === "manual" ? "manual" : "auto",
           );
-          setUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
+          setUseBookingSaleTotalCfg(Boolean(data.use_booking_sale_total));
         }
       } catch {
         if (isActive()) {
           setAgencyMode("auto");
-          setUseBookingSaleTotal(false);
+          setUseBookingSaleTotalCfg(false);
         }
       }
     })();
@@ -159,7 +162,11 @@ export default function ServiceCard({
     return () => ac.abort();
   }, [isExpanded, token]);
 
-  const manualMode = agencyMode === "manual" || useBookingSaleTotal;
+  const effectiveUseBookingSaleTotal =
+    typeof useBookingSaleTotal === "boolean"
+      ? useBookingSaleTotal
+      : useBookingSaleTotalCfg;
+  const manualMode = agencyMode === "manual" || effectiveUseBookingSaleTotal;
 
   const fmtMoney = useCallback(
     (v?: number) =>
@@ -187,13 +194,12 @@ export default function ServiceCard({
     ? (service.extra_adjustments as BillingAdjustmentComputed[])
     : [];
   const extraAdjustmentsTotal = extraCosts + extraTaxes;
-  const netCommission = Math.max(
+  const netCommission =
     (service.totalCommissionWithoutVAT ?? 0) -
-      (feeAmount ?? 0) -
-      extraAdjustmentsTotal,
-    0,
-  );
-  const showAdjustments = extraAdjustmentsTotal > 0 || extraAdjustments.length > 0;
+    (feeAmount ?? 0) -
+    extraAdjustmentsTotal;
+  const showAdjustments =
+    Math.abs(extraAdjustmentsTotal) > 0.000001 || extraAdjustments.length > 0;
 
   const normalizedRole = normalizeRole(role || "");
   const canEditOrDelete =
@@ -317,6 +323,17 @@ export default function ServiceCard({
             <Row label="Destino" value={service.destination || "–"} />
             <Row label="Referencia" value={service.reference || "–"} />
           </Section>
+
+          {String(service.note || "").trim().length > 0 && (
+            <Section title="Nota interna">
+              <div className="rounded-xl bg-white/30 p-2 dark:bg-white/5">
+                <RichNote
+                  text={service.note}
+                  className="space-y-2 text-sm text-sky-900/85 dark:text-white/80"
+                />
+              </div>
+            </Section>
+          )}
 
           {/* ===== Impuestos ===== */}
           <Section title="Impuestos">

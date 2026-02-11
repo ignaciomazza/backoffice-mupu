@@ -188,6 +188,7 @@ export interface Booking {
   status: string;
   details: string;
   sale_totals?: Record<string, number> | null;
+  use_booking_sale_total_override?: boolean | null;
   commission_overrides?: CommissionOverrides | null;
   invoice_type: "Factura A" | "Factura B" | "Coordinar con administracion";
   observation?: string;
@@ -256,6 +257,7 @@ export interface Service {
   impIVA?: number;
   transfer_fee_pct?: number | null;
   transfer_fee_amount?: number | null;
+  billing_override?: BillingBreakdownOverride | null;
   extra_costs_amount?: number | null;
   extra_taxes_amount?: number | null;
   extra_adjustments?: BillingAdjustmentComputed[] | null;
@@ -460,10 +462,31 @@ export interface BillingData {
   vatOnCardInterest: number;
   transferFeeAmount: number;
   transferFeePct: number;
+  breakdownOverride?: BillingBreakdownOverride | null;
+  breakdownWarningMessages?: string[];
   extraCostsAmount?: number;
   extraTaxesAmount?: number;
   extraAdjustments?: BillingAdjustmentComputed[];
 }
+
+export type BillingBreakdownOverride = {
+  nonComputable: number;
+  taxableBase21: number;
+  taxableBase10_5: number;
+  commissionExempt: number;
+  commission21: number;
+  commission10_5: number;
+  vatOnCommission21: number;
+  vatOnCommission10_5: number;
+  totalCommissionWithoutVAT: number;
+  impIVA: number;
+  taxableCardInterest: number;
+  vatOnCardInterest: number;
+  transferFeeAmount: number;
+  transferFeePct: number;
+};
+
+export type BillingAdjustmentSource = "global" | "service";
 
 export type BillingAdjustmentConfig = {
   id: string;
@@ -473,6 +496,7 @@ export type BillingAdjustmentConfig = {
   valueType: "percent" | "fixed";
   value: number;
   active: boolean;
+  source?: BillingAdjustmentSource;
 };
 
 export type BillingAdjustmentComputed = BillingAdjustmentConfig & {

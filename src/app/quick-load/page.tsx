@@ -23,6 +23,7 @@ import { normalizeRole } from "@/utils/permissions";
 import type {
   BillingAdjustmentComputed,
   BillingAdjustmentConfig,
+  BillingBreakdownOverride,
   BillingData,
   Client,
   ClientSimpleCompanion,
@@ -146,6 +147,9 @@ type ServiceDraft = {
   impIVA: number;
   transfer_fee_pct: number;
   transfer_fee_amount: number;
+  billing_override?: Partial<BillingBreakdownOverride> | null;
+  breakdown_warning_messages?: string[];
+  service_adjustments?: BillingAdjustmentConfig[];
 };
 
 type ServiceTypePresetItemLite = {
@@ -171,6 +175,9 @@ type QuickLoadDraft = {
   titularId: string | null;
   booking: BookingDraft;
   services: ServiceDraft[];
+  useBookingSaleTotal?: boolean;
+  bookingSaleTotals?: Record<string, string>;
+  manualOverride?: boolean;
   updatedAt: string;
 };
 
@@ -445,6 +452,34 @@ const normalizeSaleTotals = (input: Record<string, string>) => {
   return out;
 };
 
+const normalizeServiceAdjustmentConfigs = (
+  input: BillingAdjustmentConfig[] | BillingAdjustmentComputed[] | null | undefined,
+): BillingAdjustmentConfig[] => {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item, idx): BillingAdjustmentConfig => {
+      const kind: BillingAdjustmentConfig["kind"] =
+        item.kind === "tax" ? "tax" : "cost";
+      const basis: BillingAdjustmentConfig["basis"] =
+        item.basis === "cost" || item.basis === "margin" || item.basis === "sale"
+          ? item.basis
+          : "sale";
+      const valueType: BillingAdjustmentConfig["valueType"] =
+        item.valueType === "fixed" ? "fixed" : "percent";
+      return {
+        id: item.id || `service-adj-${idx}`,
+        label: item.label || "Ajuste servicio",
+        kind,
+        basis,
+        valueType,
+        value: Number.isFinite(item.value) ? Number(item.value) : 0,
+        active: item.active !== false,
+        source: "service",
+      };
+    })
+    .filter((item) => item.id.trim() !== "");
+};
+
 const emptyBooking = (): BookingDraft => ({
   clientStatus: "Pendiente",
   operatorStatus: "Pendiente",
@@ -492,6 +527,9 @@ const emptyService = (booking?: BookingDraft): ServiceDraft => ({
   impIVA: 0,
   transfer_fee_pct: 0.024,
   transfer_fee_amount: 0,
+  billing_override: null,
+  breakdown_warning_messages: [],
+  service_adjustments: [],
 });
 
 const emptyClient = (): NewClientDraft => ({
@@ -628,6 +666,204 @@ const AdjustmentsPanel = ({
   );
 };
 
+const makeAdjustmentId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `adj-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+const formatPercentInput = (value: number) => {
+  const safe = Number.isFinite(value) ? value : 0;
+  return String(parseFloat((safe * 100).toFixed(4)));
+};
+
+const parsePercentInput = (raw: string) => {
+  const normalized = Number(String(raw).replace(",", "."));
+  if (!Number.isFinite(normalized)) return 0;
+  return normalized / 100;
+};
+
+const ServiceAdjustmentsEditor = ({
+  items,
+  onChange,
+  disabled = false,
+}: {
+  items: BillingAdjustmentConfig[];
+  onChange: (next: BillingAdjustmentConfig[]) => void;
+  disabled?: boolean;
+}) => {
+  const addItem = () => {
+    onChange([
+      ...items,
+      {
+        id: makeAdjustmentId(),
+        label: "Ajuste servicio",
+        kind: "cost",
+        basis: "sale",
+        valueType: "percent",
+        value: 0,
+        active: true,
+        source: "service",
+      },
+    ]);
+  };
+
+  const updateItem = (id: string, patch: Partial<BillingAdjustmentConfig>) => {
+    onChange(items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  };
+
+  const removeItem = (id: string) => {
+    onChange(items.filter((item) => item.id !== id));
+  };
+
+  return (
+    <div className={SUBCARD}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
+            Mini ajustes por servicio
+          </p>
+          <p className="mt-1 text-xs text-sky-900/70 dark:text-white/70">
+            Se aplican al servicio actual. En venta total por reserva impactan
+            en el cálculo global.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={addItem}
+          disabled={disabled}
+          className="rounded-full border border-white/20 bg-white/70 px-3 py-1 text-xs font-semibold text-sky-950 shadow-sm shadow-sky-950/10 transition disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/10 dark:text-white"
+        >
+          Agregar mini ajuste
+        </button>
+      </div>
+
+      {items.length === 0 ? (
+        <p className="mt-3 text-xs text-sky-900/70 dark:text-white/70">
+          No hay mini ajustes en este servicio.
+        </p>
+      ) : (
+        <div className="mt-4 space-y-3">
+          {items.map((item) => (
+            <div
+              key={item.id}
+              className="rounded-2xl border border-white/10 bg-white/60 p-3 dark:bg-white/5"
+            >
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <FieldLabel>Nombre</FieldLabel>
+                  <input
+                    type="text"
+                    value={item.label}
+                    disabled={disabled}
+                    onChange={(e) => updateItem(item.id, { label: e.target.value })}
+                    className={INPUT_SOFT}
+                  />
+                </div>
+                <div>
+                  <FieldLabel>Tipo</FieldLabel>
+                  <select
+                    value={item.kind}
+                    disabled={disabled}
+                    onChange={(e) =>
+                      updateItem(item.id, {
+                        kind: e.target.value as BillingAdjustmentConfig["kind"],
+                      })
+                    }
+                    className={`${INPUT_SOFT} cursor-pointer`}
+                  >
+                    <option value="cost">Costo</option>
+                    <option value="tax">Impuesto</option>
+                  </select>
+                </div>
+                <div>
+                  <FieldLabel>Base</FieldLabel>
+                  <select
+                    value={item.basis}
+                    disabled={disabled}
+                    onChange={(e) =>
+                      updateItem(item.id, {
+                        basis: e.target.value as BillingAdjustmentConfig["basis"],
+                      })
+                    }
+                    className={`${INPUT_SOFT} cursor-pointer`}
+                  >
+                    <option value="sale">Venta</option>
+                    <option value="cost">Costo</option>
+                    <option value="margin">Ganancia</option>
+                  </select>
+                </div>
+                <div>
+                  <FieldLabel>Modo</FieldLabel>
+                  <select
+                    value={item.valueType}
+                    disabled={disabled}
+                    onChange={(e) =>
+                      updateItem(item.id, {
+                        valueType:
+                          e.target.value as BillingAdjustmentConfig["valueType"],
+                      })
+                    }
+                    className={`${INPUT_SOFT} cursor-pointer`}
+                  >
+                    <option value="percent">Porcentaje</option>
+                    <option value="fixed">Monto fijo</option>
+                  </select>
+                </div>
+                <div>
+                  <FieldLabel>
+                    {item.valueType === "percent" ? "Valor (%)" : "Valor fijo"}
+                  </FieldLabel>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={
+                      item.valueType === "percent"
+                        ? formatPercentInput(item.value)
+                        : String(item.value)
+                    }
+                    disabled={disabled}
+                    onChange={(e) =>
+                      updateItem(item.id, {
+                        value:
+                          item.valueType === "percent"
+                            ? parsePercentInput(e.target.value)
+                            : Number(e.target.value.replace(",", ".")) || 0,
+                      })
+                    }
+                    className={INPUT_SOFT}
+                  />
+                </div>
+                <div className="flex items-end justify-between gap-2">
+                  <label className="inline-flex items-center gap-2 text-sm text-sky-900 dark:text-white">
+                    <input
+                      type="checkbox"
+                      checked={item.active}
+                      disabled={disabled}
+                      onChange={(e) =>
+                        updateItem(item.id, { active: e.target.checked })
+                      }
+                      className="size-4 rounded border-white/30 bg-white/30 text-sky-700 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
+                    />
+                    Activo
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removeItem(item.id)}
+                    disabled={disabled}
+                    className="rounded-full border border-rose-300/50 bg-rose-100/70 px-3 py-1 text-xs font-semibold text-rose-900 shadow-sm shadow-rose-900/10 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-300/30 dark:bg-rose-500/10 dark:text-rose-100"
+                  >
+                    Quitar
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const IconTrash = ({ className }: { className?: string }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -725,6 +961,8 @@ export default function QuickLoadPage() {
   const [loadingCurrencies, setLoadingCurrencies] = useState(false);
   const [billingMode, setBillingMode] = useState<"auto" | "manual">("auto");
   const [transferFeePct, setTransferFeePct] = useState(0.024);
+  const [inheritedUseBookingSaleTotal, setInheritedUseBookingSaleTotal] =
+    useState(false);
   const [useBookingSaleTotal, setUseBookingSaleTotal] = useState(false);
   const [manualOverride, setManualOverride] = useState(false);
   const [billingAdjustments, setBillingAdjustments] = useState<
@@ -936,7 +1174,9 @@ export default function QuickLoadPage() {
             ? Math.min(Math.max(pct, 0), 1)
             : 0.024;
           setTransferFeePct(safePct);
-          setUseBookingSaleTotal(Boolean(data.use_booking_sale_total));
+          const inherited = Boolean(data.use_booking_sale_total);
+          setInheritedUseBookingSaleTotal(inherited);
+          setUseBookingSaleTotal(inherited);
           setBillingAdjustments(
             Array.isArray(data.billing_adjustments)
               ? data.billing_adjustments
@@ -946,6 +1186,8 @@ export default function QuickLoadPage() {
       } catch (err) {
         if ((err as DOMException)?.name !== "AbortError") {
           console.error("❌ Error cargando config de servicios:", err);
+          setInheritedUseBookingSaleTotal(false);
+          setUseBookingSaleTotal(false);
           setBillingAdjustments([]);
         }
       } finally {
@@ -1091,6 +1333,9 @@ export default function QuickLoadPage() {
       titularId,
       booking,
       services,
+      useBookingSaleTotal,
+      bookingSaleTotals,
+      manualOverride,
       updatedAt: new Date().toISOString(),
     };
     const t = window.setTimeout(() => {
@@ -1098,7 +1343,17 @@ export default function QuickLoadPage() {
       setLastSavedAt(payload.updatedAt);
     }, 400);
     return () => window.clearTimeout(t);
-  }, [draftStatus, step, clients, titularId, booking, services]);
+  }, [
+    draftStatus,
+    step,
+    clients,
+    titularId,
+    booking,
+    services,
+    useBookingSaleTotal,
+    bookingSaleTotals,
+    manualOverride,
+  ]);
 
   const recoverDraft = () => {
     if (!storedDraft) return;
@@ -1106,6 +1361,9 @@ export default function QuickLoadPage() {
     setTitularId(storedDraft.titularId ?? null);
     setBooking(storedDraft.booking || emptyBooking());
     setServices(storedDraft.services || []);
+    setUseBookingSaleTotal(Boolean(storedDraft.useBookingSaleTotal));
+    setBookingSaleTotals(storedDraft.bookingSaleTotals || {});
+    setManualOverride(Boolean(storedDraft.manualOverride));
     setStep(
       storedDraft.step === 1 ||
         storedDraft.step === 2 ||
@@ -1384,6 +1642,8 @@ export default function QuickLoadPage() {
       totalCommissionWithoutVAT: 0,
       impIVA: 0,
       transfer_fee_amount: 0,
+      billing_override: null,
+      breakdown_warning_messages: [],
     };
     const billingInputs = new Set<keyof ServiceDraft>([
       "sale_price",
@@ -1419,6 +1679,23 @@ export default function QuickLoadPage() {
       }
     }
   };
+
+  const updateServiceAdjustments = useCallback(
+    (id: string, adjustments: BillingAdjustmentConfig[]) => {
+      const normalized = normalizeServiceAdjustmentConfigs(adjustments);
+      setServices((prev) =>
+        prev.map((service) =>
+          service.id === id
+            ? {
+                ...service,
+                service_adjustments: normalized,
+              }
+            : service,
+        ),
+      );
+    },
+    [],
+  );
 
   const applyPresetForService = async (
     serviceId: string,
@@ -1518,10 +1795,38 @@ export default function QuickLoadPage() {
             vatOnCardInterest: data.vatOnCardInterest ?? 0,
             transfer_fee_pct: data.transferFeePct ?? transferFeePct,
             transfer_fee_amount: data.transferFeeAmount ?? 0,
+            billing_override: data.breakdownOverride ?? null,
+            breakdown_warning_messages: Array.isArray(
+              data.breakdownWarningMessages,
+            )
+              ? data.breakdownWarningMessages
+              : [],
           };
-          const same = Object.entries(nextValues).every(
-            ([key, value]) => (s as Record<string, unknown>)[key] === value,
-          );
+          const numericSame = (
+            [
+              "nonComputable",
+              "taxableBase21",
+              "taxableBase10_5",
+              "commissionExempt",
+              "commission21",
+              "commission10_5",
+              "vatOnCommission21",
+              "vatOnCommission10_5",
+              "totalCommissionWithoutVAT",
+              "impIVA",
+              "taxableCardInterest",
+              "vatOnCardInterest",
+              "transfer_fee_pct",
+              "transfer_fee_amount",
+            ] as const
+          ).every((key) => (s as Record<string, unknown>)[key] === nextValues[key]);
+          const sameOverride =
+            JSON.stringify(s.billing_override ?? null) ===
+            JSON.stringify(nextValues.billing_override ?? null);
+          const sameWarnings =
+            JSON.stringify(s.breakdown_warning_messages || []) ===
+            JSON.stringify(nextValues.breakdown_warning_messages || []);
+          const same = numericSame && sameOverride && sameWarnings;
           if (same) return s;
           changed = true;
           return { ...s, ...nextValues };
@@ -1545,6 +1850,13 @@ export default function QuickLoadPage() {
   const servicesReady = services.every((s) =>
     isServiceComplete(s, useBookingSaleTotal),
   );
+  const nextSaleTotalOverridePayload = useMemo(
+    () =>
+      useBookingSaleTotal === inheritedUseBookingSaleTotal
+        ? null
+        : useBookingSaleTotal,
+    [inheritedUseBookingSaleTotal, useBookingSaleTotal],
+  );
   const manualMode =
     useBookingSaleTotal ||
     billingMode === "manual" ||
@@ -1566,16 +1878,25 @@ export default function QuickLoadPage() {
   const adjustmentsByServiceId = useMemo(() => {
     const map = new Map<string, AdjustmentTotals>();
     services.forEach((service) => {
+      const serviceAdjustments = normalizeServiceAdjustmentConfigs(
+        service.service_adjustments,
+      );
+      const combinedAdjustments = [
+        ...billingAdjustments.map((item) => ({ ...item, source: "global" as const })),
+        ...serviceAdjustments.map((item) => ({ ...item, source: "service" as const })),
+      ];
       if (useBookingSaleTotal) {
-        map.set(service.id, EMPTY_ADJUSTMENTS);
+        map.set(service.id, {
+          items: combinedAdjustments.map((item) => ({ ...item, amount: 0 })),
+          totalCosts: 0,
+          totalTaxes: 0,
+          total: 0,
+        });
         return;
       }
       const sale = toNumber(service.sale_price);
       const cost = toNumber(service.cost_price);
-      map.set(
-        service.id,
-        computeBillingAdjustments(billingAdjustments, sale, cost),
-      );
+      map.set(service.id, computeBillingAdjustments(combinedAdjustments, sale, cost));
     });
     return map;
   }, [services, billingAdjustments, useBookingSaleTotal]);
@@ -1757,7 +2078,7 @@ export default function QuickLoadPage() {
           ? s.transfer_fee_pct
           : transferFeePct;
       const feeAmount =
-        Number.isFinite(s.transfer_fee_amount) && s.transfer_fee_amount > 0
+        Number.isFinite(s.transfer_fee_amount)
           ? s.transfer_fee_amount
           : toNumber(s.sale_price) * pct;
       t.transferFeesAmount += feeAmount;
@@ -1970,24 +2291,28 @@ export default function QuickLoadPage() {
         id_booking: number;
       };
 
-      if (useBookingSaleTotal) {
-        const saleTotals = normalizeSaleTotals(bookingSaleTotals);
-        if (Object.keys(saleTotals).length > 0) {
-          const updateRes = await authFetch(
-            `/api/bookings/${createdBooking.id_booking}`,
-            {
-              method: "PUT",
-              body: JSON.stringify({
-                ...payload,
-                sale_totals: saleTotals,
-                clients_ids: companions,
-              }),
-            },
-            token,
-          );
-          if (!updateRes.ok) {
-            toast.error("No se pudo guardar la venta general.");
-          }
+      const saleTotals = normalizeSaleTotals(bookingSaleTotals);
+      const shouldPersistSaleMode =
+        nextSaleTotalOverridePayload !== null ||
+        Object.keys(saleTotals).length > 0;
+      if (shouldPersistSaleMode) {
+        const updateRes = await authFetch(
+          `/api/bookings/${createdBooking.id_booking}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              ...payload,
+              clients_ids: companions,
+              ...(Object.keys(saleTotals).length > 0
+                ? { sale_totals: saleTotals }
+                : {}),
+              use_booking_sale_total_override: nextSaleTotalOverridePayload,
+            }),
+          },
+          token,
+        );
+        if (!updateRes.ok) {
+          toast.error("No se pudo guardar la configuración de venta general.");
         }
       }
 
@@ -1996,8 +2321,9 @@ export default function QuickLoadPage() {
           ? service.transfer_fee_pct
           : transferFeePct || 0.024;
         const transferAmount =
-          service.transfer_fee_amount ||
-          toNumber(service.sale_price) * transferPct;
+          Number.isFinite(service.transfer_fee_amount)
+            ? (service.transfer_fee_amount as number)
+            : toNumber(service.sale_price) * transferPct;
         const adjustments =
           adjustmentsByServiceId.get(service.id) ?? EMPTY_ADJUSTMENTS;
         const servicePayload = {
@@ -2025,6 +2351,7 @@ export default function QuickLoadPage() {
           impIVA: service.impIVA,
           transfer_fee_pct: transferPct,
           transfer_fee_amount: transferAmount,
+          billing_override: service.billing_override ?? null,
           extra_costs_amount: adjustments.totalCosts,
           extra_taxes_amount: adjustments.totalTaxes,
           extra_adjustments: adjustments.items,
@@ -3248,7 +3575,7 @@ export default function QuickLoadPage() {
                               }`}
                               onClick={() => setUseBookingSaleTotal(true)}
                             >
-                              Activar
+                              Local ON
                             </button>
                             <button
                               type="button"
@@ -3259,10 +3586,25 @@ export default function QuickLoadPage() {
                               }`}
                               onClick={() => setUseBookingSaleTotal(false)}
                             >
-                              Por servicio
+                              Local OFF
                             </button>
                           </div>
                         )}
+
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-medium">
+                          <span className="rounded-full border border-white/20 bg-white/60 px-2 py-1 dark:bg-white/10">
+                            Global:{" "}
+                            {inheritedUseBookingSaleTotal ? "Activo" : "Inactivo"}
+                          </span>
+                          <span className="rounded-full border border-white/20 bg-white/60 px-2 py-1 dark:bg-white/10">
+                            Local:{" "}
+                            {nextSaleTotalOverridePayload == null
+                              ? "Heredado"
+                              : nextSaleTotalOverridePayload
+                                ? "Override Activo"
+                                : "Override Inactivo"}
+                          </span>
+                        </div>
 
                         {useBookingSaleTotal && (
                           <div className="mt-5 grid gap-4">
@@ -3316,33 +3658,42 @@ export default function QuickLoadPage() {
                           );
                           const saleValue = toNumber(service.sale_price);
                           const costValue = toNumber(service.cost_price);
+                          const hasBillingInputs = [
+                            saleValue,
+                            costValue,
+                            toNumber(service.tax_21),
+                            toNumber(service.tax_105),
+                            toNumber(service.exempt),
+                            toNumber(service.other_taxes),
+                            toNumber(service.card_interest),
+                            toNumber(service.card_interest_21),
+                          ].some((value) => Math.abs(value) > 0.000001);
                           const showBreakdown =
-                            saleValue > 0 && Number.isFinite(costValue);
+                            Number.isFinite(saleValue) &&
+                            Number.isFinite(costValue) &&
+                            hasBillingInputs;
                           const adjustmentTotals =
                             adjustmentsByServiceId.get(service.id) ??
                             EMPTY_ADJUSTMENTS;
+                          const serviceMiniAdjustments =
+                            normalizeServiceAdjustmentConfigs(
+                              service.service_adjustments,
+                            );
                           const transferPct = Number.isFinite(
                             service.transfer_fee_pct,
                           )
                             ? service.transfer_fee_pct
                             : transferFeePct;
                           const transferAmount =
-                            Number.isFinite(service.transfer_fee_amount) &&
-                            service.transfer_fee_amount > 0
+                            Number.isFinite(service.transfer_fee_amount)
                               ? service.transfer_fee_amount
                               : saleValue * transferPct;
                           const baseCommission = Number(
                             service.totalCommissionWithoutVAT ?? 0,
                           );
-                          const netCommission =
-                            baseCommission > 0
-                              ? Math.max(
-                                  baseCommission -
-                                    transferAmount -
-                                    adjustmentTotals.total,
-                                  0,
-                                )
-                              : null;
+                          const netCommission = showBreakdown
+                            ? baseCommission - transferAmount - adjustmentTotals.total
+                            : null;
                           return (
                             <motion.div
                               key={service.id}
@@ -3852,6 +4203,13 @@ export default function QuickLoadPage() {
                                 </>
                               )}
 
+                              <ServiceAdjustmentsEditor
+                                items={serviceMiniAdjustments}
+                                onChange={(next) =>
+                                  updateServiceAdjustments(service.id, next)
+                                }
+                              />
+
                               {useBookingSaleTotal ? (
                                 <div className={SUBCARD}>
                                   <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
@@ -3881,7 +4239,7 @@ export default function QuickLoadPage() {
                                     costo={costValue}
                                     impuestos={toNumber(service.other_taxes)}
                                     moneda={service.currency || "ARS"}
-                                    transferFeePct={transferFeePct}
+                                    transferFeePct={transferPct}
                                     onBillingUpdate={(data) =>
                                       updateServiceBilling(service.id, data)
                                     }
@@ -3903,9 +4261,15 @@ export default function QuickLoadPage() {
                                       service.card_interest_21,
                                     )}
                                     moneda={service.currency || "ARS"}
-                                    transferFeePct={transferFeePct}
+                                    transferFeePct={transferPct}
                                     onBillingUpdate={(data) =>
                                       updateServiceBilling(service.id, data)
+                                    }
+                                    allowBreakdownOverrideEdit={
+                                      canOverrideBillingMode
+                                    }
+                                    initialBreakdownOverride={
+                                      service.billing_override ?? null
                                     }
                                   />
                                 ))}

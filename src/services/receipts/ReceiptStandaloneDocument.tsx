@@ -183,11 +183,25 @@ const styles = StyleSheet.create({
   payLine: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "flex-start",
     gap: 8,
     marginBottom: 5,
   },
-  payLeft: { fontSize: 9.5, color: "#1f2937" },
-  payRight: { fontSize: 9.5, color: "#1f2937" },
+  payLeft: {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 9.5,
+    color: "#1f2937",
+    paddingRight: 6,
+  },
+  payRight: {
+    width: 118,
+    flexShrink: 0,
+    textAlign: "right",
+    fontSize: 9.5,
+    color: "#1f2937",
+  },
   payMeta: { fontSize: 8.5, color: "#64748b" },
   divider: {
     height: 1,
@@ -273,12 +287,12 @@ export default function ReceiptStandaloneDocument(
         <Text style={styles.sectionTitle}>Datos</Text>
         <View style={styles.section}>
           <Text style={styles.label}>Recibimos de</Text>
-          <Text>{recipientsLabel}</Text>
+          <Text>{softWrapLongWords(recipientsLabel, { breakChar: " " })}</Text>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.label}>Concepto</Text>
-          <Text>{concept || "-"}</Text>
+          <Text>{softWrapLongWords(concept || "-", { breakChar: " " })}</Text>
         </View>
 
         <Text style={styles.sectionTitle}>Resumen de pago</Text>
@@ -296,14 +310,17 @@ export default function ReceiptStandaloneDocument(
             </>
           ) : null}
           <Text style={{ fontSize: 9, marginTop: 6 }}>
-            {amountStringLabel}: {amountString}
+            {amountStringLabel}:{" "}
+            {softWrapLongWords(amountString, { breakChar: " " })}
           </Text>
         </View>
 
         {paymentDescription && (
           <View style={styles.section}>
             <Text style={styles.label}>Detalle de pago</Text>
-            <Text>{paymentDescription}</Text>
+            <Text>
+              {softWrapLongWords(paymentDescription, { breakChar: " " })}
+            </Text>
           </View>
         )}
 
@@ -313,7 +330,13 @@ export default function ReceiptStandaloneDocument(
             <View style={styles.list}>
               {payments.map((p, idx) => (
                 <View key={`${p.payment_method_id}-${idx}`} style={styles.payLine}>
-                  <Text style={styles.payLeft}>{paymentLabel(p)}</Text>
+                  <Text style={styles.payLeft}>
+                    {softWrapLongWords(paymentLabel(p), {
+                      maxWordLen: 18,
+                      chunkLen: 10,
+                      breakChar: " ",
+                    })}
+                  </Text>
                   <Text style={styles.payRight}>
                     {safeFmtCurrency(p.amount, displayCurrency)}
                   </Text>
