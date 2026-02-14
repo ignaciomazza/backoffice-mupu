@@ -223,6 +223,7 @@ export interface BookingFormData {
   return_date: string;
   pax_count: number;
   clients_ids: number[];
+  agency_booking_id?: number | null;
   simple_companions?: BookingCompanion[];
 }
 

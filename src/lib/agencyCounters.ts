@@ -61,3 +61,46 @@ export async function getNextAgencyCounter(
 
   return counter.next_value - 1;
 }
+
+export async function setAgencyCounterNextValue(
+  tx: Prisma.TransactionClient,
+  id_agency: number,
+  key: AgencyCounterKey,
+  nextValue: number,
+): Promise<number> {
+  const normalized = Math.max(1, Math.trunc(nextValue));
+  const counter = await tx.agencyCounter.upsert({
+    where: { id_agency_key: { id_agency, key } },
+    update: { next_value: normalized },
+    create: { id_agency, key, next_value: normalized },
+    select: { next_value: true },
+  });
+  return counter.next_value;
+}
+
+export async function ensureAgencyCounterAtLeast(
+  tx: Prisma.TransactionClient,
+  id_agency: number,
+  key: AgencyCounterKey,
+  minNextValue: number,
+): Promise<void> {
+  const normalized = Math.max(1, Math.trunc(minNextValue));
+  const existing = await tx.agencyCounter.findUnique({
+    where: { id_agency_key: { id_agency, key } },
+    select: { next_value: true },
+  });
+
+  if (!existing) {
+    await tx.agencyCounter.create({
+      data: { id_agency, key, next_value: normalized },
+    });
+    return;
+  }
+
+  if (existing.next_value >= normalized) return;
+
+  await tx.agencyCounter.update({
+    where: { id_agency_key: { id_agency, key } },
+    data: { next_value: normalized },
+  });
+}

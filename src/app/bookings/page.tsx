@@ -41,6 +41,7 @@ type BookingFormData = {
   return_date: string;
   pax_count: number;
   clients_ids: number[];
+  agency_booking_id?: number | null;
   simple_companions?: Array<{
     category_id?: number | null;
     age?: number | null;
@@ -128,6 +129,19 @@ const formatBookingErrorMessage = (raw: string): string => {
   if (lower.includes("hay categorías inválidas")) {
     return "Hay categorías de acompañantes inválidas para esta agencia.";
   }
+  if (lower.includes("el número de reserva de agencia ya está en uso")) {
+    return "El número de reserva de agencia ya está en uso.";
+  }
+  if (lower.includes("la carga manual de número de reserva está deshabilitada")) {
+    return "La carga manual del número de reserva está deshabilitada en la configuración.";
+  }
+  if (
+    lower.includes(
+      "el número de reserva de agencia debe ser un entero mayor a 0",
+    )
+  ) {
+    return "Ingresá un número de reserva válido (entero mayor a 0).";
+  }
   if (lower.includes("datos duplicados detectados")) {
     return "Se detectaron datos duplicados al guardar la reserva.";
   }
@@ -158,6 +172,11 @@ export default function Page() {
   const [passengerCategories, setPassengerCategories] = useState<
     PassengerCategory[]
   >([]);
+  const [allowManualAgencyBookingId, setAllowManualAgencyBookingId] =
+    useState(false);
+  const [nextAutoAgencyBookingId, setNextAutoAgencyBookingId] = useState<
+    number | null
+  >(null);
 
   const [selectedUserId, setSelectedUserId] = useState(0);
   const [selectedTeamId, setSelectedTeamId] = useState(0);
@@ -269,6 +288,7 @@ export default function Page() {
     return_date: "",
     pax_count: 1,
     clients_ids: [],
+    agency_booking_id: 0,
     simple_companions: [],
     creation_date: todayYMD(),
     use_admin_adjustments: false,
@@ -402,9 +422,14 @@ export default function Page() {
     let alive = true;
     (async () => {
       try {
-        const [cfgRes, catsRes] = await Promise.all([
+        const [cfgRes, catsRes, numberingRes] = await Promise.all([
           authFetch("/api/clients/config", { cache: "no-store" }, token),
           authFetch("/api/passenger-categories", { cache: "no-store" }, token),
+          authFetch(
+            "/api/bookings/config/numbering",
+            { cache: "no-store" },
+            token,
+          ),
         ]);
         if (cfgRes.ok) {
           const cfg = (await cfgRes.json().catch(() => null)) as {
@@ -420,10 +445,32 @@ export default function Page() {
         } else if (alive) {
           setPassengerCategories([]);
         }
+        if (numberingRes.ok) {
+          const numbering = (await numberingRes.json().catch(() => null)) as {
+            allow_manual_agency_booking_id?: boolean;
+            next_auto_agency_booking_id?: number;
+          } | null;
+          if (alive) {
+            setAllowManualAgencyBookingId(
+              Boolean(numbering?.allow_manual_agency_booking_id),
+            );
+            setNextAutoAgencyBookingId(
+              typeof numbering?.next_auto_agency_booking_id === "number" &&
+                Number.isFinite(numbering.next_auto_agency_booking_id)
+                ? Math.max(1, Math.trunc(numbering.next_auto_agency_booking_id))
+                : null,
+            );
+          }
+        } else if (alive) {
+          setAllowManualAgencyBookingId(false);
+          setNextAutoAgencyBookingId(null);
+        }
       } catch {
         if (alive) {
           setUseSimpleCompanions(false);
           setPassengerCategories([]);
+          setAllowManualAgencyBookingId(false);
+          setNextAutoAgencyBookingId(null);
         }
       }
     })();
@@ -501,6 +548,19 @@ export default function Page() {
     >,
   ) => {
     const { name, value } = e.target;
+    if (name === "agency_booking_id") {
+      setFormData((prev) => {
+        if (value === "") return { ...prev, agency_booking_id: 0 };
+        const parsed = Number(value);
+        return {
+          ...prev,
+          agency_booking_id: Number.isFinite(parsed)
+            ? parsed
+            : (prev.agency_booking_id ?? 0),
+        };
+      });
+      return;
+    }
     setFormData((prev) => ({
       ...prev,
       [name]: ["pax_count", "titular_id", "id_user"].includes(name)
@@ -574,6 +634,15 @@ export default function Page() {
       return;
     }
 
+    if (
+      formData.agency_booking_id != null &&
+      formData.agency_booking_id !== 0 &&
+      !isValidId(formData.agency_booking_id)
+    ) {
+      toast.error("El número de reserva de agencia debe ser un entero mayor a 0.");
+      return;
+    }
+
     if (sanitizedCompanions.includes(formData.titular_id)) {
       toast.error("El titular no puede estar de acompañante.");
       return;
@@ -624,8 +693,9 @@ export default function Page() {
         | "id_user"
         | "creation_date"
         | "use_admin_adjustments"
+        | "agency_booking_id"
       > & { pax_count: number; clients_ids: number[]; simple_companions?: BookingFormData["simple_companions"] } & Partial<
-          Pick<BookingFormData, "id_user" | "creation_date">
+          Pick<BookingFormData, "id_user" | "creation_date" | "agency_booking_id">
         >;
 
       const payload: BookingPayload = {
@@ -643,6 +713,9 @@ export default function Page() {
           1 + sanitizedCompanions.length + sanitizedSimpleCompanions.length,
         clients_ids: sanitizedCompanions,
         simple_companions: sanitizedSimpleCompanions as BookingPayload["simple_companions"],
+        ...(isValidId(formData.agency_booking_id)
+          ? { agency_booking_id: formData.agency_booking_id }
+          : {}),
         ...(adminAdjustEnabled && canPickCreator && isValidId(formData.id_user)
           ? { id_user: formData.id_user }
           : {}),
@@ -681,6 +754,31 @@ export default function Page() {
       setBookings(items);
       setNextCursor(nextCursor);
       setExpandedBookingId(null);
+
+      try {
+        const numberingRes = await authFetch(
+          "/api/bookings/config/numbering",
+          { cache: "no-store" },
+          token || undefined,
+        );
+        if (numberingRes.ok) {
+          const numbering = (await numberingRes.json().catch(() => null)) as {
+            allow_manual_agency_booking_id?: boolean;
+            next_auto_agency_booking_id?: number;
+          } | null;
+          setAllowManualAgencyBookingId(
+            Boolean(numbering?.allow_manual_agency_booking_id),
+          );
+          setNextAutoAgencyBookingId(
+            typeof numbering?.next_auto_agency_booking_id === "number" &&
+              Number.isFinite(numbering.next_auto_agency_booking_id)
+              ? Math.max(1, Math.trunc(numbering.next_auto_agency_booking_id))
+              : null,
+          );
+        }
+      } catch {
+        // Si falla, no bloquea el guardado de reserva.
+      }
 
       toast.success("¡Reserva guardada con éxito!");
       resetForm();
@@ -733,6 +831,7 @@ export default function Page() {
       return_date: "",
       pax_count: 1,
       clients_ids: [],
+      agency_booking_id: 0,
       simple_companions: [],
       creation_date: todayYMD(),
       use_admin_adjustments: false,
@@ -772,6 +871,7 @@ export default function Page() {
       return_date: booking.return_date.split("T")[0],
       pax_count: Math.max(1, 1 + companions.length + simpleCompanions.length),
       clients_ids: companions,
+      agency_booking_id: booking.agency_booking_id ?? 0,
       simple_companions: simpleCompanions,
       creation_date:
         (booking.creation_date as unknown as string)?.split("T")[0] ||
@@ -878,6 +978,8 @@ export default function Page() {
             creatorsList={teamMembers}
             passengerCategories={passengerCategories}
             allowSimpleCompanions={useSimpleCompanions}
+            allowManualAgencyBookingId={allowManualAgencyBookingId}
+            nextAutoAgencyBookingId={nextAutoAgencyBookingId}
           />
         </motion.div>
 

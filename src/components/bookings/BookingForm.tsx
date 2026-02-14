@@ -30,6 +30,7 @@ export interface BookingFormData {
   return_date: string; // aaaa-mm-dd
   pax_count: number; // total (titular + acompañantes)
   clients_ids: number[]; // solo acompañantes
+  agency_booking_id?: number | null;
   simple_companions?: Array<{
     category_id?: number | null;
     age?: number | null;
@@ -56,6 +57,8 @@ interface BookingFormProps {
   creatorsList?: User[];
   passengerCategories?: PassengerCategory[];
   allowSimpleCompanions?: boolean;
+  allowManualAgencyBookingId?: boolean;
+  nextAutoAgencyBookingId?: number | null;
 }
 
 /* =========================
@@ -150,6 +153,8 @@ export default function BookingForm({
   creatorsList = [],
   passengerCategories = [],
   allowSimpleCompanions = false,
+  allowManualAgencyBookingId = false,
+  nextAutoAgencyBookingId = null,
 }: BookingFormProps) {
   const [loading, setLoading] = useState(false);
   const [useSimpleMode, setUseSimpleMode] = useState<boolean>(
@@ -293,6 +298,10 @@ export default function BookingForm({
   const hasDeparture = !!formData.departure_date;
   const hasReturn = !!formData.return_date;
   const bothDates = hasDeparture && hasReturn;
+  const manualAgencyBookingHint =
+    nextAutoAgencyBookingId != null
+      ? `Si lo dejás vacío, se asigna automáticamente (próximo: N° ${nextAutoAgencyBookingId}).`
+      : "Si lo dejás vacío, se asigna automáticamente.";
 
   useEffect(() => {
     if (!allowSimpleCompanions) {
@@ -568,6 +577,26 @@ export default function BookingForm({
                 title="Datos básicos"
                 desc="Qué se está reservando y cuándo viaja el pasajero."
               >
+                {allowManualAgencyBookingId && (
+                  <Field
+                    id="agency_booking_id"
+                    label="N° de reserva de agencia (manual)"
+                    hint={manualAgencyBookingHint}
+                  >
+                    <input
+                      id="agency_booking_id"
+                      type="number"
+                      min={1}
+                      step={1}
+                      name="agency_booking_id"
+                      value={formData.agency_booking_id || ""}
+                      onChange={handleChange}
+                      placeholder="Ej: 652"
+                      className={`${inputBase} ${formData.agency_booking_id ? inputOkFocus : ""}`}
+                    />
+                  </Field>
+                )}
+
                 <Field
                   id="details"
                   label="Detalle (impacta en recibo)"

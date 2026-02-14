@@ -1,7 +1,10 @@
 // src/pages/api/bookings/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
-import { getNextAgencyCounter } from "@/lib/agencyCounters";
+import {
+  ensureAgencyCounterAtLeast,
+  getNextAgencyCounter,
+} from "@/lib/agencyCounters";
 import { encodePublicId } from "@/lib/publicIds";
 import {
   getBookingLeaderScope,
@@ -41,6 +44,7 @@ type BookingCreateBody = {
   }>;
   id_user?: number; // opcional: admins/líder pueden asignar creador
   creation_date?: string; // opcional: SOLO admin/gerente/dev pueden fijar
+  agency_booking_id?: number | string | null; // opcional: número manual
 };
 
 type TokenPayload = JWTPayload & {
@@ -271,6 +275,28 @@ async function isSimpleCompanionsEnabled(id_agency: number) {
     select: { use_simple_companions: true },
   });
   return Boolean(cfg?.use_simple_companions);
+}
+
+const AGENCY_BOOKING_ID_DUPLICATE_ERROR = "AGENCY_BOOKING_ID_DUPLICATE";
+const BOOKING_MANUAL_ENABLED_KEY = "booking_manual_enabled";
+
+async function getNextAvailableAgencyBookingId(
+  tx: Prisma.TransactionClient,
+  id_agency: number,
+): Promise<number> {
+  let tries = 0;
+  while (tries < 5000) {
+    const candidate = await getNextAgencyCounter(tx, id_agency, "booking");
+    const exists = await tx.booking.findFirst({
+      where: { id_agency, agency_booking_id: candidate },
+      select: { id_booking: true },
+    });
+    if (!exists) return candidate;
+    tries += 1;
+  }
+  throw new Error(
+    "No se pudo asignar un número automático de reserva disponible.",
+  );
 }
 
 // ============ GET ============
@@ -623,6 +649,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     simple_companions,
     id_user,
     creation_date, // NUEVO
+    agency_booking_id,
   } = body;
 
   // auth (siempre agencia y usuario del token/cookie)
@@ -637,19 +664,53 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // validaciones mínimas
-    if (
-      !clientStatus ||
-      !operatorStatus ||
-      !status ||
-      !details ||
-      !invoice_type ||
-      !titular_id ||
-      !departure_date ||
-      !return_date
-    ) {
+  if (
+    !clientStatus ||
+    !operatorStatus ||
+    !status ||
+    !details ||
+    !invoice_type ||
+    !titular_id ||
+    !departure_date ||
+    !return_date
+  ) {
     return res
       .status(400)
       .json({ error: "Todos los campos obligatorios deben ser completados" });
+  }
+
+  const hasManualAgencyBookingId =
+    agency_booking_id !== undefined &&
+    agency_booking_id !== null &&
+    String(agency_booking_id).trim() !== "";
+  const manualAgencyBookingId = hasManualAgencyBookingId
+    ? Number(agency_booking_id)
+    : undefined;
+  if (
+    hasManualAgencyBookingId &&
+    (manualAgencyBookingId == null ||
+      !Number.isInteger(manualAgencyBookingId) ||
+      manualAgencyBookingId <= 0)
+  ) {
+    return res.status(400).json({
+      error: "El número de reserva de agencia debe ser un entero mayor a 0.",
+    });
+  }
+  if (hasManualAgencyBookingId) {
+    const manualFlag = await prisma.agencyCounter.findUnique({
+      where: {
+        id_agency_key: {
+          id_agency: authAgencyId,
+          key: BOOKING_MANUAL_ENABLED_KEY,
+        },
+      },
+      select: { next_value: true },
+    });
+    if (Number(manualFlag?.next_value) !== 1) {
+      return res.status(403).json({
+        error: "La carga manual de número de reserva está deshabilitada.",
+      });
+    }
   }
 
   // fechas de viaje
@@ -805,11 +866,31 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const booking = await prisma.$transaction(async (tx) => {
-      const agencyBookingId = await getNextAgencyCounter(
-        tx,
-        authAgencyId,
-        "booking",
-      );
+      let agencyBookingId: number;
+      if (manualAgencyBookingId != null) {
+        const duplicate = await tx.booking.findFirst({
+          where: {
+            id_agency: authAgencyId,
+            agency_booking_id: manualAgencyBookingId,
+          },
+          select: { id_booking: true },
+        });
+        if (duplicate) {
+          throw new Error(AGENCY_BOOKING_ID_DUPLICATE_ERROR);
+        }
+        agencyBookingId = manualAgencyBookingId;
+        await ensureAgencyCounterAtLeast(
+          tx,
+          authAgencyId,
+          "booking",
+          manualAgencyBookingId + 1,
+        );
+      } else {
+        agencyBookingId = await getNextAvailableAgencyBookingId(
+          tx,
+          authAgencyId,
+        );
+      }
 
       return tx.booking.create({
         data: {
@@ -864,11 +945,18 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[bookings][POST]", message);
+    if (message === AGENCY_BOOKING_ID_DUPLICATE_ERROR) {
+      return res
+        .status(400)
+        .json({ error: "El número de reserva de agencia ya está en uso." });
+    }
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
-      return res.status(400).json({ error: "Datos duplicados detectados" });
+      return res
+        .status(400)
+        .json({ error: "El número de reserva de agencia ya está en uso." });
     }
     return res.status(500).json({ error: "Error creando la reserva" });
   }

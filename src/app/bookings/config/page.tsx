@@ -60,6 +60,12 @@ type CalcConfigResponse = {
   booking_visibility_mode: "all" | "team" | "own";
 };
 
+type BookingNumberingConfigResponse = {
+  allow_manual_agency_booking_id: boolean;
+  next_auto_agency_booking_id: number;
+  max_agency_booking_id: number;
+};
+
 type RoleResponse = { role?: string };
 type BookingVisibilityMode = "all" | "team" | "own";
 
@@ -126,6 +132,14 @@ function stringToNumber(input: string): number | null {
   if (!raw) return null;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+function stringToPositiveInt(input: string): number | null {
+  const raw = input.trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) return null;
   return n;
 }
 
@@ -260,7 +274,7 @@ function Modal({
 /* =========================================================
  * Page
  * ========================================================= */
-type TabKey = "types" | "visibility" | "calc" | "permissions";
+type TabKey = "types" | "visibility" | "calc" | "numbering" | "permissions";
 
 export default function BookingsConfigPage() {
   const { token } = useAuth();
@@ -356,6 +370,17 @@ export default function BookingsConfigPage() {
     useState<BookingVisibilityMode>("own");
   const [serverVisibilityMode, setServerVisibilityMode] =
     useState<BookingVisibilityMode>("own");
+  const [numberingLoading, setNumberingLoading] = useState(true);
+  const [numberingSaving, setNumberingSaving] = useState(false);
+  const [allowManualAgencyBookingId, setAllowManualAgencyBookingId] =
+    useState(false);
+  const [serverAllowManualAgencyBookingId, setServerAllowManualAgencyBookingId] =
+    useState(false);
+  const [nextAutoAgencyBookingId, setNextAutoAgencyBookingId] =
+    useState("1");
+  const [serverNextAutoAgencyBookingId, setServerNextAutoAgencyBookingId] =
+    useState("1");
+  const [maxAgencyBookingId, setMaxAgencyBookingId] = useState(0);
   const [adjModalOpen, setAdjModalOpen] = useState(false);
   const [editingAdj, setEditingAdj] = useState<BillingAdjustmentConfig | null>(
     null,
@@ -529,6 +554,35 @@ export default function BookingsConfigPage() {
       }
     };
 
+    const loadBookingNumbering = async () => {
+      setNumberingLoading(true);
+      try {
+        const res = await authFetch(
+          "/api/bookings/config/numbering",
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) throw new Error("No se pudo obtener la numeración");
+        const data = (await res.json()) as BookingNumberingConfigResponse;
+        if (cancel) return;
+        const next = String(
+          Math.max(1, Number(data.next_auto_agency_booking_id || 1)),
+        );
+        setAllowManualAgencyBookingId(Boolean(data.allow_manual_agency_booking_id));
+        setServerAllowManualAgencyBookingId(
+          Boolean(data.allow_manual_agency_booking_id),
+        );
+        setNextAutoAgencyBookingId(next);
+        setServerNextAutoAgencyBookingId(next);
+        setMaxAgencyBookingId(Math.max(0, Number(data.max_agency_booking_id || 0)));
+      } catch (e) {
+        console.error("[bookings/config] numbering", e);
+        toast.error("No se pudo cargar la numeración de reservas");
+      } finally {
+        if (!cancel) setNumberingLoading(false);
+      }
+    };
+
     const firstLoad = async () => {
       setLoading(true);
       try {
@@ -538,6 +592,7 @@ export default function BookingsConfigPage() {
           loadPassengerCategories(),
           loadOperators(),
           loadCurrencies(),
+          loadBookingNumbering(),
         ]);
       } finally {
         if (!cancel) setLoading(false);
@@ -1069,6 +1124,9 @@ export default function BookingsConfigPage() {
     adjustmentsDirty ||
     useBookingSaleTotal !== serverUseBookingSaleTotal ||
     visibilityMode !== serverVisibilityMode;
+  const numberingDirty =
+    allowManualAgencyBookingId !== serverAllowManualAgencyBookingId ||
+    nextAutoAgencyBookingId.trim() !== serverNextAutoAgencyBookingId.trim();
 
   const saveCalcConfig = useCallback(async () => {
     if (!token) return;
@@ -1132,6 +1190,57 @@ export default function BookingsConfigPage() {
     }
   }, [adjustments, mode, pctStr, token, useBookingSaleTotal, visibilityMode]);
 
+  const saveBookingNumbering = useCallback(async () => {
+    if (!token) return;
+
+    const nextAuto = stringToPositiveInt(nextAutoAgencyBookingId);
+    if (nextAuto == null) {
+      toast.error("Ingresá un próximo número automático válido.");
+      return;
+    }
+
+    setNumberingSaving(true);
+    try {
+      const res = await authFetch(
+        "/api/bookings/config/numbering",
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            allow_manual_agency_booking_id: allowManualAgencyBookingId,
+            next_auto_agency_booking_id: nextAuto,
+          }),
+        },
+        token,
+      );
+      if (res.status === 403) {
+        toast.error("No autorizado para guardar numeración.");
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "Error guardando numeración");
+      }
+      const data = (await res.json()) as BookingNumberingConfigResponse;
+      const next = String(
+        Math.max(1, Number(data.next_auto_agency_booking_id || 1)),
+      );
+      setAllowManualAgencyBookingId(Boolean(data.allow_manual_agency_booking_id));
+      setServerAllowManualAgencyBookingId(
+        Boolean(data.allow_manual_agency_booking_id),
+      );
+      setNextAutoAgencyBookingId(next);
+      setServerNextAutoAgencyBookingId(next);
+      setMaxAgencyBookingId(Math.max(0, Number(data.max_agency_booking_id || 0)));
+      toast.success("Numeración guardada");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error guardando numeración";
+      toast.error(msg);
+    } finally {
+      setNumberingSaving(false);
+    }
+  }, [allowManualAgencyBookingId, nextAutoAgencyBookingId, token]);
+
   /* Ctrl/Cmd+S para guardar config cuando hay cambios */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1193,7 +1302,7 @@ export default function BookingsConfigPage() {
             </h1>
             <p className="mt-1 text-sm text-sky-950/70 dark:text-white/70">
               Gestioná <b>Tipos de Servicio</b>, <b>Visibilidad</b> y{" "}
-              <b>Cálculo &amp; Comisiones</b> por agencia.
+              <b>Cálculo &amp; Comisiones</b> y <b>Numeración</b> por agencia.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1201,6 +1310,7 @@ export default function BookingsConfigPage() {
               { key: "types", label: "Tipos" },
               { key: "visibility", label: "Visibilidad" },
               { key: "calc", label: "Cálculo" },
+              { key: "numbering", label: "Numeración" },
               { key: "permissions", label: "Permisos" },
             ].map((t) => (
               <button
@@ -1704,6 +1814,102 @@ export default function BookingsConfigPage() {
                         title={configDirty ? "⌘/Ctrl + S" : undefined}
                       >
                         {savingCfg ? <Spinner /> : "Guardar cambios"}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ===================== TAB: Numeración ===================== */}
+            {active === "numbering" && (
+              <div className={`${GLASS} p-6`}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-lg font-medium">Numeración</h2>
+                  {!canEdit && (
+                    <span className="text-xs text-sky-950/60 dark:text-white/60">
+                      Solo lectura
+                    </span>
+                  )}
+                </div>
+
+                {numberingLoading ? (
+                  <div className="space-y-3">
+                    <div className="h-4 w-full animate-pulse rounded bg-white/20 dark:bg-white/10" />
+                    <div className="h-4 w-full animate-pulse rounded bg-white/20 dark:bg-white/10" />
+                    <div className="h-4 w-full animate-pulse rounded bg-white/20 dark:bg-white/10" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="mb-4">
+                      <Label>Próximo número automático de reserva</Label>
+                      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[220px,1fr]">
+                        <Input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={nextAutoAgencyBookingId}
+                          onChange={(e) =>
+                            setNextAutoAgencyBookingId(e.target.value)
+                          }
+                          disabled={!canEdit}
+                          placeholder="652"
+                        />
+                        <div className="rounded-2xl border border-white/10 bg-white/30 p-3 text-sm dark:bg-white/10">
+                          Último número usado:{" "}
+                          <b>N° {Math.max(0, maxAgencyBookingId)}</b>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-xs text-sky-950/70 dark:text-white/70">
+                        El próximo automático debe ser mayor al último número
+                        usado.
+                      </p>
+                    </div>
+
+                    <div className="mb-4">
+                      <Label>Carga manual en BookingForm</Label>
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/30 p-3 dark:bg-white/10">
+                        <div className="text-sm">
+                          <div className="font-medium">
+                            Permitir elegir número manualmente
+                          </div>
+                          <div className="text-xs opacity-70">
+                            Si está activo, el formulario de reservas muestra el
+                            campo para definir el número de agencia.
+                          </div>
+                        </div>
+                        <Switch
+                          checked={allowManualAgencyBookingId}
+                          onChange={setAllowManualAgencyBookingId}
+                          label={allowManualAgencyBookingId ? "Activo" : "Inactivo"}
+                          title="Permitir número manual de reserva"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAllowManualAgencyBookingId(
+                            serverAllowManualAgencyBookingId,
+                          );
+                          setNextAutoAgencyBookingId(
+                            serverNextAutoAgencyBookingId,
+                          );
+                        }}
+                        disabled={!numberingDirty}
+                        className="rounded-full bg-white/50 px-4 py-2 text-sky-950 shadow-sm transition hover:scale-[.98] active:scale-95 disabled:opacity-50 dark:bg-white/10 dark:text-white"
+                      >
+                        Restablecer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveBookingNumbering}
+                        disabled={!canEdit || numberingSaving || !numberingDirty}
+                        className={ICON_BTN}
+                      >
+                        {numberingSaving ? <Spinner /> : "Guardar cambios"}
                       </button>
                     </div>
                   </>
