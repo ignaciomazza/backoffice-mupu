@@ -1,12 +1,14 @@
 // src/pages/api/clients/[id].ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { isMissingColumnError } from "@/lib/prismaErrors";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 import {
+  DEFAULT_CLIENT_PROFILE_KEY,
   DOCUMENT_ANY_KEY,
-  normalizeCustomFields,
-  normalizeRequiredFields,
+  normalizeClientProfiles,
+  resolveClientProfile,
   DOC_REQUIRED_FIELDS,
 } from "@/utils/clientConfig";
 import {
@@ -151,6 +153,74 @@ const duplicateSelectSafe = {
   tax_id: true,
 } as const;
 
+const clientSelectSafe = {
+  id_client: true,
+  agency_client_id: true,
+  profile_key: true,
+  first_name: true,
+  last_name: true,
+  phone: true,
+  address: true,
+  postal_code: true,
+  locality: true,
+  company_name: true,
+  tax_id: true,
+  commercial_address: true,
+  dni_number: true,
+  passport_number: true,
+  birth_date: true,
+  nationality: true,
+  gender: true,
+  category_id: true,
+  email: true,
+  custom_fields: true,
+  registration_date: true,
+  id_agency: true,
+  id_user: true,
+  user: { select: userSelectSafe },
+} as const satisfies Prisma.ClientSelect;
+
+const clientLegacySelectSafe = {
+  id_client: true,
+  agency_client_id: true,
+  first_name: true,
+  last_name: true,
+  phone: true,
+  address: true,
+  postal_code: true,
+  locality: true,
+  company_name: true,
+  tax_id: true,
+  commercial_address: true,
+  dni_number: true,
+  passport_number: true,
+  birth_date: true,
+  nationality: true,
+  gender: true,
+  category_id: true,
+  email: true,
+  custom_fields: true,
+  registration_date: true,
+  id_agency: true,
+  id_user: true,
+  user: { select: userSelectSafe },
+} as const satisfies Prisma.ClientSelect;
+
+type ClientLegacyRowSafe = Prisma.ClientGetPayload<{
+  select: typeof clientLegacySelectSafe;
+}>;
+type ClientRowCompat = ClientLegacyRowSafe & { profile_key?: string | null };
+
+function withDefaultProfileKey<T extends Record<string, unknown>>(row: T) {
+  return {
+    ...row,
+    profile_key:
+      typeof row.profile_key === "string" && row.profile_key.trim()
+        ? row.profile_key
+        : DEFAULT_CLIENT_PROFILE_KEY,
+  };
+}
+
 type VisibilityMode = "all" | "team" | "own";
 
 function normalizeVisibilityMode(v: unknown): VisibilityMode {
@@ -231,10 +301,24 @@ export default async function handler(
   // GET /api/clients/:id
   if (req.method === "GET") {
     try {
-      const client = await prisma.client.findUnique({
-        where: { id_client: clientId },
-        include: { user: { select: userSelectSafe } },
-      });
+      let client: ClientRowCompat | null = null;
+      try {
+        client = await prisma.client.findUnique({
+          where: { id_client: clientId },
+          select: clientSelectSafe,
+        });
+      } catch (error) {
+        if (!isMissingColumnError(error, "Client.profile_key")) {
+          throw error;
+        }
+        const legacyClient = await prisma.client.findUnique({
+          where: { id_client: clientId },
+          select: clientLegacySelectSafe,
+        });
+        client = legacyClient
+          ? withDefaultProfileKey(legacyClient)
+          : null;
+      }
 
       if (!client)
         return res.status(404).json({ error: "Pax no encontrado" });
@@ -252,6 +336,15 @@ export default async function handler(
 
       return res.status(200).json(client);
     } catch (e) {
+      if (
+        isMissingColumnError(e, "Client.profile_key") ||
+        isMissingColumnError(e, "ClientConfig.profiles")
+      ) {
+        return res.status(500).json({
+          error:
+            "Falta la migración de Tipos de Pax en base de datos. Ejecutá `npx prisma migrate deploy`.",
+        });
+      }
       console.error("[clients/:id][GET]", e);
       return res.status(500).json({ error: "Error fetching client" });
     }
@@ -260,15 +353,40 @@ export default async function handler(
   // PUT /api/clients/:id
   if (req.method === "PUT") {
     try {
-      const existing = await prisma.client.findUnique({
-        where: { id_client: clientId },
-        select: {
-          id_client: true,
-          id_agency: true,
-          id_user: true,
-          custom_fields: true,
-        },
-      });
+      let existing:
+        | {
+            id_client: number;
+            id_agency: number;
+            id_user: number;
+            profile_key?: string | null;
+            custom_fields: Prisma.JsonValue | null;
+          }
+        | null = null;
+      try {
+        existing = await prisma.client.findUnique({
+          where: { id_client: clientId },
+          select: {
+            id_client: true,
+            id_agency: true,
+            id_user: true,
+            profile_key: true,
+            custom_fields: true,
+          },
+        });
+      } catch (error) {
+        if (!isMissingColumnError(error, "Client.profile_key")) {
+          throw error;
+        }
+        existing = await prisma.client.findUnique({
+          where: { id_client: clientId },
+          select: {
+            id_client: true,
+            id_agency: true,
+            id_user: true,
+            custom_fields: true,
+          },
+        });
+      }
       if (!existing) {
         return res.status(404).json({ error: "Pax no encontrado" });
       }
@@ -286,12 +404,54 @@ export default async function handler(
 
       const c = req.body ?? {};
 
-      const config = await prisma.clientConfig.findFirst({
-        where: { id_agency: auth.id_agency },
-        select: { required_fields: true, custom_fields: true },
+      let config:
+        | {
+            required_fields: Prisma.JsonValue | null;
+            hidden_fields: Prisma.JsonValue | null;
+            custom_fields: Prisma.JsonValue | null;
+            profiles?: Prisma.JsonValue | null;
+          }
+        | null = null;
+      try {
+        config = await prisma.clientConfig.findFirst({
+          where: { id_agency: auth.id_agency },
+          select: {
+            required_fields: true,
+            hidden_fields: true,
+            custom_fields: true,
+            profiles: true,
+          },
+        });
+      } catch (error) {
+        if (!isMissingColumnError(error, "ClientConfig.profiles")) {
+          throw error;
+        }
+        config = await prisma.clientConfig.findFirst({
+          where: { id_agency: auth.id_agency },
+          select: {
+            required_fields: true,
+            hidden_fields: true,
+            custom_fields: true,
+          },
+        });
+      }
+      const profiles = normalizeClientProfiles(config?.profiles, {
+        required_fields: config?.required_fields,
+        hidden_fields: config?.hidden_fields,
+        custom_fields: config?.custom_fields,
       });
-      const requiredFields = normalizeRequiredFields(config?.required_fields);
-      const customFields = normalizeCustomFields(config?.custom_fields);
+      const requestedProfileKey = String(c.profile_key ?? "")
+        .trim()
+        .toLowerCase();
+      if (requestedProfileKey && !profiles.some((p) => p.key === requestedProfileKey)) {
+        return res.status(400).json({ error: "Tipo de pax inválido." });
+      }
+      const selectedProfile = resolveClientProfile(
+        profiles,
+        requestedProfileKey || existing.profile_key || DEFAULT_CLIENT_PROFILE_KEY,
+      );
+      const requiredFields = selectedProfile.required_fields;
+      const customFields = selectedProfile.custom_fields;
       const requiredCustomKeys = customFields
         .filter((f) => f.required)
         .map((f) => f.key);
@@ -390,6 +550,9 @@ export default async function handler(
       const mergedCustom = hasCustomPayload
         ? { ...filteredExistingCustom, ...sanitizedCustom }
         : filteredExistingCustom;
+      const hasProfileChange =
+        selectedProfile.key !==
+        (existing.profile_key || DEFAULT_CLIENT_PROFILE_KEY);
 
       for (const key of requiredCustomKeys) {
         if (!isFilled((mergedCustom as Record<string, unknown>)[key])) {
@@ -473,37 +636,53 @@ export default async function handler(
         return res.status(409).json(buildClientDuplicateResponse(duplicate));
       }
 
-      const updated = await prisma.client.update({
-        where: { id_client: clientId },
+      const updateDataBase = {
+        first_name,
+        last_name,
+        phone: String(c.phone ?? "").trim(),
+        address: c.address || null,
+        postal_code: c.postal_code || null,
+        locality: c.locality || null,
+        company_name: c.company_name || null,
+        tax_id: taxId,
+        commercial_address: c.commercial_address || null,
+        dni_number: dni,
+        passport_number: pass,
+        birth_date: birth as Date,
+        nationality: String(c.nationality ?? "").trim(),
+        gender: String(c.gender ?? "").trim(),
+        email: (String(c.email ?? "").trim() || null) as string | null,
+        id_user: newOwnerId,
+        ...(hasCategory ? { category_id: nextCategoryId ?? null } : {}),
+        ...(hasCustomPayload || hasProfileChange
+          ? {
+              custom_fields:
+                Object.keys(mergedCustom).length > 0 ? mergedCustom : Prisma.DbNull,
+            }
+          : {}),
+      };
+
+      let updated: ClientRowCompat;
+      try {
+        updated = await prisma.client.update({
+          where: { id_client: clientId },
           data: {
-            first_name,
-            last_name,
-            phone: String(c.phone ?? "").trim(),
-            address: c.address || null,
-            postal_code: c.postal_code || null,
-            locality: c.locality || null,
-            company_name: c.company_name || null,
-            tax_id: taxId,
-            commercial_address: c.commercial_address || null,
-            dni_number: dni,
-            passport_number: pass,
-            birth_date: birth as Date,
-            nationality: String(c.nationality ?? "").trim(),
-            gender: String(c.gender ?? "").trim(),
-            email: (String(c.email ?? "").trim() || null) as string | null,
-          id_user: newOwnerId,
-          ...(hasCategory ? { category_id: nextCategoryId ?? null } : {}),
-          ...(hasCustomPayload
-            ? {
-                custom_fields:
-                  Object.keys(mergedCustom).length > 0
-                    ? mergedCustom
-                    : Prisma.DbNull,
-              }
-            : {}),
-        },
-        include: { user: { select: userSelectSafe } },
-      });
+            ...updateDataBase,
+            profile_key: selectedProfile.key,
+          },
+          select: clientSelectSafe,
+        });
+      } catch (error) {
+        if (!isMissingColumnError(error, "Client.profile_key")) {
+          throw error;
+        }
+        updated = await prisma.client.update({
+          where: { id_client: clientId },
+          data: updateDataBase,
+          select: clientLegacySelectSafe,
+        });
+        updated = withDefaultProfileKey(updated);
+      }
 
       return res.status(200).json(updated);
     } catch (e: unknown) {
@@ -524,6 +703,15 @@ export default async function handler(
         return res.status(409).json({
           error: "No se pudo guardar el pax por un dato unico duplicado.",
           code: "CLIENT_UNIQUE_CONFLICT",
+        });
+      }
+      if (
+        isMissingColumnError(e, "Client.profile_key") ||
+        isMissingColumnError(e, "ClientConfig.profiles")
+      ) {
+        return res.status(500).json({
+          error:
+            "Falta la migración de Tipos de Pax en base de datos. Ejecutá `npx prisma migrate deploy`.",
         });
       }
       console.error("[clients/:id][PUT]", e);

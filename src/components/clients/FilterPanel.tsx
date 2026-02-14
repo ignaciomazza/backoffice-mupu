@@ -24,6 +24,9 @@ interface Props {
   setSelectedGender: Dispatch<
     SetStateAction<"" | "Masculino" | "Femenino" | "No Binario">
   >;
+  profileOptions: Array<{ key: string; label: string }>;
+  selectedProfileKey: string;
+  setSelectedProfileKey: Dispatch<SetStateAction<string>>;
   searchTerm: string;
   setSearchTerm: Dispatch<SetStateAction<string>>;
   relatedClientId: number | null;
@@ -41,6 +44,9 @@ export default function FilterPanel({
   setSelectedTeamId,
   selectedGender,
   setSelectedGender,
+  profileOptions,
+  selectedProfileKey,
+  setSelectedProfileKey,
   searchTerm,
   setSearchTerm,
   relatedClientId,
@@ -59,6 +65,9 @@ export default function FilterPanel({
   const [draftGender, setDraftGender] = useState<
     "" | "Masculino" | "Femenino" | "No Binario"
   >(selectedGender);
+  const [draftProfileKey, setDraftProfileKey] = useState<string>(
+    selectedProfileKey || "all",
+  );
   const [draftSearch, setDraftSearch] = useState<string>(searchTerm);
   const [draftRelatedClientId, setDraftRelatedClientId] = useState<
     number | null
@@ -69,12 +78,14 @@ export default function FilterPanel({
     setDraftUserId(selectedUserId);
     setDraftTeamId(selectedTeamId);
     setDraftGender(selectedGender);
+    setDraftProfileKey(selectedProfileKey || "all");
     setDraftSearch(searchTerm);
     setDraftRelatedClientId(relatedClientId);
   }, [
     selectedUserId,
     selectedTeamId,
     selectedGender,
+    selectedProfileKey,
     searchTerm,
     relatedClientId,
   ]);
@@ -90,6 +101,7 @@ export default function FilterPanel({
     setSelectedUserId(draftUserId);
     setSelectedTeamId(draftTeamId);
     setSelectedGender(draftGender);
+    setSelectedProfileKey(draftProfileKey);
     setSearchTerm(draftSearch);
     setRelatedClientId(draftRelatedClientId);
     // setOpen(false); // si querés cerrarlo al aplicar, descomentá
@@ -99,12 +111,14 @@ export default function FilterPanel({
     setDraftUserId(0);
     setDraftTeamId(0);
     setDraftGender("");
+    setDraftProfileKey("all");
     setDraftSearch("");
     setDraftRelatedClientId(null);
 
     setSelectedUserId(0);
     setSelectedTeamId(0);
     setSelectedGender("");
+    setSelectedProfileKey("all");
     setSearchTerm("");
     setRelatedClientId(null);
   };
@@ -268,6 +282,22 @@ export default function FilterPanel({
               <option value="Masculino">Masculino</option>
               <option value="Femenino">Femenino</option>
               <option value="No Binario">No Binario</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block font-medium">Tipo de pax</label>
+            <select
+              value={draftProfileKey}
+              onChange={(e) => setDraftProfileKey(e.target.value)}
+              className={inputClass}
+            >
+              <option value="all">Todos</option>
+              {profileOptions.map((opt) => (
+                <option key={opt.key} value={opt.key}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
           </div>
 

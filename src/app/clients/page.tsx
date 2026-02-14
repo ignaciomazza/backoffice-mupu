@@ -1,10 +1,11 @@
 // src/app/clients/page.tsx
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import {
   Client,
+  ClientProfileConfig,
   User,
   SalesTeam,
   ClientCustomField,
@@ -22,11 +23,11 @@ import "react-toastify/dist/ReactToastify.css";
 import FilterPanel from "@/components/clients/FilterPanel";
 import { authFetch } from "@/utils/authFetch";
 import {
+  DEFAULT_CLIENT_PROFILE_KEY,
   DEFAULT_REQUIRED_FIELDS,
   DOCUMENT_ANY_KEY,
-  normalizeHiddenFields,
-  normalizeCustomFields,
-  normalizeRequiredFields,
+  normalizeClientProfiles,
+  resolveClientProfile,
 } from "@/utils/clientConfig";
 import { rankClientsBySimilarity } from "@/utils/clientSearch";
 
@@ -100,6 +101,7 @@ export default function Page() {
       id_agency: number;
     }
   >({
+    profile_key: DEFAULT_CLIENT_PROFILE_KEY,
     first_name: "",
     last_name: "",
     phone: "",
@@ -124,9 +126,19 @@ export default function Page() {
     DEFAULT_REQUIRED_FIELDS,
   );
   const [customFields, setCustomFields] = useState<ClientCustomField[]>([]);
+  const [clientProfiles, setClientProfiles] = useState<ClientProfileConfig[]>([
+    {
+      key: DEFAULT_CLIENT_PROFILE_KEY,
+      label: "Pax",
+      required_fields: DEFAULT_REQUIRED_FIELDS,
+      hidden_fields: [],
+      custom_fields: [],
+    },
+  ]);
   const [passengerCategories, setPassengerCategories] = useState<
     PassengerCategory[]
   >([]);
+  const [selectedProfileFilter, setSelectedProfileFilter] = useState<string>("all");
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
   const [relationsClient, setRelationsClient] = useState<Client | null>(null);
@@ -263,26 +275,31 @@ export default function Page() {
         );
         if (!res.ok) throw new Error("No se pudo cargar la configuración");
         const cfg = (await res.json().catch(() => null)) as {
+          profiles?: unknown;
           required_fields?: unknown;
           hidden_fields?: unknown;
           custom_fields?: unknown;
         } | null;
-        const hidden = normalizeHiddenFields(cfg?.hidden_fields);
-        const required = normalizeRequiredFields(cfg?.required_fields).filter(
-          (field) => !hidden.includes(field),
-        );
-        const custom = normalizeCustomFields(cfg?.custom_fields);
+        const profiles = normalizeClientProfiles(cfg?.profiles, {
+          required_fields: cfg?.required_fields,
+          hidden_fields: cfg?.hidden_fields,
+          custom_fields: cfg?.custom_fields,
+        });
         if (alive) {
-          setRequiredFields(required);
-          setCustomFields(custom);
-          setHiddenFields(hidden);
+          setClientProfiles(profiles);
         }
       } catch (err) {
         console.warn("⚠️ No se pudo cargar config de pasajeros:", err);
         if (alive) {
-          setRequiredFields(DEFAULT_REQUIRED_FIELDS);
-          setCustomFields([]);
-          setHiddenFields([]);
+          setClientProfiles([
+            {
+              key: DEFAULT_CLIENT_PROFILE_KEY,
+              label: "Pax",
+              required_fields: DEFAULT_REQUIRED_FIELDS,
+              hidden_fields: [],
+              custom_fields: [],
+            },
+          ]);
         }
       }
     })();
@@ -290,6 +307,16 @@ export default function Page() {
       alive = false;
     };
   }, [token]);
+
+  useEffect(() => {
+    const profile = resolveClientProfile(clientProfiles, formData.profile_key);
+    setRequiredFields(profile.required_fields);
+    setCustomFields(profile.custom_fields);
+    setHiddenFields(profile.hidden_fields);
+    if (profile.key !== formData.profile_key) {
+      setFormData((prev) => ({ ...prev, profile_key: profile.key }));
+    }
+  }, [clientProfiles, formData.profile_key]);
 
   // 2) Al cambiar de equipo (solo roles no-líder), recalcular miembros visibles
   useEffect(() => {
@@ -316,6 +343,9 @@ export default function Page() {
       if (selectedUserId > 0) qs.append("userId", String(selectedUserId));
       if (selectedTeamId !== 0) qs.append("teamId", String(selectedTeamId));
       if (selectedGender) qs.append("gender", selectedGender);
+      if (selectedProfileFilter && selectedProfileFilter !== "all") {
+        qs.append("profile_key", selectedProfileFilter);
+      }
       if (relatedClientId) qs.append("related_to", String(relatedClientId));
 
       const queryText = debouncedSearch.trim();
@@ -332,6 +362,7 @@ export default function Page() {
       selectedUserId,
       selectedTeamId,
       selectedGender,
+      selectedProfileFilter,
       relatedClientId,
       debouncedSearch,
       take,
@@ -357,13 +388,19 @@ export default function Page() {
           { cache: "no-store", signal: controller.signal },
           token,
         );
-        if (!res.ok) throw new Error("Error al obtener pasajeros");
-        const { items, nextCursor } = await res.json();
+        const payload = (await res.json().catch(() => null)) as
+          | { items?: Client[]; nextCursor?: number | null; error?: string }
+          | null;
+        if (!res.ok) {
+          throw new Error(payload?.error || "Error al obtener pasajeros");
+        }
+        const { items, nextCursor } = payload || {};
+        const parsedItems = Array.isArray(items) ? items : [];
 
         if (myRequestId !== requestIdRef.current) return; // evita race
 
         // ⬇️ NUEVO: ordenamos los resultados por similitud con la búsqueda
-        const ranked = rankClients(items as Client[], debouncedSearch);
+        const ranked = rankClients(parsedItems, debouncedSearch);
 
         setClients(ranked);
         setNextCursor(nextCursor ?? null);
@@ -371,7 +408,9 @@ export default function Page() {
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
         console.error("❌ Error fetching clients:", err);
-        toast.error("Error al obtener pasajeros.");
+        toast.error(
+          err instanceof Error ? err.message : "Error al obtener pasajeros.",
+        );
         setClients([]);
         setNextCursor(null);
       } finally {
@@ -406,11 +445,17 @@ export default function Page() {
         { cache: "no-store" },
         token,
       );
-      if (!res.ok) throw new Error("No se pudieron cargar más pasajeros");
-      const { items, nextCursor: newCursor } = await res.json();
+      const payload = (await res.json().catch(() => null)) as
+        | { items?: Client[]; nextCursor?: number | null; error?: string }
+        | null;
+      if (!res.ok) {
+        throw new Error(payload?.error || "No se pudieron cargar más pasajeros");
+      }
+      const { items, nextCursor: newCursor } = payload || {};
+      const parsedItems = Array.isArray(items) ? items : [];
 
       // Merge y volver a rankear con la búsqueda actual
-      const merged = [...clients, ...(items as Client[])];
+      const merged = [...clients, ...parsedItems];
       const ranked = rankClients(merged, debouncedSearch);
 
       setClients(ranked);
@@ -428,6 +473,23 @@ export default function Page() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
+    if (name === "profile_key") {
+      const profile = resolveClientProfile(clientProfiles, value);
+      const allowed = new Set(profile.custom_fields.map((field) => field.key));
+      setFormData((prev) => {
+        const nextCustom = Object.fromEntries(
+          Object.entries(prev.custom_fields || {}).filter(([key]) =>
+            allowed.has(key),
+          ),
+        );
+        return {
+          ...prev,
+          profile_key: profile.key,
+          custom_fields: nextCustom,
+        };
+      });
+      return;
+    }
     if (name === "category_id") {
       setFormData((prev) => ({
         ...prev,
@@ -450,6 +512,7 @@ export default function Page() {
 
   const openClientInEditor = useCallback((client: Client) => {
     setFormData({
+      profile_key: client.profile_key || DEFAULT_CLIENT_PROFILE_KEY,
       first_name: client.first_name,
       last_name: client.last_name,
       phone: client.phone || "",
@@ -632,6 +695,7 @@ export default function Page() {
     } finally {
       if (!shouldResetForm) return;
       setFormData((prev) => ({
+        profile_key: prev.profile_key || DEFAULT_CLIENT_PROFILE_KEY,
         first_name: "",
         last_name: "",
         phone: "",
@@ -716,6 +780,26 @@ export default function Page() {
     [debouncedSearch],
   );
 
+  const profileOptions = useMemo(
+    () => clientProfiles.map((profile) => ({ key: profile.key, label: profile.label })),
+    [clientProfiles],
+  );
+  const allCustomFields = useMemo(() => {
+    const map = new Map<string, ClientCustomField>();
+    for (const profile of clientProfiles) {
+      for (const field of profile.custom_fields || []) {
+        if (!map.has(field.key)) {
+          map.set(field.key, field);
+        }
+      }
+    }
+    return Array.from(map.values());
+  }, [clientProfiles]);
+  const profileLabels = useMemo(
+    () => Object.fromEntries(profileOptions.map((opt) => [opt.key, opt.label])),
+    [profileOptions],
+  );
+
   return (
     <ProtectedRoute>
       <section className="text-sky-950 dark:text-white">
@@ -731,6 +815,7 @@ export default function Page() {
             requiredFields={requiredFields}
             customFields={customFields}
             hiddenFields={hiddenFields}
+            profileOptions={profileOptions}
             passengerCategories={passengerCategories}
           />
         </motion.div>
@@ -850,6 +935,9 @@ export default function Page() {
           setSelectedTeamId={setSelectedTeamId}
           selectedGender={selectedGender}
           setSelectedGender={setSelectedGender}
+          profileOptions={profileOptions}
+          selectedProfileKey={selectedProfileFilter}
+          setSelectedProfileKey={setSelectedProfileFilter}
           relatedClientId={relatedClientId}
           setRelatedClientId={setRelatedClientId}
           displayedTeamMembers={teamMembers}
@@ -865,8 +953,8 @@ export default function Page() {
             onLoadMore={loadMore}
             loadingMore={loadingMore}
             onClientsUpdated={applyClientUpdates}
-            requiredFields={requiredFields}
-            customFields={customFields}
+            profiles={clientProfiles}
+            customFields={allCustomFields}
           />
         ) : isLoading ? (
           <div className="flex min-h-[50vh] items-center">
@@ -886,6 +974,7 @@ export default function Page() {
             viewMode={viewMode === "list" ? "list" : "grid"}
             onOpenRelations={(c) => setRelationsClient(c)}
             passengerCategories={passengerCategories}
+            profileLabels={profileLabels}
           />
         )}
 

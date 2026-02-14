@@ -189,6 +189,7 @@ model User {
 model Client {
   id_client                  Int                     @id @default(autoincrement())
   agency_client_id           Int?
+  profile_key                String                  @default("persona")
   first_name                 String
   last_name                  String
   phone                      String
@@ -226,6 +227,7 @@ model Client {
   travelGroupPassengers      TravelGroupPassenger[]
 
   @@unique([id_agency, agency_client_id], name: "agency_client_id_unique")
+  @@index([id_agency, profile_key])
 }
 
 model Booking {
@@ -1173,6 +1175,7 @@ model ClientConfig {
   required_fields       Json?
   hidden_fields         Json?
   custom_fields         Json?
+  profiles              Json?
   use_simple_companions Boolean @default(false)
 
   created_at DateTime @default(now())

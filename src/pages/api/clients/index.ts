@@ -2,13 +2,14 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { getNextAvailableAgencyClientId } from "@/lib/agencyClientId";
+import { isMissingColumnError } from "@/lib/prismaErrors";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 import {
+  DEFAULT_CLIENT_PROFILE_KEY,
   DOCUMENT_ANY_KEY,
-  normalizeCustomFields,
-  normalizeHiddenFields,
-  normalizeRequiredFields,
+  normalizeClientProfiles,
+  resolveClientProfile,
   DOC_REQUIRED_FIELDS,
 } from "@/utils/clientConfig";
 import { rankClientsBySimilarity } from "@/utils/clientSearch";
@@ -157,6 +158,75 @@ const duplicateSelectSafe = {
   tax_id: true,
 } as const;
 
+const clientSelectSafe = {
+  id_client: true,
+  agency_client_id: true,
+  profile_key: true,
+  first_name: true,
+  last_name: true,
+  phone: true,
+  address: true,
+  postal_code: true,
+  locality: true,
+  company_name: true,
+  tax_id: true,
+  commercial_address: true,
+  dni_number: true,
+  passport_number: true,
+  birth_date: true,
+  nationality: true,
+  gender: true,
+  category_id: true,
+  email: true,
+  custom_fields: true,
+  registration_date: true,
+  id_agency: true,
+  id_user: true,
+  user: { select: userSelectSafe },
+} as const satisfies Prisma.ClientSelect;
+
+const clientLegacySelectSafe = {
+  id_client: true,
+  agency_client_id: true,
+  first_name: true,
+  last_name: true,
+  phone: true,
+  address: true,
+  postal_code: true,
+  locality: true,
+  company_name: true,
+  tax_id: true,
+  commercial_address: true,
+  dni_number: true,
+  passport_number: true,
+  birth_date: true,
+  nationality: true,
+  gender: true,
+  category_id: true,
+  email: true,
+  custom_fields: true,
+  registration_date: true,
+  id_agency: true,
+  id_user: true,
+  user: { select: userSelectSafe },
+} as const satisfies Prisma.ClientSelect;
+
+type ClientRowSafe = Prisma.ClientGetPayload<{ select: typeof clientSelectSafe }>;
+type ClientLegacyRowSafe = Prisma.ClientGetPayload<{
+  select: typeof clientLegacySelectSafe;
+}> & { profile_key: string };
+type ClientRowCompat = ClientRowSafe | ClientLegacyRowSafe;
+
+function withDefaultProfileKey<T extends Record<string, unknown>>(row: T) {
+  return {
+    ...row,
+    profile_key:
+      typeof row.profile_key === "string" && row.profile_key.trim()
+        ? row.profile_key
+        : DEFAULT_CLIENT_PROFILE_KEY,
+  };
+}
+
 type VisibilityMode = "all" | "team" | "own";
 
 function normalizeVisibilityMode(v: unknown): VisibilityMode {
@@ -269,6 +339,13 @@ export default async function handler(
           : req.query.related_to,
       );
       const relatedToId = relatedToParam || 0;
+      const profileKeyRaw = Array.isArray(req.query.profile_key)
+        ? req.query.profile_key[0]
+        : req.query.profile_key;
+      const profileKey =
+        typeof profileKeyRaw === "string"
+          ? profileKeyRaw.trim().toLowerCase()
+          : "";
 
       const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
       const gender =
@@ -333,6 +410,9 @@ export default async function handler(
       if (gender) {
         where.gender = { equals: gender, mode: "insensitive" };
       }
+      if (profileKey && profileKey !== "all") {
+        where.profile_key = profileKey;
+      }
 
       if (relatedToId > 0) {
         const relFilter: Prisma.ClientWhereInput = {
@@ -358,13 +438,26 @@ export default async function handler(
         // Cuando hay búsqueda por texto usamos ranking por similitud
         // en memoria para cubrir typo tolerance y campos custom.
         const offset = Math.max(cursorParam ?? 0, 0);
-        const candidates = await prisma.client.findMany({
-          where,
-          include: {
-            user: { select: userSelectSafe },
-          },
-          orderBy: { id_client: "desc" },
-        });
+        let candidates: ClientRowCompat[] = [];
+        try {
+          candidates = await prisma.client.findMany({
+            where,
+            select: clientSelectSafe,
+            orderBy: { id_client: "desc" },
+          });
+        } catch (error) {
+          if (!isMissingColumnError(error, "Client.profile_key")) {
+            throw error;
+          }
+          const legacyWhere = { ...where } as Record<string, unknown>;
+          delete legacyWhere.profile_key;
+          const legacyCandidates = await prisma.client.findMany({
+            where: legacyWhere as Prisma.ClientWhereInput,
+            select: clientLegacySelectSafe,
+            orderBy: { id_client: "desc" },
+          });
+          candidates = legacyCandidates.map((row) => withDefaultProfileKey(row));
+        }
 
         const ranked = rankClientsBySimilarity(candidates, q);
         const paged = ranked.slice(offset, offset + take);
@@ -375,23 +468,46 @@ export default async function handler(
       }
 
       // Query con cursor
-      const items = await prisma.client.findMany({
-        where,
-        include: {
-          user: { select: userSelectSafe },
-        },
-        orderBy: { id_client: "desc" },
-        take: take + 1,
-        ...(cursor ? { cursor: { id_client: cursor }, skip: 1 } : {}),
-      });
+      let items: ClientRowCompat[] = [];
+      try {
+        items = await prisma.client.findMany({
+          where,
+          select: clientSelectSafe,
+          orderBy: { id_client: "desc" },
+          take: take + 1,
+          ...(cursor ? { cursor: { id_client: cursor }, skip: 1 } : {}),
+        });
+      } catch (error) {
+        if (!isMissingColumnError(error, "Client.profile_key")) {
+          throw error;
+        }
+        const legacyWhere = { ...where } as Record<string, unknown>;
+        delete legacyWhere.profile_key;
+        const legacyItems = await prisma.client.findMany({
+          where: legacyWhere as Prisma.ClientWhereInput,
+          select: clientLegacySelectSafe,
+          orderBy: { id_client: "desc" },
+          take: take + 1,
+          ...(cursor ? { cursor: { id_client: cursor }, skip: 1 } : {}),
+        });
+        items = legacyItems.map((row) => withDefaultProfileKey(row));
+      }
 
       const hasMore = items.length > take;
       const sliced = hasMore ? items.slice(0, take) : items;
-      const nextCursor = hasMore ? sliced[sliced.length - 1].id_client : null;
+      const nextCursor = hasMore
+        ? Number(sliced[sliced.length - 1].id_client)
+        : null;
 
       return res.status(200).json({ items: sliced, nextCursor });
     } catch (e) {
       console.error("[clients][GET]", e);
+      if (isMissingColumnError(e, "Client.profile_key")) {
+        return res.status(500).json({
+          error:
+            "Falta la migración de Tipos de Pax en base de datos. Ejecutá `npx prisma migrate deploy`.",
+        });
+      }
       return res.status(500).json({ error: "Error al obtener pasajeros" });
     }
   }
@@ -401,15 +517,53 @@ export default async function handler(
     try {
       const c = req.body ?? {};
 
-      const config = await prisma.clientConfig.findFirst({
-        where: { id_agency: auth.id_agency },
-        select: { required_fields: true, hidden_fields: true, custom_fields: true },
+      let config:
+        | {
+            required_fields: Prisma.JsonValue | null;
+            hidden_fields: Prisma.JsonValue | null;
+            custom_fields: Prisma.JsonValue | null;
+            profiles?: Prisma.JsonValue | null;
+          }
+        | null = null;
+      let supportsProfilesConfigColumn = true;
+      try {
+        config = await prisma.clientConfig.findFirst({
+          where: { id_agency: auth.id_agency },
+          select: {
+            required_fields: true,
+            hidden_fields: true,
+            custom_fields: true,
+            profiles: true,
+          },
+        });
+      } catch (error) {
+        if (!isMissingColumnError(error, "ClientConfig.profiles")) {
+          throw error;
+        }
+        supportsProfilesConfigColumn = false;
+        config = await prisma.clientConfig.findFirst({
+          where: { id_agency: auth.id_agency },
+          select: {
+            required_fields: true,
+            hidden_fields: true,
+            custom_fields: true,
+          },
+        });
+      }
+      const profiles = normalizeClientProfiles(config?.profiles, {
+        required_fields: config?.required_fields,
+        hidden_fields: config?.hidden_fields,
+        custom_fields: config?.custom_fields,
       });
-      const hiddenFields = normalizeHiddenFields(config?.hidden_fields);
-      const requiredFields = normalizeRequiredFields(config?.required_fields).filter(
-        (field) => !hiddenFields.includes(field),
-      );
-      const customFields = normalizeCustomFields(config?.custom_fields);
+      const requestedProfileKey = String(c.profile_key ?? "")
+        .trim()
+        .toLowerCase();
+      if (requestedProfileKey && !profiles.some((p) => p.key === requestedProfileKey)) {
+        return res.status(400).json({ error: "Tipo de pax inválido." });
+      }
+      const selectedProfile = resolveClientProfile(profiles, requestedProfileKey);
+      const requiredFields = selectedProfile.required_fields;
+      const customFields = selectedProfile.custom_fields;
       const requiredCustomKeys = customFields
         .filter((f) => f.required)
         .map((f) => f.key);
@@ -543,38 +697,59 @@ export default async function handler(
           tx,
           auth.id_agency,
         );
+        const createDataBase = {
+          agency_client_id: agencyClientId,
+          first_name,
+          last_name,
+          phone: String(c.phone ?? "").trim(),
+          address: c.address || null,
+          postal_code: c.postal_code || null,
+          locality: c.locality || null,
+          company_name: c.company_name || null,
+          tax_id: taxId || null,
+          commercial_address: c.commercial_address || null,
+          dni_number: dni || null,
+          passport_number: pass || null,
+          birth_date: birth as Date,
+          nationality: String(c.nationality ?? "").trim(),
+          gender: String(c.gender ?? "").trim(),
+          category_id: categoryId,
+          email: String(c.email ?? "").trim() || null,
+          id_user: usedUserId,
+          id_agency: auth.id_agency, // SIEMPRE desde el token
+          custom_fields:
+            Object.keys(sanitizedCustom).length > 0 ? sanitizedCustom : undefined,
+        };
 
-        return tx.client.create({
-          data: {
-            agency_client_id: agencyClientId,
-            first_name,
-            last_name,
-            phone: String(c.phone ?? "").trim(),
-            address: c.address || null,
-            postal_code: c.postal_code || null,
-            locality: c.locality || null,
-            company_name: c.company_name || null,
-            tax_id: taxId || null,
-            commercial_address: c.commercial_address || null,
-            dni_number: dni || null,
-            passport_number: pass || null,
-            birth_date: birth as Date,
-            nationality: String(c.nationality ?? "").trim(),
-            gender: String(c.gender ?? "").trim(),
-            category_id: categoryId,
-            email: String(c.email ?? "").trim() || null,
-            id_user: usedUserId,
-            id_agency: auth.id_agency, // SIEMPRE desde el token
-            custom_fields:
-              Object.keys(sanitizedCustom).length > 0
-                ? sanitizedCustom
-                : undefined,
-          },
-          include: { user: { select: userSelectSafe } },
-        });
+        try {
+          return await tx.client.create({
+            data: {
+              ...createDataBase,
+              profile_key: selectedProfile.key,
+            },
+            select: clientSelectSafe,
+          });
+        } catch (error) {
+          if (!isMissingColumnError(error, "Client.profile_key")) {
+            throw error;
+          }
+          const legacyCreated = await tx.client.create({
+            data: createDataBase,
+            select: clientLegacySelectSafe,
+          });
+          return withDefaultProfileKey(legacyCreated);
+        }
       });
 
-      return res.status(201).json(created);
+      return res.status(201).json({
+        ...created,
+        ...(supportsProfilesConfigColumn
+          ? {}
+          : {
+              schema_warning:
+                "Se guardó en modo legado. Ejecutá `npx prisma migrate deploy` para habilitar Tipos de Pax.",
+            }),
+      });
     } catch (e: unknown) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
         const targetRaw = (
@@ -593,6 +768,15 @@ export default async function handler(
         return res.status(409).json({
           error: "No se pudo guardar el pax por un dato unico duplicado.",
           code: "CLIENT_UNIQUE_CONFLICT",
+        });
+      }
+      if (
+        isMissingColumnError(e, "ClientConfig.profiles") ||
+        isMissingColumnError(e, "Client.profile_key")
+      ) {
+        return res.status(500).json({
+          error:
+            "Falta la migración de Tipos de Pax en base de datos. Ejecutá `npx prisma migrate deploy`.",
         });
       }
       console.error("[clients][POST]", e);

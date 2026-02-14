@@ -1,7 +1,13 @@
-import type { ClientCustomField, ClientCustomFieldType } from "@/types";
+import type {
+  ClientCustomField,
+  ClientCustomFieldType,
+  ClientProfileConfig,
+} from "@/types";
 
 export const DOCUMENT_ANY_KEY = "document_any";
 export const DOC_REQUIRED_FIELDS = ["dni_number", "passport_number", "tax_id"];
+export const DEFAULT_CLIENT_PROFILE_KEY = "persona";
+export const DEFAULT_CLIENT_PROFILE_LABEL = "Pax";
 
 export const DEFAULT_REQUIRED_FIELDS = [
   "first_name",
@@ -122,6 +128,101 @@ export function normalizeCustomFields(input: unknown): ClientCustomField[] {
     out.push(field);
   }
   return out;
+}
+
+type LegacyConfigInput = {
+  required_fields?: unknown;
+  hidden_fields?: unknown;
+  custom_fields?: unknown;
+};
+
+export function normalizeClientProfiles(
+  input: unknown,
+  legacy?: LegacyConfigInput | null,
+): ClientProfileConfig[] {
+  const seen = new Set<string>();
+  const out: ClientProfileConfig[] = [];
+
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      if (!item || typeof item !== "object") continue;
+      const rec = item as Record<string, unknown>;
+      const key = String(rec.key ?? "")
+        .trim()
+        .toLowerCase();
+      const label = String(rec.label ?? "").trim();
+      if (!key || !label || !KEY_REGEX.test(key)) continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const hidden_fields = normalizeHiddenFields(rec.hidden_fields);
+      const required_fields = normalizeRequiredFields(
+        rec.required_fields,
+      ).filter((field) => !hidden_fields.includes(field));
+      const custom_fields = normalizeCustomFields(rec.custom_fields);
+
+      out.push({
+        key,
+        label,
+        required_fields,
+        hidden_fields,
+        custom_fields,
+      });
+    }
+  }
+
+  if (out.length > 0) return out;
+
+  const hidden_fields = normalizeHiddenFields(legacy?.hidden_fields);
+  const required_fields = normalizeRequiredFields(legacy?.required_fields).filter(
+    (field) => !hidden_fields.includes(field),
+  );
+  const custom_fields = normalizeCustomFields(legacy?.custom_fields);
+
+  return [
+    {
+      key: DEFAULT_CLIENT_PROFILE_KEY,
+      label: DEFAULT_CLIENT_PROFILE_LABEL,
+      required_fields,
+      hidden_fields,
+      custom_fields,
+    },
+  ];
+}
+
+export function resolveClientProfile(
+  profiles: ClientProfileConfig[],
+  key: unknown,
+): ClientProfileConfig {
+  const normalizedKey =
+    typeof key === "string"
+      ? key.trim().toLowerCase()
+      : DEFAULT_CLIENT_PROFILE_KEY;
+
+  return (
+    profiles.find((profile) => profile.key === normalizedKey) ??
+    profiles[0] ?? {
+      key: DEFAULT_CLIENT_PROFILE_KEY,
+      label: DEFAULT_CLIENT_PROFILE_LABEL,
+      required_fields: [...DEFAULT_REQUIRED_FIELDS],
+      hidden_fields: [],
+      custom_fields: [],
+    }
+  );
+}
+
+export function buildClientProfileKey(
+  label: string,
+  existingKeys: Set<string>,
+): string {
+  const base = slugifyKey(label) || "perfil";
+  let next = base;
+  let i = 2;
+  while (existingKeys.has(next)) {
+    next = `${base}_${i}`;
+    i += 1;
+  }
+  return next;
 }
 
 export function buildCustomFieldKey(

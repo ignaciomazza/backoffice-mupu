@@ -16,6 +16,7 @@ interface ClientCardProps {
   deleteClient: (id: number) => void;
   onOpenRelations?: (client: Client) => void;
   passengerCategories?: Array<{ id_category: number; name: string }>;
+  profileLabels?: Record<string, string>;
 }
 
 export default function ClientCard({
@@ -27,6 +28,7 @@ export default function ClientCard({
   deleteClient,
   onOpenRelations,
   passengerCategories = [],
+  profileLabels = {},
 }: ClientCardProps) {
   const isExpanded = expandedClientId === client.id_client;
   const clientNumber = client.agency_client_id ?? client.id_client;
@@ -37,6 +39,10 @@ export default function ClientCard({
       : client.category_id
         ? `Cat ${client.category_id}`
         : null;
+  const profileLabel =
+    profileLabels[String(client.profile_key || "")] ||
+    client.profile_key ||
+    "Pax";
 
   const handleEdit = (client: Client) => {
     startEditingClient(client);
@@ -121,6 +127,7 @@ export default function ClientCard({
       </div>
 
       <div className="grid min-w-0 gap-3 text-sm sm:grid-cols-2">
+        <Field label="Tipo" value={profileLabel} />
         <Field label="Teléfono" value={client.phone || "—"} />
         <Field label="Email" value={client.email || "—"} />
         <Field label="Género" value={client.gender || "—"} />

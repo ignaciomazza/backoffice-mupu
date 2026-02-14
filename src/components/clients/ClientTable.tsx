@@ -3,17 +3,20 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
-import { Client, ClientCustomField } from "@/types";
+import { Client, ClientCustomField, ClientProfileConfig } from "@/types";
 import { authFetch } from "@/utils/authFetch";
 import {
-  DEFAULT_REQUIRED_FIELDS,
+  DEFAULT_CLIENT_PROFILE_KEY,
+  DEFAULT_CLIENT_PROFILE_LABEL,
   DOCUMENT_ANY_KEY,
+  resolveClientProfile,
 } from "@/utils/clientConfig";
 
 const CUSTOM_COLUMN_PREFIX = "custom:";
 
 type BaseColumnKey =
   | "client_number"
+  | "profile_key"
   | "first_name"
   | "last_name"
   | "gender"
@@ -38,7 +41,7 @@ type ColumnKey = BaseColumnKey | CustomColumnKey;
 
 type BaseEditableKey = Exclude<
   BaseColumnKey,
-  "client_number" | "id_client" | "registration_date"
+  "client_number" | "profile_key" | "id_client" | "registration_date"
 >;
 
 type EditableKey = BaseEditableKey | CustomColumnKey;
@@ -62,7 +65,7 @@ type ClientTableProps = {
   onLoadMore: () => void;
   loadingMore: boolean;
   onClientsUpdated: (updates: Client[]) => void;
-  requiredFields?: string[];
+  profiles?: ClientProfileConfig[];
   customFields?: ClientCustomField[];
 };
 
@@ -74,6 +77,12 @@ const COLUMN_DEFS: ColumnDef[] = [
     label: "N°",
     readOnly: true,
     always: true,
+    defaultVisible: true,
+  },
+  {
+    key: "profile_key",
+    label: "Tipo",
+    readOnly: true,
     defaultVisible: true,
   },
   { key: "first_name", label: "Nombre", defaultVisible: true },
@@ -213,6 +222,7 @@ function buildPayload(
   draft: Partial<Record<EditableKey, string>>,
 ) {
   const base = {
+    profile_key: client.profile_key || DEFAULT_CLIENT_PROFILE_KEY,
     first_name: client.first_name || "",
     last_name: client.last_name || "",
     phone: client.phone || "",
@@ -319,23 +329,31 @@ export default function ClientTable({
   onLoadMore,
   loadingMore,
   onClientsUpdated,
-  requiredFields,
+  profiles = [],
   customFields = [],
 }: ClientTableProps) {
-  const baseRequiredFields = useMemo(
+  const normalizedProfiles = useMemo(
     () =>
-      requiredFields && requiredFields.length > 0
-        ? requiredFields
-        : DEFAULT_REQUIRED_FIELDS,
-    [requiredFields],
-  );
-  const requiredCustomKeys = useMemo(
-    () => customFields.filter((f) => f.required).map((f) => f.key),
-    [customFields],
+      profiles.length > 0
+        ? profiles
+        : [
+            {
+              key: DEFAULT_CLIENT_PROFILE_KEY,
+              label: DEFAULT_CLIENT_PROFILE_LABEL,
+              required_fields: [],
+              hidden_fields: [],
+              custom_fields: [],
+            },
+          ],
+    [profiles],
   );
   const customFieldMap = useMemo(
     () => new Map(customFields.map((field) => [field.key, field])),
     [customFields],
+  );
+  const profileLabelMap = useMemo(
+    () => new Map(normalizedProfiles.map((profile) => [profile.key, profile.label])),
+    [normalizedProfiles],
   );
   const customColumnDefs = useMemo<ColumnDef[]>(
     () =>
@@ -552,9 +570,16 @@ export default function ClientTable({
     }
 
     const payload = buildPayload(client, draft);
+    const selectedProfile = resolveClientProfile(
+      normalizedProfiles,
+      payload.profile_key || client.profile_key,
+    );
+    const requiredCustomKeys = selectedProfile.custom_fields
+      .filter((field) => field.required)
+      .map((field) => field.key);
     const validation = validatePayload(
       payload,
-      baseRequiredFields,
+      selectedProfile.required_fields,
       requiredCustomKeys,
     );
     if (!validation.ok) {
@@ -631,9 +656,16 @@ export default function ClientTable({
       const client = clientMap.get(clientId);
       if (!client) return;
       const payload = buildPayload(client, draft);
+      const selectedProfile = resolveClientProfile(
+        normalizedProfiles,
+        payload.profile_key || client.profile_key,
+      );
+      const requiredCustomKeys = selectedProfile.custom_fields
+        .filter((field) => field.required)
+        .map((field) => field.key);
       const validation = validatePayload(
         payload,
-        baseRequiredFields,
+        selectedProfile.required_fields,
         requiredCustomKeys,
       );
       if (!validation.ok) {
@@ -696,6 +728,14 @@ export default function ClientTable({
   const renderCell = (client: Client, field: ColumnKey) => {
     if (field === "client_number") {
       return client.agency_client_id ?? client.id_client;
+    }
+    if (field === "profile_key") {
+      const key = String(client.profile_key || "");
+      return (
+        <span className="inline-flex rounded-full border border-sky-200/70 bg-sky-100/70 px-2 py-0.5 text-xs font-semibold text-sky-900 dark:border-sky-700/70 dark:bg-sky-900/40 dark:text-sky-100">
+          {profileLabelMap.get(key) || key || DEFAULT_CLIENT_PROFILE_LABEL}
+        </span>
+      );
     }
     if (field === "id_client") {
       return client.id_client;

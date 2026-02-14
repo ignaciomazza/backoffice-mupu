@@ -26,6 +26,7 @@ import type {
   BillingBreakdownOverride,
   BillingData,
   Client,
+  ClientProfileConfig,
   ClientSimpleCompanion,
   ClientCustomField,
   Operator,
@@ -34,12 +35,13 @@ import type {
 } from "@/types";
 import {
   BUILTIN_CUSTOM_FIELDS,
+  DEFAULT_CLIENT_PROFILE_KEY,
+  DEFAULT_CLIENT_PROFILE_LABEL,
   DEFAULT_REQUIRED_FIELDS,
   DOCUMENT_ANY_KEY,
   REQUIRED_FIELD_OPTIONS,
-  normalizeCustomFields,
-  normalizeHiddenFields,
-  normalizeRequiredFields,
+  normalizeClientProfiles,
+  resolveClientProfile,
 } from "@/utils/clientConfig";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -54,6 +56,7 @@ type Profile = {
 type NewClientDraft = {
   id: string;
   kind: "new";
+  profile_key: string;
   first_name: string;
   last_name: string;
   phone: string;
@@ -299,14 +302,16 @@ const applyBuiltinMeta = (fields: ClientCustomField[]) => {
 const normalizeClientConfig = (payload: unknown) => {
   if (!payload || typeof payload !== "object") return null;
   const record = payload as Record<string, unknown>;
-  const hidden_fields = normalizeHiddenFields(record.hidden_fields);
-  const required_fields = normalizeRequiredFields(record.required_fields).filter(
-    (field) => !hidden_fields.includes(field),
-  );
+  const profiles = normalizeClientProfiles(record.profiles, {
+    required_fields: record.required_fields,
+    hidden_fields: record.hidden_fields,
+    custom_fields: record.custom_fields,
+  }).map((profile) => ({
+    ...profile,
+    custom_fields: applyBuiltinMeta(profile.custom_fields),
+  }));
   return {
-    required_fields,
-    custom_fields: normalizeCustomFields(record.custom_fields),
-    hidden_fields,
+    profiles,
     use_simple_companions:
       typeof record.use_simple_companions === "boolean"
         ? record.use_simple_companions
@@ -535,6 +540,7 @@ const emptyService = (booking?: BookingDraft): ServiceDraft => ({
 const emptyClient = (): NewClientDraft => ({
   id: makeId(),
   kind: "new",
+  profile_key: DEFAULT_CLIENT_PROFILE_KEY,
   first_name: "",
   last_name: "",
   phone: "",
@@ -971,11 +977,15 @@ export default function QuickLoadPage() {
   const [bookingSaleTotals, setBookingSaleTotals] = useState<
     Record<string, string>
   >({});
-  const [requiredFields, setRequiredFields] = useState<string[]>(
-    DEFAULT_REQUIRED_FIELDS,
-  );
-  const [hiddenFields, setHiddenFields] = useState<string[]>([]);
-  const [customFields, setCustomFields] = useState<ClientCustomField[]>([]);
+  const [clientProfiles, setClientProfiles] = useState<ClientProfileConfig[]>([
+    {
+      key: DEFAULT_CLIENT_PROFILE_KEY,
+      label: DEFAULT_CLIENT_PROFILE_LABEL,
+      required_fields: DEFAULT_REQUIRED_FIELDS,
+      hidden_fields: [],
+      custom_fields: [],
+    },
+  ]);
   const [useSimpleCompanions, setUseSimpleCompanions] = useState(false);
   const [passengerCategories, setPassengerCategories] = useState<
     PassengerCategory[]
@@ -1009,34 +1019,54 @@ export default function QuickLoadPage() {
       ["administrativo", "gerente", "desarrollador"].includes(normalizedRole),
     [normalizedRole],
   );
-  const normalizedRequiredFields = useMemo(
-    () => normalizeRequiredFields(requiredFields),
-    [requiredFields],
+  const resolveProfile = useCallback(
+    (profileKey?: string) => resolveClientProfile(clientProfiles, profileKey),
+    [clientProfiles],
   );
-  const hiddenFieldSet = useMemo(() => new Set(hiddenFields), [hiddenFields]);
-  const normalizedCustomFields = useMemo(
-    () => applyBuiltinMeta(customFields),
-    [customFields],
+
+  const getRequiredFieldsForClient = useCallback(
+    (client: NewClientDraft) => resolveProfile(client.profile_key).required_fields,
+    [resolveProfile],
   );
-  const docRequired = useMemo(
-    () => normalizedRequiredFields.includes(DOCUMENT_ANY_KEY),
-    [normalizedRequiredFields],
+
+  const getHiddenFieldsForClient = useCallback(
+    (client: NewClientDraft) => resolveProfile(client.profile_key).hidden_fields,
+    [resolveProfile],
   );
-  const requiredFieldSet = useMemo(
-    () => new Set(normalizedRequiredFields),
-    [normalizedRequiredFields],
+
+  const getCustomFieldsForClient = useCallback(
+    (client: NewClientDraft) =>
+      applyBuiltinMeta(resolveProfile(client.profile_key).custom_fields),
+    [resolveProfile],
   );
-  const isRequiredField = (field: string) => requiredFieldSet.has(field);
-  const isHiddenField = (field: string) => hiddenFieldSet.has(field);
+
+  const isRequiredField = useCallback(
+    (client: NewClientDraft, field: string) =>
+      getRequiredFieldsForClient(client).includes(field),
+    [getRequiredFieldsForClient],
+  );
+  const isHiddenField = useCallback(
+    (client: NewClientDraft, field: string) =>
+      getHiddenFieldsForClient(client).includes(field),
+    [getHiddenFieldsForClient],
+  );
+
+  const isDocumentRequiredForClient = useCallback(
+    (client: NewClientDraft) =>
+      getRequiredFieldsForClient(client).includes(DOCUMENT_ANY_KEY),
+    [getRequiredFieldsForClient],
+  );
 
   const missingClientFields = useCallback(
-    (client: NewClientDraft) =>
-      buildMissingClientFields(
+    (client: NewClientDraft) => {
+      const customFieldsForClient = getCustomFieldsForClient(client);
+      return buildMissingClientFields(
         client,
-        normalizedRequiredFields,
-        normalizedCustomFields,
-      ),
-    [normalizedRequiredFields, normalizedCustomFields],
+        getRequiredFieldsForClient(client),
+        customFieldsForClient,
+      );
+    },
+    [getCustomFieldsForClient, getRequiredFieldsForClient],
   );
 
   const isClientComplete = (client: ClientDraft) => {
@@ -1211,18 +1241,35 @@ export default function QuickLoadPage() {
         const data = await res.json();
         const config = normalizeClientConfig(data);
         if (!controller.signal.aborted && config) {
-          setRequiredFields(config.required_fields);
-          setCustomFields(applyBuiltinMeta(config.custom_fields));
+          setClientProfiles(config.profiles);
+          setClients((prev) =>
+            prev.map((client) =>
+              client.kind === "new"
+                ? {
+                    ...client,
+                    profile_key: resolveClientProfile(
+                      config.profiles,
+                      client.profile_key,
+                    ).key,
+                  }
+                : client,
+            ),
+          );
           setUseSimpleCompanions(Boolean(config.use_simple_companions));
-          setHiddenFields(config.hidden_fields || []);
         }
       } catch (err) {
         if ((err as DOMException)?.name !== "AbortError") {
           console.error("❌ Error config clientes:", err);
-          setRequiredFields(DEFAULT_REQUIRED_FIELDS);
-          setCustomFields([]);
+          setClientProfiles([
+            {
+              key: DEFAULT_CLIENT_PROFILE_KEY,
+              label: DEFAULT_CLIENT_PROFILE_LABEL,
+              required_fields: DEFAULT_REQUIRED_FIELDS,
+              hidden_fields: [],
+              custom_fields: [],
+            },
+          ]);
           setUseSimpleCompanions(false);
-          setHiddenFields([]);
         }
       } finally {
         // nothing else to do
@@ -1357,7 +1404,16 @@ export default function QuickLoadPage() {
 
   const recoverDraft = () => {
     if (!storedDraft) return;
-    setClients(storedDraft.clients || []);
+    setClients(
+      (storedDraft.clients || []).map((client) =>
+        client.kind === "new"
+          ? {
+              ...client,
+              profile_key: resolveProfile(client.profile_key).key,
+            }
+          : client,
+      ),
+    );
     setTitularId(storedDraft.titularId ?? null);
     setBooking(storedDraft.booking || emptyBooking());
     setServices(storedDraft.services || []);
@@ -1386,7 +1442,10 @@ export default function QuickLoadPage() {
   };
 
   const addNewClient = () => {
-    const draft = emptyClient();
+    const draft = {
+      ...emptyClient(),
+      profile_key: resolveClientProfile(clientProfiles, undefined).key,
+    };
     setClients((prev) => [...prev, draft]);
     if (!titularId) setTitularId(draft.id);
   };
@@ -1441,7 +1500,26 @@ export default function QuickLoadPage() {
   ) => {
     setClients((prev) =>
       prev.map((c) =>
-        c.id === id && c.kind === "new" ? { ...c, [field]: value } : c,
+        c.id === id && c.kind === "new"
+          ? field === "profile_key"
+            ? (() => {
+                const profile = resolveProfile(String(value ?? ""));
+                const allowedKeys = new Set(
+                  profile.custom_fields.map((item) => item.key),
+                );
+                const nextCustom = Object.fromEntries(
+                  Object.entries(c.custom_fields || {}).filter(([key]) =>
+                    allowedKeys.has(key),
+                  ),
+                );
+                return {
+                  ...c,
+                  profile_key: profile.key,
+                  custom_fields: nextCustom,
+                };
+              })()
+            : { ...c, [field]: value }
+          : c,
       ),
     );
   };
@@ -2116,6 +2194,7 @@ export default function QuickLoadPage() {
           body: JSON.stringify({
             first_name: client.first_name,
             last_name: client.last_name,
+            profile_key: client.profile_key,
             phone: client.phone,
             birth_date: client.birth_date,
             nationality: client.nationality,
@@ -2630,6 +2709,14 @@ export default function QuickLoadPage() {
                     const isComplete = isClientComplete(client);
                     const missing =
                       client.kind === "new" ? missingClientFields(client) : [];
+                    const profileConfig =
+                      client.kind === "new"
+                        ? resolveProfile(client.profile_key)
+                        : null;
+                    const customFieldsForClient =
+                      client.kind === "new"
+                        ? getCustomFieldsForClient(client)
+                        : [];
                     return (
                       <motion.div
                         key={client.id}
@@ -2678,6 +2765,32 @@ export default function QuickLoadPage() {
                           </div>
                         </div>
 
+                        {client.kind === "new" && clientProfiles.length > 1 && (
+                          <div className="mt-4">
+                            <FieldLabel htmlFor={`profile-${client.id}`}>
+                              Tipo de pax
+                            </FieldLabel>
+                            <select
+                              id={`profile-${client.id}`}
+                              value={client.profile_key || profileConfig?.key || ""}
+                              onChange={(e) =>
+                                updateClientField(
+                                  client.id,
+                                  "profile_key",
+                                  e.target.value,
+                                )
+                              }
+                              className={`${INPUT} mt-1 max-w-sm`}
+                            >
+                              {clientProfiles.map((profile) => (
+                                <option key={profile.key} value={profile.key}>
+                                  {profile.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
                         {client.kind === "existing" ? (
                           <div className="mt-4 grid gap-2 text-sm text-sky-900/70 dark:text-white/70">
                             <p>
@@ -2705,11 +2818,11 @@ export default function QuickLoadPage() {
                               </p>
                               <div className="mt-4 grid gap-4 md:grid-cols-3">
                                 <div
-                                  className={isHiddenField("first_name") ? "hidden" : ""}
+                                  className={isHiddenField(client, "first_name") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`first-${client.id}`}
-                                    required={isRequiredField("first_name")}
+                                    required={isRequiredField(client, "first_name")}
                                   >
                                     Nombre
                                   </FieldLabel>
@@ -2728,11 +2841,11 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div
-                                  className={isHiddenField("last_name") ? "hidden" : ""}
+                                  className={isHiddenField(client, "last_name") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`last-${client.id}`}
-                                    required={isRequiredField("last_name")}
+                                    required={isRequiredField(client, "last_name")}
                                   >
                                     Apellido
                                   </FieldLabel>
@@ -2751,11 +2864,11 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div
-                                  className={isHiddenField("phone") ? "hidden" : ""}
+                                  className={isHiddenField(client, "phone") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`phone-${client.id}`}
-                                    required={isRequiredField("phone")}
+                                    required={isRequiredField(client, "phone")}
                                   >
                                     Teléfono
                                   </FieldLabel>
@@ -2774,11 +2887,11 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div
-                                  className={isHiddenField("birth_date") ? "hidden" : ""}
+                                  className={isHiddenField(client, "birth_date") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`birth-${client.id}`}
-                                    required={isRequiredField("birth_date")}
+                                    required={isRequiredField(client, "birth_date")}
                                   >
                                     Nacimiento
                                   </FieldLabel>
@@ -2799,11 +2912,11 @@ export default function QuickLoadPage() {
                                 </div>
                                 <div
                                   className={`space-y-2 ${
-                                    isHiddenField("nationality") ? "hidden" : ""
+                                    isHiddenField(client, "nationality") ? "hidden" : ""
                                   }`}
                                 >
                                   <FieldLabel
-                                    required={isRequiredField("nationality")}
+                                    required={isRequiredField(client, "nationality")}
                                   >
                                     Nacionalidad
                                   </FieldLabel>
@@ -2822,18 +2935,18 @@ export default function QuickLoadPage() {
                                     <p className="text-xs text-sky-900/70 dark:text-white/70">
                                       Guardará: <b>{client.nationality}</b>
                                     </p>
-                                  ) : isRequiredField("nationality") ? (
+                                  ) : isRequiredField(client, "nationality") ? (
                                     <p className="text-xs text-rose-600">
                                       Obligatorio
                                     </p>
                                   ) : null}
                                 </div>
                                 <div
-                                  className={isHiddenField("gender") ? "hidden" : ""}
+                                  className={isHiddenField(client, "gender") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`gender-${client.id}`}
-                                    required={isRequiredField("gender")}
+                                    required={isRequiredField(client, "gender")}
                                   >
                                     Género
                                   </FieldLabel>
@@ -2898,7 +3011,7 @@ export default function QuickLoadPage() {
                                 <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                                   Documentación y contacto
                                 </p>
-                                {docRequired ? (
+                                {isDocumentRequiredForClient(client) ? (
                                   <p className="text-xs text-sky-900/60 dark:text-white/60">
                                     <span className="text-rose-600">*</span>{" "}
                                     Cargá DNI, Pasaporte o CUIT.
@@ -2911,11 +3024,11 @@ export default function QuickLoadPage() {
                               </div>
                               <div className="mt-4 grid gap-4 md:grid-cols-3">
                                 <div
-                                  className={isHiddenField("dni_number") ? "hidden" : ""}
+                                  className={isHiddenField(client, "dni_number") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`dni-${client.id}`}
-                                    required={isRequiredField("dni_number")}
+                                    required={isRequiredField(client, "dni_number")}
                                   >
                                     DNI
                                   </FieldLabel>
@@ -2934,11 +3047,11 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div
-                                  className={isHiddenField("passport_number") ? "hidden" : ""}
+                                  className={isHiddenField(client, "passport_number") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`pass-${client.id}`}
-                                    required={isRequiredField("passport_number")}
+                                    required={isRequiredField(client, "passport_number")}
                                   >
                                     Pasaporte
                                   </FieldLabel>
@@ -2957,11 +3070,11 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div
-                                  className={isHiddenField("email") ? "hidden" : ""}
+                                  className={isHiddenField(client, "email") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`email-${client.id}`}
-                                    required={isRequiredField("email")}
+                                    required={isRequiredField(client, "email")}
                                   >
                                     Email
                                   </FieldLabel>
@@ -2982,13 +3095,13 @@ export default function QuickLoadPage() {
                               </div>
                             </div>
 
-                            {normalizedCustomFields.length > 0 && (
+                            {customFieldsForClient.length > 0 && (
                               <div className={SUBCARD}>
                                 <p className="text-[11px] uppercase tracking-[0.25em] text-sky-900/60 dark:text-white/60">
                                   Campos extra
                                 </p>
                                 <div className="mt-4 grid gap-4 md:grid-cols-3">
-                                  {normalizedCustomFields.map((field) => (
+                                  {customFieldsForClient.map((field) => (
                                     <div key={`${client.id}-${field.key}`}>
                                       <FieldLabel
                                         htmlFor={`custom-${client.id}-${field.key}`}
@@ -3035,11 +3148,11 @@ export default function QuickLoadPage() {
                               </p>
                               <div className="mt-4 grid gap-4 md:grid-cols-3">
                                 <div
-                                  className={isHiddenField("tax_id") ? "hidden" : ""}
+                                  className={isHiddenField(client, "tax_id") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`tax-${client.id}`}
-                                    required={isRequiredField("tax_id")}
+                                    required={isRequiredField(client, "tax_id")}
                                   >
                                     CUIT / RUT
                                   </FieldLabel>
@@ -3058,11 +3171,11 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div
-                                  className={isHiddenField("company_name") ? "hidden" : ""}
+                                  className={isHiddenField(client, "company_name") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`company-${client.id}`}
-                                    required={isRequiredField("company_name")}
+                                    required={isRequiredField(client, "company_name")}
                                   >
                                     Razón social
                                   </FieldLabel>
@@ -3081,11 +3194,12 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div
-                                  className={isHiddenField("commercial_address") ? "hidden" : ""}
+                                  className={isHiddenField(client, "commercial_address") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`address-${client.id}`}
                                     required={isRequiredField(
+                                      client,
                                       "commercial_address",
                                     )}
                                   >
@@ -3106,11 +3220,11 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div
-                                  className={isHiddenField("address") ? "hidden" : ""}
+                                  className={isHiddenField(client, "address") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`home-${client.id}`}
-                                    required={isRequiredField("address")}
+                                    required={isRequiredField(client, "address")}
                                   >
                                     Dirección particular
                                   </FieldLabel>
@@ -3129,11 +3243,11 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div
-                                  className={isHiddenField("locality") ? "hidden" : ""}
+                                  className={isHiddenField(client, "locality") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`locality-${client.id}`}
-                                    required={isRequiredField("locality")}
+                                    required={isRequiredField(client, "locality")}
                                   >
                                     Localidad / Ciudad
                                   </FieldLabel>
@@ -3152,11 +3266,11 @@ export default function QuickLoadPage() {
                                   />
                                 </div>
                                 <div
-                                  className={isHiddenField("postal_code") ? "hidden" : ""}
+                                  className={isHiddenField(client, "postal_code") ? "hidden" : ""}
                                 >
                                   <FieldLabel
                                     htmlFor={`postal-${client.id}`}
-                                    required={isRequiredField("postal_code")}
+                                    required={isRequiredField(client, "postal_code")}
                                   >
                                     Código postal
                                   </FieldLabel>

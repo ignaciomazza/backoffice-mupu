@@ -18,7 +18,7 @@ import ClientPicker from "@/components/clients/ClientPicker";
 import DestinationPicker, {
   DestinationOption,
 } from "@/components/DestinationPicker";
-import type { Client, ClientCustomField } from "@/types";
+import type { Client, ClientCustomField, ClientProfileConfig } from "@/types";
 import type {
   Booking,
   ClientPayment,
@@ -30,11 +30,12 @@ import type {
 } from "@/types";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 import {
+  DEFAULT_CLIENT_PROFILE_KEY,
+  DEFAULT_CLIENT_PROFILE_LABEL,
   DEFAULT_REQUIRED_FIELDS,
   DOCUMENT_ANY_KEY,
-  normalizeCustomFields,
-  normalizeHiddenFields,
-  normalizeRequiredFields,
+  normalizeClientProfiles,
+  resolveClientProfile,
 } from "@/utils/clientConfig";
 import { useAuth } from "@/context/AuthContext";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
@@ -273,6 +274,7 @@ type FinanceCurrencySummary = {
 
 type ClientEditableDraft = {
   id_client?: number;
+  profile_key: string;
   first_name: string;
   last_name: string;
   phone: string;
@@ -293,6 +295,7 @@ type ClientEditableDraft = {
 } | null;
 
 type ClientConfigPayload = {
+  profiles?: unknown;
   required_fields?: unknown;
   hidden_fields?: unknown;
   custom_fields?: unknown;
@@ -741,7 +744,10 @@ function PassengerClientFields({
   draft,
   onChange,
   onCustomChange,
+  onProfileChange,
   disabled,
+  profileKey,
+  profileOptions = [],
   requiredFields,
   hiddenFields,
   customFields,
@@ -752,7 +758,10 @@ function PassengerClientFields({
   draft: ClientEditableDraft;
   onChange: (field: ClientDraftField, value: string) => void;
   onCustomChange: (key: string, value: string) => void;
+  onProfileChange?: (key: string) => void;
   disabled: boolean;
+  profileKey?: string;
+  profileOptions?: Array<{ key: string; label: string }>;
   requiredFields: string[];
   hiddenFields: string[];
   customFields: ClientCustomField[];
@@ -806,6 +815,24 @@ function PassengerClientFields({
         <p className="mb-3 rounded-xl border border-amber-300/80 bg-amber-100/85 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
           Debés completar al menos uno: DNI, Pasaporte o CUIT/RUT.
         </p>
+      ) : null}
+
+      {profileOptions.length > 1 ? (
+        <div className="mb-4 space-y-1">
+          <label className={FIELD_LABEL_CLASS}>Tipo de pax</label>
+          <select
+            value={profileKey || profileOptions[0]?.key || ""}
+            onChange={(e) => onProfileChange?.(e.target.value)}
+            disabled={disabled}
+            className={FIELD_INPUT_CLASS}
+          >
+            {profileOptions.map((profile) => (
+              <option key={profile.key} value={profile.key}>
+                {profile.label}
+              </option>
+            ))}
+          </select>
+        </div>
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -1224,6 +1251,10 @@ function defaultClientDraft(
       source && Number.isFinite(Number(source.id_client))
         ? Number(source.id_client)
         : undefined,
+    profile_key:
+      source && typeof source.profile_key === "string" && source.profile_key.trim()
+        ? source.profile_key.trim().toLowerCase()
+        : DEFAULT_CLIENT_PROFILE_KEY,
     first_name: String(source?.first_name ?? ""),
     last_name: String(source?.last_name ?? ""),
     phone: String(source?.phone ?? ""),
@@ -1275,11 +1306,15 @@ export default function GroupDetailPage() {
 
   const [group, setGroup] = useState<Group | null>(null);
   const [passengers, setPassengers] = useState<PassengerItem[]>([]);
-  const [clientRequiredFields, setClientRequiredFields] = useState<string[]>(
-    DEFAULT_REQUIRED_FIELDS,
-  );
-  const [clientHiddenFields, setClientHiddenFields] = useState<string[]>([]);
-  const [clientCustomFields, setClientCustomFields] = useState<ClientCustomField[]>([]);
+  const [clientProfiles, setClientProfiles] = useState<ClientProfileConfig[]>([
+    {
+      key: DEFAULT_CLIENT_PROFILE_KEY,
+      label: DEFAULT_CLIENT_PROFILE_LABEL,
+      required_fields: DEFAULT_REQUIRED_FIELDS,
+      hidden_fields: [],
+      custom_fields: [],
+    },
+  ]);
   const [passengerCategories, setPassengerCategories] = useState<
     PassengerCategoryOption[]
   >([]);
@@ -1442,14 +1477,13 @@ export default function GroupDetailPage() {
         Array.isArray(inventoriesData.items) ? inventoriesData.items : [],
       );
 
-      const normalizedHidden = normalizeHiddenFields(
-        clientConfigData?.hidden_fields,
-      );
-      const normalizedRequired = normalizeRequiredFields(
-        clientConfigData?.required_fields,
-      ).filter((field) => !normalizedHidden.includes(field));
-      const normalizedCustom = normalizeCustomFields(
-        clientConfigData?.custom_fields,
+      const normalizedProfiles = normalizeClientProfiles(
+        clientConfigData?.profiles,
+        {
+          required_fields: clientConfigData?.required_fields,
+          hidden_fields: clientConfigData?.hidden_fields,
+          custom_fields: clientConfigData?.custom_fields,
+        },
       );
       const normalizedCategories = Array.isArray(categoriesData)
         ? categoriesData.filter(
@@ -1459,13 +1493,29 @@ export default function GroupDetailPage() {
           )
         : [];
 
-      setClientHiddenFields(normalizedHidden);
-      setClientRequiredFields(
-        normalizedRequired.length > 0
-          ? normalizedRequired
-          : DEFAULT_REQUIRED_FIELDS.filter((field) => !normalizedHidden.includes(field)),
+      setClientProfiles(normalizedProfiles);
+      setNewClientDraft((prev) =>
+        prev
+          ? {
+              ...prev,
+              profile_key: resolveClientProfile(
+                normalizedProfiles,
+                prev.profile_key,
+              ).key,
+            }
+          : prev,
       );
-      setClientCustomFields(normalizedCustom);
+      setActiveClientDraft((prev) =>
+        prev
+          ? {
+              ...prev,
+              profile_key: resolveClientProfile(
+                normalizedProfiles,
+                prev.profile_key,
+              ).key,
+            }
+          : prev,
+      );
       setPassengerCategories(normalizedCategories);
 
       try {
@@ -1587,9 +1637,15 @@ export default function GroupDetailPage() {
       setFinanceCurrencies([]);
       setServiceOptionsError(null);
       setDefaultTransferFeePct(2.4);
-      setClientRequiredFields(DEFAULT_REQUIRED_FIELDS);
-      setClientHiddenFields([]);
-      setClientCustomFields([]);
+      setClientProfiles([
+        {
+          key: DEFAULT_CLIENT_PROFILE_KEY,
+          label: DEFAULT_CLIENT_PROFILE_LABEL,
+          required_fields: DEFAULT_REQUIRED_FIELDS,
+          hidden_fields: [],
+          custom_fields: [],
+        },
+      ]);
       setPassengerCategories([]);
     } finally {
       setLoading(false);
@@ -2056,23 +2112,9 @@ export default function GroupDetailPage() {
     passengerStatusFilter,
   ]);
 
-  const effectiveClientRequiredFields = useMemo(
-    () =>
-      (clientRequiredFields.length > 0
-        ? clientRequiredFields
-        : DEFAULT_REQUIRED_FIELDS
-      ).filter((field) => !clientHiddenFields.includes(field)),
-    [clientHiddenFields, clientRequiredFields],
-  );
-
-  const requiredClientCustomKeys = useMemo(
-    () => clientCustomFields.filter((field) => field.required).map((field) => field.key),
-    [clientCustomFields],
-  );
-
-  const allowedClientCustomKeys = useMemo(
-    () => new Set(clientCustomFields.map((field) => field.key)),
-    [clientCustomFields],
+  const resolveClientDraftProfile = useCallback(
+    (profileKey?: string) => resolveClientProfile(clientProfiles, profileKey),
+    [clientProfiles],
   );
 
   function updateNewClientDraftField(
@@ -2120,6 +2162,11 @@ export default function GroupDetailPage() {
   function sanitizeClientCustomFields(
     draft: NonNullable<ClientEditableDraft>,
   ): Record<string, string> {
+    const allowedClientCustomKeys = new Set(
+      resolveClientDraftProfile(draft.profile_key).custom_fields.map(
+        (field) => field.key,
+      ),
+    );
     const out: Record<string, string> = {};
     for (const key of allowedClientCustomKeys) {
       const value = String(draft.custom_fields?.[key] ?? "").trim();
@@ -2133,12 +2180,19 @@ export default function GroupDetailPage() {
     draft: NonNullable<ClientEditableDraft> | null,
   ): string | null {
     if (!draft) return "Completá los datos del pasajero.";
+    const selectedProfile = resolveClientDraftProfile(draft.profile_key);
+    const effectiveClientRequiredFields = selectedProfile.required_fields.filter(
+      (field) => !selectedProfile.hidden_fields.includes(field),
+    );
+    const requiredClientCustomKeys = selectedProfile.custom_fields
+      .filter((field) => field.required)
+      .map((field) => field.key);
     const read = (field: keyof NonNullable<ClientEditableDraft>) =>
       String(draft[field] ?? "").trim();
 
     for (const field of effectiveClientRequiredFields) {
       if (field === DOCUMENT_ANY_KEY) continue;
-      if (clientHiddenFields.includes(field)) continue;
+      if (selectedProfile.hidden_fields.includes(field)) continue;
       if (!read(field as keyof NonNullable<ClientEditableDraft>)) {
         const fieldLabel = field.replaceAll("_", " ");
         return `El campo ${fieldLabel} es obligatorio.`;
@@ -2162,8 +2216,9 @@ export default function GroupDetailPage() {
     for (const key of requiredClientCustomKeys) {
       const value = String(draft.custom_fields?.[key] ?? "").trim();
       if (!value) {
-        const fieldLabel =
-          clientCustomFields.find((field) => field.key === key)?.label || key;
+        const fieldLabel = selectedProfile.custom_fields.find(
+          (field) => field.key === key,
+        )?.label || key;
         return `El campo ${fieldLabel} es obligatorio.`;
       }
     }
@@ -2172,6 +2227,21 @@ export default function GroupDetailPage() {
   }
 
   const activePassengerClientId = activePassenger?.client?.id_client ?? null;
+  const clientProfileOptions = useMemo(
+    () => clientProfiles.map((profile) => ({ key: profile.key, label: profile.label })),
+    [clientProfiles],
+  );
+  const newClientProfile = useMemo(
+    () => resolveClientDraftProfile(newClientDraft?.profile_key),
+    [newClientDraft?.profile_key, resolveClientDraftProfile],
+  );
+  const activeClientProfile = useMemo(
+    () =>
+      activeClientDraft
+        ? resolveClientDraftProfile(activeClientDraft.profile_key)
+        : resolveClientDraftProfile(DEFAULT_CLIENT_PROFILE_KEY),
+    [activeClientDraft, resolveClientDraftProfile],
+  );
 
   useEffect(() => {
     if (!activePassengerClientId) {
@@ -2737,6 +2807,7 @@ export default function GroupDetailPage() {
             headers: { "Content-Type": "application/json" },
             credentials: "include",
             body: JSON.stringify({
+              profile_key: newClientDraft.profile_key,
               first_name: newClientDraft.first_name.trim(),
               last_name: newClientDraft.last_name.trim(),
               phone: newClientDraft.phone.trim(),
@@ -2893,6 +2964,7 @@ export default function GroupDetailPage() {
     const sanitizedCustomFields = sanitizeClientCustomFields(activeClientDraft);
     const payload: Record<string, unknown> = {
       ...activeClientRaw,
+      profile_key: activeClientDraft.profile_key,
       first_name: activeClientDraft.first_name.trim(),
       last_name: activeClientDraft.last_name.trim(),
       phone: activeClientDraft.phone.trim(),
@@ -4164,10 +4236,15 @@ export default function GroupDetailPage() {
                             draft={newClientDraft}
                             onChange={updateNewClientDraftField}
                             onCustomChange={updateNewClientCustomField}
+                            onProfileChange={(key) =>
+                              updateNewClientDraftField("profile_key", key)
+                            }
                             disabled={submitting}
-                            requiredFields={effectiveClientRequiredFields}
-                            hiddenFields={clientHiddenFields}
-                            customFields={clientCustomFields}
+                            profileKey={newClientDraft?.profile_key}
+                            profileOptions={clientProfileOptions}
+                            requiredFields={newClientProfile.required_fields}
+                            hiddenFields={newClientProfile.hidden_fields}
+                            customFields={newClientProfile.custom_fields}
                             passengerCategories={passengerCategories}
                             title="Nuevo pasajero"
                             description="Completá los datos mínimos para crear y sumar el pasajero a esta grupal."
@@ -4316,10 +4393,15 @@ export default function GroupDetailPage() {
                             draft={activeClientDraft}
                             onChange={updateActiveClientDraftField}
                             onCustomChange={updateActiveClientCustomField}
+                            onProfileChange={(key) =>
+                              updateActiveClientDraftField("profile_key", key)
+                            }
                             disabled={submitting}
-                            requiredFields={effectiveClientRequiredFields}
-                            hiddenFields={clientHiddenFields}
-                            customFields={clientCustomFields}
+                            profileKey={activeClientDraft?.profile_key}
+                            profileOptions={clientProfileOptions}
+                            requiredFields={activeClientProfile.required_fields}
+                            hiddenFields={activeClientProfile.hidden_fields}
+                            customFields={activeClientProfile.custom_fields}
                             passengerCategories={passengerCategories}
                             title="Datos personales del pasajero"
                             description="Este bloque se reutiliza para editar la información del pasajero activo."

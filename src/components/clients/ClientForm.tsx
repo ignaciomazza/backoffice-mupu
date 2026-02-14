@@ -11,6 +11,7 @@ import type { ClientCustomField } from "@/types";
 import { DEFAULT_REQUIRED_FIELDS, DOCUMENT_ANY_KEY } from "@/utils/clientConfig";
 
 export interface ClientFormData {
+  profile_key?: string | null;
   first_name: string;
   last_name: string;
   phone?: string;
@@ -43,6 +44,7 @@ interface ClientFormProps {
   requiredFields?: string[];
   customFields?: ClientCustomField[];
   hiddenFields?: string[];
+  profileOptions?: Array<{ key: string; label: string }>;
   passengerCategories?: Array<{ id_category: number; name: string; enabled?: boolean }>;
 }
 
@@ -116,6 +118,7 @@ export default function ClientForm({
   requiredFields,
   customFields = [],
   hiddenFields = [],
+  profileOptions = [],
   passengerCategories = [],
 }: ClientFormProps) {
   /* ---------- formateo de fecha (idéntico al tuyo) ---------- */
@@ -484,6 +487,29 @@ export default function ClientForm({
               onSubmit={onLocalSubmit}
               className="space-y-5 px-4 pb-6 pt-4 md:px-6"
             >
+              {profileOptions.length > 1 && (
+                <Section
+                  title="Tipo de Pax"
+                  desc="Elegí el tipo para aplicar campos obligatorios, ocultos y extras."
+                >
+                  <Field id="profile_key" label="Tipo de pax" required>
+                    <select
+                      id="profile_key"
+                      name="profile_key"
+                      value={formData.profile_key || profileOptions[0]?.key || ""}
+                      onChange={handleChange}
+                      className="w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none dark:border-sky-200/60 dark:bg-sky-100/10 dark:text-white"
+                    >
+                      {profileOptions.map((opt) => (
+                        <option key={opt.key} value={opt.key}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </Section>
+              )}
+
               {/* DATOS PERSONALES */}
               <Section
                 title="Datos personales"

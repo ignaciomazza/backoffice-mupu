@@ -24,6 +24,12 @@ import {
 } from "@/utils/loadFinancePicks";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import type { ClientProfileConfig } from "@/types";
+import {
+  DEFAULT_CLIENT_PROFILE_KEY,
+  normalizeClientProfiles,
+  resolveClientProfile,
+} from "@/utils/clientConfig";
 import {
   normalizeQuoteCustomFields,
   normalizeQuoteHiddenFields,
@@ -108,6 +114,7 @@ type QuoteFormState = {
 type ConvertPassengerForm = {
   mode: "existing" | "new";
   client_id: number | null;
+  profile_key: string;
   first_name: string;
   last_name: string;
   phone: string;
@@ -118,6 +125,11 @@ type ConvertPassengerForm = {
   dni_number: string;
   passport_number: string;
   tax_id: string;
+  company_name: string;
+  commercial_address: string;
+  address: string;
+  locality: string;
+  postal_code: string;
 };
 
 type ConvertServiceForm = {
@@ -192,6 +204,7 @@ const CHIP =
 const defaultPassenger = (): ConvertPassengerForm => ({
   mode: "new",
   client_id: null,
+  profile_key: DEFAULT_CLIENT_PROFILE_KEY,
   first_name: "",
   last_name: "",
   phone: "",
@@ -202,6 +215,11 @@ const defaultPassenger = (): ConvertPassengerForm => ({
   dni_number: "",
   passport_number: "",
   tax_id: "",
+  company_name: "",
+  commercial_address: "",
+  address: "",
+  locality: "",
+  postal_code: "",
 });
 
 const defaultService = (): QuoteServiceDraft => ({
@@ -418,6 +436,7 @@ function toPassengerFromDraft(draft: QuotePaxDraft): ConvertPassengerForm {
   return {
     mode,
     client_id: mode === "existing" ? Number(draft.client_id || 0) || null : null,
+    profile_key: DEFAULT_CLIENT_PROFILE_KEY,
     first_name: draft.first_name || "",
     last_name: draft.last_name || "",
     phone: draft.phone || "",
@@ -428,6 +447,11 @@ function toPassengerFromDraft(draft: QuotePaxDraft): ConvertPassengerForm {
     dni_number: "",
     passport_number: "",
     tax_id: "",
+    company_name: "",
+    commercial_address: "",
+    address: "",
+    locality: "",
+    postal_code: "",
   };
 }
 
@@ -601,6 +625,15 @@ export default function QuotesPage() {
   const [requiredFields, setRequiredFields] = useState<string[]>([]);
   const [hiddenFields, setHiddenFields] = useState<string[]>([]);
   const [customFields, setCustomFields] = useState<QuoteCustomField[]>([]);
+  const [clientProfiles, setClientProfiles] = useState<ClientProfileConfig[]>([
+    {
+      key: DEFAULT_CLIENT_PROFILE_KEY,
+      label: "Pax",
+      required_fields: [],
+      hidden_fields: [],
+      custom_fields: [],
+    },
+  ]);
 
   const [passengers, setPassengers] = useState<PassengerOption[]>([]);
   const [operators, setOperators] = useState<OperatorOption[]>([]);
@@ -630,6 +663,10 @@ export default function QuotesPage() {
     );
     return unique.length > 0 ? unique : ["ARS", "USD"];
   }, [financeCurrencies]);
+  const convertProfileOptions = useMemo(
+    () => clientProfiles.map((profile) => ({ key: profile.key, label: profile.label })),
+    [clientProfiles],
+  );
 
   const toggleFormSection = useCallback((section: string) => {
     setFormSections((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -769,12 +806,13 @@ export default function QuotesPage() {
     let alive = true;
     (async () => {
       try {
-        const [profileRes, cfgRes, paxRes, opRes, userRes] = await Promise.all([
+        const [profileRes, cfgRes, paxRes, opRes, userRes, clientCfgRes] = await Promise.all([
           authFetch("/api/user/profile", { cache: "no-store" }, token),
           authFetch("/api/quotes/config", { cache: "no-store" }, token),
           authFetch("/api/clients?take=200", { cache: "no-store" }, token),
           authFetch("/api/operators", { cache: "no-store" }, token),
           authFetch("/api/users", { cache: "no-store" }, token),
+          authFetch("/api/clients/config", { cache: "no-store" }, token),
         ]);
 
         if (profileRes.ok) {
@@ -788,6 +826,26 @@ export default function QuotesPage() {
             setRequiredFields(normalizeQuoteRequiredFields(cfg?.required_fields));
             setHiddenFields(normalizeQuoteHiddenFields(cfg?.hidden_fields));
             setCustomFields(normalizeQuoteCustomFields(cfg?.custom_fields));
+          }
+        }
+
+        if (clientCfgRes.ok) {
+          const cfg = (await clientCfgRes.json().catch(() => null)) as
+            | {
+                profiles?: unknown;
+                required_fields?: unknown;
+                hidden_fields?: unknown;
+                custom_fields?: unknown;
+              }
+            | null;
+          if (alive) {
+            setClientProfiles(
+              normalizeClientProfiles(cfg?.profiles, {
+                required_fields: cfg?.required_fields,
+                hidden_fields: cfg?.hidden_fields,
+                custom_fields: cfg?.custom_fields,
+              }),
+            );
           }
         }
 
@@ -1203,14 +1261,23 @@ export default function QuotesPage() {
     index: number,
     patch: Partial<ConvertPassengerForm>,
   ) => {
+    const normalizedPatch =
+      patch.profile_key !== undefined
+        ? {
+            ...patch,
+            profile_key: resolveClientProfile(clientProfiles, patch.profile_key).key,
+          }
+        : patch;
     setConvertForm((prev) => {
       if (!prev) return prev;
       if (scope === "titular") {
-        return { ...prev, titular: { ...prev.titular, ...patch } };
+        return { ...prev, titular: { ...prev.titular, ...normalizedPatch } };
       }
       return {
         ...prev,
-        companions: prev.companions.map((c, i) => (i === index ? { ...c, ...patch } : c)),
+        companions: prev.companions.map((c, i) =>
+          i === index ? { ...c, ...normalizedPatch } : c,
+        ),
       };
     });
   };
@@ -1285,6 +1352,7 @@ export default function QuotesPage() {
       }
       return {
         mode: "new" as const,
+        profile_key: cleanString(p.profile_key),
         first_name: cleanString(p.first_name),
         last_name: cleanString(p.last_name),
         phone: cleanString(p.phone),
@@ -1295,6 +1363,11 @@ export default function QuotesPage() {
         dni_number: cleanString(p.dni_number),
         passport_number: cleanString(p.passport_number),
         tax_id: cleanString(p.tax_id),
+        company_name: cleanString(p.company_name),
+        commercial_address: cleanString(p.commercial_address),
+        address: cleanString(p.address),
+        locality: cleanString(p.locality),
+        postal_code: cleanString(p.postal_code),
       };
     };
 
@@ -2676,6 +2749,23 @@ export default function QuotesPage() {
                       </select>
                     ) : (
                       <>
+                        {convertProfileOptions.length > 1 && (
+                          <select
+                            className={SELECT}
+                            value={convertForm.titular.profile_key}
+                            onChange={(e) =>
+                              updateConvertPassenger("titular", 0, {
+                                profile_key: e.target.value,
+                              })
+                            }
+                          >
+                            {convertProfileOptions.map((opt) => (
+                              <option key={opt.key} value={opt.key}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                         <input
                           className={INPUT}
                           placeholder="Nombre"
@@ -2761,6 +2851,86 @@ export default function QuotesPage() {
                             })
                           }
                         />
+                        <input
+                          className={INPUT}
+                          placeholder="DNI"
+                          value={convertForm.titular.dni_number}
+                          onChange={(e) =>
+                            updateConvertPassenger("titular", 0, {
+                              dni_number: e.target.value,
+                            })
+                          }
+                        />
+                        <input
+                          className={INPUT}
+                          placeholder="Pasaporte"
+                          value={convertForm.titular.passport_number}
+                          onChange={(e) =>
+                            updateConvertPassenger("titular", 0, {
+                              passport_number: e.target.value,
+                            })
+                          }
+                        />
+                        <input
+                          className={INPUT}
+                          placeholder="CUIT / RUT"
+                          value={convertForm.titular.tax_id}
+                          onChange={(e) =>
+                            updateConvertPassenger("titular", 0, {
+                              tax_id: e.target.value,
+                            })
+                          }
+                        />
+                        <input
+                          className={INPUT}
+                          placeholder="Razón social"
+                          value={convertForm.titular.company_name}
+                          onChange={(e) =>
+                            updateConvertPassenger("titular", 0, {
+                              company_name: e.target.value,
+                            })
+                          }
+                        />
+                        <input
+                          className={INPUT}
+                          placeholder="Domicilio comercial"
+                          value={convertForm.titular.commercial_address}
+                          onChange={(e) =>
+                            updateConvertPassenger("titular", 0, {
+                              commercial_address: e.target.value,
+                            })
+                          }
+                        />
+                        <input
+                          className={INPUT}
+                          placeholder="Dirección"
+                          value={convertForm.titular.address}
+                          onChange={(e) =>
+                            updateConvertPassenger("titular", 0, {
+                              address: e.target.value,
+                            })
+                          }
+                        />
+                        <input
+                          className={INPUT}
+                          placeholder="Localidad"
+                          value={convertForm.titular.locality}
+                          onChange={(e) =>
+                            updateConvertPassenger("titular", 0, {
+                              locality: e.target.value,
+                            })
+                          }
+                        />
+                        <input
+                          className={INPUT}
+                          placeholder="Código postal"
+                          value={convertForm.titular.postal_code}
+                          onChange={(e) =>
+                            updateConvertPassenger("titular", 0, {
+                              postal_code: e.target.value,
+                            })
+                          }
+                        />
                       </>
                     )}
                   </div>
@@ -2829,6 +2999,23 @@ export default function QuotesPage() {
                             </select>
                           ) : (
                             <div className="grid gap-2 md:grid-cols-2">
+                              {convertProfileOptions.length > 1 && (
+                                <select
+                                  className={`${SELECT} md:col-span-2`}
+                                  value={p.profile_key}
+                                  onChange={(e) =>
+                                    updateConvertPassenger("companions", idx, {
+                                      profile_key: e.target.value,
+                                    })
+                                  }
+                                >
+                                  {convertProfileOptions.map((opt) => (
+                                    <option key={opt.key} value={opt.key}>
+                                      {opt.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
                               <input
                                 className={INPUT}
                                 placeholder="Nombre"
@@ -2856,6 +3043,96 @@ export default function QuotesPage() {
                                 onChange={(e) =>
                                   updateConvertPassenger("companions", idx, {
                                     phone: e.target.value,
+                                  })
+                                }
+                              />
+                              <input
+                                className={INPUT}
+                                placeholder="Email"
+                                value={p.email}
+                                onChange={(e) =>
+                                  updateConvertPassenger("companions", idx, {
+                                    email: e.target.value,
+                                  })
+                                }
+                              />
+                              <input
+                                className={INPUT}
+                                placeholder="DNI"
+                                value={p.dni_number}
+                                onChange={(e) =>
+                                  updateConvertPassenger("companions", idx, {
+                                    dni_number: e.target.value,
+                                  })
+                                }
+                              />
+                              <input
+                                className={INPUT}
+                                placeholder="Pasaporte"
+                                value={p.passport_number}
+                                onChange={(e) =>
+                                  updateConvertPassenger("companions", idx, {
+                                    passport_number: e.target.value,
+                                  })
+                                }
+                              />
+                              <input
+                                className={INPUT}
+                                placeholder="CUIT / RUT"
+                                value={p.tax_id}
+                                onChange={(e) =>
+                                  updateConvertPassenger("companions", idx, {
+                                    tax_id: e.target.value,
+                                  })
+                                }
+                              />
+                              <input
+                                className={INPUT}
+                                placeholder="Razón social"
+                                value={p.company_name}
+                                onChange={(e) =>
+                                  updateConvertPassenger("companions", idx, {
+                                    company_name: e.target.value,
+                                  })
+                                }
+                              />
+                              <input
+                                className={INPUT}
+                                placeholder="Domicilio comercial"
+                                value={p.commercial_address}
+                                onChange={(e) =>
+                                  updateConvertPassenger("companions", idx, {
+                                    commercial_address: e.target.value,
+                                  })
+                                }
+                              />
+                              <input
+                                className={INPUT}
+                                placeholder="Dirección"
+                                value={p.address}
+                                onChange={(e) =>
+                                  updateConvertPassenger("companions", idx, {
+                                    address: e.target.value,
+                                  })
+                                }
+                              />
+                              <input
+                                className={INPUT}
+                                placeholder="Localidad"
+                                value={p.locality}
+                                onChange={(e) =>
+                                  updateConvertPassenger("companions", idx, {
+                                    locality: e.target.value,
+                                  })
+                                }
+                              />
+                              <input
+                                className={INPUT}
+                                placeholder="Código postal"
+                                value={p.postal_code}
+                                onChange={(e) =>
+                                  updateConvertPassenger("companions", idx, {
+                                    postal_code: e.target.value,
                                   })
                                 }
                               />

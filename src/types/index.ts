@@ -69,6 +69,7 @@ export interface User {
 export interface Client {
   id_client: number;
   agency_client_id?: number | null;
+  profile_key?: string | null;
   first_name: string;
   last_name: string;
   phone: string;
@@ -108,12 +109,21 @@ export interface ClientCustomField {
   builtin?: boolean;
 }
 
+export interface ClientProfileConfig {
+  key: string;
+  label: string;
+  required_fields: string[];
+  hidden_fields: string[];
+  custom_fields: ClientCustomField[];
+}
+
 export interface ClientConfig {
   id_agency: number;
   visibility_mode: "all" | "team" | "own";
   required_fields?: string[] | null;
   custom_fields?: ClientCustomField[] | null;
   hidden_fields?: string[] | null;
+  profiles?: ClientProfileConfig[] | null;
   use_simple_companions?: boolean | null;
 }
 

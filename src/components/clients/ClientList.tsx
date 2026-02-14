@@ -20,6 +20,7 @@ interface ClientListProps {
   onLoadMore?: () => void;
   loadingMore?: boolean;
   viewMode?: ClientViewMode;
+  profileLabels?: Record<string, string>;
 }
 
 export default function ClientList({
@@ -35,6 +36,7 @@ export default function ClientList({
   onLoadMore,
   loadingMore = false,
   viewMode = "grid",
+  profileLabels = {},
 }: ClientListProps) {
   const content =
     viewMode === "list" ? (
@@ -50,6 +52,7 @@ export default function ClientList({
             deleteClient={deleteClient}
             onOpenRelations={onOpenRelations}
             passengerCategories={passengerCategories}
+            profileLabels={profileLabels}
           />
         ))}
       </div>
@@ -65,6 +68,7 @@ export default function ClientList({
             startEditingClient={startEditingClient}
             deleteClient={deleteClient}
             onOpenRelations={onOpenRelations}
+            profileLabels={profileLabels}
           />
         ))}
       </div>
@@ -98,6 +102,7 @@ type ClientRowProps = {
   deleteClient: (id: number) => void;
   onOpenRelations?: (client: Client) => void;
   passengerCategories?: Array<{ id_category: number; name: string }>;
+  profileLabels?: Record<string, string>;
 };
 
 function ClientListRow({
@@ -109,6 +114,7 @@ function ClientListRow({
   deleteClient,
   onOpenRelations,
   passengerCategories = [],
+  profileLabels = {},
 }: ClientRowProps) {
   const isExpanded = expandedClientId === client.id_client;
   const clientNumber = client.agency_client_id ?? client.id_client;
@@ -120,6 +126,10 @@ function ClientListRow({
       : client.category_id
         ? `Cat ${client.category_id}`
         : null;
+  const profileLabel =
+    profileLabels[String(client.profile_key || "")] ||
+    client.profile_key ||
+    "Pax";
   const toggleRow = () =>
     setExpandedClientId((prevId) =>
       prevId === client.id_client ? null : client.id_client,
@@ -197,6 +207,10 @@ function ClientListRow({
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-sky-900/80 dark:text-sky-100/80">
+        <span className="rounded-full border border-sky-200/60 bg-sky-100/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-900 dark:border-sky-700/60 dark:bg-sky-900/40 dark:text-sky-100">
+          {profileLabel}
+        </span>
+        <span className="text-sky-900/50 dark:text-sky-100/50">•</span>
         <span>{client.phone || "Sin teléfono"}</span>
         <span className="text-sky-900/50 dark:text-sky-100/50">•</span>
         <span className="max-w-[220px] truncate" title={emailDisplay}>

@@ -13,6 +13,12 @@ import {
   normalizeQuoteServiceDrafts,
 } from "@/utils/quoteDrafts";
 import { normalizeRole } from "@/utils/permissions";
+import {
+  DOC_REQUIRED_FIELDS,
+  DOCUMENT_ANY_KEY,
+  normalizeClientProfiles,
+  resolveClientProfile,
+} from "@/utils/clientConfig";
 
 type ConvertPassenger =
   | {
@@ -21,6 +27,7 @@ type ConvertPassenger =
     }
   | {
       mode: "new";
+      profile_key?: string;
       first_name: string;
       last_name: string;
       phone: string;
@@ -31,6 +38,11 @@ type ConvertPassenger =
       dni_number?: string;
       passport_number?: string;
       tax_id?: string;
+      address?: string;
+      postal_code?: string;
+      locality?: string;
+      company_name?: string;
+      commercial_address?: string;
     };
 
 type ConvertService = {
@@ -127,8 +139,9 @@ async function resolvePassengerToClientId(args: {
   passenger: ConvertPassenger;
   id_agency: number;
   owner_user_id: number;
+  profiles: ReturnType<typeof normalizeClientProfiles>;
 }): Promise<number> {
-  const { tx, passenger, id_agency, owner_user_id } = args;
+  const { tx, passenger, id_agency, owner_user_id, profiles } = args;
 
   if (passenger.mode === "existing") {
     const clientId = toPositiveInt(passenger.client_id);
@@ -146,7 +159,22 @@ async function resolvePassengerToClientId(args: {
   const phone = cleanString(passenger.phone, 60);
   const nationality = cleanString(passenger.nationality, 60);
   const gender = cleanString(passenger.gender, 40);
+  const company_name = cleanString(passenger.company_name, 180);
+  const commercial_address = cleanString(passenger.commercial_address, 240);
+  const address = cleanString(passenger.address, 240);
+  const locality = cleanString(passenger.locality, 180);
+  const postal_code = cleanString(passenger.postal_code, 40);
+  const dni_number = cleanString(passenger.dni_number, 60);
+  const passport_number = cleanString(passenger.passport_number, 60);
+  const tax_id = cleanString(passenger.tax_id, 60);
+  const email = cleanString(passenger.email, 120);
   const birth = toLocalDate(passenger.birth_date);
+  const requestedProfileKey = cleanString(passenger.profile_key, 40).toLowerCase();
+  if (requestedProfileKey && !profiles.some((profile) => profile.key === requestedProfileKey)) {
+    throw new Error("Tipo de pax inválido.");
+  }
+  const selectedProfile = resolveClientProfile(profiles, requestedProfileKey);
+
   if (
     !first_name ||
     !last_name ||
@@ -160,20 +188,61 @@ async function resolvePassengerToClientId(args: {
     );
   }
 
+  const profileValues: Record<string, string> = {
+    first_name,
+    last_name,
+    phone,
+    birth_date: passenger.birth_date || "",
+    nationality,
+    gender,
+    email,
+    dni_number,
+    passport_number,
+    tax_id,
+    address,
+    locality,
+    postal_code,
+    company_name,
+    commercial_address,
+  };
+
+  for (const field of selectedProfile.required_fields) {
+    if (field === DOCUMENT_ANY_KEY) continue;
+    if (!String(profileValues[field] ?? "").trim()) {
+      throw new Error(`Para crear pax (${selectedProfile.label}) falta: ${field}.`);
+    }
+  }
+  const docRequired =
+    selectedProfile.required_fields.includes(DOCUMENT_ANY_KEY) ||
+    selectedProfile.required_fields.some((field) =>
+      DOC_REQUIRED_FIELDS.includes(field),
+    );
+  if (docRequired && !dni_number && !passport_number && !tax_id) {
+    throw new Error(
+      `Para crear pax (${selectedProfile.label}) se requiere DNI, Pasaporte o CUIT/RUT.`,
+    );
+  }
+
   const agencyClientId = await getNextAvailableAgencyClientId(tx, id_agency);
   const created = await tx.client.create({
     data: {
       agency_client_id: agencyClientId,
+      profile_key: selectedProfile.key,
       first_name,
       last_name,
       phone,
       birth_date: birth,
       nationality,
       gender,
-      email: cleanString(passenger.email, 120) || null,
-      dni_number: cleanString(passenger.dni_number, 60) || null,
-      passport_number: cleanString(passenger.passport_number, 60) || null,
-      tax_id: cleanString(passenger.tax_id, 60) || null,
+      email: email || null,
+      dni_number: dni_number || null,
+      passport_number: passport_number || null,
+      tax_id: tax_id || null,
+      address: address || null,
+      postal_code: postal_code || null,
+      locality: locality || null,
+      company_name: company_name || null,
+      commercial_address: commercial_address || null,
       id_user: owner_user_id,
       id_agency,
     },
@@ -284,6 +353,21 @@ export default async function handler(
     ownerUserId = requestedOwnerId;
   }
 
+  const clientConfig = await prisma.clientConfig.findFirst({
+    where: { id_agency: auth.id_agency },
+    select: {
+      profiles: true,
+      required_fields: true,
+      hidden_fields: true,
+      custom_fields: true,
+    },
+  });
+  const clientProfiles = normalizeClientProfiles(clientConfig?.profiles, {
+    required_fields: clientConfig?.required_fields,
+    hidden_fields: clientConfig?.hidden_fields,
+    custom_fields: clientConfig?.custom_fields,
+  });
+
   try {
     const result = await prisma.$transaction(async (tx) => {
       const titularId = await resolvePassengerToClientId({
@@ -291,6 +375,7 @@ export default async function handler(
         passenger: titular as ConvertPassenger,
         id_agency: auth.id_agency,
         owner_user_id: ownerUserId,
+        profiles: clientProfiles,
       });
 
       const companionIds: number[] = [];
@@ -300,6 +385,7 @@ export default async function handler(
           passenger: companion,
           id_agency: auth.id_agency,
           owner_user_id: ownerUserId,
+          profiles: clientProfiles,
         });
         if (clientId !== titularId && !companionIds.includes(clientId)) {
           companionIds.push(clientId);

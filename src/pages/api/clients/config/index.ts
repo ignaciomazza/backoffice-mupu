@@ -3,8 +3,10 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { jwtVerify, type JWTPayload } from "jose";
 import prisma, { Prisma } from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
+import { isMissingColumnError } from "@/lib/prismaErrors";
 import { z } from "zod";
 import {
+  normalizeClientProfiles,
   normalizeCustomFields,
   normalizeHiddenFields,
   normalizeRequiredFields,
@@ -12,6 +14,9 @@ import {
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
+
+const CLIENT_PROFILES_MIGRATION_MESSAGE =
+  "La base de datos no tiene la migración de Tipos de Pax. Ejecutá `npx prisma migrate deploy` (o `npx prisma migrate dev` en local).";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -49,6 +54,22 @@ const putSchema = z.object({
   required_fields: z.array(z.string()).optional(),
   custom_fields: z.array(customFieldSchema).optional(),
   hidden_fields: z.array(z.string()).optional(),
+  profiles: z
+    .array(
+      z.object({
+        key: z
+          .string()
+          .trim()
+          .min(1)
+          .max(40)
+          .regex(/^[a-z0-9_]+$/),
+        label: z.string().trim().min(1).max(80),
+        required_fields: z.array(z.string()).optional(),
+        custom_fields: z.array(customFieldSchema).optional(),
+        hidden_fields: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
   use_simple_companions: z.boolean().optional(),
 });
 
@@ -107,6 +128,47 @@ function canWrite(role: string) {
   );
 }
 
+async function hasClientConfigProfilesColumn(idAgency: number): Promise<boolean> {
+  try {
+    await prisma.clientConfig.findFirst({
+      where: { id_agency: idAgency },
+      select: { id_config: true, profiles: true },
+    });
+    return true;
+  } catch (error) {
+    if (isMissingColumnError(error, "ClientConfig.profiles")) return false;
+    throw error;
+  }
+}
+
+async function applyClientProfilesSchemaPatch(): Promise<void> {
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE "Client" ADD COLUMN IF NOT EXISTS "profile_key" TEXT NOT NULL DEFAULT 'persona'`,
+  );
+  await prisma.$executeRawUnsafe(
+    `ALTER TABLE "ClientConfig" ADD COLUMN IF NOT EXISTS "profiles" JSONB`,
+  );
+  await prisma.$executeRawUnsafe(`
+    UPDATE "ClientConfig"
+    SET "profiles" = jsonb_build_array(
+      jsonb_build_object(
+        'key', 'persona',
+        'label', 'Pax',
+        'required_fields', COALESCE(
+          "required_fields",
+          '["first_name","last_name","phone","birth_date","nationality","gender","document_any"]'::jsonb
+        ),
+        'hidden_fields', COALESCE("hidden_fields", '[]'::jsonb),
+        'custom_fields', COALESCE("custom_fields", '[]'::jsonb)
+      )
+    )
+    WHERE "profiles" IS NULL
+  `);
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS "Client_id_agency_profile_key_idx" ON "Client"("id_agency", "profile_key")`,
+  );
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -119,10 +181,36 @@ export default async function handler(
 
   if (req.method === "GET") {
     try {
-      const config = await prisma.clientConfig.findFirst({
+      const supportsProfilesColumn = await hasClientConfigProfilesColumn(
+        auth.id_agency,
+      );
+      if (supportsProfilesColumn) {
+        const config = await prisma.clientConfig.findFirst({
+          where: { id_agency: auth.id_agency },
+        });
+        return res.status(200).json(config ?? null);
+      }
+
+      const legacyConfig = await prisma.clientConfig.findFirst({
         where: { id_agency: auth.id_agency },
+        select: {
+          id_config: true,
+          agency_client_config_id: true,
+          id_agency: true,
+          visibility_mode: true,
+          required_fields: true,
+          hidden_fields: true,
+          custom_fields: true,
+          use_simple_companions: true,
+          created_at: true,
+          updated_at: true,
+        },
       });
-      return res.status(200).json(config ?? null);
+      if (!legacyConfig) return res.status(200).json(null);
+      return res.status(200).json({
+        ...legacyConfig,
+        profiles: null,
+      });
     } catch (e) {
       console.error("[clients/config][GET]", reqId, e);
       return res.status(500).json({ error: "Error obteniendo configuración" });
@@ -145,69 +233,145 @@ export default async function handler(
         required_fields,
         custom_fields,
         hidden_fields,
+        profiles,
         use_simple_companions,
       } = parsed.data;
+      let supportsProfilesColumn = await hasClientConfigProfilesColumn(
+        auth.id_agency,
+      );
+      if (!supportsProfilesColumn) {
+        try {
+          await applyClientProfilesSchemaPatch();
+          supportsProfilesColumn = await hasClientConfigProfilesColumn(
+            auth.id_agency,
+          );
+        } catch (migrationError) {
+          console.error(
+            "[clients/config][PUT] auto-schema-patch error",
+            reqId,
+            migrationError,
+          );
+        }
+      }
 
       await prisma.$transaction(async (tx) => {
-        const existing = await tx.clientConfig.findUnique({
-          where: { id_agency: auth.id_agency },
-          select: {
-            id_config: true,
-            required_fields: true,
-            hidden_fields: true,
-            custom_fields: true,
-          },
-        });
+        let existing:
+          | {
+              id_config: number;
+              required_fields: Prisma.JsonValue | null;
+              hidden_fields: Prisma.JsonValue | null;
+              custom_fields: Prisma.JsonValue | null;
+              profiles?: Prisma.JsonValue | null;
+            }
+          | null = null;
+        if (supportsProfilesColumn) {
+          existing = await tx.clientConfig.findUnique({
+            where: { id_agency: auth.id_agency },
+            select: {
+              id_config: true,
+              required_fields: true,
+              hidden_fields: true,
+              custom_fields: true,
+              profiles: true,
+            },
+          });
+        } else {
+          existing = await tx.clientConfig.findUnique({
+            where: { id_agency: auth.id_agency },
+            select: {
+              id_config: true,
+              required_fields: true,
+              hidden_fields: true,
+              custom_fields: true,
+            },
+          });
+        }
 
-        const nextRequired =
+        const fallbackRequired =
           required_fields !== undefined
             ? normalizeRequiredFields(required_fields)
             : existing?.required_fields ?? null;
-
-        const nextHidden =
+        const fallbackHidden =
           hidden_fields !== undefined
             ? normalizeHiddenFields(hidden_fields)
             : existing?.hidden_fields ?? null;
-
-        const filteredRequired =
-          nextRequired == null
-            ? null
-            : (nextHidden && Array.isArray(nextHidden)
-                ? (nextRequired as string[]).filter(
-                    (field) => !(nextHidden as string[]).includes(field),
-                  )
-                : (nextRequired as string[]));
-
-        const nextCustom =
+        const fallbackCustom =
           custom_fields !== undefined
             ? normalizeCustomFields(custom_fields)
             : existing?.custom_fields ?? null;
 
+        const nextProfiles =
+          profiles !== undefined
+            ? normalizeClientProfiles(profiles, {
+                required_fields: fallbackRequired,
+                hidden_fields: fallbackHidden,
+                custom_fields: fallbackCustom,
+              })
+            : required_fields !== undefined ||
+                hidden_fields !== undefined ||
+                custom_fields !== undefined
+              ? normalizeClientProfiles(null, {
+                  required_fields: fallbackRequired,
+                  hidden_fields: fallbackHidden,
+                  custom_fields: fallbackCustom,
+                })
+              : normalizeClientProfiles(
+                  supportsProfilesColumn ? existing?.profiles : null,
+                  {
+                    required_fields: existing?.required_fields ?? null,
+                    hidden_fields: existing?.hidden_fields ?? null,
+                    custom_fields: existing?.custom_fields ?? null,
+                  },
+                );
+
+        if (!supportsProfilesColumn && nextProfiles.length > 1) {
+          throw new Error(CLIENT_PROFILES_MIGRATION_MESSAGE);
+        }
+
+        const primaryProfile = nextProfiles[0];
+
         const requiredValue =
-          filteredRequired === null
+          primaryProfile.required_fields == null
             ? Prisma.DbNull
-            : (filteredRequired as Prisma.InputJsonValue);
+            : (primaryProfile.required_fields as unknown as Prisma.InputJsonValue);
         const hiddenValue =
-          nextHidden === null
+          primaryProfile.hidden_fields == null
             ? Prisma.DbNull
-            : (nextHidden as Prisma.InputJsonValue);
+            : (primaryProfile.hidden_fields as unknown as Prisma.InputJsonValue);
         const customValue =
-          nextCustom === null
+          primaryProfile.custom_fields == null
             ? Prisma.DbNull
-            : (nextCustom as Prisma.InputJsonValue);
+            : (primaryProfile.custom_fields as unknown as Prisma.InputJsonValue);
+        const profilesValue =
+          nextProfiles.length > 0
+            ? (nextProfiles as unknown as Prisma.InputJsonValue)
+            : Prisma.DbNull;
+
+        const dataBase = {
+          visibility_mode,
+          required_fields: requiredValue,
+          hidden_fields: hiddenValue,
+          custom_fields: customValue,
+        };
 
         if (existing) {
+          const updateData: Prisma.ClientConfigUpdateInput = supportsProfilesColumn
+            ? {
+                ...dataBase,
+                profiles: profilesValue,
+                ...(typeof use_simple_companions === "boolean"
+                  ? { use_simple_companions }
+                  : {}),
+              }
+            : {
+                ...dataBase,
+                ...(typeof use_simple_companions === "boolean"
+                  ? { use_simple_companions }
+                  : {}),
+              };
           await tx.clientConfig.update({
             where: { id_agency: auth.id_agency },
-            data: {
-              visibility_mode,
-              required_fields: requiredValue,
-              hidden_fields: hiddenValue,
-              custom_fields: customValue,
-              ...(typeof use_simple_companions === "boolean"
-                ? { use_simple_companions }
-                : {}),
-            },
+            data: updateData,
           });
           return;
         }
@@ -220,10 +384,8 @@ export default async function handler(
           data: {
             id_agency: auth.id_agency,
             agency_client_config_id: agencyConfigId,
-            visibility_mode,
-            required_fields: requiredValue,
-            hidden_fields: hiddenValue,
-            custom_fields: customValue,
+            ...dataBase,
+            ...(supportsProfilesColumn ? { profiles: profilesValue } : {}),
             use_simple_companions: Boolean(use_simple_companions),
           },
         });
@@ -232,6 +394,12 @@ export default async function handler(
       return res.status(200).json({ ok: true });
     } catch (e) {
       console.error("[clients/config][PUT]", reqId, e);
+      if (e instanceof Error && e.message === CLIENT_PROFILES_MIGRATION_MESSAGE) {
+        return res.status(409).json({ error: CLIENT_PROFILES_MIGRATION_MESSAGE });
+      }
+      if (isMissingColumnError(e, "ClientConfig.profiles")) {
+        return res.status(409).json({ error: CLIENT_PROFILES_MIGRATION_MESSAGE });
+      }
       return res.status(500).json({ error: "Error guardando configuración" });
     }
   }
