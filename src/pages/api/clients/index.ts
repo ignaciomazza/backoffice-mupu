@@ -1,7 +1,7 @@
 // src/pages/api/clients/index.ts
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
-import { getNextAgencyCounter } from "@/lib/agencyCounters";
+import { getNextAvailableAgencyClientId } from "@/lib/agencyClientId";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 import {
@@ -539,10 +539,9 @@ export default async function handler(
       }
 
       const created = await prisma.$transaction(async (tx) => {
-        const agencyClientId = await getNextAgencyCounter(
+        const agencyClientId = await getNextAvailableAgencyClientId(
           tx,
           auth.id_agency,
-          "client",
         );
 
         return tx.client.create({

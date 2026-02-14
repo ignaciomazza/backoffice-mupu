@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
+import { getNextAvailableAgencyClientId } from "@/lib/agencyClientId";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import {
@@ -159,7 +160,7 @@ async function resolvePassengerToClientId(args: {
     );
   }
 
-  const agencyClientId = await getNextAgencyCounter(tx, id_agency, "client");
+  const agencyClientId = await getNextAvailableAgencyClientId(tx, id_agency);
   const created = await tx.client.create({
     data: {
       agency_client_id: agencyClientId,
