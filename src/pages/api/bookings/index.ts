@@ -931,7 +931,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           simple_companions: { include: { category: true } },
         },
       });
-    });
+    }, { maxWait: 10000, timeout: 30000 });
 
     const public_id =
       booking.agency_booking_id != null

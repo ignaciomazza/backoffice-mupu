@@ -1006,7 +1006,7 @@ export default async function handler(
         }
 
         return updatedBooking;
-      });
+      }, { maxWait: 10000, timeout: 30000 });
 
       return res.status(200).json(booking);
     } catch (error) {
