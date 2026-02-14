@@ -18,6 +18,8 @@ type Props = {
   token: string | null;
   booking: Booking;
   onCreated?: () => void;
+  defaultClientId?: number | null;
+  lockClient?: boolean;
 };
 
 type AmountMode = "total" | "per_equal" | "per_custom";
@@ -107,6 +109,8 @@ export default function ClientPaymentForm({
   token,
   booking,
   onCreated,
+  defaultClientId = null,
+  lockClient = false,
 }: Props) {
   const [isFormVisible, setIsFormVisible] = useState(false);
 
@@ -141,6 +145,17 @@ export default function ClientPaymentForm({
     });
   }, [booking.services]);
 
+  const normalizedDefaultClientId = useMemo(() => {
+    const raw = Number(defaultClientId);
+    if (Number.isFinite(raw) && raw > 0) {
+      const normalized = Math.trunc(raw);
+      if (bookingPaxOptions.some((opt) => opt.id === normalized)) {
+        return normalized;
+      }
+    }
+    return booking.titular?.id_client ?? null;
+  }, [defaultClientId, bookingPaxOptions, booking.titular?.id_client]);
+
   // Cantidad de pagos
   const [count, setCount] = useState<number>(1);
 
@@ -162,18 +177,28 @@ export default function ClientPaymentForm({
 
   // Prefill de titular cuando se abre el form
   useEffect(() => {
-    if (isFormVisible && !payerClientId && booking?.titular?.id_client) {
-      setPayerClientId(booking.titular.id_client);
+    if (!isFormVisible) return;
+    if (lockClient) {
+      setPayerClientId(normalizedDefaultClientId);
+      return;
     }
-  }, [isFormVisible, payerClientId, booking?.titular?.id_client]);
+    if (!payerClientId && normalizedDefaultClientId) {
+      setPayerClientId(normalizedDefaultClientId);
+    }
+  }, [isFormVisible, lockClient, payerClientId, normalizedDefaultClientId]);
+
+  useEffect(() => {
+    if (!lockClient) return;
+    setPayerClientId(normalizedDefaultClientId);
+  }, [lockClient, normalizedDefaultClientId]);
 
   useEffect(() => {
     if (payerClientId == null) return;
     const exists = bookingPaxOptions.some((opt) => opt.id === payerClientId);
     if (!exists) {
-      setPayerClientId(booking.titular?.id_client ?? null);
+      setPayerClientId(normalizedDefaultClientId);
     }
-  }, [payerClientId, bookingPaxOptions, booking.titular?.id_client]);
+  }, [payerClientId, bookingPaxOptions, normalizedDefaultClientId]);
 
   useEffect(() => {
     if (serviceId == null) return;
@@ -300,7 +325,7 @@ export default function ClientPaymentForm({
   };
 
   const resetForm = () => {
-    setPayerClientId(null);
+    setPayerClientId(lockClient ? normalizedDefaultClientId : null);
     setServiceId(null);
     setCount(1);
     setAmountMode("total");
@@ -528,7 +553,11 @@ export default function ClientPaymentForm({
             >
               <Section
                 title="Pax que paga"
-                desc="Solo se pueden seleccionar pasajeros de esta reserva. Opcionalmente podés asociar la cuota a un servicio."
+                desc={
+                  lockClient
+                    ? "El plan queda asociado al pasajero seleccionado en la sección Grupal."
+                    : "Solo se pueden seleccionar pasajeros de esta reserva. Opcionalmente podés asociar la cuota a un servicio."
+                }
               >
                 <Field id="payer_client_id" label="Pax" required>
                   <select
@@ -540,9 +569,12 @@ export default function ClientPaymentForm({
                         e.target.value ? Number(e.target.value) : null,
                       )
                     }
+                    disabled={lockClient}
                     required
                   >
-                    <option value="">Seleccionar pax...</option>
+                    <option value="">
+                      {lockClient ? "Pasajero bloqueado" : "Seleccionar pax..."}
+                    </option>
                     {bookingPaxOptions.map((opt) => (
                       <option key={opt.id} value={opt.id}>
                         {opt.label}

@@ -9,7 +9,9 @@ export type PublicIdType =
   | "invoice"
   | "credit_note"
   | "resource"
-  | "file";
+  | "file"
+  | "travel_group"
+  | "travel_group_departure";
 
 export type PublicIdPayload = {
   t: PublicIdType;

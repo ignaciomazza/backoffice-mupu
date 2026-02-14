@@ -38,6 +38,11 @@ export const COUNTER_KEYS = [
   "credit_entry",
   "invoice",
   "credit_note",
+  "travel_group",
+  "travel_group_departure",
+  "travel_group_inventory",
+  "travel_group_passenger",
+  "travel_group_payment_template",
 ] as const;
 
 export type AgencyCounterKey = (typeof COUNTER_KEYS)[number];

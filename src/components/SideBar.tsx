@@ -202,6 +202,7 @@ export default function SideBar({
     const devOnly: Role[] = ["desarrollador"];
 
     return {
+      "/groups": devOnly,
       "/operators": ["desarrollador", "administrativo", "gerente"],
       "/operators/payments": ["desarrollador", "administrativo", "gerente"],
       "/operators/panel": ["desarrollador", "administrativo", "gerente"],
@@ -213,6 +214,7 @@ export default function SideBar({
       "/invoices": adm,
       "/quotes/config": adm,
       "/bookings/config": adm,
+      "/groups/config": devOnly,
       "/balances": adm,
       "/earnings": adm,
       "/earnings/my": [
@@ -316,6 +318,16 @@ export default function SideBar({
             : null,
           hasAccess("/bookings/config")
             ? { href: "/bookings/config", label: "Configuración" }
+            : null,
+        ].filter(Boolean) as { href: string; label: string }[],
+      },
+      {
+        id: "grupales",
+        title: "Grupales",
+        items: [
+          hasAccess("/groups") ? { href: "/groups", label: "Grupales" } : null,
+          hasAccess("/groups/config")
+            ? { href: "/groups/config", label: "Configuración" }
             : null,
         ].filter(Boolean) as { href: string; label: string }[],
       },

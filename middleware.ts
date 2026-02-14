@@ -133,9 +133,14 @@ export async function middleware(req: NextRequest) {
   const role = normalizeRole(payload.role);
   const userId = Number(payload.userId ?? payload.id_user ?? 0) || 0;
 
-  // Guards por página
-  if (!pathname.startsWith("/api")) {
-    let allowed: string[] = [];
+  // Guards por rol (incluye páginas y APIs sensibles)
+  let allowed: string[] = [];
+  if (
+    /^\/groups(\/|$)/.test(pathname) ||
+    /^\/api\/groups(\/|$)/.test(pathname)
+  ) {
+    allowed = ["desarrollador"];
+  } else if (!pathname.startsWith("/api")) {
     if (/^\/(teams|agency)(\/|$)/.test(pathname)) {
       allowed = ["desarrollador", "gerente"];
     } else if (
@@ -146,18 +151,27 @@ export async function middleware(req: NextRequest) {
     } else if (/^\/users(\/|$)/.test(pathname)) {
       allowed = ["desarrollador", "gerente"];
     }
-    if (allowed.length && !allowed.includes(role)) {
-      const r = NextResponse.redirect(new URL("/", req.url));
-      r.headers.set("x-auth-reason", "role-not-allowed");
-      r.headers.set("x-auth-role", role);
-      if (DBG)
-        console.warn("[AUTH-DEBUG][MW]", reqId, "deny role-not-allowed", {
-          path: pathname,
-          role,
-          allowed,
-        });
-      return r;
+  }
+  if (allowed.length && !allowed.includes(role)) {
+    if (pathname.startsWith("/api")) {
+      const res = NextResponse.json(
+        { error: "Forbidden", reason: "role-not-allowed" },
+        { status: 403 },
+      );
+      res.headers.set("x-auth-reason", "role-not-allowed");
+      res.headers.set("x-auth-role", role);
+      return res;
     }
+    const r = NextResponse.redirect(new URL("/", req.url));
+    r.headers.set("x-auth-reason", "role-not-allowed");
+    r.headers.set("x-auth-role", role);
+    if (DBG)
+      console.warn("[AUTH-DEBUG][MW]", reqId, "deny role-not-allowed", {
+        path: pathname,
+        role,
+        allowed,
+      });
+    return r;
   }
 
   // Propagar tanto en request como en response (útil para ver desde el navegador)

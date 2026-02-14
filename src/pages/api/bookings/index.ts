@@ -165,6 +165,106 @@ function endOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 }
 
+function appendWhereAnd(
+  where: Prisma.BookingWhereInput,
+  clause: Prisma.BookingWhereInput,
+): Prisma.BookingWhereInput {
+  const existingAnd = Array.isArray(where.AND)
+    ? where.AND
+    : where.AND
+      ? [where.AND]
+      : [];
+  return {
+    ...where,
+    AND: [...existingAnd, clause],
+  };
+}
+
+function getKnownErrorMetaString(
+  error: Prisma.PrismaClientKnownRequestError,
+  key: string,
+): string {
+  const meta = error.meta;
+  if (!meta || typeof meta !== "object") return "";
+  const value = (meta as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : "";
+}
+
+function isMissingBookingGroupColumnError(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (error.code !== "P2022") return false;
+  const column = getKnownErrorMetaString(error, "column").toLowerCase();
+  return (
+    column.includes("booking.travel_group_id") ||
+    column.includes("booking.travel_group_departure_id")
+  );
+}
+
+const BOOKING_SELECT_WITHOUT_GROUP_COLUMNS = {
+  id_booking: true,
+  agency_booking_id: true,
+  clientStatus: true,
+  operatorStatus: true,
+  status: true,
+  details: true,
+  sale_totals: true,
+  use_booking_sale_total_override: true,
+  commission_overrides: true,
+  invoice_type: true,
+  invoice_observation: true,
+  observation: true,
+  creation_date: true,
+  id_user: true,
+  id_agency: true,
+  titular_id: true,
+  departure_date: true,
+  return_date: true,
+  pax_count: true,
+  titular: true,
+  user: true,
+  agency: true,
+  clients: true,
+  simple_companions: { include: { category: true } },
+  services: { include: { operator: true } },
+  invoices: true,
+  Receipt: true,
+} satisfies Prisma.BookingSelect;
+
+function buildBookingSelectWithoutGroupColumns(
+  includeOperatorDues: boolean,
+): Prisma.BookingSelect {
+  return {
+    ...BOOKING_SELECT_WITHOUT_GROUP_COLUMNS,
+    ...(includeOperatorDues
+      ? {
+          OperatorDue: {
+            select: {
+              amount: true,
+              currency: true,
+              status: true,
+            },
+          },
+        }
+      : {}),
+  };
+}
+
+type BookingListRow = {
+  id_booking: number;
+  agency_booking_id: number | null;
+  id_agency: number;
+  services: Array<{
+    sale_price: number;
+    totalCommissionWithoutVAT: number | null;
+  }>;
+  Receipt: Array<{
+    amount: number;
+    base_amount: Prisma.Decimal | number | null;
+    base_currency: string | null;
+  }>;
+  [key: string]: unknown;
+};
+
 async function isSimpleCompanionsEnabled(id_agency: number) {
   const cfg = await prisma.clientConfig.findUnique({
     where: { id_agency },
@@ -203,6 +303,16 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       typeof includeOperatorDuesRaw === "string" &&
       ["1", "true", "yes", "si"].includes(
         includeOperatorDuesRaw.trim().toLowerCase(),
+      );
+    const includeGroupBookingsRaw = Array.isArray(
+      req.query.includeGroupBookings,
+    )
+      ? req.query.includeGroupBookings[0]
+      : req.query.includeGroupBookings;
+    const includeGroupBookings =
+      typeof includeGroupBookingsRaw === "string" &&
+      ["1", "true", "yes", "si"].includes(
+        includeGroupBookingsRaw.trim().toLowerCase(),
       );
 
     let creationFrom = toLocalDate(req.query.creationFrom);
@@ -407,9 +517,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       : where.AND
         ? [where.AND]
         : [];
-    const finalWhere: Prisma.BookingWhereInput = keysetWhere
+    const finalWhereBase: Prisma.BookingWhereInput = keysetWhere
       ? { ...where, AND: [...baseAND, keysetWhere] }
       : where;
+    const finalWhere: Prisma.BookingWhereInput = includeGroupBookings
+      ? finalWhereBase
+      : appendWhereAnd(finalWhereBase, { travel_group_id: null });
 
     const include: Prisma.BookingInclude = {
       titular: true,
@@ -431,15 +544,34 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       };
     }
 
-    const items = await prisma.booking.findMany({
-      where: finalWhere,
-      include,
-      orderBy,
-      take: take + 1,
-    });
+    let rows: BookingListRow[];
+    try {
+      rows = (await prisma.booking.findMany({
+        where: finalWhere,
+        include,
+        orderBy,
+        take: take + 1,
+      })) as BookingListRow[];
+    } catch (error) {
+      if (!isMissingBookingGroupColumnError(error)) {
+        throw error;
+      }
 
-    const hasMore = items.length > take;
-    const sliced = hasMore ? items.slice(0, take) : items;
+      console.warn(
+        "[bookings][GET] Fallback por columnas de grupales no disponibles en Booking.",
+      );
+      rows = (await prisma.booking.findMany({
+        // Esquemas legacy sin columna travel_group_id no permiten excluir
+        // reservas de grupales desde SQL.
+        where: finalWhereBase,
+        select: buildBookingSelectWithoutGroupColumns(includeOperatorDues),
+        orderBy,
+        take: take + 1,
+      })) as BookingListRow[];
+    }
+
+    const hasMore = rows.length > take;
+    const sliced = hasMore ? rows.slice(0, take) : rows;
     const nextCursor = hasMore ? sliced[sliced.length - 1].id_booking : null;
 
     const enhanced = sliced.map((b) => {
