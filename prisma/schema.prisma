@@ -455,6 +455,176 @@ model TravelGroupPaymentTemplate {
   @@index([created_by])
 }
 
+model TravelGroupClientPayment {
+  id_travel_group_client_payment        Int      @id @default(autoincrement())
+  agency_travel_group_client_payment_id Int?
+  id_agency                             Int
+  travel_group_id                       Int
+  travel_group_departure_id             Int?
+  travel_group_passenger_id             Int
+  client_id                             Int
+  concept                               String?
+  service_ref                           String?
+  amount                                Decimal  @db.Decimal(18, 2)
+  currency                              String
+  due_date                              DateTime
+  status                                String   @default("PENDIENTE")
+  paid_at                               DateTime?
+  paid_by                               Int?
+  status_reason                         String?
+  receipt_id                            Int?
+  metadata                              Json?
+  created_at                            DateTime @default(now())
+  updated_at                            DateTime @updatedAt
+
+  @@unique([id_agency, agency_travel_group_client_payment_id], name: "agency_travel_group_client_payment_id_unique")
+  @@index([id_agency, travel_group_id])
+  @@index([travel_group_departure_id])
+  @@index([travel_group_passenger_id])
+  @@index([client_id])
+  @@index([due_date])
+  @@index([status])
+}
+
+model TravelGroupReceipt {
+  id_travel_group_receipt        Int      @id @default(autoincrement())
+  agency_travel_group_receipt_id Int?
+  id_agency                      Int
+  travel_group_id                Int
+  travel_group_departure_id      Int?
+  travel_group_passenger_id      Int
+  client_id                      Int
+  issue_date                     DateTime @default(now())
+  amount                         Decimal  @db.Decimal(18, 2)
+  amount_string                  String
+  amount_currency                String
+  concept                        String
+  currency                       String
+  payment_method                 String?
+  payment_fee_amount             Decimal? @db.Decimal(18, 2)
+  account                        String?
+  base_amount                    Decimal? @db.Decimal(18, 2)
+  base_currency                  String?
+  counter_amount                 Decimal? @db.Decimal(18, 2)
+  counter_currency               String?
+  client_ids                     Int[]    @default([])
+  service_refs                   Int[]    @default([])
+  metadata                       Json?
+  created_at                     DateTime @default(now())
+  updated_at                     DateTime @updatedAt
+
+  @@unique([id_agency, agency_travel_group_receipt_id], name: "agency_travel_group_receipt_id_unique")
+  @@index([id_agency, travel_group_id])
+  @@index([travel_group_departure_id])
+  @@index([travel_group_passenger_id])
+  @@index([client_id])
+  @@index([issue_date])
+}
+
+model TravelGroupOperatorDue {
+  id_travel_group_operator_due        Int      @id @default(autoincrement())
+  agency_travel_group_operator_due_id Int?
+  id_agency                           Int
+  travel_group_id                     Int
+  travel_group_departure_id           Int?
+  travel_group_passenger_id           Int?
+  operator_id                         Int?
+  concept                             String
+  service_ref                         String?
+  due_date                            DateTime
+  status                              String   @default("PENDIENTE")
+  amount                              Decimal  @db.Decimal(18, 2)
+  currency                            String
+  metadata                            Json?
+  created_at                          DateTime @default(now())
+  updated_at                          DateTime @updatedAt
+
+  @@unique([id_agency, agency_travel_group_operator_due_id], name: "agency_travel_group_operator_due_id_unique")
+  @@index([id_agency, travel_group_id])
+  @@index([travel_group_departure_id])
+  @@index([travel_group_passenger_id])
+  @@index([operator_id])
+  @@index([due_date])
+  @@index([status])
+}
+
+model TravelGroupOperatorPayment {
+  id_travel_group_operator_payment        Int      @id @default(autoincrement())
+  agency_travel_group_operator_payment_id Int?
+  id_agency                               Int
+  travel_group_id                         Int
+  travel_group_departure_id               Int?
+  travel_group_passenger_id               Int?
+  operator_id                             Int?
+  category                                String
+  description                             String
+  amount                                  Decimal  @db.Decimal(18, 2)
+  currency                                String
+  paid_at                                 DateTime?
+  payment_method                          String?
+  account                                 String?
+  base_amount                             Decimal? @db.Decimal(18, 2)
+  base_currency                           String?
+  counter_amount                          Decimal? @db.Decimal(18, 2)
+  counter_currency                        String?
+  service_refs                            Int[]    @default([])
+  payload                                 Json?
+  created_by                              Int?
+  created_at                              DateTime @default(now())
+  updated_at                              DateTime @updatedAt
+
+  @@unique([id_agency, agency_travel_group_operator_payment_id], name: "agency_travel_group_operator_payment_id_unique")
+  @@index([id_agency, travel_group_id])
+  @@index([travel_group_departure_id])
+  @@index([travel_group_passenger_id])
+  @@index([operator_id])
+  @@index([created_at])
+}
+
+model TravelGroupInvoice {
+  id_travel_group_invoice        Int      @id @default(autoincrement())
+  agency_travel_group_invoice_id Int?
+  id_agency                      Int
+  travel_group_id                Int
+  travel_group_departure_id      Int?
+  travel_group_passenger_id      Int?
+  client_id                      Int
+  issue_date                     DateTime @default(now())
+  invoice_number                 String
+  total_amount                   Decimal  @db.Decimal(18, 2)
+  currency                       String
+  status                         String
+  type                           String
+  recipient                      String
+  exchange_rate                  Decimal? @db.Decimal(18, 6)
+  tipo_factura                   Int?
+  service_refs                   Int[]    @default([])
+  payload_afip                   Json?
+  metadata                       Json?
+  created_at                     DateTime @default(now())
+  updated_at                     DateTime @updatedAt
+
+  @@unique([id_agency, agency_travel_group_invoice_id], name: "agency_travel_group_invoice_id_unique")
+  @@index([id_agency, travel_group_id])
+  @@index([travel_group_departure_id])
+  @@index([travel_group_passenger_id])
+  @@index([client_id])
+  @@index([issue_date])
+}
+
+model TravelGroupInvoiceItem {
+  id_travel_group_invoice_item Int      @id @default(autoincrement())
+  travel_group_invoice_id      Int
+  description                  String
+  tax_category                 String
+  amount                       Decimal? @db.Decimal(18, 2)
+  metadata                     Json?
+  created_at                   DateTime @default(now())
+  updated_at                   DateTime @updatedAt
+
+  @@index([travel_group_invoice_id])
+}
+
 model Quote {
   id_quote        Int      @id @default(autoincrement())
   agency_quote_id Int?

@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import prisma from "@/lib/prisma";
+import prisma, { Prisma } from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import {
   canWriteGroups,
@@ -27,6 +27,10 @@ type BulkCreateBody = {
   };
 };
 
+const LEGACY_GROUP_BOOKING_UNIQUE_INDEX =
+  "TravelGroupPassenger_travel_group_id_booking_id_key";
+const SHARED_BOOKING_CONTEXT_ERROR = "GROUP_SHARED_BOOKING_CONTEXT_ERROR";
+
 function pickParam(value: string | string[] | undefined): string | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] : value;
@@ -37,6 +41,41 @@ function toDateOrNow(
   groupDate?: Date | null,
 ): Date {
   return departureDate ?? groupDate ?? new Date();
+}
+
+function isPassengerBookingUniqueConstraintError(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (error.code !== "P2002") return false;
+  const rawTarget = (error.meta as { target?: unknown } | undefined)?.target;
+  const fields = Array.isArray(rawTarget)
+    ? rawTarget.map((item) => String(item))
+    : typeof rawTarget === "string"
+      ? [rawTarget]
+      : [];
+  if (fields.includes("travel_group_id") && fields.includes("booking_id")) {
+    return true;
+  }
+  const targetAsString = fields.join(" ").toLowerCase();
+  if (
+    targetAsString.includes("travel_group_id") &&
+    targetAsString.includes("booking_id")
+  ) {
+    return true;
+  }
+  const message = String(error.message || "").toLowerCase();
+  return (
+    message.includes("travel_group_id") && message.includes("booking_id")
+  );
+}
+
+async function dropLegacyPassengerBookingUniqueIndex(tx: TxClient) {
+  try {
+    await tx.$executeRawUnsafe(
+      `DROP INDEX IF EXISTS "${LEGACY_GROUP_BOOKING_UNIQUE_INDEX}"`,
+    );
+  } catch {
+    throw new Error(SHARED_BOOKING_CONTEXT_ERROR);
+  }
 }
 
 type EnsureGroupBookingContextArgs = {
@@ -53,6 +92,7 @@ type EnsureGroupBookingContextArgs = {
   bookingInvoiceType: string;
   assignToUserId: number;
   titularClientId: number;
+  matchTitularClientId?: number | null;
   departureName: string | null;
 };
 
@@ -70,14 +110,24 @@ async function ensureGroupBookingContext({
   bookingInvoiceType,
   assignToUserId,
   titularClientId,
+  matchTitularClientId,
   departureName,
 }: EnsureGroupBookingContextArgs): Promise<number> {
+  const bookingWhere: Prisma.BookingWhereInput = {
+    id_agency: agencyId,
+    travel_group_id: groupId,
+    travel_group_departure_id: departureId,
+  };
+  if (
+    typeof matchTitularClientId === "number" &&
+    Number.isFinite(matchTitularClientId) &&
+    matchTitularClientId > 0
+  ) {
+    bookingWhere.titular_id = matchTitularClientId;
+  }
+
   const existing = await tx.booking.findFirst({
-    where: {
-      id_agency: agencyId,
-      travel_group_id: groupId,
-      travel_group_departure_id: departureId,
-    },
+    where: bookingWhere,
     orderBy: [{ creation_date: "asc" }, { id_booking: "asc" }],
     select: { id_booking: true },
   });
@@ -117,7 +167,7 @@ export default async function handler(
     return groupApiError(res, 405, "Método no permitido para esta ruta.", {
       code: "METHOD_NOT_ALLOWED",
       details: `Método recibido: ${req.method ?? "desconocido"}.`,
-      solution: "Usá una solicitud POST para cargar pasajeros en lote.",
+      solution: "Usá una solicitud POST para cargar pasajeros.",
     });
   }
 
@@ -401,9 +451,44 @@ export default async function handler(
 
   try {
     await prisma.$transaction(async (tx) => {
-      const firstCreatable = toCreate.find((item) => item.kind === "create");
-      const contextBookingId = firstCreatable
-        ? await ensureGroupBookingContext({
+      await dropLegacyPassengerBookingUniqueIndex(tx);
+
+      const touchedBookingIds = new Set<number>();
+      let sharedContextBookingId: number | null = null;
+
+      const ensureClientLinkedToBooking = async (
+        bookingId: number,
+        clientId: number,
+      ) => {
+        const alreadyLinked = await tx.booking.findFirst({
+          where: {
+            id_booking: bookingId,
+            OR: [
+              { titular_id: clientId },
+              { clients: { some: { id_client: clientId } } },
+            ],
+          },
+          select: { id_booking: true },
+        });
+        if (alreadyLinked) return;
+        await tx.booking.update({
+          where: { id_booking: bookingId },
+          data: {
+            clients: {
+              connect: { id_client: clientId },
+            },
+          },
+        });
+      };
+
+      for (const item of toCreate) {
+        if (item.kind === "skip") {
+          skipped.push({ client_id: item.clientId, reason: item.reason });
+          continue;
+        }
+
+        if (!sharedContextBookingId) {
+          sharedContextBookingId = await ensureGroupBookingContext({
             tx,
             agencyId: auth.id_agency,
             groupId: group.id_travel_group,
@@ -416,67 +501,53 @@ export default async function handler(
             bookingOperatorStatus,
             bookingInvoiceType,
             assignToUserId,
-            titularClientId: firstCreatable.client.id_client,
+            titularClientId: item.client.id_client,
+            matchTitularClientId: null,
             departureName: departure?.name ?? null,
-          })
-        : null;
-
-      for (const item of toCreate) {
-        if (item.kind === "skip") {
-          skipped.push({ client_id: item.clientId, reason: item.reason });
-          continue;
-        }
-        if (!contextBookingId) {
-          skipped.push({
-            client_id: item.client.id_client,
-            reason: "RESERVA_CONTEXTO_INVALIDA",
           });
-          continue;
         }
+        if (!sharedContextBookingId) {
+          throw new Error("No pudimos resolver la reserva técnica de contexto.");
+        }
+        const contextBookingId = sharedContextBookingId;
 
-        const alreadyLinked = await tx.booking.findFirst({
-          where: {
-            id_booking: contextBookingId,
-            OR: [
-              { titular_id: item.client.id_client },
-              { clients: { some: { id_client: item.client.id_client } } },
-            ],
-          },
-          select: { id_booking: true },
-        });
-        if (!alreadyLinked) {
-          await tx.booking.update({
-            where: { id_booking: contextBookingId },
+        await ensureClientLinkedToBooking(contextBookingId, item.client.id_client);
+
+        const createPassengerForBooking = async (bookingId: number) => {
+          const agencyPassengerId = await getNextAgencyCounter(
+            tx,
+            auth.id_agency,
+            "travel_group_passenger",
+          );
+          return tx.travelGroupPassenger.create({
             data: {
-              clients: {
-                connect: { id_client: item.client.id_client },
+              agency_travel_group_passenger_id: agencyPassengerId,
+              id_agency: auth.id_agency,
+              travel_group_id: group.id_travel_group,
+              travel_group_departure_id:
+                departure?.id_travel_group_departure ?? null,
+              booking_id: bookingId,
+              client_id: item.client.id_client,
+              status: item.passengerStatus,
+              waitlist_position: item.waitlist_position,
+              metadata: {
+                source: "bulk-create",
+                created_by: auth.id_user,
               },
             },
+            select: { id_travel_group_passenger: true },
           });
-        }
+        };
 
-        const agencyPassengerId = await getNextAgencyCounter(
-          tx,
-          auth.id_agency,
-          "travel_group_passenger",
-        );
-        const passenger = await tx.travelGroupPassenger.create({
-          data: {
-            agency_travel_group_passenger_id: agencyPassengerId,
-            id_agency: auth.id_agency,
-            travel_group_id: group.id_travel_group,
-            travel_group_departure_id: departure?.id_travel_group_departure ?? null,
-            booking_id: contextBookingId,
-            client_id: item.client.id_client,
-            status: item.passengerStatus,
-            waitlist_position: item.waitlist_position,
-            metadata: {
-              source: "bulk-create",
-              created_by: auth.id_user,
-            },
-          },
-          select: { id_travel_group_passenger: true },
-        });
+        let passenger;
+        try {
+          passenger = await createPassengerForBooking(contextBookingId);
+        } catch (error) {
+          if (!isPassengerBookingUniqueConstraintError(error)) {
+            throw error;
+          }
+          throw new Error(SHARED_BOOKING_CONTEXT_ERROR);
+        }
 
         created.push({
           client_id: item.client.id_client,
@@ -485,18 +556,19 @@ export default async function handler(
           status: item.passengerStatus,
           waitlist_position: item.waitlist_position,
         });
+        touchedBookingIds.add(contextBookingId);
       }
 
-      if (contextBookingId) {
+      for (const bookingId of touchedBookingIds) {
         const paxCount = await tx.travelGroupPassenger.count({
           where: {
             id_agency: auth.id_agency,
             travel_group_id: group.id_travel_group,
-            booking_id: contextBookingId,
+            booking_id: bookingId,
           },
         });
         await tx.booking.update({
-          where: { id_booking: contextBookingId },
+          where: { id_booking: bookingId },
           data: { pax_count: Math.max(paxCount, 1) },
         });
       }
@@ -513,8 +585,23 @@ export default async function handler(
       skipped,
     });
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes(SHARED_BOOKING_CONTEXT_ERROR)
+    ) {
+      return groupApiError(
+        res,
+        409,
+        "Detectamos una restricción legada que impide compartir contexto por salida. Ejecutá la migración que elimina el índice único de pasajeros por reserva y reintentá.",
+        {
+          code: "GROUP_SHARED_BOOKING_CONTEXT_BLOCKED",
+          solution:
+            "Aplicá la migración `20260622150000_allow_shared_group_booking_context` en la misma base donde corre la API.",
+        },
+      );
+    }
     console.error("[groups][passengers][bulk-create]", error);
-    return groupApiError(res, 500, "No pudimos crear los pasajeros en lote.", {
+    return groupApiError(res, 500, "No pudimos crear los pasajeros.", {
       code: "GROUP_PASSENGER_CREATE_ERROR",
       solution: "Reintentá en unos segundos.",
     });

@@ -43,6 +43,11 @@ export const COUNTER_KEYS = [
   "travel_group_inventory",
   "travel_group_passenger",
   "travel_group_payment_template",
+  "travel_group_client_payment",
+  "travel_group_receipt",
+  "travel_group_operator_due",
+  "travel_group_operator_payment",
+  "travel_group_invoice",
 ] as const;
 
 export type AgencyCounterKey = (typeof COUNTER_KEYS)[number];

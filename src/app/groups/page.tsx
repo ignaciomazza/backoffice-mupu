@@ -108,23 +108,6 @@ function pillClass(
   return `${PILL_BASE} ${toneClass}`;
 }
 
-function formatDate(value: string | null | undefined): string {
-  if (!value) return "-";
-  const d = new Date(value);
-  if (!Number.isFinite(d.getTime())) return "-";
-  return d.toLocaleDateString("es-AR");
-}
-
-function toDateInput(value: string | null | undefined): string {
-  if (!value) return "";
-  const d = new Date(value);
-  if (!Number.isFinite(d.getTime())) return "";
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function formatGroupStatus(value: GroupStatus): string {
   return GROUP_STATUS_LABELS[value] ?? value;
 }
@@ -191,8 +174,6 @@ export default function GroupsPage() {
   const [capacityTotal, setCapacityTotal] = useState<string>("");
   const [allowOverbooking, setAllowOverbooking] = useState(false);
   const [waitlistEnabled, setWaitlistEnabled] = useState(false);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
   const [departureMode, setDepartureMode] = useState<"UNICA" | "MULTIPLE">(
     "UNICA",
   );
@@ -295,8 +276,6 @@ export default function GroupsPage() {
     setCapacityTotal("");
     setAllowOverbooking(false);
     setWaitlistEnabled(false);
-    setStartDate("");
-    setEndDate("");
     setDepartureName("");
     setDepartureDate("");
     setDepartureReturnDate("");
@@ -317,8 +296,6 @@ export default function GroupsPage() {
     );
     setAllowOverbooking(Boolean(group.allow_overbooking));
     setWaitlistEnabled(Boolean(group.waitlist_enabled));
-    setStartDate(toDateInput(group.start_date));
-    setEndDate(toDateInput(group.end_date));
     const normalizedSaleMode = String(group.sale_mode || "").toUpperCase();
     if (normalizedSaleMode === "MULTIPLE" || group._count.departures > 1) {
       setDepartureMode("MULTIPLE");
@@ -394,9 +371,9 @@ export default function GroupsPage() {
       toast.error(msg);
       return;
     }
-    if (departureMode === "UNICA" && !startDate) {
+    if (!editingGroup && departureMode === "UNICA" && !departureDate) {
       const msg =
-        "Para grupales con salida única, la fecha de inicio es obligatoria.";
+        "Para grupales con salida única, la fecha de salida es obligatoria.";
       setError(msg);
       toast.error(msg);
       return;
@@ -422,8 +399,6 @@ export default function GroupsPage() {
         capacity_total: capacityTotal.trim() ? Number(capacityTotal) : null,
         allow_overbooking: allowOverbooking,
         waitlist_enabled: waitlistEnabled,
-        start_date: startDate || null,
-        end_date: endDate || null,
       };
 
       if (!editingGroup) {
@@ -432,8 +407,8 @@ export default function GroupsPage() {
             {
               name: name.trim(),
               status,
-              departure_date: startDate,
-              return_date: endDate || null,
+              departure_date: departureDate,
+              return_date: departureReturnDate || null,
               capacity_total: capacityTotal.trim()
                 ? Number(capacityTotal)
                 : null,
@@ -734,12 +709,20 @@ export default function GroupsPage() {
                       Múltiples salidas
                     </button>
                   </div>
-                  {departureMode === "UNICA" ? (
+                  {editingGroup ? (
                     <p className="text-xs text-slate-600 dark:text-slate-400">
-                      Se crea automáticamente 1 salida con nombre/fechas/cupo de
-                      la grupal.
+                      Las fechas se gestionan en la sección de salidas dentro de
+                      cada grupal.
                     </p>
-                  ) : null}
+                  ) : departureMode === "UNICA" ? (
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      Completá la fecha de salida principal.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      Las fechas operativas se cargan por salida.
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -800,32 +783,6 @@ export default function GroupsPage() {
                     />
                   </label>
 
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-slate-800 dark:text-slate-200">
-                      Fecha inicio
-                    </span>
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      disabled={createDisabled}
-                      className="rounded-xl border border-slate-300/90 bg-white/95 px-3 py-2 text-slate-900 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-100 dark:focus:border-slate-400"
-                    />
-                  </label>
-
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-slate-800 dark:text-slate-200">
-                      Fecha fin
-                    </span>
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      disabled={createDisabled}
-                      className="rounded-xl border border-slate-300/90 bg-white/95 px-3 py-2 text-slate-900 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-100 dark:focus:border-slate-400"
-                    />
-                  </label>
-
                   <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-300/80 bg-slate-100/70 p-3 dark:border-slate-700 dark:bg-slate-800/60">
                     <button
                       type="button"
@@ -850,7 +807,37 @@ export default function GroupsPage() {
                   </div>
                 </CollapsiblePanel>
 
-                {departureMode === "MULTIPLE" ? (
+                {!editingGroup && departureMode === "UNICA" ? (
+                  <div className="rounded-2xl border border-slate-300/80 bg-slate-100/70 p-3 dark:border-slate-700 dark:bg-slate-800/60">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-sky-800 dark:text-sky-100">
+                      Salida principal
+                    </p>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <label className="flex flex-col gap-1 text-xs text-slate-700 dark:text-slate-300">
+                        Fecha de salida
+                        <input
+                          type="date"
+                          value={departureDate}
+                          onChange={(e) => setDepartureDate(e.target.value)}
+                          disabled={createDisabled}
+                          className="rounded-xl border border-slate-300/90 bg-white/95 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-100 dark:focus:border-slate-400"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-xs text-slate-700 dark:text-slate-300">
+                        Fecha de regreso
+                        <input
+                          type="date"
+                          value={departureReturnDate}
+                          onChange={(e) => setDepartureReturnDate(e.target.value)}
+                          disabled={createDisabled}
+                          className="rounded-xl border border-slate-300/90 bg-white/95 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-100 dark:focus:border-slate-400"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ) : null}
+
+                {!editingGroup && departureMode === "MULTIPLE" ? (
                   <div>
                     <button
                       type="button"
@@ -866,7 +853,9 @@ export default function GroupsPage() {
                 ) : null}
 
                 <CollapsiblePanel
-                  open={departureMode === "MULTIPLE" && showDepartureDraft}
+                  open={
+                    !editingGroup && departureMode === "MULTIPLE" && showDepartureDraft
+                  }
                   className="mt-1"
                 >
                   <div className="rounded-2xl border border-slate-300/80 bg-slate-100/70 p-3 dark:border-slate-700 dark:bg-slate-800/60">
@@ -1179,7 +1168,7 @@ export default function GroupsPage() {
                         <th className="p-3">Código</th>
                         <th className="p-3">Estado</th>
                         <th className="p-3">Tipo</th>
-                        <th className="p-3">Fechas</th>
+                        <th className="p-3">Salidas</th>
                         <th className="p-3">Pasajeros</th>
                         <th className="p-3">Acción</th>
                       </tr>
@@ -1205,10 +1194,7 @@ export default function GroupsPage() {
                             <td className="p-3 text-xs">
                               {formatGroupType(group.type)}
                             </td>
-                            <td className="p-3 text-xs">
-                              {formatDate(group.start_date)} -{" "}
-                              {formatDate(group.end_date)}
-                            </td>
+                            <td className="p-3 text-xs">{group._count.departures}</td>
                             <td className="p-3 text-xs">
                               {group._count.passengers}
                             </td>
@@ -1259,8 +1245,7 @@ export default function GroupsPage() {
                         </div>
                         <div className="mt-4 flex items-center justify-between gap-2">
                           <p className="text-xs text-sky-900/80 dark:text-sky-100/80">
-                            {formatDate(group.start_date)} -{" "}
-                            {formatDate(group.end_date)}
+                            Fechas por salida
                           </p>
                           {renderGroupActions(group)}
                         </div>
@@ -1285,8 +1270,7 @@ export default function GroupsPage() {
                               {group.name}
                             </p>
                             <p className="mt-1 text-xs text-sky-900/80 dark:text-sky-100/80">
-                              {formatDate(group.start_date)} -{" "}
-                              {formatDate(group.end_date)}
+                              Fechas por salida
                             </p>
                           </div>
 

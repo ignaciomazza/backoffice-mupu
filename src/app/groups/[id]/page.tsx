@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  ChangeEvent,
   FormEvent,
   ReactNode,
   useCallback,
@@ -14,6 +15,7 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { AnimatePresence, motion } from "framer-motion";
 import { requestGroupApi } from "@/lib/groups/clientApi";
+import { authFetch } from "@/utils/authFetch";
 import ClientPicker from "@/components/clients/ClientPicker";
 import DestinationPicker, {
   DestinationOption,
@@ -38,17 +40,24 @@ import {
   resolveClientProfile,
 } from "@/utils/clientConfig";
 import { useAuth } from "@/context/AuthContext";
-import ReceiptForm from "@/components/receipts/ReceiptForm";
-import ReceiptList from "@/components/receipts/ReceiptList";
-import ClientPaymentForm from "@/components/client-payments/ClientPaymentForm";
-import ClientPaymentList from "@/components/client-payments/ClientPaymentList";
-import OperatorDueForm from "@/components/operator-dues/OperatorDueForm";
-import OperatorDueList from "@/components/operator-dues/OperatorDueList";
-import OperatorPaymentForm from "@/components/investments/OperatorPaymentForm";
-import OperatorPaymentList from "@/components/investments/OperatorPaymentList";
-import InvoiceList from "@/components/invoices/InvoiceList";
+import GroupReceiptForm from "@/components/groups/collections/GroupReceiptForm";
+import GroupReceiptList from "@/components/groups/collections/GroupReceiptList";
+import GroupClientPaymentForm from "@/components/groups/collections/GroupClientPaymentForm";
+import GroupClientPaymentList from "@/components/groups/collections/GroupClientPaymentList";
+import GroupOperatorDueForm from "@/components/groups/payments/GroupOperatorDueForm";
+import GroupOperatorDueList from "@/components/groups/payments/GroupOperatorDueList";
+import GroupOperatorPaymentForm from "@/components/groups/payments/GroupOperatorPaymentForm";
+import GroupOperatorPaymentList from "@/components/groups/payments/GroupOperatorPaymentList";
+import GroupInvoiceForm, {
+  type InvoiceFormData,
+} from "@/components/groups/billing/GroupInvoiceForm";
+import GroupInvoiceList from "@/components/groups/billing/GroupInvoiceList";
 import CreditNoteList from "@/components/credit-notes/CreditNoteList";
 import type { SubmitResult } from "@/types/receipts";
+import {
+  computeManualTotals,
+  type ManualTotalsInput,
+} from "@/services/afip/manualTotals";
 
 type GroupStatus =
   | "BORRADOR"
@@ -232,17 +241,6 @@ type InventoryFinancialSummary = {
   operationalDebt: number;
 };
 
-type GroupFinancePassengerOption = {
-  passengerId: number;
-  bookingId: number;
-  clientId: number;
-  agencyBookingId: number | null;
-  agencyClientId: number | null;
-  passengerName: string;
-  departureName: string | null;
-  status: string;
-};
-
 type GroupFinanceReservationOption = {
   key: string;
   label: string;
@@ -259,17 +257,6 @@ type FinanceBookingPayload = Booking & {
   invoices?: Invoice[];
   services?: Service[];
   public_id?: string | null;
-};
-
-type FinanceCurrencySummary = {
-  currency: string;
-  pendingClientAmount: number;
-  overdueClientAmount: number;
-  pendingOperatorAmount: number;
-  receiptsAmount: number;
-  invoicedAmount: number;
-  creditNotesAmount: number;
-  netBalance: number;
 };
 
 type ClientEditableDraft = {
@@ -358,20 +345,25 @@ type DepartureDraft = {
   note: string;
 };
 
-type BulkProgress = {
-  title: string;
-  status: "running" | "success" | "error";
-  percent: number;
-  step: string;
-  lines: string[];
-  timestamp: number;
-};
-
 function formatDate(value: string | null | undefined) {
   if (!value) return "-";
   const d = new Date(value);
   if (!Number.isFinite(d.getTime())) return "-";
   return d.toLocaleDateString("es-AR");
+}
+
+function formatPendingInstallmentAmount(
+  value: string | number | null | undefined,
+): string {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : Number(String(value || "0").replace(",", "."));
+  const amount = Number.isFinite(parsed) ? parsed : 0;
+  return new Intl.NumberFormat("es-AR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
 }
 
 function toDateInputValue(value: string | null | undefined): string {
@@ -409,25 +401,22 @@ function normalizeMoneyValue(
 ): number | null {
   if (value == null || value === "") return null;
   const parsed =
-    typeof value === "number"
-      ? value
-      : Number(String(value).replace(",", "."));
+    typeof value === "number" ? value : Number(String(value).replace(",", "."));
   if (!Number.isFinite(parsed)) return null;
   return Number(parsed.toFixed(2));
 }
 
-function parseInventoryNote(
-  note: string | null | undefined,
-): { noteText: string; meta: InventoryFinancialMeta | null } {
+function parseInventoryNote(note: string | null | undefined): {
+  noteText: string;
+  meta: InventoryFinancialMeta | null;
+} {
   const raw = String(note || "");
   const start = raw.indexOf(INVENTORY_META_PREFIX);
   const end = raw.indexOf(INVENTORY_META_SUFFIX);
   if (start !== 0 || end <= INVENTORY_META_PREFIX.length) {
     return { noteText: raw.trim(), meta: null };
   }
-  const jsonText = raw
-    .slice(INVENTORY_META_PREFIX.length, end)
-    .trim();
+  const jsonText = raw.slice(INVENTORY_META_PREFIX.length, end).trim();
   const text = raw.slice(end + INVENTORY_META_SUFFIX.length).trim();
   try {
     const parsed = JSON.parse(jsonText) as Partial<InventoryFinancialMeta>;
@@ -436,8 +425,7 @@ function parseInventoryNote(
     }
     const pricingMode =
       parsed.pricingMode === "VENTA_TOTAL" ? "VENTA_TOTAL" : "MANUAL";
-    const billingMode =
-      parsed.billingMode === "MANUAL" ? "MANUAL" : "AUTO";
+    const billingMode = parsed.billingMode === "MANUAL" ? "MANUAL" : "AUTO";
     const meta: InventoryFinancialMeta = {
       v: 1,
       pricingMode,
@@ -556,7 +544,10 @@ const GROUP_TYPE_LABELS: Record<GroupType, string> = {
   PRECOMPRADO: "Precomprado",
 };
 
-const PASSENGER_STATUS_LABELS: Record<(typeof PASSENGER_STATUSES)[number], string> = {
+const PASSENGER_STATUS_LABELS: Record<
+  (typeof PASSENGER_STATUSES)[number],
+  string
+> = {
   PENDIENTE: "Pendiente",
   CONFIRMADO: "Confirmado",
   LISTA_ESPERA: "Lista de espera",
@@ -574,7 +565,8 @@ const PILL_EMERALD_ACTIVE =
 const PILL_AMBER_ACTIVE =
   "border-amber-400 bg-amber-100/90 text-amber-800 dark:border-amber-500 dark:bg-amber-900/35 dark:text-amber-200";
 const RESULT_PILL_BASE = "rounded-full px-2.5 py-0.5 text-xs font-medium";
-const RESULT_PILL_OK = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
+const RESULT_PILL_OK =
+  "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 const RESULT_PILL_WARN = "bg-rose-500/15 text-rose-700 dark:text-rose-300";
 const DOC_FIELD_KEYS = ["dni_number", "passport_number", "tax_id"] as const;
 const FIELD_INPUT_CLASS =
@@ -584,54 +576,54 @@ const FIELD_TEXTAREA_CLASS =
 const FIELD_LABEL_CLASS =
   "ml-1 block text-sm font-medium text-slate-900 dark:text-slate-100";
 const FIELD_HINT_CLASS = "ml-1 text-xs text-slate-600 dark:text-slate-400";
-type SectionFilterKey =
-  | "TODO"
-  | "GRUPAL"
-  | "COBROS"
-  | "PAGOS"
-  | "FACTURACION";
+const FLAT_NOTE_CLASS =
+  "border-l-2 border-slate-300/80 pl-3 py-1 text-xs text-slate-700 dark:border-slate-600 dark:text-slate-300";
+const FLAT_WARN_CLASS =
+  "border-l-2 border-amber-400/80 pl-3 py-1 text-xs text-amber-900 dark:border-amber-600 dark:text-amber-200";
+type SectionFilterKey = "GRUPAL" | "COBROS" | "PAGOS" | "FACTURACION";
 
 const SECTION_FILTERS: ReadonlyArray<{
   id: SectionFilterKey;
   label: string;
   tone: "sky" | "emerald" | "amber";
 }> = [
-  { id: "TODO", label: "Todo", tone: "sky" },
   { id: "GRUPAL", label: "Grupal", tone: "emerald" },
   { id: "COBROS", label: "Cobros", tone: "sky" },
   { id: "PAGOS", label: "Pagos", tone: "amber" },
   { id: "FACTURACION", label: "Facturación", tone: "emerald" },
 ] as const;
 
-function normalizeCurrencyCode(value: string | null | undefined): string {
-  return String(value || "ARS").trim().toUpperCase() || "ARS";
-}
+const createEmptyInvoiceFormData = (): InvoiceFormData => ({
+  tipoFactura: "6",
+  clientIds: [],
+  services: [],
+  exchangeRate: "",
+  description21: [],
+  description10_5: [],
+  descriptionNonComputable: [],
+  invoiceDate: "",
+  manualTotalsEnabled: false,
+  manualTotal: "",
+  manualBase21: "",
+  manualIva21: "",
+  manualBase10_5: "",
+  manualIva10_5: "",
+  manualExempt: "",
+  distributionMode: "percentage",
+  distributionValues: [],
+  paxDocTypes: [],
+  paxDocNumbers: [],
+  paxLookupData: [],
+  paxLookupPersist: [],
+  customItems: [],
+});
 
-function parseApiReceipts(data: unknown): Receipt[] {
-  if (!data || typeof data !== "object") return [];
-  const rec = data as Record<string, unknown>;
-  const raw = Array.isArray(rec.receipts) ? rec.receipts : [];
-  return raw
-    .filter((item) => item && typeof item === "object")
-    .map((item) => {
-      const row = item as Record<string, unknown>;
-      const id = Number(row.id_receipt ?? row.id ?? 0);
-      const amountRaw = row.amount ?? row.total ?? 0;
-      const amount =
-        typeof amountRaw === "number"
-          ? amountRaw
-          : Number(String(amountRaw || "0").replace(",", "."));
-      return {
-        ...(item as Partial<Receipt>),
-        id_receipt: Number.isFinite(id) ? id : 0,
-        receipt_number: String(row.receipt_number ?? row.number ?? ""),
-        amount: Number.isFinite(amount) ? amount : 0,
-        amount_currency: normalizeCurrencyCode(
-          String(row.amount_currency ?? row.currency ?? "ARS"),
-        ),
-      } as Receipt;
-    })
-    .filter((item) => item.id_receipt > 0);
+function normalizeCurrencyCode(value: string | null | undefined): string {
+  return (
+    String(value || "ARS")
+      .trim()
+      .toUpperCase() || "ARS"
+  );
 }
 
 function pillClass(
@@ -728,7 +720,11 @@ function ToggleIconButton({
           stroke="currentColor"
           strokeWidth={1.6}
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 4.5v15m7.5-7.5h-15"
+          />
         </svg>
       )}
     </button>
@@ -1114,7 +1110,10 @@ function formatGroupType(value: GroupType): string {
 }
 
 function formatPassengerStatus(value: string): string {
-  return PASSENGER_STATUS_LABELS[value as keyof typeof PASSENGER_STATUS_LABELS] ?? value;
+  return (
+    PASSENGER_STATUS_LABELS[value as keyof typeof PASSENGER_STATUS_LABELS] ??
+    value
+  );
 }
 
 function formatDepartureStatus(value: string): string {
@@ -1124,7 +1123,8 @@ function formatDepartureStatus(value: string): string {
 function formatGroupReference(group: Group): string {
   const code = typeof group.code === "string" ? group.code.trim() : "";
   if (code) return `Código ${code}`;
-  if (group.agency_travel_group_id) return `Grupal Nº${group.agency_travel_group_id}`;
+  if (group.agency_travel_group_id)
+    return `Grupal Nº${group.agency_travel_group_id}`;
   return `Grupal Nº${group.id_travel_group}`;
 }
 
@@ -1145,7 +1145,9 @@ function parseOptionalPositiveInteger(raw: string): number | null {
   return Math.trunc(value);
 }
 
-function defaultDepartureDraft(source?: Partial<DepartureDetail>): DepartureDraft {
+function defaultDepartureDraft(
+  source?: Partial<DepartureDetail>,
+): DepartureDraft {
   return {
     name: source?.name ?? "",
     code: source?.code ?? "",
@@ -1178,7 +1180,8 @@ function defaultInventoryDraft(
   const fallbackOperator =
     source?.provider &&
     providers.find(
-      (op) => op.name.trim().toLowerCase() === source.provider?.trim().toLowerCase(),
+      (op) =>
+        op.name.trim().toLowerCase() === source.provider?.trim().toLowerCase(),
     );
   const transferFeePct =
     meta?.transferFeePct != null
@@ -1200,33 +1203,26 @@ function defaultInventoryDraft(
     label: source?.label ?? "",
     provider: source?.provider ?? "",
     locator: source?.locator ?? "",
-    pricing_mode: meta?.pricingMode === "VENTA_TOTAL" ? "VENTA_TOTAL" : "MANUAL",
+    pricing_mode:
+      meta?.pricingMode === "VENTA_TOTAL" ? "VENTA_TOTAL" : "MANUAL",
     billing_mode: meta?.billingMode === "MANUAL" ? "MANUAL" : "AUTO",
-    total_qty:
-      source?.total_qty != null ? String(source.total_qty) : "",
+    total_qty: source?.total_qty != null ? String(source.total_qty) : "",
     assigned_qty:
       source?.assigned_qty != null ? String(source.assigned_qty) : "0",
     confirmed_qty:
       source?.confirmed_qty != null ? String(source.confirmed_qty) : "0",
-    blocked_qty:
-      source?.blocked_qty != null ? String(source.blocked_qty) : "0",
+    blocked_qty: source?.blocked_qty != null ? String(source.blocked_qty) : "0",
     currency: source?.currency ?? "ARS",
-    unit_cost:
-      source?.unit_cost != null ? String(source.unit_cost) : "",
+    unit_cost: source?.unit_cost != null ? String(source.unit_cost) : "",
     sale_unit_price:
       meta?.saleUnitPrice != null ? String(meta.saleUnitPrice) : "",
     sale_total_price:
       meta?.saleTotalPrice != null ? String(meta.saleTotalPrice) : "",
-    taxable_21:
-      meta?.taxable21 != null ? String(meta.taxable21) : "",
-    taxable_105:
-      meta?.taxable105 != null ? String(meta.taxable105) : "",
-    exempt_amount:
-      meta?.exemptAmount != null ? String(meta.exemptAmount) : "",
-    other_taxes:
-      meta?.otherTaxes != null ? String(meta.otherTaxes) : "",
-    transfer_fee_pct:
-      transferFeePct != null ? String(transferFeePct) : "",
+    taxable_21: meta?.taxable21 != null ? String(meta.taxable21) : "",
+    taxable_105: meta?.taxable105 != null ? String(meta.taxable105) : "",
+    exempt_amount: meta?.exemptAmount != null ? String(meta.exemptAmount) : "",
+    other_taxes: meta?.otherTaxes != null ? String(meta.otherTaxes) : "",
+    transfer_fee_pct: transferFeePct != null ? String(transferFeePct) : "",
     note: parsedNote.noteText,
   };
 }
@@ -1252,7 +1248,9 @@ function defaultClientDraft(
         ? Number(source.id_client)
         : undefined,
     profile_key:
-      source && typeof source.profile_key === "string" && source.profile_key.trim()
+      source &&
+      typeof source.profile_key === "string" &&
+      source.profile_key.trim()
         ? source.profile_key.trim().toLowerCase()
         : DEFAULT_CLIENT_PROFILE_KEY,
     first_name: String(source?.first_name ?? ""),
@@ -1282,13 +1280,19 @@ function defaultClientDraft(
 
 function toFriendlyServiceOptionsError(message: string): string {
   const normalized = message.toLowerCase();
-  if (normalized.includes("unauthorized") || normalized.includes("auth_required")) {
+  if (
+    normalized.includes("unauthorized") ||
+    normalized.includes("auth_required")
+  ) {
     return "No pudimos cargar la configuración de servicios porque tu sesión expiró. Iniciá sesión nuevamente.";
   }
   if (normalized.includes("sin permisos") || normalized.includes("forbidden")) {
     return "No tenés permisos para ver toda la configuración de servicios. Podés continuar con carga manual.";
   }
-  if (normalized.includes("service-type") || normalized.includes("service type")) {
+  if (
+    normalized.includes("service-type") ||
+    normalized.includes("service type")
+  ) {
     return "No pudimos cargar los tipos de servicio. Verificá configuración de servicios.";
   }
   return message;
@@ -1319,46 +1323,58 @@ export default function GroupDetailPage() {
     PassengerCategoryOption[]
   >([]);
 
-  const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
-
   const [showDepartureCreate, setShowDepartureCreate] = useState(false);
-  const [createDepartureDraft, setCreateDepartureDraft] = useState<DepartureDraft>(
-    () => defaultDepartureDraft(),
-  );
-  const [editingDepartureId, setEditingDepartureId] = useState<number | null>(null);
-  const [editingDepartureDraft, setEditingDepartureDraft] = useState<DepartureDraft>(
-    () => defaultDepartureDraft(),
-  );
-  const [loadingDepartureId, setLoadingDepartureId] = useState<number | null>(null);
-  const [showDepartureFilters, setShowDepartureFilters] = useState(false);
-
-  const [passengerView, setPassengerView] = useState<"TABLE" | "LIST" | "GRID">("TABLE");
-  const [passengerSearch, setPassengerSearch] = useState("");
-  const [passengerStatusFilter, setPassengerStatusFilter] = useState<"ALL" | string>("ALL");
-  const [showPassengerFilters, setShowPassengerFilters] = useState(false);
-  const [showPassengerForm, setShowPassengerForm] = useState(true);
-  const [passengerFormMode, setPassengerFormMode] = useState<"ALTA" | "EDICION">(
-    "ALTA",
-  );
-  const [updatingPassengerStatusId, setUpdatingPassengerStatusId] =
-    useState<number | null>(null);
-
-  const [newPassengerMode, setNewPassengerMode] = useState<"EXISTENTE" | "NUEVO">(
-    "EXISTENTE",
-  );
-  const [newPassengerClientId, setNewPassengerClientId] = useState<number | null>(
+  const [createDepartureDraft, setCreateDepartureDraft] =
+    useState<DepartureDraft>(() => defaultDepartureDraft());
+  const [editingDepartureId, setEditingDepartureId] = useState<number | null>(
     null,
   );
+  const [editingDepartureDraft, setEditingDepartureDraft] =
+    useState<DepartureDraft>(() => defaultDepartureDraft());
+  const [loadingDepartureId, setLoadingDepartureId] = useState<number | null>(
+    null,
+  );
+  const [showDepartureFilters, setShowDepartureFilters] = useState(false);
+
+  const [passengerView, setPassengerView] = useState<"TABLE" | "LIST" | "GRID">(
+    "TABLE",
+  );
+  const [passengerSearch, setPassengerSearch] = useState("");
+  const [passengerStatusFilter, setPassengerStatusFilter] = useState<
+    "ALL" | string
+  >("ALL");
+  const [showPassengerFilters, setShowPassengerFilters] = useState(false);
+  const [showPassengerForm, setShowPassengerForm] = useState(true);
+  const [passengerFormMode, setPassengerFormMode] = useState<
+    "ALTA" | "EDICION"
+  >("ALTA");
+  const [updatingPassengerStatusId, setUpdatingPassengerStatusId] = useState<
+    number | null
+  >(null);
+
+  const [newPassengerMode, setNewPassengerMode] = useState<
+    "EXISTENTE" | "NUEVO"
+  >("EXISTENTE");
+  const [newPassengerClientId, setNewPassengerClientId] = useState<
+    number | null
+  >(null);
   const [newPassengerDepartureId, setNewPassengerDepartureId] = useState("");
-  const [newClientDraft, setNewClientDraft] =
-    useState<ClientEditableDraft>(() => defaultClientDraft());
-  const [activePassengerId, setActivePassengerId] = useState<number | null>(null);
+  const [newClientDraft, setNewClientDraft] = useState<ClientEditableDraft>(
+    () => defaultClientDraft(),
+  );
+  const [activePassengerId, setActivePassengerId] = useState<number | null>(
+    null,
+  );
   const [activePassengerStatus, setActivePassengerStatus] = useState("");
-  const [activePassengerDepartureId, setActivePassengerDepartureId] = useState("");
+  const [activePassengerDepartureId, setActivePassengerDepartureId] =
+    useState("");
   const [activePassengerNote, setActivePassengerNote] = useState("");
   const [activeClientDraft, setActiveClientDraft] =
     useState<ClientEditableDraft>(null);
-  const [activeClientRaw, setActiveClientRaw] = useState<Record<string, unknown> | null>(null);
+  const [activeClientRaw, setActiveClientRaw] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [activeClientLoading, setActiveClientLoading] = useState(false);
 
   const [inventories, setInventories] = useState<GroupInventoryItem[]>([]);
@@ -1378,45 +1394,59 @@ export default function GroupDetailPage() {
   const [inventoryProviderMode, setInventoryProviderMode] = useState<
     "OPERADOR" | "MANUAL"
   >("OPERADOR");
-  const [inventoryDraft, setInventoryDraft] = useState<InventoryDraft>(
-    () => defaultInventoryDraft(undefined, { defaultTransferFeePct: 2.4 }),
+  const [inventoryDraft, setInventoryDraft] = useState<InventoryDraft>(() =>
+    defaultInventoryDraft(undefined, { defaultTransferFeePct: 2.4 }),
   );
   const [showCollectForm, setShowCollectForm] = useState(true);
-  const [sectionFilter, setSectionFilter] = useState<SectionFilterKey>("TODO");
-  const [collectPassengerId, setCollectPassengerId] = useState("");
-  const [collectBooking, setCollectBooking] = useState<FinanceBookingPayload | null>(
-    null,
-  );
-  const [collectClientPayments, setCollectClientPayments] = useState<ClientPayment[]>(
-    [],
-  );
+  const [sectionFilter, setSectionFilter] = useState<SectionFilterKey>("GRUPAL");
+  const [collectBooking, setCollectBooking] =
+    useState<FinanceBookingPayload | null>(null);
+  const [collectClientPayments, setCollectClientPayments] = useState<
+    ClientPayment[]
+  >([]);
   const [collectReceipts, setCollectReceipts] = useState<Receipt[]>([]);
   const [collectLoading, setCollectLoading] = useState(false);
-  const [collectLoadingError, setCollectLoadingError] = useState<string | null>(null);
-  const [collectReceiptFormVisible, setCollectReceiptFormVisible] = useState(false);
-  const [editingCollectReceipt, setEditingCollectReceipt] = useState<Receipt | null>(
+  const [collectLoadingError, setCollectLoadingError] = useState<string | null>(
     null,
   );
+  const [collectReceiptFormVisible, setCollectReceiptFormVisible] =
+    useState(false);
+  const [editingCollectReceipt, setEditingCollectReceipt] =
+    useState<Receipt | null>(null);
 
-  const [financeReservationKey, setFinanceReservationKey] = useState("");
-  const [financeBooking, setFinanceBooking] = useState<FinanceBookingPayload | null>(
+  const [financeBooking, setFinanceBooking] =
+    useState<FinanceBookingPayload | null>(null);
+  const [financeInvoices, setFinanceInvoices] = useState<Invoice[]>([]);
+  const [financeCreditNotes, setFinanceCreditNotes] = useState<
+    CreditNoteWithItems[]
+  >([]);
+  const [financeInvoiceFormVisible, setFinanceInvoiceFormVisible] =
+    useState(false);
+  const [financeInvoiceSubmitting, setFinanceInvoiceSubmitting] =
+    useState(false);
+  const [financeInvoiceFormData, setFinanceInvoiceFormData] =
+    useState<InvoiceFormData>(() => createEmptyInvoiceFormData());
+  const [financeLoading, setFinanceLoading] = useState(false);
+  const [financeLoadingError, setFinanceLoadingError] = useState<string | null>(
     null,
   );
-  const [financeClientPayments, setFinanceClientPayments] = useState<ClientPayment[]>(
-    [],
-  );
-  const [financeReceipts, setFinanceReceipts] = useState<Receipt[]>([]);
-  const [financeOperatorDues, setFinanceOperatorDues] = useState<OperatorDue[]>([]);
-  const [financeInvoices, setFinanceInvoices] = useState<Invoice[]>([]);
-  const [financeCreditNotes, setFinanceCreditNotes] = useState<CreditNoteWithItems[]>(
-    [],
-  );
-  const [financeLoading, setFinanceLoading] = useState(false);
-  const [financeLoadingError, setFinanceLoadingError] = useState<string | null>(null);
-  const [financeOperatorPaymentsReloadKey, setFinanceOperatorPaymentsReloadKey] =
-    useState(0);
+  const [
+    financeOperatorPaymentsReloadKey,
+    setFinanceOperatorPaymentsReloadKey,
+  ] = useState(0);
   const [showManualInventoryStatsInputs, setShowManualInventoryStatsInputs] =
     useState(false);
+
+  const [paymentsReservationKey, setPaymentsReservationKey] = useState("");
+  const [paymentsBooking, setPaymentsBooking] =
+    useState<FinanceBookingPayload | null>(null);
+  const [paymentsOperatorDues, setPaymentsOperatorDues] = useState<
+    OperatorDue[]
+  >([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [paymentsLoadingError, setPaymentsLoadingError] = useState<
+    string | null
+  >(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -1472,7 +1502,9 @@ export default function GroupDetailPage() {
       ]);
 
       setGroup(groupData);
-      setPassengers(Array.isArray(passengersData.items) ? passengersData.items : []);
+      setPassengers(
+        Array.isArray(passengersData.items) ? passengersData.items : [],
+      );
       setInventories(
         Array.isArray(inventoriesData.items) ? inventoriesData.items : [],
       );
@@ -1519,43 +1551,45 @@ export default function GroupDetailPage() {
       setPassengerCategories(normalizedCategories);
 
       try {
-        const [serviceTypesData, operatorsData, currenciesData, calcConfigData] =
-          await Promise.all([
-            requestGroupApi<ServiceTypeOption[]>(
-              "/api/service-types?enabled=true",
-              {
-                credentials: "include",
-                cache: "no-store",
-              },
-              "No pudimos cargar los tipos de servicio.",
-            ).catch(() => []),
-            requestGroupApi<OperatorOption[]>(
-              "/api/operators",
-              {
-                credentials: "include",
-                cache: "no-store",
-              },
-              "No pudimos cargar los operadores.",
-            ).catch(() => []),
-            requestGroupApi<FinanceCurrencyOption[]>(
-              "/api/finance/currencies",
-              {
-                credentials: "include",
-                cache: "no-store",
-              },
-              "No pudimos cargar las monedas de finanzas.",
-            ).catch(() => []),
-            requestGroupApi<ServiceCalcConfigPayload>(
-              "/api/service-calc-config",
-              {
-                credentials: "include",
-                cache: "no-store",
-              },
-              "No pudimos cargar la configuración de costos de transferencia.",
-            ).catch(
-              (): ServiceCalcConfigPayload => ({ transfer_fee_pct: 2.4 }),
-            ),
-          ]);
+        const [
+          serviceTypesData,
+          operatorsData,
+          currenciesData,
+          calcConfigData,
+        ] = await Promise.all([
+          requestGroupApi<ServiceTypeOption[]>(
+            "/api/service-types?enabled=true",
+            {
+              credentials: "include",
+              cache: "no-store",
+            },
+            "No pudimos cargar los tipos de servicio.",
+          ).catch(() => []),
+          requestGroupApi<OperatorOption[]>(
+            "/api/operators",
+            {
+              credentials: "include",
+              cache: "no-store",
+            },
+            "No pudimos cargar los operadores.",
+          ).catch(() => []),
+          requestGroupApi<FinanceCurrencyOption[]>(
+            "/api/finance/currencies",
+            {
+              credentials: "include",
+              cache: "no-store",
+            },
+            "No pudimos cargar las monedas de finanzas.",
+          ).catch(() => []),
+          requestGroupApi<ServiceCalcConfigPayload>(
+            "/api/service-calc-config",
+            {
+              credentials: "include",
+              cache: "no-store",
+            },
+            "No pudimos cargar la configuración de costos de transferencia.",
+          ).catch((): ServiceCalcConfigPayload => ({ transfer_fee_pct: 2.4 })),
+        ]);
 
         const validServiceTypes = Array.isArray(serviceTypesData)
           ? serviceTypesData.filter(
@@ -1620,7 +1654,9 @@ export default function GroupDetailPage() {
         setOperatorOptions([]);
         setFinanceCurrencies([]);
         setDefaultTransferFeePct(2.4);
-        setServiceOptionsError(toFriendlyServiceOptionsError(serviceOptionsMessage));
+        setServiceOptionsError(
+          toFriendlyServiceOptionsError(serviceOptionsMessage),
+        );
       }
     } catch (error) {
       const message =
@@ -1675,52 +1711,13 @@ export default function GroupDetailPage() {
   const activePassenger = useMemo(() => {
     if (!activePassengerId) return null;
     return (
-      passengers.find((item) => item.id_travel_group_passenger === activePassengerId) ??
-      null
+      passengers.find(
+        (item) => item.id_travel_group_passenger === activePassengerId,
+      ) ?? null
     );
   }, [activePassengerId, passengers]);
 
-  const financePassengerOptions = useMemo<GroupFinancePassengerOption[]>(() => {
-    const list: GroupFinancePassengerOption[] = [];
-    for (const passenger of passengers) {
-      const bookingId = Number(passenger.booking_id || 0);
-      const clientId = Number(passenger.client_id || 0);
-      if (!Number.isFinite(bookingId) || bookingId <= 0) continue;
-      if (!Number.isFinite(clientId) || clientId <= 0) continue;
-      const passengerName = passenger.client
-        ? `${passenger.client.first_name} ${passenger.client.last_name}`.trim()
-        : `Cliente ${clientId}`;
-      list.push({
-        passengerId: passenger.id_travel_group_passenger,
-        bookingId,
-        clientId,
-        agencyBookingId:
-          passenger.booking?.agency_booking_id != null
-            ? Number(passenger.booking.agency_booking_id)
-            : null,
-        agencyClientId:
-          passenger.client?.agency_client_id != null
-            ? Number(passenger.client.agency_client_id)
-            : null,
-        passengerName: passengerName || `Cliente ${clientId}`,
-        departureName: passenger.travelGroupDeparture?.name || null,
-        status: passenger.status || "PENDIENTE",
-      });
-    }
-    return list.sort((a, b) => {
-      const byName = a.passengerName.localeCompare(b.passengerName, "es");
-      if (byName !== 0) return byName;
-      return a.passengerId - b.passengerId;
-    });
-  }, [passengers]);
-
-  const selectedCollectPassenger = useMemo(() => {
-    const parsed = parseOptionalPositiveInteger(collectPassengerId);
-    if (!parsed) return null;
-    return (
-      passengers.find((item) => item.id_travel_group_passenger === parsed) ?? null
-    );
-  }, [collectPassengerId, passengers]);
+  const selectedCollectPassenger = activePassenger;
 
   const selectedCollectBookingId = useMemo(() => {
     const bookingId = Number(selectedCollectPassenger?.booking_id || 0);
@@ -1732,7 +1729,11 @@ export default function GroupDetailPage() {
     return Number.isFinite(clientId) && clientId > 0 ? clientId : null;
   }, [selectedCollectPassenger?.client_id]);
 
-  const financeReservationOptions = useMemo<GroupFinanceReservationOption[]>(() => {
+  const selectedFinancePassenger = activePassenger;
+
+  const financeReservationOptions = useMemo<
+    GroupFinanceReservationOption[]
+  >(() => {
     const byScope = new Map<
       string,
       {
@@ -1752,7 +1753,8 @@ export default function GroupDetailPage() {
         passenger.travelGroupDeparture?.id_travel_group_departure != null
           ? Number(passenger.travelGroupDeparture.id_travel_group_departure)
           : null;
-      const scopeKey = departureId == null ? "group" : `departure:${departureId}`;
+      const scopeKey =
+        departureId == null ? "group" : `departure:${departureId}`;
       const current = byScope.get(scopeKey) ?? {
         departureId,
         departureName: passenger.travelGroupDeparture?.name || null,
@@ -1788,12 +1790,10 @@ export default function GroupDetailPage() {
         value.departureId == null
           ? "Grupal general (sin salida)"
           : `Salida: ${value.departureName || `#${value.departureId}`}`;
-      const technicalSuffix =
-        bookingIds.length > 1 ? ` · ${bookingIds.length} reservas técnicas` : "";
 
       rows.push({
         key,
-        label: `${baseLabel}${technicalSuffix}`,
+        label: baseLabel,
         bookingIds,
         primaryBookingId,
         primaryAgencyBookingId,
@@ -1806,22 +1806,43 @@ export default function GroupDetailPage() {
     return rows.sort((a, b) => {
       if (a.departureId == null && b.departureId != null) return -1;
       if (a.departureId != null && b.departureId == null) return 1;
-      if (a.departureId != null && b.departureId != null && a.departureId !== b.departureId) {
+      if (
+        a.departureId != null &&
+        b.departureId != null &&
+        a.departureId !== b.departureId
+      ) {
         return a.departureId - b.departureId;
       }
       return a.primaryBookingId - b.primaryBookingId;
     });
   }, [passengers]);
 
-  const selectedFinanceReservation = useMemo(() => {
-    if (!financeReservationKey) return null;
-    return (
-      financeReservationOptions.find((item) => item.key === financeReservationKey) ??
-      null
-    );
-  }, [financeReservationKey, financeReservationOptions]);
+  const activeFinanceScopeKey = useMemo(() => {
+    if (
+      selectedFinancePassenger?.travelGroupDeparture
+        ?.id_travel_group_departure != null
+    ) {
+      return `departure:${selectedFinancePassenger.travelGroupDeparture.id_travel_group_departure}`;
+    }
+    return "group";
+  }, [selectedFinancePassenger]);
 
-  const selectedFinanceBookingId = selectedFinanceReservation?.primaryBookingId ?? null;
+  const selectedFinanceReservation = useMemo(() => {
+    return (
+      financeReservationOptions.find(
+        (item) => item.key === activeFinanceScopeKey,
+      ) ?? null
+    );
+  }, [activeFinanceScopeKey, financeReservationOptions]);
+
+  const selectedPaymentsReservation = useMemo(() => {
+    if (!paymentsReservationKey) return null;
+    return (
+      financeReservationOptions.find(
+        (item) => item.key === paymentsReservationKey,
+      ) ?? null
+    );
+  }, [financeReservationOptions, paymentsReservationKey]);
 
   useEffect(() => {
     if (passengers.length === 0) {
@@ -1830,61 +1851,36 @@ export default function GroupDetailPage() {
     }
     if (
       activePassengerId == null ||
-      !passengers.some((item) => item.id_travel_group_passenger === activePassengerId)
+      !passengers.some(
+        (item) => item.id_travel_group_passenger === activePassengerId,
+      )
     ) {
       setActivePassengerId(passengers[0].id_travel_group_passenger);
     }
   }, [activePassengerId, passengers]);
 
   useEffect(() => {
-    if (financePassengerOptions.length === 0) {
-      setCollectPassengerId("");
-      return;
-    }
-    if (
-      collectPassengerId &&
-      financePassengerOptions.some(
-        (item) => String(item.passengerId) === collectPassengerId,
-      )
-    ) {
-      return;
-    }
-    const preferredId =
-      activePassenger &&
-      financePassengerOptions.some(
-        (item) => item.passengerId === activePassenger.id_travel_group_passenger,
-      )
-        ? activePassenger.id_travel_group_passenger
-        : financePassengerOptions[0].passengerId;
-    setCollectPassengerId(String(preferredId));
-  }, [
-    activePassenger,
-    collectPassengerId,
-    financePassengerOptions,
-  ]);
-
-  useEffect(() => {
     if (financeReservationOptions.length === 0) {
-      setFinanceReservationKey("");
-      return;
-    }
-    if (
-      financeReservationKey &&
-      financeReservationOptions.some((item) => item.key === financeReservationKey)
-    ) {
+      setPaymentsReservationKey("");
       return;
     }
     const preferredKey =
-      activePassenger?.travelGroupDeparture?.id_travel_group_departure != null
+      activePassenger?.travelGroupDeparture
+        ?.id_travel_group_departure != null
         ? `departure:${activePassenger.travelGroupDeparture.id_travel_group_departure}`
         : "group";
     const hasPreferred = financeReservationOptions.some(
       (item) => item.key === preferredKey,
     );
-    setFinanceReservationKey(
-      hasPreferred ? preferredKey : financeReservationOptions[0].key,
-    );
-  }, [activePassenger, financeReservationKey, financeReservationOptions]);
+    const nextKey = hasPreferred ? preferredKey : financeReservationOptions[0].key;
+    if (paymentsReservationKey !== nextKey) {
+      setPaymentsReservationKey(nextKey);
+    }
+  }, [
+    activePassenger,
+    financeReservationOptions,
+    paymentsReservationKey,
+  ]);
 
   useEffect(() => {
     setEditingCollectReceipt(null);
@@ -1919,10 +1915,18 @@ export default function GroupDetailPage() {
 
   const inventoryCurrencyOptions = useMemo(() => {
     const configCodes = financeCurrencies
-      .map((item) => String(item.code || "").trim().toUpperCase())
+      .map((item) =>
+        String(item.code || "")
+          .trim()
+          .toUpperCase(),
+      )
       .filter(Boolean);
     const inventoryCodes = inventories
-      .map((item) => String(item.currency || "").trim().toUpperCase())
+      .map((item) =>
+        String(item.currency || "")
+          .trim()
+          .toUpperCase(),
+      )
       .filter(Boolean);
     return Array.from(new Set([...configCodes, ...inventoryCodes, "ARS"]));
   }, [financeCurrencies, inventories]);
@@ -1930,7 +1934,9 @@ export default function GroupDetailPage() {
   const currencyLabelByCode = useMemo(() => {
     const map = new Map<string, string>();
     for (const item of financeCurrencies) {
-      const code = String(item.code || "").trim().toUpperCase();
+      const code = String(item.code || "")
+        .trim()
+        .toUpperCase();
       if (!code) continue;
       const name = String(item.name || "").trim();
       map.set(code, name ? `${code} · ${name}` : code);
@@ -1964,15 +1970,15 @@ export default function GroupDetailPage() {
             ? meta.transferFeePct
             : defaultTransferFeePct,
         ) || 0;
-      const transferFeeAmount = saleTotal > 0
-        ? (saleTotal * transferFeePct) / 100
-        : 0;
+      const transferFeeAmount =
+        saleTotal > 0 ? (saleTotal * transferFeePct) / 100 : 0;
       const taxesTotal =
         Number(meta?.taxable21 || 0) +
         Number(meta?.taxable105 || 0) +
         Number(meta?.exemptAmount || 0) +
         Number(meta?.otherTaxes || 0);
-      const grossMargin = saleTotal - costTotal - transferFeeAmount - taxesTotal;
+      const grossMargin =
+        saleTotal - costTotal - transferFeeAmount - taxesTotal;
       const operationalDebt = Math.max(costAssigned - costConfirmed, 0);
       return {
         inventoryId: item.id_travel_group_inventory,
@@ -2038,7 +2044,9 @@ export default function GroupDetailPage() {
       current.operationalDebt += row.operationalDebt;
       acc.set(row.currency, current);
     }
-    return [...acc.values()].sort((a, b) => a.currency.localeCompare(b.currency));
+    return [...acc.values()].sort((a, b) =>
+      a.currency.localeCompare(b.currency),
+    );
   }, [inventoryFinancialRows]);
 
   const inventoryFinancialById = useMemo(() => {
@@ -2068,7 +2076,10 @@ export default function GroupDetailPage() {
     const transferFeeAmount =
       saleTotal > 0 ? (saleTotal * transferFeePct) / 100 : 0;
     const margin = saleTotal - costTotal - taxes - transferFeeAmount;
-    const operationalDebt = Math.max((qtyAssigned - qtyConfirmed) * unitCost, 0);
+    const operationalDebt = Math.max(
+      (qtyAssigned - qtyConfirmed) * unitCost,
+      0,
+    );
     return {
       qtyTotal,
       qtyAssigned,
@@ -2089,16 +2100,25 @@ export default function GroupDetailPage() {
   const filteredPassengers = useMemo(() => {
     const q = passengerSearch.trim().toLowerCase();
     return passengers.filter((item) => {
-      if (passengerStatusFilter !== "ALL" && item.status !== passengerStatusFilter) {
+      if (
+        passengerStatusFilter !== "ALL" &&
+        item.status !== passengerStatusFilter
+      ) {
         return false;
       }
       if (!q) return true;
-      const fullName = `${item.client?.first_name || ""} ${item.client?.last_name || ""}`
-        .trim()
-        .toLowerCase();
-      const departureName = item.travelGroupDeparture?.name?.toLowerCase() || "";
-      const bookingRef = String(item.booking?.agency_booking_id ?? item.booking?.id_booking ?? "");
-      const clientRef = String(item.client?.agency_client_id ?? item.client?.id_client ?? "");
+      const fullName =
+        `${item.client?.first_name || ""} ${item.client?.last_name || ""}`
+          .trim()
+          .toLowerCase();
+      const departureName =
+        item.travelGroupDeparture?.name?.toLowerCase() || "";
+      const bookingRef = String(
+        item.booking?.agency_booking_id ?? item.booking?.id_booking ?? "",
+      );
+      const clientRef = String(
+        item.client?.agency_client_id ?? item.client?.id_client ?? "",
+      );
       return (
         fullName.includes(q) ||
         departureName.includes(q) ||
@@ -2106,21 +2126,14 @@ export default function GroupDetailPage() {
         clientRef.includes(q)
       );
     });
-  }, [
-    passengers,
-    passengerSearch,
-    passengerStatusFilter,
-  ]);
+  }, [passengers, passengerSearch, passengerStatusFilter]);
 
   const resolveClientDraftProfile = useCallback(
     (profileKey?: string) => resolveClientProfile(clientProfiles, profileKey),
     [clientProfiles],
   );
 
-  function updateNewClientDraftField(
-    field: ClientDraftField,
-    value: string,
-  ) {
+  function updateNewClientDraftField(field: ClientDraftField, value: string) {
     setNewClientDraft((prev) => (prev ? { ...prev, [field]: value } : prev));
   }
 
@@ -2181,9 +2194,10 @@ export default function GroupDetailPage() {
   ): string | null {
     if (!draft) return "Completá los datos del pasajero.";
     const selectedProfile = resolveClientDraftProfile(draft.profile_key);
-    const effectiveClientRequiredFields = selectedProfile.required_fields.filter(
-      (field) => !selectedProfile.hidden_fields.includes(field),
-    );
+    const effectiveClientRequiredFields =
+      selectedProfile.required_fields.filter(
+        (field) => !selectedProfile.hidden_fields.includes(field),
+      );
     const requiredClientCustomKeys = selectedProfile.custom_fields
       .filter((field) => field.required)
       .map((field) => field.key);
@@ -2216,9 +2230,9 @@ export default function GroupDetailPage() {
     for (const key of requiredClientCustomKeys) {
       const value = String(draft.custom_fields?.[key] ?? "").trim();
       if (!value) {
-        const fieldLabel = selectedProfile.custom_fields.find(
-          (field) => field.key === key,
-        )?.label || key;
+        const fieldLabel =
+          selectedProfile.custom_fields.find((field) => field.key === key)
+            ?.label || key;
         return `El campo ${fieldLabel} es obligatorio.`;
       }
     }
@@ -2228,7 +2242,11 @@ export default function GroupDetailPage() {
 
   const activePassengerClientId = activePassenger?.client?.id_client ?? null;
   const clientProfileOptions = useMemo(
-    () => clientProfiles.map((profile) => ({ key: profile.key, label: profile.label })),
+    () =>
+      clientProfiles.map((profile) => ({
+        key: profile.key,
+        label: profile.label,
+      })),
     [clientProfiles],
   );
   const newClientProfile = useMemo(
@@ -2280,8 +2298,19 @@ export default function GroupDetailPage() {
   }, [activePassengerClientId]);
 
   const fetchCollectFinanceData = useCallback(
-    async (bookingId: number | null, clientId: number | null) => {
-      if (!bookingId || bookingId <= 0 || !clientId || clientId <= 0) {
+    async (
+      bookingId: number | null,
+      clientId: number | null,
+      passengerId: number | null,
+    ) => {
+      if (
+        !bookingId ||
+        bookingId <= 0 ||
+        !clientId ||
+        clientId <= 0 ||
+        !passengerId ||
+        passengerId <= 0
+      ) {
         setCollectBooking(null);
         setCollectReceipts([]);
         setCollectClientPayments([]);
@@ -2302,21 +2331,24 @@ export default function GroupDetailPage() {
           },
           "No pudimos cargar la reserva del pasajero.",
         ),
-        requestGroupApi<unknown>(
-          `/api/receipts?bookingId=${bookingId}`,
+        requestGroupApi<{ receipts?: Receipt[] }>(
+          `/api/groups/${encodeURIComponent(groupId)}/finance/receipts?passengerId=${passengerId}`,
           {
             credentials: "include",
             cache: "no-store",
           },
-          "No pudimos cargar los recibos del pasajero.",
+          "No pudimos cargar los recibos del pasajero en la grupal.",
         ),
-        requestGroupApi<{ payments?: ClientPayment[]; items?: ClientPayment[] }>(
-          `/api/client-payments?bookingId=${bookingId}&clientId=${clientId}`,
+        requestGroupApi<{
+          payments?: ClientPayment[];
+          items?: ClientPayment[];
+        }>(
+          `/api/groups/${encodeURIComponent(groupId)}/finance/client-payments?passengerId=${passengerId}`,
           {
             credentials: "include",
             cache: "no-store",
           },
-          "No pudimos cargar las cuotas del pasajero.",
+          "No pudimos cargar las cuotas del pasajero en la grupal.",
         ),
       ]);
 
@@ -2327,12 +2359,16 @@ export default function GroupDetailPage() {
         setCollectBooking(bookingResult.value);
       } else {
         setCollectBooking(null);
-        errors.push(bookingResult.reason?.message || "Reserva no disponible.");
+        errors.push(
+          bookingResult.reason?.message || "Contexto operativo no disponible.",
+        );
       }
 
       const receiptsResult = results[1];
       if (receiptsResult.status === "fulfilled") {
-        const allReceipts = parseApiReceipts(receiptsResult.value);
+        const allReceipts = Array.isArray(receiptsResult.value.receipts)
+          ? receiptsResult.value.receipts
+          : [];
         const filteredReceipts = allReceipts.filter((receipt) => {
           const ids = Array.isArray(receipt.clientIds)
             ? receipt.clientIds
@@ -2340,7 +2376,9 @@ export default function GroupDetailPage() {
                 .filter((id) => Number.isFinite(id) && id > 0)
             : [];
           if (ids.length === 0) {
-            const bookingTitularId = Number(receipt.booking?.titular?.id_client || 0);
+            const bookingTitularId = Number(
+              receipt.booking?.titular?.id_client || 0,
+            );
             if (Number.isFinite(bookingTitularId) && bookingTitularId > 0) {
               return bookingTitularId === clientId;
             }
@@ -2351,7 +2389,9 @@ export default function GroupDetailPage() {
         setCollectReceipts(filteredReceipts);
       } else {
         setCollectReceipts([]);
-        errors.push(receiptsResult.reason?.message || "Recibos no disponibles.");
+        errors.push(
+          receiptsResult.reason?.message || "Recibos no disponibles.",
+        );
       }
 
       const clientPaymentsResult = results[2];
@@ -2364,45 +2404,119 @@ export default function GroupDetailPage() {
         setCollectClientPayments(rows);
       } else {
         setCollectClientPayments([]);
-        errors.push(clientPaymentsResult.reason?.message || "Cuotas no disponibles.");
+        errors.push(
+          clientPaymentsResult.reason?.message || "Cuotas no disponibles.",
+        );
       }
 
       setCollectLoadingError(errors.length > 0 ? errors[0] : null);
       setCollectLoading(false);
     },
-    [],
+    [groupId],
   );
 
   const refreshCollectData = useCallback(async () => {
-    await fetchCollectFinanceData(selectedCollectBookingId, selectedCollectClientId);
-  }, [fetchCollectFinanceData, selectedCollectBookingId, selectedCollectClientId]);
+    await fetchCollectFinanceData(
+      selectedCollectBookingId,
+      selectedCollectClientId,
+      selectedCollectPassenger?.id_travel_group_passenger ?? null,
+    );
+  }, [
+    fetchCollectFinanceData,
+    selectedCollectBookingId,
+    selectedCollectClientId,
+    selectedCollectPassenger?.id_travel_group_passenger,
+  ]);
 
   useEffect(() => {
-    void fetchCollectFinanceData(selectedCollectBookingId, selectedCollectClientId);
-  }, [fetchCollectFinanceData, selectedCollectBookingId, selectedCollectClientId]);
+    void fetchCollectFinanceData(
+      selectedCollectBookingId,
+      selectedCollectClientId,
+      selectedCollectPassenger?.id_travel_group_passenger ?? null,
+    );
+  }, [
+    fetchCollectFinanceData,
+    selectedCollectBookingId,
+    selectedCollectClientId,
+    selectedCollectPassenger?.id_travel_group_passenger,
+  ]);
+
+  const fetchPaymentsDataByReservation = useCallback(
+    async (reservation: GroupFinanceReservationOption | null) => {
+      if (!reservation || reservation.bookingIds.length === 0) {
+        setPaymentsBooking(null);
+        setPaymentsOperatorDues([]);
+        setPaymentsLoading(false);
+        setPaymentsLoadingError(null);
+        return;
+      }
+
+      setPaymentsLoading(true);
+      setPaymentsLoadingError(null);
+
+      const errors: string[] = [];
+      const scopeParam = encodeURIComponent(reservation.key);
+
+      const [bookingResult, operatorDuesResult] = await Promise.allSettled([
+        requestGroupApi<FinanceBookingPayload>(
+          `/api/bookings/${reservation.primaryBookingId}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+          "No pudimos cargar el contexto operativo principal.",
+        ),
+        requestGroupApi<{ dues?: OperatorDue[] }>(
+          `/api/groups/${encodeURIComponent(groupId)}/finance/operator-dues?scope=${scopeParam}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+          "No pudimos cargar vencimientos de operador del contexto de la grupal.",
+        ),
+      ]);
+
+      if (bookingResult.status === "fulfilled") {
+        setPaymentsBooking(bookingResult.value);
+      } else {
+        setPaymentsBooking(null);
+        errors.push(
+          bookingResult.reason?.message || "Contexto operativo no disponible.",
+        );
+      }
+
+      if (operatorDuesResult.status === "fulfilled") {
+        setPaymentsOperatorDues(
+          Array.isArray(operatorDuesResult.value.dues)
+            ? operatorDuesResult.value.dues
+            : [],
+        );
+      } else {
+        setPaymentsOperatorDues([]);
+        errors.push(
+          operatorDuesResult.reason?.message ||
+            "Vencimientos de operador no disponibles.",
+        );
+      }
+
+      setPaymentsLoadingError(errors.length > 0 ? errors[0] : null);
+      setPaymentsLoading(false);
+    },
+    [groupId],
+  );
+
+  const refreshPaymentsData = useCallback(async () => {
+    await fetchPaymentsDataByReservation(selectedPaymentsReservation);
+  }, [fetchPaymentsDataByReservation, selectedPaymentsReservation]);
+
+  useEffect(() => {
+    void fetchPaymentsDataByReservation(selectedPaymentsReservation);
+  }, [fetchPaymentsDataByReservation, selectedPaymentsReservation]);
 
   const fetchFinanceDataByReservation = useCallback(
     async (reservation: GroupFinanceReservationOption | null) => {
       if (!reservation || reservation.bookingIds.length === 0) {
         setFinanceBooking(null);
-        setFinanceReceipts([]);
-        setFinanceClientPayments([]);
-        setFinanceOperatorDues([]);
-        setFinanceInvoices([]);
-        setFinanceCreditNotes([]);
-        setFinanceLoading(false);
-        setFinanceLoadingError(null);
-        return;
-      }
-
-      const bookingIds = reservation.bookingIds
-        .map((id) => Number(id))
-        .filter((id) => Number.isFinite(id) && id > 0);
-      if (bookingIds.length === 0) {
-        setFinanceBooking(null);
-        setFinanceReceipts([]);
-        setFinanceClientPayments([]);
-        setFinanceOperatorDues([]);
         setFinanceInvoices([]);
         setFinanceCreditNotes([]);
         setFinanceLoading(false);
@@ -2422,7 +2536,7 @@ export default function GroupDetailPage() {
             credentials: "include",
             cache: "no-store",
           },
-          "No pudimos cargar la reserva principal del contexto seleccionado.",
+          "No pudimos cargar el contexto operativo principal.",
         ),
       ]);
 
@@ -2432,150 +2546,60 @@ export default function GroupDetailPage() {
         setFinanceBooking(null);
         errors.push(
           bookingResult[0]?.status === "rejected"
-            ? bookingResult[0].reason?.message || "Reserva no disponible."
-            : "Reserva no disponible.",
+            ? bookingResult[0].reason?.message ||
+                "Contexto operativo no disponible."
+            : "Contexto operativo no disponible.",
         );
       }
 
-      const [receiptsSettled, clientPaymentsSettled, operatorDuesSettled, invoicesSettled, notesSettled] =
-        await Promise.all([
-          Promise.allSettled(
-            bookingIds.map((bookingId) =>
-              requestGroupApi<unknown>(
-                `/api/receipts?bookingId=${bookingId}`,
-                {
-                  credentials: "include",
-                  cache: "no-store",
-                },
-                "No pudimos cargar recibos del contexto de reserva.",
-              ),
-            ),
-          ),
-          Promise.allSettled(
-            bookingIds.map((bookingId) =>
-              requestGroupApi<{ payments?: ClientPayment[]; items?: ClientPayment[] }>(
-                `/api/client-payments?bookingId=${bookingId}`,
-                {
-                  credentials: "include",
-                  cache: "no-store",
-                },
-                "No pudimos cargar cuotas del contexto de reserva.",
-              ),
-            ),
-          ),
-          Promise.allSettled(
-            bookingIds.map((bookingId) =>
-              requestGroupApi<{ dues?: OperatorDue[] }>(
-                `/api/operator-dues?bookingId=${bookingId}`,
-                {
-                  credentials: "include",
-                  cache: "no-store",
-                },
-                "No pudimos cargar deudas de operador del contexto de reserva.",
-              ),
-            ),
-          ),
-          Promise.allSettled(
-            bookingIds.map((bookingId) =>
-              requestGroupApi<{ invoices?: Invoice[] }>(
-                `/api/invoices?bookingId=${bookingId}`,
-                {
-                  credentials: "include",
-                  cache: "no-store",
-                },
-                "No pudimos cargar facturación del contexto de reserva.",
-              ),
-            ),
-          ),
-          Promise.allSettled(
-            bookingIds.map((bookingId) =>
-              requestGroupApi<{ creditNotes?: CreditNoteWithItems[] }>(
-                `/api/credit-notes?bookingId=${bookingId}`,
-                {
-                  credentials: "include",
-                  cache: "no-store",
-                },
-                "No pudimos cargar notas de crédito del contexto de reserva.",
-              ),
-            ),
-          ),
-        ]);
+      const scopeParam = encodeURIComponent(reservation.key);
+      const [invoicesResult, notesResult] = await Promise.allSettled([
+        requestGroupApi<{ invoices?: Invoice[] }>(
+          `/api/groups/${encodeURIComponent(groupId)}/finance/invoices?scope=${scopeParam}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+          "No pudimos cargar facturas del contexto de la grupal.",
+        ),
+        requestGroupApi<{ creditNotes?: CreditNoteWithItems[] }>(
+          `/api/groups/${encodeURIComponent(groupId)}/finance/credit-notes?scope=${scopeParam}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+          "No pudimos cargar notas de crédito del contexto de la grupal.",
+        ),
+      ]);
 
-      const receiptsMap = new Map<number, Receipt>();
-      for (const item of receiptsSettled) {
-        if (item.status === "fulfilled") {
-          const rows = parseApiReceipts(item.value);
-          for (const receipt of rows) {
-            receiptsMap.set(receipt.id_receipt, receipt);
-          }
-        } else {
-          errors.push(item.reason?.message || "Recibos no disponibles.");
-        }
+      if (invoicesResult.status === "fulfilled") {
+        setFinanceInvoices(
+          Array.isArray(invoicesResult.value.invoices)
+            ? invoicesResult.value.invoices
+            : [],
+        );
+      } else {
+        setFinanceInvoices([]);
+        errors.push(invoicesResult.reason?.message || "Facturas no disponibles.");
       }
-      setFinanceReceipts([...receiptsMap.values()]);
 
-      const paymentMap = new Map<number, ClientPayment>();
-      for (const item of clientPaymentsSettled) {
-        if (item.status === "fulfilled") {
-          const rows = Array.isArray(item.value.payments)
-            ? item.value.payments
-            : Array.isArray(item.value.items)
-              ? item.value.items
-              : [];
-          for (const payment of rows) {
-            paymentMap.set(payment.id_payment, payment);
-          }
-        } else {
-          errors.push(item.reason?.message || "Cuotas no disponibles.");
-        }
+      if (notesResult.status === "fulfilled") {
+        setFinanceCreditNotes(
+          Array.isArray(notesResult.value.creditNotes)
+            ? notesResult.value.creditNotes
+            : [],
+        );
+      } else {
+        setFinanceCreditNotes([]);
+        errors.push(
+          notesResult.reason?.message || "Notas de crédito no disponibles.",
+        );
       }
-      setFinanceClientPayments([...paymentMap.values()]);
-
-      const dueMap = new Map<number, OperatorDue>();
-      for (const item of operatorDuesSettled) {
-        if (item.status === "fulfilled") {
-          const rows = Array.isArray(item.value.dues) ? item.value.dues : [];
-          for (const due of rows) {
-            dueMap.set(due.id_due, due);
-          }
-        } else {
-          errors.push(item.reason?.message || "Deudas operador no disponibles.");
-        }
-      }
-      setFinanceOperatorDues([...dueMap.values()]);
-
-      const invoiceMap = new Map<number, Invoice>();
-      for (const item of invoicesSettled) {
-        if (item.status === "fulfilled") {
-          const rows = Array.isArray(item.value.invoices) ? item.value.invoices : [];
-          for (const invoice of rows) {
-            invoiceMap.set(invoice.id_invoice, invoice);
-          }
-        } else {
-          errors.push(item.reason?.message || "Facturas no disponibles.");
-        }
-      }
-      setFinanceInvoices([...invoiceMap.values()]);
-
-      const creditMap = new Map<number, CreditNoteWithItems>();
-      for (const item of notesSettled) {
-        if (item.status === "fulfilled") {
-          const rows = Array.isArray(item.value.creditNotes)
-            ? item.value.creditNotes
-            : [];
-          for (const note of rows) {
-            creditMap.set(note.id_credit_note, note);
-          }
-        } else {
-          errors.push(item.reason?.message || "Notas de crédito no disponibles.");
-        }
-      }
-      setFinanceCreditNotes([...creditMap.values()]);
 
       setFinanceLoadingError(errors.length > 0 ? errors[0] : null);
       setFinanceLoading(false);
     },
-    [],
+    [groupId],
   );
 
   const refreshFinanceData = useCallback(async () => {
@@ -2586,96 +2610,447 @@ export default function GroupDetailPage() {
     void fetchFinanceDataByReservation(selectedFinanceReservation);
   }, [fetchFinanceDataByReservation, selectedFinanceReservation]);
 
-  const financeSummaryByCurrency = useMemo<FinanceCurrencySummary[]>(() => {
-    const map = new Map<string, FinanceCurrencySummary>();
-    const ensure = (currencyRaw: string) => {
-      const currency = normalizeCurrencyCode(currencyRaw);
-      const existing = map.get(currency);
-      if (existing) return existing;
-      const next: FinanceCurrencySummary = {
-        currency,
-        pendingClientAmount: 0,
-        overdueClientAmount: 0,
-        pendingOperatorAmount: 0,
-        receiptsAmount: 0,
-        invoicedAmount: 0,
-        creditNotesAmount: 0,
-        netBalance: 0,
-      };
-      map.set(currency, next);
-      return next;
+  const handleFinanceInvoiceChange = (
+    e: ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+  ) => {
+    const { name, value } = e.target;
+    setFinanceInvoiceFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const updateFinanceInvoiceFormData = (
+    key: keyof InvoiceFormData,
+    value: InvoiceFormData[keyof InvoiceFormData],
+  ) => {
+    setFinanceInvoiceFormData((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const parseManualAmount = (value?: string) => {
+    if (value == null) return undefined;
+    const trimmed = String(value).trim();
+    if (!trimmed) return undefined;
+    const num = Number(trimmed.replace(",", "."));
+    return Number.isFinite(num) ? num : undefined;
+  };
+
+  const buildManualTotals = (data: {
+    manualTotalsEnabled: boolean;
+    manualTotal: string;
+    manualBase21: string;
+    manualIva21: string;
+    manualBase10_5: string;
+    manualIva10_5: string;
+    manualExempt: string;
+  }): { manualTotals?: ManualTotalsInput; error?: string } => {
+    if (!data.manualTotalsEnabled) return { manualTotals: undefined };
+
+    const manualTotals: ManualTotalsInput = {
+      total: parseManualAmount(data.manualTotal),
+      base21: parseManualAmount(data.manualBase21),
+      iva21: parseManualAmount(data.manualIva21),
+      base10_5: parseManualAmount(data.manualBase10_5),
+      iva10_5: parseManualAmount(data.manualIva10_5),
+      exempt: parseManualAmount(data.manualExempt),
     };
 
-    for (const payment of financeClientPayments) {
-      const row = ensure(String(payment.currency || "ARS"));
-      const amount = toAmountNumber(payment.amount);
-      const status = String(payment.derived_status || payment.status || "")
-        .trim()
-        .toUpperCase();
-      if (status === "PENDIENTE" || status === "VENCIDA") {
-        row.pendingClientAmount += amount;
+    const hasManualValues = Object.values(manualTotals).some(
+      (v) => typeof v === "number",
+    );
+
+    if (!hasManualValues) {
+      return { error: "Completá al menos un importe manual." };
+    }
+
+    const validation = computeManualTotals(manualTotals);
+    if (!validation.ok) {
+      return { error: validation.error };
+    }
+
+    return { manualTotals };
+  };
+
+  const getInvoiceErrorToast = (raw?: string): string => {
+    const msg = String(raw ?? "").trim();
+    if (!msg) {
+      return "No se pudo crear la factura. Revisá los datos e intentá de nuevo.";
+    }
+
+    const m = msg.toLowerCase();
+
+    if (m.includes("importes manuales")) return msg;
+    if (m.includes("no autenticado") || m.includes("x-user-id")) {
+      return "Tu sesión expiró. Volvé a iniciar sesión.";
+    }
+    if (m.includes("token")) {
+      return "Tu sesión expiró. Volvé a iniciar sesión.";
+    }
+    if (m.includes("agencia asociada")) {
+      return "Tu usuario no tiene agencia asignada. Contactá a un administrador.";
+    }
+    if (m.includes("agencia no encontrada")) {
+      return "No se encontró la agencia. Contactá a un administrador.";
+    }
+    if (m.includes("reserva no pertenece")) {
+      return "La reserva no pertenece a tu agencia.";
+    }
+    if (m.includes("reserva no encontrada")) {
+      return "No se encontró la reserva.";
+    }
+    if (m.includes("falta cuit") || m.includes("cuit inválido")) {
+      return "Error en el CUIT. Revisá el CUIT del pax o de la agencia.";
+    }
+    if (m.includes("cuit invalido") || m.includes("tax_id")) {
+      return "Error en el CUIT. Revisá el CUIT del pax o de la agencia.";
+    }
+    if (m.includes("falta dni")) {
+      return "Falta DNI del pax. Revisá el documento para Factura B.";
+    }
+    if (m.includes("docnro") || m.includes("documento")) {
+      return "Documento del pax inválido. Revisá DNI/CUIT.";
+    }
+    if (
+      m.includes("cert") ||
+      m.includes("key") ||
+      m.includes("afip_secret_key") ||
+      m.includes("formato cifrado")
+    ) {
+      return "Credenciales AFIP inválidas o faltantes. Revisá certificado y clave.";
+    }
+    if (
+      m.includes("fecha de factura") ||
+      m.includes("formato de fecha") ||
+      m.includes("yyyy-mm-dd")
+    ) {
+      return "Fecha de factura inválida. Debe estar dentro de los 8 días.";
+    }
+    if (
+      m.includes("fchserv") ||
+      m.includes("fecha de servicio") ||
+      m.includes("servicio desde") ||
+      m.includes("servicio hasta")
+    ) {
+      return "Fecha de servicio inválida. Revisá las fechas de los servicios.";
+    }
+    if (
+      m.includes("punto de venta") ||
+      m.includes("feparamgetptosventa") ||
+      m.includes("ptovta") ||
+      m.includes("seleccionado no esta habilitado")
+    ) {
+      return "Punto de venta inválido para WSFE. Revisalo en ARCA y reintentá.";
+    }
+    if (m.includes("cbtnro") || m.includes("cbtenro")) {
+      return "Número de comprobante inválido. Revisá el punto de venta en ARCA.";
+    }
+    if (
+      m.includes("iva") ||
+      m.includes("impuesto") ||
+      m.includes("tributo") ||
+      m.includes("alicuota")
+    ) {
+      return "Error en impuestos/IVA de los servicios. Revisá los importes.";
+    }
+    if (
+      m.includes("cotización") ||
+      m.includes("cotizacion") ||
+      m.includes("exchangerate") ||
+      m.includes("moncotiz")
+    ) {
+      return "Cotización inválida. Revisá la moneda y el tipo de cambio.";
+    }
+    if (
+      m.includes("afip no disponible") ||
+      m.includes("internal server error") ||
+      m.includes("invalid xml") ||
+      m.includes("request failed")
+    ) {
+      return "AFIP no respondió correctamente. Intentá más tarde.";
+    }
+    if (m.includes("cae")) {
+      return "AFIP no otorgó CAE. Intentá nuevamente más tarde.";
+    }
+    if (m.includes("debe haber al menos un servicio")) {
+      return "Seleccioná al menos un servicio.";
+    }
+    if (m.includes("debe haber al menos un pax")) {
+      return "Seleccioná un pax válido para continuar.";
+    }
+    if (m.includes("tipofactura")) {
+      return "Tipo de factura inválido. Elegí Factura A o B.";
+    }
+    if (m.includes("no se generó ninguna factura")) {
+      return "No se pudo generar la factura. Revisá CUIT/DNI del pax y los servicios.";
+    }
+
+    return msg;
+  };
+
+  const handleFinanceInvoiceSubmit = async (e: FormEvent<Element>) => {
+    e.preventDefault();
+    if (financeInvoiceSubmitting) return;
+    if (!token) {
+      toast.error("Necesitás sesión activa para facturar.");
+      return;
+    }
+    if (!financeBooking?.id_booking) {
+      toast.error("No se pudo identificar el contexto operativo.");
+      return;
+    }
+    if (!selectedFinanceInvoiceClientId) {
+      toast.error("Seleccioná un pasajero para facturar.");
+      return;
+    }
+    if (!selectedFinanceInvoicePassenger?.id_travel_group_passenger) {
+      toast.error("No se pudo identificar el pasajero seleccionado.");
+      return;
+    }
+    if (
+      !financeInvoiceFormData.tipoFactura ||
+      financeInvoiceFormData.services.length === 0
+    ) {
+      toast.error("Completá tipo de factura y al menos un servicio.");
+      return;
+    }
+
+    const serviceCount = financeInvoiceFormData.services.length;
+    const tipoLabel =
+      financeInvoiceFormData.tipoFactura === "1" ? "Factura A" : "Factura B";
+    const dateLabel = financeInvoiceFormData.invoiceDate
+      ? `\nFecha: ${financeInvoiceFormData.invoiceDate}`
+      : "";
+    const paxName = selectedFinanceInvoicePassenger?.client
+      ? `${selectedFinanceInvoicePassenger.client.first_name} ${selectedFinanceInvoicePassenger.client.last_name}`.trim()
+      : `Cliente ${selectedFinanceInvoiceClientId}`;
+
+    if (
+      !window.confirm(
+        `¿Emitir ${tipoLabel} para ${paxName} y ${serviceCount} servicio(s)?${dateLabel}`,
+      )
+    ) {
+      return;
+    }
+
+    const manualBuild = buildManualTotals(financeInvoiceFormData);
+    if (manualBuild.error) {
+      toast.error(manualBuild.error);
+      return;
+    }
+
+    const selectedServiceIds = financeInvoiceFormData.services
+      .map((raw) => Number(raw))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    if (selectedServiceIds.length === 0) {
+      toast.error("Seleccioná al menos un servicio válido.");
+      return;
+    }
+
+    const onlyDigits = (value?: string | null) =>
+      String(value ?? "").replace(/\D/g, "");
+
+    const paxDocType = financeInvoiceFormData.paxDocTypes?.[0] || "";
+    const paxDocNumber = onlyDigits(financeInvoiceFormData.paxDocNumbers?.[0]);
+    const paxLookup = financeInvoiceFormData.paxLookupData?.[0] || null;
+    const paxLookupDni = onlyDigits(paxLookup?.dni);
+    const paxLookupCuit = onlyDigits(paxLookup?.cuit);
+
+    const paxData = [
+      {
+        clientId: selectedFinanceInvoiceClientId,
+        dni:
+          paxDocType === "DNI"
+            ? paxDocNumber || paxLookupDni || undefined
+            : paxLookupDni || undefined,
+        cuit:
+          paxDocType === "CUIT"
+            ? paxDocNumber || paxLookupCuit || undefined
+            : paxLookupCuit || undefined,
+        persistLookup: Boolean(financeInvoiceFormData.paxLookupPersist?.[0]),
+        first_name: paxLookup?.first_name || undefined,
+        last_name: paxLookup?.last_name || undefined,
+        company_name: paxLookup?.company_name || undefined,
+        address: paxLookup?.address || undefined,
+        locality: paxLookup?.locality || undefined,
+        postal_code: paxLookup?.postal_code || undefined,
+        commercial_address: paxLookup?.commercial_address || undefined,
+      },
+    ];
+
+    const customItems = (financeInvoiceFormData.customItems || [])
+      .map((item) => {
+        const description = String(item.description || "").trim();
+        const amountRaw = String(item.amount || "").trim();
+        const amountParsed = amountRaw
+          ? Number(amountRaw.replace(",", "."))
+          : undefined;
+        return {
+          description,
+          taxCategory: item.taxCategory,
+          amount:
+            typeof amountParsed === "number" &&
+            Number.isFinite(amountParsed) &&
+            amountParsed > 0
+              ? amountParsed
+              : undefined,
+        };
+      })
+      .filter((item) => item.description.length > 0);
+
+    const derivedDescriptions = customItems.reduce(
+      (acc, item) => {
+        if (item.taxCategory === "21") {
+          acc.description21.push(item.description);
+        } else if (item.taxCategory === "10_5") {
+          acc.description10_5.push(item.description);
+        } else {
+          acc.descriptionNonComputable.push(item.description);
+        }
+        return acc;
+      },
+      {
+        description21: [] as string[],
+        description10_5: [] as string[],
+        descriptionNonComputable: [] as string[],
+      },
+    );
+
+    const payload = {
+      passengerId: selectedFinanceInvoicePassenger.id_travel_group_passenger,
+      clientId: selectedFinanceInvoiceClientId,
+      scope: selectedFinanceReservation?.key || undefined,
+      services: selectedServiceIds,
+      tipoFactura: parseInt(financeInvoiceFormData.tipoFactura, 10),
+      exchangeRate: financeInvoiceFormData.exchangeRate
+        ? parseFloat(financeInvoiceFormData.exchangeRate)
+        : undefined,
+      description21:
+        derivedDescriptions.description21.length > 0
+          ? derivedDescriptions.description21
+          : (financeInvoiceFormData.description21 || []).filter(
+              (d) => d.trim().length > 0,
+            ),
+      description10_5:
+        derivedDescriptions.description10_5.length > 0
+          ? derivedDescriptions.description10_5
+          : (financeInvoiceFormData.description10_5 || []).filter(
+              (d) => d.trim().length > 0,
+            ),
+      descriptionNonComputable:
+        derivedDescriptions.descriptionNonComputable.length > 0
+          ? derivedDescriptions.descriptionNonComputable
+          : (financeInvoiceFormData.descriptionNonComputable || []).filter(
+              (d) => d.trim().length > 0,
+            ),
+      paxData,
+      customItems,
+      invoiceDate: financeInvoiceFormData.invoiceDate,
+      manualTotals: manualBuild.manualTotals,
+    };
+
+    setFinanceInvoiceSubmitting(true);
+    try {
+      const res = await authFetch(
+        `/api/groups/${encodeURIComponent(groupId)}/finance/invoices`,
+        { method: "POST", body: JSON.stringify(payload) },
+        token,
+      );
+      if (!res.ok) {
+        const raw = await res.text();
+        let message = raw;
+        try {
+          message = (JSON.parse(raw) as { message?: string }).message || raw;
+        } catch {
+          // mantiene raw si no es JSON
+        }
+        throw new Error(getInvoiceErrorToast(message));
       }
-      if (status === "VENCIDA") {
-        row.overdueClientAmount += amount;
+
+      const result = (await res.json()) as {
+        success?: boolean;
+        invoices?: Invoice[];
+        message?: string;
+      };
+
+      if (!result.success) {
+        toast.error(getInvoiceErrorToast(result.message));
+        return;
       }
-    }
 
-    for (const due of financeOperatorDues) {
-      const row = ensure(String(due.currency || "ARS"));
-      const amount = toAmountNumber(due.amount);
-      const status = String(due.status || "").trim().toUpperCase();
-      if (status !== "PAGADA" && status !== "PAGO" && status !== "CANCELADA") {
-        row.pendingOperatorAmount += amount;
+      const createdInvoices = Array.isArray(result.invoices)
+        ? result.invoices
+        : [];
+      if (createdInvoices.length > 0) {
+        setFinanceInvoices((prev) => {
+          const map = new Map<number, Invoice>();
+          for (const row of prev) map.set(row.id_invoice, row);
+          for (const row of createdInvoices) map.set(row.id_invoice, row);
+          return [...map.values()];
+        });
       }
-    }
 
-    for (const receipt of financeReceipts) {
-      const row = ensure(String(receipt.amount_currency || "ARS"));
-      row.receiptsAmount += toAmountNumber(receipt.amount);
-    }
+      toast.success("Factura creada exitosamente.");
+      setFinanceInvoiceFormVisible(false);
 
-    for (const invoice of financeInvoices) {
-      const row = ensure(String(invoice.currency || "ARS"));
-      row.invoicedAmount += toAmountNumber(invoice.total_amount);
-    }
+      const paxDni = String(
+        selectedFinanceInvoicePassenger?.client?.dni_number || "",
+      ).replace(/\D/g, "");
+      setFinanceInvoiceFormData({
+        ...createEmptyInvoiceFormData(),
+        clientIds: [String(selectedFinanceInvoiceClientId)],
+        distributionValues: ["100"],
+        paxDocTypes: [paxDni ? "DNI" : ""],
+        paxDocNumbers: [paxDni],
+        paxLookupData: [null],
+        paxLookupPersist: [false],
+      });
 
-    for (const note of financeCreditNotes) {
-      const row = ensure(String(note.currency || "ARS"));
-      row.creditNotesAmount += toAmountNumber(note.total_amount);
+      void refreshFinanceData();
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Error servidor.";
+      toast.error(getInvoiceErrorToast(msg));
+    } finally {
+      setFinanceInvoiceSubmitting(false);
     }
-
-    for (const row of map.values()) {
-      row.netBalance =
-        row.pendingClientAmount -
-        row.pendingOperatorAmount -
-        row.creditNotesAmount;
-    }
-
-    return [...map.values()].sort((a, b) => a.currency.localeCompare(b.currency));
-  }, [
-    financeClientPayments,
-    financeCreditNotes,
-    financeInvoices,
-    financeOperatorDues,
-    financeReceipts,
-  ]);
+  };
 
   const financeRole = useMemo(() => String(role || "").toLowerCase(), [role]);
 
   const collectBookingServices = useMemo<Service[]>(() => {
-    return Array.isArray(collectBooking?.services) ? collectBooking.services : [];
+    return Array.isArray(collectBooking?.services)
+      ? collectBooking.services
+      : [];
   }, [collectBooking?.services]);
 
   const financeBookingServices = useMemo<Service[]>(() => {
-    return Array.isArray(financeBooking?.services) ? financeBooking.services : [];
+    return Array.isArray(financeBooking?.services)
+      ? financeBooking.services
+      : [];
   }, [financeBooking?.services]);
+
+  const paymentsBookingServices = useMemo<Service[]>(() => {
+    return Array.isArray(paymentsBooking?.services)
+      ? paymentsBooking.services
+      : [];
+  }, [paymentsBooking?.services]);
+
+  const paymentsLinkedPassengers = useMemo(() => {
+    if (!selectedPaymentsReservation) return [];
+    if (selectedPaymentsReservation.departureId == null) {
+      return passengers.filter(
+        (item) => item.travelGroupDeparture?.id_travel_group_departure == null,
+      );
+    }
+    return passengers.filter(
+      (item) =>
+        Number(item.travelGroupDeparture?.id_travel_group_departure || 0) ===
+        selectedPaymentsReservation.departureId,
+    );
+  }, [passengers, selectedPaymentsReservation]);
 
   const financeLinkedPassengers = useMemo(() => {
     if (!selectedFinanceReservation) return [];
     if (selectedFinanceReservation.departureId == null) {
       return passengers.filter(
-        (item) =>
-          item.travelGroupDeparture?.id_travel_group_departure == null,
+        (item) => item.travelGroupDeparture?.id_travel_group_departure == null,
       );
     }
     return passengers.filter(
@@ -2685,85 +3060,112 @@ export default function GroupDetailPage() {
     );
   }, [passengers, selectedFinanceReservation]);
 
-  const reservationHasMultipleTechnicalBookings =
-    (selectedFinanceReservation?.bookingIds.length ?? 0) > 1;
+  const selectedFinanceInvoicePassenger = selectedFinancePassenger;
 
-  const showGroupPanels = sectionFilter === "TODO" || sectionFilter === "GRUPAL";
-  const showCobrosPanels = sectionFilter === "TODO" || sectionFilter === "COBROS";
-  const showPagosPanels = sectionFilter === "TODO" || sectionFilter === "PAGOS";
-  const showFacturacionPanel =
-    sectionFilter === "TODO" || sectionFilter === "FACTURACION";
+  const selectedFinanceInvoiceClientId = useMemo(() => {
+    const clientId = Number(selectedFinanceInvoicePassenger?.client_id || 0);
+    return Number.isFinite(clientId) && clientId > 0 ? clientId : null;
+  }, [selectedFinanceInvoicePassenger?.client_id]);
 
-  function openProgress(title: string, step: string, percent: number) {
-    setBulkProgress({
-      title,
-      status: "running",
-      percent,
-      step,
-      lines: [],
-      timestamp: Date.now(),
+  useEffect(() => {
+    setFinanceInvoiceFormVisible(false);
+    setFinanceInvoiceFormData(createEmptyInvoiceFormData());
+  }, [selectedFinanceReservation?.key]);
+
+  useEffect(() => {
+    const clientId = selectedFinanceInvoiceClientId;
+    const paxDni = String(
+      selectedFinanceInvoicePassenger?.client?.dni_number || "",
+    ).replace(/\D/g, "");
+    setFinanceInvoiceFormData((prev) => {
+      const next = { ...prev };
+
+      if (!clientId) {
+        if (
+          prev.clientIds.length === 0 &&
+          prev.distributionValues.length === 0 &&
+          prev.paxDocTypes.length === 0 &&
+          prev.paxDocNumbers.length === 0
+        ) {
+          return prev;
+        }
+        next.clientIds = [];
+        next.distributionValues = [];
+        next.paxDocTypes = [];
+        next.paxDocNumbers = [];
+        next.paxLookupData = [];
+        next.paxLookupPersist = [];
+        return next;
+      }
+
+      const nextClientId = String(clientId);
+      const nextDocType = paxDni ? "DNI" : "";
+
+      if (
+        prev.clientIds.length === 1 &&
+        prev.clientIds[0] === nextClientId &&
+        prev.distributionValues.length === 1 &&
+        prev.distributionValues[0] === "100" &&
+        prev.paxDocTypes.length === 1 &&
+        prev.paxDocTypes[0] === nextDocType &&
+        prev.paxDocNumbers.length === 1 &&
+        prev.paxDocNumbers[0] === paxDni &&
+        prev.paxLookupData.length === 1 &&
+        prev.paxLookupPersist.length === 1
+      ) {
+        return prev;
+      }
+
+      next.clientIds = [nextClientId];
+      next.distributionValues = ["100"];
+      next.paxDocTypes = [nextDocType];
+      next.paxDocNumbers = [paxDni];
+      next.paxLookupData = [prev.paxLookupData?.[0] ?? null];
+      next.paxLookupPersist = [prev.paxLookupPersist?.[0] ?? false];
+      return next;
     });
-  }
+  }, [
+    selectedFinanceInvoiceClientId,
+    selectedFinanceInvoicePassenger?.client?.dni_number,
+  ]);
 
-  function updateProgress(step: string, percent: number) {
-    setBulkProgress((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        status: "running",
-        step,
-        percent,
-        timestamp: Date.now(),
-      };
-    });
-  }
+  const showGroupPanels = sectionFilter === "GRUPAL";
+  const showCobrosPanels = sectionFilter === "COBROS";
+  const showPagosPanels = sectionFilter === "PAGOS";
+  const showFacturacionPanel = sectionFilter === "FACTURACION";
 
   type ActionResult = {
     toastMessage?: string;
     summaryLines?: string[];
   };
 
+  type RunActionOptions = {
+    notifySuccess?: boolean;
+  };
+
   async function runAction(
     title: string,
     fn: () => Promise<ActionResult | void>,
-  ) {
+    options?: RunActionOptions,
+  ): Promise<boolean> {
     setSubmitting(true);
     setError(null);
     setMessage(null);
-    openProgress(title, "Validando datos...", 12);
     try {
-      updateProgress("Enviando operación...", 46);
       const result = await fn();
-      updateProgress("Actualizando información...", 78);
       await fetchAll();
 
       const successMessage = result?.toastMessage || `${title} completada.`;
-      const summaryLines = result?.summaryLines?.length
-        ? result.summaryLines
-        : [successMessage];
-
       setMessage(successMessage);
-      toast.success(successMessage);
-      setBulkProgress({
-        title,
-        status: "success",
-        percent: 100,
-        step: "Operación completada.",
-        lines: summaryLines,
-        timestamp: Date.now(),
-      });
+      if (options?.notifySuccess !== false) {
+        toast.success(successMessage);
+      }
+      return true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error inesperado.";
       setError(msg);
       toast.error(msg);
-      setBulkProgress({
-        title,
-        status: "error",
-        percent: 100,
-        step: "La operación no se pudo completar.",
-        lines: [msg],
-        timestamp: Date.now(),
-      });
+      return false;
     } finally {
       setSubmitting(false);
     }
@@ -2772,6 +3174,7 @@ export default function GroupDetailPage() {
   async function handleAddPassenger(e: FormEvent) {
     e.preventDefault();
     let clientIdToAdd = newPassengerClientId;
+    const creatingNewPassenger = newPassengerMode === "NUEVO";
     if (newPassengerMode === "NUEVO") {
       const validationError = validateClientDraft(
         newClientDraft as NonNullable<ClientEditableDraft> | null,
@@ -2848,20 +3251,28 @@ export default function GroupDetailPage() {
       return;
     }
     let createdPassengerId: number | null = null;
-    await runAction("Alta de pasajero", async () => {
+    let createdCount = 0;
+    const completed = await runAction(
+      "Alta de pasajero",
+      async () => {
       const data = await requestGroupApi<{
         created_count?: number;
         skipped_count?: number;
         created?: Array<{ passenger_id?: number }>;
-      }>(`/api/groups/${encodeURIComponent(groupId)}/passengers/bulk-create`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          clientIds: [clientIdToAdd],
-          departureId: newPassengerDepartureId || null,
-        }),
-      }, "No pudimos agregar el pasajero.");
+      }>(
+        `/api/groups/${encodeURIComponent(groupId)}/passengers/single-create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            clientIds: [clientIdToAdd],
+            departureId: newPassengerDepartureId || null,
+          }),
+        },
+        "No pudimos agregar el pasajero.",
+      );
+      createdCount = Number(data.created_count ?? 0);
       const firstCreated = Array.isArray(data.created) ? data.created[0] : null;
       createdPassengerId =
         firstCreated && typeof firstCreated.passenger_id === "number"
@@ -2880,7 +3291,17 @@ export default function GroupDetailPage() {
           `Pasajeros omitidos: ${data.skipped_count ?? 0}`,
         ],
       };
-    });
+      },
+      { notifySuccess: false },
+    );
+
+    if (completed && createdCount > 0) {
+      toast.success(
+        creatingNewPassenger
+          ? "Pasajero nuevo creado y agregado a la grupal."
+          : "Pasajero agregado a la grupal.",
+      );
+    }
     if (createdPassengerId) {
       setActivePassengerId(createdPassengerId);
       setPassengerFormMode("EDICION");
@@ -2900,7 +3321,10 @@ export default function GroupDetailPage() {
       const payload: Record<string, unknown> = {
         passengerIds: [activePassenger.id_travel_group_passenger],
       };
-      if (activePassengerStatus && activePassengerStatus !== activePassenger.status) {
+      if (
+        activePassengerStatus &&
+        activePassengerStatus !== activePassenger.status
+      ) {
         payload.status = activePassengerStatus;
       }
       if (activePassengerDepartureId === "CLEAR") {
@@ -2913,7 +3337,7 @@ export default function GroupDetailPage() {
       const data = await requestGroupApi<{
         updated_count?: number;
       }>(
-        `/api/groups/${encodeURIComponent(groupId)}/passengers/bulk-update`,
+        `/api/groups/${encodeURIComponent(groupId)}/passengers/single-update`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3006,14 +3430,17 @@ export default function GroupDetailPage() {
     passenger: PassengerItem,
     nextStatus: string,
   ) {
-    const normalizedNextStatus = String(nextStatus || "").trim().toUpperCase();
-    if (!normalizedNextStatus || normalizedNextStatus === passenger.status) return;
+    const normalizedNextStatus = String(nextStatus || "")
+      .trim()
+      .toUpperCase();
+    if (!normalizedNextStatus || normalizedNextStatus === passenger.status)
+      return;
 
     setError(null);
     setUpdatingPassengerStatusId(passenger.id_travel_group_passenger);
     try {
       const data = await requestGroupApi<{ updated_count?: number }>(
-        `/api/groups/${encodeURIComponent(groupId)}/passengers/bulk-update`,
+        `/api/groups/${encodeURIComponent(groupId)}/passengers/single-update`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3065,7 +3492,8 @@ export default function GroupDetailPage() {
     );
     const selectedOperatorName =
       parsedOperatorId != null
-        ? (operatorOptions.find((item) => item.id_operator === parsedOperatorId)?.name ?? "")
+        ? (operatorOptions.find((item) => item.id_operator === parsedOperatorId)
+            ?.name ?? "")
         : "";
     const providerValue =
       inventoryProviderMode === "OPERADOR"
@@ -3155,7 +3583,8 @@ export default function GroupDetailPage() {
       setShowManualInventoryStatsInputs(false);
       await fetchAll();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "No pudimos guardar el servicio.";
+      const msg =
+        e instanceof Error ? e.message : "No pudimos guardar el servicio.";
       setError(msg);
       toast.error(msg);
     } finally {
@@ -3197,7 +3626,8 @@ export default function GroupDetailPage() {
       toast.success("Servicio eliminado.");
       await fetchAll();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "No pudimos eliminar el servicio.";
+      const msg =
+        e instanceof Error ? e.message : "No pudimos eliminar el servicio.";
       setError(msg);
       toast.error(msg);
     } finally {
@@ -3205,9 +3635,10 @@ export default function GroupDetailPage() {
     }
   }
 
-  function buildDeparturePayload(
-    draft: DepartureDraft,
-  ): { payload: Record<string, unknown> | null; error: string | null } {
+  function buildDeparturePayload(draft: DepartureDraft): {
+    payload: Record<string, unknown> | null;
+    error: string | null;
+  } {
     if (!draft.name.trim()) {
       return {
         payload: null,
@@ -3228,7 +3659,9 @@ export default function GroupDetailPage() {
         error: "El cupo total de la salida es inválido.",
       };
     }
-    const overbookingLimit = parseOptionalPositiveInteger(draft.overbooking_limit);
+    const overbookingLimit = parseOptionalPositiveInteger(
+      draft.overbooking_limit,
+    );
     if (draft.overbooking_limit.trim() && overbookingLimit == null) {
       return {
         payload: null,
@@ -3291,7 +3724,8 @@ export default function GroupDetailPage() {
       toast.success("Salida creada correctamente.");
       await fetchAll();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "No pudimos crear la salida.";
+      const msg =
+        e instanceof Error ? e.message : "No pudimos crear la salida.";
       setError(msg);
       toast.error(msg);
     } finally {
@@ -3316,7 +3750,9 @@ export default function GroupDetailPage() {
       setEditingDepartureDraft(defaultDepartureDraft(data));
     } catch (e) {
       const msg =
-        e instanceof Error ? e.message : "No pudimos cargar los datos de la salida.";
+        e instanceof Error
+          ? e.message
+          : "No pudimos cargar los datos de la salida.";
       setError(msg);
       toast.error(msg);
     } finally {
@@ -3351,7 +3787,8 @@ export default function GroupDetailPage() {
       setError(null);
       setMessage(null);
       const routeId =
-        currentDeparture.public_id || String(currentDeparture.id_travel_group_departure);
+        currentDeparture.public_id ||
+        String(currentDeparture.id_travel_group_departure);
       await requestGroupApi(
         `/api/groups/${encodeURIComponent(groupId)}/departures/${encodeURIComponent(routeId)}`,
         {
@@ -3368,7 +3805,8 @@ export default function GroupDetailPage() {
       toast.success("Salida actualizada correctamente.");
       await fetchAll();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "No pudimos actualizar la salida.";
+      const msg =
+        e instanceof Error ? e.message : "No pudimos actualizar la salida.";
       setError(msg);
       toast.error(msg);
     } finally {
@@ -3403,7 +3841,8 @@ export default function GroupDetailPage() {
       toast.success("Salida eliminada correctamente.");
       await fetchAll();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "No pudimos eliminar la salida.";
+      const msg =
+        e instanceof Error ? e.message : "No pudimos eliminar la salida.";
       setError(msg);
       toast.error(msg);
     } finally {
@@ -3456,20 +3895,23 @@ export default function GroupDetailPage() {
                 <h1 className="text-2xl font-extrabold text-slate-900 dark:text-slate-100">
                   {group.name}
                 </h1>
-                <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${STATUS_STYLES[group.status] || STATUS_STYLES.BORRADOR}`}>
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-xs font-bold ${STATUS_STYLES[group.status] || STATUS_STYLES.BORRADOR}`}
+                >
                   {formatGroupStatus(group.status)}
                 </span>
                 <span
                   className={`${RESULT_PILL_BASE} ${
-                    group._count.passengers > 0 ? RESULT_PILL_OK : RESULT_PILL_WARN
+                    group._count.passengers > 0
+                      ? RESULT_PILL_OK
+                      : RESULT_PILL_WARN
                   }`}
                 >
                   {group._count.passengers} pasajeros
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
-                {formatGroupType(group.type)} · {formatDate(group.start_date)} -{" "}
-                {formatDate(group.end_date)}
+                {formatGroupType(group.type)} · Fechas por salida
               </p>
               <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
                 {formatGroupReference(group)}
@@ -3515,7 +3957,10 @@ export default function GroupDetailPage() {
                 type="button"
                 key={`section-filter-${section.id}`}
                 onClick={() => setSectionFilter(section.id)}
-                className={pillClass(sectionFilter === section.id, section.tone)}
+                className={pillClass(
+                  sectionFilter === section.id,
+                  section.tone,
+                )}
               >
                 {section.label}
               </button>
@@ -3524,7 +3969,8 @@ export default function GroupDetailPage() {
           <p className="mt-2 px-1 text-[11px] text-slate-600 dark:text-slate-400">
             Mostrando:{" "}
             <span className="font-semibold">
-              {SECTION_FILTERS.find((item) => item.id === sectionFilter)?.label || "Todo"}
+              {SECTION_FILTERS.find((item) => item.id === sectionFilter)
+                ?.label || "Grupal"}
             </span>
           </p>
         </nav>
@@ -3540,58 +3986,6 @@ export default function GroupDetailPage() {
           </p>
         ) : null}
 
-        {bulkProgress ? (
-          <section
-            className={`rounded-3xl border p-5 shadow-lg backdrop-blur-md ${
-              bulkProgress.status === "error"
-                ? "border-amber-300/80 bg-amber-100/85 text-amber-900 shadow-amber-900/10 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
-                : bulkProgress.status === "success"
-                  ? "border-emerald-300/80 bg-emerald-50/85 text-emerald-900 shadow-emerald-900/10 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-200"
-                  : "border-sky-200/80 bg-white/70 text-slate-800 shadow-slate-900/10 dark:border-sky-800/70 dark:bg-slate-900/55 dark:text-slate-200"
-            }`}
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold">
-                  Estado de operación
-                </p>
-                <p className="text-xs opacity-85">{bulkProgress.title}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setBulkProgress(null)}
-                className="rounded-full border border-slate-300/80 bg-white/85 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
-              >
-                Ocultar
-              </button>
-            </div>
-            <div className="mt-3">
-              <div className="h-2.5 overflow-hidden rounded-full bg-slate-200/70 dark:bg-slate-700/70">
-                <div
-                  className={`h-full transition-all duration-300 ${
-                    bulkProgress.status === "error"
-                      ? "bg-amber-500"
-                      : bulkProgress.status === "success"
-                        ? "bg-emerald-500"
-                        : "bg-sky-500"
-                  }`}
-                  style={{ width: `${Math.max(0, Math.min(100, bulkProgress.percent))}%` }}
-                />
-              </div>
-              <p className="mt-2 text-xs font-semibold">
-                {bulkProgress.step} ({Math.round(bulkProgress.percent)}%)
-              </p>
-              {bulkProgress.lines.length > 0 ? (
-                <ul className="mt-2 space-y-1 text-xs">
-                  {bulkProgress.lines.map((line, idx) => (
-                    <li key={`bulk-line-${idx}`}>• {line}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          </section>
-        ) : null}
-
         {showGroupPanels ? (
           <section
             id="panel-salidas"
@@ -3599,217 +3993,236 @@ export default function GroupDetailPage() {
               isSingleDepartureMode ? "p-4" : "p-5"
             }`}
           >
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                {isSingleDepartureMode ? "Salida principal" : "Gestión de salidas"}
-              </h2>
-              <p className="text-xs text-slate-700 dark:text-slate-300">
-                {isSingleDepartureMode
-                  ? "Esta grupal usa salida única. Se reutiliza en toda la operación."
-                  : "Creá, editá o eliminá lotes/salidas de esta grupal."}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowDepartureFilters((prev) => !prev)}
-                className={pillClass(showDepartureFilters, "emerald")}
-              >
-                {showDepartureFilters ? "Ocultar campos avanzados" : "Mostrar campos avanzados"}
-              </button>
-              {!isSingleDepartureMode || sortedDepartures.length === 0 ? (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  {isSingleDepartureMode
+                    ? "Salida principal"
+                    : "Gestión de salidas"}
+                </h2>
+                <p className="text-xs text-slate-700 dark:text-slate-300">
+                  {isSingleDepartureMode
+                    ? "Esta grupal usa salida única. Se reutiliza en toda la operación."
+                    : "Creá, editá o eliminá lotes/salidas de esta grupal."}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowDepartureCreate((prev) => !prev);
-                    if (!showDepartureCreate) {
-                      setCreateDepartureDraft(
-                        defaultDepartureDraft({
-                          name: group.name,
-                          status: group.status,
-                          departure_date: group.start_date || "",
-                          return_date: group.end_date || "",
-                          capacity_total: group.capacity_total,
-                          allow_overbooking: group.allow_overbooking,
-                          waitlist_enabled: group.waitlist_enabled,
-                        }),
-                      );
-                    }
-                  }}
-                  className={pillClass(showDepartureCreate, "sky")}
+                  onClick={() => setShowDepartureFilters((prev) => !prev)}
+                  className={pillClass(showDepartureFilters, "emerald")}
                 >
-                  {showDepartureCreate
-                    ? "Cancelar nueva salida"
-                    : isSingleDepartureMode
-                      ? "Crear salida principal"
-                      : "Agregar salida"}
+                  {showDepartureFilters
+                    ? "Ocultar campos avanzados"
+                    : "Mostrar campos avanzados"}
                 </button>
-              ) : null}
+                {!isSingleDepartureMode || sortedDepartures.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDepartureCreate((prev) => !prev);
+                      if (!showDepartureCreate) {
+                        setCreateDepartureDraft(
+                          defaultDepartureDraft({
+                            name: group.name,
+                            status: group.status,
+                            capacity_total: group.capacity_total,
+                            allow_overbooking: group.allow_overbooking,
+                            waitlist_enabled: group.waitlist_enabled,
+                          }),
+                        );
+                      }
+                    }}
+                    className={pillClass(showDepartureCreate, "sky")}
+                  >
+                    {showDepartureCreate
+                      ? "Cancelar nueva salida"
+                      : isSingleDepartureMode
+                        ? "Crear salida principal"
+                        : "Agregar salida"}
+                  </button>
+                ) : null}
+              </div>
             </div>
-          </div>
 
-          {sortedDepartures.length === 0 ? (
-            <p className="rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-              {isSingleDepartureMode
-                ? "La salida principal todavía no está creada."
-                : "Esta grupal todavía no tiene salidas cargadas."}
-            </p>
-          ) : (
-            <div
-              className={
-                isSingleDepartureMode
-                  ? "grid grid-cols-1 gap-3"
-                  : "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"
-              }
-            >
-              {(isSingleDepartureMode
-                ? sortedDepartures.slice(0, 1)
-                : sortedDepartures
-              ).map((dep) => (
-                <article
-                  key={dep.id_travel_group_departure}
-                  className="rounded-2xl border border-slate-300/80 bg-white/85 p-4 shadow-sm shadow-slate-900/10 dark:border-slate-600 dark:bg-slate-900/60"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <p className="font-semibold text-slate-900 dark:text-slate-100">
-                        {dep.name}
-                      </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {formatDepartureReference(dep)}
-                      </p>
+            {sortedDepartures.length === 0 ? (
+              <p className="rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+                {isSingleDepartureMode
+                  ? "La salida principal todavía no está creada."
+                  : "Esta grupal todavía no tiene salidas cargadas."}
+              </p>
+            ) : (
+              <div
+                className={
+                  isSingleDepartureMode
+                    ? "grid grid-cols-1 gap-3"
+                    : "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"
+                }
+              >
+                {(isSingleDepartureMode
+                  ? sortedDepartures.slice(0, 1)
+                  : sortedDepartures
+                ).map((dep) => (
+                  <article
+                    key={dep.id_travel_group_departure}
+                    className="rounded-2xl border border-slate-300/80 bg-white/85 p-4 shadow-sm shadow-slate-900/10 dark:border-slate-600 dark:bg-slate-900/60"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-slate-900 dark:text-slate-100">
+                          {dep.name}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {formatDepartureReference(dep)}
+                        </p>
+                      </div>
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_STYLES[dep.status] || STATUS_STYLES.BORRADOR}`}
+                      >
+                        {formatDepartureStatus(dep.status)}
+                      </span>
                     </div>
-                    <span
-                      className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_STYLES[dep.status] || STATUS_STYLES.BORRADOR}`}
-                    >
-                      {formatDepartureStatus(dep.status)}
-                    </span>
-                  </div>
-                  <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-slate-700 dark:text-slate-300 sm:grid-cols-2">
-                    <span>Salida: {formatDate(dep.departure_date)}</span>
-                    <span>Regreso: {formatDate(dep.return_date)}</span>
-                    <span>Cupo: {dep.capacity_total ?? "-"}</span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void startEditDeparture(dep)}
-                      disabled={submitting || loadingDepartureId === dep.id_travel_group_departure}
-                      className="rounded-full border border-slate-300 bg-white/85 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
-                    >
-                      {loadingDepartureId === dep.id_travel_group_departure ? "Cargando..." : "Editar"}
-                    </button>
-                    {!isSingleDepartureMode ? (
+                    <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-slate-700 dark:text-slate-300 sm:grid-cols-2">
+                      <span>Salida: {formatDate(dep.departure_date)}</span>
+                      <span>Regreso: {formatDate(dep.return_date)}</span>
+                      <span>Cupo: {dep.capacity_total ?? "-"}</span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         type="button"
-                        onClick={() => void handleDeleteDeparture(dep)}
-                        disabled={submitting}
-                        className="rounded-full border border-amber-300 bg-amber-100/90 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                        onClick={() => void startEditDeparture(dep)}
+                        disabled={
+                          submitting ||
+                          loadingDepartureId === dep.id_travel_group_departure
+                        }
+                        className="rounded-full border border-slate-300 bg-white/85 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
                       >
-                        Eliminar
+                        {loadingDepartureId === dep.id_travel_group_departure
+                          ? "Cargando..."
+                          : "Editar"}
                       </button>
-                    ) : null}
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
+                      {!isSingleDepartureMode ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteDeparture(dep)}
+                          disabled={submitting}
+                          className="rounded-full border border-amber-300 bg-amber-100/90 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                        >
+                          Eliminar
+                        </button>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
 
-          <CollapsiblePanel open={showDepartureCreate} className="mt-4">
-            <form
-              onSubmit={handleCreateDeparture}
-              className="space-y-3 rounded-2xl border border-slate-300/80 bg-white/70 p-4 dark:border-slate-600 dark:bg-slate-900/60"
-            >
-              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                Nueva salida
-              </p>
-              <div className="flex flex-col gap-2">
-                <label className="flex flex-col gap-1 text-sm">
-                  Nombre
-                  <input
-                    value={createDepartureDraft.name}
-                    onChange={(e) =>
-                      setCreateDepartureDraft((prev) => ({ ...prev, name: e.target.value }))
-                    }
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                    placeholder="Lote 1 / Salida principal"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  Estado
-                  <select
-                    value={createDepartureDraft.status}
-                    onChange={(e) =>
-                      setCreateDepartureDraft((prev) => ({
-                        ...prev,
-                        status: e.target.value as GroupStatus,
-                      }))
-                    }
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
+            <CollapsiblePanel open={showDepartureCreate} className="mt-4">
+              <form
+                onSubmit={handleCreateDeparture}
+                className="space-y-3 rounded-2xl border border-slate-300/80 bg-white/70 p-4 dark:border-slate-600 dark:bg-slate-900/60"
+              >
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Nueva salida
+                </p>
+                <div className="flex flex-col gap-2">
+                  <label className="flex flex-col gap-1 text-sm">
+                    Nombre
+                    <input
+                      value={createDepartureDraft.name}
+                      onChange={(e) =>
+                        setCreateDepartureDraft((prev) => ({
+                          ...prev,
+                          name: e.target.value,
+                        }))
+                      }
+                      disabled={submitting}
+                      className={FIELD_INPUT_CLASS}
+                      placeholder="Lote 1 / Salida principal"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    Estado
+                    <select
+                      value={createDepartureDraft.status}
+                      onChange={(e) =>
+                        setCreateDepartureDraft((prev) => ({
+                          ...prev,
+                          status: e.target.value as GroupStatus,
+                        }))
+                      }
+                      disabled={submitting}
+                      className={FIELD_INPUT_CLASS}
+                    >
+                      {DEPARTURE_STATUS_OPTIONS.map((status) => (
+                        <option
+                          key={`create-dep-status-${status}`}
+                          value={status}
+                        >
+                          {formatGroupStatus(status)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    Cupo total
+                    <input
+                      value={createDepartureDraft.capacity_total}
+                      onChange={(e) =>
+                        setCreateDepartureDraft((prev) => ({
+                          ...prev,
+                          capacity_total: e.target.value,
+                        }))
+                      }
+                      inputMode="numeric"
+                      disabled={submitting}
+                      className={FIELD_INPUT_CLASS}
+                      placeholder="20"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    Fecha de salida
+                    <input
+                      type="date"
+                      value={createDepartureDraft.departure_date}
+                      onChange={(e) =>
+                        setCreateDepartureDraft((prev) => ({
+                          ...prev,
+                          departure_date: e.target.value,
+                        }))
+                      }
+                      disabled={submitting}
+                      className={FIELD_INPUT_CLASS}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    Fecha de regreso
+                    <input
+                      type="date"
+                      value={createDepartureDraft.return_date}
+                      onChange={(e) =>
+                        setCreateDepartureDraft((prev) => ({
+                          ...prev,
+                          return_date: e.target.value,
+                        }))
+                      }
+                      disabled={submitting}
+                      className={FIELD_INPUT_CLASS}
+                    />
+                  </label>
+                  <CollapsiblePanel
+                    open={showDepartureFilters}
+                    className="space-y-2"
                   >
-                    {DEPARTURE_STATUS_OPTIONS.map((status) => (
-                      <option key={`create-dep-status-${status}`} value={status}>
-                        {formatGroupStatus(status)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  Cupo total
-                  <input
-                    value={createDepartureDraft.capacity_total}
-                    onChange={(e) =>
-                      setCreateDepartureDraft((prev) => ({
-                        ...prev,
-                        capacity_total: e.target.value,
-                      }))
-                    }
-                    inputMode="numeric"
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                    placeholder="20"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  Fecha de salida
-                  <input
-                    type="date"
-                    value={createDepartureDraft.departure_date}
-                    onChange={(e) =>
-                      setCreateDepartureDraft((prev) => ({
-                        ...prev,
-                        departure_date: e.target.value,
-                      }))
-                    }
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  Fecha de regreso
-                  <input
-                    type="date"
-                    value={createDepartureDraft.return_date}
-                    onChange={(e) =>
-                      setCreateDepartureDraft((prev) => ({
-                        ...prev,
-                        return_date: e.target.value,
-                      }))
-                    }
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                  />
-                </label>
-                <CollapsiblePanel open={showDepartureFilters} className="space-y-2">
                     <label className="flex flex-col gap-1 text-sm">
                       Código
                       <input
                         value={createDepartureDraft.code}
                         onChange={(e) =>
-                          setCreateDepartureDraft((prev) => ({ ...prev, code: e.target.value }))
+                          setCreateDepartureDraft((prev) => ({
+                            ...prev,
+                            code: e.target.value,
+                          }))
                         }
                         disabled={submitting}
                         className={FIELD_INPUT_CLASS}
@@ -3847,7 +4260,9 @@ export default function GroupDetailPage() {
                         }`}
                         disabled={submitting}
                       >
-                        {createDepartureDraft.allow_overbooking ? "Sobreventa: activada" : "Sobreventa: desactivada"}
+                        {createDepartureDraft.allow_overbooking
+                          ? "Sobreventa: activada"
+                          : "Sobreventa: desactivada"}
                       </button>
                       {createDepartureDraft.allow_overbooking ? (
                         <input
@@ -3879,7 +4294,9 @@ export default function GroupDetailPage() {
                         }`}
                         disabled={submitting}
                       >
-                        {createDepartureDraft.waitlist_enabled ? "Lista de espera: activada" : "Lista de espera: desactivada"}
+                        {createDepartureDraft.waitlist_enabled
+                          ? "Lista de espera: activada"
+                          : "Lista de espera: desactivada"}
                       </button>
                       {createDepartureDraft.waitlist_enabled ? (
                         <input
@@ -3902,129 +4319,151 @@ export default function GroupDetailPage() {
                       <textarea
                         value={createDepartureDraft.note}
                         onChange={(e) =>
-                          setCreateDepartureDraft((prev) => ({ ...prev, note: e.target.value }))
+                          setCreateDepartureDraft((prev) => ({
+                            ...prev,
+                            note: e.target.value,
+                          }))
                         }
                         rows={2}
                         disabled={submitting}
                         className={FIELD_INPUT_CLASS}
                       />
                     </label>
-                </CollapsiblePanel>
-              </div>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="rounded-full border border-slate-300 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
-              >
-                {submitting ? <Spinner label="Creando salida..." /> : "Crear salida"}
-              </button>
-            </form>
-          </CollapsiblePanel>
-
-          <CollapsiblePanel open={Boolean(editingDepartureId)} className="mt-4">
-            <form
-              onSubmit={handleUpdateDeparture}
-              className="space-y-3 rounded-2xl border border-amber-300/80 bg-amber-100/60 p-4 dark:border-amber-600 dark:bg-amber-900/30"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                  Editar salida
-                </p>
+                  </CollapsiblePanel>
+                </div>
                 <button
-                  type="button"
-                  onClick={() => {
-                    setEditingDepartureId(null);
-                    setEditingDepartureDraft(defaultDepartureDraft());
-                  }}
-                  className="rounded-full border border-amber-300 bg-amber-50/90 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                  type="submit"
+                  disabled={submitting}
+                  className="rounded-full border border-slate-300 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
                 >
-                  Cancelar edición
+                  {submitting ? (
+                    <Spinner label="Creando salida..." />
+                  ) : (
+                    "Crear salida"
+                  )}
                 </button>
-              </div>
-              <div className="flex flex-col gap-2">
-                <label className="flex flex-col gap-1 text-sm">
-                  Nombre
-                  <input
-                    value={editingDepartureDraft.name}
-                    onChange={(e) =>
-                      setEditingDepartureDraft((prev) => ({ ...prev, name: e.target.value }))
-                    }
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  Estado
-                  <select
-                    value={editingDepartureDraft.status}
-                    onChange={(e) =>
-                      setEditingDepartureDraft((prev) => ({
-                        ...prev,
-                        status: e.target.value as GroupStatus,
-                      }))
-                    }
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
+              </form>
+            </CollapsiblePanel>
+
+            <CollapsiblePanel
+              open={Boolean(editingDepartureId)}
+              className="mt-4"
+            >
+              <form
+                onSubmit={handleUpdateDeparture}
+                className="space-y-3 rounded-2xl border border-amber-300/80 bg-amber-100/60 p-4 dark:border-amber-600 dark:bg-amber-900/30"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                    Editar salida
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingDepartureId(null);
+                      setEditingDepartureDraft(defaultDepartureDraft());
+                    }}
+                    className="rounded-full border border-amber-300 bg-amber-50/90 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
                   >
-                    {DEPARTURE_STATUS_OPTIONS.map((status) => (
-                      <option key={`edit-dep-status-${status}`} value={status}>
-                        {formatGroupStatus(status)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  Cupo total
-                  <input
-                    value={editingDepartureDraft.capacity_total}
-                    onChange={(e) =>
-                      setEditingDepartureDraft((prev) => ({
-                        ...prev,
-                        capacity_total: e.target.value,
-                      }))
-                    }
-                    inputMode="numeric"
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  Fecha de salida
-                  <input
-                    type="date"
-                    value={editingDepartureDraft.departure_date}
-                    onChange={(e) =>
-                      setEditingDepartureDraft((prev) => ({
-                        ...prev,
-                        departure_date: e.target.value,
-                      }))
-                    }
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  Fecha de regreso
-                  <input
-                    type="date"
-                    value={editingDepartureDraft.return_date}
-                    onChange={(e) =>
-                      setEditingDepartureDraft((prev) => ({
-                        ...prev,
-                        return_date: e.target.value,
-                      }))
-                    }
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                  />
-                </label>
-                <CollapsiblePanel open={showDepartureFilters} className="space-y-2">
+                    Cancelar edición
+                  </button>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="flex flex-col gap-1 text-sm">
+                    Nombre
+                    <input
+                      value={editingDepartureDraft.name}
+                      onChange={(e) =>
+                        setEditingDepartureDraft((prev) => ({
+                          ...prev,
+                          name: e.target.value,
+                        }))
+                      }
+                      disabled={submitting}
+                      className={FIELD_INPUT_CLASS}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    Estado
+                    <select
+                      value={editingDepartureDraft.status}
+                      onChange={(e) =>
+                        setEditingDepartureDraft((prev) => ({
+                          ...prev,
+                          status: e.target.value as GroupStatus,
+                        }))
+                      }
+                      disabled={submitting}
+                      className={FIELD_INPUT_CLASS}
+                    >
+                      {DEPARTURE_STATUS_OPTIONS.map((status) => (
+                        <option
+                          key={`edit-dep-status-${status}`}
+                          value={status}
+                        >
+                          {formatGroupStatus(status)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    Cupo total
+                    <input
+                      value={editingDepartureDraft.capacity_total}
+                      onChange={(e) =>
+                        setEditingDepartureDraft((prev) => ({
+                          ...prev,
+                          capacity_total: e.target.value,
+                        }))
+                      }
+                      inputMode="numeric"
+                      disabled={submitting}
+                      className={FIELD_INPUT_CLASS}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    Fecha de salida
+                    <input
+                      type="date"
+                      value={editingDepartureDraft.departure_date}
+                      onChange={(e) =>
+                        setEditingDepartureDraft((prev) => ({
+                          ...prev,
+                          departure_date: e.target.value,
+                        }))
+                      }
+                      disabled={submitting}
+                      className={FIELD_INPUT_CLASS}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    Fecha de regreso
+                    <input
+                      type="date"
+                      value={editingDepartureDraft.return_date}
+                      onChange={(e) =>
+                        setEditingDepartureDraft((prev) => ({
+                          ...prev,
+                          return_date: e.target.value,
+                        }))
+                      }
+                      disabled={submitting}
+                      className={FIELD_INPUT_CLASS}
+                    />
+                  </label>
+                  <CollapsiblePanel
+                    open={showDepartureFilters}
+                    className="space-y-2"
+                  >
                     <label className="flex flex-col gap-1 text-sm">
                       Código
                       <input
                         value={editingDepartureDraft.code}
                         onChange={(e) =>
-                          setEditingDepartureDraft((prev) => ({ ...prev, code: e.target.value }))
+                          setEditingDepartureDraft((prev) => ({
+                            ...prev,
+                            code: e.target.value,
+                          }))
                         }
                         disabled={submitting}
                         className={FIELD_INPUT_CLASS}
@@ -4061,7 +4500,9 @@ export default function GroupDetailPage() {
                         }`}
                         disabled={submitting}
                       >
-                        {editingDepartureDraft.allow_overbooking ? "Sobreventa: activada" : "Sobreventa: desactivada"}
+                        {editingDepartureDraft.allow_overbooking
+                          ? "Sobreventa: activada"
+                          : "Sobreventa: desactivada"}
                       </button>
                       {editingDepartureDraft.allow_overbooking ? (
                         <input
@@ -4093,7 +4534,9 @@ export default function GroupDetailPage() {
                         }`}
                         disabled={submitting}
                       >
-                        {editingDepartureDraft.waitlist_enabled ? "Lista de espera: activada" : "Lista de espera: desactivada"}
+                        {editingDepartureDraft.waitlist_enabled
+                          ? "Lista de espera: activada"
+                          : "Lista de espera: desactivada"}
                       </button>
                       {editingDepartureDraft.waitlist_enabled ? (
                         <input
@@ -4116,24 +4559,31 @@ export default function GroupDetailPage() {
                       <textarea
                         value={editingDepartureDraft.note}
                         onChange={(e) =>
-                          setEditingDepartureDraft((prev) => ({ ...prev, note: e.target.value }))
+                          setEditingDepartureDraft((prev) => ({
+                            ...prev,
+                            note: e.target.value,
+                          }))
                         }
                         rows={2}
                         disabled={submitting}
                         className={FIELD_INPUT_CLASS}
                       />
                     </label>
-                </CollapsiblePanel>
-              </div>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="rounded-full border border-amber-300 bg-amber-100/90 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
-              >
-                {submitting ? <Spinner label="Guardando salida..." /> : "Guardar cambios de salida"}
-              </button>
-            </form>
-          </CollapsiblePanel>
+                  </CollapsiblePanel>
+                </div>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="rounded-full border border-amber-300 bg-amber-100/90 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                >
+                  {submitting ? (
+                    <Spinner label="Guardando salida..." />
+                  ) : (
+                    "Guardar cambios de salida"
+                  )}
+                </button>
+              </form>
+            </CollapsiblePanel>
           </section>
         ) : null}
 
@@ -4142,217 +4592,160 @@ export default function GroupDetailPage() {
             id="panel-pasajero-activo"
             className="rounded-3xl border border-sky-200/80 bg-white/70 p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
           >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                Formulario de pasajero
-              </h2>
-              <p className="text-xs text-slate-700 dark:text-slate-300">
-                Un único formulario para alta y edición de pasajeros.
-              </p>
-            </div>
-            <ToggleIconButton
-              open={showPassengerForm}
-              onClick={() => setShowPassengerForm((prev) => !prev)}
-              label="formulario"
-            />
-          </div>
-
-          <CollapsiblePanel open={showPassengerForm} className="mt-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setPassengerFormMode("ALTA")}
-                className={pillClass(passengerFormMode === "ALTA", "sky")}
-                disabled={submitting}
-              >
-                Alta
-              </button>
-              <button
-                type="button"
-                onClick={() => setPassengerFormMode("EDICION")}
-                className={pillClass(passengerFormMode === "EDICION", "emerald")}
-                disabled={submitting || !activePassenger}
-              >
-                Edición
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  Formulario de pasajero
+                </h2>
+                <p className="text-xs text-slate-700 dark:text-slate-300">
+                  Un único formulario para alta y edición de pasajeros.
+                </p>
+              </div>
+              <ToggleIconButton
+                open={showPassengerForm}
+                onClick={() => setShowPassengerForm((prev) => !prev)}
+                label="formulario"
+              />
             </div>
 
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={passengerFormMode}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.2, ease: "easeInOut" }}
-              >
-                {passengerFormMode === "ALTA" ? (
-                  <form onSubmit={handleAddPassenger} className="mt-3 flex flex-col gap-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setNewPassengerMode("EXISTENTE")}
-                        className={pillClass(newPassengerMode === "EXISTENTE", "sky")}
-                        disabled={submitting}
-                      >
-                        Pasajero existente
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setNewPassengerMode("NUEVO")}
-                        className={pillClass(newPassengerMode === "NUEVO", "emerald")}
-                        disabled={submitting}
-                      >
-                        Pasajero nuevo
-                      </button>
-                    </div>
+            <CollapsiblePanel open={showPassengerForm} className="mt-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPassengerFormMode("ALTA")}
+                  className={pillClass(passengerFormMode === "ALTA", "sky")}
+                  disabled={submitting}
+                >
+                  Alta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPassengerFormMode("EDICION")}
+                  className={pillClass(
+                    passengerFormMode === "EDICION",
+                    "emerald",
+                  )}
+                  disabled={submitting || !activePassenger}
+                >
+                  Edición
+                </button>
+              </div>
 
-                    <AnimatePresence mode="wait" initial={false}>
-                      <motion.div
-                        key={newPassengerMode}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -6 }}
-                        transition={{ duration: 0.16, ease: "easeInOut" }}
-                      >
-                        {newPassengerMode === "EXISTENTE" ? (
-                          <div className="space-y-1">
-                            <label className="ml-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
-                              Pasajero
-                            </label>
-                            <ClientPicker
-                              label=""
-                              valueId={newPassengerClientId}
-                              onSelect={(client: Client) => setNewPassengerClientId(client.id_client)}
-                              onClear={() => setNewPassengerClientId(null)}
-                              placeholder="Buscar por N° pax, DNI, pasaporte, CUIT o nombre..."
-                            />
-                            <p className="ml-1 text-xs text-slate-600 dark:text-slate-400">
-                              Seleccioná un pasajero existente o cambiá a modo nuevo para crearlo acá.
-                            </p>
-                          </div>
-                        ) : (
-                          <PassengerClientFields
-                            draft={newClientDraft}
-                            onChange={updateNewClientDraftField}
-                            onCustomChange={updateNewClientCustomField}
-                            onProfileChange={(key) =>
-                              updateNewClientDraftField("profile_key", key)
-                            }
-                            disabled={submitting}
-                            profileKey={newClientDraft?.profile_key}
-                            profileOptions={clientProfileOptions}
-                            requiredFields={newClientProfile.required_fields}
-                            hiddenFields={newClientProfile.hidden_fields}
-                            customFields={newClientProfile.custom_fields}
-                            passengerCategories={passengerCategories}
-                            title="Nuevo pasajero"
-                            description="Completá los datos mínimos para crear y sumar el pasajero a esta grupal."
-                          />
-                        )}
-                      </motion.div>
-                    </AnimatePresence>
-
-                    {isSingleDepartureMode ? (
-                      <p className="rounded-2xl border border-slate-300/80 bg-white/70 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-                        Se asigna automáticamente a la salida principal:
-                        {" "}
-                        <span className="font-semibold">
-                          {sortedDepartures[0]?.name || "Sin salida principal"}
-                        </span>
-                      </p>
-                    ) : (
-                      <label className="flex flex-col gap-1 text-sm">
-                        <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
-                          Salida destino
-                        </span>
-                        <select
-                          value={newPassengerDepartureId}
-                          onChange={(e) => setNewPassengerDepartureId(e.target.value)}
-                          disabled={submitting}
-                          className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
-                        >
-                          <option value="">Automática</option>
-                          {sortedDepartures.map((dep) => (
-                            <option
-                              key={dep.id_travel_group_departure}
-                              value={dep.public_id || dep.id_travel_group_departure}
-                            >
-                              {dep.name} · {formatDate(dep.departure_date)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-
-                    <button
-                      type="submit"
-                      disabled={
-                        submitting ||
-                        (newPassengerMode === "EXISTENTE" && !newPassengerClientId)
-                      }
-                      className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
-                    >
-                      {submitting ? (
-                        <Spinner label="Guardando..." />
-                      ) : newPassengerMode === "NUEVO" ? (
-                        "Crear pasajero y agregar"
-                      ) : (
-                        "Agregar pasajero"
-                      )}
-                    </button>
-                  </form>
-                ) : !activePassenger ? (
-                  <p className="mt-3 rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-                    Seleccioná un pasajero en la tabla, lista o grilla para editarlo.
-                  </p>
-                ) : (
-                  <div className="mt-3 flex flex-col gap-4">
-                    <div className="rounded-2xl border border-slate-300/80 bg-white/70 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-                      Pasajero activo:{" "}
-                      <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {activePassenger.client
-                          ? `${activePassenger.client.first_name} ${activePassenger.client.last_name}`
-                          : `Cliente Nº${activePassenger.client_id ?? "-"}`}
-                      </span>
-                      {" · "}
-                      Estado:{" "}
-                      <span className="font-semibold">
-                        {formatPassengerStatus(activePassengerStatus || activePassenger.status)}
-                      </span>
-                      {" · "}El estado se cambia rápido desde la tabla.
-                    </div>
-
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={passengerFormMode}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2, ease: "easeInOut" }}
+                >
+                  {passengerFormMode === "ALTA" ? (
                     <form
-                      onSubmit={handleSaveActivePassenger}
-                      className="flex flex-col gap-3 rounded-2xl border border-slate-300/80 bg-white/70 p-4 dark:border-slate-600 dark:bg-slate-900/60"
+                      onSubmit={handleAddPassenger}
+                      className="mt-3 flex flex-col gap-4"
                     >
-                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                        Datos operativos
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setNewPassengerMode("EXISTENTE")}
+                          className={pillClass(
+                            newPassengerMode === "EXISTENTE",
+                            "sky",
+                          )}
+                          disabled={submitting}
+                        >
+                          Pasajero existente
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewPassengerMode("NUEVO")}
+                          className={pillClass(
+                            newPassengerMode === "NUEVO",
+                            "emerald",
+                          )}
+                          disabled={submitting}
+                        >
+                          Pasajero nuevo
+                        </button>
+                      </div>
+
+                      <AnimatePresence mode="wait" initial={false}>
+                        <motion.div
+                          key={newPassengerMode}
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -6 }}
+                          transition={{ duration: 0.16, ease: "easeInOut" }}
+                        >
+                          {newPassengerMode === "EXISTENTE" ? (
+                            <div className="space-y-1">
+                              <label className="ml-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
+                                Pasajero
+                              </label>
+                              <ClientPicker
+                                label=""
+                                valueId={newPassengerClientId}
+                                onSelect={(client: Client) =>
+                                  setNewPassengerClientId(client.id_client)
+                                }
+                                onClear={() => setNewPassengerClientId(null)}
+                                placeholder="Buscar por N° pax, DNI, pasaporte, CUIT o nombre..."
+                              />
+                              <p className="ml-1 text-xs text-slate-600 dark:text-slate-400">
+                                Seleccioná un pasajero existente o cambiá a modo
+                                nuevo para crearlo acá.
+                              </p>
+                            </div>
+                          ) : (
+                            <PassengerClientFields
+                              draft={newClientDraft}
+                              onChange={updateNewClientDraftField}
+                              onCustomChange={updateNewClientCustomField}
+                              onProfileChange={(key) =>
+                                updateNewClientDraftField("profile_key", key)
+                              }
+                              disabled={submitting}
+                              profileKey={newClientDraft?.profile_key}
+                              profileOptions={clientProfileOptions}
+                              requiredFields={newClientProfile.required_fields}
+                              hiddenFields={newClientProfile.hidden_fields}
+                              customFields={newClientProfile.custom_fields}
+                              passengerCategories={passengerCategories}
+                              title="Nuevo pasajero"
+                              description="Completá los datos mínimos para crear y sumar el pasajero a esta grupal."
+                            />
+                          )}
+                        </motion.div>
+                      </AnimatePresence>
+
                       {isSingleDepartureMode ? (
-                        <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
-                          Salida de este pasajero:{" "}
+                        <p className="rounded-2xl border border-slate-300/80 bg-white/70 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+                          Se asigna automáticamente a la salida principal:{" "}
                           <span className="font-semibold">
-                            {sortedDepartures[0]?.name || "Sin salida principal"}
+                            {sortedDepartures[0]?.name ||
+                              "Sin salida principal"}
                           </span>
                         </p>
                       ) : (
                         <label className="flex flex-col gap-1 text-sm">
                           <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
-                            Salida
+                            Salida destino
                           </span>
                           <select
-                            value={activePassengerDepartureId}
-                            onChange={(e) => setActivePassengerDepartureId(e.target.value)}
+                            value={newPassengerDepartureId}
+                            onChange={(e) =>
+                              setNewPassengerDepartureId(e.target.value)
+                            }
                             disabled={submitting}
                             className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
                           >
-                            <option value="CLEAR">Sin salida asignada</option>
+                            <option value="">Automática</option>
                             {sortedDepartures.map((dep) => (
                               <option
                                 key={dep.id_travel_group_departure}
-                                value={dep.public_id || dep.id_travel_group_departure}
+                                value={
+                                  dep.public_id || dep.id_travel_group_departure
+                                }
                               >
                                 {dep.name} · {formatDate(dep.departure_date)}
                               </option>
@@ -4360,71 +4753,168 @@ export default function GroupDetailPage() {
                           </select>
                         </label>
                       )}
-                      <label className="flex flex-col gap-1 text-sm">
-                        <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
-                          Nota interna
-                        </span>
-                        <textarea
-                          value={activePassengerNote}
-                          onChange={(e) => setActivePassengerNote(e.target.value)}
-                          rows={2}
-                          disabled={submitting}
-                          placeholder="Observaciones de este pasajero dentro de la grupal..."
-                          className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
-                        />
-                      </label>
+
                       <button
                         type="submit"
-                        disabled={submitting}
+                        disabled={
+                          submitting ||
+                          (newPassengerMode === "EXISTENTE" &&
+                            !newPassengerClientId)
+                        }
                         className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
                       >
-                        {submitting ? <Spinner label="Guardando..." /> : "Guardar datos operativos"}
+                        {submitting ? (
+                          <Spinner label="Guardando..." />
+                        ) : newPassengerMode === "NUEVO" ? (
+                          "Crear pasajero y agregar"
+                        ) : (
+                          "Agregar pasajero"
+                        )}
                       </button>
                     </form>
+                  ) : !activePassenger ? (
+                    <p className="mt-3 rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+                      Seleccioná un pasajero en la tabla, lista o grilla para
+                      editarlo.
+                    </p>
+                  ) : (
+                    <div className="mt-3 flex flex-col gap-4">
+                      <div className="rounded-2xl border border-slate-300/80 bg-white/70 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+                        Pasajero activo:{" "}
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {activePassenger.client
+                            ? `${activePassenger.client.first_name} ${activePassenger.client.last_name}`
+                            : `Cliente Nº${activePassenger.client_id ?? "-"}`}
+                        </span>
+                        {" · "}
+                        Estado:{" "}
+                        <span className="font-semibold">
+                          {formatPassengerStatus(
+                            activePassengerStatus || activePassenger.status,
+                          )}
+                        </span>
+                        {" · "}El estado se cambia rápido desde la tabla.
+                      </div>
 
-                    <form onSubmit={handleSaveActiveClient} className="flex flex-col gap-3">
-                      {activeClientLoading || !activeClientDraft ? (
-                        <p className="rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-xs text-slate-600 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-400">
-                          Cargando datos del pasajero...
+                      <form
+                        onSubmit={handleSaveActivePassenger}
+                        className="flex flex-col gap-3 rounded-2xl border border-slate-300/80 bg-white/70 p-4 dark:border-slate-600 dark:bg-slate-900/60"
+                      >
+                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          Datos operativos
                         </p>
-                      ) : (
-                        <>
-                          <PassengerClientFields
-                            draft={activeClientDraft}
-                            onChange={updateActiveClientDraftField}
-                            onCustomChange={updateActiveClientCustomField}
-                            onProfileChange={(key) =>
-                              updateActiveClientDraftField("profile_key", key)
+                        {isSingleDepartureMode ? (
+                          <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
+                            Salida de este pasajero:{" "}
+                            <span className="font-semibold">
+                              {sortedDepartures[0]?.name ||
+                                "Sin salida principal"}
+                            </span>
+                          </p>
+                        ) : (
+                          <label className="flex flex-col gap-1 text-sm">
+                            <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
+                              Salida
+                            </span>
+                            <select
+                              value={activePassengerDepartureId}
+                              onChange={(e) =>
+                                setActivePassengerDepartureId(e.target.value)
+                              }
+                              disabled={submitting}
+                              className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
+                            >
+                              <option value="CLEAR">Sin salida asignada</option>
+                              {sortedDepartures.map((dep) => (
+                                <option
+                                  key={dep.id_travel_group_departure}
+                                  value={
+                                    dep.public_id ||
+                                    dep.id_travel_group_departure
+                                  }
+                                >
+                                  {dep.name} · {formatDate(dep.departure_date)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        <label className="flex flex-col gap-1 text-sm">
+                          <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
+                            Nota interna
+                          </span>
+                          <textarea
+                            value={activePassengerNote}
+                            onChange={(e) =>
+                              setActivePassengerNote(e.target.value)
                             }
+                            rows={2}
                             disabled={submitting}
-                            profileKey={activeClientDraft?.profile_key}
-                            profileOptions={clientProfileOptions}
-                            requiredFields={activeClientProfile.required_fields}
-                            hiddenFields={activeClientProfile.hidden_fields}
-                            customFields={activeClientProfile.custom_fields}
-                            passengerCategories={passengerCategories}
-                            title="Datos personales del pasajero"
-                            description="Este bloque se reutiliza para editar la información del pasajero activo."
+                            placeholder="Observaciones de este pasajero dentro de la grupal..."
+                            className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
                           />
-                          <button
-                            type="submit"
-                            disabled={submitting}
-                            className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
-                          >
-                            {submitting ? (
-                              <Spinner label="Guardando..." />
-                            ) : (
-                              "Guardar datos personales"
-                            )}
-                          </button>
-                        </>
-                      )}
-                    </form>
-                  </div>
-                )}
-              </motion.div>
-            </AnimatePresence>
-          </CollapsiblePanel>
+                        </label>
+                        <button
+                          type="submit"
+                          disabled={submitting}
+                          className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
+                        >
+                          {submitting ? (
+                            <Spinner label="Guardando..." />
+                          ) : (
+                            "Guardar datos operativos"
+                          )}
+                        </button>
+                      </form>
+
+                      <form
+                        onSubmit={handleSaveActiveClient}
+                        className="flex flex-col gap-3"
+                      >
+                        {activeClientLoading || !activeClientDraft ? (
+                          <p className="rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-xs text-slate-600 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-400">
+                            Cargando datos del pasajero...
+                          </p>
+                        ) : (
+                          <>
+                            <PassengerClientFields
+                              draft={activeClientDraft}
+                              onChange={updateActiveClientDraftField}
+                              onCustomChange={updateActiveClientCustomField}
+                              onProfileChange={(key) =>
+                                updateActiveClientDraftField("profile_key", key)
+                              }
+                              disabled={submitting}
+                              profileKey={activeClientDraft?.profile_key}
+                              profileOptions={clientProfileOptions}
+                              requiredFields={
+                                activeClientProfile.required_fields
+                              }
+                              hiddenFields={activeClientProfile.hidden_fields}
+                              customFields={activeClientProfile.custom_fields}
+                              passengerCategories={passengerCategories}
+                              title="Datos personales del pasajero"
+                              description="Este bloque se reutiliza para editar la información del pasajero activo."
+                            />
+                            <button
+                              type="submit"
+                              disabled={submitting}
+                              className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
+                            >
+                              {submitting ? (
+                                <Spinner label="Guardando..." />
+                              ) : (
+                                "Guardar datos personales"
+                              )}
+                            </button>
+                          </>
+                        )}
+                      </form>
+                    </div>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </CollapsiblePanel>
           </section>
         ) : null}
 
@@ -4433,769 +4923,824 @@ export default function GroupDetailPage() {
             id="panel-servicios"
             className="rounded-3xl border border-sky-200/80 bg-white/70 p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
           >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                Servicios de la grupal
-              </h2>
-              <p className="text-xs text-slate-700 dark:text-slate-300">
-                {editingInventoryId
-                  ? "Edición de servicio activa."
-                  : "Agregá y administrá servicios por salida o generales."}
-              </p>
-            </div>
-            <ToggleIconButton
-              open={showInventoryForm}
-              onClick={() => {
-                setShowInventoryForm((prev) => !prev);
-                if (showInventoryForm) {
-                  setEditingInventoryId(null);
-                  setInventoryDraft(
-                    defaultInventoryDraft(undefined, {
-                      defaultTransferFeePct,
-                      operators: operatorOptions,
-                    }),
-                  );
-                  setInventoryProviderMode("OPERADOR");
-                  setShowManualInventoryStatsInputs(false);
-                }
-              }}
-              label="formulario de servicios"
-            />
-          </div>
-          {serviceOptionsError ? (
-            <p className="mt-3 rounded-2xl border border-amber-300/80 bg-amber-100/85 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
-              {serviceOptionsError}
-            </p>
-          ) : null}
-          <CollapsiblePanel open={showInventoryForm} className="mt-3">
-            <form
-              onSubmit={handleSaveInventory}
-              className="space-y-4 rounded-2xl border border-sky-300/70 bg-white/60 p-4 dark:border-sky-700/60 dark:bg-slate-900/55"
-            >
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Datos del servicio
-                </p>
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  Cargá inventario con configuración de tipos, operadores y moneda.
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  Servicios de la grupal
+                </h2>
+                <p className="text-xs text-slate-700 dark:text-slate-300">
+                  {editingInventoryId
+                    ? "Edición de servicio activa."
+                    : "Agregá y administrá servicios por salida o generales."}
                 </p>
               </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <label className="flex flex-col gap-1 text-sm">
-                  Tipo de servicio (configuración)
-                  <select
-                    value={inventoryDraft.service_type}
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      const selected = serviceTypeOptions.find(
-                        (item) => item.code === next,
-                      );
-                      setInventoryDraft((prev) => ({
-                        ...prev,
-                        service_type: next,
-                        inventory_type: selected?.name?.trim() || prev.inventory_type,
-                      }));
-                    }}
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                  >
-                    <option value="">Seleccionar tipo</option>
-                    {serviceTypeOptions.map((option) => (
-                      <option key={option.id_service_type} value={option.code}>
-                        {option.name} ({option.code})
-                      </option>
-                    ))}
-                    {inventoryDraft.service_type &&
-                    !serviceTypeOptions.some(
-                      (item) => item.code === inventoryDraft.service_type,
-                    ) ? (
-                      <option value={inventoryDraft.service_type}>
-                        {inventoryDraft.service_type} (no listado)
-                      </option>
-                    ) : null}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  Tipo de inventario
-                  <input
-                    value={inventoryDraft.inventory_type}
-                    onChange={(e) =>
-                      setInventoryDraft((prev) => ({
-                        ...prev,
-                        inventory_type: e.target.value,
-                      }))
-                    }
-                    placeholder="Aéreo, hotel, traslado..."
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                  Nombre / etiqueta
-                  <input
-                    value={inventoryDraft.label}
-                    onChange={(e) =>
-                      setInventoryDraft((prev) => ({ ...prev, label: e.target.value }))
-                    }
-                    placeholder="Ej: Bloqueo hotel Río / Aéreo AR1234"
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                  Salida asociada (opcional)
-                  <select
-                    value={inventoryDraft.departure_id}
-                    onChange={(e) =>
-                      setInventoryDraft((prev) => ({
-                        ...prev,
-                        departure_id: e.target.value,
-                      }))
-                    }
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                  >
-                    <option value="">Sin salida específica</option>
-                    {sortedDepartures.map((dep) => (
-                      <option
-                        key={dep.id_travel_group_departure}
-                        value={dep.public_id || dep.id_travel_group_departure}
-                      >
-                        {dep.name} · {formatDate(dep.departure_date)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <div className="rounded-2xl border border-sky-300/70 bg-white/65 p-3 dark:border-sky-700/60 dark:bg-slate-900/55">
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
-                  Operador y moneda
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setInventoryProviderMode("OPERADOR")}
-                    className={pillClass(inventoryProviderMode === "OPERADOR", "sky")}
-                  >
-                    Operador desde configuración
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setInventoryProviderMode("MANUAL")}
-                    className={pillClass(inventoryProviderMode === "MANUAL", "amber")}
-                  >
-                    Proveedor manual
-                  </button>
+              <ToggleIconButton
+                open={showInventoryForm}
+                onClick={() => {
+                  setShowInventoryForm((prev) => !prev);
+                  if (showInventoryForm) {
+                    setEditingInventoryId(null);
+                    setInventoryDraft(
+                      defaultInventoryDraft(undefined, {
+                        defaultTransferFeePct,
+                        operators: operatorOptions,
+                      }),
+                    );
+                    setInventoryProviderMode("OPERADOR");
+                    setShowManualInventoryStatsInputs(false);
+                  }
+                }}
+                label="formulario de servicios"
+              />
+            </div>
+            {serviceOptionsError ? (
+              <p className="mt-3 rounded-2xl border border-amber-300/80 bg-amber-100/85 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+                {serviceOptionsError}
+              </p>
+            ) : null}
+            <CollapsiblePanel open={showInventoryForm} className="mt-3">
+              <form
+                onSubmit={handleSaveInventory}
+                className="space-y-4 rounded-2xl border border-sky-300/70 bg-white/60 p-4 dark:border-sky-700/60 dark:bg-slate-900/55"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    Datos del servicio
+                  </p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Cargá inventario con configuración de tipos, operadores y
+                    moneda.
+                  </p>
                 </div>
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {inventoryProviderMode === "OPERADOR" ? (
-                    <label className="flex flex-col gap-1 text-sm">
-                      Operador
-                      <select
-                        value={inventoryDraft.operator_id}
-                        onChange={(e) => {
-                          const nextId = e.target.value;
-                          const selected = operatorOptions.find(
-                            (item) => String(item.id_operator) === nextId,
-                          );
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            operator_id: nextId,
-                            provider: selected?.name || prev.provider,
-                          }));
-                        }}
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      >
-                        <option value="">
-                          {operatorOptions.length > 0
-                            ? "Seleccionar operador"
-                            : "Sin operadores disponibles"}
-                        </option>
-                        {operatorOptions.map((operator) => (
-                          <option
-                            key={operator.id_operator}
-                            value={operator.id_operator}
-                          >
-                            {operator.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ) : (
-                    <label className="flex flex-col gap-1 text-sm">
-                      Proveedor (manual)
-                      <input
-                        value={inventoryDraft.provider}
-                        onChange={(e) =>
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            provider: e.target.value,
-                            operator_id: "",
-                          }))
-                        }
-                        disabled={submitting}
-                        placeholder="Ej: Operador interno / cupo propio"
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                  )}
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <label className="flex flex-col gap-1 text-sm">
-                    Moneda
+                    Tipo de servicio (configuración)
                     <select
-                      value={inventoryDraft.currency}
+                      value={inventoryDraft.service_type}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        const selected = serviceTypeOptions.find(
+                          (item) => item.code === next,
+                        );
+                        setInventoryDraft((prev) => ({
+                          ...prev,
+                          service_type: next,
+                          inventory_type:
+                            selected?.name?.trim() || prev.inventory_type,
+                        }));
+                      }}
+                      disabled={submitting}
+                      className={FIELD_INPUT_CLASS}
+                    >
+                      <option value="">Seleccionar tipo</option>
+                      {serviceTypeOptions.map((option) => (
+                        <option
+                          key={option.id_service_type}
+                          value={option.code}
+                        >
+                          {option.name} ({option.code})
+                        </option>
+                      ))}
+                      {inventoryDraft.service_type &&
+                      !serviceTypeOptions.some(
+                        (item) => item.code === inventoryDraft.service_type,
+                      ) ? (
+                        <option value={inventoryDraft.service_type}>
+                          {inventoryDraft.service_type} (no listado)
+                        </option>
+                      ) : null}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    Tipo de inventario
+                    <input
+                      value={inventoryDraft.inventory_type}
                       onChange={(e) =>
                         setInventoryDraft((prev) => ({
                           ...prev,
-                          currency: e.target.value.toUpperCase(),
+                          inventory_type: e.target.value,
+                        }))
+                      }
+                      placeholder="Aéreo, hotel, traslado..."
+                      disabled={submitting}
+                      className={FIELD_INPUT_CLASS}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                    Nombre / etiqueta
+                    <input
+                      value={inventoryDraft.label}
+                      onChange={(e) =>
+                        setInventoryDraft((prev) => ({
+                          ...prev,
+                          label: e.target.value,
+                        }))
+                      }
+                      placeholder="Ej: Bloqueo hotel Río / Aéreo AR1234"
+                      disabled={submitting}
+                      className={FIELD_INPUT_CLASS}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                    Salida asociada (opcional)
+                    <select
+                      value={inventoryDraft.departure_id}
+                      onChange={(e) =>
+                        setInventoryDraft((prev) => ({
+                          ...prev,
+                          departure_id: e.target.value,
                         }))
                       }
                       disabled={submitting}
                       className={FIELD_INPUT_CLASS}
                     >
-                      {inventoryCurrencyOptions.map((code) => (
-                        <option key={code} value={code}>
-                          {currencyLabelByCode.get(code) || code}
+                      <option value="">Sin salida específica</option>
+                      {sortedDepartures.map((dep) => (
+                        <option
+                          key={dep.id_travel_group_departure}
+                          value={dep.public_id || dep.id_travel_group_departure}
+                        >
+                          {dep.name} · {formatDate(dep.departure_date)}
                         </option>
                       ))}
                     </select>
                   </label>
-                  <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                    Localizador / referencia (opcional)
-                    <input
-                      value={inventoryDraft.locator}
-                      onChange={(e) =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          locator: e.target.value,
-                        }))
-                      }
-                      disabled={submitting}
-                      placeholder="Ej: ABC123 / LOC-7788"
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-2 rounded-2xl border border-sky-300/70 bg-sky-50/55 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-sky-900/15 dark:text-slate-300 md:grid-cols-5">
-                <div className="rounded-xl border border-sky-300/50 bg-white/80 p-2 dark:border-sky-700/60 dark:bg-slate-900/60">
-                  <p className="text-[11px]">Comprados</p>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    {inventoryDraftPreview.qtyTotal}
+                <div className="rounded-2xl border border-sky-300/70 bg-white/65 p-3 dark:border-sky-700/60 dark:bg-slate-900/55">
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+                    Operador y moneda
                   </p>
-                </div>
-                <div className="rounded-xl border border-sky-300/50 bg-white/80 p-2 dark:border-sky-700/60 dark:bg-slate-900/60">
-                  <p className="text-[11px]">Asignados</p>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    {inventoryDraftPreview.qtyAssigned}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-sky-300/50 bg-white/80 p-2 dark:border-sky-700/60 dark:bg-slate-900/60">
-                  <p className="text-[11px]">Confirmados</p>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    {inventoryDraftPreview.qtyConfirmed}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-sky-300/50 bg-white/80 p-2 dark:border-sky-700/60 dark:bg-slate-900/60">
-                  <p className="text-[11px]">Bloqueados</p>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    {inventoryDraftPreview.qtyBlocked}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-emerald-300/60 bg-emerald-100/85 p-2 text-emerald-800 dark:border-emerald-700/70 dark:bg-emerald-900/20 dark:text-emerald-200">
-                  <p className="text-[11px]">Disponibles</p>
-                  <p className="text-sm font-semibold">{inventoryDraftPreview.qtyAvailable}</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <label className="flex flex-col gap-1 text-sm">
-                  Cupos comprados
-                  <input
-                    value={inventoryDraft.total_qty}
-                    onChange={(e) =>
-                      setInventoryDraft((prev) => ({
-                        ...prev,
-                        total_qty: e.target.value,
-                      }))
-                    }
-                    inputMode="numeric"
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  Bloqueados operativos
-                  <input
-                    value={inventoryDraft.blocked_qty}
-                    onChange={(e) =>
-                      setInventoryDraft((prev) => ({
-                        ...prev,
-                        blocked_qty: e.target.value,
-                      }))
-                    }
-                    inputMode="numeric"
-                    disabled={submitting}
-                    className={FIELD_INPUT_CLASS}
-                  />
-                </label>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowManualInventoryStatsInputs((prev) => !prev)}
-                className={pillClass(showManualInventoryStatsInputs, "amber")}
-              >
-                {showManualInventoryStatsInputs
-                  ? "Ocultar ajuste manual de asignados/confirmados"
-                  : "Ajustar manualmente asignados/confirmados"}
-              </button>
-
-              <CollapsiblePanel open={showManualInventoryStatsInputs}>
-                <div className="mt-2 grid grid-cols-1 gap-3 rounded-2xl border border-amber-300/70 bg-amber-100/70 p-3 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100 md:grid-cols-2">
-                  <label className="flex flex-col gap-1 text-sm">
-                    Asignados a pasajeros
-                    <input
-                      value={inventoryDraft.assigned_qty}
-                      onChange={(e) =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          assigned_qty: e.target.value,
-                        }))
-                      }
-                      inputMode="numeric"
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    Confirmados con operador
-                    <input
-                      value={inventoryDraft.confirmed_qty}
-                      onChange={(e) =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          confirmed_qty: e.target.value,
-                        }))
-                      }
-                      inputMode="numeric"
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  <p className="md:col-span-2">
-                    Este bloque es solo para correcciones puntuales. En operación diaria, usá los
-                    indicadores para seguimiento y mantené mínimos los ajustes manuales.
-                  </p>
-                </div>
-              </CollapsiblePanel>
-
-              <p className="rounded-2xl border border-sky-300/70 bg-sky-50/55 px-3 py-2 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-sky-900/15 dark:text-slate-300">
-                <span className="font-semibold">Cómo leer estos cupos:</span> comprados = total adquirido, asignados = vinculados a pasajeros, confirmados = validados con operador, bloqueados = no disponibles para asignar.
-              </p>
-
-              <div className="rounded-2xl border border-sky-300/70 bg-white/65 p-3 dark:border-sky-700/60 dark:bg-slate-900/55">
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
-                  Precios e impuestos (estimación)
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setInventoryDraft((prev) => ({
-                        ...prev,
-                        pricing_mode: "MANUAL",
-                      }))
-                    }
-                    className={pillClass(inventoryDraft.pricing_mode === "MANUAL", "sky")}
-                  >
-                    Venta por unidad
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setInventoryDraft((prev) => ({
-                        ...prev,
-                        pricing_mode: "VENTA_TOTAL",
-                      }))
-                    }
-                    className={pillClass(
-                      inventoryDraft.pricing_mode === "VENTA_TOTAL",
-                      "emerald",
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setInventoryProviderMode("OPERADOR")}
+                      className={pillClass(
+                        inventoryProviderMode === "OPERADOR",
+                        "sky",
+                      )}
+                    >
+                      Operador desde configuración
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInventoryProviderMode("MANUAL")}
+                      className={pillClass(
+                        inventoryProviderMode === "MANUAL",
+                        "amber",
+                      )}
+                    >
+                      Proveedor manual
+                    </button>
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    {inventoryProviderMode === "OPERADOR" ? (
+                      <label className="flex flex-col gap-1 text-sm">
+                        Operador
+                        <select
+                          value={inventoryDraft.operator_id}
+                          onChange={(e) => {
+                            const nextId = e.target.value;
+                            const selected = operatorOptions.find(
+                              (item) => String(item.id_operator) === nextId,
+                            );
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              operator_id: nextId,
+                              provider: selected?.name || prev.provider,
+                            }));
+                          }}
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        >
+                          <option value="">
+                            {operatorOptions.length > 0
+                              ? "Seleccionar operador"
+                              : "Sin operadores disponibles"}
+                          </option>
+                          {operatorOptions.map((operator) => (
+                            <option
+                              key={operator.id_operator}
+                              value={operator.id_operator}
+                            >
+                              {operator.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <label className="flex flex-col gap-1 text-sm">
+                        Proveedor (manual)
+                        <input
+                          value={inventoryDraft.provider}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              provider: e.target.value,
+                              operator_id: "",
+                            }))
+                          }
+                          disabled={submitting}
+                          placeholder="Ej: Operador interno / cupo propio"
+                          className={FIELD_INPUT_CLASS}
+                        />
+                      </label>
                     )}
-                  >
-                    Venta total del servicio
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setInventoryDraft((prev) => ({
-                        ...prev,
-                        billing_mode:
-                          prev.billing_mode === "MANUAL" ? "AUTO" : "MANUAL",
-                      }))
-                    }
-                    className={pillClass(inventoryDraft.billing_mode === "MANUAL", "amber")}
-                  >
-                    {inventoryDraft.billing_mode === "MANUAL"
-                      ? "Facturación manual"
-                      : "Facturación automática"}
-                  </button>
-                </div>
-
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <label className="flex flex-col gap-1 text-sm">
-                    Costo unitario
-                    <input
-                      value={inventoryDraft.unit_cost}
-                      onChange={(e) =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          unit_cost: e.target.value,
-                        }))
-                      }
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  {inventoryDraft.pricing_mode === "MANUAL" ? (
                     <label className="flex flex-col gap-1 text-sm">
-                      Venta unitaria estimada
-                      <input
-                        value={inventoryDraft.sale_unit_price}
+                      Moneda
+                      <select
+                        value={inventoryDraft.currency}
                         onChange={(e) =>
                           setInventoryDraft((prev) => ({
                             ...prev,
-                            sale_unit_price: e.target.value,
+                            currency: e.target.value.toUpperCase(),
                           }))
                         }
-                        inputMode="decimal"
-                        placeholder="0,00"
                         disabled={submitting}
                         className={FIELD_INPUT_CLASS}
-                      />
+                      >
+                        {inventoryCurrencyOptions.map((code) => (
+                          <option key={code} value={code}>
+                            {currencyLabelByCode.get(code) || code}
+                          </option>
+                        ))}
+                      </select>
                     </label>
-                  ) : (
-                    <label className="flex flex-col gap-1 text-sm">
-                      Venta total estimada
+                    <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                      Localizador / referencia (opcional)
                       <input
-                        value={inventoryDraft.sale_total_price}
+                        value={inventoryDraft.locator}
                         onChange={(e) =>
                           setInventoryDraft((prev) => ({
                             ...prev,
-                            sale_total_price: e.target.value,
+                            locator: e.target.value,
                           }))
                         }
-                        inputMode="decimal"
-                        placeholder="0,00"
                         disabled={submitting}
+                        placeholder="Ej: ABC123 / LOC-7788"
                         className={FIELD_INPUT_CLASS}
                       />
                     </label>
-                  )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 rounded-2xl border border-sky-300/70 bg-sky-50/55 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-sky-900/15 dark:text-slate-300 md:grid-cols-5">
+                  <div className="rounded-xl border border-sky-300/50 bg-white/80 p-2 dark:border-sky-700/60 dark:bg-slate-900/60">
+                    <p className="text-[11px]">Comprados</p>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {inventoryDraftPreview.qtyTotal}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-sky-300/50 bg-white/80 p-2 dark:border-sky-700/60 dark:bg-slate-900/60">
+                    <p className="text-[11px]">Asignados</p>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {inventoryDraftPreview.qtyAssigned}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-sky-300/50 bg-white/80 p-2 dark:border-sky-700/60 dark:bg-slate-900/60">
+                    <p className="text-[11px]">Confirmados</p>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {inventoryDraftPreview.qtyConfirmed}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-sky-300/50 bg-white/80 p-2 dark:border-sky-700/60 dark:bg-slate-900/60">
+                    <p className="text-[11px]">Bloqueados</p>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {inventoryDraftPreview.qtyBlocked}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-300/60 bg-emerald-100/85 p-2 text-emerald-800 dark:border-emerald-700/70 dark:bg-emerald-900/20 dark:text-emerald-200">
+                    <p className="text-[11px]">Disponibles</p>
+                    <p className="text-sm font-semibold">
+                      {inventoryDraftPreview.qtyAvailable}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <label className="flex flex-col gap-1 text-sm">
-                    Base/importe 21% (opcional)
+                    Cupos comprados
                     <input
-                      value={inventoryDraft.taxable_21}
+                      value={inventoryDraft.total_qty}
                       onChange={(e) =>
                         setInventoryDraft((prev) => ({
                           ...prev,
-                          taxable_21: e.target.value,
+                          total_qty: e.target.value,
                         }))
                       }
-                      inputMode="decimal"
-                      placeholder="0,00"
+                      inputMode="numeric"
                       disabled={submitting}
                       className={FIELD_INPUT_CLASS}
                     />
                   </label>
                   <label className="flex flex-col gap-1 text-sm">
-                    Base/importe 10,5% (opcional)
+                    Bloqueados operativos
                     <input
-                      value={inventoryDraft.taxable_105}
+                      value={inventoryDraft.blocked_qty}
                       onChange={(e) =>
                         setInventoryDraft((prev) => ({
                           ...prev,
-                          taxable_105: e.target.value,
+                          blocked_qty: e.target.value,
                         }))
                       }
-                      inputMode="decimal"
-                      placeholder="0,00"
+                      inputMode="numeric"
                       disabled={submitting}
                       className={FIELD_INPUT_CLASS}
                     />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    Exento (opcional)
-                    <input
-                      value={inventoryDraft.exempt_amount}
-                      onChange={(e) =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          exempt_amount: e.target.value,
-                        }))
-                      }
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    Otros impuestos (opcional)
-                    <input
-                      value={inventoryDraft.other_taxes}
-                      onChange={(e) =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          other_taxes: e.target.value,
-                        }))
-                      }
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                    Costo de transferencia (%)
-                    <input
-                      value={inventoryDraft.transfer_fee_pct}
-                      onChange={(e) =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          transfer_fee_pct: e.target.value,
-                        }))
-                      }
-                      inputMode="decimal"
-                      placeholder={String(defaultTransferFeePct)}
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                    <span className="ml-1 text-xs text-slate-600 dark:text-slate-400">
-                      Se usa para estimar costo financiero de cobro sobre la venta.
-                    </span>
                   </label>
                 </div>
 
-                <div className="mt-3 grid grid-cols-1 gap-2 rounded-2xl border border-sky-300/70 bg-sky-50/55 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-sky-900/15 dark:text-slate-300 md:grid-cols-2">
-                  <p>
-                    Costo total estimado:{" "}
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {formatMoney(
-                        inventoryDraftPreview.costTotal,
-                        inventoryDraft.currency || "ARS",
-                      )}
-                    </span>
-                  </p>
-                  <p>
-                    Venta estimada:{" "}
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {formatMoney(
-                        inventoryDraftPreview.saleTotal,
-                        inventoryDraft.currency || "ARS",
-                      )}
-                    </span>
-                  </p>
-                  <p>
-                    Costos/impuestos adicionales:{" "}
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {formatMoney(
-                        inventoryDraftPreview.taxes +
-                          inventoryDraftPreview.transferFeeAmount,
-                        inventoryDraft.currency || "ARS",
-                      )}
-                    </span>
-                  </p>
-                  <p>
-                    Margen bruto estimado:{" "}
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {formatMoney(
-                        inventoryDraftPreview.margin,
-                        inventoryDraft.currency || "ARS",
-                      )}
-                    </span>
-                  </p>
-                </div>
-              </div>
-
-              <label className="flex flex-col gap-1 text-sm">
-                Nota interna (opcional)
-                <textarea
-                  value={inventoryDraft.note}
-                  onChange={(e) =>
-                    setInventoryDraft((prev) => ({ ...prev, note: e.target.value }))
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowManualInventoryStatsInputs((prev) => !prev)
                   }
-                  rows={2}
-                  disabled={submitting}
-                  className={FIELD_TEXTAREA_CLASS}
-                />
-              </label>
-
-              <button
-                type="submit"
-                disabled={submitting}
-                className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
-              >
-                {submitting
-                  ? <Spinner label="Guardando servicio..." />
-                  : editingInventoryId
-                    ? "Guardar servicio"
-                    : "Agregar servicio"}
-              </button>
-            </form>
-          </CollapsiblePanel>
-
-          {inventoryFinancialSummary.length > 0 ? (
-            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              {inventoryFinancialSummary.map((summary) => (
-                <article
-                  key={`fin-${summary.currency}`}
-                  className="rounded-2xl border border-sky-300/70 bg-white/70 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-slate-900/60 dark:text-slate-300"
+                  className={pillClass(showManualInventoryStatsInputs, "amber")}
                 >
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    Resumen financiero · {summary.currency}
+                  {showManualInventoryStatsInputs
+                    ? "Ocultar ajuste manual de asignados/confirmados"
+                    : "Ajustar manualmente asignados/confirmados"}
+                </button>
+
+                <CollapsiblePanel open={showManualInventoryStatsInputs}>
+                  <div className="mt-2 grid grid-cols-1 gap-3 rounded-2xl border border-amber-300/70 bg-amber-100/70 p-3 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100 md:grid-cols-2">
+                    <label className="flex flex-col gap-1 text-sm">
+                      Asignados a pasajeros
+                      <input
+                        value={inventoryDraft.assigned_qty}
+                        onChange={(e) =>
+                          setInventoryDraft((prev) => ({
+                            ...prev,
+                            assigned_qty: e.target.value,
+                          }))
+                        }
+                        inputMode="numeric"
+                        disabled={submitting}
+                        className={FIELD_INPUT_CLASS}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-sm">
+                      Confirmados con operador
+                      <input
+                        value={inventoryDraft.confirmed_qty}
+                        onChange={(e) =>
+                          setInventoryDraft((prev) => ({
+                            ...prev,
+                            confirmed_qty: e.target.value,
+                          }))
+                        }
+                        inputMode="numeric"
+                        disabled={submitting}
+                        className={FIELD_INPUT_CLASS}
+                      />
+                    </label>
+                    <p className="md:col-span-2">
+                      Este bloque es solo para correcciones puntuales. En
+                      operación diaria, usá los indicadores para seguimiento y
+                      mantené mínimos los ajustes manuales.
+                    </p>
+                  </div>
+                </CollapsiblePanel>
+
+                <p className="rounded-2xl border border-sky-300/70 bg-sky-50/55 px-3 py-2 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-sky-900/15 dark:text-slate-300">
+                  <span className="font-semibold">Cómo leer estos cupos:</span>{" "}
+                  comprados = total adquirido, asignados = vinculados a
+                  pasajeros, confirmados = validados con operador, bloqueados =
+                  no disponibles para asignar.
+                </p>
+
+                <div className="rounded-2xl border border-sky-300/70 bg-white/65 p-3 dark:border-sky-700/60 dark:bg-slate-900/55">
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+                    Precios e impuestos (estimación)
                   </p>
-                  <div className="mt-2 grid grid-cols-1 gap-1 md:grid-cols-2">
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInventoryDraft((prev) => ({
+                          ...prev,
+                          pricing_mode: "MANUAL",
+                        }))
+                      }
+                      className={pillClass(
+                        inventoryDraft.pricing_mode === "MANUAL",
+                        "sky",
+                      )}
+                    >
+                      Venta por unidad
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInventoryDraft((prev) => ({
+                          ...prev,
+                          pricing_mode: "VENTA_TOTAL",
+                        }))
+                      }
+                      className={pillClass(
+                        inventoryDraft.pricing_mode === "VENTA_TOTAL",
+                        "emerald",
+                      )}
+                    >
+                      Venta total del servicio
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInventoryDraft((prev) => ({
+                          ...prev,
+                          billing_mode:
+                            prev.billing_mode === "MANUAL" ? "AUTO" : "MANUAL",
+                        }))
+                      }
+                      className={pillClass(
+                        inventoryDraft.billing_mode === "MANUAL",
+                        "amber",
+                      )}
+                    >
+                      {inventoryDraft.billing_mode === "MANUAL"
+                        ? "Facturación manual"
+                        : "Facturación automática"}
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <label className="flex flex-col gap-1 text-sm">
+                      Costo unitario
+                      <input
+                        value={inventoryDraft.unit_cost}
+                        onChange={(e) =>
+                          setInventoryDraft((prev) => ({
+                            ...prev,
+                            unit_cost: e.target.value,
+                          }))
+                        }
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        disabled={submitting}
+                        className={FIELD_INPUT_CLASS}
+                      />
+                    </label>
+                    {inventoryDraft.pricing_mode === "MANUAL" ? (
+                      <label className="flex flex-col gap-1 text-sm">
+                        Venta unitaria estimada
+                        <input
+                          value={inventoryDraft.sale_unit_price}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              sale_unit_price: e.target.value,
+                            }))
+                          }
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        />
+                      </label>
+                    ) : (
+                      <label className="flex flex-col gap-1 text-sm">
+                        Venta total estimada
+                        <input
+                          value={inventoryDraft.sale_total_price}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              sale_total_price: e.target.value,
+                            }))
+                          }
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        />
+                      </label>
+                    )}
+                    <label className="flex flex-col gap-1 text-sm">
+                      Base/importe 21% (opcional)
+                      <input
+                        value={inventoryDraft.taxable_21}
+                        onChange={(e) =>
+                          setInventoryDraft((prev) => ({
+                            ...prev,
+                            taxable_21: e.target.value,
+                          }))
+                        }
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        disabled={submitting}
+                        className={FIELD_INPUT_CLASS}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-sm">
+                      Base/importe 10,5% (opcional)
+                      <input
+                        value={inventoryDraft.taxable_105}
+                        onChange={(e) =>
+                          setInventoryDraft((prev) => ({
+                            ...prev,
+                            taxable_105: e.target.value,
+                          }))
+                        }
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        disabled={submitting}
+                        className={FIELD_INPUT_CLASS}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-sm">
+                      Exento (opcional)
+                      <input
+                        value={inventoryDraft.exempt_amount}
+                        onChange={(e) =>
+                          setInventoryDraft((prev) => ({
+                            ...prev,
+                            exempt_amount: e.target.value,
+                          }))
+                        }
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        disabled={submitting}
+                        className={FIELD_INPUT_CLASS}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-sm">
+                      Otros impuestos (opcional)
+                      <input
+                        value={inventoryDraft.other_taxes}
+                        onChange={(e) =>
+                          setInventoryDraft((prev) => ({
+                            ...prev,
+                            other_taxes: e.target.value,
+                          }))
+                        }
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        disabled={submitting}
+                        className={FIELD_INPUT_CLASS}
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                      Costo de transferencia (%)
+                      <input
+                        value={inventoryDraft.transfer_fee_pct}
+                        onChange={(e) =>
+                          setInventoryDraft((prev) => ({
+                            ...prev,
+                            transfer_fee_pct: e.target.value,
+                          }))
+                        }
+                        inputMode="decimal"
+                        placeholder={String(defaultTransferFeePct)}
+                        disabled={submitting}
+                        className={FIELD_INPUT_CLASS}
+                      />
+                      <span className="ml-1 text-xs text-slate-600 dark:text-slate-400">
+                        Se usa para estimar costo financiero de cobro sobre la
+                        venta.
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-2 rounded-2xl border border-sky-300/70 bg-sky-50/55 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-sky-900/15 dark:text-slate-300 md:grid-cols-2">
                     <p>
-                      Servicios: <span className="font-semibold">{summary.servicesCount}</span>
-                    </p>
-                    <p>
-                      Cupos comprados: <span className="font-semibold">{summary.totalQty}</span>
-                    </p>
-                    <p>
-                      Cupos disponibles: <span className="font-semibold">{summary.availableQty}</span>
-                    </p>
-                    <p>
-                      Costo total:{" "}
-                      <span className="font-semibold">
-                        {formatMoney(summary.costTotal, summary.currency)}
+                      Costo total estimado:{" "}
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatMoney(
+                          inventoryDraftPreview.costTotal,
+                          inventoryDraft.currency || "ARS",
+                        )}
                       </span>
                     </p>
                     <p>
                       Venta estimada:{" "}
-                      <span className="font-semibold">
-                        {formatMoney(summary.saleTotal, summary.currency)}
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatMoney(
+                          inventoryDraftPreview.saleTotal,
+                          inventoryDraft.currency || "ARS",
+                        )}
+                      </span>
+                    </p>
+                    <p>
+                      Costos/impuestos adicionales:{" "}
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatMoney(
+                          inventoryDraftPreview.taxes +
+                            inventoryDraftPreview.transferFeeAmount,
+                          inventoryDraft.currency || "ARS",
+                        )}
                       </span>
                     </p>
                     <p>
                       Margen bruto estimado:{" "}
-                      <span className="font-semibold">
-                        {formatMoney(summary.grossMargin, summary.currency)}
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatMoney(
+                          inventoryDraftPreview.margin,
+                          inventoryDraft.currency || "ARS",
+                        )}
                       </span>
                     </p>
                   </div>
-                  <div className="mt-2 rounded-xl border border-amber-300/70 bg-amber-100/70 px-2.5 py-2 text-amber-900 dark:border-amber-600/60 dark:bg-amber-900/25 dark:text-amber-100">
-                    Deuda operativa estimada:{" "}
-                    <span className="font-semibold">
-                      {formatMoney(summary.operationalDebt, summary.currency)}
-                    </span>
-                    {" · "}costo de cupos asignados a pasajeros que todavía no están confirmados con operador.
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : null}
+                </div>
 
-          <div className="mt-4 space-y-2">
-            {inventories.length === 0 ? (
-              <p className="rounded-2xl border border-sky-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-sky-700/70 dark:bg-slate-900/60 dark:text-slate-300">
-                Todavía no hay servicios cargados.
-              </p>
-            ) : (
-              inventories.map((item) => {
-                const parsedNote = parseInventoryNote(item.note ?? "");
-                const metrics = inventoryFinancialById.get(item.id_travel_group_inventory);
-                return (
+                <label className="flex flex-col gap-1 text-sm">
+                  Nota interna (opcional)
+                  <textarea
+                    value={inventoryDraft.note}
+                    onChange={(e) =>
+                      setInventoryDraft((prev) => ({
+                        ...prev,
+                        note: e.target.value,
+                      }))
+                    }
+                    rows={2}
+                    disabled={submitting}
+                    className={FIELD_TEXTAREA_CLASS}
+                  />
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
+                >
+                  {submitting ? (
+                    <Spinner label="Guardando servicio..." />
+                  ) : editingInventoryId ? (
+                    "Guardar servicio"
+                  ) : (
+                    "Agregar servicio"
+                  )}
+                </button>
+              </form>
+            </CollapsiblePanel>
+
+            {inventoryFinancialSummary.length > 0 ? (
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                {inventoryFinancialSummary.map((summary) => (
                   <article
-                    key={item.id_travel_group_inventory}
-                    className="rounded-2xl border border-sky-300/80 bg-white/75 p-3 dark:border-sky-700/70 dark:bg-slate-900/60"
+                    key={`fin-${summary.currency}`}
+                    className="rounded-2xl border border-sky-300/70 bg-white/70 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-slate-900/60 dark:text-slate-300"
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="font-semibold text-slate-900 dark:text-slate-100">
-                          {item.label}
-                        </p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                          {item.inventory_type}
-                          {item.service_type ? ` · ${item.service_type}` : ""}
-                          {item.travelGroupDeparture?.name
-                            ? ` · ${item.travelGroupDeparture.name}`
-                            : ""}
-                          {item.provider ? ` · ${item.provider}` : ""}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => startEditInventory(item)}
-                          disabled={submitting}
-                          className="rounded-full border border-sky-300 bg-sky-50/70 px-3 py-1.5 text-xs font-semibold text-sky-800 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-700 dark:bg-slate-900/70 dark:text-sky-200 dark:hover:border-sky-600"
-                        >
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteInventory(item)}
-                          disabled={submitting}
-                          className="rounded-full border border-amber-300 bg-amber-100/90 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-700 dark:text-slate-300">
-                      <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
-                        Comprados: {item.total_qty}
-                      </span>
-                      <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
-                        Asignados a pasajeros: {item.assigned_qty}
-                      </span>
-                      <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
-                        Confirmados con operador: {item.confirmed_qty}
-                      </span>
-                      <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
-                        Bloqueados: {item.blocked_qty}
-                      </span>
-                      {metrics ? (
-                        <>
-                          <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
-                            Costo total: {formatMoney(metrics.costTotal, metrics.currency)}
-                          </span>
-                          {metrics.saleTotal > 0 ? (
-                            <span className="rounded-full border border-emerald-300/80 bg-emerald-100/90 px-2 py-0.5 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-200">
-                              Venta estimada: {formatMoney(metrics.saleTotal, metrics.currency)}
-                            </span>
-                          ) : null}
-                          <span className="rounded-full border border-amber-300/80 bg-amber-100/90 px-2 py-0.5 text-amber-800 dark:border-amber-700 dark:bg-amber-900/25 dark:text-amber-200">
-                            Deuda operativa: {formatMoney(metrics.operationalDebt, metrics.currency)}
-                          </span>
-                        </>
-                      ) : null}
-                    </div>
-                    {parsedNote.noteText ? (
-                      <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-                        Nota: {parsedNote.noteText}
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      Resumen financiero · {summary.currency}
+                    </p>
+                    <div className="mt-2 grid grid-cols-1 gap-1 md:grid-cols-2">
+                      <p>
+                        Servicios:{" "}
+                        <span className="font-semibold">
+                          {summary.servicesCount}
+                        </span>
                       </p>
-                    ) : null}
+                      <p>
+                        Cupos comprados:{" "}
+                        <span className="font-semibold">
+                          {summary.totalQty}
+                        </span>
+                      </p>
+                      <p>
+                        Cupos disponibles:{" "}
+                        <span className="font-semibold">
+                          {summary.availableQty}
+                        </span>
+                      </p>
+                      <p>
+                        Costo total:{" "}
+                        <span className="font-semibold">
+                          {formatMoney(summary.costTotal, summary.currency)}
+                        </span>
+                      </p>
+                      <p>
+                        Venta estimada:{" "}
+                        <span className="font-semibold">
+                          {formatMoney(summary.saleTotal, summary.currency)}
+                        </span>
+                      </p>
+                      <p>
+                        Margen bruto estimado:{" "}
+                        <span className="font-semibold">
+                          {formatMoney(summary.grossMargin, summary.currency)}
+                        </span>
+                      </p>
+                    </div>
+                    <div className="mt-2 rounded-xl border border-amber-300/70 bg-amber-100/70 px-2.5 py-2 text-amber-900 dark:border-amber-600/60 dark:bg-amber-900/25 dark:text-amber-100">
+                      Deuda operativa estimada:{" "}
+                      <span className="font-semibold">
+                        {formatMoney(summary.operationalDebt, summary.currency)}
+                      </span>
+                      {" · "}costo de cupos asignados a pasajeros que todavía no
+                      están confirmados con operador.
+                    </div>
                   </article>
-                );
-              })
-            )}
-          </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="mt-4 space-y-2">
+              {inventories.length === 0 ? (
+                <p className="rounded-2xl border border-sky-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-sky-700/70 dark:bg-slate-900/60 dark:text-slate-300">
+                  Todavía no hay servicios cargados.
+                </p>
+              ) : (
+                inventories.map((item) => {
+                  const parsedNote = parseInventoryNote(item.note ?? "");
+                  const metrics = inventoryFinancialById.get(
+                    item.id_travel_group_inventory,
+                  );
+                  return (
+                    <article
+                      key={item.id_travel_group_inventory}
+                      className="rounded-2xl border border-sky-300/80 bg-white/75 p-3 dark:border-sky-700/70 dark:bg-slate-900/60"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-slate-900 dark:text-slate-100">
+                            {item.label}
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {item.inventory_type}
+                            {item.service_type ? ` · ${item.service_type}` : ""}
+                            {item.travelGroupDeparture?.name
+                              ? ` · ${item.travelGroupDeparture.name}`
+                              : ""}
+                            {item.provider ? ` · ${item.provider}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEditInventory(item)}
+                            disabled={submitting}
+                            className="rounded-full border border-sky-300 bg-sky-50/70 px-3 py-1.5 text-xs font-semibold text-sky-800 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-700 dark:bg-slate-900/70 dark:text-sky-200 dark:hover:border-sky-600"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteInventory(item)}
+                            disabled={submitting}
+                            className="rounded-full border border-amber-300 bg-amber-100/90 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-700 dark:text-slate-300">
+                        <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
+                          Comprados: {item.total_qty}
+                        </span>
+                        <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
+                          Asignados a pasajeros: {item.assigned_qty}
+                        </span>
+                        <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
+                          Confirmados con operador: {item.confirmed_qty}
+                        </span>
+                        <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
+                          Bloqueados: {item.blocked_qty}
+                        </span>
+                        {metrics ? (
+                          <>
+                            <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
+                              Costo total:{" "}
+                              {formatMoney(metrics.costTotal, metrics.currency)}
+                            </span>
+                            {metrics.saleTotal > 0 ? (
+                              <span className="rounded-full border border-emerald-300/80 bg-emerald-100/90 px-2 py-0.5 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-200">
+                                Venta estimada:{" "}
+                                {formatMoney(
+                                  metrics.saleTotal,
+                                  metrics.currency,
+                                )}
+                              </span>
+                            ) : null}
+                            <span className="rounded-full border border-amber-300/80 bg-amber-100/90 px-2 py-0.5 text-amber-800 dark:border-amber-700 dark:bg-amber-900/25 dark:text-amber-200">
+                              Deuda operativa:{" "}
+                              {formatMoney(
+                                metrics.operationalDebt,
+                                metrics.currency,
+                              )}
+                            </span>
+                          </>
+                        ) : null}
+                      </div>
+                      {parsedNote.noteText ? (
+                        <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+                          Nota: {parsedNote.noteText}
+                        </p>
+                      ) : null}
+                    </article>
+                  );
+                })
+              )}
+            </div>
           </section>
         ) : null}
 
         {showCobrosPanels ? (
           <section
             id="panel-cobros"
-            className="rounded-3xl border border-sky-200/80 bg-white/70 p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
+            className="rounded-2xl border border-sky-200/80 bg-white/85 p-4 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/70"
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -5203,7 +5748,8 @@ export default function GroupDetailPage() {
                   Plan de pago, cobro y recibo del pasajero
                 </h2>
                 <p className="text-xs text-slate-700 dark:text-slate-300">
-                  Cobros y recibos se gestionan por pasajero. La reserva grupal es el contexto operativo.
+                  Cobros y recibos se gestionan por pasajero. La reserva grupal
+                  es el contexto operativo.
                 </p>
               </div>
               <ToggleIconButton
@@ -5213,82 +5759,75 @@ export default function GroupDetailPage() {
               />
             </div>
 
-            <CollapsiblePanel open={showCollectForm} className="mt-3">
-              <div className="space-y-3 rounded-2xl border border-sky-300/70 bg-white/70 p-3 dark:border-sky-700/60 dark:bg-slate-900/60">
-                <label className="flex flex-col gap-1 text-sm">
-                  Pasajero para gestionar cobros
-                  <select
-                    value={collectPassengerId}
-                    onChange={(e) => setCollectPassengerId(e.target.value)}
-                    disabled={financePassengerOptions.length === 0}
-                    className={FIELD_INPUT_CLASS}
-                  >
-                    {financePassengerOptions.length === 0 ? (
-                      <option value="">No hay pasajeros con reserva activa</option>
-                    ) : null}
-                    {financePassengerOptions.map((option) => (
-                      <option
-                        key={`collect-passenger-${option.passengerId}`}
-                        value={option.passengerId}
-                      >
-                        {option.passengerName} · Pax Nº
-                        {option.agencyClientId ?? option.clientId} · Reserva Nº
-                        {option.agencyBookingId ?? option.bookingId}
-                        {option.departureName ? ` · ${option.departureName}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                {financePassengerOptions.length === 0 ? (
-                  <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
+            <CollapsiblePanel open={showCollectForm} className="mt-4">
+              <div className="space-y-5">
+                {passengers.length === 0 ? (
+                  <p className={FLAT_NOTE_CLASS}>
                     Todavía no hay pasajeros vinculados para gestionar cobros.
                   </p>
-                ) : !selectedCollectPassenger || !selectedCollectBookingId || !selectedCollectClientId ? (
-                  <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
-                    Seleccioná un pasajero con reserva válida para continuar.
+                ) : !selectedCollectPassenger ? (
+                  <p className={FLAT_NOTE_CLASS}>
+                    Seleccioná un pasajero activo en la tabla para continuar.
+                  </p>
+                ) : !selectedCollectBookingId ||
+                  !selectedCollectClientId ? (
+                  <p className={FLAT_NOTE_CLASS}>
+                    El pasajero activo no tiene contexto financiero válido.
                   </p>
                 ) : !collectBooking ? (
-                  <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
-                    {collectLoading ? "Cargando datos de cobro..." : "Reserva del pasajero no disponible."}
+                  <p className={FLAT_NOTE_CLASS}>
+                    {collectLoading
+                      ? "Cargando datos de cobro..."
+                      : "Contexto operativo del pasajero no disponible."}
                   </p>
                 ) : (
                   <div className="space-y-4">
-                    <div className="rounded-2xl border border-sky-300/70 bg-sky-50/60 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-sky-900/20 dark:text-slate-300">
+                    <div className="text-xs text-slate-700 dark:text-slate-300">
                       <p>
-                        Pasajero:{" "}
+                        <span className="font-semibold">Pasajero:</span>{" "}
                         <span className="font-semibold">
                           {selectedCollectPassenger.client
                             ? `${selectedCollectPassenger.client.first_name} ${selectedCollectPassenger.client.last_name}`
                             : `Cliente ${selectedCollectClientId}`}
                         </span>
-                        {" · "}Reserva Nº{" "}
+                        {" · "}Cuotas:{" "}
                         <span className="font-semibold">
-                          {collectBooking.agency_booking_id ?? collectBooking.id_booking}
+                          {collectClientPayments.length}
                         </span>
-                        {" · "}Cuotas: <span className="font-semibold">{collectClientPayments.length}</span>
-                        {" · "}Recibos: <span className="font-semibold">{collectReceipts.length}</span>
+                        {" · "}Recibos:{" "}
+                        <span className="font-semibold">
+                          {collectReceipts.length}
+                        </span>
                       </p>
                     </div>
 
                     {collectLoadingError ? (
-                      <p className="rounded-2xl border border-amber-300/80 bg-amber-100/85 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+                      <p className={FLAT_WARN_CLASS}>
                         {collectLoadingError}
                       </p>
                     ) : null}
 
-                    <section className="space-y-3 rounded-2xl border border-sky-300/70 bg-white/70 p-3 dark:border-sky-700/60 dark:bg-slate-900/60">
+                    <section className="space-y-4 border-t border-slate-200/70 pt-4 dark:border-slate-700/70">
                       <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                         Plan de pago y vencimientos
                       </p>
                       {!token ? (
-                        <p className="rounded-xl border border-amber-300/80 bg-amber-100/80 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
-                          Necesitás sesión activa para crear cuotas del pasajero.
+                        <p className={FLAT_WARN_CLASS}>
+                          Necesitás sesión activa para crear cuotas del
+                          pasajero.
                         </p>
                       ) : (
-                        <ClientPaymentForm
+                        <GroupClientPaymentForm
                           token={token}
                           booking={collectBooking}
+                          groupId={groupId}
+                          groupPassengerId={
+                            selectedCollectPassenger.id_travel_group_passenger
+                          }
+                          groupDepartureId={
+                            selectedCollectPassenger.travelGroupDeparture
+                              ?.id_travel_group_departure ?? null
+                          }
                           defaultClientId={selectedCollectClientId}
                           lockClient={true}
                           onCreated={() => {
@@ -5296,9 +5835,10 @@ export default function GroupDetailPage() {
                           }}
                         />
                       )}
-                      <ClientPaymentList
+                      <GroupClientPaymentList
                         payments={collectClientPayments}
                         booking={collectBooking}
+                        groupId={groupId}
                         role={financeRole}
                         loading={collectLoading}
                         onPaymentDeleted={() => {
@@ -5307,7 +5847,7 @@ export default function GroupDetailPage() {
                       />
                     </section>
 
-                    <section className="space-y-3 rounded-2xl border border-sky-300/70 bg-white/70 p-3 dark:border-sky-700/60 dark:bg-slate-900/60">
+                    <section className="space-y-4 border-t border-slate-200/70 pt-4 dark:border-slate-700/70">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                           Cobro y recibo del pasajero
@@ -5315,14 +5855,18 @@ export default function GroupDetailPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            if (editingCollectReceipt) setEditingCollectReceipt(null);
+                            if (editingCollectReceipt)
+                              setEditingCollectReceipt(null);
                             setCollectReceiptFormVisible((prev) => !prev);
                           }}
-                          className={pillClass(collectReceiptFormVisible, "sky")}
+                          className={pillClass(
+                            collectReceiptFormVisible,
+                            "sky",
+                          )}
                         >
                           {collectReceiptFormVisible
                             ? "Ocultar formulario"
-                            : "Nuevo recibo / asociar existente"}
+                            : "Nuevo recibo"}
                         </button>
                       </div>
                       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -5332,23 +5876,28 @@ export default function GroupDetailPage() {
                           disabled={collectLoading}
                           className="rounded-full border border-slate-300 bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
                         >
-                          {collectLoading ? "Actualizando..." : "Refrescar recibos"}
+                          {collectLoading
+                            ? "Actualizando..."
+                            : "Refrescar recibos"}
                         </button>
                       </div>
                       {!token ? (
-                        <p className="rounded-xl border border-amber-300/80 bg-amber-100/80 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+                        <p className={FLAT_WARN_CLASS}>
                           Necesitás sesión activa para crear/editar recibos.
                         </p>
                       ) : (
-                        <ReceiptForm
+                        <GroupReceiptForm
                           token={token}
-                          editingReceiptId={editingCollectReceipt?.id_receipt ?? null}
+                          editingReceiptId={
+                            editingCollectReceipt?.id_receipt ?? null
+                          }
                           isFormVisible={collectReceiptFormVisible}
                           setIsFormVisible={setCollectReceiptFormVisible}
                           bookingId={selectedCollectBookingId || undefined}
                           allowAgency={false}
-                          enableAttachAction={!editingCollectReceipt}
-                          initialServiceIds={editingCollectReceipt?.serviceIds || []}
+                          initialServiceIds={
+                            editingCollectReceipt?.serviceIds || []
+                          }
                           initialConcept={editingCollectReceipt?.concept || ""}
                           initialAmount={
                             editingCollectReceipt
@@ -5357,26 +5906,46 @@ export default function GroupDetailPage() {
                           }
                           initialCurrency={
                             editingCollectReceipt?.amount_currency
-                              ? normalizeCurrencyCode(editingCollectReceipt.amount_currency)
+                              ? normalizeCurrencyCode(
+                                  editingCollectReceipt.amount_currency,
+                                )
                               : undefined
                           }
-                          initialAmountWords={editingCollectReceipt?.amount_string || ""}
+                          initialAmountWords={
+                            editingCollectReceipt?.amount_string || ""
+                          }
                           initialAmountWordsCurrency={
                             editingCollectReceipt?.base_currency
-                              ? normalizeCurrencyCode(editingCollectReceipt.base_currency)
+                              ? normalizeCurrencyCode(
+                                  editingCollectReceipt.base_currency,
+                                )
                               : undefined
                           }
-                          initialPaymentDescription={editingCollectReceipt?.currency || ""}
+                          initialPaymentDescription={
+                            editingCollectReceipt?.currency || ""
+                          }
                           initialFeeAmount={
                             editingCollectReceipt?.payment_fee_amount != null
-                              ? toAmountNumber(editingCollectReceipt.payment_fee_amount)
+                              ? toAmountNumber(
+                                  editingCollectReceipt.payment_fee_amount,
+                                )
                               : undefined
                           }
-                          initialIssueDate={toDateInputValue(editingCollectReceipt?.issue_date)}
-                          initialBaseAmount={editingCollectReceipt?.base_amount ?? null}
-                          initialBaseCurrency={editingCollectReceipt?.base_currency ?? null}
-                          initialCounterAmount={editingCollectReceipt?.counter_amount ?? null}
-                          initialCounterCurrency={editingCollectReceipt?.counter_currency ?? null}
+                          initialIssueDate={toDateInputValue(
+                            editingCollectReceipt?.issue_date,
+                          )}
+                          initialBaseAmount={
+                            editingCollectReceipt?.base_amount ?? null
+                          }
+                          initialBaseCurrency={
+                            editingCollectReceipt?.base_currency ?? null
+                          }
+                          initialCounterAmount={
+                            editingCollectReceipt?.counter_amount ?? null
+                          }
+                          initialCounterCurrency={
+                            editingCollectReceipt?.counter_currency ?? null
+                          }
                           initialClientIds={
                             editingCollectReceipt?.clientIds?.length
                               ? editingCollectReceipt.clientIds
@@ -5393,26 +5962,35 @@ export default function GroupDetailPage() {
                                   service.description ||
                                   service.type ||
                                   `Servicio ${service.id_service}`,
-                                currency: normalizeCurrencyCode(service.currency || "ARS"),
+                                currency: normalizeCurrencyCode(
+                                  service.currency || "ARS",
+                                ),
                                 sale_price: toAmountNumber(service.sale_price),
-                                card_interest: toAmountNumber(service.card_interest || 0),
+                                card_interest: toAmountNumber(
+                                  service.card_interest || 0,
+                                ),
                                 taxableCardInterest: toAmountNumber(
                                   service.taxableCardInterest || 0,
                                 ),
-                                vatOnCardInterest: toAmountNumber(service.vatOnCardInterest || 0),
+                                vatOnCardInterest: toAmountNumber(
+                                  service.vatOnCardInterest || 0,
+                                ),
                                 type: service.type,
                                 destination: service.destination,
                               }));
                             }
-                            const payload = await requestGroupApi<FinanceBookingPayload>(
-                              `/api/bookings/${bookingId}`,
-                              {
-                                credentials: "include",
-                                cache: "no-store",
-                              },
-                              "No pudimos cargar servicios de la reserva para el recibo.",
-                            );
-                            const remoteServices = Array.isArray(payload.services)
+                            const payload =
+                              await requestGroupApi<FinanceBookingPayload>(
+                                `/api/bookings/${bookingId}`,
+                                {
+                                  credentials: "include",
+                                  cache: "no-store",
+                                },
+                                "No pudimos cargar servicios de la reserva para el recibo.",
+                              );
+                            const remoteServices = Array.isArray(
+                              payload.services,
+                            )
                               ? payload.services
                               : [];
                             return remoteServices.map((service) => ({
@@ -5421,69 +5999,64 @@ export default function GroupDetailPage() {
                                 service.description ||
                                 service.type ||
                                 `Servicio ${service.id_service}`,
-                              currency: normalizeCurrencyCode(service.currency || "ARS"),
+                              currency: normalizeCurrencyCode(
+                                service.currency || "ARS",
+                              ),
                               sale_price: toAmountNumber(service.sale_price),
-                              card_interest: toAmountNumber(service.card_interest || 0),
-                              taxableCardInterest: toAmountNumber(service.taxableCardInterest || 0),
-                              vatOnCardInterest: toAmountNumber(service.vatOnCardInterest || 0),
+                              card_interest: toAmountNumber(
+                                service.card_interest || 0,
+                              ),
+                              taxableCardInterest: toAmountNumber(
+                                service.taxableCardInterest || 0,
+                              ),
+                              vatOnCardInterest: toAmountNumber(
+                                service.vatOnCardInterest || 0,
+                              ),
                               type: service.type,
                               destination: service.destination,
                             }));
                           }}
-                          onAttachExisting={async ({ id_receipt, bookingId, serviceIds }) => {
-                            await requestGroupApi(
-                              `/api/receipts/${id_receipt}`,
-                              {
-                                method: "PATCH",
-                                headers: { "Content-Type": "application/json" },
-                                credentials: "include",
-                                body: JSON.stringify({
-                                  bookingId,
-                                  booking: { id_booking: bookingId },
-                                  clientIds: [Number(selectedCollectClientId)],
-                                  serviceIds,
-                                }),
-                              },
-                              "No pudimos asociar el recibo al pasajero seleccionado.",
-                            );
-                            await refreshCollectData();
-                          }}
                           onSubmit={async (payload) => {
                             const normalizedPayload = {
                               ...payload,
-                              booking: { id_booking: Number(selectedCollectBookingId) },
+                              passengerId:
+                                selectedCollectPassenger.id_travel_group_passenger,
                               clientIds: [Number(selectedCollectClientId)],
                             };
 
                             if (editingCollectReceipt?.id_receipt) {
-                              const routeId =
-                                editingCollectReceipt.public_id || editingCollectReceipt.id_receipt;
-                              const response = await requestGroupApi<SubmitResult>(
-                                `/api/receipts/${routeId}`,
-                                {
-                                  method: "PATCH",
-                                  headers: { "Content-Type": "application/json" },
-                                  credentials: "include",
-                                  body: JSON.stringify(normalizedPayload),
-                                },
-                                "No pudimos actualizar el recibo.",
-                              );
+                              const response =
+                                await requestGroupApi<SubmitResult>(
+                                  `/api/groups/${encodeURIComponent(groupId)}/finance/receipts/${editingCollectReceipt.id_receipt}`,
+                                  {
+                                    method: "PATCH",
+                                    headers: {
+                                      "Content-Type": "application/json",
+                                    },
+                                    credentials: "include",
+                                    body: JSON.stringify(normalizedPayload),
+                                  },
+                                  "No pudimos actualizar el recibo.",
+                                );
                               setEditingCollectReceipt(null);
                               setCollectReceiptFormVisible(false);
                               await refreshCollectData();
                               return response;
                             }
 
-                            const response = await requestGroupApi<SubmitResult>(
-                              "/api/receipts",
-                              {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                credentials: "include",
-                                body: JSON.stringify(normalizedPayload),
-                              },
-                              "No pudimos crear el recibo.",
-                            );
+                            const response =
+                              await requestGroupApi<SubmitResult>(
+                                `/api/groups/${encodeURIComponent(groupId)}/finance/receipts`,
+                                {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                  },
+                                  credentials: "include",
+                                  body: JSON.stringify(normalizedPayload),
+                                },
+                                "No pudimos crear el recibo.",
+                              );
                             setCollectReceiptFormVisible(false);
                             await refreshCollectData();
                             return response;
@@ -5496,10 +6069,11 @@ export default function GroupDetailPage() {
                       )}
 
                       {collectReceipts.length > 0 ? (
-                        <ReceiptList
+                        <GroupReceiptList
                           token={token}
                           receipts={collectReceipts}
                           booking={collectBooking}
+                          groupId={groupId}
                           services={collectBookingServices}
                           role={financeRole}
                           onReceiptDeleted={() => {
@@ -5511,7 +6085,7 @@ export default function GroupDetailPage() {
                           }}
                         />
                       ) : (
-                        <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
+                        <p className={FLAT_NOTE_CLASS}>
                           No hay recibos cargados para este pasajero.
                         </p>
                       )}
@@ -5526,156 +6100,170 @@ export default function GroupDetailPage() {
         {showPagosPanels ? (
           <section
             id="panel-finanzas"
-            className="rounded-3xl border border-sky-200/80 bg-white/70 p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
+            className="rounded-3xl border border-sky-200/80 bg-white/70 p-6 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
           >
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
                   Pagos y vencimientos con operador
                 </h2>
                 <p className="text-xs text-slate-700 dark:text-slate-300">
-                  Gestión consolidada de deudas y pagos operativos por reserva vinculada.
+                  Gestión consolidada de deudas y pagos operativos por salida
+                  de la grupal.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => void refreshFinanceData()}
-                disabled={financeLoading || !selectedFinanceReservation}
+                onClick={() => void refreshPaymentsData()}
+                disabled={paymentsLoading || !selectedPaymentsReservation}
                 className="rounded-full border border-slate-300 bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
               >
-                {financeLoading ? "Actualizando..." : "Refrescar pagos"}
+                {paymentsLoading ? "Actualizando..." : "Refrescar pagos"}
               </button>
             </div>
 
-            <div className="mt-3 space-y-3">
-              <label className="flex flex-col gap-1 text-sm">
-                Reserva grupal/salida para gestionar
-                <select
-                  value={financeReservationKey}
-                  onChange={(e) => setFinanceReservationKey(e.target.value)}
-                  disabled={financeReservationOptions.length === 0}
-                  className={FIELD_INPUT_CLASS}
-                >
-                  {financeReservationOptions.length === 0 ? (
-                    <option value="">No hay contextos de reserva</option>
-                  ) : null}
-                  {financeReservationOptions.map((option) => (
-                    <option key={`payments-reservation-${option.key}`} value={option.key}>
-                      {option.label} · {option.passengerCount} pax
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <div className="mt-5 space-y-5">
+              {financeReservationOptions.length > 1 ? (
+                <div className="space-y-2">
+                  <p className="text-sm">Salida / contexto operativo</p>
+                  <div className="flex flex-wrap gap-2">
+                    {financeReservationOptions.map((option) => {
+                      const active = option.key === paymentsReservationKey;
+                      return (
+                        <button
+                          key={`payments-scope-toggle-${option.key}`}
+                          type="button"
+                          onClick={() => setPaymentsReservationKey(option.key)}
+                          className={pillClass(active, "sky")}
+                          aria-pressed={active}
+                        >
+                          {option.label} · Pax: {option.passengerCount}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : financeReservationOptions.length === 1 ? (
+                <p className={FLAT_NOTE_CLASS}>
+                  Contexto operativo:{" "}
+                  <span className="font-semibold">
+                    {financeReservationOptions[0].label}
+                  </span>
+                </p>
+              ) : null}
 
               {financeReservationOptions.length === 0 ? (
-                <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-                  Todavía no hay reservas grupales/salidas disponibles para operar pagos a operador.
+                <p className={FLAT_NOTE_CLASS}>
+                  Todavía no hay contextos de salida para operar pagos a
+                  operador.
                 </p>
-              ) : !selectedFinanceReservation ? (
-                <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-                  Seleccioná una salida o contexto grupal para continuar.
+              ) : !selectedPaymentsReservation ? (
+                <p className={FLAT_NOTE_CLASS}>
+                  Seleccioná una salida para continuar.
                 </p>
-              ) : !financeBooking ? (
-                <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-                  {financeLoading ? "Cargando datos de pagos..." : "Reserva no disponible."}
+              ) : !paymentsBooking ? (
+                <p className={FLAT_NOTE_CLASS}>
+                  {paymentsLoading
+                    ? "Cargando datos de pagos..."
+                    : "Contexto operativo no disponible."}
                 </p>
               ) : (
-                <div className="space-y-4">
-                  {reservationHasMultipleTechnicalBookings ? (
-                    <p className="rounded-2xl border border-amber-300/80 bg-amber-100/90 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
-                      Esta salida tiene múltiples reservas técnicas históricas. La vista está consolidada y el alta operativa se registra sobre la reserva principal.
-                    </p>
-                  ) : null}
-                  <div className="rounded-2xl border border-sky-300/70 bg-sky-50/60 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-sky-900/20 dark:text-slate-300">
+                <div className="space-y-6">
+                  <div className="text-xs text-slate-700 dark:text-slate-300">
                     <p>
-                      Pasajeros vinculados: <span className="font-semibold">{financeLinkedPassengers.length}</span>
-                      {" · "}Deudas operador: <span className="font-semibold">{financeOperatorDues.length}</span>
-                      {" · "}Pagos operador: <span className="font-semibold">ver listado</span>
+                      <span className="font-semibold">Contexto:</span>{" "}
+                      <span className="font-semibold">
+                        {selectedPaymentsReservation.label}
+                      </span>
+                      {" · "}
+                      <span className="font-semibold">Pasajeros vinculados:</span>{" "}
+                      <span className="font-semibold">
+                        {paymentsLinkedPassengers.length}
+                      </span>
+                      {" · "}Deudas operador:{" "}
+                      <span className="font-semibold">
+                        {paymentsOperatorDues.length}
+                      </span>
+                      {" · "}Pagos operador:{" "}
+                      <span className="font-semibold">ver listado</span>
                     </p>
                   </div>
 
-                  {financeLoadingError ? (
-                    <p className="rounded-2xl border border-amber-300/80 bg-amber-100/90 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
-                      {financeLoadingError}
+                  {paymentsLoadingError ? (
+                    <p className={FLAT_WARN_CLASS}>
+                      {paymentsLoadingError}
                     </p>
                   ) : null}
 
-                  {financeSummaryByCurrency.length > 0 ? (
-                    <div className="space-y-2">
-                      {financeSummaryByCurrency.map((summary) => (
-                        <article
-                          key={`finance-summary-payments-${summary.currency}`}
-                          className="rounded-2xl border border-sky-300/70 bg-white/80 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-slate-900/60 dark:text-slate-300"
-                        >
-                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                            Resumen {summary.currency}
-                          </p>
-                          <p className="mt-1">
-                            Deuda pax vencida: <span className="font-semibold">{formatMoney(summary.overdueClientAmount, summary.currency)}</span>
-                            {" · "}Deuda operador pendiente: <span className="font-semibold">{formatMoney(summary.pendingOperatorAmount, summary.currency)}</span>
-                            {" · "}Balance neto: <span className="font-semibold">{formatMoney(summary.netBalance, summary.currency)}</span>
-                          </p>
-                        </article>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  <section className="space-y-3 rounded-2xl border border-sky-300/70 bg-white/70 p-3 dark:border-sky-700/60 dark:bg-slate-900/60">
+                  <section className="space-y-6 border-t border-slate-200/70 pt-6 dark:border-slate-700/70">
                     <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                       Vencimientos y deudas con operador
                     </p>
                     {!token ? (
-                      <p className="rounded-xl border border-amber-300/80 bg-amber-100/80 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
-                        Necesitás sesión activa para crear vencimientos de operador.
+                      <p className={FLAT_WARN_CLASS}>
+                        Necesitás sesión activa para crear vencimientos de
+                        operador.
                       </p>
                     ) : (
-                      <OperatorDueForm
+                      <GroupOperatorDueForm
                         token={token}
-                        booking={financeBooking}
-                        availableServices={financeBookingServices}
+                        booking={paymentsBooking}
+                        groupId={groupId}
+                        groupDepartureId={
+                          selectedPaymentsReservation.departureId ?? null
+                        }
+                        availableServices={paymentsBookingServices}
                         onCreated={() => {
-                          void refreshFinanceData();
+                          void refreshPaymentsData();
                         }}
                       />
                     )}
-                    <OperatorDueList
-                      dues={financeOperatorDues}
-                      booking={financeBooking}
+                    <GroupOperatorDueList
+                      dues={paymentsOperatorDues}
+                      booking={paymentsBooking}
+                      groupId={groupId}
                       role={financeRole}
                       operators={operatorOptions as unknown as Operator[]}
-                      loading={financeLoading}
+                      loading={paymentsLoading}
                       onDueDeleted={() => {
-                        void refreshFinanceData();
+                        void refreshPaymentsData();
                       }}
                       onStatusChanged={() => {
-                        void refreshFinanceData();
+                        void refreshPaymentsData();
                       }}
                     />
                   </section>
 
-                  <section className="space-y-3 rounded-2xl border border-sky-300/70 bg-white/70 p-3 dark:border-sky-700/60 dark:bg-slate-900/60">
+                  <section className="space-y-6 border-t border-slate-200/70 pt-6 dark:border-slate-700/70">
                     <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                       Pagos al operador
                     </p>
                     {!token ? (
-                      <p className="rounded-xl border border-amber-300/80 bg-amber-100/80 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+                      <p className={FLAT_WARN_CLASS}>
                         Necesitás sesión activa para registrar pagos a operador.
                       </p>
                     ) : (
-                      <OperatorPaymentForm
+                      <GroupOperatorPaymentForm
                         token={token}
-                        booking={financeBooking}
-                        availableServices={financeBookingServices}
+                        booking={paymentsBooking}
+                        groupId={groupId}
+                        groupDepartureId={
+                          selectedPaymentsReservation.departureId ?? null
+                        }
+                        availableServices={paymentsBookingServices}
                         operators={operatorOptions as unknown as Operator[]}
                         onCreated={() => {
-                          setFinanceOperatorPaymentsReloadKey((prev) => prev + 1);
-                          void refreshFinanceData();
+                          setFinanceOperatorPaymentsReloadKey(
+                            (prev) => prev + 1,
+                          );
+                          void refreshPaymentsData();
                         }}
                       />
                     )}
-                    <OperatorPaymentList
+                    <GroupOperatorPaymentList
                       token={token}
-                      bookingId={selectedFinanceBookingId || undefined}
+                      groupId={groupId}
+                      scopeKey={selectedPaymentsReservation.key}
                       reloadKey={financeOperatorPaymentsReloadKey}
                     />
                   </section>
@@ -5696,7 +6284,7 @@ export default function GroupDetailPage() {
                   Facturación
                 </h2>
                 <p className="text-xs text-slate-700 dark:text-slate-300">
-                  Facturas y notas de crédito por reserva vinculada.
+                  Facturas y notas de crédito por pasajero y salida.
                 </p>
               </div>
               <button
@@ -5710,64 +6298,119 @@ export default function GroupDetailPage() {
             </div>
 
             <div className="mt-3 space-y-3">
-              <label className="flex flex-col gap-1 text-sm">
-                Reserva grupal/salida para gestionar
-                <select
-                  value={financeReservationKey}
-                  onChange={(e) => setFinanceReservationKey(e.target.value)}
-                  disabled={financeReservationOptions.length === 0}
-                  className={FIELD_INPUT_CLASS}
-                >
-                  {financeReservationOptions.length === 0 ? (
-                    <option value="">No hay contextos de reserva</option>
-                  ) : null}
-                  {financeReservationOptions.map((option) => (
-                    <option key={`billing-reservation-${option.key}`} value={option.key}>
-                      {option.label} · {option.passengerCount} pax
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {financeReservationOptions.length === 0 ? (
+              {passengers.length === 0 ? (
                 <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-                  Todavía no hay reservas grupales/salidas disponibles para facturar.
+                  Todavía no hay pasajeros disponibles para facturar.
+                </p>
+              ) : !selectedFinancePassenger ? (
+                <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+                  Seleccioná un pasajero activo en la tabla para ver
+                  facturación.
                 </p>
               ) : !selectedFinanceReservation ? (
                 <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-                  Seleccioná una salida o contexto grupal para ver facturación.
+                  No encontramos el contexto financiero del pasajero activo.
                 </p>
               ) : !financeBooking ? (
                 <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-                  {financeLoading ? "Cargando facturación..." : "Reserva no disponible."}
+                  {financeLoading
+                    ? "Cargando facturación..."
+                    : "Contexto operativo no disponible."}
                 </p>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-6">
+                  <div className="text-xs text-slate-700 dark:text-slate-300">
+                    <p>
+                      <span className="font-semibold">Contexto pax:</span>{" "}
+                      <span className="font-semibold">
+                        {selectedFinancePassenger.client
+                          ? `${selectedFinancePassenger.client.first_name} ${selectedFinancePassenger.client.last_name}`
+                          : `Cliente ${selectedFinancePassenger.client_id ?? "-"}`}
+                      </span>
+                      {" · "}
+                      <span className="font-semibold">Pasajeros vinculados:</span>{" "}
+                      <span className="font-semibold">
+                        {financeLinkedPassengers.length}
+                      </span>
+                      {" · "}Facturas:{" "}
+                      <span className="font-semibold">
+                        {financeInvoices.length}
+                      </span>
+                      {" · "}Notas de crédito:{" "}
+                      <span className="font-semibold">
+                        {financeCreditNotes.length}
+                      </span>
+                    </p>
+                  </div>
+
                   {financeLoadingError ? (
                     <p className="rounded-2xl border border-amber-300/80 bg-amber-100/90 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
                       {financeLoadingError}
                     </p>
                   ) : null}
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      Comprobantes de la reserva
-                    </p>
-                    <Link
-                      href={`/bookings/services/${financeBooking.public_id || financeBooking.id_booking}`}
-                      className="rounded-full border border-slate-300 bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
-                    >
-                      Abrir detalle de reserva
-                    </Link>
-                  </div>
+
+                  <section className="space-y-4 border-t border-slate-200/70 pt-6 dark:border-slate-700/70">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        Emitir factura al pasajero
+                      </p>
+                    </div>
+
+                    {!selectedFinanceInvoicePassenger ? (
+                      <p className={FLAT_NOTE_CLASS}>
+                        No hay pasajero activo para facturar.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="text-xs text-slate-700 dark:text-slate-300">
+                          <p>
+                            <span className="font-semibold">Pasajero:</span>{" "}
+                            <span className="font-semibold">
+                              {selectedFinanceInvoicePassenger.client
+                                ? `${selectedFinanceInvoicePassenger.client.first_name} ${selectedFinanceInvoicePassenger.client.last_name}`
+                                : selectedFinanceInvoiceClientId
+                                  ? `Cliente ${selectedFinanceInvoiceClientId}`
+                                  : "Sin seleccionar"}
+                            </span>
+                            {" · "}Servicios:{" "}
+                            <span className="font-semibold">
+                              {financeBookingServices.length}
+                            </span>
+                          </p>
+                        </div>
+
+                        {!token ? (
+                          <p className={FLAT_WARN_CLASS}>
+                            Necesitás sesión activa para facturar.
+                          </p>
+                        ) : !selectedFinanceInvoiceClientId ? (
+                          <p className={FLAT_NOTE_CLASS}>
+                            Seleccioná un pasajero válido para facturar.
+                          </p>
+                        ) : (
+                          <GroupInvoiceForm
+                            formData={financeInvoiceFormData}
+                            availableServices={financeBookingServices}
+                            handleChange={handleFinanceInvoiceChange}
+                            handleSubmit={handleFinanceInvoiceSubmit}
+                            isFormVisible={financeInvoiceFormVisible}
+                            setIsFormVisible={setFinanceInvoiceFormVisible}
+                            updateFormData={updateFinanceInvoiceFormData}
+                            isSubmitting={financeInvoiceSubmitting}
+                            token={token}
+                          />
+                        )}
+                      </>
+                    )}
+                  </section>
 
                   <div className="space-y-3 rounded-2xl border border-sky-300/70 bg-white/75 p-3 dark:border-sky-700/60 dark:bg-slate-900/60">
                     <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-600 dark:text-slate-400">
                       Facturas
                     </p>
-                    <InvoiceList
+                    <GroupInvoiceList
                       invoices={financeInvoices}
                       loading={financeLoading && financeInvoices.length === 0}
-                      ready={true}
                     />
                   </div>
 
@@ -5787,436 +6430,447 @@ export default function GroupDetailPage() {
             id="panel-pasajeros"
             className="rounded-3xl border border-sky-200/80 bg-white/70 p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
           >
-          <div className="my-1 flex flex-wrap items-center justify-between gap-4">
-            <h2 className="flex items-center gap-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">
-              Pasajeros
-              <span
-                className={`${RESULT_PILL_BASE} ${
-                  filteredPassengers.length > 0 ? RESULT_PILL_OK : RESULT_PILL_WARN
-                }`}
-              >
-                {filteredPassengers.length}/{passengers.length}
-              </span>
-            </h2>
-
-            <div className="flex items-center gap-1 rounded-full border border-slate-300/80 bg-white/80 p-1 text-xs dark:border-slate-600 dark:bg-slate-900/70">
-              <button
-                type="button"
-                onClick={() => setPassengerView("GRID")}
-                className={`flex items-center justify-center gap-1 rounded-full px-4 py-1.5 text-sm transition-colors ${
-                  passengerView === "GRID"
-                    ? "bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-900/20 dark:text-emerald-300"
-                    : "text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
-                }`}
-                aria-pressed={passengerView === "GRID"}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="size-4"
+            <div className="my-1 flex flex-wrap items-center justify-between gap-4">
+              <h2 className="flex items-center gap-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">
+                Pasajeros
+                <span
+                  className={`${RESULT_PILL_BASE} ${
+                    filteredPassengers.length > 0
+                      ? RESULT_PILL_OK
+                      : RESULT_PILL_WARN
+                  }`}
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"
-                  />
-                </svg>
-                Grilla
-              </button>
-              <button
-                type="button"
-                onClick={() => setPassengerView("LIST")}
-                className={`flex items-center justify-center gap-1 rounded-full px-4 py-1.5 text-sm transition-colors ${
-                  passengerView === "LIST"
-                    ? "bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-900/20 dark:text-emerald-300"
-                    : "text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
-                }`}
-                aria-pressed={passengerView === "LIST"}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="size-4"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"
-                  />
-                </svg>
-                Lista
-              </button>
-              <button
-                type="button"
-                onClick={() => setPassengerView("TABLE")}
-                className={`flex items-center justify-center gap-1 rounded-full px-4 py-1.5 text-sm transition-colors ${
-                  passengerView === "TABLE"
-                    ? "bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-900/20 dark:text-emerald-300"
-                    : "text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
-                }`}
-                aria-pressed={passengerView === "TABLE"}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="size-4"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M3.75 5.25h16.5M3.75 9.75h16.5M3.75 14.25h16.5M3.75 18.75h16.5"
-                  />
-                </svg>
-                Tabla
-              </button>
-            </div>
-          </div>
+                  {filteredPassengers.length}/{passengers.length}
+                </span>
+              </h2>
 
-          <p className="text-xs text-slate-700 dark:text-slate-300">
-            Pasajero activo:{" "}
-            <span className="font-semibold text-slate-900 dark:text-slate-100">
-              {activePassenger?.client
-                ? `${activePassenger.client.first_name} ${activePassenger.client.last_name}`
-                : activePassenger
-                  ? `Cliente Nº${activePassenger.client_id ?? "-"}`
-                  : "Sin seleccionar"}
-            </span>
-          </p>
-
-          <div className="mt-3 flex w-full flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="flex w-full items-center gap-2 rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-1 text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-100">
-              <input
-                value={passengerSearch}
-                onChange={(e) => setPassengerSearch(e.target.value)}
-                placeholder="Buscar pasajero/salida/reserva..."
-                className="w-full bg-transparent py-1 outline-none placeholder:font-light placeholder:tracking-wide"
-              />
-              <button
-                type="button"
-                aria-label="Buscar"
-                className="p-1 opacity-80 hover:opacity-100"
-                title="Buscar"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="size-6"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
-                  />
-                </svg>
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowPassengerFilters((v) => !v)}
-              className="flex items-center justify-center gap-2 rounded-2xl border border-slate-300/80 bg-white/80 px-6 py-2 text-slate-700 shadow-sm backdrop-blur transition hover:border-slate-400 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.4}
-                stroke="currentColor"
-                className="size-5"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75"
-                />
-              </svg>
-              <span>{showPassengerFilters ? "Ocultar" : "Filtros"}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => void fetchAll()}
-              disabled={loading || submitting}
-              className="inline-flex items-center justify-center rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-2 text-slate-700 shadow-sm backdrop-blur transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
-              title="Refrescar"
-              aria-label="Refrescar"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className={`size-6 ${loading ? "animate-spin" : ""}`}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
-                />
-              </svg>
-            </button>
-          </div>
-
-          <CollapsiblePanel open={showPassengerFilters} className="mt-3">
-            <div className="overflow-hidden rounded-3xl border border-sky-300/80 bg-white/70 p-4 text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-sky-700/70 dark:bg-slate-900/60 dark:text-slate-100">
-              <div className="flex flex-col gap-3">
-                <label className="flex flex-col gap-1 text-sm">
-                  Estado
-                  <select
-                    value={passengerStatusFilter}
-                    onChange={(e) => setPassengerStatusFilter(e.target.value)}
-                    className={FIELD_INPUT_CLASS}
-                  >
-                    <option value="ALL">Todos</option>
-                    {PASSENGER_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {formatPassengerStatus(s)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              <div className="flex items-center gap-1 rounded-full border border-slate-300/80 bg-white/80 p-1 text-xs dark:border-slate-600 dark:bg-slate-900/70">
                 <button
                   type="button"
-                  onClick={() => {
-                    setPassengerSearch("");
-                    setPassengerStatusFilter("ALL");
-                  }}
-                  className={pillClass(
-                    passengerStatusFilter === "ALL" && !passengerSearch.trim(),
-                    "emerald",
-                  )}
+                  onClick={() => setPassengerView("GRID")}
+                  className={`flex items-center justify-center gap-1 rounded-full px-4 py-1.5 text-sm transition-colors ${
+                    passengerView === "GRID"
+                      ? "bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-900/20 dark:text-emerald-300"
+                      : "text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+                  }`}
+                  aria-pressed={passengerView === "GRID"}
                 >
-                  Limpiar filtros
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    className="size-4"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"
+                    />
+                  </svg>
+                  Grilla
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPassengerView("LIST")}
+                  className={`flex items-center justify-center gap-1 rounded-full px-4 py-1.5 text-sm transition-colors ${
+                    passengerView === "LIST"
+                      ? "bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-900/20 dark:text-emerald-300"
+                      : "text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+                  }`}
+                  aria-pressed={passengerView === "LIST"}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    className="size-4"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"
+                    />
+                  </svg>
+                  Lista
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPassengerView("TABLE")}
+                  className={`flex items-center justify-center gap-1 rounded-full px-4 py-1.5 text-sm transition-colors ${
+                    passengerView === "TABLE"
+                      ? "bg-emerald-500/15 text-emerald-700 shadow-sm shadow-emerald-900/20 dark:text-emerald-300"
+                      : "text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+                  }`}
+                  aria-pressed={passengerView === "TABLE"}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    className="size-4"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M3.75 5.25h16.5M3.75 9.75h16.5M3.75 14.25h16.5M3.75 18.75h16.5"
+                    />
+                  </svg>
+                  Tabla
                 </button>
               </div>
             </div>
-          </CollapsiblePanel>
 
-          {filteredPassengers.length === 0 ? (
-            <p className="mt-4 rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-              No hay pasajeros para los filtros actuales.
+            <p className="text-xs text-slate-700 dark:text-slate-300">
+              Pasajero activo:{" "}
+              <span className="font-semibold text-slate-900 dark:text-slate-100">
+                {activePassenger?.client
+                  ? `${activePassenger.client.first_name} ${activePassenger.client.last_name}`
+                  : activePassenger
+                    ? `Cliente Nº${activePassenger.client_id ?? "-"}`
+                    : "Sin seleccionar"}
+              </span>
             </p>
-          ) : passengerView === "TABLE" ? (
-            <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-300/80 bg-white/80 shadow-sm shadow-slate-900/10 dark:border-slate-600 dark:bg-slate-900/60">
-              <table className="min-w-full text-left text-sm text-slate-800 dark:text-slate-100">
-                <thead className="border-b border-slate-200 text-xs uppercase tracking-[0.08em] text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                  <tr>
-                    <th className="p-2">Pasajero</th>
-                    <th className="p-2">Estado</th>
-                    <th className="p-2">Salida</th>
-                    <th className="p-2">Reserva</th>
-                    <th className="p-2">Cuotas pendientes</th>
-                    <th className="p-2">Acción</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredPassengers.map((item) => {
-                    const isActive =
-                      activePassengerId === item.id_travel_group_passenger;
-                    return (
-                      <tr
-                        key={item.id_travel_group_passenger}
-                        className={`border-b border-slate-200/80 align-top dark:border-slate-700/80 ${
-                          isActive ? "bg-emerald-50/50 dark:bg-emerald-900/10" : ""
-                        }`}
-                      >
-                        <td className="p-2">
+
+            <div className="mt-3 flex w-full flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="flex w-full items-center gap-2 rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-1 text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-100">
+                <input
+                  value={passengerSearch}
+                  onChange={(e) => setPassengerSearch(e.target.value)}
+                  placeholder="Buscar pasajero/salida/reserva..."
+                  className="w-full bg-transparent py-1 outline-none placeholder:font-light placeholder:tracking-wide"
+                />
+                <button
+                  type="button"
+                  aria-label="Buscar"
+                  className="p-1 opacity-80 hover:opacity-100"
+                  title="Buscar"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    className="size-6"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowPassengerFilters((v) => !v)}
+                className="flex items-center justify-center gap-2 rounded-2xl border border-slate-300/80 bg-white/80 px-6 py-2 text-slate-700 shadow-sm backdrop-blur transition hover:border-slate-400 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.4}
+                  stroke="currentColor"
+                  className="size-5"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75"
+                  />
+                </svg>
+                <span>{showPassengerFilters ? "Ocultar" : "Filtros"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void fetchAll()}
+                disabled={loading || submitting}
+                className="inline-flex items-center justify-center rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-2 text-slate-700 shadow-sm backdrop-blur transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
+                title="Refrescar"
+                aria-label="Refrescar"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                  className={`size-6 ${loading ? "animate-spin" : ""}`}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            <CollapsiblePanel open={showPassengerFilters} className="mt-3">
+              <div className="overflow-hidden rounded-3xl border border-sky-300/80 bg-white/70 p-4 text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-sky-700/70 dark:bg-slate-900/60 dark:text-slate-100">
+                <div className="flex flex-col gap-3">
+                  <label className="flex flex-col gap-1 text-sm">
+                    Estado
+                    <select
+                      value={passengerStatusFilter}
+                      onChange={(e) => setPassengerStatusFilter(e.target.value)}
+                      className={FIELD_INPUT_CLASS}
+                    >
+                      <option value="ALL">Todos</option>
+                      {PASSENGER_STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {formatPassengerStatus(s)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPassengerSearch("");
+                      setPassengerStatusFilter("ALL");
+                    }}
+                    className={pillClass(
+                      passengerStatusFilter === "ALL" &&
+                        !passengerSearch.trim(),
+                      "emerald",
+                    )}
+                  >
+                    Limpiar filtros
+                  </button>
+                </div>
+              </div>
+            </CollapsiblePanel>
+
+            {filteredPassengers.length === 0 ? (
+              <p className="mt-4 rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+                No hay pasajeros para los filtros actuales.
+              </p>
+            ) : passengerView === "TABLE" ? (
+              <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-300/80 bg-white/80 shadow-sm shadow-slate-900/10 dark:border-slate-600 dark:bg-slate-900/60">
+                <table className="min-w-full text-left text-sm text-slate-800 dark:text-slate-100">
+                  <thead className="border-b border-slate-200 text-xs uppercase tracking-[0.08em] text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                    <tr>
+                      <th className="p-2">Pasajero</th>
+                      <th className="p-2">Estado</th>
+                      <th className="p-2">Salida</th>
+                      <th className="p-2">Cuotas pendientes</th>
+                      <th className="p-2">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPassengers.map((item) => {
+                      const isActive =
+                        activePassengerId === item.id_travel_group_passenger;
+                      return (
+                        <tr
+                          key={item.id_travel_group_passenger}
+                          className={`border-b border-slate-200/80 align-top dark:border-slate-700/80 ${
+                            isActive
+                              ? "bg-emerald-50/50 dark:bg-emerald-900/10"
+                              : ""
+                          }`}
+                        >
+                          <td className="p-2">
+                            <p className="font-semibold text-slate-900 dark:text-slate-100">
+                              {item.client
+                                ? `${item.client.first_name} ${item.client.last_name}`
+                                : `Cliente Nº${item.client_id ?? "-"}`}
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                              DNI: {item.client?.dni_number || "-"} · Tel:{" "}
+                              {item.client?.phone || "-"}
+                            </p>
+                          </td>
+                          <td className="p-2">
+                            <select
+                              value={item.status}
+                              onChange={(e) =>
+                                void handleInlinePassengerStatusChange(
+                                  item,
+                                  e.target.value,
+                                )
+                              }
+                              disabled={
+                                submitting ||
+                                updatingPassengerStatusId ===
+                                  item.id_travel_group_passenger
+                              }
+                              className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold outline-none transition ${
+                                STATUS_STYLES[item.status] ||
+                                STATUS_STYLES.PENDIENTE
+                              } disabled:cursor-not-allowed disabled:opacity-60`}
+                              aria-label={`Estado de ${
+                                item.client
+                                  ? `${item.client.first_name} ${item.client.last_name}`
+                                  : `pasajero ${item.id_travel_group_passenger}`
+                              }`}
+                            >
+                              {PASSENGER_STATUSES.map((status) => (
+                                <option key={status} value={status}>
+                                  {formatPassengerStatus(status)}
+                                </option>
+                              ))}
+                            </select>
+                            {updatingPassengerStatusId ===
+                            item.id_travel_group_passenger ? (
+                              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                Actualizando...
+                              </p>
+                            ) : null}
+                            {item.waitlist_position ? (
+                              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                                Posición: {item.waitlist_position}
+                              </p>
+                            ) : null}
+                          </td>
+                          <td className="p-2 text-xs text-slate-700 dark:text-slate-300">
+                            {item.travelGroupDeparture
+                              ? item.travelGroupDeparture.name
+                              : "-"}
+                          </td>
+                          <td className="p-2 text-xs text-slate-700 dark:text-slate-300">
+                            {item.pending_payment.count} ·{" "}
+                            {formatPendingInstallmentAmount(
+                              item.pending_payment.amount,
+                            )}
+                          </td>
+                          <td className="p-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                focusPassengerPanel(
+                                  item.id_travel_group_passenger,
+                                )
+                              }
+                              className={pillClass(isActive, "sky")}
+                            >
+                              {isActive ? "En edición" : "Gestionar"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : passengerView === "LIST" ? (
+              <div className="mt-4 space-y-2">
+                {filteredPassengers.map((item) => {
+                  const isActive =
+                    activePassengerId === item.id_travel_group_passenger;
+                  return (
+                    <article
+                      key={item.id_travel_group_passenger}
+                      className={`rounded-2xl border p-3 shadow-sm shadow-slate-900/10 ${
+                        isActive
+                          ? "border-emerald-300/80 bg-emerald-50/60 dark:border-emerald-600 dark:bg-emerald-900/20"
+                          : "border-slate-300/80 bg-white/80 dark:border-slate-600 dark:bg-slate-900/60"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
                           <p className="font-semibold text-slate-900 dark:text-slate-100">
                             {item.client
                               ? `${item.client.first_name} ${item.client.last_name}`
                               : `Cliente Nº${item.client_id ?? "-"}`}
                           </p>
                           <p className="text-xs text-slate-500 dark:text-slate-400">
-                            DNI: {item.client?.dni_number || "-"} · Tel:{" "}
-                            {item.client?.phone || "-"}
+                            Salida: {item.travelGroupDeparture?.name || "-"}
                           </p>
-                        </td>
-                        <td className="p-2">
-                          <select
-                            value={item.status}
-                            onChange={(e) =>
-                              void handleInlinePassengerStatusChange(item, e.target.value)
-                            }
-                            disabled={
-                              submitting ||
-                              updatingPassengerStatusId ===
-                                item.id_travel_group_passenger
-                            }
-                            className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold outline-none transition ${
-                              STATUS_STYLES[item.status] || STATUS_STYLES.PENDIENTE
-                            } disabled:cursor-not-allowed disabled:opacity-60`}
-                            aria-label={`Estado de ${
-                              item.client
-                                ? `${item.client.first_name} ${item.client.last_name}`
-                                : `pasajero ${item.id_travel_group_passenger}`
-                            }`}
-                          >
-                            {PASSENGER_STATUSES.map((status) => (
-                              <option key={status} value={status}>
-                                {formatPassengerStatus(status)}
-                              </option>
-                            ))}
-                          </select>
-                          {updatingPassengerStatusId ===
-                          item.id_travel_group_passenger ? (
-                            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                              Actualizando...
-                            </p>
-                          ) : null}
-                          {item.waitlist_position ? (
-                            <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                              Posición: {item.waitlist_position}
-                            </p>
-                          ) : null}
-                        </td>
-                        <td className="p-2 text-xs text-slate-700 dark:text-slate-300">
-                          {item.travelGroupDeparture ? item.travelGroupDeparture.name : "-"}
-                        </td>
-                        <td className="p-2 text-xs text-slate-700 dark:text-slate-300">
-                          {item.booking ? (
-                            <>
-                              Nº{item.booking.agency_booking_id ?? item.booking.id_booking}
-                              <br />
-                              {item.booking.clientStatus}
-                            </>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="p-2 text-xs text-slate-700 dark:text-slate-300">
-                          {item.pending_payment.count} ·{" "}
-                          {Number(item.pending_payment.amount || "0").toFixed(2)}
-                        </td>
-                        <td className="p-2">
-                          <button
-                            type="button"
-                            onClick={() => focusPassengerPanel(item.id_travel_group_passenger)}
-                            className={pillClass(isActive, "sky")}
-                          >
-                            {isActive ? "En edición" : "Gestionar"}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : passengerView === "LIST" ? (
-            <div className="mt-4 space-y-2">
-              {filteredPassengers.map((item) => {
-                const isActive =
-                  activePassengerId === item.id_travel_group_passenger;
-                return (
-                  <article
-                    key={item.id_travel_group_passenger}
-                    className={`rounded-2xl border p-3 shadow-sm shadow-slate-900/10 ${
-                      isActive
-                        ? "border-emerald-300/80 bg-emerald-50/60 dark:border-emerald-600 dark:bg-emerald-900/20"
-                        : "border-slate-300/80 bg-white/80 dark:border-slate-600 dark:bg-slate-900/60"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-slate-900 dark:text-slate-100">
-                          {item.client
-                            ? `${item.client.first_name} ${item.client.last_name}`
-                            : `Cliente Nº${item.client_id ?? "-"}`}
-                        </p>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                          Salida: {item.travelGroupDeparture?.name || "-"} · Reserva: Nº
-                          {item.booking?.agency_booking_id ?? item.booking?.id_booking ?? "-"}
-                        </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            focusPassengerPanel(item.id_travel_group_passenger)
+                          }
+                          className={pillClass(isActive, "sky")}
+                        >
+                          {isActive ? "En edición" : "Gestionar"}
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => focusPassengerPanel(item.id_travel_group_passenger)}
-                        className={pillClass(isActive, "sky")}
-                      >
-                        {isActive ? "En edición" : "Gestionar"}
-                      </button>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                      <span
-                        className={`rounded-full border px-2 py-0.5 font-bold ${STATUS_STYLES[item.status] || STATUS_STYLES.PENDIENTE}`}
-                      >
-                        {formatPassengerStatus(item.status)}
-                      </span>
-                      <span className="rounded-full border border-slate-300/80 bg-white/80 px-2 py-0.5 text-slate-700 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
-                        Pendientes: {item.pending_payment.count}
-                      </span>
-                      <span className="rounded-full border border-slate-300/80 bg-white/80 px-2 py-0.5 text-slate-700 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
-                        Monto: {Number(item.pending_payment.amount || "0").toFixed(2)}
-                      </span>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {filteredPassengers.map((item) => {
-                const isActive =
-                  activePassengerId === item.id_travel_group_passenger;
-                return (
-                  <article
-                    key={item.id_travel_group_passenger}
-                    className={`rounded-2xl border p-3 shadow-sm shadow-slate-900/10 ${
-                      isActive
-                        ? "border-emerald-300/80 bg-emerald-50/60 dark:border-emerald-600 dark:bg-emerald-900/20"
-                        : "border-slate-300/80 bg-white/80 dark:border-slate-600 dark:bg-slate-900/60"
-                    }`}
-                  >
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_STYLES[item.status] || STATUS_STYLES.PENDIENTE}`}
-                      >
-                        {formatPassengerStatus(item.status)}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => focusPassengerPanel(item.id_travel_group_passenger)}
-                        className={pillClass(isActive, "sky")}
-                      >
-                        {isActive ? "En edición" : "Gestionar"}
-                      </button>
-                    </div>
-                    <p className="font-semibold text-slate-900 dark:text-slate-100">
-                      {item.client
-                        ? `${item.client.first_name} ${item.client.last_name}`
-                        : `Cliente Nº${item.client_id ?? "-"}`}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                      DNI: {item.client?.dni_number || "-"} · Tel: {item.client?.phone || "-"}
-                    </p>
-                    <p className="mt-2 text-xs text-slate-700 dark:text-slate-300">
-                      Salida: {item.travelGroupDeparture?.name || "-"}
-                    </p>
-                    <p className="text-xs text-slate-700 dark:text-slate-300">
-                      Reserva: Nº{item.booking?.agency_booking_id ?? item.booking?.id_booking ?? "-"}
-                    </p>
-                    <p className="mt-2 text-xs text-slate-700 dark:text-slate-300">
-                      Pendientes: {item.pending_payment.count} ·{" "}
-                      {Number(item.pending_payment.amount || "0").toFixed(2)}
-                    </p>
-                  </article>
-                );
-              })}
-            </div>
-          )}
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                        <span
+                          className={`rounded-full border px-2 py-0.5 font-bold ${STATUS_STYLES[item.status] || STATUS_STYLES.PENDIENTE}`}
+                        >
+                          {formatPassengerStatus(item.status)}
+                        </span>
+                        <span className="rounded-full border border-slate-300/80 bg-white/80 px-2 py-0.5 text-slate-700 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
+                          Pendientes: {item.pending_payment.count}
+                        </span>
+                        <span className="rounded-full border border-slate-300/80 bg-white/80 px-2 py-0.5 text-slate-700 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
+                          Monto:{" "}
+                          {formatPendingInstallmentAmount(
+                            item.pending_payment.amount,
+                          )}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {filteredPassengers.map((item) => {
+                  const isActive =
+                    activePassengerId === item.id_travel_group_passenger;
+                  return (
+                    <article
+                      key={item.id_travel_group_passenger}
+                      className={`rounded-2xl border p-3 shadow-sm shadow-slate-900/10 ${
+                        isActive
+                          ? "border-emerald-300/80 bg-emerald-50/60 dark:border-emerald-600 dark:bg-emerald-900/20"
+                          : "border-slate-300/80 bg-white/80 dark:border-slate-600 dark:bg-slate-900/60"
+                      }`}
+                    >
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_STYLES[item.status] || STATUS_STYLES.PENDIENTE}`}
+                        >
+                          {formatPassengerStatus(item.status)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            focusPassengerPanel(item.id_travel_group_passenger)
+                          }
+                          className={pillClass(isActive, "sky")}
+                        >
+                          {isActive ? "En edición" : "Gestionar"}
+                        </button>
+                      </div>
+                      <p className="font-semibold text-slate-900 dark:text-slate-100">
+                        {item.client
+                          ? `${item.client.first_name} ${item.client.last_name}`
+                          : `Cliente Nº${item.client_id ?? "-"}`}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        DNI: {item.client?.dni_number || "-"} · Tel:{" "}
+                        {item.client?.phone || "-"}
+                      </p>
+                      <p className="mt-2 text-xs text-slate-700 dark:text-slate-300">
+                        Salida: {item.travelGroupDeparture?.name || "-"}
+                      </p>
+                      <p className="mt-2 text-xs text-slate-700 dark:text-slate-300">
+                        Pendientes: {item.pending_payment.count} ·{" "}
+                        {formatPendingInstallmentAmount(
+                          item.pending_payment.amount,
+                        )}
+                      </p>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
           </section>
         ) : null}
       </div>
