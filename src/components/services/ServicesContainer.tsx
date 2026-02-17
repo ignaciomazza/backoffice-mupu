@@ -682,6 +682,9 @@ export default function ServicesContainer(props: ServicesContainerProps) {
     role === "administrativo" || role === "gerente" || role === "desarrollador";
   const canOverrideBillingMode =
     role === "administrativo" || role === "gerente" || role === "desarrollador";
+  const canEditSaleMode = canOverrideBillingMode;
+  const canEditSaleTotals =
+    canEditSaleMode || role === "vendedor" || role === "lider";
 
   useEffect(() => {
     if (!token || !booking?.id_booking || !canNavigateNeighbors) {
@@ -1264,17 +1267,20 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   };
 
   const handleSaleTotalsSave = async () => {
-    if (!booking || !token) return;
+    if (!booking || !token || !canEditSaleTotals) return;
     setSaleTotalsSaving(true);
     try {
+      const payload: Record<string, unknown> = {
+        sale_totals: normalizedSaleTotalsDraft,
+      };
+      if (canEditSaleMode) {
+        payload.use_booking_sale_total_override = nextSaleTotalOverridePayload;
+      }
       const res = await authFetch(
         `/api/bookings/${booking.id_booking}`,
         {
           method: "PATCH",
-          body: JSON.stringify({
-            sale_totals: normalizedSaleTotalsDraft,
-            use_booking_sale_total_override: nextSaleTotalOverridePayload,
-          }),
+          body: JSON.stringify(payload),
         },
         token ?? undefined,
       );
@@ -1299,7 +1305,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   };
 
   const handleSaleModeSave = async () => {
-    if (!booking || !token) return;
+    if (!booking || !token || !canEditSaleMode) return;
     setSaleModeSaving(true);
     try {
       const res = await authFetch(
@@ -1478,6 +1484,8 @@ export default function ServicesContainer(props: ServicesContainerProps) {
 
   const canAdminLike =
     role === "administrativo" || role === "gerente" || role === "desarrollador";
+  const canShowBookingSaleTotalsForm =
+    canEditSaleMode || (canEditSaleTotals && useBookingSaleTotal);
   const canUseReceiptsForm = canAccessBookingComponent(
     role,
     bookingComponents,
@@ -2151,7 +2159,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                     bookingSaleTotals={bookingSaleTotals}
                     onSaveCommission={handleCommissionOverridesSave}
                     bookingSaleTotalsForm={
-                      canAdminLike ? (
+                      canShowBookingSaleTotalsForm ? (
                         <div className="mt-8 rounded-3xl border border-sky-900/10 bg-white/35 p-4 text-sky-950 shadow-sm shadow-sky-950/5 backdrop-blur dark:border-white/10 dark:bg-white/[0.04] dark:text-white">
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
@@ -2164,27 +2172,35 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                               </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                              <label className="inline-flex items-center gap-2 rounded-full border border-sky-900/15 bg-white/70 px-3 py-1 text-xs font-medium text-sky-950 dark:border-white/10 dark:bg-white/10 dark:text-white">
-                                <input
-                                  type="checkbox"
-                                  checked={useBookingSaleTotal}
-                                  onChange={(e) =>
-                                    setUseBookingSaleTotal(e.target.checked)
-                                  }
-                                  className="size-4 rounded border-sky-900/20 bg-white/80 text-sky-600 dark:border-white/20 dark:bg-white/10"
-                                />
-                                {useBookingSaleTotal ? "Activo" : "Inactivo"}
-                              </label>
-                              <button
-                                type="button"
-                                onClick={handleSaleModeSave}
-                                disabled={!saleModeDirty || saleModeSaving}
-                                className="rounded-full border border-sky-900/15 bg-white/70 px-4 py-2 text-xs font-medium text-sky-950 shadow-sm shadow-sky-950/10 transition active:scale-95 disabled:opacity-50 dark:border-white/10 dark:bg-white/10 dark:text-white"
-                              >
-                                {saleModeSaving
-                                  ? "Guardando modo..."
-                                  : "Guardar modo"}
-                              </button>
+                              {canEditSaleMode ? (
+                                <>
+                                  <label className="inline-flex items-center gap-2 rounded-full border border-sky-900/15 bg-white/70 px-3 py-1 text-xs font-medium text-sky-950 dark:border-white/10 dark:bg-white/10 dark:text-white">
+                                    <input
+                                      type="checkbox"
+                                      checked={useBookingSaleTotal}
+                                      onChange={(e) =>
+                                        setUseBookingSaleTotal(e.target.checked)
+                                      }
+                                      className="size-4 rounded border-sky-900/20 bg-white/80 text-sky-600 dark:border-white/20 dark:bg-white/10"
+                                    />
+                                    {useBookingSaleTotal ? "Activo" : "Inactivo"}
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={handleSaleModeSave}
+                                    disabled={!saleModeDirty || saleModeSaving}
+                                    className="rounded-full border border-sky-900/15 bg-white/70 px-4 py-2 text-xs font-medium text-sky-950 shadow-sm shadow-sky-950/10 transition active:scale-95 disabled:opacity-50 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                                  >
+                                    {saleModeSaving
+                                      ? "Guardando modo..."
+                                      : "Guardar modo"}
+                                  </button>
+                                </>
+                              ) : (
+                                <span className="rounded-full border border-sky-900/10 bg-white/70 px-3 py-1 text-[11px] font-medium text-sky-900/80 dark:border-white/10 dark:bg-white/10 dark:text-white/70">
+                                  Modo heredado de configuración general
+                                </span>
+                              )}
                             </div>
                           </div>
 
