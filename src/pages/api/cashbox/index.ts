@@ -575,6 +575,14 @@ async function getMonthlyMovements(
           details: true,
           titular: {
             select: {
+              id_client: true,
+              first_name: true,
+              last_name: true,
+            },
+          },
+          clients: {
+            select: {
+              id_client: true,
               first_name: true,
               last_name: true,
             },
@@ -593,9 +601,41 @@ async function getMonthlyMovements(
     const booking = r.booking;
     const titular = booking?.titular;
 
-    const clientName = titular
-      ? `${titular.first_name} ${titular.last_name}`.trim()
-      : null;
+    const namesByClientId = new Map<number, string>();
+    if (titular?.id_client) {
+      namesByClientId.set(
+        titular.id_client,
+        `${titular.first_name} ${titular.last_name}`.trim(),
+      );
+    }
+    for (const client of booking?.clients ?? []) {
+      namesByClientId.set(
+        client.id_client,
+        `${client.first_name} ${client.last_name}`.trim(),
+      );
+    }
+
+    const receiptClientIds = Array.isArray(r.clientIds)
+      ? r.clientIds
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value) && value > 0)
+          .map((value) => Math.trunc(value))
+      : [];
+
+    const receiptClientNames = Array.from(
+      new Set(
+        receiptClientIds
+          .map((id) => namesByClientId.get(id) || null)
+          .filter((name): name is string => !!name),
+      ),
+    );
+
+    const clientName =
+      receiptClientNames.length > 0
+        ? receiptClientNames.join(", ")
+        : titular
+          ? `${titular.first_name} ${titular.last_name}`.trim()
+          : null;
 
     const bookingLabel = booking
       ? `N° ${booking.agency_booking_id ?? booking.id_booking} • ${booking.details}`.trim()

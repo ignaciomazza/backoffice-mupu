@@ -5,6 +5,7 @@ import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { Prisma } from "@prisma/client";
 import { resolveAuth } from "@/lib/auth";
 import { canAccessBookingByRole } from "@/lib/accessControl";
+import { isBookingClosedStatus } from "@/lib/bookingStatus";
 import {
   getBookingLeaderScope,
   getBookingTeamScope,
@@ -489,10 +490,15 @@ export default async function handler(
 
     const bookingExists = await prisma.booking.findUnique({
       where: { id_booking: Number(booking_id) },
-      select: { id_booking: true, id_agency: true, id_user: true },
+      select: { id_booking: true, id_agency: true, id_user: true, status: true },
     });
     if (!bookingExists || bookingExists.id_agency !== auth.id_agency) {
       return res.status(404).json({ error: "Reserva no encontrada." });
+    }
+    if (isBookingClosedStatus(bookingExists.status)) {
+      return res.status(409).json({
+        error: "No se pueden cargar servicios en una reserva bloqueada o cancelada.",
+      });
     }
     const canAccess = await canAccessBookingByRole(auth, bookingExists);
     if (!canAccess) {

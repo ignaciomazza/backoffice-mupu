@@ -715,21 +715,18 @@ export default function OperatorPaymentForm({
     }
 
     // moneda
-    if (!currency && lockedSvcCurrency && currencyOptions.includes(lockedSvcCurrency)) {
-      setCurrency(lockedSvcCurrency);
+    if (lockedSvcCurrency && currencyOptions.includes(lockedSvcCurrency)) {
+      setCurrency((prev) => prev || lockedSvcCurrency);
     }
 
     // monto (solo sugerir si hay una sola moneda y no hay monto cargado)
-    if (selectedServices.length > 0) {
-      if (!amount && allSameCurrency) {
-        setAmount(
-          Number.isFinite(suggestedAmount) && suggestedAmount > 0
-            ? String(suggestedAmount)
-            : "",
-        );
-      }
-    } else {
-      setAmount("");
+    if (selectedServices.length > 0 && allSameCurrency) {
+      setAmount((prev) => {
+        if (String(prev || "").trim() !== "") return prev;
+        return Number.isFinite(suggestedAmount) && suggestedAmount > 0
+          ? String(suggestedAmount)
+          : "";
+      });
     }
 
     // descripción
@@ -757,8 +754,6 @@ export default function OperatorPaymentForm({
     booking.agency_booking_id,
     booking.id_booking,
     currencyOptions,
-    currency,
-    amount,
     allSameCurrency,
   ]);
 

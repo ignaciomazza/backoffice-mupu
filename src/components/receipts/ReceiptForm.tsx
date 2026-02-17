@@ -1046,6 +1046,20 @@ export default function ReceiptForm({
     }, {});
   }, [relevantReceipts, normalizeCurrencyCode, toNum]);
 
+  const debtBeforeCurrentByCurrency = useMemo(() => {
+    const acc: Record<string, number> = {};
+    const currencies = new Set([
+      ...Object.keys(salesByCurrency),
+      ...Object.keys(paidByCurrency),
+    ]);
+    currencies.forEach((cur) => {
+      const sale = salesByCurrency[cur] || 0;
+      const paid = paidByCurrency[cur] || 0;
+      acc[cur] = sale - paid;
+    });
+    return acc;
+  }, [salesByCurrency, paidByCurrency]);
+
   const currentPaidByCurrency = useMemo(() => {
     const acc: Record<string, number> = {};
     const feeVal = parseAmountInput(feeAmount) ?? 0;
@@ -1093,6 +1107,18 @@ export default function ReceiptForm({
     });
     return acc;
   }, [salesByCurrency, paidByCurrency, currentPaidByCurrency]);
+
+  const hasDebtBeforeCurrent = useMemo(
+    () => Object.values(debtBeforeCurrentByCurrency).some((value) => value > 0.01),
+    [debtBeforeCurrentByCurrency],
+  );
+  const overpaidCurrencies = useMemo(
+    () =>
+      Object.entries(debtByCurrency)
+        .filter(([, value]) => value < -0.01)
+        .map(([currencyCode]) => currencyCode),
+    [debtByCurrency],
+  );
 
   const debtSuffix = useMemo(() => {
     if (!selectedServiceIds.length || !bookingReceiptsLoaded) return "";
@@ -1216,6 +1242,9 @@ export default function ReceiptForm({
       if (!selectedBookingId) e.booking = "Elegí una reserva.";
       if (selectedServiceIds.length === 0)
         e.services = "Seleccioná al menos un servicio.";
+      else if (bookingReceiptsLoaded && !hasDebtBeforeCurrent) {
+        e.services = "Los servicios seleccionados ya están saldados.";
+      }
     }
 
     if (!paymentLines.length) {
@@ -1265,6 +1294,9 @@ export default function ReceiptForm({
       (currencyOverride ? 0 : suggestions?.base || 0);
     if (!total || total <= 0)
       e.amount = "El total es inválido. Cargá importes o usá el sugerido.";
+    if (bookingReceiptsLoaded && overpaidCurrencies.length > 0) {
+      e.amount = `El importe excede el saldo pendiente en ${overpaidCurrencies.join(", ")}.`;
+    }
 
     if (!effectiveCurrency) e.currency = "Elegí una moneda.";
     const issueDateOk = /^\d{4}-\d{2}-\d{2}$/.test(issueDate);

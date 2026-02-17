@@ -640,7 +640,9 @@ export default function SideBar({
                   aria-expanded={open}
                   aria-controls={`sec-${sec.id}`}
                 >
-                  <span>{sec.title}</span>
+                  <span className="text-[11px] font-bold uppercase tracking-[0.14em]">
+                    {sec.title}
+                  </span>
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     className={`size-4 transition-transform ${open ? "rotate-180" : ""}`}

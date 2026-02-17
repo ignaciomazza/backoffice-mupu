@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { resolveAuth } from "@/lib/auth";
 import { canAccessBookingByRole } from "@/lib/accessControl";
+import { isBookingClosedStatus } from "@/lib/bookingStatus";
 
 function toNullableNumber(value: unknown): number | null {
   if (value == null || value === "") return null;
@@ -87,11 +88,21 @@ export default async function handler(
         where: { id_service: serviceId, id_agency: auth.id_agency },
         select: {
           id_service: true,
-          booking: { select: { id_user: true } },
+          booking: { select: { id_user: true, status: true } },
         },
       });
       if (!existing) {
         return res.status(404).json({ error: "Servicio no encontrado." });
+      }
+      if (!existing.booking) {
+        return res.status(400).json({
+          error: "El servicio no tiene una reserva válida asociada.",
+        });
+      }
+      if (isBookingClosedStatus(existing.booking?.status)) {
+        return res.status(409).json({
+          error: "No se pueden editar servicios en una reserva bloqueada o cancelada.",
+        });
       }
       const allowed = await canAccessBookingByRole(auth, {
         id_user: existing.booking.id_user,

@@ -119,6 +119,8 @@ type FinanceCurrency = {
   enabled: boolean;
 };
 
+type MovementOrder = "newest" | "oldest";
+
 const MONTH_OPTIONS = [
   { value: 1, label: "Enero" },
   { value: 2, label: "Febrero" },
@@ -178,6 +180,7 @@ function formatDateShort(iso: string): string {
   return d.toLocaleDateString("es-AR", {
     day: "2-digit",
     month: "2-digit",
+    timeZone: "UTC",
   });
 }
 
@@ -188,6 +191,7 @@ function formatDateTime(iso: string): string {
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "UTC",
   });
 }
 
@@ -247,6 +251,7 @@ export default function CashboxPage() {
   const [filterType, setFilterType] = useState<MovementKind | "ALL">("ALL");
   const [filterPaymentMethod, setFilterPaymentMethod] = useState<string>("ALL");
   const [filterAccount, setFilterAccount] = useState<string>("ALL");
+  const [movementOrder, setMovementOrder] = useState<MovementOrder>("newest");
 
   // Monedas desde configuración financiera
   const [financeCurrencies, setFinanceCurrencies] = useState<
@@ -543,6 +548,21 @@ export default function CashboxPage() {
     filterPaymentMethod,
     filterAccount,
   ]);
+
+  const sortedFilteredMovements = useMemo(() => {
+    const sorted = [...filteredMovements];
+    sorted.sort((a, b) => {
+      const timeA = new Date(a.date).getTime();
+      const timeB = new Date(b.date).getTime();
+      if (timeA === timeB) {
+        return movementOrder === "newest"
+          ? b.id.localeCompare(a.id, "es")
+          : a.id.localeCompare(b.id, "es");
+      }
+      return movementOrder === "newest" ? timeB - timeA : timeA - timeB;
+    });
+    return sorted;
+  }, [filteredMovements, movementOrder]);
 
   const handleSetCurrentMonth = () => {
     const current = new Date();
@@ -989,8 +1009,8 @@ export default function CashboxPage() {
                     </p>
                   </div>
                   <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold text-zinc-800 shadow-sm shadow-zinc-900/10 dark:bg-sky-800/10 dark:text-zinc-200">
-                    {filteredMovements.length} movimiento
-                    {filteredMovements.length === 1 ? "" : "s"} (con filtros)
+                    {sortedFilteredMovements.length} movimiento
+                    {sortedFilteredMovements.length === 1 ? "" : "s"} (con filtros)
                   </span>
                 </div>
 
@@ -1043,6 +1063,22 @@ export default function CashboxPage() {
                                 {opt.label}
                               </option>
                             ))}
+                          </select>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <span className="text-zinc-700 dark:text-zinc-300">
+                            Orden:
+                          </span>
+                          <select
+                            value={movementOrder}
+                            onChange={(e) =>
+                              setMovementOrder(e.target.value as MovementOrder)
+                            }
+                            className="cursor-pointer appearance-none rounded-2xl border border-white/30 bg-white/10 px-2 py-1 text-xs text-zinc-900 outline-none backdrop-blur hover:border-emerald-400/60 dark:border-white/15 dark:bg-sky-900/10 dark:text-zinc-100"
+                          >
+                            <option value="newest">Más nuevos</option>
+                            <option value="oldest">Más viejos</option>
                           </select>
                         </div>
 
@@ -1106,7 +1142,7 @@ export default function CashboxPage() {
                     </p>
 
                     {/* Tabla de movimientos filtrados */}
-                    {filteredMovements.length === 0 ? (
+                    {sortedFilteredMovements.length === 0 ? (
                       <p className="text-xs text-zinc-600 dark:text-zinc-400">
                         No hay movimientos que coincidan con los filtros
                         seleccionados.
@@ -1134,7 +1170,7 @@ export default function CashboxPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {filteredMovements.map((m) => (
+                            {sortedFilteredMovements.map((m) => (
                               <tr
                                 key={m.id}
                                 className="border-t border-white/10 transition-colors odd:bg-white/0 even:bg-white/5 hover:bg-white/10 dark:border-white/10 dark:odd:bg-zinc-950/0 dark:even:bg-zinc-950/40 dark:hover:bg-zinc-900/70"

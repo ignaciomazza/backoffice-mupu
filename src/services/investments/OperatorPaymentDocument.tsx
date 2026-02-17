@@ -218,7 +218,9 @@ export default function OperatorPaymentDocument(props: OperatorPaymentPdfData) {
                 <Text style={styles.agencyName}>{agencyNameSafe}</Text>
                 <Text style={styles.agencyMeta}>{agencyLegalSafe}</Text>
                 <Text style={styles.agencyMeta}>CUIT: {agency.taxId}</Text>
-                <Text style={styles.agencyMeta}>{agency.address}</Text>
+                <Text style={styles.agencyMeta}>
+                  {softWrapLongWords(agency.address, { breakChar: " " })}
+                </Text>
               </View>
             </View>
           </View>
@@ -235,9 +237,13 @@ export default function OperatorPaymentDocument(props: OperatorPaymentPdfData) {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Destinatario</Text>
-          <Text style={styles.listItem}>{recipient.name}</Text>
+          <Text style={styles.listItem}>
+            {softWrapLongWords(recipient.name, { breakChar: " " })}
+          </Text>
           {recipient.label ? (
-            <Text style={styles.listItem}>Tipo: {recipient.label}</Text>
+            <Text style={styles.listItem}>
+              Tipo: {softWrapLongWords(recipient.label, { breakChar: " " })}
+            </Text>
           ) : null}
           {recipient.id ? (
             <Text style={styles.listItem}>ID: {recipient.id}</Text>
@@ -247,18 +253,26 @@ export default function OperatorPaymentDocument(props: OperatorPaymentPdfData) {
         <View style={styles.amountBox}>
           <Text style={styles.amountLabel}>Monto total</Text>
           <Text style={styles.amountValue}>{displayAmount}</Text>
-          <Text style={styles.amountMeta}>Categoría: {category}</Text>
-          <Text style={styles.amountMeta}>{description}</Text>
+          <Text style={styles.amountMeta}>
+            Categoría: {softWrapLongWords(category, { breakChar: " " })}
+          </Text>
+          <Text style={styles.amountMeta}>
+            {softWrapLongWords(description, { breakChar: " " })}
+          </Text>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Detalle del pago</Text>
           <Text style={styles.listItem}>Moneda: {displayCurrency}</Text>
           {paymentMethod ? (
-            <Text style={styles.listItem}>Método: {paymentMethod}</Text>
+            <Text style={styles.listItem}>
+              Método: {softWrapLongWords(paymentMethod, { breakChar: " " })}
+            </Text>
           ) : null}
           {account ? (
-            <Text style={styles.listItem}>Cuenta: {account}</Text>
+            <Text style={styles.listItem}>
+              Cuenta: {softWrapLongWords(account, { breakChar: " " })}
+            </Text>
           ) : null}
           {hasBase ? (
             <Text style={styles.listItem}>
@@ -282,13 +296,16 @@ export default function OperatorPaymentDocument(props: OperatorPaymentPdfData) {
           {services.length > 0 ? (
             services.map((svc) => (
               <Text key={svc.id} style={styles.listItem}>
-                Res. {svc.bookingNumber ?? "-"} · Svc{" "}
-                {svc.serviceNumber ?? svc.id}
-                {svc.type ? ` · ${svc.type}` : ""}
-                {svc.destination ? ` · ${svc.destination}` : ""}
-                {typeof svc.cost === "number" && svc.currency
-                  ? ` · ${safeFmtCurrency(svc.cost, svc.currency)}`
-                  : ""}
+                {softWrapLongWords(
+                  `Res. ${svc.bookingNumber ?? "-"} · Svc ${svc.serviceNumber ?? svc.id}${
+                    svc.type ? ` · ${svc.type}` : ""
+                  }${svc.destination ? ` · ${svc.destination}` : ""}${
+                    typeof svc.cost === "number" && svc.currency
+                      ? ` · ${safeFmtCurrency(svc.cost, svc.currency)}`
+                      : ""
+                  }`,
+                  { breakChar: " " },
+                )}
               </Text>
             ))
           ) : (

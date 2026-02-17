@@ -235,6 +235,63 @@ const toOptionalId = (v: unknown): number | undefined => {
   return i > 0 ? i : undefined;
 };
 
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+const DEBT_TOLERANCE = 0.01;
+
+const normalizeCurrency = (value: unknown): string => {
+  const code = String(value ?? "").trim().toUpperCase();
+  if (!code) return "ARS";
+  if (["US$", "U$S", "U$D", "DOL"].includes(code)) return "USD";
+  if (["$", "AR$"].includes(code)) return "ARS";
+  return code;
+};
+
+const normalizeIdList = (value: unknown): number[] => {
+  if (!Array.isArray(value)) return [];
+  const out = new Set<number>();
+  for (const item of value) {
+    const n = Number(item);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    out.add(Math.trunc(n));
+  }
+  return Array.from(out);
+};
+
+type ReceiptDebtView = {
+  serviceIds?: number[] | null;
+  amount: number | string | Prisma.Decimal | null;
+  amount_currency: string | null;
+  payment_fee_amount?: number | string | Prisma.Decimal | null;
+  base_amount?: number | string | Prisma.Decimal | null;
+  base_currency?: string | null;
+};
+
+function addReceiptToPaidByCurrency(
+  target: Record<string, number>,
+  receipt: ReceiptDebtView,
+) {
+  const amountCurrency = normalizeCurrency(receipt.amount_currency || "ARS");
+  const amountValue = toNum(receipt.amount ?? 0);
+  const feeValue = Math.max(0, toNum(receipt.payment_fee_amount ?? 0));
+  const baseCurrency = receipt.base_currency
+    ? normalizeCurrency(receipt.base_currency)
+    : null;
+  const baseValue = toNum(receipt.base_amount ?? 0);
+
+  if (baseCurrency && Number.isFinite(baseValue) && baseValue > 0) {
+    const credited =
+      baseValue + (baseCurrency === amountCurrency ? feeValue : 0);
+    if (credited > 0) {
+      target[baseCurrency] = round2((target[baseCurrency] || 0) + credited);
+    }
+    return;
+  }
+
+  const credited = Math.max(0, amountValue) + feeValue;
+  if (credited <= 0) return;
+  target[amountCurrency] = round2((target[amountCurrency] || 0) + credited);
+}
+
 function normalizePaymentsFromReceipt(r: unknown): ReceiptPaymentOut[] {
   if (!r || typeof r !== "object") return [];
 
@@ -838,8 +895,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     currency,
     amountString,
     amountCurrency,
-    serviceIds = [],
-    clientIds = [],
+    serviceIds: rawServiceIds = [],
+    clientIds: rawClientIds = [],
     amount,
     issue_date,
     payments,
@@ -867,6 +924,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
   const bookingId = Number(booking?.id_booking);
   const hasBooking = Number.isFinite(bookingId);
+  const normalizedServiceIds = normalizeIdList(rawServiceIds);
+  const normalizedClientIds = normalizeIdList(rawClientIds);
 
   if (!isNonEmptyString(concept)) {
     return res.status(400).json({ error: "concept es requerido" });
@@ -927,7 +986,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (hasBooking) {
       await ensureBookingInAgency(bookingId, authAgencyId);
 
-      if (!Array.isArray(serviceIds) || serviceIds.length === 0) {
+      if (normalizedServiceIds.length === 0) {
         return res.status(400).json({
           error:
             "serviceIds debe tener al menos un ID para recibos asociados a una reserva",
@@ -935,21 +994,118 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       }
 
       const services = await prisma.service.findMany({
-        where: { id_service: { in: serviceIds }, booking_id: bookingId },
-        select: { id_service: true },
+        where: { id_service: { in: normalizedServiceIds }, booking_id: bookingId },
+        select: {
+          id_service: true,
+          currency: true,
+          sale_price: true,
+          card_interest: true,
+          taxableCardInterest: true,
+          vatOnCardInterest: true,
+        },
       });
       const okServiceIds = new Set(services.map((s) => s.id_service));
-      const badServices = serviceIds.filter((id) => !okServiceIds.has(id));
+      const badServices = normalizedServiceIds.filter((id) => !okServiceIds.has(id));
 
       if (badServices.length > 0) {
         return res
           .status(400)
           .json({ error: "Algún servicio no pertenece a la reserva" });
       }
+
+      const salesByCurrency = services.reduce<Record<string, number>>(
+        (acc, svc) => {
+          const currencyCode = normalizeCurrency(svc.currency || "ARS");
+          const sale = toNum(svc.sale_price);
+          const splitInterest =
+            toNum(svc.taxableCardInterest) + toNum(svc.vatOnCardInterest);
+          const cardInterest = splitInterest > 0 ? splitInterest : toNum(svc.card_interest);
+          const serviceTotal = Math.max(0, sale + cardInterest);
+          if (serviceTotal <= 0) return acc;
+          acc[currencyCode] = round2((acc[currencyCode] || 0) + serviceTotal);
+          return acc;
+        },
+        {},
+      );
+
+      const selectedServiceIdSet = new Set(normalizedServiceIds);
+      const existingReceipts = await prisma.receipt.findMany({
+        where: {
+          bookingId_booking: bookingId,
+        },
+        select: {
+          serviceIds: true,
+          amount: true,
+          amount_currency: true,
+          payment_fee_amount: true,
+          base_amount: true,
+          base_currency: true,
+        },
+      });
+
+      const paidByCurrency: Record<string, number> = {};
+      for (const receipt of existingReceipts) {
+        const receiptServiceIds = normalizeIdList(receipt.serviceIds);
+        const appliesToSelection =
+          receiptServiceIds.length === 0 ||
+          receiptServiceIds.some((id) => selectedServiceIdSet.has(id));
+        if (!appliesToSelection) continue;
+        addReceiptToPaidByCurrency(paidByCurrency, receipt);
+      }
+
+      const remainingBeforeCurrent: Record<string, number> = {};
+      const debtCurrencies = new Set([
+        ...Object.keys(salesByCurrency),
+        ...Object.keys(paidByCurrency),
+      ]);
+      for (const code of debtCurrencies) {
+        const remaining = round2(
+          (salesByCurrency[code] || 0) - (paidByCurrency[code] || 0),
+        );
+        remainingBeforeCurrent[code] = remaining;
+      }
+
+      const hasPendingBalance = Object.values(remainingBeforeCurrent).some(
+        (value) => value > DEBT_TOLERANCE,
+      );
+      if (!hasPendingBalance) {
+        return res.status(400).json({
+          error: "Los servicios seleccionados ya están saldados.",
+        });
+      }
+
+      const currentPaidByCurrency: Record<string, number> = {};
+      addReceiptToPaidByCurrency(currentPaidByCurrency, {
+        amount: amountNum,
+        amount_currency: amountCurrencyISO,
+        payment_fee_amount: payment_fee_amount ?? null,
+        base_amount: base_amount ?? null,
+        base_currency: baseCurrencyISO ?? null,
+      });
+
+      const overpaidCurrencies: string[] = [];
+      const allCurrencies = new Set([
+        ...Object.keys(remainingBeforeCurrent),
+        ...Object.keys(currentPaidByCurrency),
+      ]);
+      for (const code of allCurrencies) {
+        const remainingAfterCurrent = round2(
+          (remainingBeforeCurrent[code] || 0) - (currentPaidByCurrency[code] || 0),
+        );
+        if (remainingAfterCurrent < -DEBT_TOLERANCE) {
+          overpaidCurrencies.push(code);
+        }
+      }
+
+      if (overpaidCurrencies.length > 0) {
+        return res.status(400).json({
+          error: `El recibo excede el saldo pendiente en ${overpaidCurrencies.join(", ")}.`,
+        });
+      }
     }
 
     // Validar clientIds contra la reserva (solo si hay booking)
-    if (hasBooking && Array.isArray(clientIds) && clientIds.length > 0) {
+    if (hasBooking && normalizedClientIds.length > 0) {
       const bk = await prisma.booking.findUnique({
         where: { id_booking: bookingId },
         select: {
@@ -966,7 +1122,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       if (bk.titular_id) allowed.add(bk.titular_id);
       bk.clients.forEach((c) => allowed.add(c.id_client));
 
-      const badClients = clientIds.filter((id) => !allowed.has(id));
+      const badClients = normalizedClientIds.filter((id) => !allowed.has(id));
 
       if (badClients.length > 0) {
         return res
@@ -1000,8 +1156,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       amount_string: amountString,
       amount_currency: amountCurrencyISO,
       currency: isNonEmptyString(currency) ? currency : amountCurrencyISO,
-      serviceIds,
-      clientIds,
+      serviceIds: normalizedServiceIds,
+      clientIds: normalizedClientIds,
       issue_date: parsedIssueDate ?? new Date(),
 
       // legacy texto (para no romper listados viejos)

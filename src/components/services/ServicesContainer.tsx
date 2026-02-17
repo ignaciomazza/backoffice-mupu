@@ -1022,12 +1022,14 @@ export default function ServicesContainer(props: ServicesContainerProps) {
 
   const scrollToReceiptForm = useCallback(() => {
     const node = document.getElementById("receipt-form");
-    if (!node) return;
+    if (!node) return false;
+    node.scrollIntoView({ behavior: "smooth", block: "start" });
     const y =
       node.getBoundingClientRect().top +
       window.pageYOffset -
       window.innerHeight * 0.1;
     window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+    return true;
   }, []);
 
   const startEditReceipt = useCallback(
@@ -1035,11 +1037,19 @@ export default function ServicesContainer(props: ServicesContainerProps) {
       setEditingReceipt(receipt);
       setReceiptFormVisible(true);
 
-      const schedule = [120, 420];
-      schedule.forEach((delay) => {
-        window.setTimeout(() => {
-          scrollToReceiptForm();
-        }, delay);
+      let attempts = 0;
+      const maxAttempts = 8;
+      const runScrollAttempt = () => {
+        attempts += 1;
+        const found = scrollToReceiptForm();
+        if (attempts >= maxAttempts) return;
+        if (!found || attempts < 3) {
+          window.setTimeout(runScrollAttempt, 130);
+        }
+      };
+
+      window.requestAnimationFrame(() => {
+        window.setTimeout(runScrollAttempt, 80);
       });
     },
     [scrollToReceiptForm],

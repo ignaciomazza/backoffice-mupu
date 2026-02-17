@@ -435,7 +435,9 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
                 {agencyNameSafe} ({agencyLegalSafe})
               </Text>
               <Text style={styles.infoText}>CUIT: {agency.taxId}</Text>
-              <Text style={styles.infoText}>{agency.address}</Text>
+              <Text style={styles.infoText}>
+                {softWrapLongWords(agency.address, { breakChar: " " })}
+              </Text>
             </View>
           </View>
         </View>

@@ -246,16 +246,6 @@ export default function ReceiptStandaloneDocument(
   const amountStringLabel =
     fee > 0 ? "Importe en letras (acreditado)" : "Importe en letras";
 
-  const recipientsLabel = recipients.length
-    ? recipients
-        .map((r) =>
-          [r.companyName, `${r.firstName} ${r.lastName}`.trim()]
-            .filter(Boolean)
-            .join(" - "),
-        )
-        .join(", ")
-    : "Pax no especificado";
-
   return (
     <Document>
       <Page size="A4" style={styles.page}>
@@ -287,7 +277,22 @@ export default function ReceiptStandaloneDocument(
         <Text style={styles.sectionTitle}>Datos</Text>
         <View style={styles.section}>
           <Text style={styles.label}>Recibimos de</Text>
-          <Text>{softWrapLongWords(recipientsLabel, { breakChar: " " })}</Text>
+          <View style={styles.list}>
+            {recipients.length > 0 ? (
+              recipients.map((recipient, idx) => (
+                <Text key={`${recipient.firstName}-${recipient.lastName}-${idx}`} style={styles.listItem}>
+                  {softWrapLongWords(
+                    [recipient.companyName, `${recipient.firstName} ${recipient.lastName}`.trim()]
+                      .filter(Boolean)
+                      .join(" - "),
+                    { breakChar: " " },
+                  )}
+                </Text>
+              ))
+            ) : (
+              <Text style={styles.listItem}>Pax no especificado</Text>
+            )}
+          </View>
         </View>
 
         <View style={styles.section}>
