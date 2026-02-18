@@ -5,6 +5,7 @@ import { jwtVerify, type JWTPayload } from "jose";
 import { getFinanceSectionGrants } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import { hasSchemaColumn } from "@/lib/schemaColumns";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -102,6 +103,12 @@ async function getUserFromAuth(
 function safeNumber(v: unknown): number | undefined {
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function parsePositiveInt(v: unknown): number | undefined {
+  const n = safeNumber(v);
+  if (n == null || !Number.isFinite(n) || n <= 0) return undefined;
+  return Math.trunc(n);
 }
 
 function toLocalDate(v?: string): Date | undefined {
@@ -219,19 +226,55 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   const id = safeNumber(rawId);
   if (!id) return res.status(400).json({ error: "ID inválido" });
+  const hasCategoryColumn = await hasSchemaColumn("OtherIncome", "category_id");
 
-  const item = await prisma.otherIncome.findFirst({
-    where: { id_other_income: id, id_agency: auth.id_agency },
-    include: {
-      payments: true,
-      verifiedBy: {
-        select: { id_user: true, first_name: true, last_name: true },
-      },
-      createdBy: {
-        select: { id_user: true, first_name: true, last_name: true },
-      },
-    },
-  });
+  const item = hasCategoryColumn
+    ? await prisma.otherIncome.findFirst({
+        where: { id_other_income: id, id_agency: auth.id_agency },
+        include: {
+          payments: true,
+          category: {
+            select: { id_category: true, name: true, enabled: true },
+          },
+          verifiedBy: {
+            select: { id_user: true, first_name: true, last_name: true },
+          },
+          createdBy: {
+            select: { id_user: true, first_name: true, last_name: true },
+          },
+        },
+      })
+    : await prisma.otherIncome.findFirst({
+        where: { id_other_income: id, id_agency: auth.id_agency },
+        select: {
+          id_other_income: true,
+          agency_other_income_id: true,
+          id_agency: true,
+          description: true,
+          counterparty_type: true,
+          counterparty_name: true,
+          receipt_to: true,
+          reference_note: true,
+          amount: true,
+          currency: true,
+          issue_date: true,
+          payment_fee_amount: true,
+          payment_method_id: true,
+          account_id: true,
+          verification_status: true,
+          verified_at: true,
+          verified_by: true,
+          created_at: true,
+          created_by: true,
+          payments: true,
+          verifiedBy: {
+            select: { id_user: true, first_name: true, last_name: true },
+          },
+          createdBy: {
+            select: { id_user: true, first_name: true, last_name: true },
+          },
+        },
+      });
 
   if (!item) return res.status(404).json({ error: "No encontrado" });
 
@@ -272,6 +315,10 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
     select: { id_other_income: true, verification_status: true },
   });
   if (!existing) return res.status(404).json({ error: "No encontrado" });
+  const [hasCategoryColumn, hasCategoryScope] = await Promise.all([
+    hasSchemaColumn("OtherIncome", "category_id"),
+    hasSchemaColumn("ExpenseCategory", "scope"),
+  ]);
 
   if (existing.verification_status === "VERIFIED") {
     return res
@@ -359,6 +406,35 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
     ? payments[0]?.account_id
     : safeNumber(b.account_id);
   const legacyAccId = rawAccId && rawAccId > 0 ? rawAccId : undefined;
+  const hasCategory = Object.prototype.hasOwnProperty.call(b, "category_id");
+  const categoryId = parsePositiveInt(b.category_id);
+  const categoryClear =
+    b.category_id === null ||
+    b.category_id === undefined ||
+    b.category_id === "";
+  if (hasCategory && !categoryClear && categoryId === undefined) {
+    return res.status(400).json({ error: "category_id inválido" });
+  }
+  if (hasCategory && !hasCategoryColumn) {
+    return res.status(409).json({
+      error:
+        "La base conectada por la app no tiene OtherIncome.category_id. Ejecutá migraciones en esa misma conexión.",
+    });
+  }
+
+  if (hasCategory && categoryId) {
+    const category = await prisma.expenseCategory.findFirst({
+      where: {
+        id_category: categoryId,
+        id_agency: auth.id_agency,
+        ...(hasCategoryScope ? { scope: "OTHER_INCOME" } : {}),
+      },
+      select: { id_category: true },
+    });
+    if (!category) {
+      return res.status(400).json({ error: "category_id inválido" });
+    }
+  }
 
   try {
     const updated = await prisma.$transaction(async (tx) => {
@@ -385,10 +461,14 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
           data.payment_method_id = legacyPmId ?? null;
         if (b.account_id !== undefined) data.account_id = legacyAccId ?? null;
       }
+      if (hasCategory && hasCategoryColumn) {
+        data.category_id = categoryId ?? null;
+      }
 
       const after = await tx.otherIncome.update({
         where: { id_other_income: id },
         data,
+        select: { id_other_income: true },
       });
 
       if (hasPayments) {
@@ -405,18 +485,53 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
         });
       }
 
-      return tx.otherIncome.findUnique({
-        where: { id_other_income: after.id_other_income },
-        include: {
-          payments: true,
-          verifiedBy: {
-            select: { id_user: true, first_name: true, last_name: true },
-          },
-          createdBy: {
-            select: { id_user: true, first_name: true, last_name: true },
-          },
-        },
-      });
+      return hasCategoryColumn
+        ? tx.otherIncome.findUnique({
+            where: { id_other_income: after.id_other_income },
+            include: {
+              payments: true,
+              category: {
+                select: { id_category: true, name: true, enabled: true },
+              },
+              verifiedBy: {
+                select: { id_user: true, first_name: true, last_name: true },
+              },
+              createdBy: {
+                select: { id_user: true, first_name: true, last_name: true },
+              },
+            },
+          })
+        : tx.otherIncome.findUnique({
+            where: { id_other_income: after.id_other_income },
+            select: {
+              id_other_income: true,
+              agency_other_income_id: true,
+              id_agency: true,
+              description: true,
+              counterparty_type: true,
+              counterparty_name: true,
+              receipt_to: true,
+              reference_note: true,
+              amount: true,
+              currency: true,
+              issue_date: true,
+              payment_fee_amount: true,
+              payment_method_id: true,
+              account_id: true,
+              verification_status: true,
+              verified_at: true,
+              verified_by: true,
+              created_at: true,
+              created_by: true,
+              payments: true,
+              verifiedBy: {
+                select: { id_user: true, first_name: true, last_name: true },
+              },
+              createdBy: {
+                select: { id_user: true, first_name: true, last_name: true },
+              },
+            },
+          });
     });
 
     return res.status(200).json({ item: updated });
@@ -469,7 +584,12 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
       .json({ error: "Desverificá el ingreso antes de eliminarlo." });
   }
 
-  await prisma.otherIncome.delete({ where: { id_other_income: id } });
+  const hasCategoryColumn = await hasSchemaColumn("OtherIncome", "category_id");
+  if (hasCategoryColumn) {
+    await prisma.otherIncome.delete({ where: { id_other_income: id } });
+  } else {
+    await prisma.otherIncome.deleteMany({ where: { id_other_income: id } });
+  }
   return res.status(200).json({ ok: true });
 }
 

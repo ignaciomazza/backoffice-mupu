@@ -47,6 +47,7 @@ export type FinancePaymentMethod = {
 export type FinanceExpenseCategory = {
   id_category: number;
   name: string;
+  scope: "INVESTMENT" | "OTHER_INCOME";
   enabled: boolean;
   sort_order: number;
   requires_operator?: boolean;
@@ -213,10 +214,19 @@ function normalizeCategory(
   index: number,
 ): FinanceExpenseCategory {
   const id = toNumber(pick(rec, "id_category", "id"), index + 1);
+  const rawScope = toString(
+    pick(rec, "scope", "category_scope", "applies_to"),
+    "INVESTMENT",
+  )
+    .trim()
+    .toUpperCase();
+  const scope: "INVESTMENT" | "OTHER_INCOME" =
+    rawScope === "OTHER_INCOME" ? "OTHER_INCOME" : "INVESTMENT";
 
   return {
     id_category: id,
     name: toString(pick(rec, "name", "label"), ""),
+    scope,
     enabled: toBoolean(pick(rec, "enabled", "is_enabled"), true),
     sort_order: toNumber(
       pick(rec, "sort_order", "order", "position", "sortOrder"),

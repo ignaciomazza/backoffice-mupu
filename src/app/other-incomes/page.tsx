@@ -27,6 +27,7 @@ const DEFAULT_FILTERS = {
   dateTo: "",
   paymentMethodId: "ALL",
   accountId: "ALL",
+  categoryId: "ALL",
 };
 
 type PaymentLine = {
@@ -39,6 +40,12 @@ type OtherIncomeItem = {
   id_other_income: number;
   agency_other_income_id?: number | null;
   description: string;
+  category_id?: number | null;
+  category?: {
+    id_category: number;
+    name: string;
+    enabled?: boolean;
+  } | null;
   counterparty_type?: string | null;
   counterparty_name?: string | null;
   receipt_to?: string | null;
@@ -73,6 +80,12 @@ type ReportResponse = {
 type FinancePickBundle = {
   currencies: { code: string; name: string; enabled: boolean }[];
   accounts: { id_account: number; name: string; enabled: boolean }[];
+  categories: {
+    id_category: number;
+    name: string;
+    enabled: boolean;
+    scope: "INVESTMENT" | "OTHER_INCOME";
+  }[];
   paymentMethods: {
     id_method: number;
     name: string;
@@ -281,6 +294,7 @@ export default function OtherIncomesPage() {
 
   const [form, setForm] = useState(() => ({
     description: "",
+    category_id: "",
     counterparty_name: "",
     reference_note: "",
     currency: "ARS",
@@ -292,6 +306,7 @@ export default function OtherIncomesPage() {
   const [editingItem, setEditingItem] = useState<OtherIncomeItem | null>(null);
   const [editForm, setEditForm] = useState(() => ({
     description: "",
+    category_id: "",
     counterparty_name: "",
     reference_note: "",
     currency: "ARS",
@@ -315,6 +330,12 @@ export default function OtherIncomesPage() {
             id_account: a.id_account,
             name: a.name,
             enabled: a.enabled,
+          })),
+          categories: picks.categories.map((c) => ({
+            id_category: c.id_category,
+            name: c.name,
+            enabled: c.enabled,
+            scope: c.scope,
           })),
           paymentMethods: picks.paymentMethods.map((m) => ({
             id_method: m.id_method,
@@ -346,6 +367,18 @@ export default function OtherIncomesPage() {
     }
     return map;
   }, [finance?.paymentMethods]);
+
+  const categoryMap = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const category of finance?.categories || []) {
+      map.set(category.id_category, category.name);
+    }
+    return map;
+  }, [finance?.categories]);
+
+  const categoryOptions = useMemo(() => {
+    return (finance?.categories || []).filter((c) => c.scope === "OTHER_INCOME");
+  }, [finance?.categories]);
 
   const currencyOptions = useMemo(() => {
     const enabled = finance?.currencies?.filter((c) => c.enabled) ?? [];
@@ -404,6 +437,8 @@ export default function OtherIncomesPage() {
         qs.set("payment_method_id", appliedFilters.paymentMethodId);
       if (appliedFilters.accountId !== "ALL")
         qs.set("account_id", appliedFilters.accountId);
+      if (appliedFilters.categoryId !== "ALL")
+        qs.set("category_id", appliedFilters.categoryId);
 
       qs.set("take", String(TAKE));
       if (withCursor) qs.set("cursor", String(withCursor));
@@ -556,6 +591,7 @@ export default function OtherIncomesPage() {
 
     const payload = {
       description: form.description.trim(),
+      category_id: form.category_id ? Number(form.category_id) : undefined,
       counterparty_name: form.counterparty_name.trim() || undefined,
       receipt_to: form.counterparty_name.trim() || undefined,
       reference_note: form.reference_note.trim() || undefined,
@@ -589,6 +625,7 @@ export default function OtherIncomesPage() {
       }
       setForm({
         description: "",
+        category_id: form.category_id,
         counterparty_name: "",
         reference_note: "",
         currency: form.currency,
@@ -616,6 +653,10 @@ export default function OtherIncomesPage() {
 
     setEditForm({
       description: item.description || "",
+      category_id:
+        item.category_id != null && Number.isFinite(Number(item.category_id))
+          ? String(item.category_id)
+          : "",
       counterparty_name: item.counterparty_name || item.receipt_to || "",
       reference_note: item.reference_note || "",
       currency: item.currency || "ARS",
@@ -666,6 +707,7 @@ export default function OtherIncomesPage() {
 
     const payload = {
       description: editForm.description.trim(),
+      category_id: editForm.category_id ? Number(editForm.category_id) : null,
       counterparty_name: editForm.counterparty_name.trim() || null,
       receipt_to: editForm.counterparty_name.trim() || null,
       counterparty_type: null,
@@ -749,6 +791,7 @@ export default function OtherIncomesPage() {
         "Fecha",
         "N°",
         "Concepto",
+        "Categoría",
         "Quién paga",
         "Nota interna",
         "Moneda",
@@ -774,6 +817,11 @@ export default function OtherIncomesPage() {
         for (const row of json.items) {
           const counterparty = getIncomeCounterparty(row);
           const payments = Array.isArray(row.payments) ? row.payments : [];
+          const categoryLabel =
+            textOrEmpty(row.category?.name) ||
+            (row.category_id
+              ? (categoryMap.get(row.category_id) ?? `ID ${row.category_id}`)
+              : "");
           const paymentsLabel = payments
             .map((p) => {
               const method =
@@ -790,6 +838,7 @@ export default function OtherIncomesPage() {
             fmtDate(row.issue_date),
             String(row.agency_other_income_id ?? row.id_other_income),
             row.description,
+            categoryLabel,
             counterparty,
             textOrEmpty(row.reference_note),
             row.currency,
@@ -860,8 +909,14 @@ export default function OtherIncomesPage() {
         `ID ${appliedFilters.accountId}`;
       chips.push({ key: "account", label: `Cuenta de ingreso: ${label}` });
     }
+    if (appliedFilters.categoryId !== "ALL") {
+      const label =
+        categoryMap.get(Number(appliedFilters.categoryId)) ||
+        `ID ${appliedFilters.categoryId}`;
+      chips.push({ key: "category", label: `Categoría: ${label}` });
+    }
     return chips;
-  }, [appliedFilters, methodMap, accountMap]);
+  }, [appliedFilters, methodMap, accountMap, categoryMap]);
 
   const groupedByMonth = useMemo<GroupedMonth[]>(() => {
     if (items.length === 0) return [];
@@ -1119,6 +1174,37 @@ export default function OtherIncomesPage() {
 
                   <div className={SUBPANEL}>
                     <p className="text-xs font-semibold text-zinc-500">
+                      Categoría
+                    </p>
+                    <div className="mt-2 space-y-1">
+                      <select
+                        className="w-full rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
+                        value={filters.categoryId}
+                        onChange={(e) =>
+                          setFilters((prev) => ({
+                            ...prev,
+                            categoryId: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="ALL">Todas</option>
+                        {categoryOptions.map((c) => (
+                          <option
+                            key={c.id_category}
+                            value={String(c.id_category)}
+                          >
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] text-zinc-500">
+                        Filtrá por categoría de ingresos.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className={SUBPANEL}>
+                    <p className="text-xs font-semibold text-zinc-500">
                       Rango de fechas
                     </p>
                     <div className="mt-2 grid gap-2 md:grid-cols-2">
@@ -1332,7 +1418,7 @@ export default function OtherIncomesPage() {
                     className="space-y-5 px-4 pb-6 pt-4 md:px-6"
                     onSubmit={handleSubmit}
                   >
-                    <div className="grid gap-3 md:grid-cols-2">
+                    <div className="grid gap-3 md:grid-cols-3">
                       <label className="flex flex-col gap-1 text-sm">
                         Concepto del ingreso
                         <input
@@ -1360,6 +1446,29 @@ export default function OtherIncomesPage() {
                             }))
                           }
                         />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm">
+                        Categoría
+                        <select
+                          className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
+                          value={form.category_id}
+                          onChange={(e) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              category_id: e.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">Sin categoría</option>
+                          {categoryOptions.map((c) => (
+                            <option
+                              key={c.id_category}
+                              value={String(c.id_category)}
+                            >
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                     </div>
 
@@ -1645,6 +1754,16 @@ export default function OtherIncomesPage() {
                           <div className="font-semibold">
                             {item.description}
                           </div>
+                          {(textOrEmpty(item.category?.name) || item.category_id) && (
+                            <div className="text-xs text-zinc-500">
+                              Categoría:{" "}
+                              {textOrEmpty(item.category?.name) ||
+                                (item.category_id
+                                  ? (categoryMap.get(item.category_id) ??
+                                    `ID ${item.category_id}`)
+                                  : "Sin categoría")}
+                            </div>
+                          )}
                           {getIncomeCounterparty(item) && (
                             <div className="text-xs text-zinc-500">
                               Quién paga: {getIncomeCounterparty(item)}
@@ -1746,6 +1865,17 @@ export default function OtherIncomesPage() {
                               {item.agency_other_income_id ??
                                 item.id_other_income}
                             </div>
+                            {(textOrEmpty(item.category?.name) ||
+                              item.category_id) && (
+                              <div className="text-xs text-zinc-500">
+                                Categoría:{" "}
+                                {textOrEmpty(item.category?.name) ||
+                                  (item.category_id
+                                    ? (categoryMap.get(item.category_id) ??
+                                      `ID ${item.category_id}`)
+                                    : "Sin categoría")}
+                              </div>
+                            )}
                             {getIncomeCounterparty(item) && (
                               <div className="text-xs text-zinc-500">
                                 Quién paga: {getIncomeCounterparty(item)}
@@ -1792,6 +1922,16 @@ export default function OtherIncomesPage() {
                           {fmtDate(item.issue_date)} · N°{" "}
                           {item.agency_other_income_id ?? item.id_other_income}
                         </p>
+                        {(textOrEmpty(item.category?.name) || item.category_id) && (
+                          <p className="text-xs text-zinc-500 dark:text-zinc-300">
+                            Categoría:{" "}
+                            {textOrEmpty(item.category?.name) ||
+                              (item.category_id
+                                ? (categoryMap.get(item.category_id) ??
+                                  `ID ${item.category_id}`)
+                                : "Sin categoría")}
+                          </p>
+                        )}
                         {getIncomeCounterparty(item) && (
                           <p className="text-xs text-zinc-500 dark:text-zinc-300">
                             Quién paga: {getIncomeCounterparty(item)}
@@ -1899,7 +2039,7 @@ export default function OtherIncomesPage() {
               </div>
 
               <form className="mt-4 grid gap-4" onSubmit={handleEditSubmit}>
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid gap-3 md:grid-cols-3">
                   <label className="flex flex-col gap-1 text-sm">
                     Concepto del ingreso
                     <input
@@ -1926,6 +2066,29 @@ export default function OtherIncomesPage() {
                         }))
                       }
                     />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    Categoría
+                    <select
+                      className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
+                      value={editForm.category_id}
+                      onChange={(e) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          category_id: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Sin categoría</option>
+                      {categoryOptions.map((c) => (
+                        <option
+                          key={c.id_category}
+                          value={String(c.id_category)}
+                        >
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                 </div>
 

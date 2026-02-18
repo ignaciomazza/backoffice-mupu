@@ -13,6 +13,7 @@ import {
   canAccessFinanceSection,
 } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import { hasSchemaColumn } from "@/lib/schemaColumns";
 
 /** ===== Auth helpers (unificado con otros endpoints) ===== */
 type TokenPayload = JWTPayload & {
@@ -155,16 +156,30 @@ const normSoft = (s?: string | null) =>
 async function getOperatorCategoryNames(
   agencyId: number,
 ): Promise<string[]> {
+  const hasScope = await hasSchemaColumn("ExpenseCategory", "scope");
   const rows = await prisma.expenseCategory.findMany({
-    where: { id_agency: agencyId, requires_operator: true },
+    where: hasScope
+      ? {
+          id_agency: agencyId,
+          scope: "INVESTMENT",
+          requires_operator: true,
+        }
+      : { id_agency: agencyId, requires_operator: true },
     select: { name: true },
   });
   return rows.map((r) => r.name).filter((n) => typeof n === "string");
 }
 
 async function getUserCategoryNames(agencyId: number): Promise<string[]> {
+  const hasScope = await hasSchemaColumn("ExpenseCategory", "scope");
   const rows = await prisma.expenseCategory.findMany({
-    where: { id_agency: agencyId, requires_user: true },
+    where: hasScope
+      ? {
+          id_agency: agencyId,
+          scope: "INVESTMENT",
+          requires_user: true,
+        }
+      : { id_agency: agencyId, requires_user: true },
     select: { name: true },
   });
   return rows.map((r) => r.name).filter((n) => typeof n === "string");

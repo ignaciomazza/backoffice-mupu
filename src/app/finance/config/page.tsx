@@ -267,6 +267,12 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "commissions", label: "Comisiones" },
 ];
 
+const CATEGORY_SCOPE_FILTERS = [
+  { key: "INVESTMENT", label: "Egresos" },
+  { key: "OTHER_INCOME", label: "Ingresos" },
+] as const;
+type CategoryScopeFilter = (typeof CATEGORY_SCOPE_FILTERS)[number]["key"];
+
 function FinanceConfigPageInner() {
   const { token } = useAuth();
   const searchParams = useSearchParams();
@@ -1018,13 +1024,18 @@ function FinanceConfigPageInner() {
   const [catEditing, setCatEditing] = useState<FinanceExpenseCategory | null>(
     null,
   );
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [catScopeFilter, setCatScopeFilter] =
+    useState<CategoryScopeFilter>("INVESTMENT");
   const [catForm, setCatForm] = useState<{
     name: string;
+    scope: "" | "INVESTMENT" | "OTHER_INCOME";
     enabled: boolean;
     requires_operator: boolean;
     requires_user: boolean;
   }>({
     name: "",
+    scope: "",
     enabled: true,
     requires_operator: false,
     requires_user: false,
@@ -1034,6 +1045,7 @@ function FinanceConfigPageInner() {
     setCatEditing(null);
     setCatForm({
       name: "",
+      scope: "",
       enabled: true,
       requires_operator: false,
       requires_user: false,
@@ -1044,6 +1056,7 @@ function FinanceConfigPageInner() {
     setCatEditing(c);
     setCatForm({
       name: c.name,
+      scope: c.scope ?? "INVESTMENT",
       enabled: c.enabled,
       requires_operator: !!c.requires_operator,
       requires_user: !!c.requires_user,
@@ -1051,7 +1064,66 @@ function FinanceConfigPageInner() {
     setCatModalOpen(true);
   };
 
+  const upsertCategoryInBundle = useCallback(
+    (
+      nextItem: Partial<FinanceExpenseCategory> & {
+        id_category?: number;
+        name?: string;
+        scope?: "INVESTMENT" | "OTHER_INCOME";
+      },
+      fallback: {
+        name: string;
+        scope: "INVESTMENT" | "OTHER_INCOME";
+        enabled: boolean;
+        requires_operator: boolean;
+        requires_user: boolean;
+      },
+    ) => {
+      const idCategory = Number(nextItem.id_category ?? catEditing?.id_category);
+      if (!Number.isFinite(idCategory) || idCategory <= 0) return;
+
+      const merged: FinanceExpenseCategory = {
+        id_category: idCategory,
+        name: (nextItem.name ?? fallback.name).trim(),
+        scope: nextItem.scope === "OTHER_INCOME" ? "OTHER_INCOME" : fallback.scope,
+        enabled:
+          typeof nextItem.enabled === "boolean"
+            ? nextItem.enabled
+            : fallback.enabled,
+        sort_order:
+          typeof nextItem.sort_order === "number" && Number.isFinite(nextItem.sort_order)
+            ? nextItem.sort_order
+            : 0,
+        requires_operator:
+          typeof nextItem.requires_operator === "boolean"
+            ? nextItem.requires_operator
+            : fallback.requires_operator,
+        requires_user:
+          typeof nextItem.requires_user === "boolean"
+            ? nextItem.requires_user
+            : fallback.requires_user,
+      };
+
+      setBundle((prev) => {
+        if (!prev) return prev;
+        const exists = prev.categories.some((c) => c.id_category === idCategory);
+        const list = exists
+          ? prev.categories.map((c) =>
+              c.id_category === idCategory ? { ...c, ...merged } : c,
+            )
+          : [...prev.categories, merged];
+
+        list.sort((a, b) =>
+          a.name.localeCompare(b.name, "es", { sensitivity: "base" }),
+        );
+        return { ...prev, categories: list };
+      });
+    },
+    [catEditing],
+  );
+
   const saveCategory = async () => {
+    if (savingCategory) return;
     if (!token) return;
     if (!agencyId) {
       toast.error("La agencia no está cargada todavía");
@@ -1060,6 +1132,7 @@ function FinanceConfigPageInner() {
     const payload = {
       id_agency: agencyId,
       name: catForm.name.trim(),
+      scope: catForm.scope,
       enabled: !!catForm.enabled,
       requires_operator: !!catForm.requires_operator,
       requires_user: !!catForm.requires_user,
@@ -1068,6 +1141,11 @@ function FinanceConfigPageInner() {
       toast.error("Completá el nombre de la categoría");
       return;
     }
+    if (!payload.scope) {
+      toast.error("Elegí si la categoría es para inversión o ingresos");
+      return;
+    }
+    setSavingCategory(true);
     try {
       const url =
         "/api/finance/categories" +
@@ -1084,11 +1162,24 @@ function FinanceConfigPageInner() {
           apiErrorMessage(j) ?? "No se pudo guardar la categoría",
         );
       }
+      const savedRaw: unknown = await res.json().catch(() => null);
+      const saved = isRecord(savedRaw) ? savedRaw : {};
+
+      upsertCategoryInBundle(saved as Partial<FinanceExpenseCategory>, {
+        name: payload.name,
+        scope: payload.scope,
+        enabled: payload.enabled,
+        requires_operator: payload.requires_operator,
+        requires_user: payload.requires_user,
+      });
+      setCatScopeFilter(payload.scope);
       toast.success(catEditing ? "Categoría actualizada" : "Categoría creada");
       setCatModalOpen(false);
-      await reload();
+      void reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error");
+    } finally {
+      setSavingCategory(false);
     }
   };
 
@@ -1142,6 +1233,10 @@ function FinanceConfigPageInner() {
     bundle?.paymentMethods ?? EMPTY_METHODS;
   const categories: FinanceExpenseCategory[] =
     bundle?.categories ?? EMPTY_CATEGORIES;
+  const filteredCategories = useMemo(
+    () => categories.filter((c) => c.scope === catScopeFilter),
+    [categories, catScopeFilter],
+  );
 
   const enabledCurrencies = useMemo(
     () => currencies.filter((c) => c.enabled),
@@ -1586,26 +1681,47 @@ function FinanceConfigPageInner() {
             {/* CATEGORÍAS */}
             {active === "categories" && (
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <h2 className="text-base font-semibold">
-                    Categorías de gastos
+                    Categorías financieras
                   </h2>
-                  <button
-                    type="button"
-                    onClick={openNewCategory}
-                    className={BTN_SKY}
-                  >
-                    Nueva categoría
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-white/5 p-1">
+                      {CATEGORY_SCOPE_FILTERS.map((f) => (
+                        <button
+                          key={f.key}
+                          type="button"
+                          onClick={() => setCatScopeFilter(f.key)}
+                          className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                            catScopeFilter === f.key
+                              ? "border border-sky-300/60 bg-sky-100/10 text-sky-900 dark:text-sky-50"
+                              : "border border-transparent text-sky-900/70 hover:text-sky-900 dark:text-white/70 dark:hover:text-white"
+                          }`}
+                          aria-label={`Ver categorías de ${f.label.toLowerCase()}`}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={openNewCategory}
+                      className={BTN_SKY}
+                    >
+                      Nueva categoría
+                    </button>
+                  </div>
                 </div>
 
-                {categories.length === 0 ? (
+                {filteredCategories.length === 0 ? (
                   <div className={`${GLASS} p-6 text-center`}>
-                    Aún no hay categorías configuradas.
+                    {catScopeFilter === "OTHER_INCOME"
+                      ? "Aún no hay categorías de ingresos configuradas."
+                      : "Aún no hay categorías de egresos configuradas."}
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {categories.map((c) => (
+                    {filteredCategories.map((c) => (
                       <article
                         key={c.id_category}
                         className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur"
@@ -1616,6 +1732,11 @@ function FinanceConfigPageInner() {
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-semibold">
                                 {c.name}
+                              </span>
+                              <span className={BADGE_SKY}>
+                                {c.scope === "OTHER_INCOME"
+                                  ? "Ingresos"
+                                  : "Inversión"}
                               </span>
                               {c.requires_user && (
                                 <span className={BADGE_SKY}>
@@ -1976,11 +2097,12 @@ function FinanceConfigPageInner() {
           onClose={() => setCatModalOpen(false)}
           title={catEditing ? "Editar categoría" : "Nueva categoría"}
           footer={
-            <>
+            <div className="flex gap-2">
               <button
                 type="button"
                 onClick={() => setCatModalOpen(false)}
                 className={BTN_AMBER}
+                disabled={savingCategory}
               >
                 Cancelar
               </button>
@@ -1988,10 +2110,11 @@ function FinanceConfigPageInner() {
                 type="button"
                 onClick={saveCategory}
                 className={BTN_EMERALD}
+                disabled={savingCategory}
               >
-                Guardar
+                {savingCategory ? <Spinner /> : "Guardar"}
               </button>
-            </>
+            </div>
           }
         >
           <div className="grid grid-cols-1 gap-3">
@@ -2004,6 +2127,23 @@ function FinanceConfigPageInner() {
                 }
                 placeholder="AFIP / SUELDO / OPERADOR / MANTENCIÓN…"
               />
+            </div>
+            <div>
+              <Label>Tipo</Label>
+              <select
+                className="block w-full min-w-fit appearance-none rounded-2xl border border-sky-200 bg-white/50 px-4 py-2 shadow-sm shadow-sky-950/10 outline-none backdrop-blur dark:border-sky-200/60 dark:bg-sky-100/10"
+                value={catForm.scope}
+                onChange={(e) =>
+                  setCatForm((f) => ({
+                    ...f,
+                    scope: e.target.value as "" | "INVESTMENT" | "OTHER_INCOME",
+                  }))
+                }
+              >
+                <option value="">Seleccionar tipo</option>
+                <option value="INVESTMENT">Inversión (egresos)</option>
+                <option value="OTHER_INCOME">Ingresos</option>
+              </select>
             </div>
             <div className="flex flex-wrap gap-3">
               <Switch

@@ -33,7 +33,16 @@ const applyPoolParams = (url: string) => {
   }
 };
 
-const baseUrl = process.env.DATABASE_URL;
+// Por defecto en dev usamos DATABASE_URL (pooler), que es más estable para tráfico web.
+// Si necesitás alinear runtime con DIRECT_URL para debug puntual, activá:
+// PRISMA_USE_DIRECT_IN_DEV=true
+const useDirectInDev = process.env.PRISMA_USE_DIRECT_IN_DEV === "true";
+const baseUrl =
+  process.env.NODE_ENV !== "production" &&
+  useDirectInDev &&
+  process.env.DIRECT_URL
+    ? process.env.DIRECT_URL
+    : process.env.DATABASE_URL;
 const shouldPatchPool =
   process.env.NODE_ENV !== "production" ||
   !!process.env.PRISMA_POOL_LIMIT ||

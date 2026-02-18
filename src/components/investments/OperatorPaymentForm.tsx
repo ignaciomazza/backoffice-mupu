@@ -147,6 +147,7 @@ type FinanceCurrency = { code: string; name?: string; enabled?: boolean };
 type FinanceCategory = {
   id_category: number;
   name: string;
+  scope: "INVESTMENT" | "OTHER_INCOME";
   enabled?: boolean;
   requires_operator?: boolean;
 };
@@ -276,8 +277,20 @@ function parseCategories(raw: unknown): FinanceCategory[] {
       getBool(el as Record<string, unknown>, "needs_operator") ??
       getBool(el as Record<string, unknown>, "needsOperator") ??
       false;
+    const rawScope =
+      typeof el.scope === "string"
+        ? el.scope
+        : typeof el.category_scope === "string"
+          ? el.category_scope
+          : typeof el.applies_to === "string"
+            ? el.applies_to
+            : "INVESTMENT";
+    const scope =
+      rawScope.trim().toUpperCase() === "OTHER_INCOME"
+        ? "OTHER_INCOME"
+        : "INVESTMENT";
     if (id && name)
-      out.push({ id_category: id, name, enabled, requires_operator });
+      out.push({ id_category: id, name, scope, enabled, requires_operator });
   }
   return out;
 }
@@ -379,18 +392,21 @@ export default function OperatorPaymentForm({
         if (ac.signal.aborted) return;
 
         const picksCategories: FinanceCategory[] =
-          picks.categories?.map((c) => ({
-            id_category: c.id_category,
-            name: c.name,
-            enabled: c.enabled,
-            requires_operator: c.requires_operator,
-          })) ?? [];
+          picks.categories
+            ?.filter((c) => c.scope === "INVESTMENT")
+            .map((c) => ({
+              id_category: c.id_category,
+              name: c.name,
+              scope: c.scope,
+              enabled: c.enabled,
+              requires_operator: c.requires_operator,
+            })) ?? [];
         let categories: FinanceCategory[] | undefined = picksCategories.length
           ? picksCategories
           : undefined;
         try {
           const catsRes = await authFetch(
-            "/api/finance/categories",
+            "/api/finance/categories?scope=INVESTMENT",
             { cache: "no-store", signal: ac.signal },
             token,
           );
@@ -415,7 +431,10 @@ export default function OperatorPaymentForm({
   }, [token]);
 
   const allCategories = useMemo(
-    () => finance?.categories?.filter((c) => c.enabled !== false) ?? [],
+    () =>
+      finance?.categories?.filter(
+        (c) => c.enabled !== false && c.scope === "INVESTMENT",
+      ) ?? [],
     [finance?.categories],
   );
   const operatorCategories = useMemo(

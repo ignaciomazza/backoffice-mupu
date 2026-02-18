@@ -979,6 +979,8 @@ model OtherIncome {
 
   payment_method_id Int?
   account_id        Int?
+  category_id       Int?
+  category          ExpenseCategory? @relation(fields: [category_id], references: [id_category], onDelete: SetNull)
 
   verification_status String    @default("PENDING")
   verified_at         DateTime?
@@ -994,6 +996,7 @@ model OtherIncome {
   @@unique([id_agency, agency_other_income_id], name: "agency_other_income_id_unique")
   @@index([id_agency])
   @@index([issue_date])
+  @@index([category_id])
   @@index([verification_status])
   @@index([verified_by])
 }
@@ -1834,6 +1837,11 @@ model FinancePaymentMethod {
   @@index([id_agency, enabled])
 }
 
+enum ExpenseCategoryScope {
+  INVESTMENT
+  OTHER_INCOME
+}
+
 model ExpenseCategory {
   id_category                Int    @id @default(autoincrement())
   agency_expense_category_id Int
@@ -1842,6 +1850,7 @@ model ExpenseCategory {
 
   name              String // "SUELDO", "COMISION", "OPERADOR", etc.
   code              String? // opcional: sueldo | comision | operador | ...
+  scope             ExpenseCategoryScope
   requires_operator Boolean @default(false)
   requires_user     Boolean @default(false)
 
@@ -1852,9 +1861,12 @@ model ExpenseCategory {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  @@unique([id_agency, name])
+  otherIncomes OtherIncome[]
+
+  @@unique([id_agency, scope, name])
   @@unique([id_agency, agency_expense_category_id], name: "agency_expense_category_id_unique")
   @@index([id_agency, enabled])
+  @@index([id_agency, scope, enabled])
 }
 
 model ServiceType {

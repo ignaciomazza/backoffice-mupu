@@ -5,6 +5,7 @@ import { jwtVerify, type JWTPayload } from "jose";
 import { getFinanceSectionGrants } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import { hasSchemaColumn } from "@/lib/schemaColumns";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -158,6 +159,11 @@ export default async function handler(
   }
 
   try {
+    const hasCategoryColumn = await hasSchemaColumn(
+      "OtherIncome",
+      "category_id",
+    );
+
     const currency =
       typeof req.query.currency === "string"
         ? req.query.currency.trim().toUpperCase()
@@ -187,6 +193,11 @@ export default async function handler(
       Array.isArray(req.query.account_id)
         ? req.query.account_id[0]
         : req.query.account_id,
+    );
+    const categoryId = safeNumber(
+      Array.isArray(req.query.category_id)
+        ? req.query.category_id[0]
+        : req.query.category_id,
     );
 
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
@@ -248,6 +259,10 @@ export default async function handler(
       });
     }
 
+    if (categoryId && hasCategoryColumn) {
+      andFilters.push({ category_id: categoryId });
+    }
+
     if (q) {
       const qNum = Number(q);
       const or: Prisma.OtherIncomeWhereInput[] = [
@@ -258,6 +273,15 @@ export default async function handler(
         { counterparty_name: { contains: q, mode: "insensitive" } },
         { receipt_to: { contains: q, mode: "insensitive" } },
         { reference_note: { contains: q, mode: "insensitive" } },
+        ...(hasCategoryColumn
+          ? [
+              {
+                category: {
+                  is: { name: { contains: q, mode: "insensitive" } },
+                },
+              } as Prisma.OtherIncomeWhereInput,
+            ]
+          : []),
       ];
       andFilters.push({ OR: or });
     }

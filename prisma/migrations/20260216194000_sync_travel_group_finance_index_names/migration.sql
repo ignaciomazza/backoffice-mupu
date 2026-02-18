@@ -1,3 +1,6 @@
+-- Keep travel-group finance indexes/defaults aligned with current schema.
+-- This migration is idempotent on already-updated databases.
+
 -- AlterTable
 ALTER TABLE IF EXISTS "TravelGroupClientPayment" ALTER COLUMN "updated_at" DROP DEFAULT;
 

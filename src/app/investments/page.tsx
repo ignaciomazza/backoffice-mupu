@@ -180,9 +180,28 @@ function parseCategories(raw: unknown): FinanceCategory[] {
       getBool(el as Record<string, unknown>, "needs_user") ??
       getBool(el as Record<string, unknown>, "requiresUser") ??
       false;
+    const rawScope =
+      typeof el.scope === "string"
+        ? el.scope
+        : typeof el.category_scope === "string"
+          ? el.category_scope
+          : typeof el.applies_to === "string"
+            ? el.applies_to
+            : "INVESTMENT";
+    const scope =
+      rawScope.trim().toUpperCase() === "OTHER_INCOME"
+        ? "OTHER_INCOME"
+        : "INVESTMENT";
 
     if (id && name)
-      out.push({ id_category: id, name, enabled, requires_operator, requires_user });
+      out.push({
+        id_category: id,
+        name,
+        scope,
+        enabled,
+        requires_operator,
+        requires_user,
+      });
   }
   return out;
 }
@@ -224,6 +243,7 @@ type FinanceCurrency = { code: string; name: string; enabled: boolean };
 type FinanceCategory = {
   id_category: number;
   name: string;
+  scope: "INVESTMENT" | "OTHER_INCOME";
   enabled: boolean;
   requires_operator?: boolean;
   requires_user?: boolean;
@@ -811,14 +831,27 @@ export default function Page() {
     (async () => {
       try {
         // 1) Picks (cuentas / métodos / monedas)
-        let categories: FinanceCategory[] | undefined = undefined;
         const picks = await loadFinancePicks(token);
+        const picksCategories: FinanceCategory[] =
+          picks.categories
+            .filter((c) => c.scope === "INVESTMENT")
+            .map((c) => ({
+              id_category: c.id_category,
+              name: c.name,
+              scope: c.scope,
+              enabled: c.enabled,
+              requires_operator: c.requires_operator,
+              requires_user: c.requires_user,
+            })) ?? [];
+        let categories: FinanceCategory[] | undefined = picksCategories.length
+          ? picksCategories
+          : undefined;
         if (ac.signal.aborted) return;
 
         // 2) Categorías
         try {
           const catsRes = await authFetch(
-            "/api/finance/categories",
+            "/api/finance/categories?scope=INVESTMENT",
             { cache: "no-store", signal: ac.signal },
             token,
           );
@@ -1114,7 +1147,10 @@ export default function Page() {
 
   /* ========= Opciones desde Finance (sin fallbacks) ========= */
   const enabledCategories = useMemo(
-    () => finance?.categories?.filter((c) => c.enabled) ?? [],
+    () =>
+      finance?.categories?.filter(
+        (c) => c.enabled && c.scope === "INVESTMENT",
+      ) ?? [],
     [finance?.categories],
   );
 
