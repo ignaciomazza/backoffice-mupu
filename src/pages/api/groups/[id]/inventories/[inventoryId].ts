@@ -34,6 +34,14 @@ function pickParam(value: string | string[] | undefined): string | null {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function parseForceFlag(value: string | string[] | undefined): boolean {
+  if (!value) return false;
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return false;
+  const normalized = raw.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "si";
+}
+
 function parseOptionalDecimal(
   value: unknown,
 ): Prisma.Decimal | null | undefined {
@@ -453,7 +461,8 @@ export default async function handler(
         },
       );
     }
-    if (current.assigned_qty > 0 || current.confirmed_qty > 0) {
+    const forceDelete = parseForceFlag(req.query.force);
+    if (!forceDelete && (current.assigned_qty > 0 || current.confirmed_qty > 0)) {
       return groupApiError(
         res,
         409,
@@ -461,7 +470,7 @@ export default async function handler(
         {
           code: "GROUP_INVENTORY_DELETE_BLOCKED",
           solution:
-            "Quitá primero las asignaciones/confirmaciones o dejá el servicio en 0.",
+            "Confirmá el borrado forzado desde la interfaz o quitá primero las asignaciones/confirmaciones.",
         },
       );
     }
@@ -469,7 +478,10 @@ export default async function handler(
       await prisma.travelGroupInventory.delete({
         where: { id_travel_group_inventory: current.id_travel_group_inventory },
       });
-      return res.status(204).end();
+      return res.status(200).json({
+        ok: true,
+        forced: forceDelete,
+      });
     } catch (error) {
       console.error("[groups][inventories][DELETE]", error);
       return groupApiError(

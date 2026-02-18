@@ -3485,6 +3485,41 @@ export default function GroupDetailPage() {
     }
   }
 
+  async function handleDeletePassenger(passenger: PassengerItem) {
+    const passengerLabel = passenger.client
+      ? `${passenger.client.first_name} ${passenger.client.last_name}`
+      : `#${passenger.id_travel_group_passenger}`;
+    const confirmed = window.confirm(
+      `¿Seguro que querés eliminar al pasajero ${passengerLabel} de la grupal?`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setSubmitting(true);
+      setError(null);
+      await requestGroupApi(
+        `/api/groups/${encodeURIComponent(groupId)}/passengers/${passenger.id_travel_group_passenger}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        },
+        "No pudimos eliminar el pasajero.",
+      );
+      if (activePassengerId === passenger.id_travel_group_passenger) {
+        setPassengerFormMode("ALTA");
+      }
+      toast.success("Pasajero eliminado.");
+      await fetchAll();
+    } catch (e) {
+      const msg =
+        e instanceof Error ? e.message : "No pudimos eliminar el pasajero.";
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function handleSaveInventory(e: FormEvent) {
     e.preventDefault();
     const parsedOperatorId = parseOptionalPositiveInteger(
@@ -3613,10 +3648,19 @@ export default function GroupDetailPage() {
       `¿Seguro que querés eliminar el servicio "${item.label}"?`,
     );
     if (!confirmed) return;
+
+    const requiresForceDelete = item.assigned_qty > 0 || item.confirmed_qty > 0;
+    if (requiresForceDelete) {
+      const forcedConfirmed = window.confirm(
+        "Este servicio tiene cupos asignados o confirmados. ¿Querés forzar la eliminación?",
+      );
+      if (!forcedConfirmed) return;
+    }
+
     try {
       setSubmitting(true);
       await requestGroupApi(
-        `/api/groups/${encodeURIComponent(groupId)}/inventories/${item.id_travel_group_inventory}`,
+        `/api/groups/${encodeURIComponent(groupId)}/inventories/${item.id_travel_group_inventory}${requiresForceDelete ? "?force=1" : ""}`,
         {
           method: "DELETE",
           credentials: "include",
@@ -4854,17 +4898,27 @@ export default function GroupDetailPage() {
                             className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
                           />
                         </label>
-                        <button
-                          type="submit"
-                          disabled={submitting}
-                          className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
-                        >
-                          {submitting ? (
-                            <Spinner label="Guardando..." />
-                          ) : (
-                            "Guardar datos operativos"
-                          )}
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="submit"
+                            disabled={submitting}
+                            className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
+                          >
+                            {submitting ? (
+                              <Spinner label="Guardando..." />
+                            ) : (
+                              "Guardar datos operativos"
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={submitting}
+                            onClick={() => void handleDeletePassenger(activePassenger)}
+                            className="rounded-full border border-amber-300 bg-amber-100/90 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                          >
+                            Eliminar pasajero
+                          </button>
+                        </div>
                       </form>
 
                       <form
@@ -6752,17 +6806,27 @@ export default function GroupDetailPage() {
                             )}
                           </td>
                           <td className="p-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                focusPassengerPanel(
-                                  item.id_travel_group_passenger,
-                                )
-                              }
-                              className={pillClass(isActive, "sky")}
-                            >
-                              {isActive ? "En edición" : "Gestionar"}
-                            </button>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  focusPassengerPanel(
+                                    item.id_travel_group_passenger,
+                                  )
+                                }
+                                className={pillClass(isActive, "sky")}
+                              >
+                                {isActive ? "En edición" : "Gestionar"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleDeletePassenger(item)}
+                                disabled={submitting}
+                                className="rounded-full border border-amber-300 bg-amber-100/90 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                              >
+                                Eliminar
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -6795,15 +6859,27 @@ export default function GroupDetailPage() {
                             Salida: {item.travelGroupDeparture?.name || "-"}
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            focusPassengerPanel(item.id_travel_group_passenger)
-                          }
-                          className={pillClass(isActive, "sky")}
-                        >
-                          {isActive ? "En edición" : "Gestionar"}
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              focusPassengerPanel(
+                                item.id_travel_group_passenger,
+                              )
+                            }
+                            className={pillClass(isActive, "sky")}
+                          >
+                            {isActive ? "En edición" : "Gestionar"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeletePassenger(item)}
+                            disabled={submitting}
+                            className="rounded-full border border-amber-300 bg-amber-100/90 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                         <span
@@ -6845,15 +6921,27 @@ export default function GroupDetailPage() {
                         >
                           {formatPassengerStatus(item.status)}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            focusPassengerPanel(item.id_travel_group_passenger)
-                          }
-                          className={pillClass(isActive, "sky")}
-                        >
-                          {isActive ? "En edición" : "Gestionar"}
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              focusPassengerPanel(
+                                item.id_travel_group_passenger,
+                              )
+                            }
+                            className={pillClass(isActive, "sky")}
+                          >
+                            {isActive ? "En edición" : "Gestionar"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeletePassenger(item)}
+                            disabled={submitting}
+                            className="rounded-full border border-amber-300 bg-amber-100/90 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
                       </div>
                       <p className="font-semibold text-slate-900 dark:text-slate-100">
                         {item.client
