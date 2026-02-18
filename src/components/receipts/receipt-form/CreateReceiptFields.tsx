@@ -139,7 +139,8 @@ export default function CreateReceiptFields(props: {
   // picks
   paymentMethods: FinancePaymentMethod[];
   accounts: FinanceAccount[];
-  filteredAccounts: FinanceAccount[];
+  getFilteredAccountsByCurrency: (currencyCode: string) => FinanceAccount[];
+  hasMixedPaymentCurrencies: boolean;
 
   // pagos múltiples
   paymentLines: PaymentDraft[];
@@ -220,7 +221,8 @@ export default function CreateReceiptFields(props: {
     setAmountWords,
 
     paymentMethods,
-    filteredAccounts,
+    getFilteredAccountsByCurrency,
+    hasMixedPaymentCurrencies,
 
     paymentLines,
     addPaymentLine,
@@ -430,6 +432,12 @@ export default function CreateReceiptFields(props: {
               line.operator_id != null
                 ? !!loadingCreditAccountsByOperator[line.operator_id]
                 : false;
+            const filteredAccountsForLine = getFilteredAccountsByCurrency(
+              line.payment_currency || effectiveCurrency,
+            );
+            const lineCurrencyForCredit = (
+              line.payment_currency || effectiveCurrency
+            ).toUpperCase();
 
             const selectedCreditAccount = creditAccounts.find(
               (a) => a.id_credit_account === line.credit_account_id,
@@ -577,7 +585,7 @@ export default function CreateReceiptFields(props: {
                           ) : creditAccounts.length === 0 ? (
                             <p className="text-sm text-sky-950/70 dark:text-white/70">
                               No hay cuentas crédito para este operador en{" "}
-                              {effectiveCurrency}.
+                              {lineCurrencyForCredit}.
                             </p>
                           ) : creditAccounts.length === 1 ? (
                             <div className="rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-sm">
@@ -588,7 +596,7 @@ export default function CreateReceiptFields(props: {
                                 Se impactará en esta cuenta crédito{" "}
                                 {(
                                   fallbackCreditAccount?.currency ||
-                                  effectiveCurrency
+                                  lineCurrencyForCredit
                                 )?.toUpperCase()}
                                 .
                               </div>
@@ -638,7 +646,7 @@ export default function CreateReceiptFields(props: {
                             creditAccounts.length === 0 && (
                               <p className="mt-1 text-xs text-sky-950/70 dark:text-white/70">
                                 No hay cuentas crédito para este operador en{" "}
-                                {effectiveCurrency}.
+                                {lineCurrencyForCredit}.
                               </p>
                             )}
                         </div>
@@ -665,7 +673,7 @@ export default function CreateReceiptFields(props: {
                           }
                         >
                           <option value="">— Elegir —</option>
-                          {filteredAccounts.map((a) => (
+                          {filteredAccountsForLine.map((a) => (
                             <option key={a.id_account} value={a.id_account}>
                               {a.display_name || a.name}
                             </option>
@@ -699,27 +707,19 @@ export default function CreateReceiptFields(props: {
                         value={line.payment_currency || effectiveCurrency}
                         onChange={(e) => {
                           const nextCurrency = e.target.value;
-                          paymentLines.forEach((paymentLine) => {
-                            setPaymentLineCurrency(paymentLine.key, nextCurrency);
-                            if (paymentLine.amount) {
-                              setPaymentLineAmount(
-                                paymentLine.key,
-                                formatMoneyInput(paymentLine.amount, nextCurrency),
-                              );
-                            }
-                            if (
-                              paymentLine.fee_mode === "FIXED" &&
-                              paymentLine.fee_value
-                            ) {
-                              setPaymentLineFeeValue(
-                                paymentLine.key,
-                                formatMoneyInput(
-                                  paymentLine.fee_value,
-                                  nextCurrency,
-                                ),
-                              );
-                            }
-                          });
+                          setPaymentLineCurrency(line.key, nextCurrency);
+                          if (line.amount) {
+                            setPaymentLineAmount(
+                              line.key,
+                              formatMoneyInput(line.amount, nextCurrency),
+                            );
+                          }
+                          if (line.fee_mode === "FIXED" && line.fee_value) {
+                            setPaymentLineFeeValue(
+                              line.key,
+                              formatMoneyInput(line.fee_value, nextCurrency),
+                            );
+                          }
                         }}
                         className={`${inputBase} cursor-pointer appearance-none`}
                       >
@@ -828,8 +828,11 @@ export default function CreateReceiptFields(props: {
         >
           <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
             <p>
-              Servicio en {lockedCurrency}. Cobro en {effectiveCurrency}. El PDF
-              mostrará el valor base.
+              Servicio en {lockedCurrency}.{" "}
+              {hasMixedPaymentCurrencies
+                ? "Cobro en múltiples monedas."
+                : `Cobro en ${effectiveCurrency}.`}{" "}
+              El PDF mostrará el valor base.
             </p>
             <div className="mt-2 grid gap-1 text-[11px]">
               <div>

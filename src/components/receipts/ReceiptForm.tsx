@@ -521,8 +521,7 @@ export default function ReceiptForm({
     paymentCurrenciesInUse[0] || defaultCurrency;
   const currencyOverride =
     lockedCurrency != null &&
-    !hasMixedPaymentCurrencies &&
-    effectiveCurrency !== lockedCurrency;
+    (hasMixedPaymentCurrencies || effectiveCurrency !== lockedCurrency);
 
   useEffect(() => {
     if (!paymentLines.length || paymentsTotalNum <= 0) {
@@ -922,14 +921,16 @@ export default function ReceiptForm({
     setPaymentDescriptionDirty(true);
   }, []);
 
-  const filteredAccounts = useMemo(() => {
-    return filterAccountsByCurrency({
-      accounts: accountsTyped,
-      currencies: currenciesTyped,
-      effectiveCurrency,
-      enabled: true,
-    });
-  }, [accountsTyped, currenciesTyped, effectiveCurrency]);
+  const getFilteredAccountsByCurrency = useCallback(
+    (currencyCode: string) =>
+      filterAccountsByCurrency({
+        accounts: accountsTyped,
+        currencies: currenciesTyped,
+        effectiveCurrency: currencyCode,
+        enabled: true,
+      }),
+    [accountsTyped, currenciesTyped],
+  );
 
   const [agencyId, setAgencyId] = useState<number | null>(null);
   const [operators, setOperators] = useState<OperatorLite[]>([]);
@@ -1400,6 +1401,9 @@ export default function ReceiptForm({
           e[`payment_method_${idx}`] = "Elegí método.";
 
         if (isCredit) {
+          const lineCurrencyForError = normalizeCurrencyCodeLoose(
+            l.payment_currency || effectiveCurrency,
+          );
           if (!l.operator_id) e[`payment_operator_${idx}`] = "Elegí operador.";
           const accountsForOperator =
             l.operator_id != null
@@ -1409,7 +1413,7 @@ export default function ReceiptForm({
             e[`payment_credit_account_${idx}`] =
               accountsForOperator.length === 0
                 ? `El operador no tiene cuentas crédito en ${
-                    effectiveCurrency || "esta moneda"
+                    lineCurrencyForError || "esta moneda"
                   }.`
                 : "Elegí la cuenta crédito.";
           }
@@ -1420,10 +1424,6 @@ export default function ReceiptForm({
         }
       });
 
-      if (hasMixedPaymentCurrencies) {
-        e.payments =
-          "Todas las líneas de pago deben usar la misma moneda en este recibo.";
-      }
     }
 
     const total =
@@ -1445,6 +1445,15 @@ export default function ReceiptForm({
       } else if (lockedCurrency && baseCurrency !== lockedCurrency) {
         e.base = `La moneda base debe ser ${lockedCurrency}.`;
       }
+    }
+
+    if (
+      mode === "booking" &&
+      hasMixedPaymentCurrencies &&
+      (!baseNum || baseNum <= 0 || !baseCurrency)
+    ) {
+      e.base =
+        "Con cobro en múltiples monedas tenés que completar conversión (valor base y moneda base).";
     }
 
     const counterNum = parseAmountInput(counterAmount);
@@ -1881,7 +1890,8 @@ export default function ReceiptForm({
                   setAmountWords={setAmountWords}
                   paymentMethods={paymentMethodsUi}
                   accounts={accountsTyped}
-                  filteredAccounts={filteredAccounts}
+                  getFilteredAccountsByCurrency={getFilteredAccountsByCurrency}
+                  hasMixedPaymentCurrencies={hasMixedPaymentCurrencies}
                   paymentLines={paymentLines}
                   addPaymentLine={addPaymentLine}
                   removePaymentLine={removePaymentLine}

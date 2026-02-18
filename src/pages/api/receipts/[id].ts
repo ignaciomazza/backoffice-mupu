@@ -835,13 +835,28 @@ export default async function handler(
               .filter(Boolean),
           ),
         );
-        if (currenciesInPayments.length !== 1) {
+        const hasMixedPaymentCurrencies = currenciesInPayments.length > 1;
+        const hasBaseForMixed =
+          isNonEmptyString(baseCurrencyISO) && toNum(base_amount) > 0;
+
+        if (
+          existing.bookingId_booking &&
+          hasMixedPaymentCurrencies &&
+          !hasBaseForMixed
+        ) {
           return res.status(400).json({
             error:
-              "Todas las líneas de pago deben tener la misma moneda para este recibo.",
+              "Con cobro en múltiples monedas debés informar valor base y moneda base.",
           });
         }
-        amountCurrencyISO = currenciesInPayments[0];
+
+        if (currenciesInPayments.length > 0) {
+          amountCurrencyISO = normalizeCurrency(
+            hasMixedPaymentCurrencies && hasBaseForMixed
+              ? baseCurrencyISO
+              : currenciesInPayments[0],
+          );
+        }
         paymentFeeAmountNum = round2(
           normalizedPayments.reduce((acc, p) => acc + (p.fee_amount || 0), 0),
         );

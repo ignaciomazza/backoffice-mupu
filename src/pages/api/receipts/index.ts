@@ -110,7 +110,7 @@ type ReceiptPostBody = {
   // NUEVO: pagos múltiples (si viene esto, el amount total sale de la suma)
   payments?: ReceiptPaymentLineIn[];
 
-  // Costo financiero del medio de pago (misma moneda que amountCurrency)
+  // Costo financiero agregado (sumatoria de fees por línea)
   payment_fee_amount?: number | string;
 
   // Asociaciones
@@ -413,6 +413,11 @@ type ReceiptDebtView = {
   payment_fee_amount?: number | string | Prisma.Decimal | null;
   base_amount?: number | string | Prisma.Decimal | null;
   base_currency?: string | null;
+  payments?: Array<{
+    amount?: number | string | Prisma.Decimal | null;
+    payment_currency?: string | null;
+    fee_amount?: number | string | Prisma.Decimal | null;
+  }> | null;
 };
 
 function addReceiptToPaidByCurrency(
@@ -435,6 +440,21 @@ function addReceiptToPaidByCurrency(
     const credited = baseValue + (baseCurrency === amountCurrency ? feeValue : 0);
     if (Math.abs(credited) <= DEBT_TOLERANCE) return;
     target[baseCurrency] = round2((target[baseCurrency] || 0) + credited);
+    return;
+  }
+
+  const paymentLines = Array.isArray(receipt.payments) ? receipt.payments : [];
+  if (paymentLines.length > 0) {
+    for (const line of paymentLines) {
+      const lineCurrency = normalizeCurrency(
+        line?.payment_currency || amountCurrency,
+      );
+      const lineAmount = toNum(line?.amount ?? 0);
+      const lineFee = toNum(line?.fee_amount ?? 0);
+      const credited = lineAmount + lineFee;
+      if (Math.abs(credited) <= DEBT_TOLERANCE) continue;
+      target[lineCurrency] = round2((target[lineCurrency] || 0) + credited);
+    }
     return;
   }
 
@@ -1177,13 +1197,24 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           .filter(Boolean),
       ),
     );
-    if (currenciesInPayments.length !== 1) {
+    const hasMixedPaymentCurrencies = currenciesInPayments.length > 1;
+    const hasBaseForMixed =
+      isNonEmptyString(baseCurrencyISO) && toNum(base_amount) > 0;
+
+    if (hasBooking && hasMixedPaymentCurrencies && !hasBaseForMixed) {
       return res.status(400).json({
         error:
-          "Todas las líneas de pago deben tener la misma moneda para este recibo.",
+          "Con cobro en múltiples monedas debés informar valor base y moneda base.",
       });
     }
-    amountCurrencyISO = currenciesInPayments[0];
+
+    if (currenciesInPayments.length > 0) {
+      amountCurrencyISO = normalizeCurrency(
+        hasMixedPaymentCurrencies && hasBaseForMixed
+          ? baseCurrencyISO
+          : currenciesInPayments[0],
+      );
+    }
     paymentFeeAmountNum = round2(
       normalizedPayments.reduce((acc, p) => acc + (p.fee_amount || 0), 0),
     );
@@ -1271,6 +1302,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           payment_fee_amount: true,
           base_amount: true,
           base_currency: true,
+          payments: {
+            select: {
+              amount: true,
+              payment_currency: true,
+              fee_amount: true,
+            },
+          },
         },
       });
 
@@ -1315,6 +1353,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         payment_fee_amount: paymentFeeAmountNum,
         base_amount: base_amount ?? null,
         base_currency: baseCurrencyISO ?? null,
+        payments: normalizedPayments.map((p) => ({
+          amount: p.amount,
+          payment_currency: p.payment_currency,
+          fee_amount: p.fee_amount,
+        })),
       });
 
       const overpaidCurrencies: string[] = [];
