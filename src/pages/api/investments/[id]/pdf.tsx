@@ -245,12 +245,51 @@ export default async function handler(
     return res.status(400).end("ID inválido");
   }
 
+  const [hasPaymentFeeAmount, hasPaymentLines] = await Promise.all([
+    hasSchemaColumn("Investment", "payment_fee_amount"),
+    hasSchemaColumn("InvestmentPayment", "id_investment_payment"),
+  ]);
+
   const investment = await prisma.investment.findFirst({
     where: { id_investment: id, id_agency: authAgencyId },
-    include: {
-      operator: true,
-      user: true,
+    select: {
+      id_investment: true,
+      agency_investment_id: true,
+      category: true,
+      description: true,
+      amount: true,
+      currency: true,
+      created_at: true,
+      paid_at: true,
+      payment_method: true,
+      account: true,
+      ...(hasPaymentFeeAmount ? { payment_fee_amount: true } : {}),
+      base_amount: true,
+      base_currency: true,
+      counter_amount: true,
+      counter_currency: true,
+      operator_id: true,
+      user_id: true,
+      serviceIds: true,
+      operator: { select: { id_operator: true, name: true } },
+      user: { select: { id_user: true, first_name: true, last_name: true } },
       booking: { select: { id_booking: true, agency_booking_id: true } },
+      ...(hasPaymentLines
+        ? {
+            payments: {
+              select: {
+                id_investment_payment: true,
+                amount: true,
+                payment_method: true,
+                account: true,
+                payment_currency: true,
+                fee_mode: true,
+                fee_value: true,
+                fee_amount: true,
+              },
+            },
+          }
+        : {}),
     },
   });
 
@@ -356,6 +395,37 @@ export default async function handler(
     investment.agency_investment_id != null
       ? String(investment.agency_investment_id)
       : String(investment.id_investment);
+  const investmentPayments =
+    hasPaymentLines && Array.isArray((investment as { payments?: unknown }).payments)
+      ? ((investment as { payments: Array<Record<string, unknown>> }).payments ?? [])
+      : [];
+  const paymentLines =
+    investmentPayments.length > 0
+      ? investmentPayments.map((line) => ({
+          amount: toNum(line.amount, 0),
+          payment_method: String(line.payment_method || ""),
+          account: typeof line.account === "string" ? line.account : null,
+          payment_currency: String(
+            line.payment_currency || investment.currency || "ARS",
+          ).toUpperCase(),
+          fee_mode:
+            line.fee_mode === "FIXED" || line.fee_mode === "PERCENT"
+              ? (line.fee_mode as "FIXED" | "PERCENT")
+              : null,
+          fee_value: line.fee_value != null ? toNum(line.fee_value, 0) : null,
+          fee_amount: line.fee_amount != null ? toNum(line.fee_amount, 0) : 0,
+        }))
+      : [];
+  const paymentFeeAmount =
+    hasPaymentFeeAmount &&
+    (investment as { payment_fee_amount?: unknown }).payment_fee_amount != null
+      ? toNum(
+          (investment as { payment_fee_amount?: unknown }).payment_fee_amount,
+          0,
+        )
+      : paymentLines.length > 0
+        ? paymentLines.reduce((sum, line) => sum + Number(line.fee_amount || 0), 0)
+        : null;
 
   const data: OperatorPaymentPdfData = {
     paymentNumber,
@@ -367,6 +437,8 @@ export default async function handler(
     currency: String(investment.currency || "ARS").toUpperCase(),
     paymentMethod: investment.payment_method ?? null,
     account: investment.account ?? null,
+    paymentFeeAmount,
+    payments: paymentLines,
     base_amount:
       investment.base_amount != null ? toNum(investment.base_amount, 0) : null,
     base_currency: investment.base_currency ?? null,

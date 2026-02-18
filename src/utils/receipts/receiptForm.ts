@@ -28,29 +28,44 @@ export function toNumberSafe(x: unknown): number | null {
  * "1234.56", "1.234,56", "1234,56", "1,234.56", etc.
  */
 export function parseAmountInput(raw: string): number | null {
-  if (!raw) return null;
-  let s = raw.trim();
-  if (!s) return null;
+  const value = String(raw || "").trim();
+  if (!value) return null;
 
-  s = s.replace(/\s+/g, "");
+  const cleaned = value.replace(/[^\d.,-]/g, "");
+  if (!cleaned || !/\d/.test(cleaned)) return null;
 
-  const hasComma = s.includes(",");
-  const hasDot = s.includes(".");
+  const isNegative = cleaned.startsWith("-");
+  const unsigned = cleaned.replace(/-/g, "");
 
-  if (hasComma && hasDot) {
-    if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
-      // "1.234,56"
-      s = s.replace(/\./g, "").replace(",", ".");
-    } else {
-      // "1,234.56"
-      s = s.replace(/,/g, "");
-    }
-  } else if (hasComma) {
-    // "1234,56"
-    s = s.replace(",", ".");
+  const lastComma = unsigned.lastIndexOf(",");
+  const lastDot = unsigned.lastIndexOf(".");
+  let decimalSep: "," | "." | null = null;
+
+  if (lastComma >= 0 && lastDot >= 0) {
+    decimalSep = lastComma > lastDot ? "," : ".";
+  } else if (lastComma >= 0) {
+    const decimals = unsigned.length - lastComma - 1;
+    decimalSep = decimals > 0 && decimals <= 2 ? "," : null;
+  } else if (lastDot >= 0) {
+    const decimals = unsigned.length - lastDot - 1;
+    decimalSep = decimals > 0 && decimals <= 2 ? "." : null;
   }
 
-  const n = Number(s);
+  let normalized = unsigned;
+  if (decimalSep) {
+    normalized =
+      decimalSep === ","
+        ? normalized.replace(/\./g, "")
+        : normalized.replace(/,/g, "");
+    const parts = normalized.split(decimalSep);
+    const intPart = (parts.shift() || "0").replace(/[^\d]/g, "") || "0";
+    const decPart = parts.join("").replace(/[^\d]/g, "").slice(0, 2);
+    normalized = decPart ? `${intPart}.${decPart}` : intPart;
+  } else {
+    normalized = normalized.replace(/[.,]/g, "");
+  }
+
+  const n = Number(`${isNegative ? "-" : ""}${normalized}`);
   return Number.isFinite(n) ? n : null;
 }
 

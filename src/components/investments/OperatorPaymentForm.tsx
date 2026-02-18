@@ -8,6 +8,7 @@ import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
+import { parseAmountInput } from "@/utils/receipts/receiptForm";
 import ServiceAllocationsEditor, {
   type AllocationSummary,
   type ExcessAction,
@@ -236,7 +237,103 @@ const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 const inputBase =
   "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
 
+const moneyPrefix = (curr?: string | null) => {
+  const code = String(curr || "")
+    .trim()
+    .toUpperCase();
+  if (code === "ARS") return "$";
+  if (code === "USD") return "US$";
+  return code || "$";
+};
+
+const formatIntegerEs = (digits: string) => {
+  const normalized = digits.replace(/^0+(?=\d)/, "") || "0";
+  return normalized.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+};
+
+const formatMoneyInput = (
+  raw: string,
+  curr?: string | null,
+  options?: { preferDotDecimal?: boolean },
+) => {
+  const cleaned = String(raw || "").replace(/[^\d.,]/g, "");
+  if (!/\d/.test(cleaned)) return "";
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  const hasComma = lastComma >= 0;
+  const hasDot = lastDot >= 0;
+  const preferDotDecimal = Boolean(options?.preferDotDecimal);
+
+  let sepIndex = -1;
+  let intDigits = cleaned.replace(/[^\d]/g, "");
+  let decDigits = "";
+  let hasDecimal = false;
+
+  if (hasComma) {
+    sepIndex = lastComma;
+  } else if (hasDot && preferDotDecimal) {
+    sepIndex = lastDot;
+  }
+
+  if (sepIndex >= 0) {
+    const before = cleaned.slice(0, sepIndex).replace(/[^\d]/g, "");
+    const afterRaw = cleaned.slice(sepIndex + 1).replace(/[^\d]/g, "");
+    hasDecimal = true;
+    intDigits = before || "0";
+    decDigits = afterRaw.slice(0, 2);
+  }
+
+  const intPart = formatIntegerEs(intDigits);
+  const decPart = hasDecimal ? `,${decDigits}` : "";
+  return `${moneyPrefix(curr)} ${intPart}${decPart}`;
+};
+
+const shouldPreferDotDecimal = (ev: React.ChangeEvent<HTMLInputElement>) => {
+  const native = ev.nativeEvent as InputEvent | undefined;
+  const char = typeof native?.data === "string" ? native.data : "";
+  if (char === "." || char === ",") return true;
+  return native?.inputType === "insertFromPaste";
+};
+
 const EXCESS_TOLERANCE = 0.01;
+const uid = () => `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+const normalizeCurrencyCodeLoose = (raw: string | null | undefined): string => {
+  const s = (raw || "").trim().toUpperCase();
+  if (!s) return "ARS";
+  const map: Record<string, string> = {
+    U$D: "USD",
+    U$S: "USD",
+    US$: "USD",
+    USD$: "USD",
+    AR$: "ARS",
+    $: "ARS",
+  };
+  return map[s] || s;
+};
+
+type PaymentLineDraft = {
+  key: string;
+  amount: string;
+  payment_method: string;
+  account: string;
+  payment_currency: string;
+  fee_mode: "NONE" | "FIXED" | "PERCENT";
+  fee_value: string;
+};
+
+const calcPaymentLineFee = (line: PaymentLineDraft) => {
+  const amount = parseAmountInput(line.amount) ?? 0;
+  const value = parseAmountInput(line.fee_value) ?? 0;
+  if (line.fee_mode === "NONE") return 0;
+  if (amount <= 0) return 0;
+  if (value < 0) return 0;
+  if (line.fee_mode === "PERCENT") {
+    return round2(Math.max(0, amount) * (Math.max(0, value) / 100));
+  }
+  return round2(Math.max(0, value));
+};
 
 /* ========= Categorías ========= */
 function parseCategories(raw: unknown): FinanceCategory[] {
@@ -687,12 +784,20 @@ export default function OperatorPaymentForm({
 
   const [amount, setAmount] = useState<string>("");
   const [currency, setCurrency] = useState<string>("");
-  const [paymentMethod, setPaymentMethod] = useState<string>("");
-  const [account, setAccount] = useState<string>("");
+  const [paymentLines, setPaymentLines] = useState<PaymentLineDraft[]>([
+    {
+      key: uid(),
+      amount: "",
+      payment_method: "",
+      account: "",
+      payment_currency: "ARS",
+      fee_mode: "NONE",
+      fee_value: "",
+    },
+  ]);
   const [description, setDescription] = useState<string>("");
   const [paidAt, setPaidAt] = useState<string>("");
 
-  const [useConversion, setUseConversion] = useState<boolean>(false);
   const [baseAmount, setBaseAmount] = useState<string>("");
   const [baseCurrency, setBaseCurrency] = useState<string>("");
   const [counterAmount, setCounterAmount] = useState<string>("");
@@ -724,6 +829,215 @@ export default function OperatorPaymentForm({
     }
   }, [operatorCategories, category]);
 
+  const uiPaymentMethodOptions = useMemo(() => {
+    if (!isOperatorCategory(category)) return paymentMethodOptions;
+    return uniqSorted([...paymentMethodOptions, CREDIT_METHOD]);
+  }, [paymentMethodOptions, category, isOperatorCategory]);
+
+  useEffect(() => {
+    if (isOperatorCategory(category)) return;
+    setPaymentLines((prev) =>
+      prev.map((line) =>
+        line.payment_method === CREDIT_METHOD
+          ? { ...line, payment_method: "" }
+          : line,
+      ),
+    );
+  }, [category, isOperatorCategory]);
+
+  useEffect(() => {
+    setPaymentLines((prev) => {
+      if (prev.length === 0) {
+        return [
+          {
+            key: uid(),
+            amount: "",
+            payment_method: "",
+            account: "",
+            payment_currency: normalizeCurrencyCodeLoose(
+              lockedSvcCurrency || currencyOptions[0] || "ARS",
+            ),
+            fee_mode: "NONE",
+            fee_value: "",
+          },
+        ];
+      }
+      return prev.map((line) => ({
+        ...line,
+        payment_currency: normalizeCurrencyCodeLoose(
+          line.payment_currency || lockedSvcCurrency || currencyOptions[0] || "ARS",
+        ),
+      }));
+    });
+  }, [lockedSvcCurrency, currencyOptions]);
+
+  const paymentLineFeeByKey = useMemo(() => {
+    return paymentLines.reduce<Record<string, number>>((acc, line) => {
+      acc[line.key] = calcPaymentLineFee(line);
+      return acc;
+    }, {});
+  }, [paymentLines]);
+
+  const paymentsFeeTotalNum = useMemo(
+    () =>
+      round2(
+        Object.values(paymentLineFeeByKey).reduce((sum, fee) => sum + fee, 0),
+      ),
+    [paymentLineFeeByKey],
+  );
+
+  const paymentsTotalNum = useMemo(
+    () =>
+      round2(
+        paymentLines.reduce((sum, line) => {
+          const amountNum = parseAmountInput(line.amount) ?? 0;
+          if (amountNum <= 0) return sum;
+          return sum + amountNum;
+        }, 0),
+      ),
+    [paymentLines],
+  );
+
+  const paymentCurrenciesInUse = useMemo(() => {
+    const set = new Set<string>();
+    for (const line of paymentLines) {
+      const amountNum = parseAmountInput(line.amount) ?? 0;
+      if (amountNum <= 0) continue;
+      set.add(normalizeCurrencyCodeLoose(line.payment_currency));
+    }
+    return Array.from(set);
+  }, [paymentLines]);
+
+  const hasMixedPaymentCurrencies = paymentCurrenciesInUse.length > 1;
+  const effectivePaymentCurrency =
+    paymentCurrenciesInUse[0] ||
+    normalizeCurrencyCodeLoose(lockedSvcCurrency || currencyOptions[0] || "ARS");
+  const creditAmountNum = useMemo(
+    () =>
+      round2(
+        paymentLines.reduce((sum, line) => {
+          const amountNum = parseAmountInput(line.amount) ?? 0;
+          if (line.payment_method !== CREDIT_METHOD || amountNum <= 0) {
+            return sum;
+          }
+          return sum + amountNum;
+        }, 0),
+      ),
+    [paymentLines],
+  );
+  const payingWithCredit = useMemo(
+    () => isOperatorCategory(category) && creditAmountNum > 0,
+    [category, creditAmountNum, isOperatorCategory],
+  );
+
+  useEffect(() => {
+    setAmount(paymentsTotalNum > 0 ? String(paymentsTotalNum) : "");
+    setCurrency(effectivePaymentCurrency);
+  }, [paymentLines, paymentsTotalNum, effectivePaymentCurrency]);
+
+  const addPaymentLine = useCallback(() => {
+    setPaymentLines((prev) => [
+      ...prev,
+      {
+        key: uid(),
+        amount: "",
+        payment_method: "",
+        account: "",
+        payment_currency: effectivePaymentCurrency,
+        fee_mode: "NONE",
+        fee_value: "",
+      },
+    ]);
+  }, [effectivePaymentCurrency]);
+
+  const removePaymentLine = useCallback((key: string) => {
+    setPaymentLines((prev) =>
+      prev.length <= 1 ? prev : prev.filter((line) => line.key !== key),
+    );
+  }, []);
+
+  const setPaymentLineAmount = useCallback((key: string, value: string) => {
+    setPaymentLines((prev) =>
+      prev.map((line) => (line.key === key ? { ...line, amount: value } : line)),
+    );
+  }, []);
+
+  const setPaymentLineMethod = useCallback(
+    (key: string, method: string) => {
+      setPaymentLines((prev) =>
+        prev.map((line) => {
+          if (line.key !== key) return line;
+          const requiresAccount = !!requiresAccountMap.get(norm(method));
+          return {
+            ...line,
+            payment_method: method,
+            account:
+              method === CREDIT_METHOD || !requiresAccount ? "" : line.account,
+          };
+        }),
+      );
+    },
+    [requiresAccountMap],
+  );
+
+  const setPaymentLineAccount = useCallback((key: string, accountName: string) => {
+    setPaymentLines((prev) =>
+      prev.map((line) =>
+        line.key === key ? { ...line, account: accountName } : line,
+      ),
+    );
+  }, []);
+
+  const setPaymentLineCurrency = useCallback((key: string, value: string) => {
+    const nextCurrency = normalizeCurrencyCodeLoose(value);
+    setPaymentLines((prev) =>
+      prev.map((line) => {
+        return {
+          ...line,
+          payment_currency: nextCurrency,
+          amount: line.amount ? formatMoneyInput(line.amount, nextCurrency) : "",
+          fee_value:
+            line.fee_mode === "FIXED" && line.fee_value
+              ? formatMoneyInput(line.fee_value, nextCurrency)
+              : line.fee_value,
+        };
+      }),
+    );
+    if (key) setCurrency(nextCurrency);
+  }, []);
+
+  const setPaymentLineFeeMode = useCallback(
+    (key: string, mode: PaymentLineDraft["fee_mode"]) => {
+      setPaymentLines((prev) =>
+        prev.map((line) => {
+          if (line.key !== key) return line;
+          return {
+            ...line,
+            fee_mode: mode,
+            fee_value:
+              mode === "NONE"
+                ? ""
+                : mode === "FIXED"
+                  ? formatMoneyInput(
+                      line.fee_value,
+                      line.payment_currency || effectivePaymentCurrency,
+                    )
+                  : line.fee_value,
+          };
+        }),
+      );
+    },
+    [effectivePaymentCurrency],
+  );
+
+  const setPaymentLineFeeValue = useCallback((key: string, value: string) => {
+    setPaymentLines((prev) =>
+      prev.map((line) =>
+        line.key === key ? { ...line, fee_value: value } : line,
+      ),
+    );
+  }, []);
+
   // Reacciones a selección de servicios
   useEffect(() => {
     // operador
@@ -733,18 +1047,52 @@ export default function OperatorPaymentForm({
       setOperatorId("");
     }
 
-    // moneda
-    if (lockedSvcCurrency && currencyOptions.includes(lockedSvcCurrency)) {
-      setCurrency((prev) => prev || lockedSvcCurrency);
-    }
-
     // monto (solo sugerir si hay una sola moneda y no hay monto cargado)
     if (selectedServices.length > 0 && allSameCurrency) {
-      setAmount((prev) => {
-        if (String(prev || "").trim() !== "") return prev;
-        return Number.isFinite(suggestedAmount) && suggestedAmount > 0
-          ? String(suggestedAmount)
-          : "";
+      setPaymentLines((prev) => {
+        const hasAnyAmount = prev.some((line) => {
+          const amountNum = parseAmountInput(line.amount) ?? 0;
+          return amountNum > 0;
+        });
+        if (hasAnyAmount || !Number.isFinite(suggestedAmount) || suggestedAmount <= 0) {
+          return prev;
+        }
+        if (!prev.length) {
+          const suggestedCurrency = normalizeCurrencyCodeLoose(
+            lockedSvcCurrency || currencyOptions[0] || "ARS",
+          );
+          return [
+            {
+              key: uid(),
+              amount: formatMoneyInput(String(suggestedAmount), suggestedCurrency),
+              payment_method: "",
+              account: "",
+              payment_currency: suggestedCurrency,
+              fee_mode: "NONE",
+              fee_value: "",
+            },
+          ];
+        }
+        return prev.map((line, idx) =>
+          idx === 0
+            ? {
+                ...line,
+                payment_currency: normalizeCurrencyCodeLoose(
+                  line.payment_currency ||
+                    lockedSvcCurrency ||
+                    currencyOptions[0] ||
+                    "ARS",
+                ),
+                amount: formatMoneyInput(
+                  String(suggestedAmount),
+                  line.payment_currency ||
+                    lockedSvcCurrency ||
+                    currencyOptions[0] ||
+                    "ARS",
+                ),
+              }
+            : line,
+        );
       });
     }
 
@@ -776,64 +1124,58 @@ export default function OperatorPaymentForm({
     allSameCurrency,
   ]);
 
-  // Si es categoría Operador, incluir el método virtual de crédito.
-  const uiPaymentMethodOptions = useMemo(() => {
-    if (!isOperatorCategory(category)) return paymentMethodOptions;
-    return uniqSorted([...paymentMethodOptions, CREDIT_METHOD]);
-  }, [paymentMethodOptions, category, isOperatorCategory]);
-
-  const payingWithCredit = useMemo(
-    () => isOperatorCategory(category) && paymentMethod === CREDIT_METHOD,
-    [category, paymentMethod, isOperatorCategory],
+  const showConversionSection = useMemo(() => {
+    if (action !== "create") return false;
+    if (hasMixedPaymentCurrencies || paymentCurrenciesInUse.length !== 1) {
+      return false;
+    }
+    if (selectedCurrencies.length === 0) return false;
+    return selectedCurrencies.some((c) => c !== effectivePaymentCurrency);
+  }, [
+    action,
+    effectivePaymentCurrency,
+    hasMixedPaymentCurrencies,
+    paymentCurrenciesInUse.length,
+    selectedCurrencies,
+  ]);
+  const hasConversionData = useMemo(
+    () =>
+      [baseAmount, baseCurrency, counterAmount, counterCurrency].some(
+        (v) => String(v || "").trim() !== "",
+      ),
+    [baseAmount, baseCurrency, counterAmount, counterCurrency],
   );
 
-  const requiresAccount = useMemo(() => {
-    if (!paymentMethod) return false;
-    return !!requiresAccountMap.get(norm(paymentMethod));
-  }, [paymentMethod, requiresAccountMap]);
-
-  // conversion: autocompletar
   useEffect(() => {
-    if (!useConversion) return;
-    setBaseAmount((v) => v || amount || "");
-    setBaseCurrency((v) => v || currency || "");
-    setCounterCurrency((v) => {
-      if (v) return v;
-      const base = (baseCurrency || currency || "").toUpperCase();
-      const other = currencyOptions.find((c) => c !== base) || "";
-      return other;
+    if (!showConversionSection) {
+      setBaseAmount("");
+      setBaseCurrency("");
+      setCounterAmount("");
+      setCounterCurrency("");
+      return;
+    }
+    const selectedBaseCurrency = selectedCurrencies[0] || "";
+    setBaseCurrency((v) => v || selectedBaseCurrency);
+    setBaseAmount((v) => {
+      const seed = v || amount || "";
+      if (!seed) return "";
+      return formatMoneyInput(
+        seed,
+        selectedBaseCurrency || effectivePaymentCurrency,
+      );
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useConversion]);
-
-  useEffect(() => {
-    if (!useConversion) return;
-    setBaseCurrency((v) => v || currency || "");
-    setBaseAmount((v) => v || amount || "");
-    setCounterCurrency((v) => {
-      if (v) return v;
-      const base = (baseCurrency || currency || "").toUpperCase();
-      const other = currencyOptions.find((c) => c !== base) || "";
-      return other;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currency, amount, currencyOptions]);
-
-  // Restringir método de crédito a categorías de Operador.
-  useEffect(() => {
-    setPaymentMethod((pm) => {
-      const isOperador = isOperatorCategory(category);
-      if (!isOperador && pm === CREDIT_METHOD) {
-        setAccount("");
-        return "";
-      }
-      if (isOperador && pm === CREDIT_METHOD && account) {
-        setAccount("");
-        return pm;
-      }
-      return pm;
-    });
-  }, [category, account, isOperatorCategory]);
+    setCounterCurrency(effectivePaymentCurrency || "");
+    setCounterAmount((v) =>
+      v
+        ? formatMoneyInput(v, effectivePaymentCurrency || "")
+        : "",
+    );
+  }, [
+    amount,
+    effectivePaymentCurrency,
+    selectedCurrencies,
+    showConversionSection,
+  ]);
 
   // Toggle selección con validación operador y moneda homogéneos
   const toggleService = (svc: Service) => {
@@ -856,39 +1198,63 @@ export default function OperatorPaymentForm({
 
   const useSuggested = () => {
     if (selectedServices.length === 0) return;
-    setAmount(String(suggestedAmount || 0));
-    if (lockedSvcCurrency && currencyOptions.includes(lockedSvcCurrency)) {
-      setCurrency(lockedSvcCurrency);
-    }
-    if (useConversion) {
-      setBaseAmount(String(suggestedAmount || 0));
-      setBaseCurrency(lockedSvcCurrency || currency || "");
-      const other =
-        currencyOptions.find(
-          (c) => c !== (lockedSvcCurrency || currency || ""),
-        ) || "";
-      setCounterCurrency(other);
+    setPaymentLines((prev) => {
+      const targetCurrency = normalizeCurrencyCodeLoose(
+        lockedSvcCurrency || currencyOptions[0] || effectivePaymentCurrency || "ARS",
+      );
+      if (!prev.length) {
+        return [
+          {
+            key: uid(),
+            amount: formatMoneyInput(String(suggestedAmount || 0), targetCurrency),
+            payment_method: "",
+            account: "",
+            payment_currency: targetCurrency,
+            fee_mode: "NONE",
+            fee_value: "",
+          },
+        ];
+      }
+      return prev.map((line, idx) =>
+        idx === 0
+          ? {
+              ...line,
+              amount: formatMoneyInput(String(suggestedAmount || 0), targetCurrency),
+              payment_currency: targetCurrency,
+            }
+          : line,
+      );
+    });
+    if (showConversionSection) {
+      const nextBaseCurrency = selectedCurrencies[0] || "";
+      setBaseCurrency((v) => v || nextBaseCurrency);
+      setBaseAmount(
+        formatMoneyInput(
+          String(suggestedAmount || 0),
+          nextBaseCurrency || effectivePaymentCurrency,
+        ),
+      );
+      setCounterCurrency(effectivePaymentCurrency || "");
     }
   };
 
   const previewAmount = useMemo(() => {
-    const n = Number(amount);
-    if (!Number.isFinite(n) || n <= 0) return "";
+    const n = paymentsTotalNum;
+    if (n <= 0) return "";
     try {
       return new Intl.NumberFormat("es-AR", {
         style: "currency",
-        currency: currency || "ARS",
+        currency: effectivePaymentCurrency || "ARS",
         minimumFractionDigits: 2,
       }).format(n);
     } catch {
-      return `${n.toFixed(2)} ${currency || ""}`;
+      return `${n.toFixed(2)} ${effectivePaymentCurrency || ""}`;
     }
-  }, [amount, currency]);
+  }, [effectivePaymentCurrency, paymentsTotalNum]);
 
   const previewBase = useMemo(() => {
-    const n = Number(baseAmount);
-    if (!useConversion || !Number.isFinite(n) || n <= 0 || !baseCurrency)
-      return "";
+    const n = parseAmountInput(baseAmount) ?? 0;
+    if (!showConversionSection || n <= 0 || !baseCurrency) return "";
     try {
       return new Intl.NumberFormat("es-AR", {
         style: "currency",
@@ -897,12 +1263,11 @@ export default function OperatorPaymentForm({
     } catch {
       return `${n.toFixed(2)} ${baseCurrency}`;
     }
-  }, [useConversion, baseAmount, baseCurrency]);
+  }, [showConversionSection, baseAmount, baseCurrency]);
 
   const previewCounter = useMemo(() => {
-    const n = Number(counterAmount);
-    if (!useConversion || !Number.isFinite(n) || n <= 0 || !counterCurrency)
-      return "";
+    const n = parseAmountInput(counterAmount) ?? 0;
+    if (!showConversionSection || n <= 0 || !counterCurrency) return "";
     try {
       return new Intl.NumberFormat("es-AR", {
         style: "currency",
@@ -911,12 +1276,14 @@ export default function OperatorPaymentForm({
     } catch {
       return `${n.toFixed(2)} ${counterCurrency}`;
     }
-  }, [useConversion, counterAmount, counterCurrency]);
+  }, [showConversionSection, counterAmount, counterCurrency]);
 
   const editorPaymentCurrency =
     action === "attach" ? selectedPayment?.currency || "" : currency;
   const editorPaymentAmount =
-    action === "attach" ? Number(selectedPayment?.amount || 0) : Number(amount || 0);
+    action === "attach"
+      ? Number(selectedPayment?.amount || 0)
+      : Number(paymentsTotalNum || 0);
 
   /* ========= Detección de moneda de cuenta ========= */
   const guessAccountCurrency = useCallback(
@@ -1010,14 +1377,14 @@ export default function OperatorPaymentForm({
 
   /* ========= Validaciones ========= */
   const validateConversion = (): { ok: boolean; msg?: string } => {
-    if (!useConversion) return { ok: true };
-    const bAmt = Number(baseAmount);
-    const cAmt = Number(counterAmount);
-    if (!Number.isFinite(bAmt) || bAmt <= 0)
+    if (!showConversionSection || !hasConversionData) return { ok: true };
+    const bAmt = parseAmountInput(baseAmount) ?? 0;
+    const cAmt = parseAmountInput(counterAmount) ?? 0;
+    if (bAmt <= 0)
       return { ok: false, msg: "Ingresá un Valor base válido (> 0)." };
     if (!baseCurrency)
       return { ok: false, msg: "Elegí la moneda del Valor base." };
-    if (!Number.isFinite(cAmt) || cAmt <= 0)
+    if (cAmt <= 0)
       return { ok: false, msg: "Ingresá un Contravalor válido (> 0)." };
     if (!counterCurrency)
       return { ok: false, msg: "Elegí la moneda del Contravalor." };
@@ -1039,20 +1406,24 @@ export default function OperatorPaymentForm({
   };
 
   const assertAccountMatchesCurrency = (): boolean => {
-    if (!requiresAccount || !account) return true;
-    const accCur = guessAccountCurrency(account);
-    if (!accCur) {
-      toast.warn(
-        "No pude detectar la moneda de la cuenta. Revisá que coincida con la moneda de los servicios.",
-      );
-      return true; // warning, no bloquea
-    }
-    // chequeamos contra la moneda del pago
-    if (currency && accCur !== currency.toUpperCase()) {
-      toast.error(
-        `La cuenta es ${accCur} y la moneda del pago es ${currency}. Deben coincidir.`,
-      );
-      return false;
+    for (const line of paymentLines) {
+      if (!line.payment_method || !line.account) continue;
+      const requiresAccount = !!requiresAccountMap.get(norm(line.payment_method));
+      if (!requiresAccount) continue;
+      const accCur = guessAccountCurrency(line.account);
+      if (!accCur) {
+        toast.warn(
+          "No pude detectar la moneda de una cuenta. Revisá que coincida con la moneda del pago.",
+        );
+        continue;
+      }
+      const payCur = normalizeCurrencyCodeLoose(line.payment_currency);
+      if (payCur && accCur !== payCur.toUpperCase()) {
+        toast.error(
+          `La cuenta "${line.account}" es ${accCur} y el pago está en ${payCur}. Deben coincidir.`,
+        );
+        return false;
+      }
     }
     return true;
   };
@@ -1186,20 +1557,22 @@ export default function OperatorPaymentForm({
     [checkCreditAccount, excessMissingAccountAction, createCreditAccountForExcess],
   );
 
-  // Si el método requiere cuenta bancaria/financiera, filtrar por la moneda del pago
-  const filteredAccounts = useMemo(() => {
-    if (!requiresAccount) return accounts;
-    const cur = (currency || "").toUpperCase();
-    return accounts.filter((a) => {
-      const objCur =
-        (a.currency || a.currency_code || a.iso || "")
-          ?.toString()
-          .toUpperCase() ||
-        guessAccountCurrency(a.display_name || a.name) ||
-        "";
-      return objCur === cur;
-    });
-  }, [accounts, requiresAccount, currency, guessAccountCurrency]);
+  const getFilteredAccountsForCurrency = useCallback(
+    (currencyCode: string) => {
+      const cur = normalizeCurrencyCodeLoose(currencyCode);
+      if (!cur) return accounts;
+      return accounts.filter((a) => {
+        const objCur =
+          (a.currency || a.currency_code || a.iso || "")
+            ?.toString()
+            .toUpperCase() ||
+          guessAccountCurrency(a.display_name || a.name) ||
+          "";
+        return objCur === cur;
+      });
+    },
+    [accounts, guessAccountCurrency],
+  );
 
   /* ========= Submit ========= */
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1310,24 +1683,100 @@ export default function OperatorPaymentForm({
     }
     if (!assertSameOperator()) return;
 
-    if (!payingWithCredit && !paymentMethod) {
-      toast.error("Seleccioná el método de pago.");
-      return;
-    }
-    if (!currency) {
-      toast.error("Seleccioná una moneda.");
-      return;
-    }
-    if (requiresAccount && !account) {
-      toast.error("Seleccioná la cuenta para este método.");
+    const filledLines = paymentLines.filter((line) => {
+      const amountNum = parseAmountInput(line.amount) ?? 0;
+      const feeValueNum = parseAmountInput(line.fee_value) ?? 0;
+      return (
+        amountNum > 0 ||
+        !!line.payment_method.trim() ||
+        !!line.account.trim() ||
+        line.fee_mode !== "NONE" ||
+        feeValueNum > 0
+      );
+    });
+    if (filledLines.length === 0) {
+      toast.error("Cargá al menos una línea de pago.");
       return;
     }
 
-    const amountNum = Number(amount);
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      toast.error("El monto debe ser un número positivo.");
+    const normalizedPaymentsPayload: Array<{
+      amount: number;
+      payment_method: string;
+      account?: string;
+      payment_currency: string;
+      fee_mode?: "FIXED" | "PERCENT";
+      fee_value?: number;
+      fee_amount?: number;
+    }> = [];
+    for (let idx = 0; idx < filledLines.length; idx++) {
+      const line = filledLines[idx];
+      const lineNo = idx + 1;
+      const lineAmount = parseAmountInput(line.amount) ?? 0;
+      if (lineAmount <= 0) {
+        toast.error(`Línea ${lineNo}: el importe debe ser positivo.`);
+        return;
+      }
+      if (!line.payment_method.trim()) {
+        toast.error(`Línea ${lineNo}: seleccioná método de pago.`);
+        return;
+      }
+      const lineCurrency = normalizeCurrencyCodeLoose(line.payment_currency);
+      if (!lineCurrency) {
+        toast.error(`Línea ${lineNo}: seleccioná moneda.`);
+        return;
+      }
+      const requiresAccountLine = !!requiresAccountMap.get(
+        norm(line.payment_method),
+      );
+      const lineAccount = line.account.trim();
+      if (requiresAccountLine && !lineAccount) {
+        toast.error(`Línea ${lineNo}: seleccioná cuenta.`);
+        return;
+      }
+      if (line.fee_mode !== "NONE") {
+        const feeValueNum = parseAmountInput(line.fee_value) ?? 0;
+        if (feeValueNum < 0) {
+          toast.error(`Línea ${lineNo}: costo financiero inválido.`);
+          return;
+        }
+        if (line.fee_mode === "PERCENT" && feeValueNum > 1000) {
+          toast.error(`Línea ${lineNo}: porcentaje de costo financiero inválido.`);
+          return;
+        }
+      }
+      const lineFee = calcPaymentLineFee(line);
+      normalizedPaymentsPayload.push({
+        amount: round2(lineAmount),
+        payment_method: line.payment_method.trim(),
+        account: lineAccount || undefined,
+        payment_currency: lineCurrency,
+        fee_mode:
+          line.fee_mode === "FIXED" || line.fee_mode === "PERCENT"
+            ? line.fee_mode
+            : undefined,
+        fee_value:
+          line.fee_mode === "FIXED" || line.fee_mode === "PERCENT"
+            ? Math.max(0, parseAmountInput(line.fee_value) ?? 0)
+            : undefined,
+        fee_amount: lineFee > 0 ? lineFee : undefined,
+      });
+    }
+    const paymentCurrencySet = Array.from(
+      new Set(normalizedPaymentsPayload.map((line) => line.payment_currency)),
+    );
+    if (paymentCurrencySet.length > 1) {
+      toast.error("Todas las líneas de pago deben tener la misma moneda.");
       return;
     }
+    const paymentCurrency = paymentCurrencySet[0] || currency || "ARS";
+    const amountNum = round2(
+      normalizedPaymentsPayload.reduce((sum, line) => sum + line.amount, 0),
+    );
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      toast.error("El total de pagos debe ser mayor a cero.");
+      return;
+    }
+
     if (allocationSummary.overAssigned) {
       toast.error("El total asignado supera el monto del pago.");
       return;
@@ -1349,7 +1798,7 @@ export default function OperatorPaymentForm({
         operatorId != null
           ? Number(operatorId)
           : operatorIdFromSelection ?? null;
-      const cur = currency?.toUpperCase() || "";
+      const cur = paymentCurrency.toUpperCase();
       const ok = await precheckExcessCreditAccount(opId, cur || null);
       if (!ok) return;
     }
@@ -1369,7 +1818,7 @@ export default function OperatorPaymentForm({
           break;
         default: // "idle" | "missing" | "error"
           toast.error(
-            `Necesitás una cuenta de crédito del Operador en ${currency} para registrar este pago.`,
+            `Necesitás una cuenta de crédito del Operador en ${paymentCurrency} para registrar este pago.`,
           );
           setLoading(false);
           return;
@@ -1390,31 +1839,27 @@ export default function OperatorPaymentForm({
         category,
         description: desc,
         amount: amountNum,
-        currency: currency.toUpperCase(),
+        currency: paymentCurrency.toUpperCase(),
         operator_id: Number(operatorId),
         paid_at: paidAt || undefined,
         booking_id: booking.id_booking,
         allocations: allocationSummary.allocations,
         excess_action: excessAction,
         excess_missing_account_action: excessMissingAccountAction,
-        payment_method: payingWithCredit ? CREDIT_METHOD : paymentMethod,
-        account: payingWithCredit
-          ? undefined
-          : requiresAccount
-            ? account
-            : undefined,
+        payment_method: normalizedPaymentsPayload[0]?.payment_method,
+        account: normalizedPaymentsPayload[0]?.account,
+        payment_fee_amount: paymentsFeeTotalNum > 0 ? paymentsFeeTotalNum : undefined,
+        payments: normalizedPaymentsPayload,
       };
 
-      if (useConversion) {
-        const bAmt = Number(baseAmount);
-        const cAmt = Number(counterAmount);
-        payload.base_amount =
-          Number.isFinite(bAmt) && bAmt > 0 ? bAmt : undefined;
+      if (showConversionSection && hasConversionData) {
+        const bAmt = parseAmountInput(baseAmount) ?? 0;
+        const cAmt = parseAmountInput(counterAmount) ?? 0;
+        payload.base_amount = bAmt > 0 ? bAmt : undefined;
         payload.base_currency = baseCurrency
           ? baseCurrency.toUpperCase()
           : undefined;
-        payload.counter_amount =
-          Number.isFinite(cAmt) && cAmt > 0 ? cAmt : undefined;
+        payload.counter_amount = cAmt > 0 ? cAmt : undefined;
         payload.counter_currency = counterCurrency
           ? counterCurrency.toUpperCase()
           : undefined;
@@ -1442,14 +1887,22 @@ export default function OperatorPaymentForm({
 
       // Reset corto
       setSelectedIds([]);
-      setAmount("");
-      setCurrency(lockedSvcCurrency || "");
       setOperatorId("");
       setPaidAt("");
       setDescription("");
-      setPaymentMethod("");
-      setAccount("");
-      setUseConversion(false);
+      setPaymentLines([
+        {
+          key: uid(),
+          amount: "",
+          payment_method: "",
+          account: "",
+          payment_currency: normalizeCurrencyCodeLoose(
+            lockedSvcCurrency || currencyOptions[0] || "ARS",
+          ),
+          fee_mode: "NONE",
+          fee_value: "",
+        },
+      ]);
       setBaseAmount("");
       setBaseCurrency("");
       setCounterAmount("");
@@ -1913,156 +2366,301 @@ export default function OperatorPaymentForm({
                 </Section>
               )}
 
-              {/* IMPORTE / MONEDA */}
               {action === "create" && (
                 <Section
-                  title="Importe y moneda"
-                  desc="Cuánto le pagás al operador y en qué divisa."
+                  title="Pagos"
+                  desc="Por línea definí importe, método, cuenta, moneda y costo financiero."
                 >
-                  <Field id="amount" label="Monto" required>
-                    <input
-                      id="amount"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      inputMode="decimal"
-                      className={inputBase}
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      placeholder="0.00"
-                      required
-                    />
-                    {previewAmount && (
-                      <p className="ml-1 mt-1 text-xs opacity-80">
-                        {previewAmount}
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs md:col-span-2">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span>
+                        <b>Total cobrado:</b>{" "}
+                        {previewAmount || formatMoney(0, effectivePaymentCurrency)}
+                      </span>
+                      <span>
+                        <b>Costo financiero:</b>{" "}
+                        {formatMoney(paymentsFeeTotalNum, effectivePaymentCurrency)}
+                      </span>
+                    </div>
+                    {hasMixedPaymentCurrencies && (
+                      <p className="mt-2 text-amber-300">
+                        Todas las líneas de pago deben tener la misma moneda.
                       </p>
                     )}
-                    {selectedServices.length > 0 && allSameCurrency && (
+                  </div>
+
+                  <div className="space-y-3 md:col-span-2">
+                    {paymentLines.map((line, idx) => {
+                      const requiresAccountLine = !!requiresAccountMap.get(
+                        norm(line.payment_method),
+                      );
+                      const filteredLineAccounts = getFilteredAccountsForCurrency(
+                        line.payment_currency || effectivePaymentCurrency,
+                      );
+                      const lineFee = paymentLineFeeByKey[line.key] || 0;
+                      return (
+                        <div
+                          key={line.key}
+                          className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                        >
+                          <div className="mb-3 flex items-center justify-between">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-950/70 dark:text-white/70">
+                              Pago #{idx + 1}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => removePaymentLine(line.key)}
+                              className="rounded-full border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
+                              title="Quitar línea"
+                            >
+                              Quitar
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
+                            <div className="md:col-span-4">
+                              <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-sky-950/75 dark:text-white/75">
+                                Importe
+                              </label>
+                              <input
+                                inputMode="decimal"
+                                value={line.amount}
+                                onChange={(e) =>
+                                  setPaymentLineAmount(
+                                    line.key,
+                                    formatMoneyInput(
+                                      e.target.value,
+                                      line.payment_currency || effectivePaymentCurrency,
+                                      {
+                                        preferDotDecimal: shouldPreferDotDecimal(e),
+                                      },
+                                    ),
+                                  )
+                                }
+                                placeholder={formatMoney(
+                                  0,
+                                  line.payment_currency || effectivePaymentCurrency,
+                                )}
+                                className={inputBase}
+                              />
+                            </div>
+
+                            <div className="md:col-span-4">
+                              <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-sky-950/75 dark:text-white/75">
+                                Método
+                              </label>
+                              {loadingPicks ? (
+                                <div className="flex h-[42px] items-center">
+                                  <Spinner />
+                                </div>
+                              ) : (
+                                <select
+                                  value={line.payment_method}
+                                  onChange={(e) =>
+                                    setPaymentLineMethod(line.key, e.target.value)
+                                  }
+                                  className={`${inputBase} cursor-pointer appearance-none`}
+                                  disabled={uiPaymentMethodOptions.length === 0}
+                                >
+                                  <option value="">
+                                    {uiPaymentMethodOptions.length
+                                      ? "Seleccionar método"
+                                      : "Sin métodos habilitados"}
+                                  </option>
+                                  {uiPaymentMethodOptions.map((opt) => (
+                                    <option key={`${line.key}-${opt}`} value={opt}>
+                                      {opt}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+
+                            <div className="md:col-span-4">
+                              {line.payment_method === CREDIT_METHOD ? (
+                                <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-sky-950/80 dark:text-white/80">
+                                  Impacta en cuenta corriente del operador.
+                                </div>
+                              ) : requiresAccountLine ? (
+                                <>
+                                  <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-sky-950/75 dark:text-white/75">
+                                    Cuenta
+                                  </label>
+                                  <select
+                                    value={line.account}
+                                    onChange={(e) =>
+                                      setPaymentLineAccount(line.key, e.target.value)
+                                    }
+                                    className={`${inputBase} cursor-pointer appearance-none`}
+                                    disabled={accounts.length === 0}
+                                  >
+                                    <option value="">
+                                      {filteredLineAccounts.length || accounts.length
+                                        ? "Seleccionar cuenta"
+                                        : "Sin cuentas habilitadas"}
+                                    </option>
+                                    {(filteredLineAccounts.length
+                                      ? filteredLineAccounts
+                                      : accounts
+                                    ).map((a) => {
+                                      const label = a.display_name || a.name;
+                                      return (
+                                        <option
+                                          key={`${line.key}-${a.id_account}`}
+                                          value={label}
+                                        >
+                                          {label}
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                  {line.account && (
+                                    <p className="ml-1 mt-1 text-xs opacity-70">
+                                      Moneda detectada:{" "}
+                                      <b>{guessAccountCurrency(line.account) || "—"}</b>
+                                    </p>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="text-sm text-sky-950/70 dark:text-white/70 md:pt-7">
+                                  (No requiere cuenta)
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
+                            <div className="md:col-span-4">
+                              <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-sky-950/75 dark:text-white/75">
+                                Moneda del cobro
+                              </label>
+                              {loadingPicks ? (
+                                <div className="flex h-[42px] items-center">
+                                  <Spinner />
+                                </div>
+                              ) : (
+                                <select
+                                  value={line.payment_currency}
+                                  onChange={(e) =>
+                                    setPaymentLineCurrency(line.key, e.target.value)
+                                  }
+                                  className={`${inputBase} cursor-pointer appearance-none`}
+                                  disabled={currencyOptions.length === 0}
+                                >
+                                  <option value="">
+                                    {currencyOptions.length
+                                      ? "Moneda"
+                                      : "Sin monedas habilitadas"}
+                                  </option>
+                                  {currencyOptions.map((code) => (
+                                    <option key={`${line.key}-cur-${code}`} value={code}>
+                                      {currencyDict[code]
+                                        ? `${code} - ${currencyDict[code]}`
+                                        : code}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+
+                            <div className="md:col-span-4">
+                              <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-sky-950/75 dark:text-white/75">
+                                Costo financiero
+                              </label>
+                              <select
+                                value={line.fee_mode}
+                                onChange={(e) =>
+                                  setPaymentLineFeeMode(
+                                    line.key,
+                                    e.target.value as PaymentLineDraft["fee_mode"],
+                                  )
+                                }
+                                className={`${inputBase} cursor-pointer appearance-none`}
+                              >
+                                <option value="NONE">Sin costo</option>
+                                <option value="PERCENT">Porcentaje (%)</option>
+                                <option value="FIXED">Monto fijo</option>
+                              </select>
+                            </div>
+
+                            <div className="md:col-span-4">
+                              <label className="ml-1 block text-xs font-semibold uppercase tracking-wide text-sky-950/75 dark:text-white/75">
+                                Valor del costo
+                              </label>
+                              <input
+                                inputMode="decimal"
+                                value={line.fee_value}
+                                onChange={(e) => {
+                                  const next =
+                                    line.fee_mode === "FIXED"
+                                      ? formatMoneyInput(
+                                          e.target.value,
+                                          line.payment_currency ||
+                                            effectivePaymentCurrency,
+                                          {
+                                            preferDotDecimal:
+                                              shouldPreferDotDecimal(e),
+                                          },
+                                        )
+                                      : e.target.value;
+                                  setPaymentLineFeeValue(line.key, next);
+                                }}
+                                placeholder={
+                                  line.fee_mode === "PERCENT"
+                                    ? "Ej: 5"
+                                    : formatMoney(
+                                        0,
+                                        line.payment_currency ||
+                                          effectivePaymentCurrency,
+                                      )
+                                }
+                                disabled={line.fee_mode === "NONE"}
+                                className={inputBase}
+                              />
+                            </div>
+
+                            <div className="md:col-span-12">
+                              <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
+                                Impacta:{" "}
+                                {formatMoney(
+                                  lineFee,
+                                  line.payment_currency || effectivePaymentCurrency,
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    <div className="flex flex-wrap items-center gap-3">
                       <button
                         type="button"
-                        onClick={useSuggested}
-                        className="mt-2 text-xs underline underline-offset-2"
+                        onClick={addPaymentLine}
+                        className="rounded-full border border-white/20 px-4 py-2 text-xs hover:bg-white/10"
                       >
-                        Usar suma de costos:{" "}
-                        {formatMoney(
-                          suggestedAmount,
-                          (
-                            lockedSvcCurrency ||
-                            currency ||
-                            "ARS"
-                          ).toUpperCase(),
-                        )}
+                        + Agregar línea
                       </button>
-                    )}
-                  </Field>
 
-                  <Field id="currency" label="Moneda" required>
-                    {loadingPicks ? (
-                      <div className="flex h-[42px] items-center">
-                        <Spinner />
-                      </div>
-                    ) : (
-                      <select
-                        id="currency"
-                        value={currency}
-                        onChange={(e) => setCurrency(e.target.value)}
-                        className={`${inputBase} cursor-pointer appearance-none`}
-                        required
-                        disabled={currencyOptions.length === 0}
-                      >
-                        <option value="" disabled>
-                          {currencyOptions.length
-                            ? "Seleccionar moneda"
-                            : "Sin monedas habilitadas"}
-                        </option>
-                        {currencyOptions.map((code) => (
-                          <option key={code} value={code}>
-                            {currencyDict[code]
-                              ? `${code} — ${currencyDict[code]}`
-                              : code}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </Field>
-                </Section>
-              )}
-
-              {/* MÉTODO / CUENTA */}
-              {action === "create" && (
-                <Section
-                  title="Forma de pago"
-                  desc="Elegí método y, si corresponde, la cuenta."
-                >
-                  <Field
-                    id="payment_method"
-                    label="Método de pago"
-                    required
-                  >
-                    {loadingPicks ? (
-                      <div className="flex h-[42px] items-center">
-                        <Spinner />
-                      </div>
-                    ) : (
-                      <select
-                        id="payment_method"
-                        value={paymentMethod}
-                        onChange={(e) => setPaymentMethod(e.target.value)}
-                        className={`${inputBase} cursor-pointer appearance-none`}
-                        required
-                        disabled={uiPaymentMethodOptions.length === 0}
-                      >
-                        <option value="" disabled>
-                          {uiPaymentMethodOptions.length
-                            ? "Seleccionar método"
-                            : "Sin métodos habilitados"}
-                        </option>
-                        {uiPaymentMethodOptions.map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </Field>
-
-                  {requiresAccount ? (
-                    <Field id="account" label="Cuenta" required>
-                      <select
-                        id="account"
-                        value={account}
-                        onChange={(e) => setAccount(e.target.value)}
-                        className={`${inputBase} cursor-pointer appearance-none`}
-                        required
-                        disabled={accounts.length === 0}
-                      >
-                        <option value="" disabled>
-                          {filteredAccounts.length || accounts.length
-                            ? "Seleccionar cuenta"
-                            : "Sin cuentas habilitadas"}
-                        </option>
-                        {(filteredAccounts.length
-                          ? filteredAccounts
-                          : accounts
-                        ).map((a) => {
-                          const label = a.display_name || a.name;
-                          return (
-                            <option key={a.id_account} value={label}>
-                              {label}
-                            </option>
-                          );
-                        })}
-                      </select>
-                      {account && (
-                        <p className="ml-1 mt-1 text-xs opacity-70">
-                          Moneda detectada:{" "}
-                          <b>{guessAccountCurrency(account) || "—"}</b>
-                        </p>
+                      {selectedServices.length > 0 && allSameCurrency && (
+                        <button
+                          type="button"
+                          onClick={useSuggested}
+                          className="text-xs underline underline-offset-2"
+                        >
+                          Usar suma de costos:{" "}
+                          {formatMoney(
+                            suggestedAmount,
+                            (
+                              lockedSvcCurrency ||
+                              effectivePaymentCurrency ||
+                              "ARS"
+                            ).toUpperCase(),
+                          )}
+                        </button>
                       )}
-                    </Field>
-                  ) : (
-                    <div />
-                  )}
+                    </div>
+                  </div>
                 </Section>
               )}
 
@@ -2130,32 +2728,42 @@ export default function OperatorPaymentForm({
                 )}
 
               {/* CONVERSIÓN */}
-              {action === "create" && (
+              {action === "create" && showConversionSection && (
                 <Section
                   title="Conversión (opcional)"
-                  desc="Registra valor/contravalor (sin tipo de cambio) si el acuerdo está en otra divisa."
+                  desc="Visible porque la moneda del cobro difiere de la moneda de los servicios."
                 >
                   <Field id="base" label="Valor base">
                     <div className="flex gap-2">
                       <input
-                        type="number"
-                        step="0.01"
-                        min="0"
                         inputMode="decimal"
                         className={inputBase}
-                        placeholder="0.00"
+                        placeholder={formatMoney(
+                          0,
+                          baseCurrency || selectedCurrencies[0] || "ARS",
+                        )}
                         value={baseAmount}
-                        onChange={(e) => {
-                          setUseConversion(true);
-                          setBaseAmount(e.target.value);
-                        }}
+                        onChange={(e) =>
+                          setBaseAmount(
+                            formatMoneyInput(
+                              e.target.value,
+                              baseCurrency || selectedCurrencies[0] || "ARS",
+                              { preferDotDecimal: shouldPreferDotDecimal(e) },
+                            ),
+                          )
+                        }
                       />
                       <select
                         className={`${inputBase} cursor-pointer appearance-none`}
                         value={baseCurrency}
                         onChange={(e) => {
-                          setUseConversion(true);
-                          setBaseCurrency(e.target.value);
+                          const nextCurrency = e.target.value;
+                          setBaseCurrency(nextCurrency);
+                          if (baseAmount) {
+                            setBaseAmount(
+                              formatMoneyInput(baseAmount, nextCurrency),
+                            );
+                          }
                         }}
                         disabled={currencyOptions.length === 0}
                       >
@@ -2169,7 +2777,7 @@ export default function OperatorPaymentForm({
                         ))}
                       </select>
                     </div>
-                    {useConversion && previewBase && (
+                    {previewBase && (
                       <div className="ml-1 mt-1 text-xs opacity-70">
                         {previewBase}
                       </div>
@@ -2179,24 +2787,34 @@ export default function OperatorPaymentForm({
                   <Field id="counter" label="Contravalor">
                     <div className="flex gap-2">
                       <input
-                        type="number"
-                        step="0.01"
-                        min="0"
                         inputMode="decimal"
                         className={inputBase}
-                        placeholder="0.00"
+                        placeholder={formatMoney(
+                          0,
+                          counterCurrency || effectivePaymentCurrency || "ARS",
+                        )}
                         value={counterAmount}
-                        onChange={(e) => {
-                          setUseConversion(true);
-                          setCounterAmount(e.target.value);
-                        }}
+                        onChange={(e) =>
+                          setCounterAmount(
+                            formatMoneyInput(
+                              e.target.value,
+                              counterCurrency || effectivePaymentCurrency,
+                              { preferDotDecimal: shouldPreferDotDecimal(e) },
+                            ),
+                          )
+                        }
                       />
                       <select
                         className={`${inputBase} cursor-pointer appearance-none`}
                         value={counterCurrency}
                         onChange={(e) => {
-                          setUseConversion(true);
-                          setCounterCurrency(e.target.value);
+                          const nextCurrency = e.target.value;
+                          setCounterCurrency(nextCurrency);
+                          if (counterAmount) {
+                            setCounterAmount(
+                              formatMoneyInput(counterAmount, nextCurrency),
+                            );
+                          }
                         }}
                         disabled={currencyOptions.length === 0}
                       >
@@ -2210,7 +2828,7 @@ export default function OperatorPaymentForm({
                         ))}
                       </select>
                     </div>
-                    {useConversion && previewCounter && (
+                    {previewCounter && (
                       <div className="ml-1 mt-1 text-xs opacity-70">
                         {previewCounter}
                       </div>

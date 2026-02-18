@@ -27,6 +27,10 @@ type PdfPaymentRaw = {
   amount: number;
   payment_method_id: number | null;
   account_id: number | null;
+  payment_currency?: string | null;
+  fee_mode?: "FIXED" | "PERCENT" | null;
+  fee_value?: number | null;
+  fee_amount?: number | null;
   payment_method_text?: string;
   account_text?: string;
 };
@@ -151,6 +155,25 @@ const toNum = (v: unknown, fallback = 0): number => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const normalizeCurrency = (value: unknown): string => {
+  const code = String(value ?? "").trim().toUpperCase();
+  if (!code) return "ARS";
+  if (["US$", "U$S", "U$D", "DOL"].includes(code)) return "USD";
+  if (["$", "AR$"].includes(code)) return "ARS";
+  return code;
+};
+
+const normalizeFeeMode = (
+  value: unknown,
+): "FIXED" | "PERCENT" | null => {
+  if (typeof value !== "string") return null;
+  const mode = value.trim().toUpperCase();
+  if (mode === "FIXED" || mode === "PERCENT") return mode;
+  return null;
+};
+
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
 function normalizePayments(receipt: ReceiptWithRelations): PdfPaymentRaw[] {
   const rel = Array.isArray(receipt.payments) ? receipt.payments : [];
 
@@ -166,6 +189,23 @@ function normalizePayments(receipt: ReceiptWithRelations): PdfPaymentRaw[] {
         Number.isFinite(Number(p.account_id)) && Number(p.account_id) > 0
           ? Number(p.account_id)
           : null,
+      payment_currency: normalizeCurrency(
+        (p as unknown as { payment_currency?: unknown }).payment_currency ??
+          receipt.amount_currency,
+      ),
+      fee_mode: normalizeFeeMode(
+        (p as unknown as { fee_mode?: unknown }).fee_mode,
+      ),
+      fee_value: Number.isFinite(
+        toNum((p as unknown as { fee_value?: unknown }).fee_value, NaN),
+      )
+        ? toNum((p as unknown as { fee_value?: unknown }).fee_value, 0)
+        : null,
+      fee_amount: Number.isFinite(
+        toNum((p as unknown as { fee_amount?: unknown }).fee_amount, NaN),
+      )
+        ? toNum((p as unknown as { fee_amount?: unknown }).fee_amount, 0)
+        : null,
     }));
   }
 
@@ -209,6 +249,7 @@ function normalizePayments(receipt: ReceiptWithRelations): PdfPaymentRaw[] {
         amount: amt,
         payment_method_id: pmId,
         account_id: accId,
+        payment_currency: normalizeCurrency(receipt.amount_currency),
         ...(pmText ? { payment_method_text: pmText } : {}),
         ...(accText ? { account_text: accText } : {}),
       },
@@ -455,6 +496,10 @@ export default async function handler(
     amount: p.amount,
     payment_method_id: p.payment_method_id,
     account_id: p.account_id,
+    payment_currency: p.payment_currency ?? receipt.amount_currency,
+    fee_mode: p.fee_mode ?? null,
+    fee_value: p.fee_value ?? null,
+    fee_amount: p.fee_amount ?? null,
     paymentMethodName:
       (p.payment_method_id
         ? methodNameById.get(p.payment_method_id)
@@ -466,6 +511,12 @@ export default async function handler(
       p.account_text ??
       undefined,
   }));
+  const paymentFeeAmountTotal =
+    receiptTyped.payment_fee_amount != null
+      ? toNum(receiptTyped.payment_fee_amount, 0)
+      : round2(
+          payments.reduce((acc, p) => acc + (toNum(p.fee_amount, 0) || 0), 0),
+        );
 
   // 6) Armar datos para el PDF
   const ag = (receiptTyped.booking?.agency ?? receiptTyped.agency) as
@@ -517,9 +568,7 @@ export default async function handler(
         : null,
     counter_currency: receiptTyped.counter_currency ?? null,
 
-    paymentFeeAmount: receiptTyped.payment_fee_amount
-      ? toNum(receiptTyped.payment_fee_amount, 0)
-      : 0,
+    paymentFeeAmount: paymentFeeAmountTotal,
 
     payments,
 
@@ -571,9 +620,7 @@ export default async function handler(
     amountString: receipt.amount_string,
     amountCurrency: receipt.amount_currency,
     paymentDescription: receipt.currency || receipt.amount_currency,
-    paymentFeeAmount: receiptTyped.payment_fee_amount
-      ? toNum(receiptTyped.payment_fee_amount, 0)
-      : 0,
+    paymentFeeAmount: paymentFeeAmountTotal,
     payments,
     base_amount:
       receiptTyped.base_amount != null

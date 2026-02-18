@@ -17,6 +17,10 @@ export type ReceiptPdfPaymentLine = {
   amount: number;
   payment_method_id: number | null;
   account_id: number | null;
+  payment_currency?: string | null;
+  fee_mode?: "FIXED" | "PERCENT" | null;
+  fee_value?: number | null;
+  fee_amount?: number | null;
 
   // si se resolvió con lookup
   paymentMethodName?: string;
@@ -356,6 +360,15 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
     typeof paymentFeeAmount === "number" && Number.isFinite(paymentFeeAmount)
       ? paymentFeeAmount
       : 0;
+  const linesFeeTotal = safePayments.reduce(
+    (acc, p) =>
+      acc +
+      (typeof p.fee_amount === "number" && Number.isFinite(p.fee_amount)
+        ? p.fee_amount
+        : 0),
+    0,
+  );
+  const showLegacyGlobalFee = fee > 0 && linesFeeTotal <= 0.0001;
   const clientTotal = amount + fee;
   const hasBase = base_amount != null && !!base_currency;
   const hasCounter = counter_amount != null && !!counter_currency;
@@ -493,26 +506,41 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
               <Text style={styles.infoLabel}>Pagos</Text>
 
               {safePayments.length ? (
-                safePayments.map((p, idx) => (
-                  <View key={idx} style={styles.payLine}>
-                    <Text style={styles.payLeft}>
-                      {softWrapLongWords(paymentLabel(p), {
-                        maxWordLen: 18,
-                        chunkLen: 10,
-                        breakChar: " ",
-                      })}
-                    </Text>
-                    {showPaymentAmounts ? (
-                      <Text style={styles.payRight}>
-                        {safeFmtCurrency(p.amount, amount_currency)}
-                      </Text>
-                    ) : null}
-                  </View>
-                ))
+                safePayments.map((p, idx) => {
+                  const lineCurrency =
+                    (p.payment_currency || amount_currency || "ARS").toUpperCase();
+                  const lineFee =
+                    typeof p.fee_amount === "number" && Number.isFinite(p.fee_amount)
+                      ? p.fee_amount
+                      : 0;
+                  return (
+                    <View key={idx}>
+                      <View style={styles.payLine}>
+                        <Text style={styles.payLeft}>
+                          {softWrapLongWords(paymentLabel(p), {
+                            maxWordLen: 18,
+                            chunkLen: 10,
+                            breakChar: " ",
+                          })}
+                        </Text>
+                        {showPaymentAmounts ? (
+                          <Text style={styles.payRight}>
+                            {safeFmtCurrency(p.amount, lineCurrency)}
+                          </Text>
+                        ) : null}
+                      </View>
+                      {lineFee > 0 ? (
+                        <Text style={styles.payMeta}>
+                          Costo financiero: {safeFmtCurrency(lineFee, lineCurrency)}
+                        </Text>
+                      ) : null}
+                    </View>
+                  );
+                })
               ) : (
                 <Text style={styles.infoText}>-</Text>
               )}
-              {fee > 0 ? (
+              {showLegacyGlobalFee ? (
                 <Text style={styles.payMeta}>
                   Costo financiero: {safeFmtCurrency(fee, amount_currency)}
                 </Text>

@@ -43,10 +43,16 @@ type DecodedUser = {
 };
 
 // Línea de pago (NUEVO, con IDs)
+type ReceiptFeeMode = "FIXED" | "PERCENT";
+
 export type ReceiptPaymentLine = {
   amount: number | string;
   payment_method_id: number;
   account_id?: number;
+  payment_currency?: string;
+  fee_mode?: ReceiptFeeMode | null;
+  fee_value?: number | string | null;
+  fee_amount?: number | string | null;
 
   // ✅ nuevo (no se persiste en ReceiptPayment, se usa para el FE)
   operator_id?: number;
@@ -57,6 +63,10 @@ export type ReceiptPaymentOut = {
   amount: number;
   payment_method_id: number | null;
   account_id: number | null;
+  payment_currency?: string | null;
+  fee_mode?: ReceiptFeeMode | null;
+  fee_value?: number | null;
+  fee_amount?: number | null;
 
   // extras legacy para UI/PDF si existían como texto
   payment_method_text?: string;
@@ -67,6 +77,10 @@ type ReceiptPaymentLineIn = {
   amount: unknown;
   payment_method_id: unknown;
   account_id?: unknown;
+  payment_currency?: unknown;
+  fee_mode?: unknown;
+  fee_value?: unknown;
+  fee_amount?: unknown;
   operator_id?: unknown;
 };
 
@@ -74,6 +88,10 @@ type ReceiptPaymentLineNormalized = {
   amount: number;
   payment_method_id: number;
   account_id?: number;
+  payment_currency: string;
+  fee_mode?: ReceiptFeeMode;
+  fee_value?: number;
+  fee_amount?: number;
   operator_id?: number;
 };
 
@@ -85,7 +103,7 @@ type ReceiptPostBody = {
   concept: string;
   currency?: string; // Texto libre (para PDF / legacy)
   amountString: string; // "UN MILLÓN..."
-  amountCurrency: string; // ISO del amount/amountString (ARS | USD | ...)
+  amountCurrency?: string; // ISO del amount/amountString (ARS | USD | ...)
   amount: number | string;
   issue_date?: string;
 
@@ -237,6 +255,10 @@ const toOptionalId = (v: unknown): number | undefined => {
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const DEBT_TOLERANCE = 0.01;
+const VALID_RECEIPT_FEE_MODES = new Set<ReceiptFeeMode>([
+  "FIXED",
+  "PERCENT",
+]);
 
 const normalizeCurrency = (value: unknown): string => {
   const code = String(value ?? "").trim().toUpperCase();
@@ -244,6 +266,53 @@ const normalizeCurrency = (value: unknown): string => {
   if (["US$", "U$S", "U$D", "DOL"].includes(code)) return "USD";
   if (["$", "AR$"].includes(code)) return "ARS";
   return code;
+};
+
+const normalizeReceiptFeeMode = (value: unknown): ReceiptFeeMode | null => {
+  if (typeof value !== "string") return null;
+  const mode = value.trim().toUpperCase() as ReceiptFeeMode;
+  return VALID_RECEIPT_FEE_MODES.has(mode) ? mode : null;
+};
+
+const normalizeReceiptPaymentFee = (line: {
+  amount: number;
+  fee_mode?: ReceiptFeeMode | null;
+  fee_value?: number;
+  fee_amount?: number;
+}) => {
+  const mode = line.fee_mode ?? null;
+  const value = Number.isFinite(line.fee_value ?? NaN)
+    ? Number(line.fee_value)
+    : undefined;
+  const explicitAmount = Number.isFinite(line.fee_amount ?? NaN)
+    ? Number(line.fee_amount)
+    : undefined;
+
+  if (!mode) {
+    const amount = explicitAmount != null ? Math.max(0, explicitAmount) : 0;
+    return {
+      fee_mode: undefined,
+      fee_value: undefined,
+      fee_amount: round2(amount),
+    };
+  }
+
+  if (mode === "PERCENT") {
+    const pct = value != null ? Math.max(0, value) : 0;
+    const amount = round2((line.amount * pct) / 100);
+    return {
+      fee_mode: "PERCENT" as const,
+      fee_value: round2(pct),
+      fee_amount: amount,
+    };
+  }
+
+  const fixed = value != null ? Math.max(0, value) : 0;
+  return {
+    fee_mode: "FIXED" as const,
+    fee_value: round2(fixed),
+    fee_amount: round2(fixed),
+  };
 };
 
 const normalizeIdList = (value: unknown): number[] => {
@@ -294,7 +363,6 @@ function buildSelectedServiceSalesByCurrency(args: {
 
   if (args.bookingSaleMode) {
     const saleTotalsByCurrencyFromServices: Record<string, number> = {};
-    const servicesByCurrency: Record<string, ServiceDebtInput[]> = {};
 
     for (const svc of args.services) {
       const code = normalizeCurrency(svc.currency || "ARS");
@@ -302,7 +370,6 @@ function buildSelectedServiceSalesByCurrency(args: {
       saleTotalsByCurrencyFromServices[code] = round2(
         (saleTotalsByCurrencyFromServices[code] || 0) + sale,
       );
-      servicesByCurrency[code] = [...(servicesByCurrency[code] || []), svc];
     }
 
     const saleTotalsByCurrency =
@@ -313,19 +380,7 @@ function buildSelectedServiceSalesByCurrency(args: {
     for (const [code, totalRaw] of Object.entries(saleTotalsByCurrency)) {
       const total = Math.max(0, toNum(totalRaw));
       if (total <= 0) continue;
-
-      const inCurrency = servicesByCurrency[code] || [];
-      if (inCurrency.length === 0) continue;
-
-      const weights = inCurrency.map((svc) => Math.max(0, toNum(svc.sale_price)));
-      const weightSum = weights.reduce((sum, value) => sum + value, 0);
-
-      inCurrency.forEach((svc, idx) => {
-        if (!selectedSet.has(svc.id_service)) return;
-        const share =
-          weightSum > 0 ? (total * weights[idx]) / weightSum : total / inCurrency.length;
-        add(code, share);
-      });
+      add(code, total);
     }
 
     return out;
@@ -399,10 +454,19 @@ function normalizePaymentsFromReceipt(r: unknown): ReceiptPaymentOut[] {
       const pay = (p ?? {}) as Record<string, unknown>;
       const pm = Number(pay.payment_method_id);
       const acc = Number(pay.account_id);
+      const feeValueRaw = toNum(pay.fee_value);
+      const feeAmountRaw = toNum(pay.fee_amount);
+      const feeMode = normalizeReceiptFeeMode(pay.fee_mode);
       return {
         amount: Number(pay.amount ?? 0),
         payment_method_id: Number.isFinite(pm) && pm > 0 ? pm : null,
         account_id: Number.isFinite(acc) && acc > 0 ? acc : null,
+        payment_currency: normalizeCurrency(
+          pay.payment_currency ?? obj.amount_currency ?? "ARS",
+        ),
+        fee_mode: feeMode,
+        fee_value: Number.isFinite(feeValueRaw) ? feeValueRaw : null,
+        fee_amount: Number.isFinite(feeAmountRaw) ? feeAmountRaw : null,
       };
     });
   }
@@ -423,6 +487,7 @@ function normalizePaymentsFromReceipt(r: unknown): ReceiptPaymentOut[] {
         amount: amt,
         payment_method_id: pmId,
         account_id: accId,
+        payment_currency: normalizeCurrency(obj.amount_currency ?? "ARS"),
         ...(pmText ? { payment_method_text: pmText } : {}),
         ...(accText ? { account_text: accText } : {}),
       },
@@ -884,6 +949,10 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
             amount: true,
             payment_method_id: true,
             account_id: true,
+            payment_currency: true,
+            fee_mode: true,
+            fee_value: true,
+            fee_amount: true,
           },
         },
 
@@ -1022,7 +1091,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     counter_currency,
   } = rawBody as ReceiptPostBody;
 
-  const amountCurrencyISO = (amountCurrency || "").toUpperCase();
+  let amountCurrencyISO = normalizeCurrency(amountCurrency || "");
   const baseCurrencyISO = base_currency
     ? base_currency.toUpperCase()
     : undefined;
@@ -1041,7 +1110,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   if (!isNonEmptyString(amountString)) {
     return res.status(400).json({ error: "amountString es requerido" });
   }
-  if (!isNonEmptyString(amountCurrencyISO)) {
+  if (!isNonEmptyString(amountCurrencyISO) && !(Array.isArray(payments) && payments.length > 0)) {
     return res.status(400).json({ error: "amountCurrency es requerido (ISO)" });
   }
 
@@ -1054,21 +1123,44 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const hasPayments = Array.isArray(payments) && payments.length > 0;
 
   let normalizedPayments: ReceiptPaymentLineNormalized[] = [];
+  let paymentFeeAmountNum = Number.isFinite(toNum(payment_fee_amount))
+    ? Math.max(0, toNum(payment_fee_amount))
+    : 0;
 
   if (Array.isArray(payments) && payments.length > 0) {
-    normalizedPayments = payments.map((p) => ({
-      amount: toNum(p.amount),
-      payment_method_id: Number(p.payment_method_id),
-      account_id: toOptionalId(p.account_id),
-      operator_id: toOptionalId(p.operator_id),
-    }));
+    normalizedPayments = payments.map((p) => {
+      const amountValue = toNum(p.amount);
+      const feeMode = normalizeReceiptFeeMode(p.fee_mode);
+      const feeValueRaw = toNum(p.fee_value);
+      const feeAmountRaw = toNum(p.fee_amount);
+      const normalizedFee = normalizeReceiptPaymentFee({
+        amount: Number.isFinite(amountValue) ? amountValue : 0,
+        fee_mode: feeMode,
+        fee_value: Number.isFinite(feeValueRaw) ? feeValueRaw : undefined,
+        fee_amount: Number.isFinite(feeAmountRaw) ? feeAmountRaw : undefined,
+      });
+
+      return {
+        amount: amountValue,
+        payment_method_id: Number(p.payment_method_id),
+        account_id: toOptionalId(p.account_id),
+        payment_currency: normalizeCurrency(
+          p.payment_currency ?? amountCurrencyISO ?? "ARS",
+        ),
+        fee_mode: normalizedFee.fee_mode,
+        fee_value: normalizedFee.fee_value,
+        fee_amount: normalizedFee.fee_amount,
+        operator_id: toOptionalId(p.operator_id),
+      };
+    });
 
     const invalid = normalizedPayments.find(
       (p) =>
         !Number.isFinite(p.amount) ||
         p.amount <= 0 ||
         !Number.isFinite(p.payment_method_id) ||
-        p.payment_method_id <= 0,
+        p.payment_method_id <= 0 ||
+        !isNonEmptyString(p.payment_currency),
     );
 
     if (invalid) {
@@ -1077,6 +1169,24 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           "payments inválido: cada línea debe tener amount > 0 y payment_method_id válido",
       });
     }
+
+    const currenciesInPayments = Array.from(
+      new Set(
+        normalizedPayments
+          .map((p) => normalizeCurrency(p.payment_currency))
+          .filter(Boolean),
+      ),
+    );
+    if (currenciesInPayments.length !== 1) {
+      return res.status(400).json({
+        error:
+          "Todas las líneas de pago deben tener la misma moneda para este recibo.",
+      });
+    }
+    amountCurrencyISO = currenciesInPayments[0];
+    paymentFeeAmountNum = round2(
+      normalizedPayments.reduce((acc, p) => acc + (p.fee_amount || 0), 0),
+    );
   }
 
   // amount total
@@ -1168,6 +1278,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       for (const receipt of existingReceipts) {
         const receiptServiceIds = normalizeIdList(receipt.serviceIds);
         const appliesToSelection =
+          bookingSaleMode ||
           receiptServiceIds.length === 0 ||
           receiptServiceIds.some((id) => selectedServiceIdSet.has(id));
         if (!appliesToSelection) continue;
@@ -1191,7 +1302,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       );
       if (!hasPendingBalance) {
         return res.status(400).json({
-          error: "Los servicios seleccionados ya están saldados.",
+          error: bookingSaleMode
+            ? "La reserva ya está saldada."
+            : "Los servicios seleccionados ya están saldados.",
         });
       }
 
@@ -1199,7 +1312,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       addReceiptToPaidByCurrency(currentPaidByCurrency, {
         amount: amountNum,
         amount_currency: amountCurrencyISO,
-        payment_fee_amount: payment_fee_amount ?? null,
+        payment_fee_amount: paymentFeeAmountNum,
         base_amount: base_amount ?? null,
         base_currency: baseCurrencyISO ?? null,
       });
@@ -1295,9 +1408,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         ? { counter_amount: toDec(counter_amount) }
         : {}),
       ...(counterCurrencyISO ? { counter_currency: counterCurrencyISO } : {}),
-      ...(toDec(payment_fee_amount)
-        ? { payment_fee_amount: toDec(payment_fee_amount) }
-        : {}),
+      ...(toDec(paymentFeeAmountNum) ? { payment_fee_amount: toDec(paymentFeeAmountNum) } : {}),
 
       agency: { connect: { id_agency: authAgencyId } },
       ...(hasBooking
@@ -1326,6 +1437,16 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
             amount: new Prisma.Decimal(Number(p.amount)),
             payment_method_id: Number(p.payment_method_id),
             account_id: p.account_id ? Number(p.account_id) : null,
+            payment_currency: normalizeCurrency(p.payment_currency || amountCurrencyISO),
+            fee_mode: p.fee_mode ?? null,
+            fee_value:
+              p.fee_value != null
+                ? new Prisma.Decimal(Number(p.fee_value))
+                : null,
+            fee_amount:
+              p.fee_amount != null
+                ? new Prisma.Decimal(Number(p.fee_amount))
+                : null,
           })),
         });
       } else {

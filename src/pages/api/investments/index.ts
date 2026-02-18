@@ -229,6 +229,184 @@ function parseServiceIds(raw: unknown): number[] {
 }
 
 const ASSIGNMENT_TOLERANCE = 0.01;
+const INVESTMENT_FEE_MODES = new Set(["FIXED", "PERCENT"] as const);
+
+const INVESTMENT_PAYMENT_LINE_SELECT = {
+  id_investment_payment: true,
+  amount: true,
+  payment_method: true,
+  account: true,
+  payment_currency: true,
+  fee_mode: true,
+  fee_value: true,
+  fee_amount: true,
+} satisfies Prisma.InvestmentPaymentSelect;
+
+type InvestmentSchemaFlags = {
+  hasPaymentFeeAmount: boolean;
+  hasPaymentLines: boolean;
+};
+
+async function getInvestmentSchemaFlags(): Promise<InvestmentSchemaFlags> {
+  const [hasPaymentFeeAmount, hasPaymentLines] = await Promise.all([
+    hasSchemaColumn("Investment", "payment_fee_amount"),
+    hasSchemaColumn("InvestmentPayment", "id_investment_payment"),
+  ]);
+  return { hasPaymentFeeAmount, hasPaymentLines };
+}
+
+function buildInvestmentListSelect(
+  flags: InvestmentSchemaFlags,
+): Prisma.InvestmentSelect {
+  return {
+    id_investment: true,
+    agency_investment_id: true,
+    id_agency: true,
+    category: true,
+    description: true,
+    amount: true,
+    currency: true,
+    created_at: true,
+    paid_at: true,
+    payment_method: true,
+    account: true,
+    ...(flags.hasPaymentFeeAmount ? { payment_fee_amount: true } : {}),
+    base_amount: true,
+    base_currency: true,
+    counter_amount: true,
+    counter_currency: true,
+    excess_action: true,
+    excess_missing_account_action: true,
+    operator_id: true,
+    user_id: true,
+    created_by: true,
+    booking_id: true,
+    serviceIds: true,
+    recurring_id: true,
+    user: true,
+    operator: true,
+    ...(flags.hasPaymentLines
+      ? { payments: { select: INVESTMENT_PAYMENT_LINE_SELECT } }
+      : {}),
+    createdBy: {
+      select: { id_user: true, first_name: true, last_name: true },
+    },
+    booking: { select: { id_booking: true, agency_booking_id: true } },
+  };
+}
+
+type InvestmentPaymentFeeMode = "FIXED" | "PERCENT";
+type InvestmentPaymentLineIn = {
+  amount?: unknown;
+  payment_method?: unknown;
+  account?: unknown;
+  payment_currency?: unknown;
+  fee_mode?: unknown;
+  fee_value?: unknown;
+  fee_amount?: unknown;
+};
+
+type InvestmentPaymentLineNormalized = {
+  amount: number;
+  payment_method: string;
+  account?: string;
+  payment_currency: string;
+  fee_mode?: InvestmentPaymentFeeMode;
+  fee_value?: number;
+  fee_amount: number;
+};
+
+const normalizePaymentCurrency = (value: unknown): string => {
+  const code = String(value ?? "").trim().toUpperCase();
+  if (!code) return "ARS";
+  if (["US$", "U$S", "U$D", "DOL"].includes(code)) return "USD";
+  if (["$", "AR$"].includes(code)) return "ARS";
+  return code;
+};
+
+const normalizeInvestmentFeeMode = (
+  value: unknown,
+): InvestmentPaymentFeeMode | null => {
+  if (typeof value !== "string") return null;
+  const mode = value.trim().toUpperCase() as InvestmentPaymentFeeMode;
+  return INVESTMENT_FEE_MODES.has(mode) ? mode : null;
+};
+
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+const normalizeInvestmentPaymentFee = (line: {
+  amount: number;
+  fee_mode?: InvestmentPaymentFeeMode | null;
+  fee_value?: number;
+  fee_amount?: number;
+}) => {
+  const mode = line.fee_mode ?? null;
+  const value = Number.isFinite(line.fee_value ?? NaN)
+    ? Number(line.fee_value)
+    : undefined;
+  const explicitAmount = Number.isFinite(line.fee_amount ?? NaN)
+    ? Number(line.fee_amount)
+    : undefined;
+
+  if (!mode) {
+    return round2(Math.max(0, explicitAmount ?? 0));
+  }
+  if (mode === "PERCENT") {
+    return round2(Math.max(0, line.amount) * (Math.max(0, value ?? 0) / 100));
+  }
+  return round2(Math.max(0, value ?? 0));
+};
+
+const normalizeInvestmentPayments = (
+  raw: unknown,
+  fallbackCurrency: string,
+): InvestmentPaymentLineNormalized[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: InvestmentPaymentLineNormalized[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as InvestmentPaymentLineIn;
+    const amount = Number(rec.amount);
+    const payment_method =
+      typeof rec.payment_method === "string"
+        ? rec.payment_method.trim()
+        : "";
+    if (!Number.isFinite(amount) || amount <= 0 || !payment_method) continue;
+
+    const account =
+      typeof rec.account === "string" && rec.account.trim()
+        ? rec.account.trim()
+        : undefined;
+    const payment_currency = normalizePaymentCurrency(
+      rec.payment_currency ?? fallbackCurrency,
+    );
+    const fee_mode = normalizeInvestmentFeeMode(rec.fee_mode);
+    const fee_value = Number(rec.fee_value);
+    const fee_amount_raw = Number(rec.fee_amount);
+    const fee_amount = normalizeInvestmentPaymentFee({
+      amount,
+      fee_mode,
+      fee_value: Number.isFinite(fee_value) ? fee_value : undefined,
+      fee_amount: Number.isFinite(fee_amount_raw) ? fee_amount_raw : undefined,
+    });
+
+    out.push({
+      amount,
+      payment_method,
+      account,
+      payment_currency,
+      fee_mode: fee_mode ?? undefined,
+      fee_value:
+        fee_mode != null
+          ? Number.isFinite(fee_value)
+            ? Math.max(0, fee_value)
+            : 0
+          : undefined,
+      fee_amount,
+    });
+  }
+  return out;
+};
 
 type AllocationInput = {
   service_id: number;
@@ -1002,40 +1180,48 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
-    const items = await prisma.investment.findMany({
+    const schemaFlags = await getInvestmentSchemaFlags();
+    const items = (await prisma.investment.findMany({
       where,
-      include: {
-        user: true,
-        operator: true,
-        createdBy: {
-          select: { id_user: true, first_name: true, last_name: true },
-        },
-        booking: { select: { id_booking: true, agency_booking_id: true } }, // 👈 devuelve la reserva asociada (si existe)
-      },
+      select: buildInvestmentListSelect(schemaFlags),
       orderBy: { id_investment: "desc" },
       take: take + 1,
       ...(cursor ? { cursor: { id_investment: cursor }, skip: 1 } : {}),
-    });
+    })) as Array<Record<string, unknown>>;
 
     const hasMore = items.length > take;
     const sliced = hasMore ? items.slice(0, take) : items;
-    const normalized = sliced.map((item) => ({
-      ...item,
-      booking: item.booking
-        ? {
-            ...item.booking,
-            public_id:
-              item.booking.agency_booking_id != null
-                ? encodePublicId({
-                    t: "booking",
-                    a: item.id_agency,
-                    i: item.booking.agency_booking_id,
-                  })
-                : null,
-          }
-        : null,
-    }));
-    const nextCursor = hasMore ? sliced[sliced.length - 1].id_investment : null;
+    const normalized = sliced.map((item) => {
+      const booking = item.booking as
+        | { id_booking: number; agency_booking_id?: number | null }
+        | null
+        | undefined;
+      const idAgency = Number(item.id_agency);
+
+      return {
+        ...item,
+        ...(schemaFlags.hasPaymentFeeAmount
+          ? {}
+          : { payment_fee_amount: null }),
+        ...(schemaFlags.hasPaymentLines ? {} : { payments: [] }),
+        booking: booking
+          ? {
+              ...booking,
+              public_id:
+                booking.agency_booking_id != null
+                  ? encodePublicId({
+                      t: "booking",
+                      a: idAgency,
+                      i: booking.agency_booking_id,
+                    })
+                  : null,
+            }
+          : null,
+      };
+    });
+    const nextCursor = hasMore
+      ? Number(sliced[sliced.length - 1].id_investment)
+      : null;
 
     let totalCount: number | undefined;
     let filteredCount: number | undefined;
@@ -1103,12 +1289,39 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (restrictToOperatorPayments && !canOperatorPayments) {
       return res.status(403).json({ error: "Plan insuficiente" });
     }
+    const schemaFlags = await getInvestmentSchemaFlags();
 
     const b = req.body ?? {};
     const category = String(b.category ?? "").trim(); // requerido
     const description = String(b.description ?? "").trim(); // requerido
-    const currency = String(b.currency ?? "").trim(); // requerido
-    const amount = Number(b.amount);
+    const currencyInput = String(b.currency ?? "").trim();
+    const payments = normalizeInvestmentPayments(
+      b.payments,
+      currencyInput || "ARS",
+    );
+    const hasPaymentsPayload = Array.isArray(b.payments);
+    if (hasPaymentsPayload && payments.length === 0) {
+      return res.status(400).json({
+        error:
+          "payments inválido: cada línea debe incluir amount > 0 y payment_method.",
+      });
+    }
+    const paymentCurrencies = Array.from(
+      new Set(payments.map((p) => p.payment_currency).filter(Boolean)),
+    );
+    if (paymentCurrencies.length > 1) {
+      return res.status(400).json({
+        error:
+          "Todas las líneas de pago deben tener la misma moneda para este pago.",
+      });
+    }
+
+    const currency = (
+      paymentCurrencies[0] || normalizePaymentCurrency(currencyInput)
+    ).toUpperCase();
+    const amount = payments.length
+      ? round2(payments.reduce((sum, p) => sum + p.amount, 0))
+      : Number(b.amount);
     if (!category || !description || !currency || !Number.isFinite(amount)) {
       return res.status(400).json({
         error: "category, description, currency y amount son obligatorios",
@@ -1155,11 +1368,32 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     // 👇 NUEVO: método de pago / cuenta (opcionales)
     const payment_method =
-      typeof b.payment_method === "string"
-        ? b.payment_method.trim()
-        : undefined;
+      payments.length > 0
+        ? payments[0].payment_method
+        : typeof b.payment_method === "string"
+          ? b.payment_method.trim()
+          : undefined;
     const account =
-      typeof b.account === "string" ? b.account.trim() : undefined;
+      payments.length > 0
+        ? payments[0].account
+        : typeof b.account === "string"
+          ? b.account.trim()
+          : undefined;
+    const payment_fee_amount_num = payments.length
+      ? round2(payments.reduce((sum, p) => sum + (p.fee_amount || 0), 0))
+      : Number.isFinite(Number(b.payment_fee_amount))
+        ? Math.max(0, Number(b.payment_fee_amount))
+        : undefined;
+    const payment_fee_amount = toDec(payment_fee_amount_num);
+    const creditAmountFromPayments = payments.length
+      ? round2(
+          payments
+            .filter((p) => p.payment_method === CREDIT_METHOD)
+            .reduce((sum, p) => sum + p.amount, 0),
+        )
+      : (payment_method || "") === CREDIT_METHOD
+        ? amount
+        : 0;
 
     // 👇 NUEVO: conversión (opcional, sin T.C. ni notas)
     const base_amount = toDec(b.base_amount);
@@ -1467,6 +1701,9 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           // 👇 NUEVO: guardar método de pago / cuenta si vienen
           ...(payment_method ? { payment_method } : {}),
           ...(account ? { account } : {}),
+          ...(schemaFlags.hasPaymentFeeAmount && payment_fee_amount
+            ? { payment_fee_amount }
+            : {}),
 
           // 👇 NUEVO: guardar conversión si vienen
           ...(base_amount ? { base_amount } : {}),
@@ -1474,13 +1711,26 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           ...(counter_amount ? { counter_amount } : {}),
           ...(counter_currency ? { counter_currency } : {}),
         },
-        include: {
-          user: true,
-          operator: true,
-          createdBy: true,
-          booking: { select: { id_booking: true } },
-        },
+        select: buildInvestmentListSelect(schemaFlags),
       });
+
+      if (schemaFlags.hasPaymentLines && payments.length > 0) {
+        await tx.investmentPayment.createMany({
+          data: payments.map((line) => ({
+            investment_id: investment.id_investment,
+            amount: new Prisma.Decimal(line.amount),
+            payment_method: line.payment_method,
+            account: line.account ?? null,
+            payment_currency: line.payment_currency,
+            fee_mode: line.fee_mode ?? null,
+            fee_value:
+              line.fee_value != null
+                ? new Prisma.Decimal(line.fee_value)
+                : null,
+            fee_amount: new Prisma.Decimal(line.fee_amount || 0),
+          })),
+        });
+      }
 
       if (normalizedAllocations.length > 0) {
         await tx.investmentServiceAllocation.createMany({
@@ -1500,14 +1750,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         });
       }
 
-      const wantCredit = shouldHaveCreditEntry(
-        {
-          category: investment.category,
-          operator_id: investment.operator_id ?? undefined,
-          payment_method: investment.payment_method ?? undefined,
-        },
-        operatorCategorySet,
-      );
+      const wantCredit =
+        isOperatorCategoryName(investment.category, operatorCategorySet) &&
+        !!investment.operator_id &&
+        creditAmountFromPayments > 0;
 
       if (wantCredit && investment.operator_id) {
         await createCreditEntryForInvestment(tx, auth.id_agency, auth.id_user, {
@@ -1515,7 +1761,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           agency_investment_id: investment.agency_investment_id,
           operator_id: investment.operator_id,
           currency: investment.currency,
-          amount: investment.amount,
+          amount: creditAmountFromPayments,
           description: investment.description,
           paid_at: investment.paid_at,
         });
@@ -1615,7 +1861,11 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return investment;
     });
 
-    return res.status(201).json(created);
+    return res.status(201).json({
+      ...created,
+      ...(schemaFlags.hasPaymentFeeAmount ? {} : { payment_fee_amount: null }),
+      ...(schemaFlags.hasPaymentLines ? {} : { payments: [] }),
+    });
   } catch (e: unknown) {
     console.error("[investments][POST]", e);
     if (e instanceof Error) {

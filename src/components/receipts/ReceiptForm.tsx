@@ -24,6 +24,7 @@ import type {
   FinanceCurrency,
   FinancePaymentMethod,
   SubmitResult,
+  ReceiptPaymentFeeMode,
   ReceiptPaymentLine,
 } from "@/types/receipts";
 
@@ -76,6 +77,9 @@ type PaymentDraft = {
   amount: string;
   payment_method_id: number | null;
   account_id: number | null;
+  payment_currency: string;
+  fee_mode: "NONE" | ReceiptPaymentFeeMode;
+  fee_value: string;
 
   // crédito operador
   operator_id: number | null;
@@ -108,6 +112,36 @@ const toInputDate = (value?: string | null) => {
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return "";
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+const normalizeCurrencyCodeLoose = (raw: string | null | undefined): string => {
+  const s = (raw || "").trim().toUpperCase();
+  if (!s) return "ARS";
+  const map: Record<string, string> = {
+    U$D: "USD",
+    U$S: "USD",
+    US$: "USD",
+    USD$: "USD",
+    AR$: "ARS",
+    $: "ARS",
+  };
+  return map[s] || s;
+};
+
+const calcPaymentLineFee = (line: {
+  amount: string;
+  fee_mode: "NONE" | ReceiptPaymentFeeMode;
+  fee_value: string;
+}) => {
+  const amount = parseAmountInput(line.amount) ?? 0;
+  const rawFeeValue = parseAmountInput(line.fee_value) ?? 0;
+  if (line.fee_mode === "NONE") return 0;
+  if (line.fee_mode === "PERCENT") {
+    return round2(Math.max(0, amount) * (Math.max(0, rawFeeValue) / 100));
+  }
+  return round2(Math.max(0, rawFeeValue));
 };
 
 export interface ReceiptFormProps {
@@ -177,7 +211,6 @@ export default function ReceiptForm({
   initialConcept = "",
   initialAmount,
   initialAmountWords = "",
-  initialAmountWordsCurrency,
   initialPaymentDescription = "",
   initialFeeAmount,
   initialIssueDate = null,
@@ -366,14 +399,7 @@ export default function ReceiptForm({
     setFreeCurrency(lockedCurrency);
   }, [lockedCurrency, currencyTouched]);
 
-  const effectiveCurrency: CurrencyCode = freeCurrency;
-  const currencyOverride =
-    lockedCurrency != null && effectiveCurrency !== lockedCurrency;
-
-  const handleCurrencyChange = useCallback((next: CurrencyCode) => {
-    setFreeCurrency(next);
-    setCurrencyTouched(true);
-  }, []);
+  const defaultCurrency: CurrencyCode = freeCurrency;
 
   const suggestions = useMemo(() => {
     if (!selectedServices.length) return null;
@@ -397,12 +423,42 @@ export default function ReceiptForm({
   /* ===== Payments (múltiples líneas) ===== */
   const [paymentLines, setPaymentLines] = useState<PaymentDraft[]>(() => {
     if (Array.isArray(initialPayments) && initialPayments.length > 0) {
-      return initialPayments.map((p) => ({
+      const hasPerLineFee = initialPayments.some(
+        (p) =>
+          (p.fee_mode === "FIXED" || p.fee_mode === "PERCENT") ||
+          (typeof p.fee_amount === "number" && p.fee_amount > 0),
+      );
+      return initialPayments.map((p, idx) => ({
         key: uid(),
         amount: p.amount != null ? String(p.amount) : "",
         payment_method_id:
           p.payment_method_id != null ? Number(p.payment_method_id) : null,
         account_id: p.account_id ?? null,
+        payment_currency: normalizeCurrencyCodeLoose(
+          p.payment_currency ??
+            initialCurrency ??
+            initialBaseCurrency ??
+            lockedCurrency ??
+            "ARS",
+        ),
+        fee_mode:
+          p.fee_mode === "FIXED" || p.fee_mode === "PERCENT"
+            ? p.fee_mode
+            : !hasPerLineFee &&
+                idx === 0 &&
+                initialFeeAmount != null &&
+                initialFeeAmount > 0
+              ? "FIXED"
+            : "NONE",
+        fee_value:
+          p.fee_mode === "FIXED" || p.fee_mode === "PERCENT"
+            ? String(p.fee_value ?? 0)
+            : !hasPerLineFee &&
+                idx === 0 &&
+                initialFeeAmount != null &&
+                initialFeeAmount > 0
+              ? String(initialFeeAmount)
+            : "",
         operator_id: p.operator_id ?? null,
         credit_account_id: p.credit_account_id ?? null,
       }));
@@ -414,6 +470,15 @@ export default function ReceiptForm({
         amount: initialAmount != null ? String(initialAmount) : "",
         payment_method_id: initialPaymentMethodId ?? null,
         account_id: initialFinanceAccountId ?? null,
+        payment_currency: normalizeCurrencyCodeLoose(
+          initialCurrency || initialBaseCurrency || lockedCurrency || "ARS",
+        ),
+        fee_mode:
+          initialFeeAmount != null && initialFeeAmount > 0 ? "FIXED" : "NONE",
+        fee_value:
+          initialFeeAmount != null && initialFeeAmount > 0
+            ? String(initialFeeAmount)
+            : "",
         operator_id: null,
         credit_account_id: null,
       },
@@ -426,6 +491,38 @@ export default function ReceiptForm({
       0,
     );
   }, [paymentLines]);
+
+  const paymentLineFeeByKey = useMemo(() => {
+    const acc: Record<string, number> = {};
+    for (const line of paymentLines) {
+      acc[line.key] = calcPaymentLineFee(line);
+    }
+    return acc;
+  }, [paymentLines]);
+
+  const paymentsFeeTotalNum = useMemo(() => {
+    return round2(
+      Object.values(paymentLineFeeByKey).reduce((acc, fee) => acc + fee, 0),
+    );
+  }, [paymentLineFeeByKey]);
+
+  const paymentCurrenciesInUse = useMemo(() => {
+    const set = new Set<string>();
+    for (const line of paymentLines) {
+      const amount = parseAmountInput(line.amount) ?? 0;
+      if (amount <= 0) continue;
+      set.add(normalizeCurrencyCodeLoose(line.payment_currency));
+    }
+    return Array.from(set);
+  }, [paymentLines]);
+
+  const hasMixedPaymentCurrencies = paymentCurrenciesInUse.length > 1;
+  const effectiveCurrency: CurrencyCode =
+    paymentCurrenciesInUse[0] || defaultCurrency;
+  const currencyOverride =
+    lockedCurrency != null &&
+    !hasMixedPaymentCurrencies &&
+    effectiveCurrency !== lockedCurrency;
 
   useEffect(() => {
     if (!paymentLines.length || paymentsTotalNum <= 0) {
@@ -440,6 +537,19 @@ export default function ReceiptForm({
     );
   }, [paymentsTotalNum, paymentLines.length]);
 
+  useEffect(() => {
+    if (!paymentLines.length || paymentsFeeTotalNum <= 0) {
+      setFeeAmount("");
+      return;
+    }
+    setFeeAmount(
+      paymentsFeeTotalNum.toLocaleString("es-AR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+    );
+  }, [paymentLines.length, paymentsFeeTotalNum]);
+
   const addPaymentLine = () => {
     setPaymentLines((prev) => [
       ...prev,
@@ -448,6 +558,11 @@ export default function ReceiptForm({
         amount: "",
         payment_method_id: null,
         account_id: null,
+        payment_currency: normalizeCurrencyCodeLoose(
+          freeCurrency || lockedCurrency || "ARS",
+        ),
+        fee_mode: "NONE",
+        fee_value: "",
         operator_id: null,
         credit_account_id: null,
       },
@@ -463,6 +578,40 @@ export default function ReceiptForm({
   const setPaymentLineAmount = (key: string, v: string) => {
     setPaymentLines((prev) =>
       prev.map((l) => (l.key === key ? { ...l, amount: v } : l)),
+    );
+  };
+
+  const setPaymentLineCurrency = (key: string, currencyCode: string) => {
+    const nextCurrency = normalizeCurrencyCodeLoose(currencyCode);
+    setPaymentLines((prev) =>
+      prev.map((l) =>
+        l.key === key ? { ...l, payment_currency: nextCurrency } : l,
+      ),
+    );
+    setFreeCurrency(nextCurrency);
+    setCurrencyTouched(true);
+  };
+
+  const setPaymentLineFeeMode = (
+    key: string,
+    mode: "NONE" | ReceiptPaymentFeeMode,
+  ) => {
+    setPaymentLines((prev) =>
+      prev.map((l) =>
+        l.key === key
+          ? {
+              ...l,
+              fee_mode: mode,
+              fee_value: mode === "NONE" ? "" : l.fee_value || "",
+            }
+          : l,
+      ),
+    );
+  };
+
+  const setPaymentLineFeeValue = (key: string, value: string) => {
+    setPaymentLines((prev) =>
+      prev.map((l) => (l.key === key ? { ...l, fee_value: value } : l)),
     );
   };
 
@@ -693,15 +842,6 @@ export default function ReceiptForm({
       return;
     }
 
-    if (suggestions.fee != null) {
-      setFeeAmount(
-        suggestions.fee.toLocaleString("es-AR", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        }),
-      );
-    }
-
     if (suggestions.base == null) return;
     const target = suggestions.base;
 
@@ -713,6 +853,11 @@ export default function ReceiptForm({
             amount: String(target),
             payment_method_id: null,
             account_id: null,
+            payment_currency: normalizeCurrencyCodeLoose(
+              freeCurrency || lockedCurrency || "ARS",
+            ),
+            fee_mode: "NONE",
+            fee_value: "",
             operator_id: null,
             credit_account_id: null,
           },
@@ -731,6 +876,15 @@ export default function ReceiptForm({
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         }),
+        ...(suggestions.fee != null
+          ? {
+              fee_mode: "FIXED" as const,
+              fee_value: suggestions.fee.toLocaleString("es-AR", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }),
+            }
+          : {}),
       };
       return next;
     });
@@ -744,7 +898,7 @@ export default function ReceiptForm({
           ? null
           : (suggestions?.base ?? null);
     const fee =
-      parseAmountInput(feeAmount) ??
+      (paymentsFeeTotalNum > 0 ? paymentsFeeTotalNum : null) ??
       (currencyOverride ? null : suggestions?.fee ?? null);
     if (base === null && fee === null) return "";
     const total = (base ?? 0) + (fee ?? 0);
@@ -753,7 +907,7 @@ export default function ReceiptForm({
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
-  }, [paymentsTotalNum, feeAmount, suggestions, currencyOverride]);
+  }, [paymentsTotalNum, paymentsFeeTotalNum, suggestions, currencyOverride]);
 
   /* ===== Detalle de pago para PDF ===== */
   const [paymentDescription, setPaymentDescriptionState] = useState(
@@ -833,7 +987,8 @@ export default function ReceiptForm({
   }, [token]);
 
   const paymentSummary = useMemo(() => {
-    const lines: { label: string; amount: number }[] = [];
+    const lines: { label: string; amount: number; fee: number; currency: string }[] =
+      [];
 
     for (const l of paymentLines) {
       const amt = parseAmountInput(l.amount);
@@ -875,27 +1030,32 @@ export default function ReceiptForm({
         tail = accName ? ` (${accName})` : "";
       }
 
-      lines.push({ label: `${mName}${tail}`, amount: amt });
+      const lineCurrency = normalizeCurrencyCodeLoose(
+        l.payment_currency || effectiveCurrency,
+      );
+      const lineFee = paymentLineFeeByKey[l.key] ?? calcPaymentLineFee(l);
+
+      lines.push({
+        label: `${mName}${tail}`,
+        amount: amt,
+        fee: lineFee,
+        currency: lineCurrency,
+      });
     }
 
     if (!lines.length) return "";
 
-    const feeNum = parseAmountInput(feeAmount) ?? 0;
-    const includeFeeInSingle = feeNum > 0 && lines.length === 1;
     const fmt = (value: number) =>
       value.toLocaleString("es-AR", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       });
 
-    const parts = lines.map((line) => {
-      const total = includeFeeInSingle ? line.amount + feeNum : line.amount;
-      return `${line.label}: ${fmt(total)} ${effectiveCurrency}`;
-    });
-
-    if (feeNum > 0 && !includeFeeInSingle) {
-      parts.push(`Costo financiero: ${fmt(feeNum)} ${effectiveCurrency}`);
-    }
+    const parts = lines.map((line) =>
+      line.fee > 0
+        ? `${line.label}: ${fmt(line.amount + line.fee)} ${line.currency} (CF ${fmt(line.fee)})`
+        : `${line.label}: ${fmt(line.amount)} ${line.currency}`,
+    );
 
     return parts.join(" + ");
   }, [
@@ -904,9 +1064,9 @@ export default function ReceiptForm({
     accountsTyped,
     operators,
     effectiveCurrency,
+    paymentLineFeeByKey,
     creditAccountsByOperator,
     creditMethodId,
-    feeAmount,
   ]);
 
   /* ===== Conversión (opcional) ===== */
@@ -1046,23 +1206,9 @@ export default function ReceiptForm({
     }, {});
   }, [relevantReceipts, normalizeCurrencyCode, toNum]);
 
-  const debtBeforeCurrentByCurrency = useMemo(() => {
-    const acc: Record<string, number> = {};
-    const currencies = new Set([
-      ...Object.keys(salesByCurrency),
-      ...Object.keys(paidByCurrency),
-    ]);
-    currencies.forEach((cur) => {
-      const sale = salesByCurrency[cur] || 0;
-      const paid = paidByCurrency[cur] || 0;
-      acc[cur] = sale - paid;
-    });
-    return acc;
-  }, [salesByCurrency, paidByCurrency]);
-
   const currentPaidByCurrency = useMemo(() => {
     const acc: Record<string, number> = {};
-    const feeVal = parseAmountInput(feeAmount) ?? 0;
+    const feeVal = paymentsFeeTotalNum;
     const amountVal = paymentsTotalNum;
     const amountCur = effectiveCurrency
       ? normalizeCurrencyCode(effectiveCurrency)
@@ -1085,7 +1231,7 @@ export default function ReceiptForm({
 
     return acc;
   }, [
-    feeAmount,
+    paymentsFeeTotalNum,
     paymentsTotalNum,
     effectiveCurrency,
     baseAmount,
@@ -1107,18 +1253,6 @@ export default function ReceiptForm({
     });
     return acc;
   }, [salesByCurrency, paidByCurrency, currentPaidByCurrency]);
-
-  const hasDebtBeforeCurrent = useMemo(
-    () => Object.values(debtBeforeCurrentByCurrency).some((value) => value > 0.01),
-    [debtBeforeCurrentByCurrency],
-  );
-  const overpaidCurrencies = useMemo(
-    () =>
-      Object.entries(debtByCurrency)
-        .filter(([, value]) => value < -0.01)
-        .map(([currencyCode]) => currencyCode),
-    [debtByCurrency],
-  );
 
   const debtSuffix = useMemo(() => {
     if (!selectedServiceIds.length || !bookingReceiptsLoaded) return "";
@@ -1197,9 +1331,6 @@ export default function ReceiptForm({
 
   /* ===== Importe en palabras (PDF) ===== */
   const [amountWords, setAmountWords] = useState(initialAmountWords);
-  const [amountWordsISO, setAmountWordsISO] = useState(
-    initialAmountWordsCurrency ? String(initialAmountWordsCurrency) : "",
-  );
 
   useEffect(() => {
     if (!lockedCurrency) return;
@@ -1208,17 +1339,8 @@ export default function ReceiptForm({
 
   useEffect(() => {
     if (!currencyOverride) return;
-    setCounterCurrency((prev) => prev || effectiveCurrency);
+    setCounterCurrency(effectiveCurrency);
   }, [currencyOverride, effectiveCurrency]);
-
-  useEffect(() => {
-    if (amountWordsISO) return;
-    if (currencyOverride && baseCurrency) {
-      setAmountWordsISO(baseCurrency);
-      return;
-    }
-    if (effectiveCurrency) setAmountWordsISO(effectiveCurrency);
-  }, [amountWordsISO, baseCurrency, currencyOverride, effectiveCurrency]);
 
   /* ===== Attach search ===== */
   const attachSearchEnabled = attachEnabled && action === "attach";
@@ -1242,9 +1364,6 @@ export default function ReceiptForm({
       if (!selectedBookingId) e.booking = "Elegí una reserva.";
       if (selectedServiceIds.length === 0)
         e.services = "Seleccioná al menos un servicio.";
-      else if (bookingReceiptsLoaded && !hasDebtBeforeCurrent) {
-        e.services = "Los servicios seleccionados ya están saldados.";
-      }
     }
 
     if (!paymentLines.length) {
@@ -1262,6 +1381,19 @@ export default function ReceiptForm({
 
         const amt = parseAmountInput(l.amount);
         if (!amt || amt <= 0) e[`payment_amount_${idx}`] = "Importe inválido.";
+        if (!normalizeCurrencyCodeLoose(l.payment_currency))
+          e[`payment_currency_${idx}`] = "Elegí moneda.";
+
+        if (l.fee_mode !== "NONE") {
+          const fv = parseAmountInput(l.fee_value);
+          if (fv == null || fv < 0) {
+            e[`payment_fee_value_${idx}`] = "Costo financiero inválido.";
+          }
+          if (l.fee_mode === "PERCENT" && fv != null && fv > 1000) {
+            e[`payment_fee_value_${idx}`] =
+              "El porcentaje de costo financiero es muy alto.";
+          }
+        }
 
         // 👇 clave: 0 es válido, solo invalidamos null/undefined
         if (l.payment_method_id == null)
@@ -1287,6 +1419,11 @@ export default function ReceiptForm({
           if (!l.account_id) e[`payment_account_${idx}`] = "Elegí cuenta.";
         }
       });
+
+      if (hasMixedPaymentCurrencies) {
+        e.payments =
+          "Todas las líneas de pago deben usar la misma moneda en este recibo.";
+      }
     }
 
     const total =
@@ -1294,11 +1431,9 @@ export default function ReceiptForm({
       (currencyOverride ? 0 : suggestions?.base || 0);
     if (!total || total <= 0)
       e.amount = "El total es inválido. Cargá importes o usá el sugerido.";
-    if (bookingReceiptsLoaded && overpaidCurrencies.length > 0) {
-      e.amount = `El importe excede el saldo pendiente en ${overpaidCurrencies.join(", ")}.`;
-    }
-
-    if (!effectiveCurrency) e.currency = "Elegí una moneda.";
+    if (!effectiveCurrency)
+      e.payments =
+        "Elegí una moneda en las líneas de pago para continuar.";
     const issueDateOk = /^\d{4}-\d{2}-\d{2}$/.test(issueDate);
     if (!issueDateOk) e.issue_date = "Elegí la fecha del recibo.";
     const baseNum = parseAmountInput(baseAmount);
@@ -1322,7 +1457,6 @@ export default function ReceiptForm({
     }
 
     if (!amountWords.trim()) e.amountWords = "Ingresá el importe en palabras.";
-    if (!amountWordsISO) e.amountWordsISO = "Elegí la moneda del texto.";
     if (!paymentDescription.trim())
       e.paymentDescription =
         "Agregá el detalle del método de pago (para el PDF).";
@@ -1390,11 +1524,25 @@ export default function ReceiptForm({
         const pmId =
           l.payment_method_id == null ? -1 : Number(l.payment_method_id);
         const isCredit = pmId === Number(creditMethodId);
+        const feeValue = parseAmountInput(l.fee_value);
+        const feeAmount = paymentLineFeeByKey[l.key] ?? calcPaymentLineFee(l);
         return {
           amount: parseAmountInput(l.amount) ?? 0,
           payment_method_id:
             l.payment_method_id == null ? null : Number(l.payment_method_id),
           account_id: isCredit ? null : l.account_id ?? null,
+          payment_currency: normalizeCurrencyCodeLoose(
+            l.payment_currency || effectiveCurrency,
+          ),
+          fee_mode:
+            l.fee_mode === "FIXED" || l.fee_mode === "PERCENT"
+              ? l.fee_mode
+              : undefined,
+          fee_value:
+            l.fee_mode === "FIXED" || l.fee_mode === "PERCENT"
+              ? (feeValue ?? 0)
+              : undefined,
+          fee_amount: feeAmount > 0 ? feeAmount : undefined,
           operator_id: l.operator_id ?? null,
           credit_account_id: l.credit_account_id ?? null,
         };
@@ -1420,9 +1568,9 @@ export default function ReceiptForm({
       return;
     }
 
-    const finalFee = parseAmountInput(feeAmount);
+    const finalFee = paymentsFeeTotalNum;
     const paymentFeeForPayload =
-      finalFee != null && finalFee > 0 ? finalFee : undefined;
+      finalFee > 0 ? finalFee : undefined;
 
     // para los campos legacy: preferí un pago real (>0), sino el primero (puede ser crédito)
     const primaryPayment =
@@ -1548,7 +1696,8 @@ export default function ReceiptForm({
                 token: token!,
                 receiptId: rid,
                 amount: p.amount,
-                currency: apiBody.amountCurrency,
+                currency:
+                  p.payment_currency || apiBody.amountCurrency || "ARS",
                 concept: apiBody.concept,
                 bookingId: selectedBookingId ?? bookingId ?? undefined,
                 operatorId: opId,
@@ -1574,7 +1723,8 @@ export default function ReceiptForm({
               accountId: p.account_id,
               receiptId: rid,
               amount: p.amount,
-              currency: apiBody.amountCurrency,
+              currency:
+                p.payment_currency || apiBody.amountCurrency || "ARS",
               concept: apiBody.concept,
               bookingId: selectedBookingId ?? bookingId ?? undefined,
               agencyId,
@@ -1718,13 +1868,10 @@ export default function ReceiptForm({
                   excludeForIndex={excludeForIndex}
                   amountReceived={amountReceived}
                   feeAmount={feeAmount}
-                  setFeeAmount={setFeeAmount}
                   clientTotal={clientTotal}
                   lockedCurrency={lockedCurrency}
                   loadingPicks={loadingPicks}
                   currencies={currenciesTyped}
-                  freeCurrency={freeCurrency}
-                  setFreeCurrency={handleCurrencyChange}
                   effectiveCurrency={effectiveCurrency}
                   currencyOverride={currencyOverride}
                   suggestions={suggestions}
@@ -1732,8 +1879,6 @@ export default function ReceiptForm({
                   formatNum={formatNum}
                   amountWords={amountWords}
                   setAmountWords={setAmountWords}
-                  amountWordsISO={amountWordsISO}
-                  setAmountWordsISO={setAmountWordsISO}
                   paymentMethods={paymentMethodsUi}
                   accounts={accountsTyped}
                   filteredAccounts={filteredAccounts}
@@ -1743,6 +1888,10 @@ export default function ReceiptForm({
                   setPaymentLineAmount={setPaymentLineAmount}
                   setPaymentLineMethod={setPaymentLineMethod}
                   setPaymentLineAccount={setPaymentLineAccount}
+                  setPaymentLineCurrency={setPaymentLineCurrency}
+                  setPaymentLineFeeMode={setPaymentLineFeeMode}
+                  setPaymentLineFeeValue={setPaymentLineFeeValue}
+                  getPaymentLineFee={(key) => paymentLineFeeByKey[key] ?? 0}
                   setPaymentLineOperator={setPaymentLineOperator}
                   setPaymentLineCreditAccount={setPaymentLineCreditAccount}
                   operators={operators}

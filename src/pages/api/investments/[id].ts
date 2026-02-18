@@ -243,6 +243,185 @@ function parseServiceIds(raw: unknown): number[] {
 }
 
 const ASSIGNMENT_TOLERANCE = 0.01;
+const INVESTMENT_FEE_MODES = new Set(["FIXED", "PERCENT"] as const);
+const INVESTMENT_PAYMENT_LINE_SELECT = {
+  id_investment_payment: true,
+  amount: true,
+  payment_method: true,
+  account: true,
+  payment_currency: true,
+  fee_mode: true,
+  fee_value: true,
+  fee_amount: true,
+} satisfies Prisma.InvestmentPaymentSelect;
+
+type InvestmentSchemaFlags = {
+  hasPaymentFeeAmount: boolean;
+  hasPaymentLines: boolean;
+};
+
+async function getInvestmentSchemaFlags(): Promise<InvestmentSchemaFlags> {
+  const [hasPaymentFeeAmount, hasPaymentLines] = await Promise.all([
+    hasSchemaColumn("Investment", "payment_fee_amount"),
+    hasSchemaColumn("InvestmentPayment", "id_investment_payment"),
+  ]);
+  return { hasPaymentFeeAmount, hasPaymentLines };
+}
+
+function buildInvestmentFullSelect(
+  flags: InvestmentSchemaFlags,
+  includeAllocations = false,
+): Prisma.InvestmentSelect {
+  return {
+    id_investment: true,
+    agency_investment_id: true,
+    id_agency: true,
+    category: true,
+    description: true,
+    amount: true,
+    currency: true,
+    created_at: true,
+    paid_at: true,
+    payment_method: true,
+    account: true,
+    ...(flags.hasPaymentFeeAmount ? { payment_fee_amount: true } : {}),
+    base_amount: true,
+    base_currency: true,
+    counter_amount: true,
+    counter_currency: true,
+    excess_action: true,
+    excess_missing_account_action: true,
+    operator_id: true,
+    user_id: true,
+    created_by: true,
+    booking_id: true,
+    serviceIds: true,
+    recurring_id: true,
+    user: { select: { id_user: true, first_name: true, last_name: true } },
+    operator: true,
+    ...(flags.hasPaymentLines
+      ? { payments: { select: INVESTMENT_PAYMENT_LINE_SELECT } }
+      : {}),
+    createdBy: {
+      select: { id_user: true, first_name: true, last_name: true },
+    },
+    booking: {
+      select: { id_booking: true, agency_booking_id: true },
+    },
+    ...(includeAllocations ? { allocations: true } : {}),
+  };
+}
+
+type InvestmentPaymentFeeMode = "FIXED" | "PERCENT";
+type InvestmentPaymentLineIn = {
+  amount?: unknown;
+  payment_method?: unknown;
+  account?: unknown;
+  payment_currency?: unknown;
+  fee_mode?: unknown;
+  fee_value?: unknown;
+  fee_amount?: unknown;
+};
+
+type InvestmentPaymentLineNormalized = {
+  amount: number;
+  payment_method: string;
+  account?: string;
+  payment_currency: string;
+  fee_mode?: InvestmentPaymentFeeMode;
+  fee_value?: number;
+  fee_amount: number;
+};
+
+const normalizePaymentCurrency = (value: unknown): string => {
+  const code = String(value ?? "").trim().toUpperCase();
+  if (!code) return "ARS";
+  if (["US$", "U$S", "U$D", "DOL"].includes(code)) return "USD";
+  if (["$", "AR$"].includes(code)) return "ARS";
+  return code;
+};
+
+const normalizeInvestmentFeeMode = (
+  value: unknown,
+): InvestmentPaymentFeeMode | null => {
+  if (typeof value !== "string") return null;
+  const mode = value.trim().toUpperCase() as InvestmentPaymentFeeMode;
+  return INVESTMENT_FEE_MODES.has(mode) ? mode : null;
+};
+
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+const normalizeInvestmentPaymentFee = (line: {
+  amount: number;
+  fee_mode?: InvestmentPaymentFeeMode | null;
+  fee_value?: number;
+  fee_amount?: number;
+}) => {
+  const mode = line.fee_mode ?? null;
+  const value = Number.isFinite(line.fee_value ?? NaN)
+    ? Number(line.fee_value)
+    : undefined;
+  const explicitAmount = Number.isFinite(line.fee_amount ?? NaN)
+    ? Number(line.fee_amount)
+    : undefined;
+
+  if (!mode) return round2(Math.max(0, explicitAmount ?? 0));
+  if (mode === "PERCENT") {
+    return round2(Math.max(0, line.amount) * (Math.max(0, value ?? 0) / 100));
+  }
+  return round2(Math.max(0, value ?? 0));
+};
+
+const normalizeInvestmentPayments = (
+  raw: unknown,
+  fallbackCurrency: string,
+): InvestmentPaymentLineNormalized[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: InvestmentPaymentLineNormalized[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as InvestmentPaymentLineIn;
+    const amount = Number(rec.amount);
+    const payment_method =
+      typeof rec.payment_method === "string"
+        ? rec.payment_method.trim()
+        : "";
+    if (!Number.isFinite(amount) || amount <= 0 || !payment_method) continue;
+
+    const account =
+      typeof rec.account === "string" && rec.account.trim()
+        ? rec.account.trim()
+        : undefined;
+    const payment_currency = normalizePaymentCurrency(
+      rec.payment_currency ?? fallbackCurrency,
+    );
+    const fee_mode = normalizeInvestmentFeeMode(rec.fee_mode);
+    const fee_value = Number(rec.fee_value);
+    const fee_amount_raw = Number(rec.fee_amount);
+    const fee_amount = normalizeInvestmentPaymentFee({
+      amount,
+      fee_mode,
+      fee_value: Number.isFinite(fee_value) ? fee_value : undefined,
+      fee_amount: Number.isFinite(fee_amount_raw) ? fee_amount_raw : undefined,
+    });
+
+    out.push({
+      amount,
+      payment_method,
+      account,
+      payment_currency,
+      fee_mode: fee_mode ?? undefined,
+      fee_value:
+        fee_mode != null
+          ? Number.isFinite(fee_value)
+            ? Math.max(0, fee_value)
+            : 0
+          : undefined,
+      fee_amount,
+    });
+  }
+  return out;
+};
 
 type AllocationInput = {
   service_id: number;
@@ -593,25 +772,39 @@ function getInvestmentLite(id_investment: number, id_agency: number) {
     },
   });
 }
-function getInvestmentFull(
+
+type InvestmentFullRecord = {
+  id_investment: number;
+  id_agency: number;
+  category: string;
+  booking: { id_booking: number; agency_booking_id: number | null } | null;
+  payment_fee_amount?: unknown | null;
+  payments?: unknown[];
+  [key: string]: unknown;
+};
+
+function withCompatDefaults(
+  item: InvestmentFullRecord,
+  flags: InvestmentSchemaFlags,
+): InvestmentFullRecord {
+  return {
+    ...item,
+    ...(flags.hasPaymentFeeAmount ? {} : { payment_fee_amount: null }),
+    ...(flags.hasPaymentLines ? {} : { payments: [] }),
+  };
+}
+
+async function getInvestmentFull(
   id_investment: number,
   id_agency: number,
+  flags: InvestmentSchemaFlags,
   includeAllocations = false,
-) {
-  return prisma.investment.findFirst({
+): Promise<InvestmentFullRecord | null> {
+  const result = (await prisma.investment.findFirst({
     where: { id_investment, id_agency },
-    include: {
-      user: { select: { id_user: true, first_name: true, last_name: true } },
-      operator: true,
-      createdBy: {
-        select: { id_user: true, first_name: true, last_name: true },
-      },
-      booking: {
-        select: { id_booking: true, agency_booking_id: true },
-      }, // incluir reserva asociada
-      ...(includeAllocations ? { allocations: true } : {}),
-    },
-  });
+    select: buildInvestmentFullSelect(flags, includeAllocations),
+  })) as InvestmentFullRecord | null;
+  return result ? withCompatDefaults(result, flags) : null;
 }
 
 /** ===== Handler ===== */
@@ -675,6 +868,7 @@ export default async function handler(
   const idParam = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   const id = safeNumber(idParam);
   if (!id) return res.status(400).json({ error: "ID inválido" });
+  const schemaFlags = await getInvestmentSchemaFlags();
 
   if (req.method === "GET") {
     try {
@@ -691,6 +885,7 @@ export default async function handler(
       const inv = await getInvestmentFull(
         id,
         auth.id_agency,
+        schemaFlags,
         includeAllocations,
       );
       if (!inv)
@@ -741,9 +936,8 @@ export default async function handler(
         typeof b.category === "string" ? b.category.trim() : undefined;
       const description =
         typeof b.description === "string" ? b.description.trim() : undefined;
-      const currency =
+      const rawCurrency =
         typeof b.currency === "string" ? b.currency.trim() : undefined;
-      const amount = safeNumber(b.amount);
 
       if (category !== undefined || restrictToOperatorPayments) {
         await loadOperatorCategories();
@@ -832,9 +1026,71 @@ export default async function handler(
       }
       const allocations = hasAllocations ? parseAllocations(b.allocations) : [];
 
+      const hasPaymentsPayload = Object.prototype.hasOwnProperty.call(
+        b,
+        "payments",
+      );
+      if (hasPaymentsPayload && !Array.isArray(b.payments)) {
+        return res.status(400).json({ error: "payments inválido" });
+      }
+
+      const normalizedPayments = hasPaymentsPayload
+        ? normalizeInvestmentPayments(
+            b.payments,
+            rawCurrency || exists.currency || "ARS",
+          )
+        : [];
+      if (
+        hasPaymentsPayload &&
+        Array.isArray(b.payments) &&
+        b.payments.length > 0 &&
+        normalizedPayments.length === 0
+      ) {
+        return res.status(400).json({
+          error:
+            "payments inválido: cada línea debe incluir amount > 0 y payment_method.",
+        });
+      }
+
+      const paymentCurrencies = Array.from(
+        new Set(normalizedPayments.map((p) => p.payment_currency).filter(Boolean)),
+      );
+      if (paymentCurrencies.length > 1) {
+        return res.status(400).json({
+          error:
+            "Todas las líneas de pago deben tener la misma moneda para este pago.",
+        });
+      }
+
+      const paymentsCurrency = paymentCurrencies[0];
+      const paymentsAmount = normalizedPayments.length
+        ? round2(normalizedPayments.reduce((sum, p) => sum + p.amount, 0))
+        : undefined;
+      const paymentsFeeAmount = normalizedPayments.length
+        ? round2(normalizedPayments.reduce((sum, p) => sum + (p.fee_amount || 0), 0))
+        : undefined;
+
+      const currency =
+        paymentsCurrency ??
+        (rawCurrency ? normalizePaymentCurrency(rawCurrency) : undefined);
+      const amount = paymentsAmount ?? safeNumber(b.amount);
+
       // método de pago / cuenta (acepta string o null para limpiar)
-      const payment_method = normStrUpdate(b.payment_method);
-      const account = normStrUpdate(b.account);
+      const payment_method =
+        normalizedPayments.length > 0
+          ? normalizedPayments[0].payment_method
+          : normStrUpdate(b.payment_method);
+      const account =
+        normalizedPayments.length > 0
+          ? normalizedPayments[0].account
+          : normStrUpdate(b.account);
+      const payment_fee_amount = !schemaFlags.hasPaymentFeeAmount
+        ? undefined
+        : normalizedPayments.length > 0
+          ? toDec(paymentsFeeAmount)
+          : b.payment_fee_amount === null
+            ? null
+            : (toDec(b.payment_fee_amount) as Prisma.Decimal | undefined);
 
       // conversión (acepta Decimal o null para limpiar)
       const base_amount =
@@ -1218,6 +1474,8 @@ export default async function handler(
 
         if (payment_method !== undefined) data.payment_method = payment_method;
         if (account !== undefined) data.account = account;
+        if (payment_fee_amount !== undefined)
+          data.payment_fee_amount = payment_fee_amount;
 
         if (base_amount !== undefined) data.base_amount = base_amount;
         if (base_currency !== undefined)
@@ -1234,17 +1492,31 @@ export default async function handler(
         const after = await tx.investment.update({
           where: { id_investment: id },
           data,
-          include: {
-            user: {
-              select: { id_user: true, first_name: true, last_name: true },
-            },
-            operator: true,
-            createdBy: {
-              select: { id_user: true, first_name: true, last_name: true },
-            },
-            booking: { select: { id_booking: true } },
-          },
+          select: buildInvestmentFullSelect(schemaFlags),
         });
+
+        if (hasPaymentsPayload && schemaFlags.hasPaymentLines) {
+          await tx.investmentPayment.deleteMany({
+            where: { investment_id: after.id_investment },
+          });
+          if (normalizedPayments.length > 0) {
+            await tx.investmentPayment.createMany({
+              data: normalizedPayments.map((line) => ({
+                investment_id: after.id_investment,
+                amount: new Prisma.Decimal(line.amount),
+                payment_method: line.payment_method,
+                account: line.account ?? null,
+                payment_currency: line.payment_currency,
+                fee_mode: line.fee_mode ?? null,
+                fee_value:
+                  line.fee_value != null
+                    ? new Prisma.Decimal(line.fee_value)
+                    : null,
+                fee_amount: new Prisma.Decimal(line.fee_amount || 0),
+              })),
+            });
+          }
+        }
 
         if (hasAllocations) {
           await tx.investmentServiceAllocation.deleteMany({
@@ -1276,7 +1548,7 @@ export default async function handler(
           auth.id_agency,
         );
 
-        const wantCredit = shouldHaveCreditEntry(
+        const shouldCreditByMethod = shouldHaveCreditEntry(
           {
             category: after.category,
             operator_id: after.operator_id,
@@ -1284,6 +1556,29 @@ export default async function handler(
           },
           operatorCategorySet,
         );
+        const paymentRows = hasPaymentsPayload
+          ? normalizedPayments.map((line) => ({
+              payment_method: line.payment_method,
+              amount: line.amount,
+            }))
+          : schemaFlags.hasPaymentLines
+            ? await tx.investmentPayment.findMany({
+                where: { investment_id: after.id_investment },
+                select: { payment_method: true, amount: true },
+              })
+            : [];
+        const creditAmountFromLines = round2(
+          paymentRows
+            .filter((line) => line.payment_method === CREDIT_METHOD)
+            .reduce((sum, line) => sum + Number(line.amount || 0), 0),
+        );
+        const creditAmountToApply =
+          creditAmountFromLines > 0
+            ? creditAmountFromLines
+            : shouldCreditByMethod && paymentRows.length === 0
+              ? round2(Math.abs(Number(after.amount || 0)))
+              : 0;
+        const wantCredit = creditAmountToApply > 0;
 
         // 5) Si ahora corresponde, crear movimiento de crédito (investment => negativo)
         if (wantCredit) {
@@ -1301,7 +1596,7 @@ export default async function handler(
               agency_investment_id: after.agency_investment_id,
               operator_id: after.operator_id,
               currency: after.currency,
-              amount: after.amount,
+              amount: creditAmountToApply,
               description: after.description,
               paid_at: after.paid_at,
             },
@@ -1395,7 +1690,13 @@ export default async function handler(
           }
         }
 
-        return after;
+        const refreshedRaw = (await tx.investment.findFirst({
+          where: { id_investment: after.id_investment, id_agency: auth.id_agency },
+          select: buildInvestmentFullSelect(schemaFlags),
+        })) as InvestmentFullRecord | null;
+        if (!refreshedRaw)
+          throw new Error("Inversión no encontrada tras actualizar.");
+        return withCompatDefaults(refreshedRaw, schemaFlags);
       });
 
       return res.status(200).json(updated);

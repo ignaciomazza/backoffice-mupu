@@ -22,6 +22,16 @@ export type OperatorPaymentPdfData = {
   currency: string;
   paymentMethod?: string | null;
   account?: string | null;
+  paymentFeeAmount?: number | null;
+  payments?: Array<{
+    amount: number;
+    payment_method: string;
+    account?: string | null;
+    payment_currency: string;
+    fee_mode?: "FIXED" | "PERCENT" | null;
+    fee_value?: number | null;
+    fee_amount?: number | null;
+  }>;
   base_amount?: number | null;
   base_currency?: string | null;
   counter_amount?: number | null;
@@ -175,6 +185,8 @@ export default function OperatorPaymentDocument(props: OperatorPaymentPdfData) {
     currency,
     paymentMethod,
     account,
+    paymentFeeAmount,
+    payments = [],
     base_amount,
     base_currency,
     counter_amount,
@@ -200,6 +212,13 @@ export default function OperatorPaymentDocument(props: OperatorPaymentPdfData) {
     typeof counter_amount === "number" &&
     Number.isFinite(counter_amount) &&
     !!counter_currency;
+  const hasPaymentLines = payments.length > 0;
+  const effectivePaymentFee =
+    typeof paymentFeeAmount === "number" && Number.isFinite(paymentFeeAmount)
+      ? paymentFeeAmount
+      : hasPaymentLines
+        ? payments.reduce((sum, line) => sum + Number(line.fee_amount || 0), 0)
+        : null;
 
   return (
     <Document>
@@ -263,15 +282,50 @@ export default function OperatorPaymentDocument(props: OperatorPaymentPdfData) {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Detalle del pago</Text>
-          <Text style={styles.listItem}>Moneda: {displayCurrency}</Text>
-          {paymentMethod ? (
+          {hasPaymentLines ? (
+            <>
+              {payments.map((line, idx) => (
+                <Text key={`${line.payment_method}-${idx}`} style={styles.listItem}>
+                  {softWrapLongWords(
+                    `#${idx + 1} · ${line.payment_method} · ${safeFmtCurrency(
+                      Number(line.amount || 0),
+                      line.payment_currency || displayCurrency,
+                    )}${
+                      line.account
+                        ? ` · Cuenta: ${line.account}`
+                        : " · Sin cuenta"
+                    }${
+                      Number(line.fee_amount || 0) > 0
+                        ? ` · Costo financiero: ${safeFmtCurrency(
+                            Number(line.fee_amount || 0),
+                            line.payment_currency || displayCurrency,
+                          )}`
+                        : ""
+                    }`,
+                    { breakChar: " " },
+                  )}
+                </Text>
+              ))}
+            </>
+          ) : (
+            <>
+              <Text style={styles.listItem}>Moneda: {displayCurrency}</Text>
+              {paymentMethod ? (
+                <Text style={styles.listItem}>
+                  Método: {softWrapLongWords(paymentMethod, { breakChar: " " })}
+                </Text>
+              ) : null}
+              {account ? (
+                <Text style={styles.listItem}>
+                  Cuenta: {softWrapLongWords(account, { breakChar: " " })}
+                </Text>
+              ) : null}
+            </>
+          )}
+          {effectivePaymentFee != null && Number(effectivePaymentFee) > 0 ? (
             <Text style={styles.listItem}>
-              Método: {softWrapLongWords(paymentMethod, { breakChar: " " })}
-            </Text>
-          ) : null}
-          {account ? (
-            <Text style={styles.listItem}>
-              Cuenta: {softWrapLongWords(account, { breakChar: " " })}
+              Costo financiero total:{" "}
+              {safeFmtCurrency(Number(effectivePaymentFee), displayCurrency)}
             </Text>
           ) : null}
           {hasBase ? (

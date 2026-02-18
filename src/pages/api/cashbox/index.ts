@@ -776,7 +776,16 @@ async function getMonthlyMovements(
 
   const investments = await prisma.investment.findMany({
     where: investmentWhere,
-    include: {
+    select: {
+      id_investment: true,
+      category: true,
+      description: true,
+      amount: true,
+      currency: true,
+      created_at: true,
+      paid_at: true,
+      payment_method: true,
+      account: true,
       operator: {
         select: { name: true },
       },

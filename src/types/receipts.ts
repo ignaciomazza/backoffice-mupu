@@ -52,11 +52,17 @@ export type FinancePicks = {
   currencies: FinanceCurrency[];
 };
 
+export type ReceiptPaymentFeeMode = "FIXED" | "PERCENT";
+
 /** ✅ línea de pago (para ReceiptPayment en backend) */
 export type ReceiptPaymentLine = {
   amount: number;
   payment_method_id: number | null;
   account_id: number | null;
+  payment_currency?: string | null;
+  fee_mode?: ReceiptPaymentFeeMode | null;
+  fee_value?: number | null;
+  fee_amount?: number | null;
 
   // (para UI / movimiento crédito)
   operator_id?: number | null;

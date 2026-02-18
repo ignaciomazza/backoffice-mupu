@@ -239,6 +239,10 @@ type ReceiptWithPayments = Receipt & {
     amount?: number | string | null;
     payment_method_id?: number | null;
     account_id?: number | null;
+    payment_currency?: string | null;
+    fee_mode?: "FIXED" | "PERCENT" | null;
+    fee_value?: number | string | null;
+    fee_amount?: number | string | null;
   }>;
 };
 
@@ -990,6 +994,20 @@ export default function ServicesContainer(props: ServicesContainerProps) {
           payment_method_id:
             p.payment_method_id != null ? Number(p.payment_method_id) : null,
           account_id: p.account_id != null ? Number(p.account_id) : null,
+          payment_currency:
+            typeof p.payment_currency === "string"
+              ? p.payment_currency
+              : undefined,
+          fee_mode:
+            p.fee_mode === "FIXED" || p.fee_mode === "PERCENT"
+              ? p.fee_mode
+              : undefined,
+          fee_value:
+            p.fee_value != null ? toFiniteNumber(p.fee_value, 0) : undefined,
+          fee_amount:
+            p.fee_amount != null
+              ? toFiniteNumber(p.fee_amount, 0)
+              : undefined,
           operator_id: null,
           credit_account_id: null,
         }));
@@ -1012,6 +1030,10 @@ export default function ServicesContainer(props: ServicesContainerProps) {
           amount: toFiniteNumber(receipt.amount, 0),
           payment_method_id: hasPaymentMethod ? paymentMethodId : null,
           account_id: hasAccount ? accountId : null,
+          payment_currency:
+            typeof receipt.amount_currency === "string"
+              ? receipt.amount_currency
+              : undefined,
           operator_id: null,
           credit_account_id: null,
         },

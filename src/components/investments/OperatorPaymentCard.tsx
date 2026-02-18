@@ -37,6 +37,17 @@ export type InvestmentItem = {
   base_currency?: string | null;
   counter_amount?: number | string | null;
   counter_currency?: string | null;
+  payment_fee_amount?: number | string | null;
+  payments?: Array<{
+    id_investment_payment?: number;
+    amount: number | string;
+    payment_method: string;
+    account?: string | null;
+    payment_currency?: string | null;
+    fee_mode?: "FIXED" | "PERCENT" | null;
+    fee_value?: number | string | null;
+    fee_amount?: number | string | null;
+  }> | null;
 };
 
 type Props = {
@@ -120,6 +131,18 @@ function OperatorPaymentCard({ item, token }: Props) {
     item.counter_amount !== null &&
     item.counter_amount !== undefined &&
     !!item.counter_currency;
+  const paymentLines = Array.isArray(item.payments) ? item.payments : [];
+  const effectiveFeeTotal =
+    item.payment_fee_amount != null
+      ? Number(item.payment_fee_amount)
+      : paymentLines.reduce(
+          (sum, line) =>
+            sum +
+            (typeof line.fee_amount === "string"
+              ? Number(line.fee_amount)
+              : Number(line.fee_amount || 0)),
+          0,
+        );
 
   return (
     <div className="rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:bg-white/10 dark:text-white">
@@ -174,14 +197,19 @@ function OperatorPaymentCard({ item, token }: Props) {
         </span>
 
         {/* Método de pago / Cuenta (opcionales) */}
-        {item.payment_method && (
+        {item.payment_method && paymentLines.length === 0 && (
           <span>
             <b>Método:</b> {item.payment_method}
           </span>
         )}
-        {item.account && (
+        {item.account && paymentLines.length === 0 && (
           <span>
             <b>Cuenta:</b> {item.account}
+          </span>
+        )}
+        {effectiveFeeTotal > 0 && (
+          <span>
+            <b>Costo financiero:</b> {fmtMoney(effectiveFeeTotal, item.currency)}
           </span>
         )}
 
@@ -221,6 +249,35 @@ function OperatorPaymentCard({ item, token }: Props) {
           </span>
         )}
       </div>
+
+      {paymentLines.length > 0 && (
+        <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-3 text-xs">
+          <p className="mb-2 font-semibold">Pagos</p>
+          <div className="space-y-1">
+            {paymentLines.map((line, idx) => {
+              const lineAmount =
+                typeof line.amount === "string"
+                  ? Number(line.amount)
+                  : Number(line.amount || 0);
+              const lineCurrency = String(
+                line.payment_currency || item.currency || "ARS",
+              ).toUpperCase();
+              const lineFee =
+                typeof line.fee_amount === "string"
+                  ? Number(line.fee_amount)
+                  : Number(line.fee_amount || 0);
+              return (
+                <p key={`${line.id_investment_payment ?? idx}`}>
+                  #{idx + 1} {line.payment_method} -{" "}
+                  {fmtMoney(lineAmount, lineCurrency)}
+                  {line.account ? ` - ${line.account}` : " - sin cuenta"}
+                  {lineFee > 0 ? ` - CF ${fmtMoney(lineFee, lineCurrency)}` : ""}
+                </p>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

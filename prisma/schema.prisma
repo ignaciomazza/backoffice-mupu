@@ -955,6 +955,10 @@ model ReceiptPayment {
 
   payment_method_id Int
   account_id        Int?
+  payment_currency  String?
+  fee_mode          String?
+  fee_value         Decimal? @db.Decimal(18, 6)
+  fee_amount        Decimal? @db.Decimal(18, 2)
 
   receipt Receipt @relation(fields: [receipt_id], references: [id_receipt], onDelete: Cascade)
 
@@ -1082,6 +1086,7 @@ model Investment {
   paid_at                       DateTime?
   payment_method                String?
   account                       String?
+  payment_fee_amount            Decimal?                      @db.Decimal(18, 2)
   base_amount                   Decimal?                      @db.Decimal(18, 2)
   base_currency                 String?
   counter_amount                Decimal?                      @db.Decimal(18, 2)
@@ -1100,6 +1105,7 @@ model Investment {
   recurring_id                  Int?
   recurring                     RecurringInvestment?          @relation(fields: [recurring_id], references: [id_recurring], onDelete: SetNull)
   creditEntries                 CreditEntry[]
+  payments                      InvestmentPayment[]
   allocations                   InvestmentServiceAllocation[]
 
   @@unique([recurring_id, paid_at])
@@ -1109,6 +1115,22 @@ model Investment {
   @@index([paid_at])
   @@index([booking_id])
   @@index([recurring_id])
+}
+
+model InvestmentPayment {
+  id_investment_payment Int     @id @default(autoincrement())
+  investment_id         Int
+  amount                Decimal @db.Decimal(18, 2)
+  payment_method        String
+  account               String?
+  payment_currency      String
+  fee_mode              String?
+  fee_value             Decimal? @db.Decimal(18, 6)
+  fee_amount            Decimal? @db.Decimal(18, 2)
+
+  investment Investment @relation(fields: [investment_id], references: [id_investment], onDelete: Cascade)
+
+  @@index([investment_id])
 }
 
 model InvestmentServiceAllocation {

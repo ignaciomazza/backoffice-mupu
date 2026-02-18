@@ -241,6 +241,15 @@ export default function ReceiptStandaloneDocument(
     typeof paymentFeeAmount === "number" && Number.isFinite(paymentFeeAmount)
       ? paymentFeeAmount
       : 0;
+  const linesFeeTotal = payments.reduce(
+    (acc, p) =>
+      acc +
+      (typeof p.fee_amount === "number" && Number.isFinite(p.fee_amount)
+        ? p.fee_amount
+        : 0),
+    0,
+  );
+  const showLegacyGlobalFee = fee > 0 && linesFeeTotal <= 0.0001;
   const clientTotal = amount + fee;
   const displayAmount = safeFmtCurrency(clientTotal, displayCurrency);
   const amountStringLabel =
@@ -334,21 +343,35 @@ export default function ReceiptStandaloneDocument(
             <Text style={styles.label}>Pagos</Text>
             <View style={styles.list}>
               {payments.map((p, idx) => (
-                <View key={`${p.payment_method_id}-${idx}`} style={styles.payLine}>
-                  <Text style={styles.payLeft}>
-                    {softWrapLongWords(paymentLabel(p), {
-                      maxWordLen: 18,
-                      chunkLen: 10,
-                      breakChar: " ",
-                    })}
-                  </Text>
-                  <Text style={styles.payRight}>
-                    {safeFmtCurrency(p.amount, displayCurrency)}
-                  </Text>
+                <View key={`${p.payment_method_id}-${idx}`}>
+                  <View style={styles.payLine}>
+                    <Text style={styles.payLeft}>
+                      {softWrapLongWords(paymentLabel(p), {
+                        maxWordLen: 18,
+                        chunkLen: 10,
+                        breakChar: " ",
+                      })}
+                    </Text>
+                    <Text style={styles.payRight}>
+                      {safeFmtCurrency(
+                        p.amount,
+                        (p.payment_currency || displayCurrency || "ARS").toUpperCase(),
+                      )}
+                    </Text>
+                  </View>
+                  {typeof p.fee_amount === "number" && p.fee_amount > 0 ? (
+                    <Text style={styles.payMeta}>
+                      Costo financiero:{" "}
+                      {safeFmtCurrency(
+                        p.fee_amount,
+                        (p.payment_currency || displayCurrency || "ARS").toUpperCase(),
+                      )}
+                    </Text>
+                  ) : null}
                 </View>
               ))}
             </View>
-            {fee > 0 ? (
+            {showLegacyGlobalFee ? (
               <Text style={styles.payMeta}>
                 Costo financiero: {safeFmtCurrency(fee, displayCurrency)}
               </Text>
