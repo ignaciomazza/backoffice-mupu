@@ -144,6 +144,28 @@ const calcPaymentLineFee = (line: {
   return round2(Math.max(0, rawFeeValue));
 };
 
+const formatCurrencyMoney = (amount: number, currency: string) => {
+  try {
+    return new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${currency}`;
+  }
+};
+
+const formatCurrencyBreakdown = (totals: Record<string, number>) => {
+  const parts = Object.entries(totals)
+    .filter(([, value]) => Math.abs(value) > 0.000001)
+    .map(([currency, value]) =>
+      formatCurrencyMoney(round2(value), normalizeCurrencyCodeLoose(currency)),
+    );
+  return parts.length ? parts.join(" + ") : "";
+};
+
 export interface ReceiptFormProps {
   token: string | null;
 
@@ -370,13 +392,7 @@ export default function ReceiptForm({
     return normalized || todayInput();
   });
 
-  /* ===== Monto / moneda (total) ===== */
-  const [amountReceived, setAmountReceived] = useState<string>(
-    initialAmount != null ? String(initialAmount) : "",
-  );
-  const [feeAmount, setFeeAmount] = useState<string>(
-    initialFeeAmount != null ? String(initialFeeAmount) : "",
-  );
+  /* ===== Moneda base de referencia (cuando no hay pagos cargados) ===== */
 
   const [freeCurrency, setFreeCurrency] = useState<CurrencyCode>(
     initialCurrency || "ARS",
@@ -500,6 +516,54 @@ export default function ReceiptForm({
     return acc;
   }, [paymentLines]);
 
+  const paymentsAmountByCurrency = useMemo(() => {
+    const acc: Record<string, number> = {};
+    for (const line of paymentLines) {
+      const amount = parseAmountInput(line.amount) ?? 0;
+      if (amount <= 0) continue;
+      const currency = normalizeCurrencyCodeLoose(line.payment_currency);
+      acc[currency] = round2((acc[currency] || 0) + amount);
+    }
+    return acc;
+  }, [paymentLines]);
+
+  const paymentsFeeByCurrency = useMemo(() => {
+    const acc: Record<string, number> = {};
+    for (const line of paymentLines) {
+      const fee = paymentLineFeeByKey[line.key] ?? calcPaymentLineFee(line);
+      if (fee <= 0) continue;
+      const currency = normalizeCurrencyCodeLoose(line.payment_currency);
+      acc[currency] = round2((acc[currency] || 0) + fee);
+    }
+    return acc;
+  }, [paymentLines, paymentLineFeeByKey]);
+
+  const amountReceived = useMemo(
+    () => formatCurrencyBreakdown(paymentsAmountByCurrency),
+    [paymentsAmountByCurrency],
+  );
+
+  const feeAmount = useMemo(
+    () => formatCurrencyBreakdown(paymentsFeeByCurrency),
+    [paymentsFeeByCurrency],
+  );
+
+  const clientTotalByCurrency = useMemo(() => {
+    const acc: Record<string, number> = {};
+    const currencies = new Set([
+      ...Object.keys(paymentsAmountByCurrency),
+      ...Object.keys(paymentsFeeByCurrency),
+    ]);
+    for (const currency of currencies) {
+      const total =
+        (paymentsAmountByCurrency[currency] || 0) +
+        (paymentsFeeByCurrency[currency] || 0);
+      if (total <= 0) continue;
+      acc[currency] = round2(total);
+    }
+    return acc;
+  }, [paymentsAmountByCurrency, paymentsFeeByCurrency]);
+
   const paymentsFeeTotalNum = useMemo(() => {
     return round2(
       Object.values(paymentLineFeeByKey).reduce((acc, fee) => acc + fee, 0),
@@ -522,32 +586,6 @@ export default function ReceiptForm({
   const currencyOverride =
     lockedCurrency != null &&
     (hasMixedPaymentCurrencies || effectiveCurrency !== lockedCurrency);
-
-  useEffect(() => {
-    if (!paymentLines.length || paymentsTotalNum <= 0) {
-      setAmountReceived("");
-      return;
-    }
-    setAmountReceived(
-      paymentsTotalNum.toLocaleString("es-AR", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-    );
-  }, [paymentsTotalNum, paymentLines.length]);
-
-  useEffect(() => {
-    if (!paymentLines.length || paymentsFeeTotalNum <= 0) {
-      setFeeAmount("");
-      return;
-    }
-    setFeeAmount(
-      paymentsFeeTotalNum.toLocaleString("es-AR", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }),
-    );
-  }, [paymentLines.length, paymentsFeeTotalNum]);
 
   const addPaymentLine = () => {
     setPaymentLines((prev) => [
@@ -890,23 +928,23 @@ export default function ReceiptForm({
   };
 
   const clientTotal = useMemo(() => {
-    const base =
-      paymentsTotalNum > 0
-        ? paymentsTotalNum
-        : currencyOverride
-          ? null
-          : (suggestions?.base ?? null);
-    const fee =
-      (paymentsFeeTotalNum > 0 ? paymentsFeeTotalNum : null) ??
-      (currencyOverride ? null : suggestions?.fee ?? null);
+    const byPayments = formatCurrencyBreakdown(clientTotalByCurrency);
+    if (byPayments) return byPayments;
+    if (currencyOverride) return "";
+
+    const base = suggestions?.base ?? null;
+    const fee = suggestions?.fee ?? null;
     if (base === null && fee === null) return "";
     const total = (base ?? 0) + (fee ?? 0);
     if (!total || total <= 0) return "";
-    return total.toLocaleString("es-AR", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }, [paymentsTotalNum, paymentsFeeTotalNum, suggestions, currencyOverride]);
+    return formatCurrencyMoney(total, lockedCurrency || defaultCurrency || "ARS");
+  }, [
+    clientTotalByCurrency,
+    suggestions,
+    currencyOverride,
+    lockedCurrency,
+    defaultCurrency,
+  ]);
 
   /* ===== Detalle de pago para PDF ===== */
   const [paymentDescription, setPaymentDescriptionState] = useState(
@@ -1209,34 +1247,39 @@ export default function ReceiptForm({
 
   const currentPaidByCurrency = useMemo(() => {
     const acc: Record<string, number> = {};
-    const feeVal = paymentsFeeTotalNum;
-    const amountVal = paymentsTotalNum;
-    const amountCur = effectiveCurrency
-      ? normalizeCurrencyCode(effectiveCurrency)
-      : null;
-
     const baseVal = parseAmountInput(baseAmount);
     const baseCur = baseCurrency
       ? normalizeCurrencyCode(baseCurrency)
       : null;
 
     if (baseCur && baseVal != null && baseVal > 0) {
-      const val = baseVal + (amountCur === baseCur ? feeVal : 0);
-      if (val) acc[baseCur] = (acc[baseCur] || 0) + val;
-    } else if (amountCur && amountVal > 0) {
-      const val = amountVal + (feeVal > 0 ? feeVal : 0);
-      if (val) acc[amountCur] = (acc[amountCur] || 0) + val;
-    } else if (amountCur && feeVal > 0) {
-      acc[amountCur] = (acc[amountCur] || 0) + feeVal;
+      const feeInBaseCurrency = paymentsFeeByCurrency[baseCur] || 0;
+      const val = round2(baseVal + feeInBaseCurrency);
+      if (val > 0) acc[baseCur] = val;
+      return acc;
+    }
+
+    for (const line of paymentLines) {
+      const amountVal = parseAmountInput(line.amount) ?? 0;
+      if (amountVal <= 0) continue;
+      const lineCurrency = normalizeCurrencyCode(
+        line.payment_currency || effectiveCurrency || "ARS",
+      );
+      const lineFee =
+        paymentLineFeeByKey[line.key] ?? calcPaymentLineFee(line);
+      const totalLine = amountVal + Math.max(0, lineFee);
+      if (totalLine <= 0) continue;
+      acc[lineCurrency] = round2((acc[lineCurrency] || 0) + totalLine);
     }
 
     return acc;
   }, [
-    paymentsFeeTotalNum,
-    paymentsTotalNum,
-    effectiveCurrency,
     baseAmount,
     baseCurrency,
+    paymentLines,
+    paymentLineFeeByKey,
+    paymentsFeeByCurrency,
+    effectiveCurrency,
     normalizeCurrencyCode,
   ]);
 
@@ -1340,7 +1383,7 @@ export default function ReceiptForm({
 
   useEffect(() => {
     if (!currencyOverride) return;
-    setCounterCurrency(effectiveCurrency);
+    setCounterCurrency((prev) => prev || effectiveCurrency);
   }, [currencyOverride, effectiveCurrency]);
 
   /* ===== Attach search ===== */
@@ -1606,22 +1649,34 @@ export default function ReceiptForm({
 
     const baseAmountNum = parseAmountInput(baseAmount);
     const counterAmountNum = parseAmountInput(counterAmount);
+    const paymentCurrenciesForPayload = Array.from(
+      new Set(
+        normalizedPayments
+          .map((p) => normalizeCurrencyCodeLoose(p.payment_currency || "ARS"))
+          .filter(Boolean),
+      ),
+    );
+    const hasMixedPayments = paymentCurrenciesForPayload.length > 1;
     const baseAmountValid = baseAmountNum != null && baseAmountNum > 0;
     const counterAmountValid = counterAmountNum != null && counterAmountNum > 0;
     const baseReady = baseAmountValid && !!baseCurrency;
     const useConversion = currencyOverride && baseReady;
+    const payloadAmount =
+      hasMixedPayments && baseReady ? (baseAmountNum as number) : finalAmount;
+    const payloadAmountCurrency =
+      hasMixedPayments && baseReady ? (baseCurrency || effectiveCurrency) : effectiveCurrency;
 
     const payloadBaseAmount = baseReady ? baseAmountNum : undefined;
     const payloadBaseCurrency = baseReady ? baseCurrency || undefined : undefined;
 
     const payloadCounterAmount = counterAmountValid
       ? counterAmountNum
-      : useConversion
+      : useConversion && !hasMixedPayments
         ? finalAmount
         : undefined;
     const payloadCounterCurrency = counterAmountValid
       ? counterCurrency || undefined
-      : useConversion
+      : useConversion && !hasMixedPayments
         ? effectiveCurrency
         : undefined;
 
@@ -1635,9 +1690,9 @@ export default function ReceiptForm({
 
       issue_date: issueDate || undefined,
       concept: (concept ?? "").trim(),
-      amount: finalAmount,
+      amount: payloadAmount,
       amountString: amountWords.trim(),
-      amountCurrency: effectiveCurrency,
+      amountCurrency: payloadAmountCurrency,
 
       payment_fee_amount: paymentFeeForPayload,
 

@@ -263,19 +263,11 @@ export default function CreateReceiptFields(props: {
 
   const baseNum = parseAmountInput(baseAmount);
   const counterNum = parseAmountInput(counterAmount);
-  const paymentsNum = parseAmountInput(amountReceived);
-  const feeNum = parseAmountInput(feeAmount);
-  const clientTotalNum = parseAmountInput(clientTotal);
 
   const fmtMaybe = (raw: string, num: number | null, cur: string | null) => {
     if (num != null && cur) return formatNum(num, cur);
     if (raw && cur) return `${raw} ${cur}`;
     return "—";
-  };
-
-  const statValue = (raw: string, currency: string) => {
-    const parsed = parseAmountInput(raw);
-    return parsed != null ? formatNum(parsed, currency) : "—";
   };
 
   return (
@@ -351,7 +343,7 @@ export default function CreateReceiptFields(props: {
               Total cobrado
             </p>
             <p className="mt-1 text-sm font-semibold">
-              {statValue(amountReceived, effectiveCurrency)}
+              {amountReceived || "—"}
             </p>
             <p className="mt-1 text-[11px] text-sky-950/65 dark:text-white/65">
               Neto que entra a caja/banco.
@@ -363,7 +355,7 @@ export default function CreateReceiptFields(props: {
               Costo financiero
             </p>
             <p className="mt-1 text-sm font-semibold">
-              {feeNum != null ? formatNum(feeNum, effectiveCurrency) : "—"}
+              {feeAmount || "—"}
             </p>
             <p className="mt-1 text-[11px] text-sky-950/65 dark:text-white/65">
               Sumatoria de costos por pago.
@@ -375,9 +367,7 @@ export default function CreateReceiptFields(props: {
               Total cliente
             </p>
             <p className="mt-1 text-sm font-semibold">
-              {clientTotalNum != null
-                ? formatNum(clientTotalNum, effectiveCurrency)
-                : "—"}
+              {clientTotal || "—"}
             </p>
             <p className="mt-1 text-[11px] text-sky-950/65 dark:text-white/65">
               Cobro + costo financiero.
@@ -843,20 +833,30 @@ export default function CreateReceiptFields(props: {
                 <span className="font-medium">
                   Administración (entra al banco/caja):
                 </span>{" "}
-                {fmtMaybe(amountReceived, paymentsNum, effectiveCurrency)}
+                {amountReceived || "—"}
               </div>
               <div>
                 <span className="font-medium">Contravalor:</span>{" "}
-                {fmtMaybe(
-                  counterAmount || amountReceived,
-                  counterNum ?? paymentsNum,
-                  counterCurrency || effectiveCurrency,
-                )}
+                {counterAmount.trim()
+                  ? fmtMaybe(
+                      counterAmount,
+                      counterNum,
+                      counterCurrency || effectiveCurrency,
+                    )
+                  : hasMixedPaymentCurrencies
+                    ? "—"
+                    : amountReceived || "—"}
               </div>
             </div>
-            <p className="mt-2 text-[10px] opacity-70">
-              Si dejás contravalor vacío, se toma el total cobrado.
-            </p>
+            {hasMixedPaymentCurrencies ? (
+              <p className="mt-2 text-[10px] opacity-70">
+                Con cobro en múltiples monedas, cargá el contravalor manualmente.
+              </p>
+            ) : (
+              <p className="mt-2 text-[10px] opacity-70">
+                Si dejás contravalor vacío, se toma el total cobrado.
+              </p>
+            )}
           </div>
           <Field
             id="base"
