@@ -156,6 +156,11 @@ export default function ClientPaymentForm({
     return booking.titular?.id_client ?? null;
   }, [defaultClientId, bookingPaxOptions, booking.titular?.id_client]);
 
+  const clampDay = (value: number) =>
+    Math.max(1, Math.min(31, Math.trunc(value) || 1));
+
+  const todayDay = useMemo(() => clampDay(new Date().getDate()), []);
+
   // Cantidad de pagos
   const [count, setCount] = useState<number>(1);
 
@@ -173,7 +178,7 @@ export default function ClientPaymentForm({
   };
   const [dueDatesArray, setDueDatesArray] = useState<string[]>([""]);
   const [seedDate, setSeedDate] = useState<string>(mkTodayIso());
-  const [frequencyDays, setFrequencyDays] = useState<number>(30);
+  const [monthlyDueDay, setMonthlyDueDay] = useState<number>(todayDay);
 
   // Prefill de titular cuando se abre el form
   useEffect(() => {
@@ -221,6 +226,8 @@ export default function ClientPaymentForm({
   // UI
   const inputBase =
     "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
+  const stepperBtnBase =
+    "grid size-10 place-items-center rounded-full border border-white/20 bg-white/40 text-lg font-semibold shadow-sm shadow-sky-950/10 transition hover:bg-white/60 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white/10";
 
   const formatMoney = useCallback((n: number, cur = "ARS") => {
     const code = normalizeCurrencyCode(cur);
@@ -306,22 +313,56 @@ export default function ClientPaymentForm({
     return pills;
   }, [count, currency, totalPreview]);
 
-  const addDays = (iso: string, days: number) => {
-    const d = new Date(`${iso}T00:00:00`);
-    d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
+  const toIsoDate = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const parseIsoDate = (iso: string) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((iso || "").trim());
+    if (!m) return null;
+    const y = Number(m[1]);
+    const mon = Number(m[2]) - 1;
+    const day = Number(m[3]);
+    if (!Number.isFinite(y) || !Number.isFinite(mon) || !Number.isFinite(day)) {
+      return null;
+    }
+    return new Date(y, mon, day);
+  };
+
+  const dueDateByMonth = (seedIso: string, monthOffset: number, wantedDay: number) => {
+    const seed = parseIsoDate(seedIso);
+    if (!seed) return "";
+
+    const base = new Date(seed.getFullYear(), seed.getMonth() + monthOffset, 1);
+    const month = base.getMonth();
+    const year = base.getFullYear();
+    const monthMaxDay =
+      month === 1 ? 28 : new Date(year, month + 1, 0).getDate();
+    const finalDay = Math.min(clampDay(wantedDay), monthMaxDay);
+
+    return toIsoDate(new Date(year, month, finalDay));
   };
 
   const autofillDueDates = () => {
-    if (!seedDate || !Number.isFinite(frequencyDays) || frequencyDays <= 0) {
-      toast.error("Completá la fecha inicial y una frecuencia válida (> 0).");
+    if (!seedDate) {
+      toast.error("Completá la fecha inicial.");
       return;
     }
+
     const filled = Array.from({ length: count }, (_, i) =>
-      i === 0 ? seedDate : addDays(seedDate, i * frequencyDays),
+      i === 0 ? seedDate : dueDateByMonth(seedDate, i, monthlyDueDay),
     );
+
+    if (filled.some((d) => !d)) {
+      toast.error("No se pudieron calcular las fechas automáticamente.");
+      return;
+    }
+
     setDueDatesArray(filled);
-    toast.info("Fechas de vencimiento completadas.");
+    toast.info("Fechas mensuales completadas.");
   };
 
   const resetForm = () => {
@@ -334,7 +375,7 @@ export default function ClientPaymentForm({
     setCurrency("ARS");
     setDueDatesArray([""]);
     setSeedDate(mkTodayIso());
-    setFrequencyDays(30);
+    setMonthlyDueDay(todayDay);
   };
 
   const [loading, setLoading] = useState(false);
@@ -611,18 +652,44 @@ export default function ClientPaymentForm({
                 desc="Definí la cantidad de cuotas y cómo vas a repartir el importe."
               >
                 <Field id="payment_count" label="Cantidad de pagos" required>
-                  <input
-                    id="payment_count"
-                    type="number"
-                    min={1}
-                    step={1}
-                    className={inputBase}
-                    value={count}
-                    onChange={(e) =>
-                      setCount(Math.max(1, Number(e.target.value) || 1))
-                    }
-                    required
-                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className={stepperBtnBase}
+                      onClick={() => setCount((prev) => Math.max(1, prev - 1))}
+                      disabled={count <= 1}
+                      aria-label="Disminuir cantidad de pagos"
+                    >
+                      -
+                    </button>
+                    <input
+                      id="payment_count"
+                      type="number"
+                      min={1}
+                      step={1}
+                      className={`${inputBase} h-10 text-center text-sm font-semibold`}
+                      value={count}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === "") {
+                          setCount(1);
+                          return;
+                        }
+                        setCount(Math.max(1, Math.trunc(Number(raw) || 1)));
+                      }}
+                      onBlur={() => setCount((prev) => Math.max(1, Math.trunc(prev) || 1))}
+                      inputMode="numeric"
+                      required
+                    />
+                    <button
+                      type="button"
+                      className={stepperBtnBase}
+                      onClick={() => setCount((prev) => prev + 1)}
+                      aria-label="Aumentar cantidad de pagos"
+                    >
+                      +
+                    </button>
+                  </div>
                 </Field>
 
                 <div className="space-y-2 md:col-span-2">
@@ -769,7 +836,7 @@ export default function ClientPaymentForm({
 
               <Section
                 title="Vencimientos"
-                desc="Definí fechas manualmente o completalas con una frecuencia fija."
+                desc="Definí fechas manualmente o completalas por día fijo de cada mes."
               >
                 <div className="grid grid-cols-1 gap-4 md:col-span-2 md:grid-cols-3">
                   <Field id="seed_date" label="Fecha de la primera cuota">
@@ -781,20 +848,54 @@ export default function ClientPaymentForm({
                       onChange={(e) => setSeedDate(e.target.value)}
                     />
                   </Field>
-                  <Field id="frequency_days" label="Frecuencia (días)">
-                    <input
-                      id="frequency_days"
-                      type="number"
-                      min={1}
-                      step={1}
-                      className={inputBase}
-                      value={frequencyDays}
-                      onChange={(e) =>
-                        setFrequencyDays(
-                          Math.max(1, Number(e.target.value) || 1),
-                        )
-                      }
-                    />
+                  <Field
+                    id="monthly_due_day"
+                    label="Día de pago de cada mes"
+                    hint="Desde la cuota 2, si elegís 31 se ajusta al 30 y en febrero al 28."
+                  >
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className={stepperBtnBase}
+                        onClick={() =>
+                          setMonthlyDueDay((prev) => Math.max(1, prev - 1))
+                        }
+                        disabled={monthlyDueDay <= 1}
+                        aria-label="Disminuir día mensual de pago"
+                      >
+                        -
+                      </button>
+                      <input
+                        id="monthly_due_day"
+                        type="number"
+                        min={1}
+                        max={31}
+                        step={1}
+                        className={`${inputBase} h-10 text-center text-sm font-semibold`}
+                        value={monthlyDueDay}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          if (raw === "") {
+                            setMonthlyDueDay(1);
+                            return;
+                          }
+                          setMonthlyDueDay(clampDay(Number(raw)));
+                        }}
+                        onBlur={() => setMonthlyDueDay((prev) => clampDay(prev))}
+                        inputMode="numeric"
+                      />
+                      <button
+                        type="button"
+                        className={stepperBtnBase}
+                        onClick={() =>
+                          setMonthlyDueDay((prev) => Math.min(31, prev + 1))
+                        }
+                        disabled={monthlyDueDay >= 31}
+                        aria-label="Aumentar día mensual de pago"
+                      >
+                        +
+                      </button>
+                    </div>
                   </Field>
                   <div className="flex items-end">
                     <button
@@ -802,7 +903,7 @@ export default function ClientPaymentForm({
                       onClick={autofillDueDates}
                       className="w-full rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white"
                     >
-                      Autorellenar fechas
+                      Autorellenar mensual
                     </button>
                   </div>
                 </div>
