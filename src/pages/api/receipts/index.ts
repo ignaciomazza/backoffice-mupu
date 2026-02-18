@@ -257,6 +257,100 @@ const normalizeIdList = (value: unknown): number[] => {
   return Array.from(out);
 };
 
+const normalizeSaleTotals = (input: unknown): Record<string, number> => {
+  const out: Record<string, number> = {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return out;
+  const obj = input as Record<string, unknown>;
+  for (const [keyRaw, val] of Object.entries(obj)) {
+    const key = normalizeCurrency(keyRaw);
+    const n = typeof val === "number" ? val : Number(String(val).replace(",", "."));
+    if (Number.isFinite(n) && n >= 0) out[key] = n;
+  }
+  return out;
+};
+
+type ServiceDebtInput = {
+  id_service: number;
+  currency: string | null;
+  sale_price: number | string | Prisma.Decimal | null;
+  card_interest?: number | string | Prisma.Decimal | null;
+  taxableCardInterest?: number | string | Prisma.Decimal | null;
+  vatOnCardInterest?: number | string | Prisma.Decimal | null;
+};
+
+function buildSelectedServiceSalesByCurrency(args: {
+  selectedServiceIds: number[];
+  services: ServiceDebtInput[];
+  bookingSaleMode: boolean;
+  manualMode: boolean;
+  bookingSaleTotals: Record<string, number>;
+}): Record<string, number> {
+  const out: Record<string, number> = {};
+  const selectedSet = new Set(args.selectedServiceIds);
+  const add = (code: string, amount: number) => {
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    out[code] = round2((out[code] || 0) + amount);
+  };
+
+  if (args.bookingSaleMode) {
+    const saleTotalsByCurrencyFromServices: Record<string, number> = {};
+    const servicesByCurrency: Record<string, ServiceDebtInput[]> = {};
+
+    for (const svc of args.services) {
+      const code = normalizeCurrency(svc.currency || "ARS");
+      const sale = Math.max(0, toNum(svc.sale_price));
+      saleTotalsByCurrencyFromServices[code] = round2(
+        (saleTotalsByCurrencyFromServices[code] || 0) + sale,
+      );
+      servicesByCurrency[code] = [...(servicesByCurrency[code] || []), svc];
+    }
+
+    const saleTotalsByCurrency =
+      Object.keys(args.bookingSaleTotals).length > 0
+        ? args.bookingSaleTotals
+        : saleTotalsByCurrencyFromServices;
+
+    for (const [code, totalRaw] of Object.entries(saleTotalsByCurrency)) {
+      const total = Math.max(0, toNum(totalRaw));
+      if (total <= 0) continue;
+
+      const inCurrency = servicesByCurrency[code] || [];
+      if (inCurrency.length === 0) continue;
+
+      const weights = inCurrency.map((svc) => Math.max(0, toNum(svc.sale_price)));
+      const weightSum = weights.reduce((sum, value) => sum + value, 0);
+
+      inCurrency.forEach((svc, idx) => {
+        if (!selectedSet.has(svc.id_service)) return;
+        const share =
+          weightSum > 0 ? (total * weights[idx]) / weightSum : total / inCurrency.length;
+        add(code, share);
+      });
+    }
+
+    return out;
+  }
+
+  for (const svc of args.services) {
+    if (!selectedSet.has(svc.id_service)) continue;
+    const code = normalizeCurrency(svc.currency || "ARS");
+    const sale = Math.max(0, toNum(svc.sale_price));
+
+    if (args.manualMode) {
+      add(code, sale);
+      continue;
+    }
+
+    const splitInterest =
+      toNum(svc.taxableCardInterest) + toNum(svc.vatOnCardInterest);
+    const cardInterest = splitInterest > 0 ? splitInterest : toNum(svc.card_interest);
+    const serviceTotal = Math.max(0, sale + (Number.isFinite(cardInterest) ? cardInterest : 0));
+    add(code, serviceTotal);
+  }
+
+  return out;
+}
+
 type ReceiptDebtView = {
   serviceIds?: number[] | null;
   amount: number | string | Prisma.Decimal | null;
@@ -341,10 +435,22 @@ function normalizePaymentsFromReceipt(r: unknown): ReceiptPaymentOut[] {
 async function ensureBookingInAgency(
   bookingId: number,
   agencyId: number,
-): Promise<{ id_booking: number; id_agency: number; id_user: number }> {
+): Promise<{
+  id_booking: number;
+  id_agency: number;
+  id_user: number;
+  sale_totals: Prisma.JsonValue | null;
+  use_booking_sale_total_override: boolean | null;
+}> {
   const b = await prisma.booking.findUnique({
     where: { id_booking: bookingId },
-    select: { id_booking: true, id_agency: true, id_user: true },
+    select: {
+      id_booking: true,
+      id_agency: true,
+      id_user: true,
+      sale_totals: true,
+      use_booking_sale_total_override: true,
+    },
   });
 
   if (!b) throw new Error("La reserva no existe.");
@@ -986,7 +1092,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   try {
     // Si hay booking: validar pertenencia y servicios
     if (hasBooking) {
-      await ensureBookingInAgency(bookingId, authAgencyId);
+      const booking = await ensureBookingInAgency(bookingId, authAgencyId);
 
       if (normalizedServiceIds.length === 0) {
         return res.status(400).json({
@@ -995,8 +1101,27 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         });
       }
 
+      const calcConfig = await prisma.serviceCalcConfig.findUnique({
+        where: { id_agency: authAgencyId },
+        select: {
+          use_booking_sale_total: true,
+          billing_breakdown_mode: true,
+        },
+      });
+
+      const inheritedUseBookingSaleTotal = Boolean(calcConfig?.use_booking_sale_total);
+      const bookingSaleMode =
+        typeof booking.use_booking_sale_total_override === "boolean"
+          ? booking.use_booking_sale_total_override
+          : inheritedUseBookingSaleTotal;
+      const billingMode = String(calcConfig?.billing_breakdown_mode || "auto")
+        .trim()
+        .toLowerCase();
+      const manualMode = billingMode === "manual" || bookingSaleMode;
+      const bookingSaleTotals = normalizeSaleTotals(booking.sale_totals);
+
       const services = await prisma.service.findMany({
-        where: { id_service: { in: normalizedServiceIds }, booking_id: bookingId },
+        where: { booking_id: bookingId },
         select: {
           id_service: true,
           currency: true,
@@ -1006,6 +1131,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           vatOnCardInterest: true,
         },
       });
+
       const okServiceIds = new Set(services.map((s) => s.id_service));
       const badServices = normalizedServiceIds.filter((id) => !okServiceIds.has(id));
 
@@ -1015,20 +1141,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           .json({ error: "Algún servicio no pertenece a la reserva" });
       }
 
-      const salesByCurrency = services.reduce<Record<string, number>>(
-        (acc, svc) => {
-          const currencyCode = normalizeCurrency(svc.currency || "ARS");
-          const sale = toNum(svc.sale_price);
-          const splitInterest =
-            toNum(svc.taxableCardInterest) + toNum(svc.vatOnCardInterest);
-          const cardInterest = splitInterest > 0 ? splitInterest : toNum(svc.card_interest);
-          const serviceTotal = Math.max(0, sale + cardInterest);
-          if (serviceTotal <= 0) return acc;
-          acc[currencyCode] = round2((acc[currencyCode] || 0) + serviceTotal);
-          return acc;
-        },
-        {},
-      );
+      const salesByCurrency = buildSelectedServiceSalesByCurrency({
+        selectedServiceIds: normalizedServiceIds,
+        services,
+        bookingSaleMode,
+        manualMode,
+        bookingSaleTotals,
+      });
 
       const selectedServiceIdSet = new Set(normalizedServiceIds);
       const existingReceipts = await prisma.receipt.findMany({
