@@ -2323,13 +2323,13 @@ export default function GroupDetailPage() {
       setCollectLoadingError(null);
 
       const results = await Promise.allSettled([
-        requestGroupApi<FinanceBookingPayload>(
-          `/api/bookings/${bookingId}`,
+        requestGroupApi<{ booking?: FinanceBookingPayload }>(
+          `/api/groups/${encodeURIComponent(groupId)}/finance/context?bookingId=${bookingId}&passengerId=${passengerId}`,
           {
             credentials: "include",
             cache: "no-store",
           },
-          "No pudimos cargar la reserva del pasajero.",
+          "No pudimos cargar el contexto financiero del pasajero.",
         ),
         requestGroupApi<{ receipts?: Receipt[] }>(
           `/api/groups/${encodeURIComponent(groupId)}/finance/receipts?passengerId=${passengerId}`,
@@ -2356,7 +2356,7 @@ export default function GroupDetailPage() {
 
       const bookingResult = results[0];
       if (bookingResult.status === "fulfilled") {
-        setCollectBooking(bookingResult.value);
+        setCollectBooking(bookingResult.value.booking ?? null);
       } else {
         setCollectBooking(null);
         errors.push(
@@ -2458,8 +2458,8 @@ export default function GroupDetailPage() {
       const scopeParam = encodeURIComponent(reservation.key);
 
       const [bookingResult, operatorDuesResult] = await Promise.allSettled([
-        requestGroupApi<FinanceBookingPayload>(
-          `/api/bookings/${reservation.primaryBookingId}`,
+        requestGroupApi<{ booking?: FinanceBookingPayload }>(
+          `/api/groups/${encodeURIComponent(groupId)}/finance/context?scope=${scopeParam}`,
           {
             credentials: "include",
             cache: "no-store",
@@ -2477,7 +2477,7 @@ export default function GroupDetailPage() {
       ]);
 
       if (bookingResult.status === "fulfilled") {
-        setPaymentsBooking(bookingResult.value);
+        setPaymentsBooking(bookingResult.value.booking ?? null);
       } else {
         setPaymentsBooking(null);
         errors.push(
@@ -2530,8 +2530,8 @@ export default function GroupDetailPage() {
       const errors: string[] = [];
 
       const bookingResult = await Promise.allSettled([
-        requestGroupApi<FinanceBookingPayload>(
-          `/api/bookings/${reservation.primaryBookingId}`,
+        requestGroupApi<{ booking?: FinanceBookingPayload }>(
+          `/api/groups/${encodeURIComponent(groupId)}/finance/context?scope=${encodeURIComponent(reservation.key)}`,
           {
             credentials: "include",
             cache: "no-store",
@@ -2541,7 +2541,7 @@ export default function GroupDetailPage() {
       ]);
 
       if (bookingResult[0]?.status === "fulfilled") {
-        setFinanceBooking(bookingResult[0].value);
+        setFinanceBooking(bookingResult[0].value.booking ?? null);
       } else {
         setFinanceBooking(null);
         errors.push(
@@ -5888,6 +5888,11 @@ export default function GroupDetailPage() {
                       ) : (
                         <GroupReceiptForm
                           token={token}
+                          groupId={groupId}
+                          groupPassengerId={
+                            selectedCollectPassenger.id_travel_group_passenger
+                          }
+                          requireServiceSelection={false}
                           editingReceiptId={
                             editingCollectReceipt?.id_receipt ?? null
                           }
@@ -5980,18 +5985,20 @@ export default function GroupDetailPage() {
                               }));
                             }
                             const payload =
-                              await requestGroupApi<FinanceBookingPayload>(
-                                `/api/bookings/${bookingId}`,
+                              await requestGroupApi<{
+                                booking?: FinanceBookingPayload;
+                              }>(
+                                `/api/groups/${encodeURIComponent(groupId)}/finance/context?bookingId=${bookingId}`,
                                 {
                                   credentials: "include",
                                   cache: "no-store",
                                 },
-                                "No pudimos cargar servicios de la reserva para el recibo.",
+                                "No pudimos cargar servicios del contexto financiero.",
                               );
                             const remoteServices = Array.isArray(
-                              payload.services,
+                              payload.booking?.services,
                             )
-                              ? payload.services
+                              ? payload.booking?.services
                               : [];
                             return remoteServices.map((service) => ({
                               id_service: service.id_service,

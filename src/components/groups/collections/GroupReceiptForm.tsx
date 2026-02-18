@@ -112,6 +112,9 @@ const toInputDate = (value?: string | null) => {
 
 export interface ReceiptFormProps {
   token: string | null;
+  groupId?: string;
+  groupPassengerId?: number | null;
+  requireServiceSelection?: boolean;
 
   editingReceiptId?: number | null;
   isFormVisible?: boolean;
@@ -166,6 +169,9 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 export default function GroupReceiptForm({
   token,
+  groupId,
+  groupPassengerId = null,
+  requireServiceSelection = true,
   editingReceiptId = null,
   isFormVisible,
   setIsFormVisible,
@@ -960,6 +966,11 @@ export default function GroupReceiptForm({
       setBookingReceiptsLoaded(false);
       return;
     }
+    if (groupId && !groupPassengerId) {
+      setBookingReceipts([]);
+      setBookingReceiptsLoaded(true);
+      return;
+    }
 
     const ac = new AbortController();
     let alive = true;
@@ -967,8 +978,12 @@ export default function GroupReceiptForm({
 
     (async () => {
       try {
+        const useGroupReceipts = Boolean(groupId && groupPassengerId);
+        const endpoint = useGroupReceipts
+          ? `/api/groups/${encodeURIComponent(groupId as string)}/finance/receipts?passengerId=${groupPassengerId}`
+          : `/api/receipts?bookingId=${selectedBookingId}`;
         const res = await authFetch(
-          `/api/receipts?bookingId=${selectedBookingId}`,
+          endpoint,
           { cache: "no-store", signal: ac.signal },
           token,
         );
@@ -987,7 +1002,7 @@ export default function GroupReceiptForm({
       alive = false;
       ac.abort();
     };
-  }, [token, selectedBookingId, mode]);
+  }, [groupId, groupPassengerId, mode, selectedBookingId, token]);
 
   const relevantReceipts = useMemo(() => {
     if (!bookingReceipts.length || !selectedServiceIds.length) return [];
@@ -1214,7 +1229,7 @@ export default function GroupReceiptForm({
 
     if (mode === "booking") {
       if (!selectedBookingId) e.booking = "Elegí una reserva.";
-      if (selectedServiceIds.length === 0)
+      if (requireServiceSelection && selectedServiceIds.length === 0)
         e.services = "Seleccioná al menos un servicio.";
     }
 
@@ -1303,7 +1318,7 @@ export default function GroupReceiptForm({
     const e: Record<string, string> = {};
     if (!selectedReceiptId) e.receipt = "Elegí un recibo.";
     if (!selectedBookingId) e.booking = "Elegí una reserva.";
-    if (selectedServiceIds.length === 0)
+    if (requireServiceSelection && selectedServiceIds.length === 0)
       e.services = "Seleccioná al menos un servicio.";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -1435,6 +1450,7 @@ export default function GroupReceiptForm({
       : useConversion
         ? effectiveCurrency
         : undefined;
+    const normalizedConcept = (concept ?? "").trim() || "Cobro de grupal";
 
     const apiBody: ReceiptPayload = {
       ...(mode === "booking" && selectedBookingId
@@ -1445,7 +1461,7 @@ export default function GroupReceiptForm({
         : {}),
 
       issue_date: issueDate || undefined,
-      concept: (concept ?? "").trim(),
+      concept: normalizedConcept,
       amount: finalAmount,
       amountString: amountWords.trim(),
       amountCurrency: effectiveCurrency,
@@ -1639,6 +1655,7 @@ export default function GroupReceiptForm({
                 attachEnabled={attachEnabled}
                 action={action}
                 setAction={setAction}
+                requireServiceSelection={requireServiceSelection}
                 canToggleAgency={canToggleAgency}
                 mode={mode}
                 setMode={setMode}

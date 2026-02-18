@@ -75,15 +75,9 @@ async function handlePatch(req: NextApiRequest, res: NextApiResponse) {
     serviceIds?: unknown;
   };
 
-  const concept =
-    typeof body.concept === "string" && body.concept.trim()
-      ? body.concept.trim().slice(0, 300)
-      : null;
-  if (!concept) {
-    return groupApiError(res, 400, "El concepto del recibo es obligatorio.", {
-      code: "GROUP_FINANCE_CONCEPT_REQUIRED",
-    });
-  }
+  const conceptRaw =
+    typeof body.concept === "string" ? body.concept.trim().slice(0, 300) : "";
+  const concept = conceptRaw || "Cobro de grupal";
 
   const amount = toDecimal(Number(body.amount)).toDecimalPlaces(2);
   if (amount.lte(0)) {
@@ -213,4 +207,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.setHeader("Allow", ["PATCH", "DELETE"]);
   return res.status(405).end(`Method ${req.method} Not Allowed`);
 }
-

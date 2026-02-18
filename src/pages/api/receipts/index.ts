@@ -271,24 +271,26 @@ function addReceiptToPaidByCurrency(
   receipt: ReceiptDebtView,
 ) {
   const amountCurrency = normalizeCurrency(receipt.amount_currency || "ARS");
-  const amountValue = toNum(receipt.amount ?? 0);
-  const feeValue = Math.max(0, toNum(receipt.payment_fee_amount ?? 0));
+  const parsedAmount = toNum(receipt.amount ?? 0);
+  const parsedFee = toNum(receipt.payment_fee_amount ?? 0);
+  const parsedBase = toNum(receipt.base_amount ?? 0);
+  const amountValue = Number.isFinite(parsedAmount) ? parsedAmount : 0;
+  const feeValue = Number.isFinite(parsedFee) ? parsedFee : 0;
+  const baseValue = Number.isFinite(parsedBase) ? parsedBase : 0;
   const baseCurrency = receipt.base_currency
     ? normalizeCurrency(receipt.base_currency)
     : null;
-  const baseValue = toNum(receipt.base_amount ?? 0);
 
-  if (baseCurrency && Number.isFinite(baseValue) && baseValue > 0) {
-    const credited =
-      baseValue + (baseCurrency === amountCurrency ? feeValue : 0);
-    if (credited > 0) {
-      target[baseCurrency] = round2((target[baseCurrency] || 0) + credited);
-    }
+  // Respetar signo para contemplar ajustes/reversiones de recibos históricos.
+  if (baseCurrency && Math.abs(baseValue) > DEBT_TOLERANCE) {
+    const credited = baseValue + (baseCurrency === amountCurrency ? feeValue : 0);
+    if (Math.abs(credited) <= DEBT_TOLERANCE) return;
+    target[baseCurrency] = round2((target[baseCurrency] || 0) + credited);
     return;
   }
 
-  const credited = Math.max(0, amountValue) + feeValue;
-  if (credited <= 0) return;
+  const credited = amountValue + feeValue;
+  if (Math.abs(credited) <= DEBT_TOLERANCE) return;
   target[amountCurrency] = round2((target[amountCurrency] || 0) + credited);
 }
 

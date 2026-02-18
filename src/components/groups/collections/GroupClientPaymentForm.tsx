@@ -144,6 +144,23 @@ export default function GroupClientPaymentForm({
     return Array.from(unique.values());
   }, [booking.titular, booking.clients]);
 
+  const lockedPayerOption = useMemo(() => {
+    if (!lockClient) return null;
+    const raw = Number(defaultClientId);
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    const normalized = Math.trunc(raw);
+    if (bookingPaxOptions.some((opt) => opt.id === normalized)) return null;
+    return {
+      id: normalized,
+      label: `Pax bloqueado · N° ${normalized}`,
+    };
+  }, [bookingPaxOptions, defaultClientId, lockClient]);
+
+  const payerOptions = useMemo(() => {
+    if (!lockedPayerOption) return bookingPaxOptions;
+    return [lockedPayerOption, ...bookingPaxOptions];
+  }, [bookingPaxOptions, lockedPayerOption]);
+
   const bookingServiceOptions = useMemo(() => {
     const services = Array.isArray(booking.services) ? booking.services : [];
     return services.map((svc) => {
@@ -157,12 +174,17 @@ export default function GroupClientPaymentForm({
     const raw = Number(defaultClientId);
     if (Number.isFinite(raw) && raw > 0) {
       const normalized = Math.trunc(raw);
-      if (bookingPaxOptions.some((opt) => opt.id === normalized)) {
+      if (lockClient || bookingPaxOptions.some((opt) => opt.id === normalized)) {
         return normalized;
       }
     }
     return booking.titular?.id_client ?? null;
-  }, [defaultClientId, bookingPaxOptions, booking.titular?.id_client]);
+  }, [
+    defaultClientId,
+    bookingPaxOptions,
+    booking.titular?.id_client,
+    lockClient,
+  ]);
 
   // Cantidad de pagos
   const [count, setCount] = useState<number>(1);
@@ -201,12 +223,13 @@ export default function GroupClientPaymentForm({
   }, [lockClient, normalizedDefaultClientId]);
 
   useEffect(() => {
+    if (lockClient) return;
     if (payerClientId == null) return;
     const exists = bookingPaxOptions.some((opt) => opt.id === payerClientId);
     if (!exists) {
       setPayerClientId(normalizedDefaultClientId);
     }
-  }, [payerClientId, bookingPaxOptions, normalizedDefaultClientId]);
+  }, [payerClientId, bookingPaxOptions, normalizedDefaultClientId, lockClient]);
 
   useEffect(() => {
     if (serviceId == null) return;
@@ -368,7 +391,7 @@ export default function GroupClientPaymentForm({
       toast.error("Seleccioná el pax que paga.");
       return;
     }
-    if (!bookingPaxOptions.some((opt) => opt.id === payerClientId)) {
+    if (!lockClient && !bookingPaxOptions.some((opt) => opt.id === payerClientId)) {
       toast.error("El pax seleccionado no pertenece a la reserva.");
       return;
     }
@@ -442,18 +465,20 @@ export default function GroupClientPaymentForm({
         dueDates: cleanedDueDates,
         ...(perInstallmentAmounts ? { amounts: perInstallmentAmounts } : {}),
       };
-      if (groupPassengerId && groupPassengerId > 0) {
-        payload.passengerId = Number(groupPassengerId);
-      }
-      if (groupDepartureId && groupDepartureId > 0) {
-        payload.departureId = Number(groupDepartureId);
-      }
 
-      const endpoint =
-        groupId && groupPassengerId
-          ? `/api/groups/${encodeURIComponent(groupId)}/finance/client-payments`
-          : "/api/client-payments";
-      if (!groupId || !groupPassengerId) {
+      let endpoint = "/api/client-payments";
+      if (groupId) {
+        if (!groupPassengerId || groupPassengerId <= 0) {
+          toast.error("No se pudo identificar el pasajero de la grupal.");
+          setLoading(false);
+          return;
+        }
+        endpoint = `/api/groups/${encodeURIComponent(groupId)}/finance/client-payments`;
+        payload.passengerId = Number(groupPassengerId);
+        if (groupDepartureId && groupDepartureId > 0) {
+          payload.departureId = Number(groupDepartureId);
+        }
+      } else {
         payload.bookingId = booking.id_booking;
       }
       const res = await authFetch(
@@ -595,7 +620,7 @@ export default function GroupClientPaymentForm({
                     <option value="">
                       {lockClient ? "Pasajero bloqueado" : "Seleccionar pax..."}
                     </option>
-                    {bookingPaxOptions.map((opt) => (
+                    {payerOptions.map((opt) => (
                       <option key={opt.id} value={opt.id}>
                         {opt.label}
                       </option>

@@ -13,6 +13,7 @@ export default function GroupContextSection(props: {
   attachEnabled: boolean;
   action: Action;
   setAction: (a: Action) => void;
+  requireServiceSelection: boolean;
 
   canToggleAgency: boolean;
   mode: Mode;
@@ -45,6 +46,7 @@ export default function GroupContextSection(props: {
     attachEnabled,
     action,
     setAction,
+    requireServiceSelection,
 
     canToggleAgency,
     mode,
@@ -116,8 +118,12 @@ export default function GroupContextSection(props: {
         title="Contexto"
         desc={
           action === "attach"
-            ? "Elegí la reserva y los servicios a los que querés asociar el recibo."
-            : "Podés asociarlo a una reserva y elegir servicios, o crearlo como recibo de agencia."
+            ? requireServiceSelection
+              ? "Elegí la reserva y los servicios a los que querés asociar el recibo."
+              : "Elegí la reserva y, si aplica, los servicios a los que querés asociar el recibo."
+            : requireServiceSelection
+              ? "Podés asociarlo a una reserva y elegir servicios, o crearlo como recibo de agencia."
+              : "Podés asociarlo a una reserva y elegir servicios de forma opcional, o crearlo como recibo de agencia."
         }
       >
         {canToggleAgency && (
@@ -213,7 +219,9 @@ export default function GroupContextSection(props: {
                   </div>
                 ) : services.length === 0 ? (
                   <p className="text-[13px] text-slate-600 dark:text-slate-400 md:text-sm">
-                    No hay servicios para esta reserva.
+                    {requireServiceSelection
+                      ? "No hay servicios para esta reserva."
+                      : "No hay servicios para esta reserva. Podés continuar igual."}
                   </p>
                 ) : (
                   <div className="space-y-2">
