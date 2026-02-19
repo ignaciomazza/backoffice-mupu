@@ -159,10 +159,10 @@ export default async function handler(
   }
 
   try {
-    const hasCategoryColumn = await hasSchemaColumn(
-      "OtherIncome",
-      "category_id",
-    );
+    const [hasCategoryColumn, hasOperatorColumn] = await Promise.all([
+      hasSchemaColumn("OtherIncome", "category_id"),
+      hasSchemaColumn("OtherIncome", "operator_id"),
+    ]);
 
     const currency =
       typeof req.query.currency === "string"
@@ -273,6 +273,15 @@ export default async function handler(
         { counterparty_name: { contains: q, mode: "insensitive" } },
         { receipt_to: { contains: q, mode: "insensitive" } },
         { reference_note: { contains: q, mode: "insensitive" } },
+        ...(hasOperatorColumn
+          ? [
+              {
+                operator: {
+                  is: { name: { contains: q, mode: "insensitive" } },
+                },
+              } as Prisma.OtherIncomeWhereInput,
+            ]
+          : []),
         ...(hasCategoryColumn
           ? [
               {

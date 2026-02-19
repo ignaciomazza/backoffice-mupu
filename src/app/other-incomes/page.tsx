@@ -47,6 +47,12 @@ type OtherIncomeItem = {
     name: string;
     enabled?: boolean;
   } | null;
+  operator_id?: number | null;
+  operator?: {
+    id_operator: number;
+    agency_operator_id?: number | null;
+    name: string;
+  } | null;
   counterparty_type?: string | null;
   counterparty_name?: string | null;
   receipt_to?: string | null;
@@ -86,6 +92,7 @@ type FinancePickBundle = {
     name: string;
     enabled: boolean;
     scope: "INVESTMENT" | "OTHER_INCOME";
+    requires_operator?: boolean;
   }[];
   paymentMethods: {
     id_method: number;
@@ -108,6 +115,12 @@ type GroupedMonth = {
   label: string;
   items: OtherIncomeItem[];
   totals: Record<string, number>;
+};
+
+type OperatorOption = {
+  id_operator: number;
+  agency_operator_id?: number | null;
+  name: string;
 };
 
 const emptyLine = (): PaymentFormLine => ({
@@ -267,6 +280,12 @@ const formatMonthLabel = (key: string) => {
 };
 
 const textOrEmpty = (v?: string | null) => String(v || "").trim();
+const normSoft = (v?: string | null) =>
+  String(v || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim()
+    .toLowerCase();
 
 const getIncomeCounterparty = (item: OtherIncomeItem) => {
   const name = textOrEmpty(item.counterparty_name);
@@ -275,10 +294,24 @@ const getIncomeCounterparty = (item: OtherIncomeItem) => {
   return name || receiptTo || legacyType;
 };
 
+const getIncomeOperatorLabel = (
+  item: OtherIncomeItem,
+  operatorMap: Map<number, OperatorOption>,
+) => {
+  const directName = textOrEmpty(item.operator?.name);
+  if (directName) return directName;
+  const id = Number(item.operator_id ?? 0);
+  if (!Number.isFinite(id) || id <= 0) return "";
+  const fallback = operatorMap.get(Math.trunc(id));
+  if (fallback?.name) return fallback.name;
+  return `Operador N° ${Math.trunc(id)}`;
+};
+
 export default function OtherIncomesPage() {
   const { token } = useAuth() as { token?: string | null };
 
   const [finance, setFinance] = useState<FinancePickBundle | null>(null);
+  const [operators, setOperators] = useState<OperatorOption[]>([]);
   const [items, setItems] = useState<OtherIncomeItem[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -296,6 +329,7 @@ export default function OtherIncomesPage() {
   const [form, setForm] = useState(() => ({
     description: "",
     category_id: "",
+    operator_id: "",
     counterparty_name: "",
     reference_note: "",
     currency: "ARS",
@@ -308,6 +342,7 @@ export default function OtherIncomesPage() {
   const [editForm, setEditForm] = useState(() => ({
     description: "",
     category_id: "",
+    operator_id: "",
     counterparty_name: "",
     reference_note: "",
     currency: "ARS",
@@ -320,7 +355,37 @@ export default function OtherIncomesPage() {
     if (!token) return;
     (async () => {
       try {
-        const picks = await loadFinancePicks(token);
+        const [picks, operatorsRes] = await Promise.all([
+          loadFinancePicks(token),
+          authFetch("/api/operators", { cache: "no-store" }, token).catch(
+            () => null,
+          ),
+        ]);
+
+        const parsedOperators: OperatorOption[] = [];
+        if (operatorsRes?.ok) {
+          const raw = (await operatorsRes.json().catch(() => null)) as unknown;
+          if (Array.isArray(raw)) {
+            for (const op of raw) {
+              if (!op || typeof op !== "object") continue;
+              const rec = op as Record<string, unknown>;
+              const id = Number(rec.id_operator);
+              const name = String(rec.name ?? "").trim();
+              if (!Number.isFinite(id) || id <= 0 || !name) continue;
+              const agencyOperatorId = Number(rec.agency_operator_id);
+              parsedOperators.push({
+                id_operator: Math.trunc(id),
+                agency_operator_id:
+                  Number.isFinite(agencyOperatorId) && agencyOperatorId > 0
+                    ? Math.trunc(agencyOperatorId)
+                    : null,
+                name,
+              });
+            }
+          }
+        }
+
+        setOperators(parsedOperators);
         setFinance({
           currencies: picks.currencies.map((c) => ({
             code: c.code,
@@ -337,6 +402,7 @@ export default function OtherIncomesPage() {
             name: c.name,
             enabled: c.enabled,
             scope: c.scope,
+            requires_operator: c.requires_operator,
           })),
           paymentMethods: picks.paymentMethods.map((m) => ({
             id_method: m.id_method,
@@ -347,6 +413,7 @@ export default function OtherIncomesPage() {
         });
       } catch {
         setFinance(null);
+        setOperators([]);
       }
     })();
   }, [token]);
@@ -381,6 +448,44 @@ export default function OtherIncomesPage() {
     return (finance?.categories || []).filter((c) => c.scope === "OTHER_INCOME");
   }, [finance?.categories]);
 
+  const categoryById = useMemo(() => {
+    const map = new Map<number, (typeof categoryOptions)[number]>();
+    for (const category of categoryOptions) {
+      map.set(category.id_category, category);
+    }
+    return map;
+  }, [categoryOptions]);
+
+  const operatorMap = useMemo(() => {
+    const map = new Map<number, OperatorOption>();
+    for (const operator of operators) {
+      map.set(operator.id_operator, operator);
+    }
+    return map;
+  }, [operators]);
+
+  const categoryRequiresOperator = useCallback(
+    (rawCategoryId?: string | null) => {
+      const id = Number(rawCategoryId);
+      if (!Number.isFinite(id) || id <= 0) return false;
+      const category = categoryById.get(Math.trunc(id));
+      if (!category) return false;
+      if (category.requires_operator) return true;
+      return normSoft(category.name).startsWith("operador");
+    },
+    [categoryById],
+  );
+
+  const formCategoryRequiresOperator = useMemo(
+    () => categoryRequiresOperator(form.category_id),
+    [categoryRequiresOperator, form.category_id],
+  );
+
+  const editCategoryRequiresOperator = useMemo(
+    () => categoryRequiresOperator(editForm.category_id),
+    [categoryRequiresOperator, editForm.category_id],
+  );
+
   const currencyOptions = useMemo(() => {
     const enabled = finance?.currencies?.filter((c) => c.enabled) ?? [];
     if (enabled.length === 0) return ["ARS", "USD"];
@@ -396,6 +501,16 @@ export default function OtherIncomesPage() {
       setEditForm((prev) => ({ ...prev, currency: currencyOptions[0] }));
     }
   }, [currencyOptions, form.currency, editForm.currency]);
+
+  useEffect(() => {
+    if (formCategoryRequiresOperator || !form.operator_id) return;
+    setForm((prev) => ({ ...prev, operator_id: "" }));
+  }, [formCategoryRequiresOperator, form.operator_id]);
+
+  useEffect(() => {
+    if (editCategoryRequiresOperator || !editForm.operator_id) return;
+    setEditForm((prev) => ({ ...prev, operator_id: "" }));
+  }, [editCategoryRequiresOperator, editForm.operator_id]);
 
   const totalAmount = useMemo(() => {
     return form.payments.reduce((acc, line) => acc + toNumber(line.amount), 0);
@@ -570,6 +685,12 @@ export default function OtherIncomesPage() {
       toast.error("La descripción es obligatoria.");
       return;
     }
+    if (formCategoryRequiresOperator && !form.operator_id) {
+      toast.error(
+        "Para categorías vinculadas a operadores, seleccioná un operador.",
+      );
+      return;
+    }
 
     const normalizedPayments = form.payments
       .map((line) => ({
@@ -593,6 +714,10 @@ export default function OtherIncomesPage() {
     const payload = {
       description: form.description.trim(),
       category_id: form.category_id ? Number(form.category_id) : undefined,
+      operator_id:
+        formCategoryRequiresOperator && form.operator_id
+          ? Number(form.operator_id)
+          : undefined,
       counterparty_name: form.counterparty_name.trim() || undefined,
       receipt_to: form.counterparty_name.trim() || undefined,
       reference_note: form.reference_note.trim() || undefined,
@@ -627,6 +752,7 @@ export default function OtherIncomesPage() {
       setForm({
         description: "",
         category_id: form.category_id,
+        operator_id: formCategoryRequiresOperator ? form.operator_id : "",
         counterparty_name: "",
         reference_note: "",
         currency: form.currency,
@@ -658,6 +784,10 @@ export default function OtherIncomesPage() {
         item.category_id != null && Number.isFinite(Number(item.category_id))
           ? String(item.category_id)
           : "",
+      operator_id:
+        item.operator_id != null && Number.isFinite(Number(item.operator_id))
+          ? String(item.operator_id)
+          : "",
       counterparty_name: item.counterparty_name || item.receipt_to || "",
       reference_note: item.reference_note || "",
       currency: item.currency || "ARS",
@@ -686,6 +816,12 @@ export default function OtherIncomesPage() {
       toast.error("La descripción es obligatoria.");
       return;
     }
+    if (editCategoryRequiresOperator && !editForm.operator_id) {
+      toast.error(
+        "Para categorías vinculadas a operadores, seleccioná un operador.",
+      );
+      return;
+    }
 
     const normalizedPayments = editForm.payments
       .map((line) => ({
@@ -709,6 +845,10 @@ export default function OtherIncomesPage() {
     const payload = {
       description: editForm.description.trim(),
       category_id: editForm.category_id ? Number(editForm.category_id) : null,
+      operator_id:
+        editCategoryRequiresOperator && editForm.operator_id
+          ? Number(editForm.operator_id)
+          : null,
       counterparty_name: editForm.counterparty_name.trim() || null,
       receipt_to: editForm.counterparty_name.trim() || null,
       counterparty_type: null,
@@ -793,6 +933,7 @@ export default function OtherIncomesPage() {
         "N°",
         "Concepto",
         "Categoría",
+        "Operador",
         "Quién paga",
         "Nota interna",
         "Moneda",
@@ -823,6 +964,7 @@ export default function OtherIncomesPage() {
             (row.category_id
               ? (categoryMap.get(row.category_id) ?? `ID ${row.category_id}`)
               : "");
+          const operatorLabel = getIncomeOperatorLabel(row, operatorMap);
           const paymentsLabel = payments
             .map((p) => {
               const method =
@@ -840,6 +982,7 @@ export default function OtherIncomesPage() {
             String(row.agency_other_income_id ?? row.id_other_income),
             row.description,
             categoryLabel,
+            operatorLabel,
             counterparty,
             textOrEmpty(row.reference_note),
             row.currency,
@@ -1419,7 +1562,7 @@ export default function OtherIncomesPage() {
                     className="space-y-5 px-4 pb-6 pt-4 md:px-6"
                     onSubmit={handleSubmit}
                   >
-                    <div className="grid gap-3 md:grid-cols-3">
+                    <div className="grid gap-3 md:grid-cols-4">
                       <label className="flex flex-col gap-1 text-sm">
                         Concepto del ingreso
                         <input
@@ -1471,6 +1614,35 @@ export default function OtherIncomesPage() {
                           ))}
                         </select>
                       </label>
+                      {formCategoryRequiresOperator && (
+                        <label className="flex flex-col gap-1 text-sm">
+                          Operador
+                          <select
+                            className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
+                            value={form.operator_id}
+                            onChange={(e) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                operator_id: e.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">
+                              {operators.length
+                                ? "Seleccionar operador..."
+                                : "Sin operadores"}
+                            </option>
+                            {operators.map((op) => (
+                              <option
+                                key={op.id_operator}
+                                value={String(op.id_operator)}
+                              >
+                                {op.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
                     </div>
 
                     <div className="flex flex-col gap-3">
@@ -1765,6 +1937,11 @@ export default function OtherIncomesPage() {
                                   : "Sin categoría")}
                             </div>
                           )}
+                          {getIncomeOperatorLabel(item, operatorMap) && (
+                            <div className="text-xs text-zinc-500">
+                              Operador: {getIncomeOperatorLabel(item, operatorMap)}
+                            </div>
+                          )}
                           {getIncomeCounterparty(item) && (
                             <div className="text-xs text-zinc-500">
                               Quién paga: {getIncomeCounterparty(item)}
@@ -1877,6 +2054,11 @@ export default function OtherIncomesPage() {
                                     : "Sin categoría")}
                               </div>
                             )}
+                            {getIncomeOperatorLabel(item, operatorMap) && (
+                              <div className="text-xs text-zinc-500">
+                                Operador: {getIncomeOperatorLabel(item, operatorMap)}
+                              </div>
+                            )}
                             {getIncomeCounterparty(item) && (
                               <div className="text-xs text-zinc-500">
                                 Quién paga: {getIncomeCounterparty(item)}
@@ -1931,6 +2113,11 @@ export default function OtherIncomesPage() {
                                 ? (categoryMap.get(item.category_id) ??
                                   `ID ${item.category_id}`)
                                 : "Sin categoría")}
+                          </p>
+                        )}
+                        {getIncomeOperatorLabel(item, operatorMap) && (
+                          <p className="text-xs text-zinc-500 dark:text-zinc-300">
+                            Operador: {getIncomeOperatorLabel(item, operatorMap)}
                           </p>
                         )}
                         {getIncomeCounterparty(item) && (
@@ -2040,7 +2227,7 @@ export default function OtherIncomesPage() {
               </div>
 
               <form className="mt-4 grid gap-4" onSubmit={handleEditSubmit}>
-                <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid gap-3 md:grid-cols-4">
                   <label className="flex flex-col gap-1 text-sm">
                     Concepto del ingreso
                     <input
@@ -2091,6 +2278,35 @@ export default function OtherIncomesPage() {
                       ))}
                     </select>
                   </label>
+                  {editCategoryRequiresOperator && (
+                    <label className="flex flex-col gap-1 text-sm">
+                      Operador
+                      <select
+                        className="rounded-xl border border-white/30 bg-white/60 px-3 py-2 text-sm shadow-inner outline-none dark:bg-zinc-900/50"
+                        value={editForm.operator_id}
+                        onChange={(e) =>
+                          setEditForm((prev) => ({
+                            ...prev,
+                            operator_id: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">
+                          {operators.length
+                            ? "Seleccionar operador..."
+                            : "Sin operadores"}
+                        </option>
+                        {operators.map((op) => (
+                          <option
+                            key={op.id_operator}
+                            value={String(op.id_operator)}
+                          >
+                            {op.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">

@@ -786,6 +786,7 @@ model Operator {
   Investment           Investment[]
   recurringInvestments RecurringInvestment[]
   creditAccounts       CreditAccount[]
+  otherIncomes         OtherIncome[]
   serviceTypePresets   ServiceTypePreset[]
 
   @@unique([id_agency, agency_operator_id], name: "agency_operator_id_unique")
@@ -985,6 +986,8 @@ model OtherIncome {
   account_id        Int?
   category_id       Int?
   category          ExpenseCategory? @relation(fields: [category_id], references: [id_category], onDelete: SetNull)
+  operator_id       Int?
+  operator          Operator?        @relation(fields: [operator_id], references: [id_operator], onDelete: SetNull)
 
   verification_status String    @default("PENDING")
   verified_at         DateTime?
@@ -1001,6 +1004,7 @@ model OtherIncome {
   @@index([id_agency])
   @@index([issue_date])
   @@index([category_id])
+  @@index([operator_id])
   @@index([verification_status])
   @@index([verified_by])
 }

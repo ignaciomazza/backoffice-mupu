@@ -111,6 +111,21 @@ function parsePositiveInt(v: unknown): number | undefined {
   return Math.trunc(n);
 }
 
+const normSoft = (s?: string | null) =>
+  (s || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim()
+    .toLowerCase();
+
+function isOperatorCategory(
+  category: { requires_operator?: boolean | null; name?: string | null } | null,
+) {
+  if (!category) return false;
+  if (category.requires_operator) return true;
+  return normSoft(category.name).startsWith("operador");
+}
+
 function toLocalDate(v?: string): Date | undefined {
   if (!v) return undefined;
   const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -226,55 +241,62 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   const id = safeNumber(rawId);
   if (!id) return res.status(400).json({ error: "ID inválido" });
-  const hasCategoryColumn = await hasSchemaColumn("OtherIncome", "category_id");
+  const [hasCategoryColumn, hasOperatorColumn] = await Promise.all([
+    hasSchemaColumn("OtherIncome", "category_id"),
+    hasSchemaColumn("OtherIncome", "operator_id"),
+  ]);
 
-  const item = hasCategoryColumn
-    ? await prisma.otherIncome.findFirst({
-        where: { id_other_income: id, id_agency: auth.id_agency },
-        include: {
-          payments: true,
-          category: {
-            select: { id_category: true, name: true, enabled: true },
-          },
-          verifiedBy: {
-            select: { id_user: true, first_name: true, last_name: true },
-          },
-          createdBy: {
-            select: { id_user: true, first_name: true, last_name: true },
-          },
-        },
-      })
-    : await prisma.otherIncome.findFirst({
-        where: { id_other_income: id, id_agency: auth.id_agency },
-        select: {
-          id_other_income: true,
-          agency_other_income_id: true,
-          id_agency: true,
-          description: true,
-          counterparty_type: true,
-          counterparty_name: true,
-          receipt_to: true,
-          reference_note: true,
-          amount: true,
-          currency: true,
-          issue_date: true,
-          payment_fee_amount: true,
-          payment_method_id: true,
-          account_id: true,
-          verification_status: true,
-          verified_at: true,
-          verified_by: true,
-          created_at: true,
-          created_by: true,
-          payments: true,
-          verifiedBy: {
-            select: { id_user: true, first_name: true, last_name: true },
-          },
-          createdBy: {
-            select: { id_user: true, first_name: true, last_name: true },
-          },
-        },
-      });
+  const item = await prisma.otherIncome.findFirst({
+    where: { id_other_income: id, id_agency: auth.id_agency },
+    select: {
+      id_other_income: true,
+      agency_other_income_id: true,
+      id_agency: true,
+      description: true,
+      counterparty_type: true,
+      counterparty_name: true,
+      receipt_to: true,
+      reference_note: true,
+      amount: true,
+      currency: true,
+      issue_date: true,
+      payment_fee_amount: true,
+      payment_method_id: true,
+      account_id: true,
+      ...(hasCategoryColumn ? { category_id: true } : {}),
+      ...(hasOperatorColumn ? { operator_id: true } : {}),
+      verification_status: true,
+      verified_at: true,
+      verified_by: true,
+      created_at: true,
+      created_by: true,
+      payments: true,
+      ...(hasCategoryColumn
+        ? {
+            category: {
+              select: { id_category: true, name: true, enabled: true },
+            },
+          }
+        : {}),
+      ...(hasOperatorColumn
+        ? {
+            operator: {
+              select: {
+                id_operator: true,
+                agency_operator_id: true,
+                name: true,
+              },
+            },
+          }
+        : {}),
+      verifiedBy: {
+        select: { id_user: true, first_name: true, last_name: true },
+      },
+      createdBy: {
+        select: { id_user: true, first_name: true, last_name: true },
+      },
+    },
+  });
 
   if (!item) return res.status(404).json({ error: "No encontrado" });
 
@@ -309,16 +331,23 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
   const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   const id = safeNumber(rawId);
   if (!id) return res.status(400).json({ error: "ID inválido" });
+  const [hasCategoryColumn, hasCategoryScope, hasOperatorColumn] =
+    await Promise.all([
+      hasSchemaColumn("OtherIncome", "category_id"),
+      hasSchemaColumn("ExpenseCategory", "scope"),
+      hasSchemaColumn("OtherIncome", "operator_id"),
+    ]);
 
   const existing = await prisma.otherIncome.findFirst({
     where: { id_other_income: id, id_agency: auth.id_agency },
-    select: { id_other_income: true, verification_status: true },
+    select: {
+      id_other_income: true,
+      verification_status: true,
+      ...(hasCategoryColumn ? { category_id: true } : {}),
+      ...(hasOperatorColumn ? { operator_id: true } : {}),
+    },
   });
   if (!existing) return res.status(404).json({ error: "No encontrado" });
-  const [hasCategoryColumn, hasCategoryScope] = await Promise.all([
-    hasSchemaColumn("OtherIncome", "category_id"),
-    hasSchemaColumn("ExpenseCategory", "scope"),
-  ]);
 
   if (existing.verification_status === "VERIFIED") {
     return res
@@ -422,17 +451,65 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
     });
   }
 
-  if (hasCategory && categoryId) {
-    const category = await prisma.expenseCategory.findFirst({
+  const hasOperator = Object.prototype.hasOwnProperty.call(b, "operator_id");
+  const operatorId = parsePositiveInt(b.operator_id);
+  const operatorClear =
+    b.operator_id === null || b.operator_id === undefined || b.operator_id === "";
+  if (hasOperator && !operatorClear && operatorId === undefined) {
+    return res.status(400).json({ error: "operator_id inválido" });
+  }
+  if (hasOperator && !hasOperatorColumn) {
+    return res.status(409).json({
+      error:
+        "La base conectada por la app no tiene OtherIncome.operator_id. Ejecutá migraciones en esa misma conexión.",
+    });
+  }
+
+  const existingCategoryId = hasCategoryColumn
+    ? ((existing as { category_id?: number | null }).category_id ?? null)
+    : null;
+  const nextCategoryId = hasCategory ? (categoryId ?? null) : existingCategoryId;
+
+  let category:
+    | {
+        id_category: number;
+        name: string;
+        requires_operator: boolean;
+      }
+    | null = null;
+  if (nextCategoryId) {
+    category = await prisma.expenseCategory.findFirst({
       where: {
-        id_category: categoryId,
+        id_category: nextCategoryId,
         id_agency: auth.id_agency,
         ...(hasCategoryScope ? { scope: "OTHER_INCOME" } : {}),
       },
-      select: { id_category: true },
+      select: { id_category: true, name: true, requires_operator: true },
     });
     if (!category) {
       return res.status(400).json({ error: "category_id inválido" });
+    }
+  }
+  const categoryRequiresOperator = isOperatorCategory(category);
+
+  const existingOperatorId = hasOperatorColumn
+    ? ((existing as { operator_id?: number | null }).operator_id ?? null)
+    : null;
+  const nextOperatorId = hasOperator ? (operatorId ?? null) : existingOperatorId;
+
+  if (categoryRequiresOperator && !nextOperatorId) {
+    return res.status(400).json({
+      error:
+        "Para categorías vinculadas a operadores, operator_id es obligatorio.",
+    });
+  }
+  if (nextOperatorId) {
+    const operator = await prisma.operator.findFirst({
+      where: { id_operator: nextOperatorId, id_agency: auth.id_agency },
+      select: { id_operator: true },
+    });
+    if (!operator) {
+      return res.status(400).json({ error: "operator_id inválido" });
     }
   }
 
@@ -464,6 +541,9 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
       if (hasCategory && hasCategoryColumn) {
         data.category_id = categoryId ?? null;
       }
+      if (hasOperatorColumn && (hasOperator || hasCategory)) {
+        data.operator_id = categoryRequiresOperator ? (nextOperatorId ?? null) : null;
+      }
 
       const after = await tx.otherIncome.update({
         where: { id_other_income: id },
@@ -485,53 +565,57 @@ async function handlePut(req: NextApiRequest, res: NextApiResponse) {
         });
       }
 
-      return hasCategoryColumn
-        ? tx.otherIncome.findUnique({
-            where: { id_other_income: after.id_other_income },
-            include: {
-              payments: true,
-              category: {
-                select: { id_category: true, name: true, enabled: true },
-              },
-              verifiedBy: {
-                select: { id_user: true, first_name: true, last_name: true },
-              },
-              createdBy: {
-                select: { id_user: true, first_name: true, last_name: true },
-              },
-            },
-          })
-        : tx.otherIncome.findUnique({
-            where: { id_other_income: after.id_other_income },
-            select: {
-              id_other_income: true,
-              agency_other_income_id: true,
-              id_agency: true,
-              description: true,
-              counterparty_type: true,
-              counterparty_name: true,
-              receipt_to: true,
-              reference_note: true,
-              amount: true,
-              currency: true,
-              issue_date: true,
-              payment_fee_amount: true,
-              payment_method_id: true,
-              account_id: true,
-              verification_status: true,
-              verified_at: true,
-              verified_by: true,
-              created_at: true,
-              created_by: true,
-              payments: true,
-              verifiedBy: {
-                select: { id_user: true, first_name: true, last_name: true },
-              },
-              createdBy: {
-                select: { id_user: true, first_name: true, last_name: true },
-              },
-            },
-          });
+      return tx.otherIncome.findUnique({
+        where: { id_other_income: after.id_other_income },
+        select: {
+          id_other_income: true,
+          agency_other_income_id: true,
+          id_agency: true,
+          description: true,
+          counterparty_type: true,
+          counterparty_name: true,
+          receipt_to: true,
+          reference_note: true,
+          amount: true,
+          currency: true,
+          issue_date: true,
+          payment_fee_amount: true,
+          payment_method_id: true,
+          account_id: true,
+          ...(hasCategoryColumn ? { category_id: true } : {}),
+          ...(hasOperatorColumn ? { operator_id: true } : {}),
+          verification_status: true,
+          verified_at: true,
+          verified_by: true,
+          created_at: true,
+          created_by: true,
+          payments: true,
+          ...(hasCategoryColumn
+            ? {
+                category: {
+                  select: { id_category: true, name: true, enabled: true },
+                },
+              }
+            : {}),
+          ...(hasOperatorColumn
+            ? {
+                operator: {
+                  select: {
+                    id_operator: true,
+                    agency_operator_id: true,
+                    name: true,
+                  },
+                },
+              }
+            : {}),
+          verifiedBy: {
+            select: { id_user: true, first_name: true, last_name: true },
+          },
+          createdBy: {
+            select: { id_user: true, first_name: true, last_name: true },
+          },
+        },
+      });
     });
 
     return res.status(200).json({ item: updated });
