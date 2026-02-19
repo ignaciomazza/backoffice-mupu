@@ -82,6 +82,62 @@ const isAbortError = (e: unknown): e is AbortErrorLike => {
   return name === "AbortError" || code === "ABORT_ERR";
 };
 
+const DATE_DEBUG_QUERY_KEY = "dateDebug";
+const DATE_DEBUG_STORAGE_KEY = "ofistur_debug_booking_dates";
+
+function isBookingDateDebugEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get(DATE_DEBUG_QUERY_KEY) === "1") return true;
+    return window.localStorage.getItem(DATE_DEBUG_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function getRuntimeDateContext() {
+  return {
+    browserTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    browserOffsetMinutes: new Date().getTimezoneOffset(),
+    nowIso: new Date().toISOString(),
+  };
+}
+
+function bookingDateSnapshot(booking: Partial<Booking>) {
+  return {
+    id_booking: booking.id_booking ?? null,
+    agency_booking_id: booking.agency_booking_id ?? null,
+    raw_creation_date: booking.creation_date ?? null,
+    raw_departure_date: booking.departure_date ?? null,
+    raw_return_date: booking.return_date ?? null,
+    ui_creation_date: toDateKeyInBuenosAires(booking.creation_date ?? null),
+    ui_departure_date: toDateKeyInBuenosAires(booking.departure_date ?? null),
+    ui_return_date: toDateKeyInBuenosAires(booking.return_date ?? null),
+  };
+}
+
+function logBookingsDateSnapshot(context: string, items: Booking[]) {
+  if (!isBookingDateDebugEnabled() || typeof window === "undefined") return;
+  const rows = items.slice(0, 200).map((b) => bookingDateSnapshot(b));
+  console.groupCollapsed(
+    `[DATE-DEBUG][bookings] ${context} total=${items.length}`,
+  );
+  console.log("runtime", getRuntimeDateContext());
+  console.table(rows);
+  console.groupEnd();
+}
+
+function logOneBookingDateSnapshot(context: string, booking: Booking) {
+  if (!isBookingDateDebugEnabled() || typeof window === "undefined") return;
+  console.groupCollapsed(
+    `[DATE-DEBUG][booking] ${context} id=${booking.id_booking}`,
+  );
+  console.log("runtime", getRuntimeDateContext());
+  console.log(bookingDateSnapshot(booking));
+  console.groupEnd();
+}
+
 // IDs válidos (>0, número finito)
 const isValidId = (v: unknown): v is number =>
   typeof v === "number" && Number.isFinite(v) && v > 0;
@@ -505,6 +561,7 @@ export default function Page() {
         const { items, nextCursor } = await resp.json();
         if (myRequestId !== requestIdRef.current) return;
 
+        logBookingsDateSnapshot("list:first-page", items as Booking[]);
         setBookings(items);
         setNextCursor(nextCursor);
         setExpandedBookingId(null);
@@ -723,6 +780,17 @@ export default function Page() {
           ? { creation_date: formData.creation_date }
           : {}),
       };
+      if (isBookingDateDebugEnabled()) {
+        console.log("[DATE-DEBUG][booking-submit]", {
+          editingBookingId,
+          payload_dates: {
+            creation_date: payload.creation_date ?? null,
+            departure_date: payload.departure_date,
+            return_date: payload.return_date,
+          },
+          runtime: getRuntimeDateContext(),
+        });
+      }
       // --------------------------------------
 
       const response = await authFetch(
@@ -751,6 +819,7 @@ export default function Page() {
       );
       if (!listResp.ok) throw new Error("No se pudo refrescar la lista.");
       const { items, nextCursor } = await listResp.json();
+      logBookingsDateSnapshot("list:after-save-refresh", items as Booking[]);
       setBookings(items);
       setNextCursor(nextCursor);
       setExpandedBookingId(null);
@@ -804,6 +873,7 @@ export default function Page() {
       if (!resp.ok) throw new Error("No se pudieron obtener más reservas");
 
       const { items, nextCursor: newCursor } = await resp.json();
+      logBookingsDateSnapshot("list:load-more", items as Booking[]);
       setBookings((prev) => [...prev, ...items]);
       setNextCursor(newCursor);
     } catch (e) {
@@ -841,6 +911,7 @@ export default function Page() {
   };
 
   const startEditingBooking = (booking: Booking) => {
+    logOneBookingDateSnapshot("edit:open", booking);
     pendingEditScrollRef.current = true;
     const titularId = booking.titular?.id_client || 0;
     // Acompañantes reales: excluir titular, solo IDs válidos
