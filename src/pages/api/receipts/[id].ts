@@ -67,7 +67,7 @@ type ReceiptPaymentLineNormalized = {
   fee_value?: number;
   fee_amount?: number;
   operator_id?: number;
-};
+}; 
 
 type ReceiptSchemaFlags = {
   hasPaymentLines: boolean;

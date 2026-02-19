@@ -84,7 +84,7 @@ type ReceiptPaymentLineIn = {
   fee_amount?: unknown;
   operator_id?: unknown;
 };
-
+ 
 type ReceiptPaymentLineNormalized = {
   amount: number;
   payment_method_id: number;
@@ -1314,7 +1314,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   if (!Number.isFinite(amountNum)) {
     return res.status(400).json({ error: "amount numérico inválido" });
   }
-
+ 
   let serviceIdsForReceipt = normalizedServiceIds;
 
   try {

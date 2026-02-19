@@ -44,7 +44,7 @@ type ReceiptWithRelations = Prisma.ReceiptGetPayload<{
     };
     agency: true;
   };
-}>;
+}>; 
 
 type ReceiptSchemaFlags = {
   hasPaymentLines: boolean;

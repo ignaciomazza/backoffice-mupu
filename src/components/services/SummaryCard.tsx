@@ -590,7 +590,7 @@ export default function SummaryCard({
       return acc;
     }, {});
   }, [bookingSaleMode, saleTotalsByCurrency, services]);
-
+ 
   /** Pagos por moneda (considerando también payment_fee_amount). */
   const paidByCurrency = useMemo(() => {
     return receipts.reduce<Record<string, number>>((acc, raw) => {
