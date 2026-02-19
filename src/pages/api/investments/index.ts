@@ -15,6 +15,13 @@ import {
   canAccessFinanceSection,
 } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import {
+  endOfDayUtcFromDateKeyInBuenosAires,
+  parseDateInputInBuenosAires,
+  startOfDayUtcFromDateKeyInBuenosAires,
+  toDateKeyInBuenosAires,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -113,11 +120,28 @@ async function getUserFromAuth(
 
 function toLocalDate(v?: string): Date | undefined {
   if (!v) return undefined;
-  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m)
-    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? undefined : d;
+  const parsed = parseDateInputInBuenosAires(v);
+  return parsed ?? undefined;
+}
+
+function toDayStart(v?: string): Date | undefined {
+  if (!v) return undefined;
+  const start = startOfDayUtcFromDateKeyInBuenosAires(v);
+  if (start) return start;
+  const parsed = parseDateInputInBuenosAires(v);
+  if (!parsed) return undefined;
+  parsed.setUTCHours(0, 0, 0, 0);
+  return parsed;
+}
+
+function toDayEnd(v?: string): Date | undefined {
+  if (!v) return undefined;
+  const end = endOfDayUtcFromDateKeyInBuenosAires(v);
+  if (end) return end;
+  const parsed = parseDateInputInBuenosAires(v);
+  if (!parsed) return undefined;
+  parsed.setUTCHours(23, 59, 59, 999);
+  return parsed;
 }
 function safeNumber(v: unknown): number | undefined {
   const n = Number(v);
@@ -718,21 +742,35 @@ function shouldHaveCreditEntry(
 }
 
 function startOfDay(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+  const key = toDateKeyInBuenosAires(d);
+  if (key) {
+    const parsed = parseDateInputInBuenosAires(key);
+    if (parsed) return parsed;
+  }
+  const fallback = new Date(d);
+  fallback.setUTCHours(0, 0, 0, 0);
+  return fallback;
 }
 
 function clampDay(year: number, month: number, day: number) {
-  const last = new Date(year, month + 1, 0).getDate();
+  const last = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   return Math.min(Math.max(day, 1), last);
 }
 
 function buildDueDate(year: number, month: number, day: number) {
-  return new Date(year, month, clampDay(year, month, day), 0, 0, 0, 0);
+  const clampedDay = clampDay(year, month, day);
+  const monthKey = String(month + 1).padStart(2, "0");
+  const dayKey = String(clampedDay).padStart(2, "0");
+  const key = `${year}-${monthKey}-${dayKey}`;
+  return (
+    parseDateInputInBuenosAires(key) ??
+    new Date(Date.UTC(year, month, clampedDay, 0, 0, 0, 0))
+  );
 }
 
 function addMonthsToDue(date: Date, months: number, day: number) {
-  const total = date.getMonth() + months;
-  const year = date.getFullYear() + Math.floor(total / 12);
+  const total = date.getUTCMonth() + months;
+  const year = date.getUTCFullYear() + Math.floor(total / 12);
   const month = total % 12;
   return buildDueDate(year, month, day);
 }
@@ -743,7 +781,7 @@ function computeFirstDue(
   intervalMonths: number,
 ) {
   const base = startOfDay(startDate);
-  let due = buildDueDate(base.getFullYear(), base.getMonth(), dayOfMonth);
+  let due = buildDueDate(base.getUTCFullYear(), base.getUTCMonth(), dayOfMonth);
   if (due < base) {
     due = addMonthsToDue(due, intervalMonths, dayOfMonth);
   }
@@ -759,7 +797,9 @@ async function ensureRecurringInvestments(
   });
   if (rules.length === 0) return;
 
-  const today = startOfDay(new Date());
+  const today =
+    parseDateInputInBuenosAires(todayDateKeyInBuenosAires()) ??
+    startOfDay(new Date());
   const maxRuns = 36;
 
   for (const rule of rules) {
@@ -967,26 +1007,23 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         : req.query.bookingId,
     );
 
-    const createdFrom = toLocalDate(
-      Array.isArray(req.query.createdFrom)
-        ? req.query.createdFrom[0]
-        : (req.query.createdFrom as string),
-    );
-    const createdTo = toLocalDate(
-      Array.isArray(req.query.createdTo)
-        ? req.query.createdTo[0]
-        : (req.query.createdTo as string),
-    );
-    const paidFrom = toLocalDate(
-      Array.isArray(req.query.paidFrom)
-        ? req.query.paidFrom[0]
-        : (req.query.paidFrom as string),
-    );
-    const paidTo = toLocalDate(
-      Array.isArray(req.query.paidTo)
-        ? req.query.paidTo[0]
-        : (req.query.paidTo as string),
-    );
+    const createdFromRaw = Array.isArray(req.query.createdFrom)
+      ? req.query.createdFrom[0]
+      : (req.query.createdFrom as string | undefined);
+    const createdToRaw = Array.isArray(req.query.createdTo)
+      ? req.query.createdTo[0]
+      : (req.query.createdTo as string | undefined);
+    const paidFromRaw = Array.isArray(req.query.paidFrom)
+      ? req.query.paidFrom[0]
+      : (req.query.paidFrom as string | undefined);
+    const paidToRaw = Array.isArray(req.query.paidTo)
+      ? req.query.paidTo[0]
+      : (req.query.paidTo as string | undefined);
+
+    const createdFrom = toDayStart(createdFromRaw);
+    const createdTo = toDayEnd(createdToRaw);
+    const paidFrom = toDayStart(paidFromRaw);
+    const paidTo = toDayEnd(paidToRaw);
 
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
     const operatorOnlyRaw = Array.isArray(req.query.operatorOnly)
@@ -1085,62 +1122,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     if (createdFrom || createdTo) {
       where.created_at = {
-        ...(createdFrom
-          ? {
-              gte: new Date(
-                createdFrom.getFullYear(),
-                createdFrom.getMonth(),
-                createdFrom.getDate(),
-                0,
-                0,
-                0,
-                0,
-              ),
-            }
-          : {}),
-        ...(createdTo
-          ? {
-              lte: new Date(
-                createdTo.getFullYear(),
-                createdTo.getMonth(),
-                createdTo.getDate(),
-                23,
-                59,
-                59,
-                999,
-              ),
-            }
-          : {}),
+        ...(createdFrom ? { gte: createdFrom } : {}),
+        ...(createdTo ? { lte: createdTo } : {}),
       };
     }
     if (paidFrom || paidTo) {
       where.paid_at = {
-        ...(paidFrom
-          ? {
-              gte: new Date(
-                paidFrom.getFullYear(),
-                paidFrom.getMonth(),
-                paidFrom.getDate(),
-                0,
-                0,
-                0,
-                0,
-              ),
-            }
-          : {}),
-        ...(paidTo
-          ? {
-              lte: new Date(
-                paidTo.getFullYear(),
-                paidTo.getMonth(),
-                paidTo.getDate(),
-                23,
-                59,
-                59,
-                999,
-              ),
-            }
-          : {}),
+        ...(paidFrom ? { gte: paidFrom } : {}),
+        ...(paidTo ? { lte: paidTo } : {}),
       };
     }
 

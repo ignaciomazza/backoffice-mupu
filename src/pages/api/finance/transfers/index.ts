@@ -6,6 +6,12 @@ import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 import { getFinanceSectionGrants } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
 import { isFinanceDateLocked } from "@/lib/financeLocks";
+import {
+  endOfDayUtcFromDateKeyInBuenosAires,
+  parseDateInputInBuenosAires,
+  startOfDayUtcFromDateKeyInBuenosAires,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 type DecimalLike = number | { toString(): string } | null | undefined;
 
@@ -23,20 +29,26 @@ function parseDate(value?: string): Date | null {
   if (!value) return null;
   const raw = String(value).trim();
   if (!raw) return null;
-  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) {
-    return new Date(
-      Number(m[1]),
-      Number(m[2]) - 1,
-      Number(m[3]),
-      0,
-      0,
-      0,
-      0,
-    );
-  }
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d;
+  const parsed = parseDateInputInBuenosAires(raw);
+  return parsed ?? null;
+}
+
+function parseDateFromQuery(value?: string): Date | null {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const start = startOfDayUtcFromDateKeyInBuenosAires(raw);
+  if (start) return start;
+  return parseDate(raw);
+}
+
+function parseDateToQuery(value?: string): Date | null {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const end = endOfDayUtcFromDateKeyInBuenosAires(raw);
+  if (end) return end;
+  return parseDate(raw);
 }
 
 function parseBool(value: unknown): boolean {
@@ -253,18 +265,40 @@ export default async function handler(
       ),
     );
 
-    let from: Date | null = parseDate(typeof fromRaw === "string" ? fromRaw : "");
-    let to: Date | null = parseDate(typeof toRaw === "string" ? toRaw : "");
+    let from: Date | null = parseDateFromQuery(
+      typeof fromRaw === "string" ? fromRaw : "",
+    );
+    let to: Date | null = parseDateToQuery(typeof toRaw === "string" ? toRaw : "");
 
     if (!from || !to) {
-      const now = new Date();
-      const y = Number.isFinite(year) ? year : now.getFullYear();
+      const nowKey = todayDateKeyInBuenosAires();
+      const [nowYearRaw, nowMonthRaw] = nowKey.split("-");
+      const nowYear = Number(nowYearRaw);
+      const nowMonth = Number(nowMonthRaw);
+      const fallbackNow = new Date();
+      const y =
+        Number.isFinite(year) && year > 0
+          ? year
+          : Number.isFinite(nowYear)
+            ? nowYear
+            : fallbackNow.getUTCFullYear();
       const m =
         Number.isFinite(month) && month >= 1 && month <= 12
           ? month
-          : now.getMonth() + 1;
-      from = new Date(y, m - 1, 1, 0, 0, 0, 0);
-      to = new Date(y, m, 0, 23, 59, 59, 999);
+          : Number.isFinite(nowMonth) && nowMonth >= 1 && nowMonth <= 12
+            ? nowMonth
+            : fallbackNow.getUTCMonth() + 1;
+      const monthStartKey = `${y}-${String(m).padStart(2, "0")}-01`;
+      const monthLastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const monthEndKey = `${y}-${String(m).padStart(2, "0")}-${String(monthLastDay).padStart(2, "0")}`;
+      from =
+        startOfDayUtcFromDateKeyInBuenosAires(monthStartKey) ??
+        parseDateInputInBuenosAires(monthStartKey) ??
+        new Date();
+      to =
+        endOfDayUtcFromDateKeyInBuenosAires(monthEndKey) ??
+        parseDateInputInBuenosAires(monthEndKey) ??
+        new Date();
     }
 
     const where = {
@@ -303,7 +337,9 @@ export default async function handler(
 
     const input = parsed.data;
     const transferDate =
-      parseDate(input.transfer_date) ?? new Date();
+      parseDate(input.transfer_date) ??
+      parseDateInputInBuenosAires(todayDateKeyInBuenosAires()) ??
+      new Date();
 
     if (await isFinanceDateLocked(auth.id_agency, transferDate)) {
       return res.status(409).json({

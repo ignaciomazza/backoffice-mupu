@@ -8,6 +8,7 @@ import InvoiceDocument, {
   VoucherData,
 } from "@/services/invoices/InvoiceDocument";
 import { decodePublicId } from "@/lib/publicIds";
+import { isDateKey } from "@/lib/buenosAiresDate";
 import { jwtVerify, type JWTPayload } from "jose";
 import {
   canAccessBookingByRole,
@@ -317,11 +318,13 @@ export default async function handler(
   }
 
   // 4) Calcular período (desde/hasta) si viene
-  const parseYmd = (s: string) => {
-    const clean = s.includes("-") ? s.replace(/-/g, "") : s;
-    return new Date(
-      `${clean.substring(0, 4)}-${clean.substring(4, 6)}-${clean.substring(6, 8)}`,
-    );
+  const normalizeServiceDateKey = (raw: string): string | null => {
+    const clean = String(raw || "").trim();
+    if (!clean) return null;
+    const compact = clean.includes("-") ? clean.replace(/-/g, "") : clean;
+    if (!/^\d{8}$/.test(compact)) return null;
+    const key = `${compact.substring(0, 4)}-${compact.substring(4, 6)}-${compact.substring(6, 8)}`;
+    return isDateKey(key) ? key : null;
   };
 
   let depDate: string | undefined;
@@ -329,12 +332,16 @@ export default async function handler(
 
   if (serviceDates.length) {
     try {
-      const froms = serviceDates.map((sd) => parseYmd(sd.from));
-      const tos = serviceDates.map((sd) => parseYmd(sd.to));
-      const min = new Date(Math.min(...froms.map((d) => d.getTime())));
-      const max = new Date(Math.max(...tos.map((d) => d.getTime())));
-      depDate = min.toISOString().split("T")[0];
-      retDate = max.toISOString().split("T")[0];
+      const fromKeys = serviceDates
+        .map((sd) => normalizeServiceDateKey(sd.from))
+        .filter((k): k is string => Boolean(k));
+      const toKeys = serviceDates
+        .map((sd) => normalizeServiceDateKey(sd.to))
+        .filter((k): k is string => Boolean(k));
+      if (fromKeys.length && toKeys.length) {
+        depDate = fromKeys.reduce((min, key) => (key < min ? key : min));
+        retDate = toKeys.reduce((max, key) => (key > max ? key : max));
+      }
     } catch (dateErr) {
       console.error("⚠️ Error calculando período servicio:", dateErr);
     }

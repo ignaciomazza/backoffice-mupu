@@ -4,9 +4,21 @@ import {
   getAfipFromRequest,
   type AfipClient,
 } from "@/services/afip/afipConfig";
+import {
+  addDaysToDateKey,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
-function isWeekend(date: Date): boolean {
-  const day = date.getDay();
+function isWeekendDateKey(dateKey: string): boolean {
+  const [year, month, dayOfMonth] = dateKey.split("-").map(Number);
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(dayOfMonth)
+  ) {
+    return false;
+  }
+  const day = new Date(Date.UTC(year, month - 1, dayOfMonth)).getUTCDay();
   return day === 0 || day === 6;
 }
 
@@ -57,19 +69,19 @@ function isExpectedExchangeError(message: string): boolean {
 async function getValidExchangeRate(
   client: AfipClient,
   currency: string,
-  startDate: Date,
+  startDateKey: string,
 ): Promise<number> {
-  const date = new Date(startDate);
+  let dateKey = startDateKey;
   const maxAttempts = 10;
   let attempts = 0;
   let lastError: string | null = null;
 
-  while (attempts < maxAttempts) {
-    if (isWeekend(date)) {
-      date.setDate(date.getDate() - 1);
+  while (attempts < maxAttempts && dateKey) {
+    if (isWeekendDateKey(dateKey)) {
+      dateKey = addDaysToDateKey(dateKey, -1) ?? "";
       continue;
     }
-    const yyyymmdd = date.toISOString().split("T")[0].replace(/-/g, "");
+    const yyyymmdd = dateKey.replace(/-/g, "");
     try {
       const resp = await client.ElectronicBilling.executeRequest(
         "FEParamGetCotizacion",
@@ -83,7 +95,7 @@ async function getValidExchangeRate(
       if (!isNoResultsError(msg)) lastError = msg;
     }
     attempts += 1;
-    date.setDate(date.getDate() - 1);
+    dateKey = addDaysToDateKey(dateKey, -1) ?? "";
   }
 
   if (process.env.AFIP_ENV === "testing") {
@@ -106,9 +118,9 @@ export default async function handler(
     // ⚠️ Requiere que tu middleware agregue x-user-id en el request.
     const afipClient = await getAfipFromRequest(req);
 
-    const today = new Date();
-    const since = new Date(today);
-    since.setDate(today.getDate() - 1);
+    const todayKey =
+      todayDateKeyInBuenosAires() || new Date().toISOString().slice(0, 10);
+    const since = addDaysToDateKey(todayKey, -1) ?? todayKey;
 
     const rate = await getValidExchangeRate(afipClient, "DOL", since);
     res.setHeader(

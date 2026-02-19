@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
 
 export type YearMonth = {
   year: number;
@@ -18,7 +19,16 @@ export function normalizeYearMonth(year: number, month: number): YearMonth {
 }
 
 export function yearMonthFromDate(date: Date): YearMonth {
-  return { year: date.getFullYear(), month: date.getMonth() + 1 };
+  const dateKey = toDateKeyInBuenosAires(date);
+  if (dateKey) {
+    const [yearRaw, monthRaw] = dateKey.split("-");
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    if (Number.isFinite(year) && Number.isFinite(month)) {
+      return { year, month };
+    }
+  }
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1 };
 }
 
 export async function isFinanceMonthLocked(

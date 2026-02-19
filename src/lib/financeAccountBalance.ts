@@ -1,4 +1,9 @@
 import prisma, { Prisma } from "@/lib/prisma";
+import {
+  endOfDayUtcFromDateKeyInBuenosAires,
+  parseDateInputInBuenosAires,
+  startOfDayUtcFromDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 type DecimalLike = number | Prisma.Decimal | null | undefined;
 
@@ -17,8 +22,18 @@ function round2(value: number): number {
 }
 
 export function monthRange(year: number, month: number): { from: Date; to: Date } {
-  const from = new Date(year, month - 1, 1, 0, 0, 0, 0);
-  const to = new Date(year, month, 0, 23, 59, 59, 999);
+  const monthKey = String(month).padStart(2, "0");
+  const fromKey = `${year}-${monthKey}-01`;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const toKey = `${year}-${monthKey}-${String(lastDay).padStart(2, "0")}`;
+  const from =
+    startOfDayUtcFromDateKeyInBuenosAires(fromKey) ??
+    parseDateInputInBuenosAires(fromKey) ??
+    new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+  const to =
+    endOfDayUtcFromDateKeyInBuenosAires(toKey) ??
+    parseDateInputInBuenosAires(toKey) ??
+    new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
   return { from, to };
 }
 

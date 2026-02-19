@@ -4,7 +4,10 @@ import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
 import { Prisma, type Agency as AgencyModel } from "@prisma/client";
-import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
+import {
+  parseDateInputInBuenosAires,
+  toDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 /* ==== JWT / Auth helpers ==== */
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -102,11 +105,8 @@ async function getUserFromAuth(
 /* ==== Utils / Validaciones ==== */
 function toLocalDate(v?: unknown): Date | undefined {
   if (typeof v !== "string" || !v) return undefined;
-  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m)
-    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? undefined : d;
+  const parsed = parseDateInputInBuenosAires(v);
+  return parsed ?? undefined;
 }
 
 function validateCUIT(cuitRaw: string): boolean {

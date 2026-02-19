@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { Prisma } from "@prisma/client"; // 👈 importa Prisma para usar Decimal
 import { jwtVerify, type JWTPayload } from "jose";
+import { parseDateInputInBuenosAires } from "@/lib/buenosAiresDate";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -185,6 +186,15 @@ export default async function handler(
           .json({ error: "La suma de porcentajes no puede superar 100%" });
       }
 
+      const parsedValidFromRaw =
+        typeof valid_from === "string"
+          ? parseDateInputInBuenosAires(valid_from)
+          : undefined;
+      if (typeof valid_from === "string" && !parsedValidFromRaw) {
+        return res.status(400).json({ error: "valid_from inválida" });
+      }
+      const parsedValidFrom = parsedValidFromRaw ?? undefined;
+
       const created = await prisma.$transaction(async (tx) => {
         const agencyRuleSetId = await getNextAgencyCounter(
           tx,
@@ -197,7 +207,7 @@ export default async function handler(
             agency_commission_rule_set_id: agencyRuleSetId,
             owner_user_id,
             own_pct: new Prisma.Decimal(own), // 👈 usar Prisma.Decimal
-            valid_from: valid_from ? new Date(valid_from) : undefined,
+            valid_from: parsedValidFrom,
             shares: {
               create: normalizedShares.map((s) => ({
                 beneficiary_user_id: s.beneficiary_user_id,

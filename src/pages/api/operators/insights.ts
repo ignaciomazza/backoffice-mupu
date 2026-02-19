@@ -5,6 +5,12 @@ import { jwtVerify, type JWTPayload } from "jose";
 import { getFinanceSectionGrants } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import {
+  addDaysToDateKey,
+  parseDateInputInBuenosAires,
+  startOfDayUtcFromDateKeyInBuenosAires,
+  toDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -190,12 +196,20 @@ function safeNumber(v: unknown): number | undefined {
 
 function toLocalDate(v?: string): Date | undefined {
   if (!v) return undefined;
-  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) {
-    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
+  const parsed = parseDateInputInBuenosAires(v);
+  return parsed ?? undefined;
+}
+
+function nextDayStartInBuenosAires(date: Date): Date {
+  const key = toDateKeyInBuenosAires(date);
+  if (key) {
+    const nextKey = addDaysToDateKey(key, 1);
+    if (nextKey) {
+      const nextStart = startOfDayUtcFromDateKeyInBuenosAires(nextKey);
+      if (nextStart) return nextStart;
+    }
   }
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? undefined : d;
+  return new Date(date.getTime() + 24 * 60 * 60 * 1000);
 }
 
 function addMoney(target: MoneyMap, currency: string, amount: number) {
@@ -411,8 +425,7 @@ export default async function handler(
   if (!fromDate || !toDate) {
     return res.status(400).json({ error: "from/to inválidos" });
   }
-  const toExclusive = new Date(toDate);
-  toExclusive.setDate(toExclusive.getDate() + 1);
+  const toExclusive = nextDayStartInBuenosAires(toDate);
   const dateMode = parseDateMode(
     Array.isArray(req.query.dateMode)
       ? req.query.dateMode[0]
@@ -756,13 +769,13 @@ export default async function handler(
           id_booking: booking.id_booking,
           details: booking.details,
           creation_date: booking.creation_date
-            ? booking.creation_date.toISOString()
+            ? (toDateKeyInBuenosAires(booking.creation_date) ?? null)
             : null,
           departure_date: booking.departure_date
-            ? booking.departure_date.toISOString()
+            ? (toDateKeyInBuenosAires(booking.departure_date) ?? null)
             : null,
           return_date: booking.return_date
-            ? booking.return_date.toISOString()
+            ? (toDateKeyInBuenosAires(booking.return_date) ?? null)
             : null,
           titular: booking.titular
             ? {
@@ -920,7 +933,8 @@ export default async function handler(
       return {
         id_receipt: rec.id_receipt,
         agency_receipt_id: rec.agency_receipt_id ?? null,
-        issue_date: rec.issue_date.toISOString(),
+        issue_date:
+          toDateKeyInBuenosAires(rec.issue_date) ?? rec.issue_date.toISOString(),
         concept: rec.concept,
         amount: val,
         currency: cur,
@@ -934,7 +948,8 @@ export default async function handler(
       return {
         id_investment: inv.id_investment,
         agency_investment_id: inv.agency_investment_id ?? null,
-        created_at: inv.created_at.toISOString(),
+        created_at:
+          toDateKeyInBuenosAires(inv.created_at) ?? inv.created_at.toISOString(),
         description: inv.description,
         amount: val,
         currency: cur,
@@ -950,7 +965,9 @@ export default async function handler(
         return {
           id_investment: inv.id_investment,
           agency_investment_id: inv.agency_investment_id ?? null,
-          created_at: inv.created_at.toISOString(),
+          created_at:
+            toDateKeyInBuenosAires(inv.created_at) ??
+            inv.created_at.toISOString(),
           description: inv.description,
           amount: val,
           currency: cur,
@@ -989,7 +1006,9 @@ export default async function handler(
           bookings: sortedBookings,
           operatorDues: operatorDues.map((due) => ({
             id_due: due.id_due,
-            due_date: due.due_date.toISOString(),
+            due_date:
+              toDateKeyInBuenosAires(due.due_date) ??
+              due.due_date.toISOString(),
             status: due.status,
             amount: Number(due.amount) || 0,
             currency: String(due.currency || "ARS").toUpperCase(),

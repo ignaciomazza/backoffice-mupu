@@ -7,6 +7,7 @@ import CreditNoteDocument, {
   VoucherData,
 } from "@/services/credit-notes/CreditNoteDocument";
 import { decodePublicId } from "@/lib/publicIds";
+import { isDateKey } from "@/lib/buenosAiresDate";
 import { jwtVerify, type JWTPayload } from "jose";
 import {
   canAccessBookingByRole,
@@ -298,23 +299,28 @@ export default async function handler(
   }
 
   // 4) Calcular período desde/hasta
-  const parseYmd = (s: string) => {
-    const clean = s.includes("-") ? s.replace(/-/g, "") : s;
-    const YYYY = clean.slice(0, 4);
-    const MM = clean.slice(4, 6);
-    const DD = clean.slice(6, 8);
-    return new Date(`${YYYY}-${MM}-${DD}`);
+  const normalizeServiceDateKey = (raw: string): string | null => {
+    const clean = String(raw || "").trim();
+    if (!clean) return null;
+    const compact = clean.includes("-") ? clean.replace(/-/g, "") : clean;
+    if (!/^\d{8}$/.test(compact)) return null;
+    const key = `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
+    return isDateKey(key) ? key : null;
   };
 
   let depDate: string | undefined;
   let retDate: string | undefined;
   if (serviceDates.length) {
-    const fromDates = serviceDates.map((sd) => parseYmd(sd.from));
-    const toDates = serviceDates.map((sd) => parseYmd(sd.to));
-    const min = new Date(Math.min(...fromDates.map((d) => d.getTime())));
-    const max = new Date(Math.max(...toDates.map((d) => d.getTime())));
-    depDate = min.toISOString().split("T")[0];
-    retDate = max.toISOString().split("T")[0];
+    const fromKeys = serviceDates
+      .map((sd) => normalizeServiceDateKey(sd.from))
+      .filter((k): k is string => Boolean(k));
+    const toKeys = serviceDates
+      .map((sd) => normalizeServiceDateKey(sd.to))
+      .filter((k): k is string => Boolean(k));
+    if (fromKeys.length && toKeys.length) {
+      depDate = fromKeys.reduce((min, key) => (key < min ? key : min));
+      retDate = toKeys.reduce((max, key) => (key > max ? key : max));
+    }
   }
 
   if (depDate) voucherData.departureDate = depDate;

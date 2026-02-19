@@ -6,6 +6,7 @@ import { getFinanceSectionGrants } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 import { hasSchemaColumn } from "@/lib/schemaColumns";
+import { parseDateInputInBuenosAires } from "@/lib/buenosAiresDate";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -128,11 +129,8 @@ function isOperatorCategory(
 
 function toLocalDate(v?: string): Date | undefined {
   if (!v) return undefined;
-  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m)
-    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? undefined : d;
+  const parsed = parseDateInputInBuenosAires(v);
+  return parsed ?? undefined;
 }
 
 const toDec = (v: unknown) =>

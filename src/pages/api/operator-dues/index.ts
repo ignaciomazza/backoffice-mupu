@@ -3,6 +3,7 @@ import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { jwtVerify, JWTPayload } from "jose";
+import { parseDateInputInBuenosAires } from "@/lib/buenosAiresDate";
 
 /** ===== Roles ===== */
 const RO_CREATE = new Set([
@@ -121,19 +122,8 @@ const toDec = (v: unknown) =>
 
 function toLocalDate(v: unknown): Date | undefined {
   if (typeof v !== "string" || !v) return undefined;
-  const ymd = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (ymd)
-    return new Date(
-      Number(ymd[1]),
-      Number(ymd[2]) - 1,
-      Number(ymd[3]),
-      0,
-      0,
-      0,
-      0,
-    );
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? undefined : d;
+  const parsed = parseDateInputInBuenosAires(v);
+  return parsed ?? undefined;
 }
 
 async function ensureBookingInAgency(bookingId: number, agencyId: number) {

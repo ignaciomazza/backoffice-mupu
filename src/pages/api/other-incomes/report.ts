@@ -6,6 +6,11 @@ import { getFinanceSectionGrants } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 import { hasSchemaColumn } from "@/lib/schemaColumns";
+import {
+  endOfDayUtcFromDateKeyInBuenosAires,
+  parseDateInputInBuenosAires,
+  startOfDayUtcFromDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -102,11 +107,24 @@ async function getUserFromAuth(
 
 function toLocalDate(v?: string): Date | undefined {
   if (!v) return undefined;
-  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m)
-    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? undefined : d;
+  const parsed = parseDateInputInBuenosAires(v);
+  return parsed ?? undefined;
+}
+
+function parseDateFromQuery(raw: unknown): Date | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  const value = raw.trim();
+  const start = startOfDayUtcFromDateKeyInBuenosAires(value);
+  if (start) return start;
+  return toLocalDate(value);
+}
+
+function parseDateToQuery(raw: unknown): Date | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  const value = raw.trim();
+  const end = endOfDayUtcFromDateKeyInBuenosAires(value);
+  if (end) return end;
+  return toLocalDate(value);
 }
 
 function safeNumber(v: unknown): number | undefined {
@@ -173,15 +191,15 @@ export default async function handler(
         ? req.query.status.trim().toUpperCase()
         : "";
 
-    const dateFrom = toLocalDate(
+    const dateFrom = parseDateFromQuery(
       Array.isArray(req.query.dateFrom)
         ? req.query.dateFrom[0]
-        : (req.query.dateFrom as string),
+        : req.query.dateFrom,
     );
-    const dateTo = toLocalDate(
+    const dateTo = parseDateToQuery(
       Array.isArray(req.query.dateTo)
         ? req.query.dateTo[0]
-        : (req.query.dateTo as string),
+        : req.query.dateTo,
     );
 
     const paymentMethodId = safeNumber(
@@ -210,32 +228,8 @@ export default async function handler(
 
     if (dateFrom || dateTo) {
       where.issue_date = {
-        ...(dateFrom
-          ? {
-              gte: new Date(
-                dateFrom.getFullYear(),
-                dateFrom.getMonth(),
-                dateFrom.getDate(),
-                0,
-                0,
-                0,
-                0,
-              ),
-            }
-          : {}),
-        ...(dateTo
-          ? {
-              lte: new Date(
-                dateTo.getFullYear(),
-                dateTo.getMonth(),
-                dateTo.getDate(),
-                23,
-                59,
-                59,
-                999,
-              ),
-            }
-          : {}),
+        ...(dateFrom ? { gte: dateFrom } : {}),
+        ...(dateTo ? { lte: dateTo } : {}),
       };
     }
 

@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { jwtVerify, type JWTPayload } from "jose";
+import { parseDateInputInBuenosAires } from "@/lib/buenosAiresDate";
 
 /* ===== auth helpers ===== */
 
@@ -148,15 +149,20 @@ export default async function handler(
             });
       }
 
+      const parsedValidFrom =
+        typeof valid_from === "string"
+          ? parseDateInputInBuenosAires(valid_from)
+          : undefined;
+      if (typeof valid_from === "string" && !parsedValidFrom) {
+        return res.status(400).json({ error: "valid_from inválida" });
+      }
+
       // update + reemplazo total de shares
       const updated = await prisma.commissionRuleSet.update({
         where: { id_rule_set: ruleId },
         data: {
           own_pct: new Prisma.Decimal(newOwnPct),
-          valid_from:
-            typeof valid_from === "string"
-              ? new Date(`${valid_from}T00:00:00Z`)
-              : rule.valid_from, // si no mandás, mantiene la anterior
+          valid_from: parsedValidFrom ?? rule.valid_from,
           shares: {
             deleteMany: {},
             create: normalizedShares.map((s) => ({

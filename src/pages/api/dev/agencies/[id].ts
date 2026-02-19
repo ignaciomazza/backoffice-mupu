@@ -3,7 +3,10 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
-import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
+import {
+  parseDateInputInBuenosAires,
+  toDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 /* ========== Auth helpers ========== */
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -80,10 +83,8 @@ function parseId(param: unknown): number {
 
 function toLocalDate(v?: string | null): Date | undefined {
   if (!v) return undefined;
-  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? undefined : d;
+  const parsed = parseDateInputInBuenosAires(v);
+  return parsed ?? undefined;
 }
 
 function validateCUIT(cuitRaw: string): boolean {

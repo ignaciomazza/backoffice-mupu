@@ -6,6 +6,10 @@ import { resolveAuth } from "@/lib/auth";
 import { getFinancePicksAccess } from "@/lib/accessControl";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 import { isFinanceDateLocked } from "@/lib/financeLocks";
+import {
+  parseDateInputInBuenosAires,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 const upsertSchema = z.object({
   account_id: z.number().int().positive(),
@@ -17,20 +21,8 @@ const upsertSchema = z.object({
 
 function parseDate(value?: string): Date | null {
   if (!value) return null;
-  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) {
-    return new Date(
-      Number(m[1]),
-      Number(m[2]) - 1,
-      Number(m[3]),
-      0,
-      0,
-      0,
-      0,
-    );
-  }
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d;
+  const parsed = parseDateInputInBuenosAires(value);
+  return parsed ?? null;
 }
 
 export default async function handler(
@@ -92,7 +84,9 @@ export default async function handler(
     const payload = parsed.data;
     const currency = payload.currency.toUpperCase();
     const effectiveDate =
-      parseDate(payload.effective_date) ?? new Date();
+      parseDate(payload.effective_date) ??
+      parseDateInputInBuenosAires(todayDateKeyInBuenosAires()) ??
+      new Date();
 
     if (await isFinanceDateLocked(auth.id_agency, effectiveDate)) {
       return res.status(409).json({
