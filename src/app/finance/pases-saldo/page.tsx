@@ -12,6 +12,10 @@ import {
   type FinanceCurrency,
   type FinancePaymentMethod,
 } from "@/utils/loadFinancePicks";
+import {
+  formatDateOnlyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
+} from "@/lib/buenosAiresDate";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -128,10 +132,7 @@ const MONTH_OPTIONS = [
 ];
 
 function toDateInputValue(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return toDateKeyInBuenosAiresLegacySafe(date) ?? "";
 }
 
 function parseOptionalNumber(value: string): number | undefined {
@@ -163,10 +164,8 @@ function formatAmount(amount: number, currency: string): string {
 }
 
 function formatDate(iso?: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("es-AR");
+  const formatted = formatDateOnlyInBuenosAires(iso ?? null);
+  return formatted === "-" ? "—" : formatted;
 }
 
 function SectionToggle({

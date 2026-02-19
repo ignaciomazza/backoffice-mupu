@@ -6,7 +6,7 @@ import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
 import { displayInvoiceNumber } from "@/utils/invoiceNumbers";
 import { useEffect, useMemo, useState } from "react";
-import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
+import { formatDateOnlyInBuenosAires } from "@/lib/buenosAiresDate";
 
 /* ======================== Utils ======================== */
 const normCurrency = (curr?: string) => {
@@ -31,19 +31,19 @@ const slugify = (text: string) =>
     .replace(/^_+|_+$/g, "");
 
 const fmtCbteDate = (raw: string | number | Date) => {
-  if (raw instanceof Date) return formatDateInBuenosAires(raw);
+  if (raw instanceof Date) return formatDateOnlyInBuenosAires(raw);
   const s = String(raw);
   if (/^\d{8}$/.test(s)) {
     const y = s.slice(0, 4);
     const m = s.slice(4, 6);
     const d = s.slice(6, 8);
-    return formatDateInBuenosAires(`${y}-${m}-${d}`);
+    return formatDateOnlyInBuenosAires(`${y}-${m}-${d}`);
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    return formatDateInBuenosAires(s);
+    return formatDateOnlyInBuenosAires(s);
   }
   const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? s : formatDateInBuenosAires(d);
+  return Number.isNaN(d.getTime()) ? s : formatDateOnlyInBuenosAires(d);
 };
 
 const TipoChip: React.FC<{ tipo?: number }> = ({ tipo }) => {
@@ -273,7 +273,7 @@ export default function InvoiceCard({
           <p className="text-sm">
             Fecha{" "}
             <span className="font-light">
-              {formatDateInBuenosAires(invoice.issue_date)}
+              {formatDateOnlyInBuenosAires(invoice.issue_date)}
             </span>
           </p>
           <p className="mt-2 text-[13px] font-medium text-red-600 dark:text-red-400">

@@ -10,7 +10,11 @@ import { authFetch } from "@/utils/authFetch";
 import { useAuth } from "@/context/AuthContext";
 import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 import type { BillingAdjustmentConfig } from "@/types";
-import { todayDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
+import {
+  formatDateOnlyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 /* ================= Tipos ================= */
 
@@ -148,8 +152,8 @@ type NormalizedBooking = Booking & {
   _paidLabel: string;
   _debtLabel: string;
   _operatorDebtLabel: string;
-  _depDate: Date | null;
-  _retDate: Date | null;
+  _depDateKey: string;
+  _retDateKey: string;
   _travelLabel: string;
   _taxByCurrency: Record<CurrencyCode, TaxBucket>;
 };
@@ -308,9 +312,8 @@ const isNumericColumnKey = (key: VisibleKey): key is NumericColumnKey =>
 
 /* ================= Utilidades ================= */
 function formatDateAR(iso?: string | null) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("es-AR");
+  const formatted = formatDateOnlyInBuenosAires(iso ?? null);
+  return formatted === "-" ? "—" : formatted;
 }
 const toNum = (v: number | string | null | undefined) => {
   const n =
@@ -745,8 +748,10 @@ export default function BalancesPage() {
         .filter(Boolean)
         .join(" y ");
 
-      const dep = b.departure_date ? new Date(b.departure_date) : null;
-      const ret = b.return_date ? new Date(b.return_date) : null;
+      const depDateKey =
+        toDateKeyInBuenosAiresLegacySafe(b.departure_date ?? null) ?? "";
+      const retDateKey =
+        toDateKeyInBuenosAiresLegacySafe(b.return_date ?? null) ?? "";
 
       const taxByCurrency = sumTaxesByCurrency(b.services);
       if (useBookingSaleTotal) {
@@ -771,10 +776,10 @@ export default function BalancesPage() {
         _paidLabel: paidLabel || "—",
         _debtLabel: debtLabel || "—",
         _operatorDebtLabel: operatorDebtLabel || "—",
-        _depDate: dep,
-        _retDate: ret,
+        _depDateKey: depDateKey,
+        _retDateKey: retDateKey,
         _travelLabel:
-          dep || ret
+          depDateKey || retDateKey
             ? `${formatDateAR(b.departure_date)} – ${formatDateAR(b.return_date)}`
             : "—",
         _taxByCurrency: taxByCurrency,
@@ -1049,12 +1054,12 @@ export default function BalancesPage() {
           vb = b.operatorStatus || "";
           break;
         case "creation_date":
-          va = new Date(a.creation_date).getTime();
-          vb = new Date(b.creation_date).getTime();
+          va = toDateKeyInBuenosAiresLegacySafe(a.creation_date) ?? "";
+          vb = toDateKeyInBuenosAiresLegacySafe(b.creation_date) ?? "";
           break;
         case "travel":
-          va = a._depDate ? a._depDate.getTime() : 0;
-          vb = b._depDate ? b._depDate.getTime() : 0;
+          va = a._depDateKey || "";
+          vb = b._depDateKey || "";
           break;
         case "sale_total":
           va = (a._saleNoInt.ARS || 0) * 1e6 + (a._saleNoInt.USD || 0);

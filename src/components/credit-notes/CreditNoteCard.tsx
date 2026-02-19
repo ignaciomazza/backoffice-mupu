@@ -5,7 +5,7 @@ import type { Prisma } from "@prisma/client";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import { useMemo, useState } from "react";
-import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
+import { formatDateOnlyInBuenosAires } from "@/lib/buenosAiresDate";
 
 /* ======================== Utils (idénticos a InvoiceCard) ======================== */
 const normCurrency = (curr?: string | null) => {
@@ -30,19 +30,19 @@ const slugify = (text: string) =>
     .replace(/^_+|_+$/g, "");
 
 const fmtCbteDate = (raw: number | string | Date) => {
-  if (raw instanceof Date) return formatDateInBuenosAires(raw);
+  if (raw instanceof Date) return formatDateOnlyInBuenosAires(raw);
   const s = String(raw);
   if (/^\d{8}$/.test(s)) {
     const y = s.slice(0, 4);
     const m = s.slice(4, 6);
     const d = s.slice(6, 8);
-    return formatDateInBuenosAires(`${y}-${m}-${d}`);
+    return formatDateOnlyInBuenosAires(`${y}-${m}-${d}`);
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    return formatDateInBuenosAires(s);
+    return formatDateOnlyInBuenosAires(s);
   }
   const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? s : formatDateInBuenosAires(d);
+  return Number.isNaN(d.getTime()) ? s : formatDateOnlyInBuenosAires(d);
 };
 
 /* ======================== Chips (mismos estilos que InvoiceCard) ======================== */
@@ -155,7 +155,7 @@ export default function CreditNoteCard({ creditNote }: CreditNoteCardProps) {
             Fecha{" "}
             <span className="font-light">
               {creditNote.issue_date
-                ? formatDateInBuenosAires(creditNote.issue_date)
+                ? formatDateOnlyInBuenosAires(creditNote.issue_date)
                 : "–"}
             </span>
           </p>

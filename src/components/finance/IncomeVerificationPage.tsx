@@ -16,6 +16,7 @@ import {
   normalizeFinanceSectionRules,
   type FinanceSectionKey,
 } from "@/utils/permissions";
+import { formatDateOnlyInBuenosAires } from "@/lib/buenosAiresDate";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -164,10 +165,7 @@ const fmtMoney = (v?: number | string | null, curr?: string | null) => {
 };
 
 const fmtDate = (iso?: string | null) => {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("es-AR");
+  return formatDateOnlyInBuenosAires(iso ?? null);
 };
 
 const getReceiptDisplayNumber = (receipt: ReceiptIncome) => {

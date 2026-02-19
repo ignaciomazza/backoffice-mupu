@@ -885,10 +885,11 @@ export default function ServicesContainer(props: ServicesContainerProps) {
           : [];
 
         items.sort((a, b) => {
-          const da = new Date(a.due_date).getTime();
-          const db = new Date(b.due_date).getTime();
-          if (Number.isFinite(da) && Number.isFinite(db) && da !== db)
-            return da - db;
+          const da = toDateKeyInBuenosAiresLegacySafe(a.due_date) ?? "";
+          const db = toDateKeyInBuenosAiresLegacySafe(b.due_date) ?? "";
+          if (da && db && da !== db) return da.localeCompare(db);
+          if (da && !db) return -1;
+          if (!da && db) return 1;
           return (a.id_payment ?? 0) - (b.id_payment ?? 0);
         });
 
@@ -1413,10 +1414,11 @@ export default function ServicesContainer(props: ServicesContainerProps) {
   };
 
   const toSortKey = (raw?: string | Date | null) => {
+    const key = toDateKeyInBuenosAiresLegacySafe(raw ?? null);
+    if (key) return Number(key.replace(/-/g, ""));
     if (!raw) return 0;
     const d = raw instanceof Date ? raw : new Date(raw);
-    const ts = d.getTime();
-    return Number.isFinite(ts) ? ts : 0;
+    return Number.isFinite(d.getTime()) ? d.getTime() : 0;
   };
 
   const billingItems = useMemo<BillingItem[]>(() => {

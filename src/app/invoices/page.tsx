@@ -10,6 +10,7 @@ import "react-toastify/dist/ReactToastify.css";
 import Link from "next/link";
 import { authFetch } from "@/utils/authFetch";
 import { displayInvoiceNumber } from "@/utils/invoiceNumbers";
+import { formatDateOnlyInBuenosAires } from "@/lib/buenosAiresDate";
 
 interface Invoice {
   id_invoice: number;
@@ -138,9 +139,11 @@ export default function InvoicesPage() {
 
   const getCbteDate = (inv: Invoice) => {
     const raw = inv.payloadAfip.voucherData.CbteFch.toString();
-    return new Date(
-      `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}T00:00:00`,
-    ).toLocaleDateString("es-AR");
+    if (!/^\d{8}$/.test(raw)) return "-";
+    const y = raw.slice(0, 4);
+    const m = raw.slice(4, 6);
+    const d = raw.slice(6, 8);
+    return formatDateOnlyInBuenosAires(`${y}-${m}-${d}`);
   };
 
   const getTaxBreakdown = (inv: Invoice) => {

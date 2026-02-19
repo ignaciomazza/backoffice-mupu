@@ -58,6 +58,10 @@ import {
   computeManualTotals,
   type ManualTotalsInput,
 } from "@/services/afip/manualTotals";
+import {
+  formatDateOnlyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
+} from "@/lib/buenosAiresDate";
 
 type GroupStatus =
   | "BORRADOR"
@@ -346,10 +350,7 @@ type DepartureDraft = {
 };
 
 function formatDate(value: string | null | undefined) {
-  if (!value) return "-";
-  const d = new Date(value);
-  if (!Number.isFinite(d.getTime())) return "-";
-  return d.toLocaleDateString("es-AR");
+  return formatDateOnlyInBuenosAires(value ?? null);
 }
 
 function formatPendingInstallmentAmount(
@@ -367,13 +368,7 @@ function formatPendingInstallmentAmount(
 }
 
 function toDateInputValue(value: string | null | undefined): string {
-  if (!value) return "";
-  const d = new Date(value);
-  if (!Number.isFinite(d.getTime())) return "";
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return toDateKeyInBuenosAiresLegacySafe(value ?? null) ?? "";
 }
 
 function parsePassengerNote(
@@ -1695,11 +1690,15 @@ export default function GroupDetailPage() {
   const sortedDepartures = useMemo(() => {
     if (!group?.departures) return [];
     return [...group.departures].sort((a, b) => {
-      const aTime = new Date(a.departure_date).getTime();
-      const bTime = new Date(b.departure_date).getTime();
-      if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) {
-        return aTime - bTime;
+      const aDateKey =
+        toDateKeyInBuenosAiresLegacySafe(a.departure_date ?? null) ?? "";
+      const bDateKey =
+        toDateKeyInBuenosAiresLegacySafe(b.departure_date ?? null) ?? "";
+      if (aDateKey && bDateKey && aDateKey !== bDateKey) {
+        return aDateKey.localeCompare(bDateKey);
       }
+      if (aDateKey && !bDateKey) return -1;
+      if (!aDateKey && bDateKey) return 1;
       return a.id_travel_group_departure - b.id_travel_group_departure;
     });
   }, [group?.departures]);

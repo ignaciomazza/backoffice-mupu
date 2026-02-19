@@ -8,7 +8,11 @@ import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import { toast, ToastContainer } from "react-toastify";
-import { todayDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
+import {
+  formatDateOnlyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 import "react-toastify/dist/ReactToastify.css";
 
 const PANEL =
@@ -251,28 +255,13 @@ const shouldPreferDotDecimal = (ev: React.ChangeEvent<HTMLInputElement>) => {
 };
 
 const fmtDate = (iso?: string | null) => {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("es-AR");
+  return formatDateOnlyInBuenosAires(iso ?? null);
 };
 
-const ymdToday = () => {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-};
+const ymdToday = () => todayDateKeyInBuenosAires();
 
 function toYmd(iso?: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return toDateKeyInBuenosAiresLegacySafe(iso ?? null) ?? "";
 }
 
 const formatMonthLabel = (key: string) => {
@@ -1071,9 +1060,9 @@ export default function OtherIncomesPage() {
     if (items.length === 0) return [];
     const map = new Map<string, GroupedMonth>();
     for (const item of items) {
-      const date = new Date(item.issue_date);
-      if (Number.isNaN(date.getTime())) continue;
-      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      const issueDateKey = toYmd(item.issue_date);
+      if (!issueDateKey) continue;
+      const key = issueDateKey.slice(0, 7);
       if (!map.has(key)) {
         map.set(key, {
           key,
