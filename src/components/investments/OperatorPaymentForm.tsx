@@ -11,6 +11,7 @@ import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import { parseAmountInput } from "@/utils/receipts/receiptForm";
 import ServiceAllocationsEditor, {
   type AllocationSummary,
+  type AllocationPayload,
   type ExcessAction,
   type ExcessMissingAccountAction,
 } from "@/components/investments/ServiceAllocationsEditor";
@@ -82,6 +83,57 @@ const fromKey = (o: unknown, key: string): unknown[] | null => {
   const rec = o as Record<string, unknown>;
   const v = rec[key];
   return Array.isArray(v) ? (v as unknown[]) : null;
+};
+
+const parseServiceIds = (raw: unknown): number[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .map((n) => Math.trunc(n));
+};
+
+const parseAllocations = (raw: unknown): AllocationPayload[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: AllocationPayload[] = [];
+  for (const item of raw) {
+    if (!isRecord(item)) continue;
+    const rec = item as Record<string, unknown>;
+    const serviceId = Number(rec.service_id ?? rec.serviceId ?? rec.id_service);
+    if (!Number.isFinite(serviceId) || serviceId <= 0) continue;
+
+    const bookingIdRaw = Number(rec.booking_id ?? rec.bookingId);
+    const bookingId =
+      Number.isFinite(bookingIdRaw) && bookingIdRaw > 0
+        ? Math.trunc(bookingIdRaw)
+        : undefined;
+    const paymentCurrency = String(
+      rec.payment_currency ?? rec.paymentCurrency ?? "",
+    )
+      .trim()
+      .toUpperCase();
+    const serviceCurrency = String(
+      rec.service_currency ?? rec.serviceCurrency ?? "",
+    )
+      .trim()
+      .toUpperCase();
+    const amountPayment = Number(rec.amount_payment ?? rec.amountPayment ?? 0);
+    const amountService = Number(rec.amount_service ?? rec.amountService ?? 0);
+    const fxRaw = rec.fx_rate ?? rec.fxRate;
+    const fxRate =
+      fxRaw == null || fxRaw === "" ? null : Number.isFinite(Number(fxRaw)) ? Number(fxRaw) : null;
+
+    out.push({
+      service_id: Math.trunc(serviceId),
+      booking_id: bookingId,
+      payment_currency: paymentCurrency || "ARS",
+      service_currency: serviceCurrency || "ARS",
+      amount_payment: Number.isFinite(amountPayment) ? amountPayment : 0,
+      amount_service: Number.isFinite(amountService) ? amountService : 0,
+      fx_rate: fxRate,
+    });
+  }
+  return out;
 };
 
 type CreditAccount = {
@@ -457,6 +509,11 @@ export default function OperatorPaymentForm({
   const [loadingPayments, setLoadingPayments] = useState(false);
   const [selectedPayment, setSelectedPayment] =
     useState<OperatorPaymentOption | null>(null);
+  const [loadingSelectedPaymentDetail, setLoadingSelectedPaymentDetail] =
+    useState(false);
+  const [attachInitialAllocations, setAttachInitialAllocations] = useState<
+    AllocationPayload[]
+  >([]);
 
   useEffect(() => {
     setAllocationSummary({
@@ -603,6 +660,8 @@ export default function OperatorPaymentForm({
       setPaymentOptions([]);
       setSelectedPayment(null);
       setLoadingPayments(false);
+      setLoadingSelectedPaymentDetail(false);
+      setAttachInitialAllocations([]);
       return;
     }
   }, [action]);
@@ -734,6 +793,78 @@ export default function OperatorPaymentForm({
       setAllocationResetKey((k) => k + 1);
     }
   }, [selectedServices.length]);
+
+  useEffect(() => {
+    if (action !== "attach" || !selectedPayment || !token) {
+      setLoadingSelectedPaymentDetail(false);
+      setAttachInitialAllocations([]);
+      return;
+    }
+
+    const bookingServiceIds = new Set(
+      servicesFromBooking.map((svc) => svc.id_service),
+    );
+    let alive = true;
+    const controller = new AbortController();
+    setLoadingSelectedPaymentDetail(true);
+    setAttachInitialAllocations([]);
+
+    authFetch(
+      `/api/investments/${selectedPayment.id_investment}?includeAllocations=1`,
+      { cache: "no-store", signal: controller.signal },
+      token,
+    )
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return (await safeJson<unknown>(res)) ?? null;
+      })
+      .then((raw) => {
+        if (!alive || !raw || !isRecord(raw)) return;
+        const rec = raw as Record<string, unknown>;
+        const serviceIds = parseServiceIds(rec.serviceIds);
+        const allocations = parseAllocations(rec.allocations);
+        const scopedServiceIds = serviceIds.filter((id) =>
+          bookingServiceIds.has(id),
+        );
+        const scopedAllocations = allocations.filter((a) =>
+          bookingServiceIds.has(a.service_id),
+        );
+        if (scopedServiceIds.length > 0) {
+          setSelectedIds(scopedServiceIds);
+        } else if (scopedAllocations.length > 0) {
+          setSelectedIds(scopedAllocations.map((a) => a.service_id));
+        } else {
+          setSelectedIds([]);
+        }
+        setAttachInitialAllocations(scopedAllocations);
+
+        const excessRaw = String(rec.excess_action ?? "").toLowerCase();
+        setExcessAction(excessRaw === "credit_entry" ? "credit_entry" : "carry");
+
+        const missingRaw = String(
+          rec.excess_missing_account_action ?? "",
+        ).toLowerCase();
+        setExcessMissingAccountAction(
+          missingRaw === "block" || missingRaw === "create" || missingRaw === "carry"
+            ? (missingRaw as ExcessMissingAccountAction)
+            : "carry",
+        );
+        setAllocationResetKey((k) => k + 1);
+      })
+      .catch((error) => {
+        if (!alive) return;
+        if ((error as { name?: string }).name === "AbortError") return;
+        setAttachInitialAllocations([]);
+      })
+      .finally(() => {
+        if (alive) setLoadingSelectedPaymentDetail(false);
+      });
+
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [action, selectedPayment, token, servicesFromBooking]);
 
   /* ========= Sugeridos / locks ========= */
   const operatorIdFromSelection = useMemo<number | null>(() => {
@@ -2194,6 +2325,9 @@ export default function OperatorPaymentForm({
                       services={selectedServices}
                       paymentCurrency={editorPaymentCurrency}
                       paymentAmount={editorPaymentAmount}
+                      initialAllocations={
+                        action === "attach" ? attachInitialAllocations : undefined
+                      }
                       resetKey={allocationResetKey}
                       excessAction={excessAction}
                       onExcessActionChange={setExcessAction}
@@ -2247,7 +2381,11 @@ export default function OperatorPaymentForm({
                               className={`w-full px-3 py-2 text-left transition hover:bg-white/5 ${
                                 active ? "bg-white/10" : ""
                               }`}
-                              onClick={() => setSelectedPayment(opt)}
+                              onClick={() => {
+                                setSelectedPayment(opt);
+                                setSelectedIds([]);
+                                setAttachInitialAllocations([]);
+                              }}
                             >
                               <div className="text-sm font-medium">
                                 N° {displayId} ·{" "}
@@ -2293,6 +2431,11 @@ export default function OperatorPaymentForm({
                             se reemplazarán.
                           </p>
                         )}
+                      {loadingSelectedPaymentDetail && (
+                        <p className="mt-1 text-sky-950/70 dark:text-white/70">
+                          Cargando servicios y asignaciones del pago...
+                        </p>
+                      )}
                     </div>
                   )}
                 </Section>

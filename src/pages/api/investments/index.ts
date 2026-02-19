@@ -242,6 +242,11 @@ const INVESTMENT_PAYMENT_LINE_SELECT = {
   fee_amount: true,
 } satisfies Prisma.InvestmentPaymentSelect;
 
+const INVESTMENT_ALLOCATION_LIST_SELECT = {
+  booking_id: true,
+  amount_payment: true,
+} satisfies Prisma.InvestmentServiceAllocationSelect;
+
 type InvestmentSchemaFlags = {
   hasPaymentFeeAmount: boolean;
   hasPaymentLines: boolean;
@@ -257,6 +262,7 @@ async function getInvestmentSchemaFlags(): Promise<InvestmentSchemaFlags> {
 
 function buildInvestmentListSelect(
   flags: InvestmentSchemaFlags,
+  includeAllocations = false,
 ): Prisma.InvestmentSelect {
   return {
     id_investment: true,
@@ -287,6 +293,9 @@ function buildInvestmentListSelect(
     operator: true,
     ...(flags.hasPaymentLines
       ? { payments: { select: INVESTMENT_PAYMENT_LINE_SELECT } }
+      : {}),
+    ...(includeAllocations
+      ? { allocations: { select: INVESTMENT_ALLOCATION_LIST_SELECT } }
       : {}),
     createdBy: {
       select: { id_user: true, first_name: true, last_name: true },
@@ -1181,9 +1190,13 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const schemaFlags = await getInvestmentSchemaFlags();
+    const includeBookingAllocations = Boolean(bookingId);
     const items = (await prisma.investment.findMany({
       where,
-      select: buildInvestmentListSelect(schemaFlags),
+      select: buildInvestmentListSelect(
+        schemaFlags,
+        includeBookingAllocations,
+      ),
       orderBy: { id_investment: "desc" },
       take: take + 1,
       ...(cursor ? { cursor: { id_investment: cursor }, skip: 1 } : {}),
@@ -1192,18 +1205,46 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const hasMore = items.length > take;
     const sliced = hasMore ? items.slice(0, take) : items;
     const normalized = sliced.map((item) => {
+      const itemWithAllocations = item as Record<string, unknown> & {
+        allocations?: Array<{ booking_id?: unknown; amount_payment?: unknown }>;
+      };
+      const { allocations, ...itemData } = itemWithAllocations;
       const booking = item.booking as
         | { id_booking: number; agency_booking_id?: number | null }
         | null
         | undefined;
       const idAgency = Number(item.id_agency);
+      const bookingAmount =
+        bookingId != null
+          ? (() => {
+              const allocatedAmount = round2(
+                (allocations || [])
+                  .filter((a) => Number(a.booking_id) === bookingId)
+                  .reduce((sum, a) => sum + Number(a.amount_payment || 0), 0),
+              );
+              if (allocatedAmount > ASSIGNMENT_TOLERANCE) {
+                return allocatedAmount;
+              }
+              const directBookingId = Number(item.booking_id || 0);
+              const totalAmount = Number(item.amount || 0);
+              if (
+                directBookingId === bookingId &&
+                Number.isFinite(totalAmount) &&
+                totalAmount > 0
+              ) {
+                return round2(totalAmount);
+              }
+              return null;
+            })()
+          : null;
 
       return {
-        ...item,
+        ...itemData,
         ...(schemaFlags.hasPaymentFeeAmount
           ? {}
           : { payment_fee_amount: null }),
         ...(schemaFlags.hasPaymentLines ? {} : { payments: [] }),
+        ...(bookingId != null ? { booking_amount: bookingAmount } : {}),
         booking: booking
           ? {
               ...booking,

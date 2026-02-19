@@ -1737,7 +1737,12 @@ export default async function handler(
         // 1) Borrar entries de CC vinculados y revertir sus efectos en el balance
         await removeLinkedCreditEntries(tx, id, auth.id_agency);
         // 2) Borrar la inversión
-        await tx.investment.delete({ where: { id_investment: id } });
+        const deleted = await tx.investment.deleteMany({
+          where: { id_investment: id, id_agency: auth.id_agency },
+        });
+        if (deleted.count !== 1) {
+          throw new Error("Inversión no encontrada al eliminar");
+        }
       });
 
       return res.status(204).end();

@@ -19,6 +19,7 @@ export type InvestmentItem = {
   category: string;
   description: string;
   amount: number;
+  booking_amount?: number | string | null;
   currency: string;
   created_at: string;
   paid_at?: string | null;
@@ -86,9 +87,18 @@ function fmtMoney(v?: number | string | null, cur?: string | null) {
 
 function OperatorPaymentCard({ item, token }: Props) {
   const [loadingPDF, setLoadingPDF] = useState(false);
+  const totalAmount = Number(item.amount || 0);
+  const scopedBookingAmount =
+    item.booking_amount == null ? NaN : Number(item.booking_amount);
+  const hasScopedBookingAmount = Number.isFinite(scopedBookingAmount);
+  const amountToShow = hasScopedBookingAmount ? scopedBookingAmount : totalAmount;
+  const showTotalAmount =
+    hasScopedBookingAmount &&
+    Number.isFinite(totalAmount) &&
+    Math.abs(totalAmount - scopedBookingAmount) > 0.009;
   const formattedAmount = useMemo(
-    () => fmtMoney(item.amount, item.currency),
-    [item.amount, item.currency],
+    () => fmtMoney(amountToShow, item.currency),
+    [amountToShow, item.currency],
   );
   const bookingNumber = item.booking?.agency_booking_id ?? item.booking_id;
   const paymentDisplayId = item.agency_investment_id ?? item.id_investment;
@@ -194,8 +204,14 @@ function OperatorPaymentCard({ item, token }: Props) {
 
       <div className="mt-2 flex flex-wrap gap-4 text-sm">
         <span>
-          <b>Monto:</b> {formattedAmount}
+          <b>{hasScopedBookingAmount ? "Monto aplicado:" : "Monto:"}</b>{" "}
+          {formattedAmount}
         </span>
+        {showTotalAmount && (
+          <span>
+            <b>Total del pago:</b> {fmtMoney(totalAmount, item.currency)}
+          </span>
+        )}
 
         {/* Método de pago / Cuenta (opcionales) */}
         {item.payment_method && paymentLines.length === 0 && (
