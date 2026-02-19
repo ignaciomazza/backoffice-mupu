@@ -303,6 +303,12 @@ function extractReceiptPaidByCurrency(raw: ReceiptWithConversion): Record<string
     out[cur] = (out[cur] || 0) + value;
   };
 
+  const lineFeeTotal = lines.reduce(
+    (sum, line) => sum + toNum(line?.fee_amount ?? 0),
+    0,
+  );
+  const feeRemainder = feeVal - lineFeeTotal;
+
   if (baseCurrency && Math.abs(baseVal) > PAYMENT_TOLERANCE) {
     let feeInBase = 0;
     if (lines.length > 0) {
@@ -313,6 +319,12 @@ function extractReceiptPaidByCurrency(raw: ReceiptWithConversion): Record<string
         if (lineCur !== baseCurrency) return;
         feeInBase += toNum(line?.fee_amount ?? 0);
       });
+      if (
+        Math.abs(feeRemainder) > PAYMENT_TOLERANCE &&
+        amountCurrency === baseCurrency
+      ) {
+        feeInBase += feeRemainder;
+      }
     } else if (amountCurrency === baseCurrency) {
       feeInBase = feeVal;
     }
@@ -328,6 +340,9 @@ function extractReceiptPaidByCurrency(raw: ReceiptWithConversion): Record<string
       const credited = toNum(line?.amount ?? 0) + toNum(line?.fee_amount ?? 0);
       add(lineCur, credited);
     });
+    if (Math.abs(feeRemainder) > PAYMENT_TOLERANCE) {
+      add(amountCurrency, feeRemainder);
+    }
     return out;
   }
 

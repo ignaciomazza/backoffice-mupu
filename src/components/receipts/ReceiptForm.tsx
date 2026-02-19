@@ -96,6 +96,11 @@ type ReceiptForDebt = {
   payment_fee_amount?: number | string | null;
   payment_fee_currency?: string | null;
   serviceIds?: number[] | null;
+  payments?: Array<{
+    amount?: number | string | null;
+    payment_currency?: string | null;
+    fee_amount?: number | string | null;
+  }> | null;
 };
 
 const uid = () => `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -115,6 +120,7 @@ const toInputDate = (value?: string | null) => {
 };
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+const DEBT_TOLERANCE = 0.01;
 
 const normalizeCurrencyCodeLoose = (raw: string | null | undefined): string => {
   const s = (raw || "").trim().toUpperCase();
@@ -128,6 +134,88 @@ const normalizeCurrencyCodeLoose = (raw: string | null | undefined): string => {
     $: "ARS",
   };
   return map[s] || s;
+};
+
+const toNumberLoose = (value: unknown): number => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string") {
+    const parsed = parseAmountInput(value);
+    if (parsed != null && Number.isFinite(parsed)) return parsed;
+    const numeric = Number(value.replace(",", "."));
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const addReceiptToPaidByCurrency = (
+  target: Record<string, number>,
+  receipt: ReceiptForDebt,
+) => {
+  const amountCurrency = normalizeCurrencyCodeLoose(
+    receipt.amount_currency || "ARS",
+  );
+  const amountValue = toNumberLoose(receipt.amount ?? 0);
+  const feeValue = toNumberLoose(receipt.payment_fee_amount ?? 0);
+  const baseValue = toNumberLoose(receipt.base_amount ?? 0);
+  const baseCurrency = receipt.base_currency
+    ? normalizeCurrencyCodeLoose(receipt.base_currency)
+    : null;
+  const paymentLines = Array.isArray(receipt.payments) ? receipt.payments : [];
+
+  if (baseCurrency && Math.abs(baseValue) > DEBT_TOLERANCE) {
+    const lineFeeTotal = paymentLines.reduce(
+      (sum, line) => sum + toNumberLoose(line?.fee_amount ?? 0),
+      0,
+    );
+    const feeRemainder = feeValue - lineFeeTotal;
+    const feeInBase =
+      (paymentLines.length > 0
+        ? paymentLines.reduce((sum, line) => {
+            const lineCurrency = normalizeCurrencyCodeLoose(
+              line?.payment_currency || amountCurrency,
+            );
+            if (lineCurrency !== baseCurrency) return sum;
+            return sum + toNumberLoose(line?.fee_amount ?? 0);
+          }, 0)
+        : amountCurrency === baseCurrency
+          ? feeValue
+          : 0) +
+      (Math.abs(feeRemainder) > DEBT_TOLERANCE &&
+      amountCurrency === baseCurrency
+        ? feeRemainder
+        : 0);
+    const credited = baseValue + feeInBase;
+    if (Math.abs(credited) <= DEBT_TOLERANCE) return;
+    target[baseCurrency] = round2((target[baseCurrency] || 0) + credited);
+    return;
+  }
+
+  if (paymentLines.length > 0) {
+    let lineFeeTotal = 0;
+    for (const line of paymentLines) {
+      const lineCurrency = normalizeCurrencyCodeLoose(
+        line?.payment_currency || amountCurrency,
+      );
+      const lineAmount = toNumberLoose(line?.amount ?? 0);
+      const lineFee = toNumberLoose(line?.fee_amount ?? 0);
+      lineFeeTotal += lineFee;
+      const credited = lineAmount + lineFee;
+      if (Math.abs(credited) <= DEBT_TOLERANCE) continue;
+      target[lineCurrency] = round2((target[lineCurrency] || 0) + credited);
+    }
+    const feeRemainder = feeValue - lineFeeTotal;
+    if (Math.abs(feeRemainder) > DEBT_TOLERANCE) {
+      target[amountCurrency] = round2(
+        (target[amountCurrency] || 0) + feeRemainder,
+      );
+    }
+    return;
+  }
+
+  const credited = amountValue + feeValue;
+  if (Math.abs(credited) <= DEBT_TOLERANCE) return;
+  target[amountCurrency] = round2((target[amountCurrency] || 0) + credited);
 };
 
 const calcPaymentLineFee = (line: {
@@ -164,6 +252,21 @@ const formatCurrencyBreakdown = (totals: Record<string, number>) => {
       formatCurrencyMoney(round2(value), normalizeCurrencyCodeLoose(currency)),
     );
   return parts.length ? parts.join(" + ") : "";
+};
+
+const normalizeSaleTotalsLoose = (input: unknown): Record<string, number> => {
+  const out: Record<string, number> = {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return out;
+  const obj = input as Record<string, unknown>;
+  for (const [keyRaw, val] of Object.entries(obj)) {
+    const key = normalizeCurrencyCodeLoose(keyRaw);
+    const n =
+      typeof val === "number"
+        ? val
+        : Number(String(val ?? "").replace(",", "."));
+    if (Number.isFinite(n) && n >= 0) out[key] = n;
+  }
+  return out;
 };
 
 export interface ReceiptFormProps {
@@ -515,6 +618,16 @@ export default function ReceiptForm({
     }
     return acc;
   }, [paymentLines]);
+
+  const paymentLineImpactByKey = useMemo(() => {
+    const acc: Record<string, number> = {};
+    for (const line of paymentLines) {
+      const amount = parseAmountInput(line.amount) ?? 0;
+      const fee = paymentLineFeeByKey[line.key] ?? calcPaymentLineFee(line);
+      acc[line.key] = round2(Math.max(0, amount) + Math.max(0, fee));
+    }
+    return acc;
+  }, [paymentLines, paymentLineFeeByKey]);
 
   const paymentsAmountByCurrency = useMemo(() => {
     const acc: Record<string, number> = {};
@@ -1152,6 +1265,19 @@ export default function ReceiptForm({
 
   const [bookingReceipts, setBookingReceipts] = useState<ReceiptForDebt[]>([]);
   const [bookingReceiptsLoaded, setBookingReceiptsLoaded] = useState(false);
+  const [bookingSaleTotals, setBookingSaleTotals] = useState<
+    Record<string, number>
+  >({});
+  const [bookingSaleOverride, setBookingSaleOverride] = useState<
+    boolean | null
+  >(null);
+  const [bookingContextLoaded, setBookingContextLoaded] = useState(false);
+  const [inheritedUseBookingSaleTotal, setInheritedUseBookingSaleTotal] =
+    useState(false);
+  const [billingBreakdownMode, setBillingBreakdownMode] = useState<
+    "auto" | "manual"
+  >("auto");
+  const [calcConfigLoaded, setCalcConfigLoaded] = useState(false);
 
   useEffect(() => {
     if (!token || !selectedBookingId || mode !== "booking") {
@@ -1188,62 +1314,180 @@ export default function ReceiptForm({
     };
   }, [token, selectedBookingId, mode]);
 
+  useEffect(() => {
+    if (!token) {
+      setInheritedUseBookingSaleTotal(false);
+      setBillingBreakdownMode("auto");
+      setCalcConfigLoaded(false);
+      return;
+    }
+
+    const ac = new AbortController();
+    let alive = true;
+    setCalcConfigLoaded(false);
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/service-calc-config",
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+        if (!res.ok) throw new Error("fetch failed");
+        const json = await safeJson<{
+          use_booking_sale_total?: unknown;
+          billing_breakdown_mode?: unknown;
+        }>(res);
+        if (alive) {
+          setInheritedUseBookingSaleTotal(Boolean(json?.use_booking_sale_total));
+          setBillingBreakdownMode(
+            String(json?.billing_breakdown_mode || "auto").toLowerCase() ===
+              "manual"
+              ? "manual"
+              : "auto",
+          );
+        }
+      } catch {
+        if (alive) {
+          setInheritedUseBookingSaleTotal(false);
+          setBillingBreakdownMode("auto");
+        }
+      } finally {
+        if (alive) setCalcConfigLoaded(true);
+      }
+    })();
+
+    return () => {
+      alive = false;
+      ac.abort();
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token || !selectedBookingId || mode !== "booking") {
+      setBookingSaleTotals({});
+      setBookingSaleOverride(null);
+      setBookingContextLoaded(false);
+      return;
+    }
+
+    const ac = new AbortController();
+    let alive = true;
+    setBookingContextLoaded(false);
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          `/api/bookings/${selectedBookingId}`,
+          { cache: "no-store", signal: ac.signal },
+          token,
+        );
+        if (!res.ok) throw new Error("fetch failed");
+        const json = await safeJson<{
+          sale_totals?: unknown;
+          use_booking_sale_total_override?: unknown;
+        }>(res);
+
+        if (!alive) return;
+
+        const totals = normalizeSaleTotalsLoose(json?.sale_totals);
+        const overrideRaw = json?.use_booking_sale_total_override;
+        const override =
+          typeof overrideRaw === "boolean" ? overrideRaw : null;
+
+        setBookingSaleTotals(totals);
+        setBookingSaleOverride(override);
+      } catch {
+        if (!alive) return;
+        setBookingSaleTotals({});
+        setBookingSaleOverride(null);
+      } finally {
+        if (alive) setBookingContextLoaded(true);
+      }
+    })();
+
+    return () => {
+      alive = false;
+      ac.abort();
+    };
+  }, [token, selectedBookingId, mode]);
+
+  const bookingSaleMode =
+    mode === "booking"
+      ? typeof bookingSaleOverride === "boolean"
+        ? bookingSaleOverride
+        : inheritedUseBookingSaleTotal
+      : false;
+  const manualCalcMode = billingBreakdownMode === "manual" || bookingSaleMode;
+
   const relevantReceipts = useMemo(() => {
-    if (!bookingReceipts.length || !selectedServiceIds.length) return [];
+    if (!bookingReceipts.length) return [];
+    if (bookingSaleMode) return bookingReceipts;
+    if (!selectedServiceIds.length) return [];
     const svcSet = new Set(selectedServiceIds);
     return bookingReceipts.filter((r) => {
       const ids = Array.isArray(r.serviceIds) ? r.serviceIds : [];
       if (!ids.length) return true;
       return ids.some((id) => svcSet.has(id));
     });
-  }, [bookingReceipts, selectedServiceIds]);
+  }, [bookingReceipts, bookingSaleMode, selectedServiceIds]);
 
   const salesByCurrency = useMemo(() => {
+    if (bookingSaleMode) {
+      if (Object.keys(bookingSaleTotals).length > 0) {
+        return Object.entries(bookingSaleTotals).reduce<Record<string, number>>(
+          (acc, [currency, rawTotal]) => {
+            const total = toNum(rawTotal);
+            if (total > 0) acc[normalizeCurrencyCode(currency)] = total;
+            return acc;
+          },
+          {},
+        );
+      }
+
+      return services.reduce<Record<string, number>>((acc, s) => {
+        const cur = normalizeCurrencyCode(s.currency || "ARS");
+        const sale = toNum(s.sale_price);
+        if (sale > 0) acc[cur] = (acc[cur] || 0) + sale;
+        return acc;
+      }, {});
+    }
+
     return selectedServices.reduce<Record<string, number>>((acc, s) => {
       const cur = normalizeCurrencyCode(s.currency || "ARS");
       const sale = toNum(s.sale_price);
-      const split =
-        toNum(s.taxableCardInterest) + toNum(s.vatOnCardInterest);
+      if (manualCalcMode) {
+        if (sale > 0) acc[cur] = (acc[cur] || 0) + sale;
+        return acc;
+      }
+      const split = toNum(s.taxableCardInterest) + toNum(s.vatOnCardInterest);
       const interest = split > 0 ? split : toNum(s.card_interest);
       const total = sale + interest;
-      if (total) acc[cur] = (acc[cur] || 0) + total;
+      if (total > 0) acc[cur] = (acc[cur] || 0) + total;
       return acc;
     }, {});
-  }, [selectedServices, normalizeCurrencyCode, toNum]);
+  }, [
+    bookingSaleMode,
+    bookingSaleTotals,
+    services,
+    selectedServices,
+    manualCalcMode,
+    normalizeCurrencyCode,
+    toNum,
+  ]);
 
   const paidByCurrency = useMemo(() => {
-    return relevantReceipts.reduce<Record<string, number>>((acc, r) => {
-      const baseCur = r.base_currency
-        ? normalizeCurrencyCode(String(r.base_currency))
-        : null;
-      const baseVal = toNum(r.base_amount ?? 0);
-
-      const amountCur = r.amount_currency
-        ? normalizeCurrencyCode(String(r.amount_currency))
-        : null;
-
-      const feeCurRaw = r.payment_fee_currency;
-      const feeCur =
-        feeCurRaw && String(feeCurRaw).trim() !== ""
-          ? normalizeCurrencyCode(String(feeCurRaw))
-          : amountCur ?? baseCur;
-      const amountVal = toNum(r.amount ?? 0);
-      const feeVal = toNum(r.payment_fee_amount ?? 0);
-
-      if (baseCur) {
-        const val = baseVal + (feeCur === baseCur ? feeVal : 0);
-        if (val) acc[baseCur] = (acc[baseCur] || 0) + val;
-      } else if (amountCur) {
-        const val = amountVal + (feeCur === amountCur ? feeVal : 0);
-        if (val) acc[amountCur] = (acc[amountCur] || 0) + val;
-      } else if (feeCur) {
-        const val = feeVal;
-        if (val) acc[feeCur] = (acc[feeCur] || 0) + val;
-      }
-
+    return relevantReceipts.reduce<Record<string, number>>((acc, receipt) => {
+      addReceiptToPaidByCurrency(acc, receipt);
       return acc;
     }, {});
-  }, [relevantReceipts, normalizeCurrencyCode, toNum]);
+  }, [relevantReceipts]);
+
+  const bookingDebtContextReady =
+    mode !== "booking" ||
+    !selectedBookingId ||
+    selectedServiceIds.length === 0 ||
+    (bookingReceiptsLoaded && bookingContextLoaded && calcConfigLoaded);
 
   const currentPaidByCurrency = useMemo(() => {
     const acc: Record<string, number> = {};
@@ -1299,16 +1543,16 @@ export default function ReceiptForm({
   }, [salesByCurrency, paidByCurrency, currentPaidByCurrency]);
 
   const debtSuffix = useMemo(() => {
-    if (!selectedServiceIds.length || !bookingReceiptsLoaded) return "";
+    if (!selectedServiceIds.length || !bookingDebtContextReady) return "";
     const parts = Object.entries(debtByCurrency)
-      .filter(([, v]) => v > 0.01)
+      .filter(([, v]) => v > DEBT_TOLERANCE)
       .map(([cur, v]) => formatDebtLabel(v, cur));
     if (!Object.keys(debtByCurrency).length) return "";
     if (!parts.length) return "-NO ADEUDA SALDO-";
     return `-ADEUDA ${parts.join(" y ")}`;
   }, [
     selectedServiceIds,
-    bookingReceiptsLoaded,
+    bookingDebtContextReady,
     debtByCurrency,
     formatDebtLabel,
   ]);
@@ -1316,14 +1560,14 @@ export default function ReceiptForm({
   const paymentDescriptionAuto = useMemo(() => {
     if (!paymentSummary.trim()) return "";
     const hasBookingContext = !!selectedBookingId && selectedServiceIds.length > 0;
-    if (hasBookingContext && !bookingReceiptsLoaded) return paymentSummary;
+    if (hasBookingContext && !bookingDebtContextReady) return paymentSummary;
     const suffix = hasBookingContext ? debtSuffix.trim() : "";
     return suffix ? `${paymentSummary} ${suffix}` : paymentSummary;
   }, [
     paymentSummary,
     selectedBookingId,
     selectedServiceIds,
-    bookingReceiptsLoaded,
+    bookingDebtContextReady,
     debtSuffix,
   ]);
 
@@ -1957,6 +2201,9 @@ export default function ReceiptForm({
                   setPaymentLineFeeMode={setPaymentLineFeeMode}
                   setPaymentLineFeeValue={setPaymentLineFeeValue}
                   getPaymentLineFee={(key) => paymentLineFeeByKey[key] ?? 0}
+                  getPaymentLineImpact={(key) =>
+                    paymentLineImpactByKey[key] ?? 0
+                  }
                   setPaymentLineOperator={setPaymentLineOperator}
                   setPaymentLineCreditAccount={setPaymentLineCreditAccount}
                   operators={operators}

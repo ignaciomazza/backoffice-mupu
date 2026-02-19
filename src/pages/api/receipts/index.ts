@@ -483,6 +483,11 @@ function addReceiptToPaidByCurrency(
     ? normalizeCurrency(receipt.base_currency)
     : null;
   const paymentLines = Array.isArray(receipt.payments) ? receipt.payments : [];
+  const lineFeeTotal = paymentLines.reduce(
+    (sum, line) => sum + toNum(line?.fee_amount ?? 0),
+    0,
+  );
+  const feeRemainder = feeValue - lineFeeTotal;
 
   // Respetar signo para contemplar ajustes/reversiones de recibos históricos.
   if (baseCurrency && Math.abs(baseValue) > DEBT_TOLERANCE) {
@@ -498,7 +503,12 @@ function addReceiptToPaidByCurrency(
         : baseCurrency === amountCurrency
           ? feeValue
           : 0;
-    const credited = baseValue + feeInBaseCurrency;
+    const feeInBaseWithRemainder =
+      feeInBaseCurrency +
+      (Math.abs(feeRemainder) > DEBT_TOLERANCE && baseCurrency === amountCurrency
+        ? feeRemainder
+        : 0);
+    const credited = baseValue + feeInBaseWithRemainder;
     if (Math.abs(credited) <= DEBT_TOLERANCE) return;
     target[baseCurrency] = round2((target[baseCurrency] || 0) + credited);
     return;
@@ -514,6 +524,11 @@ function addReceiptToPaidByCurrency(
       const credited = lineAmount + lineFee;
       if (Math.abs(credited) <= DEBT_TOLERANCE) continue;
       target[lineCurrency] = round2((target[lineCurrency] || 0) + credited);
+    }
+    if (Math.abs(feeRemainder) > DEBT_TOLERANCE) {
+      target[amountCurrency] = round2(
+        (target[amountCurrency] || 0) + feeRemainder,
+      );
     }
     return;
   }

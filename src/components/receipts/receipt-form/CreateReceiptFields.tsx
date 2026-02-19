@@ -156,6 +156,7 @@ export default function CreateReceiptFields(props: {
   ) => void;
   setPaymentLineFeeValue: (key: string, value: string) => void;
   getPaymentLineFee: (key: string) => number;
+  getPaymentLineImpact: (key: string) => number;
 
   setPaymentLineOperator: (key: string, operatorId: number | null) => void;
 
@@ -234,6 +235,7 @@ export default function CreateReceiptFields(props: {
     setPaymentLineFeeMode,
     setPaymentLineFeeValue,
     getPaymentLineFee,
+    getPaymentLineImpact,
     setPaymentLineOperator,
 
     setPaymentLineCreditAccount,
@@ -787,11 +789,17 @@ export default function CreateReceiptFields(props: {
 
                   <div className="md:col-span-12">
                     <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
-                      Impacta:{" "}
+                      Impacta en deuda:{" "}
                       {formatNum(
-                        getPaymentLineFee(line.key),
+                        getPaymentLineImpact(line.key),
                         line.payment_currency || effectiveCurrency,
                       )}
+                      {line.fee_mode !== "NONE"
+                        ? ` (CF: ${formatNum(
+                            getPaymentLineFee(line.key),
+                            line.payment_currency || effectiveCurrency,
+                          )})`
+                        : ""}
                     </p>
                   </div>
                 </div>

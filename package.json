@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "test": "vitest run",
+    "audit:sale-mode": "node scripts/audit-booking-sale-mode.js",
     "gen:arca-key": "node scripts/generate-arca-secrets-key.js"
   },
   "dependencies": {
