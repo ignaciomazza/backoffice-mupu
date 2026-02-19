@@ -685,7 +685,16 @@ async function getMonthlyMovements(
         lte: to,
       },
     },
-    include: {
+    // Compatibilidad con bases que aún no tienen columnas nuevas
+    // (ej: operator_id). Evitamos el select implícito de "todas las columnas".
+    select: {
+      id_other_income: true,
+      issue_date: true,
+      description: true,
+      currency: true,
+      amount: true,
+      payment_method_id: true,
+      account_id: true,
       payments: {
         select: {
           amount: true,
