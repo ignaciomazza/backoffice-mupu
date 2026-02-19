@@ -3,6 +3,7 @@ import prisma, { Prisma } from "@/lib/prisma";
 import { getNextAvailableAgencyClientId } from "@/lib/agencyClientId";
 import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { decodePublicId, encodePublicId } from "@/lib/publicIds";
+import { parseDateInputInBuenosAires } from "@/lib/buenosAiresDate";
 import {
   canAccessQuoteOwner,
   getLeaderScope,
@@ -90,20 +91,8 @@ function toPositiveInt(v: unknown): number | null {
 
 function toLocalDate(v: unknown): Date | undefined {
   if (typeof v !== "string" || !v) return undefined;
-  const ymd = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (ymd) {
-    return new Date(
-      Number(ymd[1]),
-      Number(ymd[2]) - 1,
-      Number(ymd[3]),
-      0,
-      0,
-      0,
-      0,
-    );
-  }
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? undefined : d;
+  const parsed = parseDateInputInBuenosAires(v);
+  return parsed ?? undefined;
 }
 
 async function resolveQuoteIdFromParam(

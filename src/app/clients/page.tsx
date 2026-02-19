@@ -22,7 +22,10 @@ import { useAuth } from "@/context/AuthContext";
 import "react-toastify/dist/ReactToastify.css";
 import FilterPanel from "@/components/clients/FilterPanel";
 import { authFetch } from "@/utils/authFetch";
-import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
+import {
+  formatDateInBuenosAires,
+  toDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 import {
   DEFAULT_CLIENT_PROFILE_KEY,
   DEFAULT_REQUIRED_FIELDS,
@@ -525,9 +528,7 @@ export default function Page() {
       commercial_address: client.commercial_address || "",
       dni_number: client.dni_number || "",
       passport_number: client.passport_number || "",
-      birth_date: client.birth_date
-        ? new Date(client.birth_date).toISOString().split("T")[0]
-        : "",
+      birth_date: toDateKeyInBuenosAires(client.birth_date) ?? "",
       nationality: client.nationality || "",
       gender: client.gender || "",
       category_id: client.category_id ?? null,
@@ -602,11 +603,10 @@ export default function Page() {
       return;
     }
 
-    // backend espera "YYYY-MM-DD" o fecha parseable local; normalizamos
-    const birthISO =
-      formData.birth_date && formData.birth_date.includes("T")
-        ? formData.birth_date.split("T")[0]
-        : formData.birth_date;
+    // backend espera "YYYY-MM-DD"; normalizamos en zona Buenos Aires
+    const birthISO = formData.birth_date
+      ? (toDateKeyInBuenosAires(formData.birth_date) ?? "")
+      : "";
 
     let shouldResetForm = false;
     try {

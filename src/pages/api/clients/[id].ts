@@ -2,6 +2,7 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import prisma, { Prisma } from "@/lib/prisma";
 import { isMissingColumnError } from "@/lib/prismaErrors";
+import { parseDateInputInBuenosAires } from "@/lib/buenosAiresDate";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 import {
@@ -122,11 +123,8 @@ async function getUserFromAuth(
 
 function toLocalDate(v?: string) {
   if (!v) return undefined;
-  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m)
-    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? undefined : d;
+  const parsed = parseDateInputInBuenosAires(v);
+  return parsed ?? undefined;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

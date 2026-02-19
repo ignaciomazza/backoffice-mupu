@@ -47,6 +47,7 @@ import {
   normalizeBookingComponentRules,
   type BookingComponentKey,
 } from "@/utils/permissions";
+import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 import type {
   ReceiptPaymentLine,
@@ -180,12 +181,7 @@ function toFiniteNumber(n: unknown, fallback = 0): number {
 }
 
 function toDateOnly(value?: string | null): string {
-  if (!value) return "";
-  const raw = String(value).trim();
-  if (!raw) return "";
-  if (raw.includes("T")) return raw.split("T")[0];
-  if (raw.includes(" ")) return raw.split(" ")[0];
-  return raw;
+  return toDateKeyInBuenosAires(value ?? null) ?? "";
 }
 
 type AnyRecord = Record<string, unknown>;
@@ -219,17 +215,7 @@ function submitResultFromReceipt(receipt: Receipt): SubmitResult {
 }
 
 function toInputDate(value?: string | null): string {
-  if (!value) return "";
-  const raw = String(value).trim();
-  if (!raw) return "";
-  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate(),
-  )}`;
+  return toDateOnly(value);
 }
 
 type ReceiptWithPayments = Receipt & {
@@ -2167,16 +2153,8 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                       setFormData({
                         ...service,
                         note: service.note ?? "",
-                        departure_date: service.departure_date
-                          ? new Date(service.departure_date)
-                              .toISOString()
-                              .split("T")[0]
-                          : "",
-                        return_date: service.return_date
-                          ? new Date(service.return_date)
-                              .toISOString()
-                              .split("T")[0]
-                          : "",
+                        departure_date: toDateOnly(service.departure_date),
+                        return_date: toDateOnly(service.return_date),
                         id_operator: service.id_operator || 0,
                         card_interest: service.card_interest || 0,
                         card_interest_21: service.card_interest_21 || 0,

@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client";
 import { resolveAuth } from "@/lib/auth";
 import { canAccessBookingByRole } from "@/lib/accessControl";
 import { isBookingClosedStatus } from "@/lib/bookingStatus";
+import { parseDateInputInBuenosAires } from "@/lib/buenosAiresDate";
 import {
   getBookingLeaderScope,
   getBookingTeamScope,
@@ -46,6 +47,11 @@ function toNullableNumber(value: unknown): number | null {
       ? value
       : Number(String(value).replace(",", "."));
   return Number.isFinite(n) ? n : null;
+}
+
+function toDateInBuenosAires(value: unknown): Date | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  return parseDateInputInBuenosAires(value);
 }
 
 type PendingServiceLite = {
@@ -485,8 +491,13 @@ export default async function handler(
       });
     }
 
-    const parsedDepartureDate = new Date(departure_date);
-    const parsedReturnDate = new Date(return_date);
+    const parsedDepartureDate = toDateInBuenosAires(departure_date);
+    const parsedReturnDate = toDateInBuenosAires(return_date);
+    if (!parsedDepartureDate || !parsedReturnDate) {
+      return res.status(400).json({
+        error: "Fechas inválidas.",
+      });
+    }
 
     const bookingExists = await prisma.booking.findUnique({
       where: { id_booking: Number(booking_id) },

@@ -7,6 +7,12 @@ import {
 } from "@/lib/agencyCounters";
 import { encodePublicId } from "@/lib/publicIds";
 import {
+  endOfDayUtcFromDateKeyInBuenosAires,
+  parseDateInputInBuenosAires,
+  startOfDayUtcFromDateKeyInBuenosAires,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
+import {
   getBookingLeaderScope,
   getBookingTeamScope,
   resolveBookingVisibilityMode,
@@ -146,27 +152,39 @@ function parseCSV(v?: string | string[]) {
     .filter(Boolean);
 }
 
+function toQueryString(v: unknown): string | undefined {
+  if (typeof v === "string") return v;
+  if (Array.isArray(v) && typeof v[0] === "string") return v[0];
+  return undefined;
+}
+
 function toLocalDate(v: unknown): Date | undefined {
-  if (typeof v !== "string" || !v) return undefined;
-  const ymd = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (ymd)
-    return new Date(
-      Number(ymd[1]),
-      Number(ymd[2]) - 1,
-      Number(ymd[3]),
-      0,
-      0,
-      0,
-      0,
-    );
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? undefined : d;
+  const raw = toQueryString(v);
+  if (!raw) return undefined;
+  const parsed = parseDateInputInBuenosAires(raw);
+  return parsed ?? undefined;
 }
-function startOfDay(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+
+function toDayStart(v: unknown): Date | undefined {
+  const raw = toQueryString(v);
+  if (!raw) return undefined;
+  const start = startOfDayUtcFromDateKeyInBuenosAires(raw);
+  if (start) return start;
+  const parsed = parseDateInputInBuenosAires(raw);
+  if (!parsed) return undefined;
+  parsed.setUTCHours(0, 0, 0, 0);
+  return parsed;
 }
-function endOfDay(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+
+function toDayEnd(v: unknown): Date | undefined {
+  const raw = toQueryString(v);
+  if (!raw) return undefined;
+  const end = endOfDayUtcFromDateKeyInBuenosAires(raw);
+  if (end) return end;
+  const parsed = parseDateInputInBuenosAires(raw);
+  if (!parsed) return undefined;
+  parsed.setUTCHours(23, 59, 59, 999);
+  return parsed;
 }
 
 function appendWhereAnd(
@@ -341,8 +359,8 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         includeGroupBookingsRaw.trim().toLowerCase(),
       );
 
-    let creationFrom = toLocalDate(req.query.creationFrom);
-    let creationTo = toLocalDate(req.query.creationTo);
+    const creationFrom = toDayStart(req.query.creationFrom);
+    const creationTo = toDayEnd(req.query.creationTo);
     const travelFrom = toLocalDate(req.query.from);
     const travelTo = toLocalDate(req.query.to);
 
@@ -481,8 +499,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       where.operatorStatus = { in: operatorStatusArr };
 
     // fechas de creación
-    if (creationFrom) creationFrom = startOfDay(creationFrom);
-    if (creationTo) creationTo = endOfDay(creationTo);
     if (creationFrom || creationTo) {
       where.creation_date = {
         ...(creationFrom ? { gte: creationFrom } : {}),
@@ -799,8 +815,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   let parsedCreationDate: Date | undefined = undefined;
 
   if (isVendor) {
-    const now = new Date();
-    parsedCreationDate = startOfDay(now);
+    parsedCreationDate =
+      parseDateInputInBuenosAires(todayDateKeyInBuenosAires()) ?? new Date();
   } else if (creation_date != null && creation_date !== "") {
     if (canEditCreationDate) {
       parsedCreationDate = toLocalDate(creation_date);

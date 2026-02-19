@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client";
 import { resolveAuth } from "@/lib/auth";
 import { canAccessBookingByRole } from "@/lib/accessControl";
 import { isBookingClosedStatus } from "@/lib/bookingStatus";
+import { parseDateInputInBuenosAires } from "@/lib/buenosAiresDate";
 
 function toNullableNumber(value: unknown): number | null {
   if (value == null || value === "") return null;
@@ -14,6 +15,11 @@ function toNullableNumber(value: unknown): number | null {
       ? value
       : Number(String(value).replace(",", "."));
   return Number.isFinite(n) ? n : null;
+}
+
+function toDateInBuenosAires(value: unknown): Date | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  return parseDateInputInBuenosAires(value);
 }
 
 export default async function handler(
@@ -82,6 +88,11 @@ export default async function handler(
     if (salePriceNum == null || costPriceNum == null) {
       return res.status(400).json({ error: "Precios inválidos." });
     }
+    const parsedDepartureDate = toDateInBuenosAires(departure_date);
+    const parsedReturnDate = toDateInBuenosAires(return_date);
+    if (!parsedDepartureDate || !parsedReturnDate) {
+      return res.status(400).json({ error: "Fechas inválidas." });
+    }
 
     try {
       const existing = await prisma.service.findFirst({
@@ -139,8 +150,8 @@ export default async function handler(
           exempt: toNullableNumber(exempt),
           other_taxes: toNullableNumber(other_taxes),
           currency,
-          departure_date: new Date(departure_date),
-          return_date: new Date(return_date),
+          departure_date: parsedDepartureDate,
+          return_date: parsedReturnDate,
           id_operator: Number(id_operator),
           nonComputable: toNullableNumber(nonComputable),
           taxableBase21: toNullableNumber(taxableBase21),

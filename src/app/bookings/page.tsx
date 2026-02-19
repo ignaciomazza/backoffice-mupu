@@ -15,6 +15,10 @@ import { Booking, User, SalesTeam, PassengerCategory } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { normalizeRole } from "@/utils/permissions";
+import {
+  toDateKeyInBuenosAires,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 // === Constantes / Tipos ===
 const FILTROS = [
@@ -265,11 +269,7 @@ export default function Page() {
   const [editingBookingId, setEditingBookingId] = useState<number | null>(null);
 
   const todayYMD = () => {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
+    return todayDateKeyInBuenosAires();
   };
 
   const [formData, setFormData] = useState<BookingFormData>({
@@ -867,15 +867,13 @@ export default function Page() {
       titular_id: titularId,
       id_user: booking.user?.id_user || 0,
       id_agency: booking.agency?.id_agency || 0,
-      departure_date: booking.departure_date.split("T")[0],
-      return_date: booking.return_date.split("T")[0],
+      departure_date: toDateKeyInBuenosAires(booking.departure_date) || "",
+      return_date: toDateKeyInBuenosAires(booking.return_date) || "",
       pax_count: Math.max(1, 1 + companions.length + simpleCompanions.length),
       clients_ids: companions,
       agency_booking_id: booking.agency_booking_id ?? 0,
       simple_companions: simpleCompanions,
-      creation_date:
-        (booking.creation_date as unknown as string)?.split("T")[0] ||
-        todayYMD(),
+      creation_date: toDateKeyInBuenosAires(booking.creation_date) || todayYMD(),
       use_admin_adjustments: false,
     });
     setEditingBookingId(booking.id_booking || null);

@@ -6,6 +6,7 @@ import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
 import { displayInvoiceNumber } from "@/utils/invoiceNumbers";
 import { useEffect, useMemo, useState } from "react";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 
 /* ======================== Utils ======================== */
 const normCurrency = (curr?: string) => {
@@ -30,21 +31,19 @@ const slugify = (text: string) =>
     .replace(/^_+|_+$/g, "");
 
 const fmtCbteDate = (raw: string | number | Date) => {
-  if (raw instanceof Date) return new Intl.DateTimeFormat("es-AR").format(raw);
+  if (raw instanceof Date) return formatDateInBuenosAires(raw);
   const s = String(raw);
   if (/^\d{8}$/.test(s)) {
     const y = s.slice(0, 4);
     const m = s.slice(4, 6);
     const d = s.slice(6, 8);
-    return new Date(`${y}-${m}-${d}T00:00:00Z`).toLocaleDateString("es-AR");
+    return formatDateInBuenosAires(`${y}-${m}-${d}`);
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    return new Date(`${s}T00:00:00Z`).toLocaleDateString("es-AR");
+    return formatDateInBuenosAires(s);
   }
   const d = new Date(s);
-  return Number.isNaN(d.getTime())
-    ? s
-    : new Intl.DateTimeFormat("es-AR").format(d);
+  return Number.isNaN(d.getTime()) ? s : formatDateInBuenosAires(d);
 };
 
 const TipoChip: React.FC<{ tipo?: number }> = ({ tipo }) => {
@@ -274,7 +273,7 @@ export default function InvoiceCard({
           <p className="text-sm">
             Fecha{" "}
             <span className="font-light">
-              {new Date(invoice.issue_date).toLocaleDateString("es-AR")}
+              {formatDateInBuenosAires(invoice.issue_date)}
             </span>
           </p>
           <p className="mt-2 text-[13px] font-medium text-red-600 dark:text-red-400">

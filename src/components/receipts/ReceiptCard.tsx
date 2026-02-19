@@ -7,6 +7,7 @@ import { Receipt, Booking, Service } from "@/types";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
 import { authFetch } from "@/utils/authFetch";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 
 /* ======================== Utils ======================== */
 
@@ -451,7 +452,7 @@ export default function ReceiptCard({
             title="Fecha de emisión"
           >
             {receipt.issue_date
-              ? new Date(receipt.issue_date).toLocaleDateString("es-AR")
+              ? formatDateInBuenosAires(receipt.issue_date)
               : "–"}
           </time>
           <Chip tone="neutral" className="mt-1" title="Moneda del monto">
