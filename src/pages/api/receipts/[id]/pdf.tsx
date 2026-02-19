@@ -22,6 +22,7 @@ import {
   canAccessBookingComponent,
   canAccessFinanceSection,
 } from "@/utils/permissions";
+import { hasSchemaColumn } from "@/lib/schemaColumns";
 
 type PdfPaymentRaw = {
   amount: number;
@@ -44,6 +45,52 @@ type ReceiptWithRelations = Prisma.ReceiptGetPayload<{
     agency: true;
   };
 }>;
+
+type ReceiptSchemaFlags = {
+  hasPaymentLines: boolean;
+  hasPaymentCurrency: boolean;
+  hasPaymentFeeMode: boolean;
+  hasPaymentFeeValue: boolean;
+  hasPaymentFeeAmount: boolean;
+};
+
+async function getReceiptSchemaFlags(): Promise<ReceiptSchemaFlags> {
+  const [
+    hasPaymentLines,
+    hasPaymentCurrency,
+    hasPaymentFeeMode,
+    hasPaymentFeeValue,
+    hasPaymentFeeAmount,
+  ] = await Promise.all([
+    hasSchemaColumn("ReceiptPayment", "id_receipt_payment"),
+    hasSchemaColumn("ReceiptPayment", "payment_currency"),
+    hasSchemaColumn("ReceiptPayment", "fee_mode"),
+    hasSchemaColumn("ReceiptPayment", "fee_value"),
+    hasSchemaColumn("ReceiptPayment", "fee_amount"),
+  ]);
+
+  return {
+    hasPaymentLines,
+    hasPaymentCurrency,
+    hasPaymentFeeMode,
+    hasPaymentFeeValue,
+    hasPaymentFeeAmount,
+  };
+}
+
+function buildReceiptPaymentSelect(
+  flags: ReceiptSchemaFlags,
+): Prisma.ReceiptPaymentSelect {
+  return {
+    amount: true,
+    payment_method_id: true,
+    account_id: true,
+    ...(flags.hasPaymentCurrency ? { payment_currency: true } : {}),
+    ...(flags.hasPaymentFeeMode ? { fee_mode: true } : {}),
+    ...(flags.hasPaymentFeeValue ? { fee_value: true } : {}),
+    ...(flags.hasPaymentFeeAmount ? { fee_amount: true } : {}),
+  };
+}
 
 type AgencyExtras = {
   id_agency?: number | null;
@@ -338,6 +385,7 @@ export default async function handler(
     bookingGrants,
     "receipts_form",
   );
+  const schemaFlags = await getReceiptSchemaFlags();
 
   // 1) Recibo + relaciones
   const receipt = await prisma.receipt.findFirst({
@@ -351,7 +399,9 @@ export default async function handler(
           ],
         },
     include: {
-      payments: true,
+      ...(schemaFlags.hasPaymentLines
+        ? { payments: { select: buildReceiptPaymentSelect(schemaFlags) } }
+        : {}),
       booking: {
         include: { titular: true, agency: true, services: true, clients: true },
       },

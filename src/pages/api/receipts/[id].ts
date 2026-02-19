@@ -13,6 +13,7 @@ import {
   canAccessBookingComponent,
   canAccessFinanceSection,
 } from "@/utils/permissions";
+import { hasSchemaColumn } from "@/lib/schemaColumns";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -31,10 +32,6 @@ type DecodedUser = {
   id_agency?: number;
   email?: string;
 };
-
-type ReceiptWithPayments = Prisma.ReceiptGetPayload<{
-  include: { payments: true };
-}>;
 
 type ReceiptFeeMode = "FIXED" | "PERCENT";
 
@@ -71,6 +68,53 @@ type ReceiptPaymentLineNormalized = {
   fee_amount?: number;
   operator_id?: number;
 };
+
+type ReceiptSchemaFlags = {
+  hasPaymentLines: boolean;
+  hasPaymentCurrency: boolean;
+  hasPaymentFeeMode: boolean;
+  hasPaymentFeeValue: boolean;
+  hasPaymentFeeAmount: boolean;
+};
+
+async function getReceiptSchemaFlags(): Promise<ReceiptSchemaFlags> {
+  const [
+    hasPaymentLines,
+    hasPaymentCurrency,
+    hasPaymentFeeMode,
+    hasPaymentFeeValue,
+    hasPaymentFeeAmount,
+  ] = await Promise.all([
+    hasSchemaColumn("ReceiptPayment", "id_receipt_payment"),
+    hasSchemaColumn("ReceiptPayment", "payment_currency"),
+    hasSchemaColumn("ReceiptPayment", "fee_mode"),
+    hasSchemaColumn("ReceiptPayment", "fee_value"),
+    hasSchemaColumn("ReceiptPayment", "fee_amount"),
+  ]);
+
+  return {
+    hasPaymentLines,
+    hasPaymentCurrency,
+    hasPaymentFeeMode,
+    hasPaymentFeeValue,
+    hasPaymentFeeAmount,
+  };
+}
+
+function buildReceiptPaymentSelect(
+  flags: ReceiptSchemaFlags,
+): Prisma.ReceiptPaymentSelect {
+  return {
+    id_receipt_payment: true,
+    amount: true,
+    payment_method_id: true,
+    account_id: true,
+    ...(flags.hasPaymentCurrency ? { payment_currency: true } : {}),
+    ...(flags.hasPaymentFeeMode ? { fee_mode: true } : {}),
+    ...(flags.hasPaymentFeeValue ? { fee_value: true } : {}),
+    ...(flags.hasPaymentFeeAmount ? { fee_amount: true } : {}),
+  };
+}
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
@@ -285,67 +329,44 @@ async function deleteCreditEntriesForReceipt(
   }
 }
 
-function normalizePaymentsFromReceipt(
-  r: ReceiptWithPayments,
-): ReceiptPaymentOut[] {
-  const rel = Array.isArray(r.payments) ? r.payments : [];
+function normalizePaymentsFromReceipt(r: unknown): ReceiptPaymentOut[] {
+  if (!r || typeof r !== "object") return [];
+  const obj = r as Record<string, unknown>;
+  const rel = Array.isArray(obj.payments) ? obj.payments : [];
   if (rel.length > 0) {
     return rel.map((p) => {
-      const feeValueRaw = toNum((p as { fee_value?: unknown }).fee_value);
-      const feeAmountRaw = toNum((p as { fee_amount?: unknown }).fee_amount);
+      const pay = (p ?? {}) as Record<string, unknown>;
+      const feeValueRaw = toNum(pay.fee_value);
+      const feeAmountRaw = toNum(pay.fee_amount);
       return {
-        amount: Number((p as { amount?: unknown }).amount ?? 0),
+        amount: Number(pay.amount ?? 0),
         payment_method_id:
-          Number.isFinite(Number(p.payment_method_id)) &&
-          Number(p.payment_method_id) > 0
-            ? Number(p.payment_method_id)
+          Number.isFinite(Number(pay.payment_method_id)) &&
+          Number(pay.payment_method_id) > 0
+            ? Number(pay.payment_method_id)
             : null,
         account_id:
-          Number.isFinite(Number(p.account_id)) && Number(p.account_id) > 0
-            ? Number(p.account_id)
+          Number.isFinite(Number(pay.account_id)) && Number(pay.account_id) > 0
+            ? Number(pay.account_id)
             : null,
         payment_currency: normalizeCurrency(
-          (p as { payment_currency?: unknown }).payment_currency ??
-            (r as unknown as { amount_currency?: unknown }).amount_currency ??
-            "ARS",
+          pay.payment_currency ?? obj.amount_currency ?? "ARS",
         ),
-        fee_mode: normalizeReceiptFeeMode(
-          (p as { fee_mode?: unknown }).fee_mode,
-        ),
+        fee_mode: normalizeReceiptFeeMode(pay.fee_mode),
         fee_value: Number.isFinite(feeValueRaw) ? feeValueRaw : null,
         fee_amount: Number.isFinite(feeAmountRaw) ? feeAmountRaw : null,
       };
     });
   }
 
-  const amt = Number(r.amount ?? 0);
-  const pmText = String(
-    (r as unknown as { payment_method?: unknown })?.payment_method ?? "",
-  ).trim();
-  const accText = String(
-    (r as unknown as { account?: unknown })?.account ?? "",
-  ).trim();
+  const amt = Number(obj.amount ?? 0);
+  const pmText = String(obj.payment_method ?? "").trim();
+  const accText = String(obj.account ?? "").trim();
 
-  const pmId =
-    Number.isFinite(
-      Number(
-        (r as unknown as { payment_method_id?: unknown })?.payment_method_id,
-      ),
-    ) &&
-    Number(
-      (r as unknown as { payment_method_id?: unknown })?.payment_method_id,
-    ) > 0
-      ? Number(
-          (r as unknown as { payment_method_id?: unknown })?.payment_method_id,
-        )
-      : null;
-
-  const accId =
-    Number.isFinite(
-      Number((r as unknown as { account_id?: unknown })?.account_id),
-    ) && Number((r as unknown as { account_id?: unknown })?.account_id) > 0
-      ? Number((r as unknown as { account_id?: unknown })?.account_id)
-      : null;
+  const pmIdRaw = Number(obj.payment_method_id);
+  const accIdRaw = Number(obj.account_id);
+  const pmId = Number.isFinite(pmIdRaw) && pmIdRaw > 0 ? pmIdRaw : null;
+  const accId = Number.isFinite(accIdRaw) && accIdRaw > 0 ? accIdRaw : null;
 
   if (Number.isFinite(amt) && (pmText || accText || pmId || accId)) {
     return [
@@ -353,10 +374,7 @@ function normalizePaymentsFromReceipt(
         amount: amt,
         payment_method_id: pmId,
         account_id: accId,
-        payment_currency: normalizeCurrency(
-          (r as unknown as { amount_currency?: unknown }).amount_currency ??
-            "ARS",
-        ),
+        payment_currency: normalizeCurrency(obj.amount_currency ?? "ARS"),
         ...(pmText ? { payment_method_text: pmText } : {}),
         ...(accText ? { account_text: accText } : {}),
       },
@@ -477,13 +495,21 @@ export default async function handler(
   if (!id) {
     return res.status(404).json({ error: "Recibo no encontrado" });
   }
+  const schemaFlags = await getReceiptSchemaFlags();
 
   if (req.method === "GET") {
     try {
       await ensureReceiptInAgency(id, authAgencyId);
       const receipt = await prisma.receipt.findUnique({
         where: { id_receipt: id },
-        include: { payments: true, booking: true },
+        include: {
+          booking: true,
+          ...(schemaFlags.hasPaymentLines
+            ? {
+                payments: { select: buildReceiptPaymentSelect(schemaFlags) },
+              }
+            : {}),
+        },
       });
       if (!receipt)
         return res.status(404).json({ error: "Recibo no encontrado" });
@@ -683,7 +709,13 @@ export default async function handler(
             serviceIds,
             ...(nextClientIds !== undefined ? { clientIds: nextClientIds } : {}),
           },
-          include: { payments: true },
+          ...(schemaFlags.hasPaymentLines
+            ? {
+                include: {
+                  payments: { select: buildReceiptPaymentSelect(schemaFlags) },
+                },
+              }
+            : {}),
         });
 
         return res.status(200).json({
@@ -913,33 +945,66 @@ export default async function handler(
 
       const updated = await prisma.$transaction(async (tx) => {
         if (hasPayments) {
-          await tx.receiptPayment.deleteMany({ where: { receipt_id: id } });
-          await tx.receiptPayment.createMany({
-            data: normalizedPayments.map((p) => ({
-              receipt_id: id,
-              amount: new Prisma.Decimal(Number(p.amount)),
-              payment_method_id: Number(p.payment_method_id),
-              account_id: p.account_id ? Number(p.account_id) : null,
-              payment_currency: normalizeCurrency(
-                p.payment_currency || amountCurrencyISO,
-              ),
-              fee_mode: p.fee_mode ?? null,
-              fee_value:
-                p.fee_value != null
-                  ? new Prisma.Decimal(Number(p.fee_value))
-                  : null,
-              fee_amount:
-                p.fee_amount != null
-                  ? new Prisma.Decimal(Number(p.fee_amount))
-                  : null,
-            })),
-          });
+          if (!schemaFlags.hasPaymentCurrency) {
+            const paymentCurrencies = Array.from(
+              new Set(normalizedPayments.map((p) => p.payment_currency)),
+            );
+            if (paymentCurrencies.length > 1) {
+              throw new Error(
+                "Tu base no tiene soporte de moneda por línea. Aplicá la migración pendiente.",
+              );
+            }
+          }
+
+          if (schemaFlags.hasPaymentLines) {
+            await tx.receiptPayment.deleteMany({ where: { receipt_id: id } });
+            await tx.receiptPayment.createMany({
+              data: normalizedPayments.map((p) => ({
+                receipt_id: id,
+                amount: new Prisma.Decimal(Number(p.amount)),
+                payment_method_id: Number(p.payment_method_id),
+                account_id: p.account_id ? Number(p.account_id) : null,
+                ...(schemaFlags.hasPaymentCurrency
+                  ? {
+                      payment_currency: normalizeCurrency(
+                        p.payment_currency || amountCurrencyISO,
+                      ),
+                    }
+                  : {}),
+                ...(schemaFlags.hasPaymentFeeMode
+                  ? { fee_mode: p.fee_mode ?? null }
+                  : {}),
+                ...(schemaFlags.hasPaymentFeeValue
+                  ? {
+                      fee_value:
+                        p.fee_value != null
+                          ? new Prisma.Decimal(Number(p.fee_value))
+                          : null,
+                    }
+                  : {}),
+                ...(schemaFlags.hasPaymentFeeAmount
+                  ? {
+                      fee_amount:
+                        p.fee_amount != null
+                          ? new Prisma.Decimal(Number(p.fee_amount))
+                          : null,
+                    }
+                  : {}),
+              })),
+            });
+          }
         }
 
         return tx.receipt.update({
           where: { id_receipt: id },
           data: updateData,
-          include: { payments: true },
+          ...(schemaFlags.hasPaymentLines
+            ? {
+                include: {
+                  payments: { select: buildReceiptPaymentSelect(schemaFlags) },
+                },
+              }
+            : {}),
         });
       });
 
@@ -954,6 +1019,8 @@ export default async function handler(
         error instanceof Error ? error.message : "Error actualizando recibo";
       const status = msg.includes("No autorizado")
         ? 403
+        : msg.includes("migración pendiente")
+          ? 400
         : msg.includes("no existe") || msg.includes("no encontrado")
           ? 404
           : 500;

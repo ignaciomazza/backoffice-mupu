@@ -19,6 +19,7 @@ import {
   canAccessFinanceSection,
 } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import { hasSchemaColumn } from "@/lib/schemaColumns";
 
 /* ======================================================
  * Tipos
@@ -94,6 +95,53 @@ type ReceiptPaymentLineNormalized = {
   fee_amount?: number;
   operator_id?: number;
 };
+
+type ReceiptSchemaFlags = {
+  hasPaymentLines: boolean;
+  hasPaymentCurrency: boolean;
+  hasPaymentFeeMode: boolean;
+  hasPaymentFeeValue: boolean;
+  hasPaymentFeeAmount: boolean;
+};
+
+async function getReceiptSchemaFlags(): Promise<ReceiptSchemaFlags> {
+  const [
+    hasPaymentLines,
+    hasPaymentCurrency,
+    hasPaymentFeeMode,
+    hasPaymentFeeValue,
+    hasPaymentFeeAmount,
+  ] = await Promise.all([
+    hasSchemaColumn("ReceiptPayment", "id_receipt_payment"),
+    hasSchemaColumn("ReceiptPayment", "payment_currency"),
+    hasSchemaColumn("ReceiptPayment", "fee_mode"),
+    hasSchemaColumn("ReceiptPayment", "fee_value"),
+    hasSchemaColumn("ReceiptPayment", "fee_amount"),
+  ]);
+
+  return {
+    hasPaymentLines,
+    hasPaymentCurrency,
+    hasPaymentFeeMode,
+    hasPaymentFeeValue,
+    hasPaymentFeeAmount,
+  };
+}
+
+function buildReceiptPaymentSelect(
+  flags: ReceiptSchemaFlags,
+): Prisma.ReceiptPaymentSelect {
+  return {
+    id_receipt_payment: true,
+    amount: true,
+    payment_method_id: true,
+    account_id: true,
+    ...(flags.hasPaymentCurrency ? { payment_currency: true } : {}),
+    ...(flags.hasPaymentFeeMode ? { fee_mode: true } : {}),
+    ...(flags.hasPaymentFeeValue ? { fee_value: true } : {}),
+    ...(flags.hasPaymentFeeAmount ? { fee_amount: true } : {}),
+  };
+}
 
 type ReceiptPostBody = {
   // Opcional si el recibo pertenece a una reserva
@@ -622,6 +670,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       financeGrants,
       "receipts_verify",
     );
+    const schemaFlags = await getReceiptSchemaFlags();
     const needsBookingScope = Number.isFinite(bookingId);
     let canBookingReceipts = false;
     if (!canReceipts && !canVerify && needsBookingScope) {
@@ -646,7 +695,13 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       const receipts = await prisma.receipt.findMany({
         where: { booking: { id_booking: bookingId } },
         orderBy: { issue_date: "desc" },
-        include: { payments: true },
+        ...(schemaFlags.hasPaymentLines
+          ? {
+              include: {
+                payments: { select: buildReceiptPaymentSelect(schemaFlags) },
+              },
+            }
+          : {}),
       });
 
       const normalized = receipts.map((r) => ({
@@ -857,10 +912,18 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     // 3ter) filtros nuevos por IDs (payments)
     if (Number.isFinite(payment_method_id) && payment_method_id > 0) {
-      whereAND.push({ payments: { some: { payment_method_id } } });
+      if (schemaFlags.hasPaymentLines) {
+        whereAND.push({ payments: { some: { payment_method_id } } });
+      } else {
+        whereAND.push({ payment_method_id });
+      }
     }
     if (Number.isFinite(account_id) && account_id > 0) {
-      whereAND.push({ payments: { some: { account_id } } });
+      if (schemaFlags.hasPaymentLines) {
+        whereAND.push({ payments: { some: { account_id } } });
+      } else {
+        whereAND.push({ account_id });
+      }
     }
 
     // 4) Rango de fechas
@@ -906,33 +969,41 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
       if (rule && ruleHasRestrictions(rule)) {
         if (rule.payment_method_ids.length > 0) {
-          whereAND.push({
-            OR: [
-              { payment_method_id: { in: rule.payment_method_ids } },
-              {
-                payments: {
-                  some: {
-                    payment_method_id: { in: rule.payment_method_ids },
+          if (schemaFlags.hasPaymentLines) {
+            whereAND.push({
+              OR: [
+                { payment_method_id: { in: rule.payment_method_ids } },
+                {
+                  payments: {
+                    some: {
+                      payment_method_id: { in: rule.payment_method_ids },
+                    },
                   },
                 },
-              },
-            ],
-          });
+              ],
+            });
+          } else {
+            whereAND.push({ payment_method_id: { in: rule.payment_method_ids } });
+          }
         }
 
         if (rule.account_ids.length > 0) {
-          whereAND.push({
-            OR: [
-              { account_id: { in: rule.account_ids } },
-              {
-                payments: {
-                  some: {
-                    account_id: { in: rule.account_ids },
+          if (schemaFlags.hasPaymentLines) {
+            whereAND.push({
+              OR: [
+                { account_id: { in: rule.account_ids } },
+                {
+                  payments: {
+                    some: {
+                      account_id: { in: rule.account_ids },
+                    },
                   },
                 },
-              },
-            ],
-          });
+              ],
+            });
+          } else {
+            whereAND.push({ account_id: { in: rule.account_ids } });
+          }
         }
       }
     }
@@ -974,19 +1045,13 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
         serviceIds: true,
         clientIds: true,
 
-        // NUEVO (ReceiptPayment)
-        payments: {
-          select: {
-            id_receipt_payment: true,
-            amount: true,
-            payment_method_id: true,
-            account_id: true,
-            payment_currency: true,
-            fee_mode: true,
-            fee_value: true,
-            fee_amount: true,
-          },
-        },
+        ...(schemaFlags.hasPaymentLines
+          ? {
+              payments: {
+                select: buildReceiptPaymentSelect(schemaFlags),
+              },
+            }
+          : {}),
 
         booking: {
           select: {
@@ -1089,6 +1154,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     if (!canReceipts && !canReceiptsForm) {
       return res.status(403).json({ error: "Sin permisos" });
     }
+  const schemaFlags = await getReceiptSchemaFlags();
 
   const rawBody = req.body;
   // eslint-disable-next-line no-console
@@ -1227,6 +1293,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           : currenciesInPayments[0],
       );
     }
+
+    if (!schemaFlags.hasPaymentCurrency && hasMixedPaymentCurrencies) {
+      return res.status(400).json({
+        error:
+          "Tu base no tiene soporte de moneda por línea. Aplicá la migración pendiente.",
+      });
+    }
     paymentFeeAmountNum = round2(
       normalizedPayments.reduce((acc, p) => acc + (p.fee_amount || 0), 0),
     );
@@ -1241,6 +1314,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   if (!Number.isFinite(amountNum)) {
     return res.status(400).json({ error: "amount numérico inválido" });
   }
+
+  let serviceIdsForReceipt = normalizedServiceIds;
 
   try {
     // Si hay booking: validar pertenencia y servicios
@@ -1294,6 +1369,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           .json({ error: "Algún servicio no pertenece a la reserva" });
       }
 
+      if (bookingSaleMode) {
+        serviceIdsForReceipt = services.map((s) => s.id_service);
+      }
+
       const salesByCurrency = buildSelectedServiceSalesByCurrency({
         selectedServiceIds: normalizedServiceIds,
         services,
@@ -1314,13 +1393,21 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
           payment_fee_amount: true,
           base_amount: true,
           base_currency: true,
-          payments: {
-            select: {
-              amount: true,
-              payment_currency: true,
-              fee_amount: true,
-            },
-          },
+          ...(schemaFlags.hasPaymentLines
+            ? {
+                payments: {
+                  select: {
+                    amount: true,
+                    ...(schemaFlags.hasPaymentCurrency
+                      ? { payment_currency: true }
+                      : {}),
+                    ...(schemaFlags.hasPaymentFeeAmount
+                      ? { fee_amount: true }
+                      : {}),
+                  },
+                },
+              }
+            : {}),
         },
       });
 
@@ -1445,7 +1532,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       amount_string: amountString,
       amount_currency: amountCurrencyISO,
       currency: isNonEmptyString(currency) ? currency : amountCurrencyISO,
-      serviceIds: normalizedServiceIds,
+      serviceIds: serviceIdsForReceipt,
       clientIds: normalizedClientIds,
       issue_date: parsedIssueDate ?? new Date(),
 
@@ -1485,23 +1572,37 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         },
       });
 
-      if (hasPayments) {
+      if (hasPayments && schemaFlags.hasPaymentLines) {
         await tx.receiptPayment.createMany({
           data: normalizedPayments.map((p) => ({
             receipt_id: created.id_receipt,
             amount: new Prisma.Decimal(Number(p.amount)),
             payment_method_id: Number(p.payment_method_id),
             account_id: p.account_id ? Number(p.account_id) : null,
-            payment_currency: normalizeCurrency(p.payment_currency || amountCurrencyISO),
-            fee_mode: p.fee_mode ?? null,
-            fee_value:
-              p.fee_value != null
-                ? new Prisma.Decimal(Number(p.fee_value))
-                : null,
-            fee_amount:
-              p.fee_amount != null
-                ? new Prisma.Decimal(Number(p.fee_amount))
-                : null,
+            ...(schemaFlags.hasPaymentCurrency
+              ? {
+                  payment_currency: normalizeCurrency(
+                    p.payment_currency || amountCurrencyISO,
+                  ),
+                }
+              : {}),
+            ...(schemaFlags.hasPaymentFeeMode ? { fee_mode: p.fee_mode ?? null } : {}),
+            ...(schemaFlags.hasPaymentFeeValue
+              ? {
+                  fee_value:
+                    p.fee_value != null
+                      ? new Prisma.Decimal(Number(p.fee_value))
+                      : null,
+                }
+              : {}),
+            ...(schemaFlags.hasPaymentFeeAmount
+              ? {
+                  fee_amount:
+                    p.fee_amount != null
+                      ? new Prisma.Decimal(Number(p.fee_amount))
+                      : null,
+                }
+              : {}),
           })),
         });
       } else {
@@ -1517,7 +1618,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     const full = await prisma.receipt.findUnique({
       where: { id_receipt: createdReceipt.id_receipt },
-      include: { payments: true },
+      ...(schemaFlags.hasPaymentLines
+        ? {
+            include: {
+              payments: { select: buildReceiptPaymentSelect(schemaFlags) },
+            },
+          }
+        : {}),
     });
 
     const createdPublicId =

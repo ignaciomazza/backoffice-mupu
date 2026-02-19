@@ -88,6 +88,11 @@ type ReceiptWithConversion = Receipt &
     amount_currency: string | null;
     payment_fee_amount: number | string | null;
     payment_fee_currency: string | null;
+    payments: Array<{
+      amount?: number | string | null;
+      payment_currency?: string | null;
+      fee_amount?: number | string | null;
+    }>;
   }>;
 
 type AdjustmentLabelTotal = {
@@ -278,6 +283,56 @@ function formatCurrencySafe(value: number, currency: string): string {
   } catch {
     return `${v.toFixed(2)} ${cur}`;
   }
+}
+
+const PAYMENT_TOLERANCE = 0.01;
+
+function extractReceiptPaidByCurrency(raw: ReceiptWithConversion): Record<string, number> {
+  const out: Record<string, number> = {};
+  const amountCurrency = normalizeCurrencyCode(String(raw.amount_currency || "ARS"));
+  const amountVal = toNum(raw.amount ?? 0);
+  const feeVal = toNum(raw.payment_fee_amount ?? 0);
+  const baseCurrency = raw.base_currency
+    ? normalizeCurrencyCode(String(raw.base_currency))
+    : null;
+  const baseVal = toNum(raw.base_amount ?? 0);
+  const lines = Array.isArray(raw.payments) ? raw.payments : [];
+
+  const add = (cur: string, value: number) => {
+    if (Math.abs(value) <= PAYMENT_TOLERANCE) return;
+    out[cur] = (out[cur] || 0) + value;
+  };
+
+  if (baseCurrency && Math.abs(baseVal) > PAYMENT_TOLERANCE) {
+    let feeInBase = 0;
+    if (lines.length > 0) {
+      lines.forEach((line) => {
+        const lineCur = normalizeCurrencyCode(
+          String(line?.payment_currency || amountCurrency),
+        );
+        if (lineCur !== baseCurrency) return;
+        feeInBase += toNum(line?.fee_amount ?? 0);
+      });
+    } else if (amountCurrency === baseCurrency) {
+      feeInBase = feeVal;
+    }
+    add(baseCurrency, baseVal + feeInBase);
+    return out;
+  }
+
+  if (lines.length > 0) {
+    lines.forEach((line) => {
+      const lineCur = normalizeCurrencyCode(
+        String(line?.payment_currency || amountCurrency),
+      );
+      const credited = toNum(line?.amount ?? 0) + toNum(line?.fee_amount ?? 0);
+      add(lineCur, credited);
+    });
+    return out;
+  }
+
+  add(amountCurrency, amountVal + feeVal);
+  return out;
 }
 
 /* ------------------------------------------------------- */
@@ -539,42 +594,11 @@ export default function SummaryCard({
   /** Pagos por moneda (considerando también payment_fee_amount). */
   const paidByCurrency = useMemo(() => {
     return receipts.reduce<Record<string, number>>((acc, raw) => {
-      const r = raw as ReceiptWithConversion;
-
-      const baseCur = r.base_currency
-        ? normalizeCurrencyCode(String(r.base_currency))
-        : null;
-      const baseVal = toNum(r.base_amount ?? 0);
-
-      const amountCur = r.amount_currency
-        ? normalizeCurrencyCode(String(r.amount_currency))
-        : null;
-
-      // Si no viene moneda del fee, asumimos que es la misma que la del pago
-      const feeCurRaw = r.payment_fee_currency;
-      const feeCur =
-        feeCurRaw && String(feeCurRaw).trim() !== ""
-          ? normalizeCurrencyCode(String(feeCurRaw))
-          : (amountCur ?? baseCur);
-
-      const amountVal = toNum(r.amount ?? 0);
-      const feeVal = toNum(r.payment_fee_amount ?? 0);
-
-      if (baseCur) {
-        const cur = baseCur;
-        const val = baseVal + (feeCur === cur ? feeVal : 0);
-        if (val) acc[cur] = (acc[cur] || 0) + val;
-      } else if (amountCur) {
-        const cur = amountCur;
-        const val = amountVal + (feeCur === cur ? feeVal : 0);
-        if (val) acc[cur] = (acc[cur] || 0) + val;
-      } else if (feeCur) {
-        // Caso borde: solo fee con moneda conocida
-        const cur = feeCur;
-        const val = feeVal;
-        if (val) acc[cur] = (acc[cur] || 0) + val;
-      }
-
+      const amounts = extractReceiptPaidByCurrency(raw as ReceiptWithConversion);
+      Object.entries(amounts).forEach(([cur, value]) => {
+        if (!value) return;
+        acc[cur] = (acc[cur] || 0) + value;
+      });
       return acc;
     }, {});
   }, [receipts]);
@@ -814,41 +838,9 @@ export default function SummaryCard({
       const paidByService = new Map<number, number>();
       serviceIds.forEach((id) => paidByService.set(id, 0));
 
-      const extractReceiptAmounts = (raw: ReceiptWithConversion) => {
-        const out: Record<string, number> = {};
-        const baseCur = raw.base_currency
-          ? normalizeCurrencyCode(String(raw.base_currency))
-          : null;
-        const baseVal = toNum(raw.base_amount ?? 0);
-
-        const amountCur = raw.amount_currency
-          ? normalizeCurrencyCode(String(raw.amount_currency))
-          : null;
-        const amountVal = toNum(raw.amount ?? 0);
-
-        const feeCurRaw = raw.payment_fee_currency;
-        const feeCur =
-          feeCurRaw && String(feeCurRaw).trim() !== ""
-            ? normalizeCurrencyCode(String(feeCurRaw))
-            : (amountCur ?? baseCur);
-        const feeVal = toNum(raw.payment_fee_amount ?? 0);
-
-        if (baseCur) {
-          const value = baseVal + (feeCur === baseCur ? feeVal : 0);
-          if (value) out[baseCur] = (out[baseCur] || 0) + value;
-        } else if (amountCur) {
-          const value = amountVal + (feeCur === amountCur ? feeVal : 0);
-          if (value) out[amountCur] = (out[amountCur] || 0) + value;
-        } else if (feeCur) {
-          if (feeVal) out[feeCur] = (out[feeCur] || 0) + feeVal;
-        }
-
-        return out;
-      };
-
       receipts.forEach((rawReceipt) => {
         const receipt = rawReceipt as ReceiptWithConversion;
-        const amounts = extractReceiptAmounts(receipt);
+        const amounts = extractReceiptPaidByCurrency(receipt);
         const selectedIds = Array.isArray(receipt.serviceIds) && receipt.serviceIds.length
           ? receipt.serviceIds
               .map((id) => Number(id))
