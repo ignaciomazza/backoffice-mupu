@@ -15,6 +15,11 @@ import {
   sanitizeCommissionOverrides,
 } from "@/utils/commissionOverrides";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import {
+  addDaysToDateKey,
+  startOfDayUtcFromDateKeyInBuenosAires,
+  toDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 /* ============ Auth helpers ============ */
 type TokenPayload = JWTPayload & {
@@ -29,8 +34,6 @@ type TokenPayload = JWTPayload & {
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
-
-const DEFAULT_TZ = "America/Argentina/Buenos_Aires";
 
 async function getAuth(
   req: NextApiRequest,
@@ -59,55 +62,12 @@ async function getAuth(
   }
 }
 
-/* ============ Utils (TZ) ============ */
-function addDaysYMD(ymd: string, days: number): string {
-  const [y, m, d] = ymd.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  const yy = dt.getUTCFullYear();
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(dt.getUTCDate()).padStart(2, "0");
-  return `${yy}-${mm}-${dd}`;
-}
-
-/**
- * Convierte "YYYY-MM-DD" (día local en `timeZone`) al instante UTC de las 00:00:00 locales.
- * No depende de la tz del servidor y maneja DST.
- */
-function startOfDayUTCFromYmdInTz(ymd: string, timeZone: string): Date {
-  const [y, m, d] = ymd.split("-").map(Number);
-  const approx = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0));
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  const partsObj = Object.fromEntries(
-    fmt.formatToParts(approx).map((p) => [p.type, p.value]),
-  );
-  const hh = Number(partsObj.hour ?? 0);
-  const mm = Number(partsObj.minute ?? 0);
-  const ss = Number(partsObj.second ?? 0);
-  const deltaMs = ((hh * 60 + mm) * 60 + ss) * 1000;
-  return new Date(approx.getTime() - deltaMs);
-}
-
-function monthKeyInTz(d: Date, timeZone: string): string {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-  });
-  const parts = Object.fromEntries(
-    fmt.formatToParts(d).map((p) => [p.type, p.value]),
-  );
-  const yy = parts.year || "0000";
-  const mm = parts.month || "01";
+/* ============ Utils (BA) ============ */
+function monthKeyInBuenosAires(d: Date): string {
+  const key = toDateKeyInBuenosAires(d);
+  if (key && key.length >= 7) return key.slice(0, 7);
+  const yy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
   return `${yy}-${mm}`;
 }
 
@@ -220,7 +180,6 @@ export default async function handler(
   if (typeof from !== "string" || typeof to !== "string") {
     return res.status(400).json({ error: "Parámetros from y to requeridos" });
   }
-  const timeZone = DEFAULT_TZ;
   const dateFieldKey =
     String(dateField || "").toLowerCase() === "departure" ||
     String(dateField || "").toLowerCase() === "travel" ||
@@ -242,8 +201,14 @@ export default async function handler(
   );
 
   // Límites en UTC (incluye 'from' y excluye día siguiente a 'to')
-  const fromDate = startOfDayUTCFromYmdInTz(from, timeZone);
-  const toDateExclusive = startOfDayUTCFromYmdInTz(addDaysYMD(to, 1), timeZone);
+  const fromDate = startOfDayUtcFromDateKeyInBuenosAires(from);
+  const toPlusOne = addDaysToDateKey(to, 1);
+  const toDateExclusive = toPlusOne
+    ? startOfDayUtcFromDateKeyInBuenosAires(toPlusOne)
+    : null;
+  if (!fromDate || !toDateExclusive) {
+    return res.status(400).json({ error: "Parámetros from/to inválidos" });
+  }
 
   try {
     const agency = await prisma.agency.findUnique({
@@ -554,7 +519,7 @@ export default async function handler(
             ? bookingDepartureAt.get(bid)
             : createdAt;
         if (!groupDate) continue;
-        const month = monthKeyInTz(groupDate, timeZone);
+        const month = monthKeyInBuenosAires(groupDate);
         const ownerId = owner.id;
 
         const rule = resolveRule(ownerId, createdAt);
@@ -621,7 +586,7 @@ export default async function handler(
             ? bookingDepartureAt.get(bid)
             : createdAt;
         if (!groupDate) continue;
-        const month = monthKeyInTz(groupDate, timeZone);
+        const month = monthKeyInBuenosAires(groupDate);
         const ownerId = owner.id;
 
         // base de comisión (mismo criterio que /earnings)

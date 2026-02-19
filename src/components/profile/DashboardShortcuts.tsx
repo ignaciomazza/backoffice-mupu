@@ -17,6 +17,11 @@ import {
   loadFinancePicks,
   type FinanceCurrency,
 } from "@/utils/loadFinancePicks";
+import {
+  addDaysToDateKey,
+  formatDateInBuenosAires,
+  toDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 /* ===================== tipos mínimos ===================== */
 type CurrencyCode = "ARS" | "USD" | (string & {});
@@ -72,46 +77,53 @@ type SalesTeam = {
   }[];
 };
 
-/* ===================== helpers de fechas (local-safe) ===================== */
+/* ===================== helpers de fechas (BA-safe) ===================== */
 const two = (n: number) => String(n).padStart(2, "0");
-const ymd = (d: Date) =>
-  `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+const toDateKeyOrToday = (base = new Date()) =>
+  toDateKeyInBuenosAires(base) ?? new Date().toISOString().slice(0, 10);
 
-const monthRangeLocal = (base = new Date()) => {
-  const from = new Date(base.getFullYear(), base.getMonth(), 1);
-  const to = new Date(base.getFullYear(), base.getMonth() + 1, 0);
-  return { from: ymd(from), to: ymd(to) };
+const monthRangeInBuenosAires = (base = new Date()) => {
+  const key = toDateKeyOrToday(base);
+  const [yRaw, mRaw] = key.split("-");
+  const year = Number(yRaw);
+  const month = Number(mRaw);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return { from: key, to: key };
+  }
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return {
+    from: `${year}-${two(month)}-01`,
+    to: `${year}-${two(month)}-${two(lastDay)}`,
+  };
 };
 
-const weekRangeLocal = (base = new Date()) => {
-  const d = new Date(base);
-  const day = d.getDay(); // 0..6 (dom..sab)
+const weekRangeInBuenosAires = (base = new Date()) => {
+  const key = toDateKeyOrToday(base);
+  const [yRaw, mRaw, dRaw] = key.split("-");
+  const year = Number(yRaw);
+  const month = Number(mRaw);
+  const dayOfMonth = Number(dRaw);
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(dayOfMonth)
+  ) {
+    return { from: key, to: key };
+  }
+  const day = new Date(Date.UTC(year, month - 1, dayOfMonth)).getUTCDay();
   const mondayOffset = day === 0 ? -6 : 1 - day;
-  const monday = new Date(
-    d.getFullYear(),
-    d.getMonth(),
-    d.getDate() + mondayOffset,
-  );
-  const sunday = new Date(
-    monday.getFullYear(),
-    monday.getMonth(),
-    monday.getDate() + 6,
-  );
-  return { from: ymd(monday), to: ymd(sunday) };
+  const from = addDaysToDateKey(key, mondayOffset) ?? key;
+  const to = addDaysToDateKey(from, 6) ?? from;
+  return { from, to };
 };
 
-// "YYYY-MM-DD" o "YYYY-MM-DDTHH:mm:ssZ" -> Date local (sin desfase)
-function parseToLocalDate(dateStr?: string | null): Date | null {
-  if (!dateStr) return null;
-  const s = String(dateStr);
-  const ymdPart = s.length >= 10 ? s.slice(0, 10) : s;
-  const [y, m, d] = ymdPart.split("-").map(Number);
-  if (!y || !m || !d) return null;
-  return new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
-}
-function humanDate(dateStr?: string | null, locale = "es-AR"): string {
-  const d = parseToLocalDate(dateStr);
-  return d ? d.toLocaleDateString(locale) : "";
+function humanDate(dateStr?: string | null): string {
+  if (!dateStr) return "";
+  return formatDateInBuenosAires(dateStr, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 }
 
 /* ===================== helpers de dinero ===================== */
@@ -190,8 +202,14 @@ export default function DashboardShortcuts() {
     [enabledCurrencies],
   );
 
-  const { from: monthFrom, to: monthTo } = useMemo(monthRangeLocal, []);
-  const { from: weekFrom, to: weekTo } = useMemo(weekRangeLocal, []);
+  const { from: monthFrom, to: monthTo } = useMemo(
+    monthRangeInBuenosAires,
+    [],
+  );
+  const { from: weekFrom, to: weekTo } = useMemo(
+    weekRangeInBuenosAires,
+    [],
+  );
   const timeZone = "America/Argentina/Buenos_Aires";
 
   const [loading, setLoading] = useState(true);

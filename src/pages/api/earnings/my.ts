@@ -14,6 +14,10 @@ import {
   resolveCommissionForContext,
   sanitizeCommissionOverrides,
 } from "@/utils/commissionOverrides";
+import {
+  addDaysToDateKey,
+  startOfDayUtcFromDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 /* ======================== Auth helpers ======================== */
 
@@ -29,8 +33,6 @@ type TokenPayload = JWTPayload & {
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 if (!JWT_SECRET) throw new Error("JWT_SECRET no configurado");
-
-const DEFAULT_TZ = "America/Argentina/Buenos_Aires";
 
 async function getAuth(
   req: NextApiRequest,
@@ -57,56 +59,6 @@ async function getAuth(
   } catch {
     return null;
   }
-}
-
-/* ======================== Utils de fechas ======================== */
-
-/**
- * Suma días a un YMD (sin depender de la zona horaria del servidor)
- */
-function addDaysYMD(ymd: string, days: number): string {
-  const [y, m, d] = ymd.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  const yy = dt.getUTCFullYear();
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(dt.getUTCDate()).padStart(2, "0");
-  return `${yy}-${mm}-${dd}`;
-}
-
-/**
- * Convierte "YYYY-MM-DD" (día local en `timeZone`) al instante UTC de las 00:00:00 locales.
- * No depende de la tz del servidor y maneja DST.
- */
-function startOfDayUTCFromYmdInTz(ymd: string, timeZone: string): Date {
-  const [y, m, d] = ymd.split("-").map(Number);
-
-  // Medianoche "local" aproximada expresada en UTC
-  const approx = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0));
-
-  // Qué hora local muestra esa fecha en la tz objetivo
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-
-  const partsObj = Object.fromEntries(
-    fmt.formatToParts(approx).map((p) => [p.type, p.value]),
-  );
-
-  const hh = Number(partsObj.hour ?? 0);
-  const mm = Number(partsObj.minute ?? 0);
-  const ss = Number(partsObj.second ?? 0);
-  const deltaMs = ((hh * 60 + mm) * 60 + ss) * 1000;
-
-  // Restar la hora local mostrada nos lleva a 00:00:00 local (en UTC)
-  return new Date(approx.getTime() - deltaMs);
 }
 
 function parseCsvParam(input: string | string[] | undefined): string[] | null {
@@ -246,7 +198,6 @@ export default async function handler(
   if (typeof from !== "string" || typeof to !== "string") {
     return res.status(400).json({ error: "Parámetros from y to requeridos" });
   }
-  const timeZone = DEFAULT_TZ;
   const dateFieldKey =
     String(dateField || "").toLowerCase() === "departure" ||
     String(dateField || "").toLowerCase() === "travel" ||
@@ -267,9 +218,15 @@ export default async function handler(
     Array.isArray(accountId) ? accountId[0] : accountId,
   );
 
-  // Rango UTC: [inicio de 'from' en tz, inicio de 'to + 1 día' en tz)
-  const fromUTC = startOfDayUTCFromYmdInTz(from, timeZone);
-  const toExclusiveUTC = startOfDayUTCFromYmdInTz(addDaysYMD(to, 1), timeZone);
+  // Rango UTC BA: [inicio de 'from', inicio de 'to + 1 día')
+  const fromUTC = startOfDayUtcFromDateKeyInBuenosAires(from);
+  const toPlusOne = addDaysToDateKey(to, 1);
+  const toExclusiveUTC = toPlusOne
+    ? startOfDayUtcFromDateKeyInBuenosAires(toPlusOne)
+    : null;
+  if (!fromUTC || !toExclusiveUTC) {
+    return res.status(400).json({ error: "Parámetros from/to inválidos" });
+  }
 
   try {
     const agency = await prisma.agency.findUnique({
