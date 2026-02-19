@@ -1,3 +1,5 @@
+import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
+
 type SearchUser = {
   first_name?: string | null;
   last_name?: string | null;
@@ -44,9 +46,14 @@ function toDigits(value: unknown): string {
 
 function toDateText(value: unknown): string {
   if (!value) return "";
-  const date = value instanceof Date ? value : new Date(String(value));
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 10);
+  if (
+    value instanceof Date ||
+    typeof value === "string" ||
+    typeof value === "number"
+  ) {
+    return toDateKeyInBuenosAires(value) ?? "";
+  }
+  return "";
 }
 
 function flattenUnknown(value: unknown, seen = new WeakSet<object>()): string[] {

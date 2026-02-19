@@ -3,6 +3,11 @@ import { useMemo, useState, useCallback, type ReactNode } from "react";
 import { Booking, Operator, OperatorDue, Service } from "@/types";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
+import {
+  formatDateInBuenosAires,
+  toDateKeyInBuenosAires,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 type ServiceWithOperator = Service & {
   operator?: { id_operator: number; agency_operator_id?: number | null; name?: string };
@@ -86,30 +91,13 @@ const normalizeStatus = (status?: string): StatusValue => {
   return "PENDIENTE";
 };
 
-const pad2 = (n: number) => String(n).padStart(2, "0");
+const todayKey = () => todayDateKeyInBuenosAires();
 
-const todayKey = () => {
-  const now = new Date();
-  return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
-};
+const dateKeyFrom = (d?: string | Date | null): string | null =>
+  toDateKeyInBuenosAires(d ?? null);
 
-const dateKeyFrom = (d?: string | Date | null): string | null => {
-  if (!d) return null;
-  if (d instanceof Date) {
-    return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : null;
-  }
-  const raw = String(d).trim();
-  if (!raw) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const dt = new Date(raw);
-  return Number.isFinite(dt.getTime()) ? dt.toISOString().slice(0, 10) : null;
-};
-
-const formatDateKey = (key: string | null): string => {
-  if (!key) return "-";
-  const dt = new Date(`${key}T00:00:00.000Z`);
-  return dt.toLocaleDateString("es-AR", { timeZone: "UTC" });
-};
+const formatDateKey = (key: string | null): string =>
+  key ? formatDateInBuenosAires(key) : "-";
 
 interface Props {
   due: OperatorDue;

@@ -9,6 +9,7 @@ import "react-toastify/dist/ReactToastify.css";
 import { authFetch } from "@/utils/authFetch";
 import { useAuth } from "@/context/AuthContext";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 
 /* =========================================================
  * Tipos (alineados con /api/cashbox)
@@ -176,22 +177,18 @@ function formatAmount(amount: number, rawCurrency: string): string {
 }
 
 function formatDateShort(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("es-AR", {
+  return formatDateInBuenosAires(iso, {
     day: "2-digit",
     month: "2-digit",
-    timeZone: "UTC",
   });
 }
 
 function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString("es-AR", {
+  return formatDateInBuenosAires(iso, {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "UTC",
   });
 }
 

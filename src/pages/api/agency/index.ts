@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
 import { Prisma, type Agency as AgencyModel } from "@prisma/client";
+import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
 
 /* ==== JWT / Auth helpers ==== */
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -296,7 +297,7 @@ async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
         foundation_date: foundation_date
           ? toLocalDate(
               foundation_date instanceof Date
-                ? foundation_date.toISOString().slice(0, 10)
+                ? (toDateKeyInBuenosAires(foundation_date) ?? "")
                 : (foundation_date as string),
             )
           : undefined,
@@ -363,7 +364,7 @@ async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
         foundation_date: foundation_date
           ? toLocalDate(
               foundation_date instanceof Date
-                ? foundation_date.toISOString().slice(0, 10)
+                ? (toDateKeyInBuenosAires(foundation_date) ?? "")
                 : (foundation_date as string),
             )
           : undefined,

@@ -4,6 +4,10 @@ import { jwtVerify, type JWTPayload } from "jose";
 import { getFinanceSectionGrants } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import {
+  toDateKeyInBuenosAires,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -122,10 +126,6 @@ function normalizePersistedStatus(v: unknown): PersistedStatus {
   return "PENDIENTE";
 }
 
-function dateKeyUtc(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
 function deriveStatus(status: PersistedStatus, dueDate: Date): {
   derivedStatus: DerivedStatus;
   isOverdue: boolean;
@@ -133,7 +133,9 @@ function deriveStatus(status: PersistedStatus, dueDate: Date): {
   if (status !== "PENDIENTE") {
     return { derivedStatus: status, isOverdue: false };
   }
-  const isOverdue = dateKeyUtc(dueDate) < dateKeyUtc(new Date());
+  const dueKey = toDateKeyInBuenosAires(dueDate);
+  const todayKey = todayDateKeyInBuenosAires();
+  const isOverdue = !!dueKey && !!todayKey && dueKey < todayKey;
   return { derivedStatus: isOverdue ? "VENCIDA" : "PENDIENTE", isOverdue };
 }
 

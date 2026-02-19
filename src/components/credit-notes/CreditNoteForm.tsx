@@ -8,6 +8,7 @@ import type { Invoice } from "@/types";
 import { toast } from "react-toastify";
 import { computeManualTotals } from "@/services/afip/manualTotals";
 import { displayInvoiceNumber } from "@/utils/invoiceNumbers";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 
 const Section = ({
   title,
@@ -120,10 +121,7 @@ const fmtMoney = (v?: number, curr?: string | null) =>
 
 const fmtDate = (raw?: string | Date | null) => {
   if (!raw) return "—";
-  const d = raw instanceof Date ? raw : new Date(raw);
-  return Number.isNaN(d.getTime())
-    ? "—"
-    : d.toLocaleDateString("es-AR", { timeZone: "UTC" });
+  return formatDateInBuenosAires(raw);
 };
 
 const getVoucher = (inv: Invoice): VoucherData | null => {

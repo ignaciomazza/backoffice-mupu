@@ -11,6 +11,7 @@ import { useAuth } from "@/context/AuthContext";
 import Spinner from "@/components/Spinner";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { authFetch } from "@/utils/authFetch";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 
 type ClientStatus = "Todas" | "Pendiente" | "Pago" | "Facturado";
 type ViewOption = "dayGridMonth" | "dayGridWeek" | "dayGridDay";
@@ -1076,7 +1077,7 @@ export default function CalendarPage() {
                   ref={calendarRef}
                   plugins={[dayGridPlugin, interactionPlugin]}
                   initialView={currentView}
-                  timeZone="UTC"
+                  timeZone="America/Argentina/Buenos_Aires"
                   locale={esLocale}
                   headerToolbar={false}
                   dayHeaderFormat={{ weekday: "long" }}
@@ -1139,7 +1140,7 @@ export default function CalendarPage() {
               <h2 className="mb-2 flex justify-between text-lg font-semibold dark:text-white">
                 Nueva nota
                 <span className="text-base font-normal">
-                  {new Date(noteModal.date).toLocaleDateString("es-AR")}
+                  {formatDateInBuenosAires(noteModal.date)}
                 </span>
               </h2>
               <input
@@ -1211,7 +1212,7 @@ export default function CalendarPage() {
               </h2>
               <p className="mb-1 text-sm text-gray-500 dark:text-gray-400">
                 Creada por <strong>{noteModal.creator}</strong> el{" "}
-                {new Date(noteModal.date).toLocaleDateString("es-AR")}
+                {formatDateInBuenosAires(noteModal.date)}
               </p>
               <div className="mb-6 whitespace-pre-wrap dark:text-white">
                 {noteModal.content || <em>(Sin contenido adicional)</em>}

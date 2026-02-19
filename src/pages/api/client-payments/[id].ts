@@ -7,6 +7,11 @@ import {
 } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import {
+  parseDateInputInBuenosAires,
+  toDateKeyInBuenosAires,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -122,14 +127,8 @@ function safeNumber(v: unknown): number | undefined {
 
 function parseDueDate(input: unknown): Date | undefined {
   if (input === null || input === undefined) return undefined;
-  const s = String(input).trim();
-  if (!s) return undefined;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    const d = new Date(`${s}T00:00:00.000Z`);
-    return Number.isFinite(d.getTime()) ? d : undefined;
-  }
-  const d = new Date(s);
-  return Number.isFinite(d.getTime()) ? d : undefined;
+  const parsed = parseDateInputInBuenosAires(String(input));
+  return parsed ?? undefined;
 }
 
 function toDec(v: unknown): Prisma.Decimal | undefined {
@@ -157,10 +156,6 @@ function parseStatusForUpdate(v: unknown): PersistedStatus | undefined {
   return s as PersistedStatus;
 }
 
-function dateKeyUtc(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
 function deriveStatus(status: PersistedStatus, dueDate: Date): {
   derivedStatus: DerivedStatus;
   isOverdue: boolean;
@@ -168,7 +163,9 @@ function deriveStatus(status: PersistedStatus, dueDate: Date): {
   if (status !== "PENDIENTE") {
     return { derivedStatus: status, isOverdue: false };
   }
-  const isOverdue = dateKeyUtc(dueDate) < dateKeyUtc(new Date());
+  const dueKey = toDateKeyInBuenosAires(dueDate);
+  const todayKey = todayDateKeyInBuenosAires();
+  const isOverdue = !!dueKey && !!todayKey && dueKey < todayKey;
   return { derivedStatus: isOverdue ? "VENCIDA" : "PENDIENTE", isOverdue };
 }
 

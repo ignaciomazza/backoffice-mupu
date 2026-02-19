@@ -102,7 +102,7 @@ const safeFmtCurrency = (value: number, curr: string) => {
 
 const fmtDate = (d: Date) =>
   new Intl.DateTimeFormat("es-AR", {
-    timeZone: "UTC",
+    timeZone: "America/Argentina/Buenos_Aires",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

@@ -14,6 +14,7 @@ import {
   type ManualTotalsInput,
 } from "@/services/afip/manualTotals";
 import prisma from "@/lib/prisma";
+import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
 
 /** ---------------- Tipos ---------------- */
 interface VoucherResponse {
@@ -104,7 +105,7 @@ async function getValidExchangeRate(
       date.setDate(date.getDate() - 1);
       continue;
     }
-    const formatted = date.toISOString().slice(0, 10).replace(/-/g, "");
+    const formatted = (toDateKeyInBuenosAires(date) ?? "").replace(/-/g, "");
     try {
       const resp = await client.ElectronicBilling.executeRequest(
         "FEParamGetCotizacion",
@@ -331,7 +332,7 @@ export async function createVoucherService(
           )));
 
     const fmt = (d: Date) =>
-      parseInt(d.toISOString().slice(0, 10).replace(/-/g, ""), 10);
+      parseInt((toDateKeyInBuenosAires(d) ?? "").replace(/-/g, ""), 10);
     const allFrom = serviceDetails.map((s) => fmt(s.departure_date));
     const allTo = serviceDetails.map((s) => fmt(s.return_date));
     const FchServDesde = Math.min(...allFrom);

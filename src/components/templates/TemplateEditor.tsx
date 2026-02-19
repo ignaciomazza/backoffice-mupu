@@ -25,6 +25,7 @@ import type {
   Density,
   Agency,
 } from "@/types/templates";
+import { todayDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
 
 import BlocksCanvas from "./BlocksCanvas";
 
@@ -1281,10 +1282,10 @@ const TemplateEditor: React.FC<Props> = ({
           fileName={
             filename ||
             (docType === "quote"
-              ? `cotizacion-${new Date().toISOString().slice(0, 10)}.pdf`
+              ? `cotizacion-${todayDateKeyInBuenosAires()}.pdf`
               : docType === "confirmation"
-                ? `confirmacion-${new Date().toISOString().slice(0, 10)}.pdf`
-                : `confirmacion-${new Date().toISOString().slice(0, 10)}.pdf`)
+                ? `confirmacion-${todayDateKeyInBuenosAires()}.pdf`
+                : `confirmacion-${todayDateKeyInBuenosAires()}.pdf`)
           }
         />
       </div>

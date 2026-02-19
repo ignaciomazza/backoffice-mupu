@@ -20,6 +20,10 @@ import {
 } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 import { hasSchemaColumn } from "@/lib/schemaColumns";
+import {
+  endOfDayUtcFromDateKeyInBuenosAires,
+  startOfDayUtcFromDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 /* ======================================================
  * Tipos
@@ -943,8 +947,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
     // 4) Rango de fechas
     const dateRange: Prisma.DateTimeFilter = {};
-    if (from) dateRange.gte = new Date(`${from}T00:00:00.000Z`);
-    if (to) dateRange.lte = new Date(`${to}T23:59:59.999Z`);
+    if (from) {
+      const parsedFrom = startOfDayUtcFromDateKeyInBuenosAires(from);
+      if (parsedFrom) dateRange.gte = parsedFrom;
+    }
+    if (to) {
+      const parsedTo = endOfDayUtcFromDateKeyInBuenosAires(to);
+      if (parsedTo) dateRange.lte = parsedTo;
+    }
     if (dateRange.gte || dateRange.lte)
       whereAND.push({ issue_date: dateRange });
 

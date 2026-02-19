@@ -12,6 +12,7 @@ import {
   type ManualTotalsInput,
 } from "@/services/afip/manualTotals";
 import type { Invoice, InvoiceItem, Prisma } from "@prisma/client";
+import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
 
 export type InvoiceWithItems = Invoice & { InvoiceItem: InvoiceItem[] };
 
@@ -508,8 +509,8 @@ export async function createInvoices(
           : {}),
         serviceDates: svcs.map((s) => ({
           id_service: s.id_service,
-          from: s.departure_date.toISOString().slice(0, 10),
-          to: s.return_date.toISOString().slice(0, 10),
+          from: toDateKeyInBuenosAires(s.departure_date) ?? "",
+          to: toDateKeyInBuenosAires(s.return_date) ?? "",
         })),
       };
 

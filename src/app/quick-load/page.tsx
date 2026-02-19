@@ -20,6 +20,7 @@ import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { loadFinancePicks, type FinanceCurrency } from "@/utils/loadFinancePicks";
 import { normalizeRole } from "@/utils/permissions";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 import type {
   BillingAdjustmentComputed,
   BillingAdjustmentConfig,
@@ -417,7 +418,7 @@ const makeId = () =>
 
 const formatDate = (iso?: string) =>
   iso
-    ? new Date(iso).toLocaleDateString("es-AR", {
+    ? formatDateInBuenosAires(iso, {
         day: "2-digit",
         month: "2-digit",
         year: "numeric",

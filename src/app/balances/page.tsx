@@ -10,6 +10,7 @@ import { authFetch } from "@/utils/authFetch";
 import { useAuth } from "@/context/AuthContext";
 import { computeBillingAdjustments } from "@/utils/billingAdjustments";
 import type { BillingAdjustmentConfig } from "@/types";
+import { todayDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
 
 /* ================= Tipos ================= */
 
@@ -1530,7 +1531,7 @@ export default function BalancesPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `reservas_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `reservas_${todayDateKeyInBuenosAires()}.csv`;
       a.click();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error al descargar CSV";

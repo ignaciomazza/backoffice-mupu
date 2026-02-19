@@ -9,6 +9,7 @@ import {
   CommissionOverrides,
   OperatorDue,
 } from "@/types";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 
 interface Totals {
   sale_price: number;
@@ -116,9 +117,7 @@ export default function ServiceList({
 }: ServiceListProps) {
   const formatDate = useCallback(
     (dateString?: string) =>
-      dateString
-        ? new Date(dateString).toLocaleDateString("es-AR", { timeZone: "UTC" })
-        : "N/A",
+      dateString ? formatDateInBuenosAires(dateString) : "N/A",
     [],
   );
 

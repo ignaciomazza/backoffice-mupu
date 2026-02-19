@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
+import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
 
 /* ========== Auth helpers ========== */
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -222,7 +223,7 @@ async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
       foundation_date: p.foundation_date
         ? toLocalDate(
             p.foundation_date instanceof Date
-              ? p.foundation_date.toISOString().slice(0, 10)
+              ? (toDateKeyInBuenosAires(p.foundation_date) ?? "")
               : (p.foundation_date as string),
           )
         : undefined,

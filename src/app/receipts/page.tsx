@@ -18,6 +18,12 @@ import { authFetch } from "@/utils/authFetch";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import ReceiptForm from "@/components/receipts/ReceiptForm";
 import { useRouter } from "next/navigation";
+import {
+  addDaysToDateKey,
+  formatDateInBuenosAires,
+  toDateKeyInBuenosAires,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 import type {
   BookingOption,
   ServiceLite,
@@ -54,10 +60,7 @@ const toInputDate = (value?: string | null) => {
   const raw = String(value).trim();
   const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return toDateKeyInBuenosAires(raw) ?? "";
 };
 
 const slugify = (s: string) =>
@@ -384,9 +387,7 @@ export default function ReceiptsPage() {
 
   const fmtDate = useCallback((value?: string | null) => {
     if (!value) return "";
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleDateString("es-AR", { timeZone: "UTC" });
+    return formatDateInBuenosAires(value);
   }, []);
 
   const formatServiceRange = useCallback(
@@ -416,7 +417,7 @@ export default function ReceiptsPage() {
   const normalizeReceipt = useCallback(
     (r: ReceiptRow): NormalizedReceipt => {
       const dateLabel = r.issue_date
-        ? new Date(r.issue_date).toLocaleDateString("es-AR")
+        ? formatDateInBuenosAires(r.issue_date)
         : "—";
       const displayReceiptNumber = getReceiptDisplayNumber(r);
 
@@ -844,7 +845,7 @@ export default function ReceiptsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `receipts_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `receipts_${todayDateKeyInBuenosAires()}.csv`;
       a.click();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error al descargar CSV";
@@ -867,19 +868,23 @@ export default function ReceiptsPage() {
   };
 
   const setQuickRange = (preset: "last7" | "thisMonth") => {
-    const now = new Date();
+    const nowKey = todayDateKeyInBuenosAires();
     if (preset === "last7") {
-      const toD = now.toISOString().slice(0, 10);
-      const fromD = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .slice(0, 10);
+      const toD = nowKey;
+      const fromD = addDaysToDateKey(nowKey, -6) ?? nowKey;
       setFrom(fromD);
       setTo(toD);
     } else {
-      const year = now.getFullYear();
-      const month = now.getMonth();
-      const first = new Date(year, month, 1).toISOString().slice(0, 10);
-      const last = new Date(year, month + 1, 0).toISOString().slice(0, 10);
+      const [yearRaw, monthRaw] = nowKey.split("-");
+      const year = Number(yearRaw);
+      const month = Number(monthRaw);
+      const monthLabel = String(month).padStart(2, "0");
+      const first = `${year}-${monthLabel}-01`;
+      const nextYear = month === 12 ? year + 1 : year;
+      const nextMonth = month === 12 ? 1 : month + 1;
+      const nextMonthLabel = String(nextMonth).padStart(2, "0");
+      const nextFirst = `${nextYear}-${nextMonthLabel}-01`;
+      const last = addDaysToDateKey(nextFirst, -1) ?? first;
       setFrom(first);
       setTo(last);
     }

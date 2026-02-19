@@ -10,6 +10,11 @@ import type { ClientPayment } from "@/types";
 import type { ReceiptPayload, ServiceLite } from "@/types/receipts";
 import { authFetch } from "@/utils/authFetch";
 import { toast, ToastContainer } from "react-toastify";
+import {
+  formatDateInBuenosAires,
+  toDateKeyInBuenosAires,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 import "react-toastify/dist/ReactToastify.css";
 
 const GLASS =
@@ -90,29 +95,17 @@ function normalizeCurrency(value: unknown): string {
 }
 
 function toDateKey(value?: string | Date | null): string | null {
-  if (!value) return null;
-  if (value instanceof Date) {
-    return Number.isFinite(value.getTime())
-      ? value.toISOString().slice(0, 10)
-      : null;
-  }
-  const raw = String(value).trim();
-  if (!raw) return null;
-  const exact = raw.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (exact) return exact[1];
-  const date = new Date(raw);
-  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : null;
+  return toDateKeyInBuenosAires(value ?? null);
 }
 
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayDateKeyInBuenosAires();
 }
 
 function formatDate(value?: string | Date | null): string {
   const key = toDateKey(value);
   if (!key) return "-";
-  const date = new Date(`${key}T00:00:00.000Z`);
-  return date.toLocaleDateString("es-AR", { timeZone: "UTC" });
+  return formatDateInBuenosAires(key);
 }
 
 function formatMoney(amount: number, currency: string): string {
@@ -222,7 +215,7 @@ function extractReceiptId(payload: unknown): number | null {
 }
 
 function ymdToday(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayDateKeyInBuenosAires();
 }
 
 function useDebounced<T>(value: T, delayMs = 350): T {

@@ -22,6 +22,7 @@ import { useAuth } from "@/context/AuthContext";
 import "react-toastify/dist/ReactToastify.css";
 import FilterPanel from "@/components/clients/FilterPanel";
 import { authFetch } from "@/utils/authFetch";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 import {
   DEFAULT_CLIENT_PROFILE_KEY,
   DEFAULT_REQUIRED_FIELDS,
@@ -759,9 +760,7 @@ export default function Page() {
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return "-";
-    return new Date(dateString).toLocaleDateString("es-AR", {
-      timeZone: "UTC",
-    });
+    return formatDateInBuenosAires(dateString);
   };
 
   const pillBase = "rounded-full px-2.5 py-0.5 text-xs font-medium";

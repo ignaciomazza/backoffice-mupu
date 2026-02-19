@@ -4,6 +4,7 @@
 import { memo, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { authFetch } from "@/utils/authFetch";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 
 export type OperatorLite = { id_operator: number; name: string | null };
 export type UserLite = {
@@ -65,7 +66,7 @@ const slugify = (s: string) =>
 
 function formatDate(s?: string | null) {
   if (!s) return "-";
-  return new Date(s).toLocaleDateString("es-AR", { timeZone: "UTC" });
+  return formatDateInBuenosAires(s);
 }
 
 function fmtMoney(v?: number | string | null, cur?: string | null) {

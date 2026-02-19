@@ -8,6 +8,7 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { authFetch } from "@/utils/authFetch";
 import { useAuth } from "@/context/AuthContext";
+import { todayDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
 import ClientStatsView, {
   type VisibleKey,
   type ColumnDef,
@@ -851,7 +852,7 @@ export default function ClientStatsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `pasajeros_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `pasajeros_${todayDateKeyInBuenosAires()}.csv`;
       a.click();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error al exportar CSV";

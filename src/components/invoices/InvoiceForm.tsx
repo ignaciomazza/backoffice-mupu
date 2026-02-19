@@ -12,6 +12,7 @@ import {
   splitManualTotalsByShares,
   type ManualTotalsInput,
 } from "@/services/afip/manualTotals";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 
 const Section = ({
   title,
@@ -845,10 +846,7 @@ export default function InvoiceForm({
 
   const formatDateLabel = (raw?: string) => {
     if (!raw) return "";
-    const d = new Date(`${raw}T00:00:00`);
-    return Number.isNaN(d.getTime())
-      ? raw
-      : d.toLocaleDateString("es-AR", { timeZone: "UTC" });
+    return formatDateInBuenosAires(raw);
   };
 
   const headerPills = useMemo(() => {

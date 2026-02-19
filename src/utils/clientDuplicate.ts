@@ -1,3 +1,5 @@
+import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
+
 type DuplicateField = "dni_number" | "passport_number" | "tax_id" | "name_birth";
 
 export type ClientDuplicateCandidate = {
@@ -56,9 +58,7 @@ function sameLooseValue(input: unknown, existing: unknown): boolean {
 
 function dateKey(value: Date | string | null | undefined): string {
   if (!value) return "";
-  const date = value instanceof Date ? value : new Date(String(value));
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 10);
+  return toDateKeyInBuenosAires(value) ?? "";
 }
 
 function sameBirthDate(

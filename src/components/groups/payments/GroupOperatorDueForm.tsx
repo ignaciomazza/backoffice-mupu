@@ -6,6 +6,7 @@ import { Booking, Service } from "@/types";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 import { authFetch } from "@/utils/authFetch";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 
 type Props = {
   token: string | null;
@@ -175,10 +176,7 @@ export default function GroupOperatorDueForm({
 
   const dueDateLabel = useMemo(() => {
     if (!dueDate) return "";
-    const dt = new Date(`${dueDate}T00:00:00.000Z`);
-    return Number.isNaN(dt.getTime())
-      ? dueDate
-      : dt.toLocaleDateString("es-AR", { timeZone: "UTC" });
+    return formatDateInBuenosAires(dueDate);
   }, [dueDate]);
 
   const headerPills = useMemo(() => {

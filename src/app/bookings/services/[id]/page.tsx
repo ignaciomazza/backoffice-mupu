@@ -28,6 +28,7 @@ import {
   type ManualTotalsInput,
 } from "@/services/afip/manualTotals";
 import { normalizeRole as normalizeRoleValue } from "@/utils/permissions";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 
 // ===== Cookies utils =====
 type Role =
@@ -1266,9 +1267,7 @@ export default function ServicesPage() {
   };
 
   const formatDate = (dateString?: string) =>
-    dateString
-      ? new Date(dateString).toLocaleDateString("es-AR", { timeZone: "UTC" })
-      : "N/A";
+    dateString ? formatDateInBuenosAires(dateString) : "N/A";
 
   const handleBookingUpdated = (updated: Booking) => setBooking(updated);
   const handleCreditNoteCreated = () => {

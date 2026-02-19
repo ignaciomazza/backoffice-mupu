@@ -17,6 +17,10 @@ import type {
   ExcessAction,
   ExcessMissingAccountAction,
 } from "@/components/investments/ServiceAllocationsEditor";
+import {
+  formatDateInBuenosAires,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 import type { PlanKey } from "@/lib/billing/pricing";
 import type {
   Investment,
@@ -277,7 +281,7 @@ function useDebounced<T>(value: T, delay = 350) {
   return v;
 }
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => todayDateKeyInBuenosAires();
 
 /* ==== Componente ==== */
 export default function Page() {
@@ -1485,7 +1489,7 @@ export default function Page() {
 
     const paid_at =
       form.paid_today && !form.paid_at
-        ? new Date().toISOString().slice(0, 10)
+        ? todayDateKeyInBuenosAires()
         : form.paid_at || undefined;
 
     const shouldAssociateServices = operatorOnly && associateServices;
@@ -1766,7 +1770,7 @@ export default function Page() {
     "rounded-3xl border border-white/10 bg-white/10 p-3 shadow-md shadow-sky-950/10 backdrop-blur dark:bg-white/10";
 
   const formatDate = (s?: string | null) =>
-    s ? new Date(s).toLocaleDateString("es-AR", { timeZone: "UTC" }) : "-";
+    s ? formatDateInBuenosAires(s) : "-";
 
   const getItemDate = useCallback(
     (it: Investment) => new Date(it.paid_at ?? it.created_at),

@@ -10,6 +10,7 @@ import {
   ICON_BUTTON,
   getStatusChipClasses,
 } from "./palette";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 
 export type BookingViewMode = "grid" | "list";
 
@@ -40,8 +41,7 @@ export default function BookingList({
 }: BookingListProps) {
   const formatDate = (dateString: string | undefined): string => {
     if (!dateString) return "N/A";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("es-AR", { timeZone: "UTC" });
+    return formatDateInBuenosAires(dateString);
   };
 
   const content =

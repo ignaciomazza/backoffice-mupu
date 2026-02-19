@@ -8,6 +8,10 @@ import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { authFetch } from "@/utils/authFetch";
 import { useAuth } from "@/context/AuthContext";
+import {
+  formatDateInBuenosAires,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 import type {
   CommercialInsightsResponse,
   DestinationItem,
@@ -21,14 +25,12 @@ import type {
  * ========================= */
 
 function formatDateForInput(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return todayDateKeyInBuenosAires(date);
 }
 
 function formatDateHuman(value?: string | null): string {
   if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value ?? "";
-  return d.toLocaleDateString("es-AR", {
+  return formatDateInBuenosAires(value, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

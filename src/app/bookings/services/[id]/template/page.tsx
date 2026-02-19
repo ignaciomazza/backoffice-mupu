@@ -20,6 +20,7 @@ import { nanoid } from "nanoid/non-secure";
 import { normalizeConfig, getAt } from "@/lib/templateConfig";
 import type { Booking, Client, Service, Operator } from "@/types";
 import type { Agency as TemplateAgency, ContentBlock } from "@/types/templates";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 
 type ServiceWithOperator = Service & { operator?: Operator | null };
 type BookingPayload = Booking & { services?: ServiceWithOperator[] };
@@ -106,9 +107,7 @@ function useUiTokens(cfg: Record<string, unknown>) {
 
 function formatDate(dateString?: string | null) {
   if (!dateString) return "—";
-  const date = new Date(dateString);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("es-AR", { timeZone: "UTC" });
+  return formatDateInBuenosAires(dateString);
 }
 
 function formatMoney(

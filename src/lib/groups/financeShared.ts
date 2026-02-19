@@ -8,6 +8,10 @@ import {
 } from "@/lib/groups/apiShared";
 import { groupApiError } from "@/lib/groups/apiErrors";
 import prisma from "@/lib/prisma";
+import {
+  parseDateInputInBuenosAires,
+  toDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 export type GroupFinanceContext = {
   auth: Awaited<ReturnType<typeof requireAuth>> extends infer T
@@ -123,13 +127,7 @@ export function normalizeCurrencyCode(raw: unknown): string {
 
 export function parseDateInput(raw: unknown): Date | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
-  const clean = raw.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
-    const d = new Date(`${clean}T00:00:00.000Z`);
-    return Number.isFinite(d.getTime()) ? d : null;
-  }
-  const parsed = new Date(clean);
-  return Number.isFinite(parsed.getTime()) ? parsed : null;
+  return parseDateInputInBuenosAires(raw);
 }
 
 export function toDecimal(value: number | string): Prisma.Decimal {
@@ -149,7 +147,7 @@ export function toAmountNumber(value: unknown): number {
 }
 
 export function isoDateKey(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  return toDateKeyInBuenosAires(value) ?? "";
 }
 
 export function deriveClientPaymentStatus(

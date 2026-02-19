@@ -13,6 +13,10 @@ import type { Booking } from "@/types";
 import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 import { authFetch } from "@/utils/authFetch";
+import {
+  addDaysToDateKey,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 type Props = {
   token: string | null;
@@ -196,11 +200,7 @@ export default function GroupClientPaymentForm({
   const [currency, setCurrency] = useState<string>("ARS");
 
   // Vencimientos
-  const mkTodayIso = () => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d.toISOString().slice(0, 10);
-  };
+  const mkTodayIso = () => todayDateKeyInBuenosAires();
   const [dueDatesArray, setDueDatesArray] = useState<string[]>([""]);
   const [seedDate, setSeedDate] = useState<string>(mkTodayIso());
   const [frequencyDays, setFrequencyDays] = useState<number>(30);
@@ -338,9 +338,7 @@ export default function GroupClientPaymentForm({
   }, [count, currency, totalPreview]);
 
   const addDays = (iso: string, days: number) => {
-    const d = new Date(`${iso}T00:00:00`);
-    d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
+    return addDaysToDateKey(iso, days) ?? iso;
   };
 
   const autofillDueDates = () => {

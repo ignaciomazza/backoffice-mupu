@@ -12,6 +12,7 @@ import CreateAccountForm, {
 } from "@/components/credits/CreateAccountForm";
 import type { Operator } from "@/types";
 import { AnimatePresence, motion } from "framer-motion";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 import "react-toastify/dist/ReactToastify.css";
 
 /* =========================================================
@@ -29,11 +30,8 @@ const isSilentStatus = (res: Response) =>
 
 const formatDateSafe = (isoLike?: string) => {
   if (!isoLike) return "-";
-  const d = new Date(isoLike);
-  const t = d.getTime();
-  if (!Number.isFinite(t)) return "-";
   try {
-    return d.toLocaleDateString("es-AR", { timeZone: "UTC" });
+    return formatDateInBuenosAires(isoLike);
   } catch {
     return "-";
   }

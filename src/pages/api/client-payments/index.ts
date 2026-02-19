@@ -8,6 +8,13 @@ import {
 } from "@/lib/accessControl";
 import { canAccessFinanceSection } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import {
+  endOfDayUtcFromDateKeyInBuenosAires,
+  parseDateInputInBuenosAires,
+  startOfDayUtcFromDateKeyInBuenosAires,
+  toDateKeyInBuenosAires,
+  todayDateKeyInBuenosAires,
+} from "@/lib/buenosAiresDate";
 
 type TokenPayload = JWTPayload & {
   id_user?: number;
@@ -129,10 +136,6 @@ function normalizePersistedStatus(v: unknown): PersistedStatus {
   return "PENDIENTE";
 }
 
-function dateKeyUtc(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
 function deriveStatus(status: PersistedStatus, dueDate: Date): {
   derivedStatus: DerivedStatus;
   isOverdue: boolean;
@@ -140,35 +143,30 @@ function deriveStatus(status: PersistedStatus, dueDate: Date): {
   if (status !== "PENDIENTE") {
     return { derivedStatus: status, isOverdue: false };
   }
-  const isOverdue = dateKeyUtc(dueDate) < dateKeyUtc(new Date());
+  const dueKey = toDateKeyInBuenosAires(dueDate);
+  const todayKey = todayDateKeyInBuenosAires();
+  const isOverdue = !!dueKey && !!todayKey && dueKey < todayKey;
   return { derivedStatus: isOverdue ? "VENCIDA" : "PENDIENTE", isOverdue };
 }
 
 function parseDueDate(input: string): Date | null {
-  const s = String(input ?? "").trim();
-  if (!s) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    const d = new Date(`${s}T00:00:00.000Z`);
-    return Number.isFinite(d.getTime()) ? d : null;
-  }
-  const d = new Date(s);
-  return Number.isFinite(d.getTime()) ? d : null;
+  return parseDateInputInBuenosAires(input);
 }
 
 function parseDateStart(input: unknown): Date | null {
   if (typeof input !== "string" || !input.trim()) return null;
-  const parsed = parseDueDate(input);
-  if (!parsed) return null;
-  parsed.setUTCHours(0, 0, 0, 0);
-  return parsed;
+  const dateKey = String(input).trim();
+  const start = startOfDayUtcFromDateKeyInBuenosAires(dateKey);
+  if (start) return start;
+  return parseDueDate(dateKey);
 }
 
 function parseDateEnd(input: unknown): Date | null {
   if (typeof input !== "string" || !input.trim()) return null;
-  const parsed = parseDueDate(input);
-  if (!parsed) return null;
-  parsed.setUTCHours(23, 59, 59, 999);
-  return parsed;
+  const dateKey = String(input).trim();
+  const end = endOfDayUtcFromDateKeyInBuenosAires(dateKey);
+  if (end) return end;
+  return parseDueDate(dateKey);
 }
 
 async function ensureBookingInAgency(

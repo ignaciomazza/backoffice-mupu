@@ -10,6 +10,7 @@ import {
 } from "@/services/afip/afipConfig";
 import { resolveSalesPoint } from "@/services/afip/salesPoints";
 import prisma from "@/lib/prisma";
+import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
 
 export interface IVAEntry {
   Id: number; // 5 = 21%, 4 = 10.5%, 3 = Exento
@@ -63,7 +64,7 @@ async function getValidExchangeRate(
       date.setDate(date.getDate() - 1);
       continue;
     }
-    const formatted = date.toISOString().slice(0, 10).replace(/-/g, "");
+    const formatted = (toDateKeyInBuenosAires(date) ?? "").replace(/-/g, "");
     try {
       const resp = (await client.ElectronicBilling.executeRequest(
         "FEParamGetCotizacion",

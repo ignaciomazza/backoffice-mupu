@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import { toast, ToastContainer } from "react-toastify";
+import { todayDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
 import "react-toastify/dist/ReactToastify.css";
 
 const PANEL =
@@ -865,7 +866,7 @@ export default function OtherIncomesPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `ingresos_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `ingresos_${todayDateKeyInBuenosAires()}.csv`;
       a.click();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error al descargar CSV";
