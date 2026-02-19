@@ -14,6 +14,8 @@ import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 import { authFetch } from "@/utils/authFetch";
 import { todayDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
+import { parseAmountInput } from "@/utils/receipts/receiptForm";
+import { formatMoneyInput, shouldPreferDotDecimal } from "@/utils/moneyInput";
 
 type Props = {
   token: string | null;
@@ -105,6 +107,12 @@ function normalizeCurrencyCode(raw: string): string {
   const code = m ? m[0] : s;
   return isValidCurrencyCode(code) ? code : "ARS";
 }
+
+const toAmount = (raw: string | number | null | undefined) => {
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : 0;
+  const parsed = parseAmountInput(String(raw || ""));
+  return parsed != null && Number.isFinite(parsed) ? parsed : 0;
+};
 
 export default function ClientPaymentForm({
   token,
@@ -242,37 +250,37 @@ export default function ClientPaymentForm({
 
   const sumCustom = (arr: string[]) =>
     arr.reduce((acc, v) => {
-      const n = Number(v);
+      const n = toAmount(v);
       return acc + (Number.isFinite(n) ? n : 0);
     }, 0);
 
   const previewAmount = useMemo(() => {
     const code = normalizeCurrencyCode(currency);
     if (amountMode === "total") {
-      const n = Number(amountInput);
+      const n = toAmount(amountInput);
       if (!Number.isFinite(n) || n <= 0) return "";
       return formatMoney(n, code);
     }
     if (amountMode === "per_equal") {
-      const n = Number(amountInput);
+      const n = toAmount(amountInput);
       if (!Number.isFinite(n) || n <= 0) return "";
       return `${formatMoney(n, code)} × ${count} = ${formatMoney(n * count, code)}`;
     }
     const total = sumCustom(amountsArray);
     if (total <= 0) return "";
     return `${amountsArray
-      .map((v, i) => `N°${i + 1}: ${formatMoney(Number(v || 0), code)}`)
+      .map((v, i) => `N°${i + 1}: ${formatMoney(toAmount(v), code)}`)
       .join(" + ")} = ${formatMoney(total, code)}`;
   }, [amountMode, amountInput, currency, count, amountsArray, formatMoney]);
 
   const totalPreview = useMemo(() => {
     const code = normalizeCurrencyCode(currency);
     if (amountMode === "total") {
-      const n = Number(amountInput);
+      const n = toAmount(amountInput);
       return Number.isFinite(n) && n > 0 ? formatMoney(n, code) : "";
     }
     if (amountMode === "per_equal") {
-      const n = Number(amountInput);
+      const n = toAmount(amountInput);
       return Number.isFinite(n) && n > 0 ? formatMoney(n * count, code) : "";
     }
     const total = sumCustom(amountsArray);
@@ -417,14 +425,14 @@ export default function ClientPaymentForm({
     let perInstallmentAmounts: number[] | undefined;
 
     if (amountMode === "total") {
-      const n = Number(amountInput);
+      const n = toAmount(amountInput);
       if (!Number.isFinite(n) || n <= 0) {
         toast.error("Ingresá el monto total (> 0).");
         return;
       }
       amountTotal = n;
     } else if (amountMode === "per_equal") {
-      const n = Number(amountInput);
+      const n = toAmount(amountInput);
       if (!Number.isFinite(n) || n <= 0) {
         toast.error("Ingresá el monto por cuota (> 0).");
         return;
@@ -432,7 +440,7 @@ export default function ClientPaymentForm({
       amountTotal = n * count;
       perInstallmentAmounts = Array.from({ length: count }, () => n);
     } else {
-      const parsed = amountsArray.map((v) => Number(v));
+      const parsed = amountsArray.map((v) => toAmount(v));
       if (parsed.some((v) => !Number.isFinite(v) || v <= 0)) {
         toast.error(
           "Revisá los montos personalizados: deben ser > 0 y válidos.",
@@ -749,13 +757,19 @@ export default function ClientPaymentForm({
                     >
                       <input
                         id="amount_input"
-                        type="number"
-                        step="0.01"
-                        min="0"
+                        type="text"
                         inputMode="decimal"
                         className={inputBase}
                         value={amountInput}
-                        onChange={(e) => setAmountInput(e.target.value)}
+                        onChange={(e) =>
+                          setAmountInput(
+                            formatMoneyInput(
+                              e.target.value,
+                              currency,
+                              { preferDotDecimal: shouldPreferDotDecimal(e) },
+                            ),
+                          )
+                        }
                         placeholder="0.00"
                         required
                       />
@@ -809,15 +823,18 @@ export default function ClientPaymentForm({
                         >
                           <input
                             id={`custom_amount_${idx}`}
-                            type="number"
-                            step="0.01"
-                            min="0"
+                            type="text"
+                            inputMode="decimal"
                             className={inputBase}
                             value={amountsArray[idx] ?? ""}
                             onChange={(e) =>
                               setAmountsArray((prev) => {
                                 const next = [...prev];
-                                next[idx] = e.target.value;
+                                next[idx] = formatMoneyInput(
+                                  e.target.value,
+                                  currency,
+                                  { preferDotDecimal: shouldPreferDotDecimal(e) },
+                                );
                                 return next;
                               })
                             }

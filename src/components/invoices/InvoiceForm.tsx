@@ -13,6 +13,8 @@ import {
   type ManualTotalsInput,
 } from "@/services/afip/manualTotals";
 import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
+import { parseAmountInput } from "@/utils/receipts/receiptForm";
+import { formatMoneyInput, shouldPreferDotDecimal } from "@/utils/moneyInput";
 
 const Section = ({
   title,
@@ -646,11 +648,8 @@ export default function InvoiceForm({
   const manualDistributionTotal = useMemo(() => {
     if (!formData.manualTotalsEnabled) return null;
     const parse = (value?: string) => {
-      if (!value) return undefined;
-      const trimmed = value.trim();
-      if (!trimmed) return undefined;
-      const num = Number(trimmed.replace(",", "."));
-      return Number.isFinite(num) ? num : undefined;
+      const parsed = parseAmountInput(value || "");
+      return parsed != null && Number.isFinite(parsed) ? parsed : undefined;
     };
     const validation = computeManualTotals({
       total: parse(formData.manualTotal),
@@ -915,11 +914,8 @@ export default function InvoiceForm({
   }, [manualEnabled, manualToggleDisabled, updateFormData]);
 
   const parseManualValue = (value?: string) => {
-    if (!value) return undefined;
-    const trimmed = value.trim();
-    if (!trimmed) return undefined;
-    const num = Number(trimmed.replace(",", "."));
-    return Number.isFinite(num) ? num : undefined;
+    const parsed = parseAmountInput(value || "");
+    return parsed != null && Number.isFinite(parsed) ? parsed : undefined;
   };
 
   const manualTotalsDraft = useMemo(
@@ -986,6 +982,28 @@ export default function InvoiceForm({
         minimumFractionDigits: 2,
       }),
     [manualCurrency],
+  );
+
+  const handleManualMoneyChange = useMemo(
+    () =>
+      (
+        field:
+          | "manualTotal"
+          | "manualBase21"
+          | "manualIva21"
+          | "manualBase10_5"
+          | "manualIva10_5"
+          | "manualExempt",
+      ) =>
+      (e: React.ChangeEvent<HTMLInputElement>) => {
+        const formatted = formatMoneyInput(
+          e.target.value,
+          manualCurrency,
+          { preferDotDecimal: shouldPreferDotDecimal(e) },
+        );
+        updateFormData(field, formatted);
+      },
+    [manualCurrency, updateFormData],
   );
 
   const selectedClientEntries = useMemo(
@@ -2409,11 +2427,10 @@ export default function InvoiceForm({
                     <input
                       id="manualTotal"
                       name="manualTotal"
-                      type="number"
-                      step="0.01"
-                      min="0"
+                      type="text"
+                      inputMode="decimal"
                       value={formData.manualTotal}
-                      onChange={handleChange}
+                      onChange={handleManualMoneyChange("manualTotal")}
                       placeholder="0.00"
                       className={inputBase}
                     />
@@ -2423,11 +2440,10 @@ export default function InvoiceForm({
                     <input
                       id="manualBase21"
                       name="manualBase21"
-                      type="number"
-                      step="0.01"
-                      min="0"
+                      type="text"
+                      inputMode="decimal"
                       value={formData.manualBase21}
-                      onChange={handleChange}
+                      onChange={handleManualMoneyChange("manualBase21")}
                       placeholder="0.00"
                       className={inputBase}
                     />
@@ -2437,11 +2453,10 @@ export default function InvoiceForm({
                     <input
                       id="manualIva21"
                       name="manualIva21"
-                      type="number"
-                      step="0.01"
-                      min="0"
+                      type="text"
+                      inputMode="decimal"
                       value={formData.manualIva21}
-                      onChange={handleChange}
+                      onChange={handleManualMoneyChange("manualIva21")}
                       placeholder="0.00"
                       className={inputBase}
                     />
@@ -2451,11 +2466,10 @@ export default function InvoiceForm({
                     <input
                       id="manualBase10_5"
                       name="manualBase10_5"
-                      type="number"
-                      step="0.01"
-                      min="0"
+                      type="text"
+                      inputMode="decimal"
                       value={formData.manualBase10_5}
-                      onChange={handleChange}
+                      onChange={handleManualMoneyChange("manualBase10_5")}
                       placeholder="0.00"
                       className={inputBase}
                     />
@@ -2465,11 +2479,10 @@ export default function InvoiceForm({
                     <input
                       id="manualIva10_5"
                       name="manualIva10_5"
-                      type="number"
-                      step="0.01"
-                      min="0"
+                      type="text"
+                      inputMode="decimal"
                       value={formData.manualIva10_5}
-                      onChange={handleChange}
+                      onChange={handleManualMoneyChange("manualIva10_5")}
                       placeholder="0.00"
                       className={inputBase}
                     />
@@ -2479,11 +2492,10 @@ export default function InvoiceForm({
                     <input
                       id="manualExempt"
                       name="manualExempt"
-                      type="number"
-                      step="0.01"
-                      min="0"
+                      type="text"
+                      inputMode="decimal"
                       value={formData.manualExempt}
-                      onChange={handleChange}
+                      onChange={handleManualMoneyChange("manualExempt")}
                       placeholder="0.00"
                       className={inputBase}
                     />

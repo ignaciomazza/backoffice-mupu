@@ -29,6 +29,8 @@ import NoteComposer from "@/components/notes/NoteComposer";
 import Spinner from "@/components/Spinner";
 import { loadFinancePicks } from "@/utils/loadFinancePicks";
 import { authFetch } from "@/utils/authFetch";
+import { parseAmountInput } from "@/utils/receipts/receiptForm";
+import { formatMoneyInput, shouldPreferDotDecimal } from "@/utils/moneyInput";
 
 /* =========================
  * Tipos del formulario
@@ -710,6 +712,36 @@ function extractServiceAdjustments(
     }));
 }
 
+type MoneyFieldName =
+  | "cost_price"
+  | "sale_price"
+  | "tax_21"
+  | "tax_105"
+  | "exempt"
+  | "other_taxes"
+  | "card_interest"
+  | "card_interest_21";
+
+const MONEY_FIELDS: MoneyFieldName[] = [
+  "cost_price",
+  "sale_price",
+  "tax_21",
+  "tax_105",
+  "exempt",
+  "other_taxes",
+  "card_interest",
+  "card_interest_21",
+];
+
+const formatMoneyFieldValue = (
+  value: number | null | undefined,
+  currency: string,
+) => {
+  const num = Number(value ?? 0);
+  if (!Number.isFinite(num) || num <= 0) return "";
+  return formatMoneyInput(String(num), currency);
+};
+
 /* =========================
  * Componente
  * ========================= */
@@ -1102,6 +1134,94 @@ export default function ServiceForm({
       handleChange(e);
     },
     [handleChange],
+  );
+
+  const getMoneyFieldDisplayValue = useCallback(
+    (name: MoneyFieldName, currencyCode: string) =>
+      formatMoneyFieldValue(
+        Number(formData[name] ?? 0),
+        currencyCode || formData.currency || "ARS",
+      ),
+    [formData],
+  );
+
+  const [moneyInputs, setMoneyInputs] = useState<Record<MoneyFieldName, string>>(
+    () =>
+      MONEY_FIELDS.reduce<Record<MoneyFieldName, string>>((acc, key) => {
+        acc[key] = getMoneyFieldDisplayValue(key, formData.currency || "ARS");
+        return acc;
+      }, {} as Record<MoneyFieldName, string>),
+  );
+  const [focusedMoneyField, setFocusedMoneyField] =
+    useState<MoneyFieldName | null>(null);
+
+  useEffect(() => {
+    setMoneyInputs((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const key of MONEY_FIELDS) {
+        if (focusedMoneyField === key) continue;
+        const formatted = getMoneyFieldDisplayValue(
+          key,
+          formData.currency || "ARS",
+        );
+        if (next[key] !== formatted) {
+          next[key] = formatted;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [
+    focusedMoneyField,
+    getMoneyFieldDisplayValue,
+    formData.currency,
+    formData.cost_price,
+    formData.sale_price,
+    formData.tax_21,
+    formData.tax_105,
+    formData.exempt,
+    formData.other_taxes,
+    formData.card_interest,
+    formData.card_interest_21,
+  ]);
+
+  const applyMoneyFieldValue = useCallback(
+    (name: MoneyFieldName, amount: number, presetSensitive = false) => {
+      if (presetSensitive) presetOverrideRef.current = true;
+      updateField(name, String(amount));
+    },
+    [updateField],
+  );
+
+  const handleMoneyInputChange = useCallback(
+    (name: MoneyFieldName, presetSensitive: boolean) =>
+      (e: ChangeEvent<HTMLInputElement>) => {
+        const formatted = formatMoneyInput(
+          e.target.value,
+          formData.currency || "ARS",
+          { preferDotDecimal: shouldPreferDotDecimal(e) },
+        );
+        setMoneyInputs((prev) => ({ ...prev, [name]: formatted }));
+        const parsed = parseAmountInput(formatted) ?? 0;
+        applyMoneyFieldValue(name, parsed, presetSensitive);
+      },
+    [applyMoneyFieldValue, formData.currency],
+  );
+
+  const handleMoneyInputBlur = useCallback(
+    (name: MoneyFieldName, presetSensitive: boolean) =>
+      (e: React.FocusEvent<HTMLInputElement>) => {
+        const parsed = parseAmountInput(e.target.value);
+        const value = parsed != null && Number.isFinite(parsed) ? parsed : 0;
+        applyMoneyFieldValue(name, value, presetSensitive);
+        setMoneyInputs((prev) => ({
+          ...prev,
+          [name]: formatMoneyFieldValue(value, formData.currency || "ARS"),
+        }));
+        setFocusedMoneyField((curr) => (curr === name ? null : curr));
+      },
+    [applyMoneyFieldValue, formData.currency],
   );
 
   const applyPreset = useCallback(
@@ -1902,13 +2022,14 @@ export default function ServiceForm({
                   <div className="relative">
                     <input
                       id="cost_price"
-                      type="number"
+                      type="text"
                       name="cost_price"
-                      value={formData.cost_price || ""}
-                      onChange={handlePresetSensitiveChange}
+                      inputMode="decimal"
+                      value={moneyInputs.cost_price}
+                      onFocus={() => setFocusedMoneyField("cost_price")}
+                      onChange={handleMoneyInputChange("cost_price", true)}
+                      onBlur={handleMoneyInputBlur("cost_price", true)}
                       placeholder="0,00"
-                      step="0.01"
-                      min="0"
                       required
                       className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                     />
@@ -1931,13 +2052,14 @@ export default function ServiceForm({
                   <div className="relative">
                     <input
                       id="sale_price"
-                      type="number"
+                      type="text"
                       name="sale_price"
-                      value={formData.sale_price || ""}
-                      onChange={handlePresetSensitiveChange}
+                      inputMode="decimal"
+                      value={moneyInputs.sale_price}
+                      onFocus={() => setFocusedMoneyField("sale_price")}
+                      onChange={handleMoneyInputChange("sale_price", true)}
+                      onBlur={handleMoneyInputBlur("sale_price", true)}
                       placeholder="0,00"
-                      step="0.01"
-                      min="0"
                       required={!useBookingSaleTotal}
                       disabled={useBookingSaleTotal}
                       className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
@@ -1954,13 +2076,14 @@ export default function ServiceForm({
                     <Field id="tax_21" label="IVA 21%">
                       <input
                         id="tax_21"
-                        type="number"
+                        type="text"
                         name="tax_21"
-                        value={formData.tax_21 || ""}
-                        onChange={handleChange}
+                        inputMode="decimal"
+                        value={moneyInputs.tax_21}
+                        onFocus={() => setFocusedMoneyField("tax_21")}
+                        onChange={handleMoneyInputChange("tax_21", false)}
+                        onBlur={handleMoneyInputBlur("tax_21", false)}
                         placeholder="0,00"
-                        step="0.01"
-                        min="0"
                         className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                       />
                       <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
@@ -1971,13 +2094,14 @@ export default function ServiceForm({
                     <Field id="tax_105" label="IVA 10,5%">
                       <input
                         id="tax_105"
-                        type="number"
+                        type="text"
                         name="tax_105"
-                        value={formData.tax_105 || ""}
-                        onChange={handleChange}
+                        inputMode="decimal"
+                        value={moneyInputs.tax_105}
+                        onFocus={() => setFocusedMoneyField("tax_105")}
+                        onChange={handleMoneyInputChange("tax_105", false)}
+                        onBlur={handleMoneyInputBlur("tax_105", false)}
                         placeholder="0,00"
-                        step="0.01"
-                        min="0"
                         className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                       />
                       <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
@@ -1988,13 +2112,14 @@ export default function ServiceForm({
                     <Field id="exempt" label="Exento">
                       <input
                         id="exempt"
-                        type="number"
+                        type="text"
                         name="exempt"
-                        value={formData.exempt || ""}
-                        onChange={handleChange}
+                        inputMode="decimal"
+                        value={moneyInputs.exempt}
+                        onFocus={() => setFocusedMoneyField("exempt")}
+                        onChange={handleMoneyInputChange("exempt", false)}
+                        onBlur={handleMoneyInputBlur("exempt", false)}
                         placeholder="0,00"
-                        step="0.01"
-                        min="0"
                         className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                       />
                       <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
@@ -2011,13 +2136,14 @@ export default function ServiceForm({
                 >
                   <input
                     id="other_taxes"
-                    type="number"
+                    type="text"
                     name="other_taxes"
-                    value={formData.other_taxes || ""}
-                    onChange={handleChange}
+                    inputMode="decimal"
+                    value={moneyInputs.other_taxes}
+                    onFocus={() => setFocusedMoneyField("other_taxes")}
+                    onChange={handleMoneyInputChange("other_taxes", false)}
+                    onBlur={handleMoneyInputBlur("other_taxes", false)}
                     placeholder="0,00"
-                    step="0.01"
-                    min="0"
                     className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                   />
                   <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
@@ -2041,13 +2167,14 @@ export default function ServiceForm({
                     <Field id="card_interest" label="Interés">
                       <input
                         id="card_interest"
-                        type="number"
+                        type="text"
                         name="card_interest"
-                        value={formData.card_interest || ""}
-                        onChange={handleChange}
+                        inputMode="decimal"
+                        value={moneyInputs.card_interest}
+                        onFocus={() => setFocusedMoneyField("card_interest")}
+                        onChange={handleMoneyInputChange("card_interest", false)}
+                        onBlur={handleMoneyInputBlur("card_interest", false)}
                         placeholder="0,00"
-                        step="0.01"
-                        min="0"
                         className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                       />
                       <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">
@@ -2058,13 +2185,14 @@ export default function ServiceForm({
                     <Field id="card_interest_21" label="IVA 21% (Interés)">
                       <input
                         id="card_interest_21"
-                        type="number"
+                        type="text"
                         name="card_interest_21"
-                        value={formData.card_interest_21 || ""}
-                        onChange={handleChange}
+                        inputMode="decimal"
+                        value={moneyInputs.card_interest_21}
+                        onFocus={() => setFocusedMoneyField("card_interest_21")}
+                        onChange={handleMoneyInputChange("card_interest_21", false)}
+                        onBlur={handleMoneyInputBlur("card_interest_21", false)}
                         placeholder="0,00"
-                        step="0.01"
-                        min="0"
                         className="w-full rounded-2xl border border-sky-900/10 bg-white/70 p-2 px-3 text-sky-950 shadow-sm shadow-sky-950/5 outline-none transition focus:border-sky-400/70 focus:bg-white focus:ring-2 focus:ring-sky-200/60 dark:border-white/10 dark:bg-white/10 dark:text-white dark:focus:bg-white/15 dark:focus:ring-sky-500/30"
                       />
                       <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">

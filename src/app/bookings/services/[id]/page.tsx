@@ -29,6 +29,7 @@ import {
 } from "@/services/afip/manualTotals";
 import { normalizeRole as normalizeRoleValue } from "@/utils/permissions";
 import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
+import { parseAmountInput } from "@/utils/receipts/receiptForm";
 
 // ===== Cookies utils =====
 type Role =
@@ -601,7 +602,7 @@ export default function ServicesPage() {
     ];
     setFormData((prev) => ({
       ...prev,
-      [name]: numericFields.includes(name) ? parseFloat(value) || 0 : value,
+      [name]: numericFields.includes(name) ? parseAmountInput(value) ?? 0 : value,
     }));
   };
 
@@ -638,8 +639,8 @@ export default function ServicesPage() {
     if (value == null) return undefined;
     const trimmed = String(value).trim();
     if (!trimmed) return undefined;
-    const num = Number(trimmed.replace(",", "."));
-    return Number.isFinite(num) ? num : undefined;
+    const num = parseAmountInput(trimmed);
+    return num != null && Number.isFinite(num) ? num : undefined;
   };
 
   const buildManualTotals = (data: {

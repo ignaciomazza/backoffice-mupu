@@ -7,6 +7,8 @@ import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 import { authFetch } from "@/utils/authFetch";
 import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
+import { parseAmountInput } from "@/utils/receipts/receiptForm";
+import { formatMoneyInput, shouldPreferDotDecimal } from "@/utils/moneyInput";
 
 type Props = {
   token: string | null;
@@ -77,6 +79,12 @@ const Field = ({
   </div>
 );
 
+const toAmount = (raw: string | number | null | undefined) => {
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : 0;
+  const parsed = parseAmountInput(String(raw || ""));
+  return parsed != null && Number.isFinite(parsed) ? parsed : 0;
+};
+
 export default function GroupOperatorDueForm({
   token,
   booking,
@@ -135,7 +143,11 @@ export default function GroupOperatorDueForm({
     lastSuggestedServiceIdRef.current = selectedService.id_service;
 
     const sugAmount = Number(selectedService.cost_price ?? 0);
-    setAmount(sugAmount > 0 ? String(sugAmount) : "");
+    setAmount(
+      sugAmount > 0
+        ? formatMoneyInput(String(sugAmount), selectedService.currency || "ARS")
+        : "",
+    );
     setCurrency(selectedService.currency || "ARS");
 
     if (!concept.trim()) {
@@ -169,7 +181,7 @@ export default function GroupOperatorDueForm({
   };
 
   const previewAmount = useMemo(() => {
-    const n = Number(amount);
+    const n = toAmount(amount);
     if (!Number.isFinite(n) || n <= 0 || !currency) return "";
     return formatMoney(n, currency);
   }, [amount, currency]);
@@ -230,7 +242,7 @@ export default function GroupOperatorDueForm({
     if (!serviceId) return "Seleccioná un servicio.";
     if (!dueDate) return "Indicá la fecha de caducidad.";
     if (!concept.trim()) return "Completá el concepto/descripcion.";
-    const n = Number(amount);
+    const n = toAmount(amount);
     if (!Number.isFinite(n) || n <= 0) return "El monto debe ser > 0.";
     if (!currency) return "Seleccioná la moneda.";
     return null;
@@ -251,7 +263,7 @@ export default function GroupOperatorDueForm({
         dueDate, // YYYY-MM-DD
         concept: concept.trim(),
         status,
-        amount: Number(amount),
+        amount: toAmount(amount),
         currency: currency.toUpperCase(),
         passengerId: groupPassengerId ?? undefined,
         departureId: groupDepartureId ?? undefined,
@@ -501,13 +513,19 @@ export default function GroupOperatorDueForm({
               <Field id="amount" label="Monto" required>
                 <input
                   id="amount"
-                  type="number"
-                  step="0.01"
-                  min="0"
+                  type="text"
                   inputMode="decimal"
                   className={inputBase}
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) =>
+                    setAmount(
+                      formatMoneyInput(
+                        e.target.value,
+                        currency,
+                        { preferDotDecimal: shouldPreferDotDecimal(e) },
+                      ),
+                    )
+                  }
                   placeholder="0.00"
                   required
                 />
