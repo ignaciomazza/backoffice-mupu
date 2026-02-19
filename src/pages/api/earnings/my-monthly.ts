@@ -18,7 +18,7 @@ import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 import {
   addDaysToDateKey,
   startOfDayUtcFromDateKeyInBuenosAires,
-  toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
 } from "@/lib/buenosAiresDate";
 
 /* ============ Auth helpers ============ */
@@ -64,11 +64,21 @@ async function getAuth(
 
 /* ============ Utils (BA) ============ */
 function monthKeyInBuenosAires(d: Date): string {
-  const key = toDateKeyInBuenosAires(d);
+  const key = toDateKeyInBuenosAiresLegacySafe(d);
   if (key && key.length >= 7) return key.slice(0, 7);
   const yy = d.getUTCFullYear();
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
   return `${yy}-${mm}`;
+}
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+function isDateKeyWithinRange(
+  key: string | null | undefined,
+  fromKey: string,
+  toKey: string,
+): boolean {
+  return !!key && key >= fromKey && key <= toKey;
 }
 
 function parseCsvParam(input: string | string[] | undefined): string[] | null {
@@ -237,10 +247,12 @@ export default async function handler(
     );
     const hasCurrencyFilter = enabledCurrencies.size > 0;
 
+    const expandedFrom = new Date(fromDate.getTime() - ONE_DAY_MS);
+    const expandedToExclusive = new Date(toDateExclusive.getTime() + ONE_DAY_MS);
     const bookingDateFilter =
       dateFieldKey === "departure_date"
-        ? { departure_date: { gte: fromDate, lt: toDateExclusive } }
-        : { creation_date: { gte: fromDate, lt: toDateExclusive } };
+        ? { departure_date: { gte: expandedFrom, lt: expandedToExclusive } }
+        : { creation_date: { gte: expandedFrom, lt: expandedToExclusive } };
 
     // 1) Servicios del rango (fecha seleccionada en booking) de MI agencia
     const services = await prisma.service.findMany({
@@ -368,8 +380,27 @@ export default async function handler(
       );
     });
 
+    const allowedBookingIds = new Set<number>();
+    bookings.forEach((b) => {
+      const rawDate =
+        dateFieldKey === "departure_date" ? b.departure_date : b.creation_date;
+      const key = toDateKeyInBuenosAiresLegacySafe(rawDate);
+      if (isDateKeyWithinRange(key, from, to)) {
+        allowedBookingIds.add(b.id_booking);
+      }
+    });
+
+    if (allowedBookingIds.size === 0) {
+      return res.status(200).json({ items: [], totalsByCurrency: {} });
+    }
+
+    const servicesInRange = services.filter((svc) =>
+      allowedBookingIds.has(svc.booking_id),
+    );
+
     if (useBookingSaleTotal) {
       bookings.forEach((b) => {
+        if (!allowedBookingIds.has(b.id_booking)) return;
         const normalized = normalizeSaleTotals(
           b.sale_totals,
           hasCurrencyFilter ? enabledCurrencies : undefined,
@@ -380,6 +411,7 @@ export default async function handler(
       });
     } else {
       fallbackSaleTotalsByBooking.forEach((totals, bid) => {
+        if (!allowedBookingIds.has(bid)) return;
         saleTotalsByBooking.set(bid, totals);
       });
     }
@@ -572,7 +604,7 @@ export default async function handler(
         }
       }
     } else {
-      for (const svc of services) {
+      for (const svc of servicesInRange) {
         const bid = svc.booking_id;
         const cur = String(svc.currency || "").trim().toUpperCase();
         if (!cur) continue;

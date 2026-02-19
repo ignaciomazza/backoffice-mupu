@@ -7,7 +7,7 @@ import { Client, ClientCustomField, ClientProfileConfig } from "@/types";
 import { authFetch } from "@/utils/authFetch";
 import {
   formatDateInBuenosAires,
-  toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
 } from "@/lib/buenosAiresDate";
 import {
   DEFAULT_CLIENT_PROFILE_KEY,
@@ -164,12 +164,12 @@ function toDateInputValue(value?: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
   const m = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-  return toDateKeyInBuenosAires(trimmed) ?? "";
+  return toDateKeyInBuenosAiresLegacySafe(trimmed) ?? "";
 }
 
 function formatDateDisplay(value?: string): string {
   if (!value) return "—";
-  const key = toDateKeyInBuenosAires(value);
+  const key = toDateKeyInBuenosAiresLegacySafe(value);
   if (!key) return "—";
   return formatDateInBuenosAires(key);
 }

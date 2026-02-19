@@ -17,6 +17,7 @@ import { authFetch } from "@/utils/authFetch";
 import { normalizeRole } from "@/utils/permissions";
 import {
   toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
   todayDateKeyInBuenosAires,
 } from "@/lib/buenosAiresDate";
 
@@ -111,9 +112,18 @@ function bookingDateSnapshot(booking: Partial<Booking>) {
     raw_creation_date: booking.creation_date ?? null,
     raw_departure_date: booking.departure_date ?? null,
     raw_return_date: booking.return_date ?? null,
-    ui_creation_date: toDateKeyInBuenosAires(booking.creation_date ?? null),
-    ui_departure_date: toDateKeyInBuenosAires(booking.departure_date ?? null),
-    ui_return_date: toDateKeyInBuenosAires(booking.return_date ?? null),
+    ui_creation_date: toDateKeyInBuenosAiresLegacySafe(
+      booking.creation_date ?? null,
+    ),
+    ui_departure_date: toDateKeyInBuenosAiresLegacySafe(
+      booking.departure_date ?? null,
+    ),
+    ui_return_date: toDateKeyInBuenosAiresLegacySafe(booking.return_date ?? null),
+    ui_creation_date_ba_raw: toDateKeyInBuenosAires(booking.creation_date ?? null),
+    ui_departure_date_ba_raw: toDateKeyInBuenosAires(
+      booking.departure_date ?? null,
+    ),
+    ui_return_date_ba_raw: toDateKeyInBuenosAires(booking.return_date ?? null),
   };
 }
 
@@ -938,13 +948,15 @@ export default function Page() {
       titular_id: titularId,
       id_user: booking.user?.id_user || 0,
       id_agency: booking.agency?.id_agency || 0,
-      departure_date: toDateKeyInBuenosAires(booking.departure_date) || "",
-      return_date: toDateKeyInBuenosAires(booking.return_date) || "",
+      departure_date:
+        toDateKeyInBuenosAiresLegacySafe(booking.departure_date) || "",
+      return_date: toDateKeyInBuenosAiresLegacySafe(booking.return_date) || "",
       pax_count: Math.max(1, 1 + companions.length + simpleCompanions.length),
       clients_ids: companions,
       agency_booking_id: booking.agency_booking_id ?? 0,
       simple_companions: simpleCompanions,
-      creation_date: toDateKeyInBuenosAires(booking.creation_date) || todayYMD(),
+      creation_date:
+        toDateKeyInBuenosAiresLegacySafe(booking.creation_date) || todayYMD(),
       use_admin_adjustments: false,
     });
     setEditingBookingId(booking.id_booking || null);

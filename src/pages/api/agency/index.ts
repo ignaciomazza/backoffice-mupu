@@ -6,7 +6,7 @@ import { z } from "zod";
 import { Prisma, type Agency as AgencyModel } from "@prisma/client";
 import {
   parseDateInputInBuenosAires,
-  toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
 } from "@/lib/buenosAiresDate";
 
 /* ==== JWT / Auth helpers ==== */
@@ -297,7 +297,7 @@ async function handlePOST(req: NextApiRequest, res: NextApiResponse) {
         foundation_date: foundation_date
           ? toLocalDate(
               foundation_date instanceof Date
-                ? (toDateKeyInBuenosAires(foundation_date) ?? "")
+                ? (toDateKeyInBuenosAiresLegacySafe(foundation_date) ?? "")
                 : (foundation_date as string),
             )
           : undefined,
@@ -364,7 +364,7 @@ async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
         foundation_date: foundation_date
           ? toLocalDate(
               foundation_date instanceof Date
-                ? (toDateKeyInBuenosAires(foundation_date) ?? "")
+                ? (toDateKeyInBuenosAiresLegacySafe(foundation_date) ?? "")
                 : (foundation_date as string),
             )
           : undefined,

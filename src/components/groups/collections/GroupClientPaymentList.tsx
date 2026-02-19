@@ -7,7 +7,7 @@ import Spinner from "@/components/Spinner";
 import GroupClientPaymentCard from "@/components/groups/collections/GroupClientPaymentCard";
 import {
   formatDateInBuenosAires,
-  toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
   todayDateKeyInBuenosAires,
 } from "@/lib/buenosAiresDate";
 
@@ -28,7 +28,7 @@ function normalizeCurrency(code?: string | null): string {
 const todayKey = () => todayDateKeyInBuenosAires();
 
 const dateKeyFrom = (d?: string | Date | null): string | null =>
-  toDateKeyInBuenosAires(d ?? null);
+  toDateKeyInBuenosAiresLegacySafe(d ?? null);
 
 const formatDateKey = (key: string | null): string =>
   key ? formatDateInBuenosAires(key) : "–";

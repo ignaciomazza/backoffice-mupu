@@ -12,7 +12,7 @@ import { authFetch } from "@/utils/authFetch";
 import { toast, ToastContainer } from "react-toastify";
 import {
   formatDateInBuenosAires,
-  toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
   todayDateKeyInBuenosAires,
 } from "@/lib/buenosAiresDate";
 import "react-toastify/dist/ReactToastify.css";
@@ -95,7 +95,7 @@ function normalizeCurrency(value: unknown): string {
 }
 
 function toDateKey(value?: string | Date | null): string | null {
-  return toDateKeyInBuenosAires(value ?? null);
+  return toDateKeyInBuenosAiresLegacySafe(value ?? null);
 }
 
 function todayKey(): string {

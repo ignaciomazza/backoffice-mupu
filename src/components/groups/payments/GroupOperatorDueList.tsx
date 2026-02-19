@@ -4,7 +4,7 @@ import Spinner from "@/components/Spinner";
 import GroupOperatorDueCard from "@/components/groups/payments/GroupOperatorDueCard";
 import {
   formatDateInBuenosAires,
-  toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
   todayDateKeyInBuenosAires,
 } from "@/lib/buenosAiresDate";
 
@@ -58,7 +58,7 @@ const formatMoney = (value: number, currency: string): string => {
 const todayKey = () => todayDateKeyInBuenosAires();
 
 const dateKeyFrom = (d?: string | Date | null): string | null =>
-  toDateKeyInBuenosAires(d ?? null);
+  toDateKeyInBuenosAiresLegacySafe(d ?? null);
 
 const formatDateKey = (key: string | null): string =>
   key ? formatDateInBuenosAires(key) : "-";

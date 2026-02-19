@@ -24,7 +24,7 @@ import FilterPanel from "@/components/clients/FilterPanel";
 import { authFetch } from "@/utils/authFetch";
 import {
   formatDateInBuenosAires,
-  toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
 } from "@/lib/buenosAiresDate";
 import {
   DEFAULT_CLIENT_PROFILE_KEY,
@@ -528,7 +528,7 @@ export default function Page() {
       commercial_address: client.commercial_address || "",
       dni_number: client.dni_number || "",
       passport_number: client.passport_number || "",
-      birth_date: toDateKeyInBuenosAires(client.birth_date) ?? "",
+      birth_date: toDateKeyInBuenosAiresLegacySafe(client.birth_date) ?? "",
       nationality: client.nationality || "",
       gender: client.gender || "",
       category_id: client.category_id ?? null,
@@ -605,7 +605,7 @@ export default function Page() {
 
     // backend espera "YYYY-MM-DD"; normalizamos en zona Buenos Aires
     const birthISO = formData.birth_date
-      ? (toDateKeyInBuenosAires(formData.birth_date) ?? "")
+      ? (toDateKeyInBuenosAiresLegacySafe(formData.birth_date) ?? "")
       : "";
 
     let shouldResetForm = false;

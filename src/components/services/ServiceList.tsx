@@ -9,7 +9,7 @@ import {
   CommissionOverrides,
   OperatorDue,
 } from "@/types";
-import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
+import { formatDateOnlyInBuenosAires } from "@/lib/buenosAiresDate";
 
 interface Totals {
   sale_price: number;
@@ -117,7 +117,7 @@ export default function ServiceList({
 }: ServiceListProps) {
   const formatDate = useCallback(
     (dateString?: string) =>
-      dateString ? formatDateInBuenosAires(dateString) : "N/A",
+      dateString ? formatDateOnlyInBuenosAires(dateString) : "N/A",
     [],
   );
 

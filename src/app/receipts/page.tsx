@@ -20,8 +20,8 @@ import ReceiptForm from "@/components/receipts/ReceiptForm";
 import { useRouter } from "next/navigation";
 import {
   addDaysToDateKey,
-  formatDateInBuenosAires,
-  toDateKeyInBuenosAires,
+  formatDateOnlyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
   todayDateKeyInBuenosAires,
 } from "@/lib/buenosAiresDate";
 import type {
@@ -60,7 +60,7 @@ const toInputDate = (value?: string | null) => {
   const raw = String(value).trim();
   const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  return toDateKeyInBuenosAires(raw) ?? "";
+  return toDateKeyInBuenosAiresLegacySafe(raw) ?? "";
 };
 
 const slugify = (s: string) =>
@@ -387,7 +387,7 @@ export default function ReceiptsPage() {
 
   const fmtDate = useCallback((value?: string | null) => {
     if (!value) return "";
-    return formatDateInBuenosAires(value);
+    return formatDateOnlyInBuenosAires(value);
   }, []);
 
   const formatServiceRange = useCallback(
@@ -417,7 +417,7 @@ export default function ReceiptsPage() {
   const normalizeReceipt = useCallback(
     (r: ReceiptRow): NormalizedReceipt => {
       const dateLabel = r.issue_date
-        ? formatDateInBuenosAires(r.issue_date)
+        ? formatDateOnlyInBuenosAires(r.issue_date)
         : "—";
       const displayReceiptNumber = getReceiptDisplayNumber(r);
 
@@ -572,8 +572,8 @@ export default function ReceiptsPage() {
       let vb: number | string = 0;
       switch (sortKey) {
         case "issue_date":
-          va = a.issue_date ? new Date(a.issue_date).getTime() : 0;
-          vb = b.issue_date ? new Date(b.issue_date).getTime() : 0;
+          va = toDateKeyInBuenosAiresLegacySafe(a.issue_date ?? null) || "";
+          vb = toDateKeyInBuenosAiresLegacySafe(b.issue_date ?? null) || "";
           break;
         case "receipt_number":
           va = a._displayReceiptNumber || "";
@@ -619,8 +619,13 @@ export default function ReceiptsPage() {
     >();
 
     for (const r of displayRows) {
-      const d = r.issue_date ? new Date(r.issue_date) : new Date(0);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const issueKey = toDateKeyInBuenosAiresLegacySafe(r.issue_date ?? null);
+      const key = issueKey ? issueKey.slice(0, 7) : "0000-00";
+      const [y, m] = key.split("-").map(Number);
+      const monthBase =
+        Number.isFinite(y) && Number.isFinite(m) && m >= 1 && m <= 12
+          ? new Date(Date.UTC(y, m - 1, 15))
+          : new Date(0);
       const existing = map.get(key);
       const currency = String(
         r._displayCurrency || r.amount_currency,
@@ -628,7 +633,7 @@ export default function ReceiptsPage() {
       if (!existing) {
         map.set(key, {
           key,
-          label: formatMonthLabel(d),
+          label: formatMonthLabel(monthBase),
           items: [r],
           totals: { [currency]: r._displayAmount || 0 },
         });

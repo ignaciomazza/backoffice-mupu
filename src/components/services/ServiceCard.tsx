@@ -7,6 +7,7 @@ import { Service, BillingAdjustmentComputed } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
 import { normalizeRole } from "@/utils/permissions";
+import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 import ServiceFilesPanel from "./ServiceFilesPanel";
 import RichNote from "@/components/notes/RichNote";
 
@@ -279,7 +280,7 @@ export default function ServiceCard({
             <p className="text-xs opacity-70">
               N° {serviceNumber} •{" "}
               {service.created_at
-                ? new Date(service.created_at).toLocaleDateString("es-AR")
+                ? formatDateInBuenosAires(service.created_at)
                 : "–"}
             </p>
           </div>

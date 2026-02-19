@@ -10,7 +10,7 @@ import { groupApiError } from "@/lib/groups/apiErrors";
 import prisma from "@/lib/prisma";
 import {
   parseDateInputInBuenosAires,
-  toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
 } from "@/lib/buenosAiresDate";
 
 export type GroupFinanceContext = {
@@ -147,7 +147,7 @@ export function toAmountNumber(value: unknown): number {
 }
 
 export function isoDateKey(value: Date): string {
-  return toDateKeyInBuenosAires(value) ?? "";
+  return toDateKeyInBuenosAiresLegacySafe(value) ?? "";
 }
 
 export function deriveClientPaymentStatus(

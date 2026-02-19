@@ -2,6 +2,7 @@
 
 import Spinner from "@/components/Spinner";
 import type { Invoice } from "@/types";
+import { formatDateOnlyInBuenosAires } from "@/lib/buenosAiresDate";
 
 type Props = {
   invoices: Invoice[];
@@ -59,7 +60,7 @@ export default function GroupInvoiceList({ invoices, loading = false }: Props) {
           <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
             Fecha:{" "}
             {invoice.issue_date
-              ? new Date(invoice.issue_date).toLocaleDateString("es-AR")
+              ? formatDateOnlyInBuenosAires(invoice.issue_date)
               : "-"}
             {" · "}Estado: {invoice.status || "EMITIDA"}
           </p>
@@ -68,4 +69,3 @@ export default function GroupInvoiceList({ invoices, loading = false }: Props) {
     </div>
   );
 }
-

@@ -5,7 +5,7 @@ import { jwtVerify, type JWTPayload } from "jose";
 import { z } from "zod";
 import {
   parseDateInputInBuenosAires,
-  toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
 } from "@/lib/buenosAiresDate";
 
 /* ========== Auth helpers ========== */
@@ -224,7 +224,7 @@ async function handlePUT(req: NextApiRequest, res: NextApiResponse) {
       foundation_date: p.foundation_date
         ? toLocalDate(
             p.foundation_date instanceof Date
-              ? (toDateKeyInBuenosAires(p.foundation_date) ?? "")
+              ? (toDateKeyInBuenosAiresLegacySafe(p.foundation_date) ?? "")
               : (p.foundation_date as string),
           )
         : undefined,

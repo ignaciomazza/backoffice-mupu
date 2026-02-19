@@ -3,6 +3,7 @@ import {
   addDaysToDateKey,
   startOfDayUtcFromDateKeyInBuenosAires,
   toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
 } from "@/lib/buenosAiresDate";
 
 describe("buenosAiresDate", () => {
@@ -39,6 +40,18 @@ describe("buenosAiresDate", () => {
     );
     expect(toDateKeyInBuenosAires("2026-02-01T03:00:00.000Z")).toBe(
       "2026-02-01",
+    );
+  });
+
+  it("keeps legacy UTC-midnight date-only values without day shift", () => {
+    expect(toDateKeyInBuenosAiresLegacySafe("2026-02-19T00:00:00.000Z")).toBe(
+      "2026-02-19",
+    );
+    expect(toDateKeyInBuenosAiresLegacySafe("2026-07-05T00:00:00.000Z")).toBe(
+      "2026-07-05",
+    );
+    expect(toDateKeyInBuenosAiresLegacySafe("2026-02-19T03:00:00.000Z")).toBe(
+      "2026-02-19",
     );
   });
 });

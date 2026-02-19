@@ -9,7 +9,7 @@ import { canAccessFinanceSection } from "@/utils/permissions";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
 import {
   parseDateInputInBuenosAires,
-  toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
   todayDateKeyInBuenosAires,
 } from "@/lib/buenosAiresDate";
 
@@ -163,7 +163,7 @@ function deriveStatus(status: PersistedStatus, dueDate: Date): {
   if (status !== "PENDIENTE") {
     return { derivedStatus: status, isOverdue: false };
   }
-  const dueKey = toDateKeyInBuenosAires(dueDate);
+  const dueKey = toDateKeyInBuenosAiresLegacySafe(dueDate);
   const todayKey = todayDateKeyInBuenosAires();
   const isOverdue = !!dueKey && !!todayKey && dueKey < todayKey;
   return { derivedStatus: isOverdue ? "VENCIDA" : "PENDIENTE", isOverdue };

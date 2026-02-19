@@ -10,7 +10,10 @@ import {
   ICON_BUTTON,
   getStatusChipClasses,
 } from "./palette";
-import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
+import {
+  formatDateInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
+} from "@/lib/buenosAiresDate";
 
 export type BookingViewMode = "grid" | "list";
 
@@ -41,7 +44,9 @@ export default function BookingList({
 }: BookingListProps) {
   const formatDate = (dateString: string | undefined): string => {
     if (!dateString) return "N/A";
-    return formatDateInBuenosAires(dateString);
+    const key = toDateKeyInBuenosAiresLegacySafe(dateString);
+    if (!key) return "N/A";
+    return formatDateInBuenosAires(key);
   };
 
   const content =

@@ -5,7 +5,7 @@ import Spinner from "@/components/Spinner";
 import { toast } from "react-toastify";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
-import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
+import { toDateKeyInBuenosAiresLegacySafe } from "@/lib/buenosAiresDate";
 
 type User = {
   id_user: number;
@@ -27,7 +27,7 @@ type RuleSet = {
 
 function fmtDateISOtoYMD(iso: string | null): string {
   if (!iso) return "";
-  return toDateKeyInBuenosAires(iso) ?? "";
+  return toDateKeyInBuenosAiresLegacySafe(iso) ?? "";
 }
 
 function TrashIcon({ className }: { className?: string }) {

@@ -17,6 +17,7 @@ import {
 import {
   addDaysToDateKey,
   startOfDayUtcFromDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
 } from "@/lib/buenosAiresDate";
 
 /* ======================== Auth helpers ======================== */
@@ -106,6 +107,16 @@ function normalizeSaleTotals(
     if (Number.isFinite(n) && n >= 0) out[key] = n;
   }
   return out;
+}
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+function isDateKeyWithinRange(
+  key: string | null | undefined,
+  fromKey: string,
+  toKey: string,
+): boolean {
+  return !!key && key >= fromKey && key <= toKey;
 }
 
 /* ======================== Tipos mínimos ======================== */
@@ -255,10 +266,12 @@ export default async function handler(
     );
     const hasCurrencyFilter = enabledCurrencies.size > 0;
 
+    const expandedFrom = new Date(fromUTC.getTime() - ONE_DAY_MS);
+    const expandedToExclusive = new Date(toExclusiveUTC.getTime() + ONE_DAY_MS);
     const bookingDateFilter =
       dateFieldKey === "departure_date"
-        ? { departure_date: { gte: fromUTC, lt: toExclusiveUTC } }
-        : { creation_date: { gte: fromUTC, lt: toExclusiveUTC } };
+        ? { departure_date: { gte: expandedFrom, lt: expandedToExclusive } }
+        : { creation_date: { gte: expandedFrom, lt: expandedToExclusive } };
 
     // 1) Servicios del rango en MI agencia
     const services: ServiceLite[] = await prisma.service.findMany({
@@ -339,6 +352,7 @@ export default async function handler(
     let bookings: Array<{
       id_booking: number;
       creation_date: Date;
+      departure_date: Date;
       sale_totals: unknown | null;
       commission_overrides: unknown | null;
       user: { id_user: number; first_name: string; last_name: string };
@@ -353,6 +367,7 @@ export default async function handler(
         select: {
           id_booking: true,
           creation_date: true,
+          departure_date: true,
           sale_totals: true,
           commission_overrides: true,
           user: { select: { id_user: true, first_name: true, last_name: true } },
@@ -378,8 +393,33 @@ export default async function handler(
       );
     });
 
+    const allowedBookingIds = new Set<number>();
+    bookings.forEach((b) => {
+      const rawDate =
+        dateFieldKey === "departure_date" ? b.departure_date : b.creation_date;
+      const key = toDateKeyInBuenosAiresLegacySafe(rawDate);
+      if (isDateKeyWithinRange(key, from, to)) {
+        allowedBookingIds.add(b.id_booking);
+      }
+    });
+
+    if (allowedBookingIds.size === 0) {
+      return res.status(200).json({
+        totals: {
+          seller: {},
+          beneficiary: {},
+          grandTotal: {},
+        },
+      });
+    }
+
+    const servicesInRange = services.filter((svc) =>
+      allowedBookingIds.has(svc.booking_id),
+    );
+
     if (useBookingSaleTotal) {
       bookings.forEach((b) => {
+        if (!allowedBookingIds.has(b.id_booking)) return;
         const normalized = normalizeSaleTotals(
           b.sale_totals,
           hasCurrencyFilter ? enabledCurrencies : undefined,
@@ -390,6 +430,7 @@ export default async function handler(
       });
     } else {
       fallbackSaleTotalsByBooking.forEach((totals, bid) => {
+        if (!allowedBookingIds.has(bid)) return;
         saleTotalsByBooking.set(bid, totals);
       });
     }
@@ -578,7 +619,7 @@ export default async function handler(
         }
       }
     } else {
-      for (const svc of services) {
+      for (const svc of servicesInRange) {
         const bid = svc.booking_id;
         const cur = String(svc.currency || "").trim().toUpperCase();
         if (!cur) continue;

@@ -143,6 +143,48 @@ export function toDateKeyInBuenosAires(
   return `${parts.year}-${month}-${day}`;
 }
 
+function isExactUtcMidnight(date: Date): boolean {
+  return (
+    date.getUTCHours() === 0 &&
+    date.getUTCMinutes() === 0 &&
+    date.getUTCSeconds() === 0 &&
+    date.getUTCMilliseconds() === 0
+  );
+}
+
+function toUtcDateKey(date: Date): string {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Compatibilidad para campos "date-only" históricos:
+ * algunos registros viejos se guardaron como 00:00:00Z (UTC puro), que en BA
+ * se ve como el día anterior. En esos casos preservamos el día UTC original.
+ */
+export function toDateKeyInBuenosAiresLegacySafe(
+  value: Date | string | number | null | undefined,
+): string | null {
+  if (value === null || value === undefined) return null;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (isDateKey(trimmed)) return trimmed;
+  }
+
+  const date = toValidDate(value);
+  if (!date) return null;
+
+  if (isExactUtcMidnight(date)) {
+    return toUtcDateKey(date);
+  }
+
+  return toDateKeyInBuenosAires(date);
+}
+
 export function todayDateKeyInBuenosAires(now = new Date()): string {
   return toDateKeyInBuenosAires(now) ?? "";
 }
@@ -171,6 +213,19 @@ export function formatDateInBuenosAires(
     ...defaults,
     ...options,
   }).format(date);
+}
+
+/**
+ * Formatea campos de tipo "fecha" (sin hora) con compatibilidad histórica:
+ * si el valor vino como 00:00:00Z legacy, preserva ese día en vez de correrlo.
+ */
+export function formatDateOnlyInBuenosAires(
+  value: Date | string | number | null | undefined,
+  options: Intl.DateTimeFormatOptions = {},
+): string {
+  const key = toDateKeyInBuenosAiresLegacySafe(value);
+  if (!key) return "-";
+  return formatDateInBuenosAires(key, options);
 }
 
 export function startOfDayUtcFromDateKeyInBuenosAires(

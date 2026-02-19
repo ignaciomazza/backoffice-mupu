@@ -10,6 +10,7 @@ import {
   parseDateInputInBuenosAires,
   startOfDayUtcFromDateKeyInBuenosAires,
   toDateKeyInBuenosAires,
+  toDateKeyInBuenosAiresLegacySafe,
 } from "@/lib/buenosAiresDate";
 
 type TokenPayload = JWTPayload & {
@@ -769,13 +770,13 @@ export default async function handler(
           id_booking: booking.id_booking,
           details: booking.details,
           creation_date: booking.creation_date
-            ? (toDateKeyInBuenosAires(booking.creation_date) ?? null)
+            ? (toDateKeyInBuenosAiresLegacySafe(booking.creation_date) ?? null)
             : null,
           departure_date: booking.departure_date
-            ? (toDateKeyInBuenosAires(booking.departure_date) ?? null)
+            ? (toDateKeyInBuenosAiresLegacySafe(booking.departure_date) ?? null)
             : null,
           return_date: booking.return_date
-            ? (toDateKeyInBuenosAires(booking.return_date) ?? null)
+            ? (toDateKeyInBuenosAiresLegacySafe(booking.return_date) ?? null)
             : null,
           titular: booking.titular
             ? {
@@ -934,7 +935,8 @@ export default async function handler(
         id_receipt: rec.id_receipt,
         agency_receipt_id: rec.agency_receipt_id ?? null,
         issue_date:
-          toDateKeyInBuenosAires(rec.issue_date) ?? rec.issue_date.toISOString(),
+          toDateKeyInBuenosAiresLegacySafe(rec.issue_date) ??
+          rec.issue_date.toISOString(),
         concept: rec.concept,
         amount: val,
         currency: cur,
@@ -1007,7 +1009,7 @@ export default async function handler(
           operatorDues: operatorDues.map((due) => ({
             id_due: due.id_due,
             due_date:
-              toDateKeyInBuenosAires(due.due_date) ??
+              toDateKeyInBuenosAiresLegacySafe(due.due_date) ??
               due.due_date.toISOString(),
             status: due.status,
             amount: Number(due.amount) || 0,

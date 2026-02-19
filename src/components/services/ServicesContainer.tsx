@@ -47,7 +47,7 @@ import {
   normalizeBookingComponentRules,
   type BookingComponentKey,
 } from "@/utils/permissions";
-import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
+import { toDateKeyInBuenosAiresLegacySafe } from "@/lib/buenosAiresDate";
 import type { CreditNoteWithItems } from "@/services/creditNotes";
 import type {
   ReceiptPaymentLine,
@@ -181,7 +181,7 @@ function toFiniteNumber(n: unknown, fallback = 0): number {
 }
 
 function toDateOnly(value?: string | null): string {
-  return toDateKeyInBuenosAires(value ?? null) ?? "";
+  return toDateKeyInBuenosAiresLegacySafe(value ?? null) ?? "";
 }
 
 type AnyRecord = Record<string, unknown>;
