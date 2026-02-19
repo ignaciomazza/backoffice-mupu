@@ -26,7 +26,14 @@ export const formatMoneyInput = (
   const lastDot = cleaned.lastIndexOf(".");
   const hasComma = lastComma >= 0;
   const hasDot = lastDot >= 0;
-  const preferDotDecimal = Boolean(options?.preferDotDecimal);
+  let preferDotDecimal = Boolean(options?.preferDotDecimal);
+
+  // Si viene un valor numérico "normal" (ej: "1118.46"), tratamos ese punto
+  // como decimal por defecto para evitar moverlo a miles.
+  if (!hasComma && hasDot && !preferDotDecimal) {
+    const decimals = cleaned.length - lastDot - 1;
+    preferDotDecimal = decimals > 0 && decimals <= 2;
+  }
 
   let sepIndex = -1;
   let intDigits = cleaned.replace(/[^\d]/g, "");

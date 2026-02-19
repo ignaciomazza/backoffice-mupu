@@ -211,7 +211,12 @@ const formatMoneyInput = (
   const lastDot = cleaned.lastIndexOf(".");
   const hasComma = lastComma >= 0;
   const hasDot = lastDot >= 0;
-  const preferDotDecimal = Boolean(options?.preferDotDecimal);
+  let preferDotDecimal = Boolean(options?.preferDotDecimal);
+
+  if (!hasComma && hasDot && !preferDotDecimal) {
+    const decimals = cleaned.length - lastDot - 1;
+    preferDotDecimal = decimals > 0 && decimals <= 2;
+  }
 
   let sepIndex = -1;
 
