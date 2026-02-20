@@ -30,7 +30,7 @@ type Overview = {
   is_suspended?: boolean;
 };
 
-const ALLOWED_ROLES = new Set(["desarrollador", "gerente", "administrativo"]);
+const ALLOWED_ROLES = new Set(["desarrollador"]);
 
 function formatAnchor(value?: string | Date | null): string {
   if (!value) return "-";

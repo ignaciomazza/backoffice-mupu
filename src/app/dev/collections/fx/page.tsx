@@ -30,7 +30,7 @@ function todayDateInput(): string {
 export default function AdminBspRatesPage() {
   const { token, role, loading: authLoading } = useAuth();
   const normalizedRole = useMemo(() => normalizeRole(role), [role]);
-  const canAccess = normalizedRole === "desarrollador" || normalizedRole === "gerente";
+  const canAccess = normalizedRole === "desarrollador";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

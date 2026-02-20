@@ -148,7 +148,7 @@ function fiscalStatusLabel(status?: string | null): string {
 export default function RecurringCollectionsDevPage() {
   const { token, role, loading: authLoading } = useAuth();
   const normalizedRole = useMemo(() => normalizeRole(role), [role]);
-  const canAccess = normalizedRole === "desarrollador" || normalizedRole === "gerente";
+  const canAccess = normalizedRole === "desarrollador";
 
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);

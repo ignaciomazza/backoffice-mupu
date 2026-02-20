@@ -175,9 +175,7 @@ function attemptStatusLabel(status?: string | null): string {
 export default function AgencySubscriptionPage() {
   const { token, role, loading: authLoading } = useAuth();
   const normalizedRole = normalizeRole(role);
-  const canManage = ["desarrollador", "gerente", "administrativo"].includes(
-    normalizedRole,
-  );
+  const canManage = normalizedRole === "desarrollador";
 
   const [loading, setLoading] = useState(true);
   const [savingStatus, setSavingStatus] = useState(false);
