@@ -17,12 +17,55 @@ import {
   sha256OfBuffer,
   uploadBatchFile,
 } from "@/services/collections/galicia/direct-debit/storage";
-import { issueFiscalForCharge } from "@/services/collections/fiscal/issueOnPaid";
+import {
+  onPdAttemptPaid,
+  onPdAttemptRejected,
+} from "@/services/collections/dunning/service";
+import { maybeAutorunFiscalForPaidCharges } from "@/services/collections/fiscal/autorunOnChargePaid";
 import { logBillingEvent } from "@/services/billing/events";
 
 export type CreatePresentmentBatchInput = {
   businessDate: Date;
   actorUserId?: number | null;
+};
+
+export type PreparePresentmentBatchInput = {
+  businessDate: Date;
+  actorUserId?: number | null;
+  adapterName?: string | null;
+  dryRun?: boolean;
+  cutoffDate?: Date;
+};
+
+export type PreparePresentmentBatchResult = {
+  no_op: boolean;
+  dry_run: boolean;
+  batch_id: number | null;
+  adapter: string;
+  attempts_count: number;
+  amount_total: number;
+  eligible_attempts: number;
+};
+
+export type ExportPresentmentBatchResult = {
+  batch_id: number;
+  exported: boolean;
+  already_exported: boolean;
+  status: string;
+  file_name: string | null;
+  storage_key: string | null;
+  file_hash: string | null;
+  record_count: number;
+  amount_total: number;
+};
+
+export type ExportPendingPreparedBatchesResult = {
+  no_op: boolean;
+  batches_considered: number;
+  batches_exported: number;
+  already_exported: number;
+  batch_ids: number[];
+  errors: Array<{ batch_id: number; message: string }>;
 };
 
 export type ImportResponseBatchInput = {
@@ -69,16 +112,24 @@ function parseBooleanEnv(name: string, fallback: boolean): boolean {
   return fallback;
 }
 
-function resolveAdapter(): GaliciaPdAdapter {
-  const mode = String(process.env.BILLING_PD_ADAPTER || "debug_csv")
+function normalizeAdapterName(raw: string | null | undefined): string {
+  return String(raw || "debug_csv")
     .trim()
     .toLowerCase();
+}
+
+function resolveAdapterByName(name: string | null | undefined): GaliciaPdAdapter {
+  const mode = normalizeAdapterName(name);
 
   if (mode === "galicia_pd_v1") {
     return new GaliciaPdV1Adapter();
   }
 
   return new DebugCsvAdapter();
+}
+
+function resolveAdapter(): GaliciaPdAdapter {
+  return resolveAdapterByName(process.env.BILLING_PD_ADAPTER || "debug_csv");
 }
 
 function buildStorageKey(params: {
@@ -97,6 +148,13 @@ function buildStorageKey(params: {
 
   const safeName = cleanName || "lote.csv";
   return `billing/direct-debit/${params.direction.toLowerCase()}/${datePart}/batch-${params.batchId}-${safeName}`;
+}
+
+function resolveContentType(fileName: string, fallback?: string): string {
+  if (fallback && fallback.trim()) return fallback;
+  if (fileName.toLowerCase().endsWith(".txt")) return "text/plain; charset=utf-8";
+  if (fileName.toLowerCase().endsWith(".csv")) return "text/csv; charset=utf-8";
+  return "application/octet-stream";
 }
 
 function normalizeExternalReference(raw: string | null | undefined, fallback: string): string {
@@ -157,15 +215,36 @@ async function updateBatchStatus(
   });
 }
 
+async function resolveAgencyIdsFromOutboundItems(
+  outboundItems: Array<{ charge_id: number | null }>,
+): Promise<number[]> {
+  const chargeIds = Array.from(
+    new Set(
+      outboundItems
+        .map((item) => item.charge_id)
+        .filter((id): id is number => Number.isInteger(id) && Number(id) > 0),
+    ),
+  );
+
+  if (!chargeIds.length) return [];
+
+  const charges = await prisma.agencyBillingCharge.findMany({
+    where: { id_charge: { in: chargeIds } },
+    select: { id_agency: true },
+  });
+
+  return Array.from(new Set(charges.map((item) => item.id_agency)));
+}
+
 async function buildPresentmentRows(params: {
-  businessDate: Date;
+  scheduledUntil: Date;
   requireActiveMandate: boolean;
 }): Promise<Array<PresentmentRow & { attemptId: number }>> {
   const attempts = await prisma.agencyBillingAttempt.findMany({
     where: {
       status: "PENDING",
       channel: PD_CHANNEL,
-      scheduled_for: { lte: params.businessDate },
+      scheduled_for: { lte: params.scheduledUntil },
     },
     include: {
       charge: {
@@ -174,12 +253,10 @@ async function buildPresentmentRows(params: {
           id_agency: true,
           status: true,
           amount_ars_due: true,
-          selected_method_id: true,
         },
       },
       paymentMethod: {
         select: {
-          id_payment_method: true,
           holder_name: true,
           holder_tax_id: true,
           mandate: {
@@ -227,32 +304,89 @@ async function buildPresentmentRows(params: {
   });
 }
 
-export async function createPresentmentBatch(
-  input: CreatePresentmentBatchInput,
-): Promise<{
-  batch: {
-    id_batch: number;
-    direction: string;
-    business_date: Date;
-    status: string;
-    total_rows: number;
-    total_amount_ars: number | null;
-    storage_key: string | null;
-    sha256: string | null;
+function endOfLocalDay(date: Date): Date {
+  const nextDay = new Date(date);
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  return new Date(nextDay.getTime() - 1);
+}
+
+function buildAdapterConfig(): Record<string, unknown> {
+  return {
+    layout_version: process.env.BILLING_PD_LAYOUT_VERSION || undefined,
+    entity: process.env.BILLING_PD_ENTITY || undefined,
+    service: process.env.BILLING_PD_SERVICE || undefined,
   };
-  downloadFileName: string | null;
-}> {
+}
+
+async function createEmptyOutboundBatch(input: {
+  businessDate: Date;
+  adapter: GaliciaPdAdapter;
+  actorUserId?: number | null;
+  meta?: Record<string, unknown>;
+}) {
+  return prisma.agencyBillingFileBatch.create({
+    data: {
+      direction: "OUTBOUND",
+      channel: PD_CHANNEL,
+      file_type: OUTBOUND_FILE_TYPE,
+      adapter: input.adapter.name,
+      adapter_version: input.adapter.version,
+      business_date: input.businessDate,
+      status: "EMPTY",
+      total_rows: 0,
+      total_amount_ars: 0,
+      record_count: 0,
+      amount_total: 0,
+      meta: toJsonValue(input.meta || {}),
+      created_by: input.actorUserId ?? null,
+    },
+  });
+}
+
+export async function preparePresentmentBatch(
+  input: PreparePresentmentBatchInput,
+): Promise<PreparePresentmentBatchResult> {
   const config = getBillingConfig();
   const businessDate = normalizeLocalDay(input.businessDate, config.timezone);
-  const adapter = resolveAdapter();
+  const cutoffDate = input.cutoffDate
+    ? new Date(input.cutoffDate)
+    : endOfLocalDay(businessDate);
+  const adapter = resolveAdapterByName(input.adapterName);
+  const dryRun = Boolean(input.dryRun);
   const requireActiveMandate = parseBooleanEnv(
     "BILLING_PD_REQUIRE_ACTIVE_MANDATE",
     true,
   );
 
-  const rows = await buildPresentmentRows({ businessDate, requireActiveMandate });
-
+  const rows = await buildPresentmentRows({
+    scheduledUntil: cutoffDate,
+    requireActiveMandate,
+  });
   const totalAmount = round2(rows.reduce((acc, row) => acc + row.amountArs, 0));
+
+  if (!rows.length) {
+    return {
+      no_op: true,
+      dry_run: dryRun,
+      batch_id: null,
+      adapter: adapter.name,
+      attempts_count: 0,
+      amount_total: 0,
+      eligible_attempts: 0,
+    };
+  }
+
+  if (dryRun) {
+    return {
+      no_op: false,
+      dry_run: true,
+      batch_id: null,
+      adapter: adapter.name,
+      attempts_count: rows.length,
+      amount_total: totalAmount,
+      eligible_attempts: rows.length,
+    };
+  }
 
   const created = await prisma.$transaction(
     async (tx) => {
@@ -262,37 +396,25 @@ export async function createPresentmentBatch(
           channel: PD_CHANNEL,
           file_type: OUTBOUND_FILE_TYPE,
           adapter: adapter.name,
+          adapter_version: adapter.version,
           business_date: businessDate,
-          status: rows.length ? "CREATING" : "EMPTY",
+          status: "PREPARED",
           total_rows: rows.length,
-          total_amount_ars: rows.length ? totalAmount : null,
-          meta: {
+          total_amount_ars: totalAmount,
+          record_count: rows.length,
+          amount_total: totalAmount,
+          meta: toJsonValue({
             require_active_mandate: requireActiveMandate,
-          },
+            cutoff_date: cutoffDate.toISOString(),
+            prepared_at: new Date().toISOString(),
+            adapter_config: buildAdapterConfig(),
+          }),
           created_by: input.actorUserId ?? null,
-        },
-      });
-
-      if (!rows.length) {
-        return {
-          batch,
-          rows,
-          fileName: null as string | null,
-          fileBytes: null as Buffer | null,
-        };
-      }
-
-      const built = adapter.buildPresentment({
-        businessDate,
-        rows,
-        meta: {
-          batch_id: batch.id_batch,
         },
       });
 
       for (let i = 0; i < rows.length; i += 1) {
         const row = rows[i];
-
         await tx.agencyBillingAttempt.update({
           where: { id_attempt: row.attemptId },
           data: {
@@ -327,108 +449,549 @@ export async function createPresentmentBatch(
         });
       }
 
-      return {
-        batch,
-        rows,
-        fileName: built.fileName,
-        fileBytes: built.bytes,
-      };
+      return { batchId: batch.id_batch };
     },
     pdTxOptions(),
   );
 
-  if (!created.fileBytes || !created.fileName) {
-    return {
-      batch: {
-        id_batch: created.batch.id_batch,
-        direction: created.batch.direction,
-        business_date: created.batch.business_date,
-        status: created.batch.status,
-        total_rows: created.batch.total_rows,
-        total_amount_ars: created.batch.total_amount_ars
-          ? Number(created.batch.total_amount_ars)
-          : null,
-        storage_key: created.batch.storage_key,
-        sha256: created.batch.sha256,
-      },
-      downloadFileName: null,
-    };
-  }
-
-  const sha256 = sha256OfBuffer(created.fileBytes);
-  const storageKey = buildStorageKey({
-    direction: "OUTBOUND",
-    batchId: created.batch.id_batch,
-    fileName: created.fileName,
-    businessDate,
-  });
-
-  try {
-    await uploadBatchFile({
-      storageKey,
-      bytes: created.fileBytes,
-      contentType: "text/csv; charset=utf-8",
-    });
-
-    await updateBatchStatus(created.batch.id_batch, {
-      status: "READY",
-      storage_key: storageKey,
-      sha256,
-      original_file_name: created.fileName,
-    });
-  } catch (error) {
-    await prisma.$transaction(
-      async (tx) => {
-        await tx.agencyBillingFileBatch.update({
-          where: { id_batch: created.batch.id_batch },
-          data: {
-            status: "FAILED",
-            meta: {
-              ...(serializeMeta(created.batch.meta) || {}),
-              error: error instanceof Error ? error.message : String(error),
-            },
-          },
-        });
-
-        const attemptIds = created.rows.map((row) => row.attemptId);
-        if (attemptIds.length) {
-          await tx.agencyBillingAttempt.updateMany({
-            where: { id_attempt: { in: attemptIds }, status: "PROCESSING" },
-            data: { status: "PENDING" },
-          });
-        }
-      },
-      pdTxOptions(),
-    );
-
-    throw error;
-  }
-
   await logBatchEventForAgencies({
-    agencyIds: created.rows.map((row) => row.agencyId),
-    eventType: "PD_BATCH_OUTBOUND_CREATED",
+    agencyIds: rows.map((row) => row.agencyId),
+    eventType: "PD_BATCH_PREPARED",
     payload: {
-      batch_id: created.batch.id_batch,
+      batch_id: created.batchId,
       business_date: dateKeyInTimeZone(businessDate, config.timezone),
-      total_rows: created.rows.length,
+      total_rows: rows.length,
       total_amount_ars: totalAmount,
       adapter: adapter.name,
+      adapter_version: adapter.version,
     },
     createdBy: input.actorUserId ?? null,
   });
 
   return {
+    no_op: false,
+    dry_run: false,
+    batch_id: created.batchId,
+    adapter: adapter.name,
+    attempts_count: rows.length,
+    amount_total: totalAmount,
+    eligible_attempts: rows.length,
+  };
+}
+
+async function readRowsForPreparedBatch(input: {
+  batchId: number;
+}): Promise<{
+  batch: {
+    id_batch: number;
+    business_date: Date;
+    adapter: string | null;
+    meta: Prisma.JsonValue;
+  };
+  rows: Array<PresentmentRow & { attemptId: number }>;
+  agencyIds: number[];
+}> {
+  const batch = await prisma.agencyBillingFileBatch.findUnique({
+    where: { id_batch: input.batchId },
+    select: {
+      id_batch: true,
+      business_date: true,
+      adapter: true,
+      meta: true,
+      direction: true,
+      file_type: true,
+      items: {
+        where: { attempt_id: { not: null } },
+        orderBy: [{ line_no: "asc" }, { id_item: "asc" }],
+        select: {
+          id_item: true,
+          attempt_id: true,
+          charge_id: true,
+          external_reference: true,
+          amount_ars: true,
+          row_payload: true,
+          attempt: {
+            select: {
+              id_attempt: true,
+              external_reference: true,
+              charge: {
+                select: {
+                  id_charge: true,
+                  id_agency: true,
+                  amount_ars_due: true,
+                },
+              },
+              paymentMethod: {
+                select: {
+                  holder_name: true,
+                  holder_tax_id: true,
+                  mandate: {
+                    select: {
+                      cbu_last4: true,
+                    },
+                  },
+                },
+              },
+              scheduled_for: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!batch || batch.direction !== "OUTBOUND" || batch.file_type !== OUTBOUND_FILE_TYPE) {
+    throw new Error("Batch outbound no encontrado para exportación");
+  }
+
+  const rows: Array<PresentmentRow & { attemptId: number }> = [];
+  const agencyIds = new Set<number>();
+
+  for (const item of batch.items) {
+    const attempt = item.attempt;
+    const attemptId = item.attempt_id || attempt?.id_attempt;
+    const chargeId = item.charge_id || attempt?.charge?.id_charge;
+    const agencyId = attempt?.charge?.id_agency;
+    if (!attemptId || !chargeId || !agencyId) {
+      continue;
+    }
+
+    const rowPayload = serializeMeta(item.row_payload);
+    const externalReference = normalizeExternalReference(
+      item.external_reference ||
+        attempt?.external_reference ||
+        (rowPayload.externalReference as string | undefined),
+      `AT-${attemptId}`,
+    );
+    const amountArs = round2(
+      Number(
+        item.amount_ars ??
+          rowPayload.amountArs ??
+          attempt?.charge?.amount_ars_due ??
+          0,
+      ),
+    );
+
+    rows.push({
+      attemptId,
+      chargeId,
+      agencyId,
+      externalReference,
+      amountArs,
+      scheduledFor:
+        attempt?.scheduled_for ||
+        (typeof rowPayload.scheduledFor === "string" &&
+        Number.isFinite(new Date(rowPayload.scheduledFor).getTime())
+          ? new Date(rowPayload.scheduledFor)
+          : null),
+      holderName:
+        attempt?.paymentMethod?.holder_name ||
+        String(rowPayload.holderName || "") ||
+        null,
+      holderTaxId:
+        attempt?.paymentMethod?.holder_tax_id ||
+        String(rowPayload.holderTaxId || "") ||
+        null,
+      cbuLast4:
+        attempt?.paymentMethod?.mandate?.cbu_last4 ||
+        String(rowPayload.cbuLast4 || "") ||
+        null,
+    });
+
+    agencyIds.add(agencyId);
+  }
+
+  return {
     batch: {
-      id_batch: created.batch.id_batch,
-      direction: "OUTBOUND",
-      business_date: businessDate,
-      status: "READY",
-      total_rows: created.rows.length,
-      total_amount_ars: totalAmount,
+      id_batch: batch.id_batch,
+      business_date: batch.business_date,
+      adapter: batch.adapter,
+      meta: batch.meta,
+    },
+    rows,
+    agencyIds: Array.from(agencyIds),
+  };
+}
+
+async function rollbackPreparedBatchOnExportError(input: {
+  batchId: number;
+  errorMessage: string;
+}) {
+  const itemRefs = await prisma.agencyBillingFileBatchItem.findMany({
+    where: { batch_id: input.batchId, attempt_id: { not: null } },
+    select: { attempt_id: true },
+  });
+  const attemptIds = Array.from(
+    new Set(
+      itemRefs
+        .map((item) => item.attempt_id)
+        .filter((id): id is number => Number.isInteger(id) && Number(id) > 0),
+    ),
+  );
+
+  await prisma.$transaction(
+    async (tx) => {
+      const batch = await tx.agencyBillingFileBatch.findUnique({
+        where: { id_batch: input.batchId },
+        select: { meta: true },
+      });
+
+      await tx.agencyBillingFileBatch.update({
+        where: { id_batch: input.batchId },
+        data: {
+          status: "FAILED",
+          meta: toJsonValue({
+            ...(serializeMeta(batch?.meta) || {}),
+            error: input.errorMessage,
+          }),
+        },
+      });
+
+      if (attemptIds.length > 0) {
+        await tx.agencyBillingAttempt.updateMany({
+          where: {
+            id_attempt: { in: attemptIds },
+            status: "PROCESSING",
+          },
+          data: { status: "PENDING" },
+        });
+      }
+    },
+    pdTxOptions(),
+  );
+}
+
+export async function exportPresentmentBatch(input: {
+  batchId: number;
+  actorUserId?: number | null;
+}): Promise<ExportPresentmentBatchResult> {
+  const batch = await prisma.agencyBillingFileBatch.findUnique({
+    where: { id_batch: input.batchId },
+    select: {
+      id_batch: true,
+      status: true,
+      direction: true,
+      file_type: true,
+      business_date: true,
+      storage_key: true,
+      file_hash: true,
+      record_count: true,
+      amount_total: true,
+      total_rows: true,
+      total_amount_ars: true,
+      exported_at: true,
+      adapter: true,
+      adapter_version: true,
+      meta: true,
+      original_file_name: true,
+      sha256: true,
+    },
+  });
+
+  if (!batch || batch.direction !== "OUTBOUND" || batch.file_type !== OUTBOUND_FILE_TYPE) {
+    throw new Error("Batch outbound no encontrado");
+  }
+
+  const alreadyExported =
+    Boolean(batch.exported_at) ||
+    Boolean(batch.storage_key) ||
+    ["READY", "EXPORTED", "RECONCILED"].includes(String(batch.status || "").toUpperCase());
+
+  if (alreadyExported) {
+    return {
+      batch_id: batch.id_batch,
+      exported: false,
+      already_exported: true,
+      status: batch.status,
+      file_name: batch.original_file_name,
+      storage_key: batch.storage_key,
+      file_hash: batch.file_hash || batch.sha256,
+      record_count: batch.record_count ?? batch.total_rows ?? 0,
+      amount_total: round2(Number(batch.amount_total ?? batch.total_amount_ars ?? 0)),
+    };
+  }
+
+  const adapter = resolveAdapterByName(batch.adapter);
+  const prepared = await readRowsForPreparedBatch({
+    batchId: batch.id_batch,
+  });
+
+  if (prepared.rows.length === 0) {
+    await updateBatchStatus(batch.id_batch, {
+      status: "EMPTY",
+      total_rows: 0,
+      total_amount_ars: 0,
+      record_count: 0,
+      amount_total: 0,
+      exported_at: new Date(),
+    });
+    return {
+      batch_id: batch.id_batch,
+      exported: false,
+      already_exported: false,
+      status: "EMPTY",
+      file_name: null,
+      storage_key: null,
+      file_hash: null,
+      record_count: 0,
+      amount_total: 0,
+    };
+  }
+
+  const built = adapter.buildOutboundFile({
+    batch: {
+      id_batch: prepared.batch.id_batch,
+      business_date: prepared.batch.business_date,
+      channel: PD_CHANNEL,
+      file_type: OUTBOUND_FILE_TYPE,
+    },
+    attempts: prepared.rows,
+    config: buildAdapterConfig(),
+    meta: {
+      batch_id: prepared.batch.id_batch,
+    },
+  });
+
+  const outboundValidation = adapter.validateOutboundControlTotals({
+    controlTotals: built.controlTotals,
+    attempts: prepared.rows,
+  });
+  if (!outboundValidation.ok) {
+    throw new Error(
+      `Control totals outbound inválidos (${adapter.name}): ${outboundValidation.errors.join("; ")}`,
+    );
+  }
+
+  const sha256 = sha256OfBuffer(built.fileBuffer);
+  const storageKey = buildStorageKey({
+    direction: "OUTBOUND",
+    batchId: prepared.batch.id_batch,
+    fileName: built.fileName,
+    businessDate: prepared.batch.business_date,
+  });
+
+  try {
+    await uploadBatchFile({
+      storageKey,
+      bytes: built.fileBuffer,
+      contentType: resolveContentType(built.fileName),
+    });
+
+    await updateBatchStatus(prepared.batch.id_batch, {
+      status: "EXPORTED",
       storage_key: storageKey,
       sha256,
+      file_hash: sha256,
+      original_file_name: built.fileName,
+      adapter_version: built.adapter_version,
+      record_count: built.controlTotals.record_count,
+      amount_total: built.controlTotals.amount_total,
+      total_rows: built.controlTotals.record_count,
+      total_amount_ars: built.controlTotals.amount_total,
+      exported_at: new Date(),
+      meta: toJsonValue({
+        ...(serializeMeta(prepared.batch.meta) || {}),
+        adapter_metadata: built.rawMetadata,
+        control_totals: built.controlTotals,
+      }),
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Error al exportar lote outbound";
+    await rollbackPreparedBatchOnExportError({
+      batchId: prepared.batch.id_batch,
+      errorMessage: message,
+    });
+    throw error;
+  }
+
+  await logBatchEventForAgencies({
+    agencyIds: prepared.agencyIds,
+    eventType: "PD_BATCH_OUTBOUND_EXPORTED",
+    payload: {
+      batch_id: prepared.batch.id_batch,
+      total_rows: built.controlTotals.record_count,
+      total_amount_ars: built.controlTotals.amount_total,
+      adapter: adapter.name,
+      adapter_version: built.adapter_version,
+      control_totals: built.controlTotals,
     },
-    downloadFileName: created.fileName,
+    createdBy: input.actorUserId ?? null,
+  });
+
+  return {
+    batch_id: prepared.batch.id_batch,
+    exported: true,
+    already_exported: false,
+    status: "EXPORTED",
+    file_name: built.fileName,
+    storage_key: storageKey,
+    file_hash: sha256,
+    record_count: built.controlTotals.record_count,
+    amount_total: built.controlTotals.amount_total,
+  };
+}
+
+export async function exportPendingPreparedBatches(input?: {
+  actorUserId?: number | null;
+  adapterName?: string | null;
+  limit?: number;
+}): Promise<ExportPendingPreparedBatchesResult> {
+  const adapterName = input?.adapterName
+    ? normalizeAdapterName(input.adapterName)
+    : null;
+  const limit = Math.min(200, Math.max(1, input?.limit ?? 20));
+
+  const batches = await prisma.agencyBillingFileBatch.findMany({
+    where: {
+      direction: "OUTBOUND",
+      channel: PD_CHANNEL,
+      file_type: OUTBOUND_FILE_TYPE,
+      status: { in: ["PREPARED", "CREATED"] },
+      ...(adapterName ? { adapter: adapterName } : {}),
+    },
+    orderBy: [{ business_date: "asc" }, { id_batch: "asc" }],
+    take: limit,
+    select: {
+      id_batch: true,
+    },
+  });
+
+  if (!batches.length) {
+    return {
+      no_op: true,
+      batches_considered: 0,
+      batches_exported: 0,
+      already_exported: 0,
+      batch_ids: [],
+      errors: [],
+    };
+  }
+
+  let batchesExported = 0;
+  let alreadyExported = 0;
+  const batchIds: number[] = [];
+  const errors: Array<{ batch_id: number; message: string }> = [];
+
+  for (const batch of batches) {
+    try {
+      const exported = await exportPresentmentBatch({
+        batchId: batch.id_batch,
+        actorUserId: input?.actorUserId ?? null,
+      });
+      if (exported.exported) batchesExported += 1;
+      if (exported.already_exported) alreadyExported += 1;
+      if (exported.exported || exported.already_exported) {
+        batchIds.push(batch.id_batch);
+      }
+    } catch (error) {
+      errors.push({
+        batch_id: batch.id_batch,
+        message:
+          error instanceof Error ? error.message : "Error al exportar batch",
+      });
+    }
+  }
+
+  return {
+    no_op: batchesExported === 0 && errors.length === 0,
+    batches_considered: batches.length,
+    batches_exported: batchesExported,
+    already_exported: alreadyExported,
+    batch_ids: batchIds,
+    errors,
+  };
+}
+
+export async function createPresentmentBatch(
+  input: CreatePresentmentBatchInput,
+): Promise<{
+  batch: {
+    id_batch: number;
+    direction: string;
+    business_date: Date;
+    status: string;
+    total_rows: number;
+    total_amount_ars: number | null;
+    storage_key: string | null;
+    sha256: string | null;
+  };
+  downloadFileName: string | null;
+}> {
+  const config = getBillingConfig();
+  const businessDate = normalizeLocalDay(input.businessDate, config.timezone);
+  const adapter = resolveAdapter();
+
+  const prepared = await preparePresentmentBatch({
+    businessDate,
+    actorUserId: input.actorUserId ?? null,
+    adapterName: adapter.name,
+    dryRun: false,
+    cutoffDate: endOfLocalDay(businessDate),
+  });
+
+  if (!prepared.batch_id) {
+    const empty = await createEmptyOutboundBatch({
+      businessDate,
+      adapter,
+      actorUserId: input.actorUserId ?? null,
+      meta: {
+        no_op: true,
+      },
+    });
+
+    return {
+      batch: {
+        id_batch: empty.id_batch,
+        direction: empty.direction,
+        business_date: empty.business_date,
+        status: empty.status,
+        total_rows: empty.total_rows,
+        total_amount_ars:
+          empty.total_amount_ars == null ? null : Number(empty.total_amount_ars),
+        storage_key: empty.storage_key,
+        sha256: empty.sha256,
+      },
+      downloadFileName: null,
+    };
+  }
+
+  const exported = await exportPresentmentBatch({
+    batchId: prepared.batch_id,
+    actorUserId: input.actorUserId ?? null,
+  });
+
+  const batch = await prisma.agencyBillingFileBatch.findUnique({
+    where: { id_batch: prepared.batch_id },
+    select: {
+      id_batch: true,
+      direction: true,
+      business_date: true,
+      status: true,
+      total_rows: true,
+      total_amount_ars: true,
+      storage_key: true,
+      sha256: true,
+    },
+  });
+
+  if (!batch) {
+    throw new Error("No se pudo cargar el batch exportado");
+  }
+
+  return {
+    batch: {
+      id_batch: batch.id_batch,
+      direction: batch.direction,
+      business_date: batch.business_date,
+      status: batch.status,
+      total_rows: batch.total_rows,
+      total_amount_ars:
+        batch.total_amount_ars == null ? null : Number(batch.total_amount_ars),
+      storage_key: batch.storage_key,
+      sha256: batch.sha256,
+    },
+    downloadFileName: exported.file_name,
   };
 }
 
@@ -467,11 +1030,17 @@ export async function listDirectDebitBatches(input: { from: Date; to: Date }) {
     channel: item.channel,
     file_type: item.file_type,
     adapter: item.adapter,
+    adapter_version: item.adapter_version,
     business_date: item.business_date,
     status: item.status,
     storage_key: item.storage_key,
     original_file_name: item.original_file_name,
     sha256: item.sha256,
+    file_hash: item.file_hash,
+    record_count: item.record_count,
+    amount_total: item.amount_total == null ? null : Number(item.amount_total),
+    exported_at: item.exported_at,
+    imported_at: item.imported_at,
     total_rows: item.total_rows,
     total_amount_ars:
       item.total_amount_ars == null ? null : Number(item.total_amount_ars),
@@ -509,13 +1078,15 @@ export async function downloadDirectDebitBatchFile(idBatch: number): Promise<{
     throw new Error("Batch sin archivo asociado");
   }
 
+  const fileName =
+    batch.original_file_name ||
+    `batch-${batch.id_batch}-${batch.direction.toLowerCase()}.csv`;
+
   const bytes = await readBatchFile(batch.storage_key);
   return {
-    fileName:
-      batch.original_file_name ||
-      `batch-${batch.id_batch}-${batch.direction.toLowerCase()}.csv`,
+    fileName,
     bytes,
-    contentType: "text/csv; charset=utf-8",
+    contentType: resolveContentType(fileName),
   };
 }
 
@@ -523,6 +1094,7 @@ export async function importResponseBatch(
   input: ImportResponseBatchInput,
 ): Promise<{
   inbound_batch_id: number;
+  already_imported: boolean;
   summary: BatchSummary;
 }> {
   const outbound = await prisma.agencyBillingFileBatch.findUnique({
@@ -546,21 +1118,61 @@ export async function importResponseBatch(
     throw new Error("Batch outbound no encontrado");
   }
 
-  const adapter = resolveAdapter();
-  const parsedRows = adapter.parseResponse(input.uploadedFile.bytes);
+  const adapter = resolveAdapterByName(
+    outbound.adapter || process.env.BILLING_PD_ADAPTER || "debug_csv",
+  );
+  const parsed = adapter.parseInboundFile({ fileBuffer: input.uploadedFile.bytes });
+
+  const inboundValidation = adapter.validateInboundControlTotals({ parsed });
+  if (!inboundValidation.ok) {
+    throw new Error(
+      `Control totals inbound inválidos (${adapter.name}): ${inboundValidation.errors.join("; ")}`,
+    );
+  }
+
   const inboundSha = sha256OfBuffer(input.uploadedFile.bytes);
+  const inboundRecordCount = parsed.controlTotals.record_count;
+  const inboundAmountTotal = round2(parsed.controlTotals.amount_total);
 
   const duplicate = await prisma.agencyBillingFileBatch.findFirst({
     where: {
       direction: "INBOUND",
       parent_batch_id: outbound.id_batch,
-      sha256: inboundSha,
+      adapter: adapter.name,
+      OR: [
+        {
+          file_hash: inboundSha,
+          record_count: inboundRecordCount,
+          amount_total: inboundAmountTotal,
+        },
+        {
+          sha256: inboundSha,
+          total_rows: inboundRecordCount,
+          total_amount_ars: inboundAmountTotal,
+        },
+      ],
     },
   });
 
   if (duplicate) {
+    const agencyIds = await resolveAgencyIdsFromOutboundItems(outbound.items);
+    await logBatchEventForAgencies({
+      agencyIds,
+      eventType: "PD_BATCH_INBOUND_ALREADY_IMPORTED",
+      payload: {
+        outbound_batch_id: outbound.id_batch,
+        inbound_batch_id: duplicate.id_batch,
+        adapter: adapter.name,
+        file_hash: inboundSha,
+        record_count: inboundRecordCount,
+        amount_total: inboundAmountTotal,
+      },
+      createdBy: input.actorUserId ?? null,
+    });
+
     return {
       inbound_batch_id: duplicate.id_batch,
+      already_imported: true,
       summary: {
         matched_rows: duplicate.total_rows,
         error_rows: duplicate.total_error_rows,
@@ -582,11 +1194,20 @@ export async function importResponseBatch(
       channel: PD_CHANNEL,
       file_type: INBOUND_FILE_TYPE,
       adapter: adapter.name,
+      adapter_version: adapter.version,
       business_date: businessDate,
       status: "PROCESSING",
-      total_rows: parsedRows.length,
+      total_rows: parsed.rows.length,
+      total_amount_ars: inboundAmountTotal,
+      record_count: inboundRecordCount,
+      amount_total: inboundAmountTotal,
+      file_hash: inboundSha,
       created_by: input.actorUserId ?? null,
       original_file_name: input.uploadedFile.fileName,
+      meta: {
+        parse_warnings: parsed.parseWarnings,
+        control_totals: parsed.controlTotals,
+      },
     },
   });
 
@@ -600,11 +1221,14 @@ export async function importResponseBatch(
   await uploadBatchFile({
     storageKey: inboundStorageKey,
     bytes: input.uploadedFile.bytes,
-    contentType: input.uploadedFile.contentType || "text/csv; charset=utf-8",
+    contentType: resolveContentType(
+      input.uploadedFile.fileName,
+      input.uploadedFile.contentType,
+    ),
   });
 
-  const byExternal = new Map<string, typeof outbound.items[number]>();
-  const byRawHash = new Map<string, typeof outbound.items[number]>();
+  const byExternal = new Map<string, (typeof outbound.items)[number]>();
+  const byRawHash = new Map<string, (typeof outbound.items)[number]>();
   const touchedAgencyIds = new Set<number>();
 
   for (const item of outbound.items) {
@@ -618,12 +1242,16 @@ export async function importResponseBatch(
   let errorRows = 0;
   const paidChargeIds = new Set<number>();
 
-  for (const row of parsedRows) {
+  for (const row of parsed.rows) {
+    const paidReference = row.operation_id || row.processor_trace_id || null;
+
     const match =
-      (row.externalReference ? byExternal.get(row.externalReference) : undefined) ||
-      byRawHash.get(row.rawHash) ||
-      (row.externalReference
-        ? byRawHash.get(hashFallbackFromReference(row.externalReference))
+      (row.external_attempt_ref
+        ? byExternal.get(row.external_attempt_ref)
+        : undefined) ||
+      byRawHash.get(row.raw_hash) ||
+      (row.external_attempt_ref
+        ? byRawHash.get(hashFallbackFromReference(row.external_attempt_ref))
         : undefined);
 
     if (!match || !match.attempt_id || !match.charge_id) {
@@ -632,14 +1260,19 @@ export async function importResponseBatch(
         data: {
           batch_id: inbound.id_batch,
           line_no: row.lineNo,
-          external_reference: row.externalReference,
-          raw_hash: row.rawHash,
-          amount_ars: row.amountArs,
+          external_reference: row.external_attempt_ref,
+          raw_hash: row.raw_hash,
+          amount_ars: row.amount,
           status: "ERROR",
-          response_code: row.rejectionCode,
-          response_message: row.rejectionReason || "No se pudo matchear registro",
-          paid_reference: row.paidReference,
-          row_payload: toJsonValue(row.raw),
+          response_code: row.bank_result_code,
+          response_message: row.bank_result_message || "No se pudo matchear registro",
+          paid_reference: paidReference,
+          row_payload: toJsonValue({
+            ...row.raw_payload,
+            mapped_status: row.mapped_status,
+            mapped_detailed_reason: row.mapped_detailed_reason,
+            raw_line: row.raw_line,
+          }),
           processed_at: new Date(),
         },
       });
@@ -668,7 +1301,7 @@ export async function importResponseBatch(
             cycle_id: true,
             status: true,
             amount_ars_due: true,
-            amount_ars_paid: true,
+            paid_via_channel: true,
           },
         });
 
@@ -680,14 +1313,19 @@ export async function importResponseBatch(
               line_no: row.lineNo,
               attempt_id: match.attempt_id,
               charge_id: match.charge_id,
-              external_reference: row.externalReference,
-              raw_hash: row.rawHash,
-              amount_ars: row.amountArs,
+              external_reference: row.external_attempt_ref,
+              raw_hash: row.raw_hash,
+              amount_ars: row.amount,
               status: "ERROR",
-              response_code: row.rejectionCode,
+              response_code: row.bank_result_code,
               response_message: "Attempt o Charge no encontrado",
-              paid_reference: row.paidReference,
-              row_payload: toJsonValue(row.raw),
+              paid_reference: paidReference,
+              row_payload: toJsonValue({
+                ...row.raw_payload,
+                mapped_status: row.mapped_status,
+                mapped_detailed_reason: row.mapped_detailed_reason,
+                raw_line: row.raw_line,
+              }),
               processed_at: new Date(),
             },
           });
@@ -696,62 +1334,54 @@ export async function importResponseBatch(
 
         touchedAgencyIds.add(charge.id_agency);
 
-        if (row.result === "PAID") {
-          const paidAt = new Date();
-          const paidAmount = row.amountArs ?? Number(charge.amount_ars_due || 0);
+        const processorPayload = toJsonValue({
+          ...row.raw_payload,
+          mapped_status: row.mapped_status,
+          mapped_detailed_reason: row.mapped_detailed_reason,
+          raw_line: row.raw_line,
+        });
 
-          if (attempt.status !== "PAID") {
-            await tx.agencyBillingAttempt.update({
-              where: { id_attempt: attempt.id_attempt },
-              data: {
-                status: "PAID",
-                processed_at: paidAt,
-                paid_reference: row.paidReference,
-                rejection_code: null,
-                rejection_reason: null,
-              },
-            });
-          }
+        const processorData = {
+          processor_result_code: row.bank_result_code,
+          processor_result_message: row.bank_result_message,
+          processor_trace_id: row.processor_trace_id || row.operation_id,
+          processor_settlement_date: row.settled_at,
+          processor_raw_payload: processorPayload,
+        } satisfies Prisma.AgencyBillingAttemptUpdateInput;
 
-          await tx.agencyBillingCharge.update({
-            where: { id_charge: charge.id_charge },
+        if (row.mapped_status === "PAID") {
+          const paidAt = row.settled_at || new Date();
+          const paidAmount = row.amount ?? Number(charge.amount_ars_due || 0);
+
+          await tx.agencyBillingAttempt.update({
+            where: { id_attempt: attempt.id_attempt },
             data: {
               status: "PAID",
-              amount_ars_paid: paidAmount,
-              paid_at: paidAt,
-              paid_reference: row.paidReference,
-              reconciliation_status: "MATCHED",
-              paid_currency: "ARS",
-            },
-          });
-
-          await tx.agencyBillingAttempt.updateMany({
-            where: {
-              charge_id: charge.id_charge,
-              attempt_no: { gt: attempt.attempt_no },
-              status: { in: ["PENDING", "SCHEDULED", "PROCESSING"] },
-            },
-            data: {
-              status: "CANCELED",
               processed_at: paidAt,
-              notes: "Cancelado por cobro exitoso en intento previo",
+              paid_reference: paidReference,
+              rejection_code: null,
+              rejection_reason: null,
+              ...processorData,
             },
           });
 
-          if (charge.cycle_id) {
-            await tx.agencyBillingCycle.update({
-              where: { id_cycle: charge.cycle_id },
-              data: { status: "PAID" },
-            });
-          }
+          const closeResult = await onPdAttemptPaid({
+            chargeId: charge.id_charge,
+            amount: paidAmount,
+            paidAt,
+            sourceRef: paidReference,
+            actorUserId: input.actorUserId ?? null,
+            source: "PD_RECONCILIATION",
+            tx,
+          });
 
           await tx.agencyBillingFileBatchItem.updateMany({
             where: { id_item: match.id_item },
             data: {
               status: "PAID",
-              response_code: row.rejectionCode,
-              response_message: row.rejectionReason,
-              paid_reference: row.paidReference,
+              response_code: row.bank_result_code,
+              response_message: row.bank_result_message,
+              paid_reference: paidReference,
               processed_at: paidAt,
             },
           });
@@ -762,14 +1392,14 @@ export async function importResponseBatch(
               line_no: row.lineNo,
               attempt_id: attempt.id_attempt,
               charge_id: charge.id_charge,
-              external_reference: row.externalReference,
-              raw_hash: row.rawHash,
+              external_reference: row.external_attempt_ref,
+              raw_hash: row.raw_hash,
               amount_ars: paidAmount,
               status: "PAID",
-              response_code: row.rejectionCode,
-              response_message: row.rejectionReason,
-              paid_reference: row.paidReference,
-              row_payload: toJsonValue(row.raw),
+              response_code: row.bank_result_code,
+              response_message: row.bank_result_message,
+              paid_reference: paidReference,
+              row_payload: processorPayload,
               processed_at: paidAt,
             },
           });
@@ -784,30 +1414,64 @@ export async function importResponseBatch(
                 inbound_batch_id: inbound.id_batch,
                 attempt_id: attempt.id_attempt,
                 charge_id: charge.id_charge,
-                paid_reference: row.paidReference,
+                paid_reference: paidReference,
                 amount_ars: paidAmount,
+                processor_result_code: row.bank_result_code,
+                processor_trace_id: row.processor_trace_id,
+                close_result: {
+                  closed: closeResult.closed,
+                  already_paid: closeResult.already_paid,
+                  paid_via_channel: closeResult.paid_via_channel,
+                },
               },
               created_by: input.actorUserId ?? null,
             },
             tx,
           );
 
+          if (
+            closeResult.already_paid &&
+            closeResult.paid_via_channel &&
+            closeResult.paid_via_channel !== "PD_GALICIA"
+          ) {
+            await logBillingEvent(
+              {
+                id_agency: charge.id_agency,
+                subscription_id: null,
+                event_type: "PD_LATE_SUCCESS_AFTER_FALLBACK_PAID",
+                payload: {
+                  charge_id: charge.id_charge,
+                  attempt_id: attempt.id_attempt,
+                  paid_reference: paidReference,
+                  amount_ars: paidAmount,
+                  previous_paid_via_channel: closeResult.paid_via_channel,
+                  source: "PD_RECONCILIATION",
+                },
+                created_by: input.actorUserId ?? null,
+              },
+              tx,
+            );
+          }
+
           paidRows += 1;
-          paidChargeIds.add(charge.id_charge);
+          if (closeResult.closed) {
+            paidChargeIds.add(charge.id_charge);
+          }
           return;
         }
 
-        if (row.result === "REJECTED") {
-          const processedAt = new Date();
+        if (row.mapped_status === "REJECTED") {
+          const processedAt = row.settled_at || new Date();
 
-          if (!["PAID", "REJECTED"].includes(attempt.status)) {
+          if (attempt.status !== "PAID") {
             await tx.agencyBillingAttempt.update({
               where: { id_attempt: attempt.id_attempt },
               data: {
                 status: "REJECTED",
                 processed_at: processedAt,
-                rejection_code: row.rejectionCode,
-                rejection_reason: row.rejectionReason,
+                rejection_code: row.bank_result_code,
+                rejection_reason: row.bank_result_message,
+                ...processorData,
               },
             });
           }
@@ -826,8 +1490,9 @@ export async function importResponseBatch(
             where: { id_item: match.id_item },
             data: {
               status: "REJECTED",
-              response_code: row.rejectionCode,
-              response_message: row.rejectionReason,
+              response_code: row.bank_result_code,
+              response_message: row.bank_result_message,
+              paid_reference: paidReference,
               processed_at: processedAt,
             },
           });
@@ -838,14 +1503,14 @@ export async function importResponseBatch(
               line_no: row.lineNo,
               attempt_id: attempt.id_attempt,
               charge_id: charge.id_charge,
-              external_reference: row.externalReference,
-              raw_hash: row.rawHash,
-              amount_ars: row.amountArs,
+              external_reference: row.external_attempt_ref,
+              raw_hash: row.raw_hash,
+              amount_ars: row.amount,
               status: "REJECTED",
-              response_code: row.rejectionCode,
-              response_message: row.rejectionReason,
-              paid_reference: row.paidReference,
-              row_payload: toJsonValue(row.raw),
+              response_code: row.bank_result_code,
+              response_message: row.bank_result_message,
+              paid_reference: paidReference,
+              row_payload: processorPayload,
               processed_at: processedAt,
             },
           });
@@ -860,52 +1525,122 @@ export async function importResponseBatch(
                 inbound_batch_id: inbound.id_batch,
                 attempt_id: attempt.id_attempt,
                 charge_id: charge.id_charge,
-                rejection_code: row.rejectionCode,
-                rejection_reason: row.rejectionReason,
+                rejection_code: row.bank_result_code,
+                rejection_reason: row.bank_result_message,
+                mapped_detailed_reason: row.mapped_detailed_reason,
               },
               created_by: input.actorUserId ?? null,
             },
             tx,
           );
 
+          await onPdAttemptRejected({
+            chargeId: charge.id_charge,
+            attemptId: attempt.id_attempt,
+            actorUserId: input.actorUserId ?? null,
+            reasonCode: row.bank_result_code,
+            reasonText: row.bank_result_message,
+            source: "PD_RECONCILIATION",
+            tx,
+          });
+
           rejectedRows += 1;
           return;
         }
 
-        errorRows += 1;
+        const processedAt = row.settled_at || new Date();
+
+        if (attempt.status !== "PAID") {
+          await tx.agencyBillingAttempt.update({
+            where: { id_attempt: attempt.id_attempt },
+            data: {
+              status: "FAILED",
+              processed_at: processedAt,
+              rejection_code: row.bank_result_code,
+              rejection_reason:
+                row.bank_result_message ||
+                (row.mapped_status === "UNKNOWN"
+                  ? "Resultado bancario desconocido"
+                  : "Error de procesamiento bancario"),
+              ...processorData,
+            },
+          });
+        }
+
+        if (charge.status !== "PAID") {
+          await tx.agencyBillingCharge.update({
+            where: { id_charge: charge.id_charge },
+            data:
+              charge.status === "PROCESSING"
+                ? {
+                    status: "PENDING",
+                    reconciliation_status: "ERROR",
+                  }
+                : {
+                    reconciliation_status: "ERROR",
+                  },
+          });
+        }
+
+        await tx.agencyBillingFileBatchItem.updateMany({
+          where: { id_item: match.id_item },
+          data: {
+            status: "ERROR",
+            response_code: row.bank_result_code,
+            response_message: row.bank_result_message || "Resultado inválido",
+            paid_reference: paidReference,
+            processed_at: processedAt,
+          },
+        });
+
         await tx.agencyBillingFileBatchItem.create({
           data: {
             batch_id: inbound.id_batch,
             line_no: row.lineNo,
             attempt_id: attempt.id_attempt,
             charge_id: charge.id_charge,
-            external_reference: row.externalReference,
-            raw_hash: row.rawHash,
-            amount_ars: row.amountArs,
+            external_reference: row.external_attempt_ref,
+            raw_hash: row.raw_hash,
+            amount_ars: row.amount,
             status: "ERROR",
-            response_code: row.rejectionCode,
-            response_message: row.rejectionReason || "Resultado inválido",
-            paid_reference: row.paidReference,
-            row_payload: toJsonValue(row.raw),
-            processed_at: new Date(),
+            response_code: row.bank_result_code,
+            response_message: row.bank_result_message || "Resultado inválido",
+            paid_reference: paidReference,
+            row_payload: processorPayload,
+            processed_at: processedAt,
           },
         });
+
+        await logBillingEvent(
+          {
+            id_agency: charge.id_agency,
+            subscription_id: null,
+            event_type: "ATTEMPT_MARKED_ERROR",
+            payload: {
+              outbound_batch_id: outbound.id_batch,
+              inbound_batch_id: inbound.id_batch,
+              attempt_id: attempt.id_attempt,
+              charge_id: charge.id_charge,
+              processor_result_code: row.bank_result_code,
+              processor_result_message: row.bank_result_message,
+              mapped_status: row.mapped_status,
+              mapped_detailed_reason: row.mapped_detailed_reason,
+            },
+            created_by: input.actorUserId ?? null,
+          },
+          tx,
+        );
+
+        errorRows += 1;
       },
       pdTxOptions(),
     );
   }
 
-  let fiscalIssued = 0;
-  let fiscalFailed = 0;
-
-  for (const chargeId of paidChargeIds) {
-    const fiscal = await issueFiscalForCharge({
-      chargeId,
-      actorUserId: input.actorUserId ?? null,
-    });
-    if (fiscal.ok) fiscalIssued += 1;
-    else fiscalFailed += 1;
-  }
+  const fiscalAutorun = await maybeAutorunFiscalForPaidCharges({
+    chargeIds: Array.from(paidChargeIds),
+    actorUserId: input.actorUserId ?? null,
+  });
 
   await prisma.$transaction(
     async (tx) => {
@@ -915,17 +1650,29 @@ export async function importResponseBatch(
           status: "PROCESSED",
           storage_key: inboundStorageKey,
           sha256: inboundSha,
-          total_rows: parsedRows.length,
+          file_hash: inboundSha,
+          adapter_version: adapter.version,
+          total_rows: parsed.rows.length,
+          total_amount_ars: inboundAmountTotal,
+          record_count: inboundRecordCount,
+          amount_total: inboundAmountTotal,
           total_paid_rows: paidRows,
           total_rejected_rows: rejectedRows,
           total_error_rows: errorRows,
+          imported_at: new Date(),
+          meta: {
+            ...(serializeMeta(inbound.meta) || {}),
+            parse_warnings: parsed.parseWarnings,
+            control_totals: parsed.controlTotals,
+            validated_totals: true,
+          },
         },
       });
 
       await tx.agencyBillingFileBatch.update({
         where: { id_batch: outbound.id_batch },
         data: {
-          status: paidRows > 0 ? "RECONCILED" : outbound.status,
+          status: matchedRows > 0 ? "RECONCILED" : outbound.status,
         },
       });
     },
@@ -942,21 +1689,28 @@ export async function importResponseBatch(
       paid_rows: paidRows,
       rejected_rows: rejectedRows,
       error_rows: errorRows,
-      fiscal_issued: fiscalIssued,
-      fiscal_failed: fiscalFailed,
+      adapter: adapter.name,
+      adapter_version: adapter.version,
+      control_totals: parsed.controlTotals,
+      parse_warnings: parsed.parseWarnings,
+      already_imported: false,
+      fiscal_autorun_enabled: fiscalAutorun.enabled,
+      fiscal_issued: fiscalAutorun.issued,
+      fiscal_failed: fiscalAutorun.failed,
     },
     createdBy: input.actorUserId ?? null,
   });
 
   return {
     inbound_batch_id: inbound.id_batch,
+    already_imported: false,
     summary: {
       matched_rows: matchedRows,
       error_rows: errorRows,
       rejected: rejectedRows,
       paid: paidRows,
-      fiscal_issued: fiscalIssued,
-      fiscal_failed: fiscalFailed,
+      fiscal_issued: fiscalAutorun.issued,
+      fiscal_failed: fiscalAutorun.failed,
     },
   };
 }

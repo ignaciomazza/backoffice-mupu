@@ -17,6 +17,7 @@ type RunSummary = {
   cycles_created: number;
   charges_created: number;
   attempts_created: number;
+  skipped_idempotent?: number;
   fx_rates_used: Array<{ date: string; ars_per_usd: number }>;
   errors: Array<{ id_agency: number; message: string }>;
 };
@@ -44,9 +45,14 @@ type ChargeRow = {
   cycle_id: number | null;
   due_date: string | null;
   status: string;
+  dunning_stage: number;
+  collection_channel: string | null;
+  paid_via_channel: string | null;
   amount_ars_due: number | null;
   amount_ars_paid: number | null;
   paid_reference: string | null;
+  fallback_offered_at: string | null;
+  fallback_expires_at: string | null;
   fiscal_document: {
     id_fiscal_document: number;
     document_type: string;
@@ -62,6 +68,22 @@ type ChargeRow = {
     attempt_no: number;
     status: string;
     scheduled_for: string | null;
+    processor_result_code?: string | null;
+    processor_result_message?: string | null;
+    processor_trace_id?: string | null;
+  }>;
+  fallback_intents: Array<{
+    id_fallback_intent: number;
+    provider: string;
+    status: string;
+    amount: number | null;
+    currency: string;
+    payment_url: string | null;
+    expires_at: string | null;
+    paid_at: string | null;
+    provider_status: string | null;
+    provider_status_detail: string | null;
+    created_at: string;
   }>;
 };
 
@@ -72,9 +94,15 @@ type BatchRow = {
   channel: string;
   file_type: string;
   adapter: string | null;
+  adapter_version?: string | null;
   business_date: string;
   status: string;
   storage_key: string | null;
+  file_hash?: string | null;
+  record_count?: number | null;
+  amount_total?: number | null;
+  exported_at?: string | null;
+  imported_at?: string | null;
   original_file_name: string | null;
   total_rows: number;
   total_amount_ars: number | null;
@@ -82,6 +110,59 @@ type BatchRow = {
   total_rejected_rows: number;
   total_error_rows: number;
   created_at: string;
+};
+
+type BillingJobResult = {
+  job_name: string;
+  run_id: string;
+  status: string;
+  target_date_ar: string | null;
+  adapter: string | null;
+  started_at: string;
+  finished_at: string;
+  duration_ms: number;
+  counters: Record<string, unknown>;
+  lock_key: string;
+  skipped_locked: boolean;
+  no_op: boolean;
+  error_message: string | null;
+};
+
+type BillingJobRunRow = {
+  id_job_run: number;
+  job_name: string;
+  run_id: string;
+  source: "CRON" | "MANUAL" | "SYSTEM";
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+  target_date_ar: string | null;
+  adapter: string | null;
+  counters_json: Record<string, unknown> | null;
+  error_message: string | null;
+};
+
+type JobsOverview = {
+  timezone: string;
+  today_date_ar: string;
+  metrics: {
+    pending_attempts: number;
+    processing_attempts: number;
+    paid_today: number;
+    rejected_today: number;
+    overdue_charges: number;
+    batches_prepared_today: number;
+    batches_exported_today: number;
+    batches_imported_today: number;
+    charges_fallback_offered: number;
+    fallback_intents_pending: number;
+    fallback_paid_today: number;
+    fallback_expired_today: number;
+    paid_via_pd_last_30d: number;
+    paid_via_fallback_last_30d: number;
+  };
+  recent_runs: BillingJobRunRow[];
 };
 
 function dateInputToday(): string {
@@ -127,6 +208,14 @@ function formatDateTime(value?: string | null): string {
   }).format(d);
 }
 
+function formatDurationMs(value?: number | null): string {
+  if (!Number.isFinite(value ?? NaN)) return "-";
+  const ms = Number(value);
+  if (ms < 1000) return `${ms} ms`;
+  const sec = Math.round((ms / 1000) * 10) / 10;
+  return `${sec}s`;
+}
+
 function formatArs(value?: number | null): string {
   if (!Number.isFinite(value ?? NaN)) return "-";
   return new Intl.NumberFormat("es-AR", {
@@ -143,6 +232,38 @@ function fiscalStatusLabel(status?: string | null): string {
   if (normalized === "FAILED") return "Error";
   if (normalized === "PENDING") return "Pendiente";
   return "-";
+}
+
+function dunningStageMeta(stage: number): { label: string; badgeClass: string } {
+  const value = Number.isFinite(stage) ? Math.trunc(stage) : 0;
+  if (value <= 0) {
+    return {
+      label: "initial_pd_attempt",
+      badgeClass: "border-sky-300/60 bg-sky-100/10 text-sky-100",
+    };
+  }
+  if (value === 1) {
+    return {
+      label: "pd_retry_1",
+      badgeClass: "border-cyan-300/60 bg-cyan-100/10 text-cyan-100",
+    };
+  }
+  if (value === 2) {
+    return {
+      label: "pd_retry_2",
+      badgeClass: "border-amber-300/60 bg-amber-100/10 text-amber-100",
+    };
+  }
+  if (value === 3) {
+    return {
+      label: "fallback_offered",
+      badgeClass: "border-rose-300/60 bg-rose-100/10 text-rose-100",
+    };
+  }
+  return {
+    label: "escalated_suspended",
+    badgeClass: "border-violet-300/60 bg-violet-100/10 text-violet-100",
+  };
 }
 
 export default function RecurringCollectionsDevPage() {
@@ -164,11 +285,16 @@ export default function RecurringCollectionsDevPage() {
   const [cycles, setCycles] = useState<CycleRow[]>([]);
   const [charges, setCharges] = useState<ChargeRow[]>([]);
   const [batches, setBatches] = useState<BatchRow[]>([]);
+  const [jobsOverview, setJobsOverview] = useState<JobsOverview | null>(null);
+  const [jobResult, setJobResult] = useState<BillingJobResult | null>(null);
+  const [runningJob, setRunningJob] = useState<string | null>(null);
   const [creatingBatch, setCreatingBatch] = useState(false);
   const [uploadingBatchId, setUploadingBatchId] = useState<number | null>(null);
   const [retryingFiscalChargeId, setRetryingFiscalChargeId] = useState<number | null>(null);
+  const [updatingFallbackIntentId, setUpdatingFallbackIntentId] = useState<number | null>(null);
   const [lastImportSummary, setLastImportSummary] = useState<{
     outboundBatchId: number;
+    already_imported: boolean;
     matched_rows: number;
     paid: number;
     rejected: number;
@@ -182,7 +308,7 @@ export default function RecurringCollectionsDevPage() {
     if (!token) return;
     setLoading(true);
     try {
-      const [cyclesRes, chargesRes, batchesRes] = await Promise.all([
+      const [cyclesRes, chargesRes, batchesRes, jobsRes] = await Promise.all([
         authFetch(
           `/api/admin/collections/cycles?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
           { cache: "no-store" },
@@ -198,6 +324,7 @@ export default function RecurringCollectionsDevPage() {
           { cache: "no-store" },
           token,
         ),
+        authFetch("/api/admin/collections/jobs?limit=12", { cache: "no-store" }, token),
       ]);
 
       if (!cyclesRes.ok) {
@@ -212,13 +339,19 @@ export default function RecurringCollectionsDevPage() {
         const json = (await batchesRes.json().catch(() => null)) as { error?: string } | null;
         throw new Error(json?.error || "No se pudieron cargar los lotes");
       }
+      if (!jobsRes.ok) {
+        const json = (await jobsRes.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(json?.error || "No se pudo cargar el estado de jobs");
+      }
 
       const cyclesJson = (await cyclesRes.json()) as { items: CycleRow[] };
       const chargesJson = (await chargesRes.json()) as { items: ChargeRow[] };
       const batchesJson = (await batchesRes.json()) as { items: BatchRow[] };
+      const jobsJson = (await jobsRes.json()) as JobsOverview;
       setCycles(cyclesJson.items || []);
       setCharges(chargesJson.items || []);
       setBatches(batchesJson.items || []);
+      setJobsOverview(jobsJson || null);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "No se pudo cargar la vista";
@@ -265,6 +398,184 @@ export default function RecurringCollectionsDevPage() {
       toast.error(message);
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function runBillingJob(
+    endpoint: string,
+    payload: Record<string, unknown>,
+    loadingKey: string,
+    successMessage: string,
+  ) {
+    if (!token) return;
+    setRunningJob(loadingKey);
+    try {
+      const res = await authFetch(
+        endpoint,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        },
+        token,
+      );
+
+      if (!res.ok) {
+        const json = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(json?.error || "No se pudo ejecutar el job");
+      }
+
+      const json = (await res.json()) as { result: BillingJobResult };
+      setJobResult(json.result);
+      toast.success(successMessage);
+      await loadData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo ejecutar el job";
+      toast.error(message);
+    } finally {
+      setRunningJob(null);
+    }
+  }
+
+  async function handleRunAnchorJob() {
+    await runBillingJob(
+      "/api/admin/collections/jobs/run-anchor",
+      {
+        date: anchorDate,
+        overrideFx,
+      },
+      "run_anchor",
+      "Job Run Anchor ejecutado",
+    );
+  }
+
+  async function handlePrepareBatchJob(dryRun: boolean) {
+    await runBillingJob(
+      "/api/admin/collections/jobs/prepare-batch",
+      {
+        date: batchDate,
+        dryRun,
+      },
+      dryRun ? "prepare_batch_dry" : "prepare_batch",
+      dryRun ? "Dry-run de prepare ejecutado" : "Job Prepare Batch ejecutado",
+    );
+  }
+
+  async function handleExportBatchJob() {
+    await runBillingJob(
+      "/api/admin/collections/jobs/export-batch",
+      {
+        date: batchDate,
+      },
+      "export_batch",
+      "Job Export Batch ejecutado",
+    );
+  }
+
+  async function handleReconcileBatchJobNoop() {
+    await runBillingJob(
+      "/api/admin/collections/jobs/reconcile-batch",
+      {},
+      "reconcile_batch",
+      "Job Reconcile ejecutado",
+    );
+  }
+
+  async function handleFallbackCreateJob() {
+    await runBillingJob(
+      "/api/admin/collections/jobs/fallback-create",
+      {
+        date: batchDate,
+      },
+      "fallback_create",
+      "Job Fallback Create ejecutado",
+    );
+  }
+
+  async function handleFallbackSyncJob() {
+    await runBillingJob(
+      "/api/admin/collections/jobs/fallback-sync",
+      {
+        date: batchDate,
+      },
+      "fallback_sync",
+      "Job Fallback Sync ejecutado",
+    );
+  }
+
+  async function handleCreateFallbackForCharge(chargeId: number) {
+    if (!token) return;
+    setRunningJob(`fallback_create_${chargeId}`);
+    try {
+      const res = await authFetch(
+        "/api/admin/collections/fallback/create",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chargeId }),
+        },
+        token,
+      );
+      if (!res.ok) {
+        const json = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(json?.error || "No se pudo crear fallback");
+      }
+      toast.success("Fallback creado / verificado");
+      await loadData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo crear fallback";
+      toast.error(message);
+    } finally {
+      setRunningJob(null);
+    }
+  }
+
+  async function handleMarkFallbackPaid(fallbackIntentId: number) {
+    if (!token) return;
+    setUpdatingFallbackIntentId(fallbackIntentId);
+    try {
+      const res = await authFetch(
+        `/api/admin/collections/fallback/${fallbackIntentId}/mark-paid`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) {
+        const json = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(json?.error || "No se pudo marcar fallback como pagado");
+      }
+      toast.success("Fallback marcado como pagado");
+      await loadData();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "No se pudo marcar fallback como pagado";
+      toast.error(message);
+    } finally {
+      setUpdatingFallbackIntentId(null);
+    }
+  }
+
+  async function handleCancelFallback(fallbackIntentId: number) {
+    if (!token) return;
+    setUpdatingFallbackIntentId(fallbackIntentId);
+    try {
+      const res = await authFetch(
+        `/api/admin/collections/fallback/${fallbackIntentId}/cancel`,
+        { method: "POST" },
+        token,
+      );
+      if (!res.ok) {
+        const json = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(json?.error || "No se pudo cancelar fallback");
+      }
+      toast.success("Fallback cancelado");
+      await loadData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo cancelar fallback";
+      toast.error(message);
+    } finally {
+      setUpdatingFallbackIntentId(null);
     }
   }
 
@@ -362,6 +673,7 @@ export default function RecurringCollectionsDevPage() {
       }
 
       const json = (await res.json()) as {
+        already_imported?: boolean;
         summary: {
           matched_rows: number;
           paid: number;
@@ -372,14 +684,19 @@ export default function RecurringCollectionsDevPage() {
 
       setLastImportSummary({
         outboundBatchId: batchId,
+        already_imported: Boolean(json.already_imported),
         matched_rows: json.summary.matched_rows,
         paid: json.summary.paid,
         rejected: json.summary.rejected,
         error_rows: json.summary.error_rows,
       });
-      toast.success(
-        `Respuesta importada: ${json.summary.paid} pagos, ${json.summary.rejected} rechazados, ${json.summary.error_rows} errores`,
-      );
+      if (json.already_imported) {
+        toast.info("Archivo ya importado: no se reaplicaron cambios");
+      } else {
+        toast.success(
+          `Respuesta importada: ${json.summary.paid} pagos, ${json.summary.rejected} rechazados, ${json.summary.error_rows} errores`,
+        );
+      }
       setSelectedResponseFileByBatch((prev) => ({ ...prev, [batchId]: null }));
       await loadData();
     } catch (error) {
@@ -448,6 +765,175 @@ export default function RecurringCollectionsDevPage() {
         </header>
 
         <article className="rounded-3xl border border-white/30 bg-white/10 p-6 shadow-lg shadow-sky-900/10 backdrop-blur">
+          <h2 className="text-lg font-semibold">Jobs operativos</h2>
+          <p className="mt-1 text-xs opacity-75">
+            Triggers manuales del runner (TZ AR) con locks e historial.
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void handleRunAnchorJob()}
+              disabled={runningJob != null}
+              className="rounded-full border border-emerald-300/60 bg-emerald-100/10 px-3 py-1.5 text-xs font-medium transition hover:brightness-110 disabled:opacity-50"
+            >
+              {runningJob === "run_anchor" ? "Run Anchor..." : "Run Anchor (hoy)"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handlePrepareBatchJob(false)}
+              disabled={runningJob != null}
+              className="rounded-full border border-sky-300/60 bg-sky-100/10 px-3 py-1.5 text-xs font-medium transition hover:brightness-110 disabled:opacity-50"
+            >
+              {runningJob === "prepare_batch" ? "Preparing..." : "Prepare Batch"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handlePrepareBatchJob(true)}
+              disabled={runningJob != null}
+              className="rounded-full border border-sky-300/60 bg-sky-100/10 px-3 py-1.5 text-xs font-medium transition hover:brightness-110 disabled:opacity-50"
+            >
+              {runningJob === "prepare_batch_dry" ? "Calculando..." : "Prepare Dry-Run"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleExportBatchJob()}
+              disabled={runningJob != null}
+              className="rounded-full border border-amber-300/60 bg-amber-100/10 px-3 py-1.5 text-xs font-medium transition hover:brightness-110 disabled:opacity-50"
+            >
+              {runningJob === "export_batch" ? "Exportando..." : "Export Batch"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleReconcileBatchJobNoop()}
+              disabled={runningJob != null}
+              className="rounded-full border border-fuchsia-300/60 bg-fuchsia-100/10 px-3 py-1.5 text-xs font-medium transition hover:brightness-110 disabled:opacity-50"
+            >
+              {runningJob === "reconcile_batch" ? "Reconciling..." : "Reconcile Batch"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleFallbackCreateJob()}
+              disabled={runningJob != null}
+              className="rounded-full border border-rose-300/60 bg-rose-100/10 px-3 py-1.5 text-xs font-medium transition hover:brightness-110 disabled:opacity-50"
+            >
+              {runningJob === "fallback_create" ? "Creando..." : "Fallback Create"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleFallbackSyncJob()}
+              disabled={runningJob != null}
+              className="rounded-full border border-indigo-300/60 bg-indigo-100/10 px-3 py-1.5 text-xs font-medium transition hover:brightness-110 disabled:opacity-50"
+            >
+              {runningJob === "fallback_sync" ? "Sync..." : "Fallback Sync"}
+            </button>
+          </div>
+
+          {jobResult ? (
+            <div className="mt-4 rounded-2xl border border-white/25 bg-white/15 p-3 text-xs sm:text-sm">
+              <div className="font-semibold">
+                Último job: {jobResult.job_name} · {jobResult.status}
+              </div>
+              <div className="mt-1 opacity-80">
+                run_id {jobResult.run_id} · {formatDurationMs(jobResult.duration_ms)}
+                {jobResult.target_date_ar ? ` · fecha ${jobResult.target_date_ar}` : ""}
+                {jobResult.adapter ? ` · adapter ${jobResult.adapter}` : ""}
+              </div>
+              <div className="mt-1 opacity-80">
+                counters: {Object.entries(jobResult.counters || {})
+                  .map(([k, v]) => `${k}=${String(v)}`)
+                  .join(" · ") || "-"}
+              </div>
+              {jobResult.error_message ? (
+                <div className="mt-1 text-rose-200">{jobResult.error_message}</div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {jobsOverview ? (
+            <>
+              <div className="mt-5 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Pending attempts: <span className="font-semibold">{jobsOverview.metrics.pending_attempts}</span>
+                </div>
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Processing attempts: <span className="font-semibold">{jobsOverview.metrics.processing_attempts}</span>
+                </div>
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Paid today: <span className="font-semibold">{jobsOverview.metrics.paid_today}</span>
+                </div>
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Rejected today: <span className="font-semibold">{jobsOverview.metrics.rejected_today}</span>
+                </div>
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Overdue charges: <span className="font-semibold">{jobsOverview.metrics.overdue_charges}</span>
+                </div>
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Batches prepared hoy: <span className="font-semibold">{jobsOverview.metrics.batches_prepared_today}</span>
+                </div>
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Batches exported hoy: <span className="font-semibold">{jobsOverview.metrics.batches_exported_today}</span>
+                </div>
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Batches imported hoy: <span className="font-semibold">{jobsOverview.metrics.batches_imported_today}</span>
+                </div>
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Charges fallback: <span className="font-semibold">{jobsOverview.metrics.charges_fallback_offered}</span>
+                </div>
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Fallback pending: <span className="font-semibold">{jobsOverview.metrics.fallback_intents_pending}</span>
+                </div>
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Fallback paid hoy: <span className="font-semibold">{jobsOverview.metrics.fallback_paid_today}</span>
+                </div>
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Fallback expired hoy: <span className="font-semibold">{jobsOverview.metrics.fallback_expired_today}</span>
+                </div>
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Paid via PD (30d): <span className="font-semibold">{jobsOverview.metrics.paid_via_pd_last_30d}</span>
+                </div>
+                <div className="rounded-2xl border border-white/25 bg-white/10 p-3">
+                  Paid via fallback (30d): <span className="font-semibold">{jobsOverview.metrics.paid_via_fallback_last_30d}</span>
+                </div>
+              </div>
+
+              <div className="mt-5 overflow-auto">
+                <table className="min-w-full text-xs sm:text-sm">
+                  <thead>
+                    <tr className="text-left text-[11px] opacity-70">
+                      <th className="pb-2 pr-3">Job</th>
+                      <th className="pb-2 pr-3">Status</th>
+                      <th className="pb-2 pr-3">Inicio</th>
+                      <th className="pb-2 pr-3">Duración</th>
+                      <th className="pb-2 pr-3">run_id</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {jobsOverview.recent_runs.length === 0 ? (
+                      <tr>
+                        <td className="py-2 opacity-70" colSpan={5}>
+                          Sin ejecuciones registradas.
+                        </td>
+                      </tr>
+                    ) : (
+                      jobsOverview.recent_runs.map((run) => (
+                        <tr key={run.id_job_run} className="border-t border-white/20">
+                          <td className="py-2 pr-3">{run.job_name}</td>
+                          <td className="py-2 pr-3">{run.status}</td>
+                          <td className="py-2 pr-3">{formatDateTime(run.started_at)}</td>
+                          <td className="py-2 pr-3">{formatDurationMs(run.duration_ms)}</td>
+                          <td className="py-2 pr-3">{run.run_id}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
+        </article>
+
+        <article className="rounded-3xl border border-white/30 bg-white/10 p-6 shadow-lg shadow-sky-900/10 backdrop-blur">
           <h2 className="text-lg font-semibold">Correr corrida (día ancla)</h2>
           <form className="mt-4 grid gap-3 md:grid-cols-4" onSubmit={handleRunAnchor}>
             <label className="grid gap-1 text-sm">
@@ -489,6 +975,7 @@ export default function RecurringCollectionsDevPage() {
                 <div>Ciclos creados: {summary.cycles_created}</div>
                 <div>Cobros creados: {summary.charges_created}</div>
                 <div>Intentos creados: {summary.attempts_created}</div>
+                <div>Idempotentes: {summary.skipped_idempotent || 0}</div>
                 <div>Errores: {summary.errors.length}</div>
               </div>
             </div>
@@ -567,6 +1054,7 @@ export default function RecurringCollectionsDevPage() {
               <span className="font-semibold">
                 Última importación (lote #{lastImportSummary.outboundBatchId}):
               </span>{" "}
+              {lastImportSummary.already_imported ? "ya importado previamente · " : ""}
               Matcheados {lastImportSummary.matched_rows} · Pagados {lastImportSummary.paid} ·
               Rechazados {lastImportSummary.rejected} · Errores {lastImportSummary.error_rows}
             </div>
@@ -578,6 +1066,7 @@ export default function RecurringCollectionsDevPage() {
                 <tr className="text-left text-xs opacity-70">
                   <th className="pb-2 pr-3">#</th>
                   <th className="pb-2 pr-3">Dirección</th>
+                  <th className="pb-2 pr-3">Adapter</th>
                   <th className="pb-2 pr-3">Fecha</th>
                   <th className="pb-2 pr-3">Estado</th>
                   <th className="pb-2 pr-3">Filas</th>
@@ -588,7 +1077,7 @@ export default function RecurringCollectionsDevPage() {
               <tbody>
                 {batches.length === 0 ? (
                   <tr>
-                    <td className="py-3 text-xs opacity-70" colSpan={7}>
+                    <td className="py-3 text-xs opacity-70" colSpan={8}>
                       Sin lotes para el rango seleccionado.
                     </td>
                   </tr>
@@ -599,6 +1088,12 @@ export default function RecurringCollectionsDevPage() {
                       <td className="py-2 pr-3">
                         {batch.direction}
                         {batch.parent_batch_id ? ` · resp. de #${batch.parent_batch_id}` : ""}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {batch.adapter || "-"}
+                        {batch.adapter_version ? (
+                          <div className="text-[11px] opacity-70">{batch.adapter_version}</div>
+                        ) : null}
                       </td>
                       <td className="py-2 pr-3">{formatDate(batch.business_date)}</td>
                       <td className="py-2 pr-3">{batch.status}</td>
@@ -719,65 +1214,161 @@ export default function RecurringCollectionsDevPage() {
                     <th className="pb-2 pr-3">Agencia</th>
                     <th className="pb-2 pr-3">Vencimiento</th>
                     <th className="pb-2 pr-3">Estado</th>
+                    <th className="pb-2 pr-3">Dunning</th>
                     <th className="pb-2 pr-3">Importe ARS</th>
                     <th className="pb-2 pr-3">Intentos</th>
+                    <th className="pb-2 pr-3">Canal pago</th>
+                    <th className="pb-2 pr-3">Fallback</th>
                     <th className="pb-2 pr-3">Fiscal</th>
-                    <th className="pb-2 pr-3">Acción fiscal</th>
+                    <th className="pb-2 pr-3">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {charges.length === 0 ? (
                     <tr>
-                      <td className="py-3 text-xs opacity-70" colSpan={7}>
+                      <td className="py-3 text-xs opacity-70" colSpan={10}>
                         Sin cobros en el rango.
                       </td>
                     </tr>
                   ) : (
-                    charges.map((charge) => (
-                      <tr key={charge.id_charge} className="border-t border-white/20">
-                        <td className="py-2 pr-3">#{charge.id_agency}</td>
-                        <td className="py-2 pr-3">{formatDate(charge.due_date)}</td>
-                        <td className="py-2 pr-3">{charge.status}</td>
-                        <td className="py-2 pr-3">{formatArs(charge.amount_ars_due)}</td>
-                        <td className="py-2 pr-3">
-                          {charge.attempts.map((attempt) => `#${attempt.attempt_no} ${attempt.status}`).join(" · ") || "-"}
-                        </td>
-                        <td className="py-2 pr-3">
-                          {fiscalStatusLabel(charge.fiscal_document?.status)}
-                          {charge.fiscal_document?.afip_number ? (
-                            <div className="mt-1 text-[11px] opacity-80">
-                              N° AFIP {charge.fiscal_document.afip_number}
-                            </div>
-                          ) : null}
-                          {charge.fiscal_document?.issued_at ? (
-                            <div className="mt-1 text-[11px] opacity-70">
-                              {formatDateTime(charge.fiscal_document.issued_at)}
-                            </div>
-                          ) : null}
-                          {charge.fiscal_document?.error_message ? (
-                            <div className="mt-1 max-w-xs text-[11px] opacity-75">
-                              {charge.fiscal_document.error_message}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="py-2 pr-3">
-                          {charge.fiscal_document?.status === "FAILED" ? (
-                            <button
-                              type="button"
-                              onClick={() => void handleRetryIssueFiscal(charge.id_charge)}
-                              disabled={retryingFiscalChargeId === charge.id_charge}
-                              className="rounded-full border border-rose-300/60 bg-rose-100/10 px-3 py-1 text-xs font-medium transition hover:brightness-110 disabled:opacity-50"
+                    charges.map((charge) => {
+                      const latestFallback = charge.fallback_intents[0] || null;
+                      const isFallbackOpen = latestFallback
+                        ? ["CREATED", "PENDING", "PRESENTED"].includes(latestFallback.status)
+                        : false;
+                      const stageMeta = dunningStageMeta(charge.dunning_stage);
+
+                      return (
+                        <tr key={charge.id_charge} className="border-t border-white/20">
+                          <td className="py-2 pr-3">#{charge.id_agency}</td>
+                          <td className="py-2 pr-3">{formatDate(charge.due_date)}</td>
+                          <td className="py-2 pr-3">{charge.status}</td>
+                          <td className="py-2 pr-3">
+                            <span
+                              className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${stageMeta.badgeClass}`}
                             >
-                              {retryingFiscalChargeId === charge.id_charge
-                                ? "Reintentando..."
-                                : "Reintentar"}
-                            </button>
-                          ) : (
-                            <span className="text-xs opacity-60">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))
+                              {charge.dunning_stage} · {stageMeta.label}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-3">{formatArs(charge.amount_ars_due)}</td>
+                          <td className="py-2 pr-3">
+                            {charge.attempts
+                              .map((attempt) => `#${attempt.attempt_no} ${attempt.status}`)
+                              .join(" · ") || "-"}
+                            {charge.attempts[0]?.processor_result_code ? (
+                              <div className="mt-1 text-[11px] opacity-75">
+                                Banco: {charge.attempts[0].processor_result_code}
+                                {charge.attempts[0].processor_trace_id
+                                  ? ` · trace ${charge.attempts[0].processor_trace_id}`
+                                  : ""}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td className="py-2 pr-3">
+                            {charge.paid_via_channel || charge.collection_channel || "-"}
+                          </td>
+                          <td className="py-2 pr-3 text-xs">
+                            {latestFallback ? (
+                              <div className="space-y-1">
+                                <div>
+                                  {latestFallback.provider} · {latestFallback.status}
+                                </div>
+                                <div className="opacity-75">
+                                  expira {formatDateTime(latestFallback.expires_at)}
+                                </div>
+                                {latestFallback.payment_url ? (
+                                  <a
+                                    className="text-sky-200 underline"
+                                    href={latestFallback.payment_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    Link pago
+                                  </a>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <span className="opacity-60">-</span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3">
+                            {fiscalStatusLabel(charge.fiscal_document?.status)}
+                            {charge.fiscal_document?.afip_number ? (
+                              <div className="mt-1 text-[11px] opacity-80">
+                                N° AFIP {charge.fiscal_document.afip_number}
+                              </div>
+                            ) : null}
+                            {charge.fiscal_document?.issued_at ? (
+                              <div className="mt-1 text-[11px] opacity-70">
+                                {formatDateTime(charge.fiscal_document.issued_at)}
+                              </div>
+                            ) : null}
+                            {charge.fiscal_document?.error_message ? (
+                              <div className="mt-1 max-w-xs text-[11px] opacity-75">
+                                {charge.fiscal_document.error_message}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td className="py-2 pr-3">
+                            <div className="flex flex-col gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void handleCreateFallbackForCharge(charge.id_charge)}
+                                disabled={runningJob != null}
+                                className="w-fit rounded-full border border-amber-300/60 bg-amber-100/10 px-3 py-1 text-xs font-medium transition hover:brightness-110 disabled:opacity-50"
+                              >
+                                {runningJob === `fallback_create_${charge.id_charge}`
+                                  ? "Creando..."
+                                  : "Crear fallback"}
+                              </button>
+
+                              {latestFallback ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void handleMarkFallbackPaid(latestFallback.id_fallback_intent)
+                                    }
+                                    disabled={updatingFallbackIntentId === latestFallback.id_fallback_intent}
+                                    className="w-fit rounded-full border border-emerald-300/60 bg-emerald-100/10 px-3 py-1 text-xs font-medium transition hover:brightness-110 disabled:opacity-50"
+                                  >
+                                    {updatingFallbackIntentId === latestFallback.id_fallback_intent
+                                      ? "Procesando..."
+                                      : "Simular pago"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void handleCancelFallback(latestFallback.id_fallback_intent)
+                                    }
+                                    disabled={
+                                      updatingFallbackIntentId === latestFallback.id_fallback_intent ||
+                                      !isFallbackOpen
+                                    }
+                                    className="w-fit rounded-full border border-slate-300/60 bg-slate-100/10 px-3 py-1 text-xs font-medium transition hover:brightness-110 disabled:opacity-50"
+                                  >
+                                    Cancelar fallback
+                                  </button>
+                                </>
+                              ) : null}
+
+                              {charge.fiscal_document?.status === "FAILED" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRetryIssueFiscal(charge.id_charge)}
+                                  disabled={retryingFiscalChargeId === charge.id_charge}
+                                  className="w-fit rounded-full border border-rose-300/60 bg-rose-100/10 px-3 py-1 text-xs font-medium transition hover:brightness-110 disabled:opacity-50"
+                                >
+                                  {retryingFiscalChargeId === charge.id_charge
+                                    ? "Reintentando..."
+                                    : "Reintentar fiscal"}
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

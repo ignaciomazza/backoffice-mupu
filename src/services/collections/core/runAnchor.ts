@@ -28,6 +28,7 @@ type RunAnchorSummary = {
   cycles_created: number;
   charges_created: number;
   attempts_created: number;
+  skipped_idempotent: number;
   fx_rates_used: Array<{ date: string; ars_per_usd: number }>;
   errors: Array<{ id_agency: number; message: string }>;
 };
@@ -159,6 +160,7 @@ export async function runAnchor(input: RunAnchorInput): Promise<RunAnchorSummary
   let cyclesCreated = 0;
   let chargesCreated = 0;
   let attemptsCreated = 0;
+  let skippedIdempotent = 0;
   const errors: Array<{ id_agency: number; message: string }> = [];
 
   const retryOffsets = sortedRetryOffsets(config.dunningRetryDays);
@@ -275,6 +277,8 @@ export async function runAnchor(input: RunAnchorInput): Promise<RunAnchorSummary
                 amount_ars_due: pricing.totalArs,
                 reconciliation_status: "PENDING",
                 idempotency_key: idempotencyKey,
+                dunning_stage: 0,
+                collection_channel: "PD_GALICIA",
               },
             });
           })());
@@ -356,6 +360,9 @@ export async function runAnchor(input: RunAnchorInput): Promise<RunAnchorSummary
       if (result.cycleCreated) cyclesCreated += 1;
       if (result.chargeCreated) chargesCreated += 1;
       attemptsCreated += result.createdAttempts;
+      if (!result.cycleCreated && !result.chargeCreated && result.createdAttempts === 0) {
+        skippedIdempotent += 1;
+      }
     } catch (error) {
       errors.push({
         id_agency: subscription.id_agency,
@@ -372,6 +379,7 @@ export async function runAnchor(input: RunAnchorInput): Promise<RunAnchorSummary
     cycles_created: cyclesCreated,
     charges_created: chargesCreated,
     attempts_created: attemptsCreated,
+    skipped_idempotent: skippedIdempotent,
     fx_rates_used: Array.from(usedFxByKey.entries()).map(([date, ars_per_usd]) => ({
       date,
       ars_per_usd,

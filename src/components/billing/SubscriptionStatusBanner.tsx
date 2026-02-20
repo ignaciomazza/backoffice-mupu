@@ -12,6 +12,7 @@ type Overview = {
   method_type: string | null;
   mandate_status:
     | "PENDING"
+    | "PENDING_BANK"
     | "ACTIVE"
     | "REVOKED"
     | "REJECTED"
@@ -145,7 +146,7 @@ export default function SubscriptionStatusBanner() {
     );
   }
 
-  if (overview.mandate_status === "PENDING") {
+  if (overview.mandate_status === "PENDING" || overview.mandate_status === "PENDING_BANK") {
     return (
       <div className="mb-3 rounded-2xl border border-amber-300/70 bg-amber-100/30 px-4 py-2 text-sm text-amber-900 shadow-sm dark:border-amber-300/40 dark:bg-amber-500/10 dark:text-amber-50">
         Mandato en revisión, se activará cuando el banco lo confirme.

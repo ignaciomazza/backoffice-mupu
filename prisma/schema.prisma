@@ -68,6 +68,7 @@ model Agency {
   billingAdjustments           AgencyBillingAdjustment[]
   billingCycles                AgencyBillingCycle[]
   billingCharges               AgencyBillingCharge[]
+  billingFallbackIntents       AgencyBillingFallbackIntent[]
   billingSubscription          AgencyBillingSubscription?
   billingEvents                AgencyBillingEvent[]
   storageConfig                AgencyStorageConfig?
@@ -187,6 +188,7 @@ model User {
   createdTravelGroupPaymentTemplates TravelGroupPaymentTemplate[] @relation("TravelGroupPaymentTemplateCreatedBy")
   loadedBillingFxRates               BillingFxRate[]
   billingEventsCreated               AgencyBillingEvent[]
+  billingJobRunsCreated              BillingJobRun[]              @relation("BillingJobRunCreatedBy")
 
   @@unique([id_agency, agency_user_id], name: "agency_user_id_unique")
 }
@@ -1656,10 +1658,19 @@ model AgencyBillingCharge {
   paid_reference        String?
   reconciliation_status BillingReconciliationStatus?
   idempotency_key       String?
+  dunning_stage         Int                        @default(0)
+  last_dunning_action_at DateTime?
+  fallback_offered_at    DateTime?
+  fallback_expires_at    DateTime?
+  collection_channel     BillingCollectionChannel? @default(PD_GALICIA)
+  paid_via_channel       BillingCollectionChannel?
+  overdue_since          DateTime?
+  collections_escalated_at DateTime?
 
   attempts        AgencyBillingAttempt[]
   batchItems      AgencyBillingFileBatchItem[]
   fiscalDocuments AgencyBillingFiscalDocument[]
+  fallbackIntents AgencyBillingFallbackIntent[]
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -1674,6 +1685,8 @@ model AgencyBillingCharge {
   @@index([cycle_id])
   @@index([selected_method_id])
   @@index([reconciliation_status])
+  @@index([dunning_stage])
+  @@index([paid_via_channel])
 }
 
 enum BillingFxType {
@@ -1701,6 +1714,7 @@ enum BillingMethodStatus {
 
 enum BillingMandateStatus {
   PENDING
+  PENDING_BANK
   ACTIVE
   REVOKED
   REJECTED
@@ -1723,6 +1737,44 @@ enum BillingReconciliationStatus {
   PARTIAL
   UNMATCHED
   ERROR
+}
+
+enum BillingCollectionChannel {
+  PD_GALICIA
+  CIG_QR
+  MP
+  OTHER
+}
+
+enum BillingFallbackProvider {
+  CIG_QR
+  MP
+  OTHER
+}
+
+enum BillingFallbackIntentStatus {
+  CREATED
+  PENDING
+  PRESENTED
+  PAID
+  EXPIRED
+  CANCELED
+  FAILED
+}
+
+enum BillingJobSource {
+  CRON
+  MANUAL
+  SYSTEM
+}
+
+enum BillingJobRunStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+  SKIPPED_LOCKED
+  NO_OP
 }
 
 model BillingFxRate {
@@ -1804,6 +1856,17 @@ model AgencyBillingMandate {
   consent_accepted_at DateTime?
   consent_ip          String?
 
+  holder_name String?
+  holder_doc  String?
+
+  bank_reference       String?
+  activated_at         DateTime?
+  rejected_reason_code String?
+  rejected_reason_text String?
+  revoked_at           DateTime?
+  last_status_check_at DateTime?
+
+  // Legacy aliases kept for backward compatibility while migrating callers.
   bank_mandate_ref String?
   rejection_code   String?
   rejection_reason String?
@@ -1836,6 +1899,12 @@ model AgencyBillingAttempt {
   rejection_reason String?
   notes            String?
 
+  processor_result_code     String?
+  processor_result_message  String?
+  processor_trace_id        String?
+  processor_settlement_date DateTime?
+  processor_raw_payload     Json?
+
   created_at DateTime                 @default(now())
   updated_at DateTime                 @updatedAt
   batchItems AgencyBillingFileBatchItem[]
@@ -1844,6 +1913,39 @@ model AgencyBillingAttempt {
   @@index([payment_method_id, status])
   @@index([status, scheduled_for])
   @@index([scheduled_for])
+}
+
+model AgencyBillingFallbackIntent {
+  id_fallback_intent Int                 @id @default(autoincrement())
+  agency_id          Int
+  agency             Agency              @relation(fields: [agency_id], references: [id_agency], onDelete: Cascade)
+  charge_id          Int
+  charge             AgencyBillingCharge @relation(fields: [charge_id], references: [id_charge], onDelete: Cascade)
+
+  provider BillingFallbackProvider
+  status   BillingFallbackIntentStatus @default(CREATED)
+
+  amount   Decimal @db.Decimal(18, 2)
+  currency String  @default("ARS")
+
+  external_reference    String  @unique
+  provider_payment_id   String?
+  provider_status       String?
+  provider_status_detail String?
+  payment_url           String?
+  qr_payload            String?
+  qr_image_url          String?
+  expires_at            DateTime?
+  paid_at               DateTime?
+  failure_code          String?
+  failure_message       String?
+  provider_raw_payload  Json?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([charge_id, provider, status])
+  @@index([provider, status])
 }
 
 model AgencyBillingEvent {
@@ -1881,6 +1983,12 @@ model AgencyBillingFileBatch {
   original_file_name String?
   storage_key        String?
   sha256             String?
+  file_hash          String?
+  adapter_version    String?
+  record_count       Int?
+  amount_total       Decimal? @db.Decimal(18, 2)
+  exported_at        DateTime?
+  imported_at        DateTime?
   status             String @default("CREATED")
 
   total_rows         Int      @default(0)
@@ -1961,6 +2069,49 @@ model AgencyBillingFiscalDocument {
   @@unique([charge_id, document_type], name: "agency_billing_fiscal_unique")
   @@index([status, created_at])
   @@index([issued_at])
+}
+
+model BillingJobRun {
+  id_job_run    Int                 @id @default(autoincrement())
+  job_name      String
+  run_id        String
+  source        BillingJobSource    @default(SYSTEM)
+  status        BillingJobRunStatus @default(RUNNING)
+  started_at    DateTime            @default(now())
+  finished_at   DateTime?
+  duration_ms   Int?
+  target_date_ar String?
+  adapter       String?
+  counters_json Json?
+  error_message String?
+  error_stack   String?
+  metadata_json Json?
+
+  created_by Int?
+  createdBy  User? @relation("BillingJobRunCreatedBy", fields: [created_by], references: [id_user], onDelete: SetNull)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([job_name, started_at])
+  @@index([source, started_at])
+  @@index([status, started_at])
+  @@index([run_id])
+}
+
+model BillingJobLock {
+  id_lock      Int      @id @default(autoincrement())
+  lock_key     String   @unique
+  acquired_at  DateTime @default(now())
+  expires_at   DateTime
+  owner_run_id String?
+  metadata     Json?
+  released_at  DateTime?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@index([expires_at])
+  @@index([released_at])
 }
 
 model AgencyStorageConfig {

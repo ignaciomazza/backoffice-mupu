@@ -26,6 +26,8 @@ type SubscriptionResponse = {
       status: string;
       cbu_masked: string | null;
       consent_accepted_at: string | Date | null;
+      rejected_reason_code?: string | null;
+      rejected_reason_text?: string | null;
     } | null;
   } | null;
   state: {
@@ -41,6 +43,8 @@ type OverviewResponse = {
   retry_days: number[];
   method_type: string | null;
   mandate_status: string | null;
+  mandate_rejected_reason_code?: string | null;
+  mandate_rejected_reason_text?: string | null;
   next_attempt_at?: string | Date | null;
   current_cycle?: {
     id_cycle: number;
@@ -154,6 +158,7 @@ function debitAuthorizationLabel(mandateStatus?: string | null): string {
   const normalized = String(mandateStatus || "").toUpperCase();
   if (normalized === "ACTIVE") return "Activa";
   if (normalized === "PENDING") return "En revisión por el banco";
+  if (normalized === "PENDING_BANK") return "Pendiente de validación bancaria";
   if (normalized === "REVOKED") return "Revocada";
   if (normalized === "REJECTED") return "Rechazada";
   if (normalized === "EXPIRED") return "Vencida";
@@ -196,6 +201,14 @@ export default function AgencySubscriptionPage() {
   const subscriptionStatus = overview?.status || data?.state.status || "ACTIVE";
   const paymentMethod = overview?.method_type || data?.state.method_type;
   const debitAuthorization = overview?.mandate_status || data?.state.mandate_status;
+  const mandateRejectedReasonCode =
+    overview?.mandate_rejected_reason_code ||
+    data?.default_method?.mandate?.rejected_reason_code ||
+    null;
+  const mandateRejectedReasonText =
+    overview?.mandate_rejected_reason_text ||
+    data?.default_method?.mandate?.rejected_reason_text ||
+    null;
   const nextChargeDate = overview?.next_anchor_date || data?.subscription?.next_anchor_date;
   const discountPct = data?.subscription?.direct_debit_discount_pct ?? 10;
   const attempts = overview?.attempts || [];
@@ -427,6 +440,12 @@ export default function AgencySubscriptionPage() {
                     <div className="mt-1 font-medium">
                       {debitAuthorizationLabel(debitAuthorization)}
                     </div>
+                    {mandateRejectedReasonCode || mandateRejectedReasonText ? (
+                      <div className="mt-2 text-xs opacity-80">
+                        {mandateRejectedReasonCode ? `${mandateRejectedReasonCode} · ` : ""}
+                        {mandateRejectedReasonText || "Motivo informado por el banco"}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -607,6 +626,16 @@ export default function AgencySubscriptionPage() {
                         {debitAuthorizationLabel(data?.default_method?.mandate?.status)}
                       </span>
                     </div>
+
+                    {mandateRejectedReasonCode || mandateRejectedReasonText ? (
+                      <div className="w-full text-xs opacity-85 sm:text-sm">
+                        Motivo del rechazo:{" "}
+                        <span className="font-semibold">
+                          {mandateRejectedReasonCode ? `${mandateRejectedReasonCode} · ` : ""}
+                          {mandateRejectedReasonText || "Sin detalle"}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
                 </form>
               </article>

@@ -12,6 +12,12 @@ export type BillingConfig = {
   directDebitDiscountPct: number;
   defaultVatRate: number;
   requireBspToday: boolean;
+  dunningEnableFallback: boolean;
+  fallbackDefaultProvider: "cig_qr" | "mp" | "other";
+  fallbackExpiresHours: number;
+  fallbackMpEnabled: boolean;
+  fallbackSyncBatchSize: number;
+  fallbackAutoSync: boolean;
 };
 
 function parseInteger(input: string | undefined, fallback: number): number {
@@ -68,6 +74,34 @@ export function getBillingConfig(): BillingConfig {
     ),
     defaultVatRate: parseNumber(process.env.BILLING_DEFAULT_VAT_RATE, 0.21),
     requireBspToday: parseBoolean(process.env.BILLING_REQUIRE_BSP_TODAY, true),
+    dunningEnableFallback: parseBoolean(
+      process.env.BILLING_DUNNING_ENABLE_FALLBACK,
+      true,
+    ),
+    fallbackDefaultProvider: (() => {
+      const raw = String(process.env.BILLING_FALLBACK_DEFAULT_PROVIDER || "cig_qr")
+        .trim()
+        .toLowerCase();
+      if (raw === "mp") return "mp";
+      if (raw === "other") return "other";
+      return "cig_qr";
+    })(),
+    fallbackExpiresHours: Math.max(
+      1,
+      parseInteger(process.env.BILLING_FALLBACK_EXPIRES_HOURS, 72),
+    ),
+    fallbackMpEnabled: parseBoolean(
+      process.env.BILLING_FALLBACK_MP_ENABLED,
+      false,
+    ),
+    fallbackSyncBatchSize: Math.max(
+      1,
+      parseInteger(process.env.BILLING_FALLBACK_SYNC_BATCH_SIZE, 100),
+    ),
+    fallbackAutoSync: parseBoolean(
+      process.env.BILLING_FALLBACK_AUTO_SYNC,
+      false,
+    ),
   };
 }
 

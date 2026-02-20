@@ -59,6 +59,7 @@ export default async function handler(
       cycles_created: summary.cycles_created,
       charges_created: summary.charges_created,
       attempts_created: summary.attempts_created,
+      skipped_idempotent: summary.skipped_idempotent,
       errors_count: summary.errors.length,
     });
 

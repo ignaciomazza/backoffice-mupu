@@ -53,6 +53,15 @@ function serializeSubscription(
                 cbu_masked: mandateMaskedCbu(method.mandate),
                 consent_version: method.mandate.consent_version,
                 consent_accepted_at: method.mandate.consent_accepted_at,
+                bank_reference:
+                  method.mandate.bank_reference ?? method.mandate.bank_mandate_ref,
+                activated_at: method.mandate.activated_at,
+                rejected_reason_code:
+                  method.mandate.rejected_reason_code ?? method.mandate.rejection_code,
+                rejected_reason_text:
+                  method.mandate.rejected_reason_text ?? method.mandate.rejection_reason,
+                revoked_at: method.mandate.revoked_at,
+                last_status_check_at: method.mandate.last_status_check_at,
                 updated_at: method.mandate.updated_at,
               }
             : null,

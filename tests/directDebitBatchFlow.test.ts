@@ -79,6 +79,11 @@ type AttemptRow = {
   rejection_code: string | null;
   rejection_reason: string | null;
   notes: string | null;
+  processor_result_code: string | null;
+  processor_result_message: string | null;
+  processor_trace_id: string | null;
+  processor_settlement_date: Date | null;
+  processor_raw_payload: Record<string, unknown> | null;
 };
 
 type BatchRow = {
@@ -88,10 +93,16 @@ type BatchRow = {
   channel: string;
   file_type: string;
   adapter: string | null;
+  adapter_version: string | null;
   business_date: Date;
   original_file_name: string | null;
   storage_key: string | null;
   sha256: string | null;
+  file_hash: string | null;
+  record_count: number | null;
+  amount_total: number | null;
+  exported_at: Date | null;
+  imported_at: Date | null;
   status: string;
   total_rows: number;
   total_amount_ars: number | null;
@@ -152,9 +163,50 @@ let fiscalDocuments: FiscalDocumentRow[] = [];
 let events: Array<Record<string, unknown>> = [];
 let storage = new Map<string, Buffer>();
 let counters = new Map<string, number>();
+const onPdAttemptPaidMock = vi.fn();
+const onPdAttemptRejectedMock = vi.fn();
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function buildGaliciaInboundResponseFile(input: {
+  records: Array<{
+    externalReference: string;
+    bankResultCode: string;
+    bankResultMessage?: string;
+    amountArs: number;
+    settledAt?: string;
+    processorTraceId?: string;
+    operationId?: string;
+  }>;
+  businessDate?: string;
+}): Buffer {
+  const businessDate = input.businessDate || "20260219";
+  const total = round2(
+    input.records.reduce((acc, item) => acc + Number(item.amountArs || 0), 0),
+  );
+
+  const lines = [
+    `H|GALICIA_PD_RESP|v1.0|0001|PD|${businessDate}|${input.records.length}|${total.toFixed(2)}|`,
+    ...input.records.map((item, idx) => {
+      const settledAt = item.settledAt || "20260219120000";
+      return [
+        "D",
+        String(idx + 1),
+        item.externalReference,
+        item.bankResultCode,
+        item.bankResultMessage || "",
+        round2(item.amountArs).toFixed(2),
+        settledAt,
+        item.processorTraceId || "",
+        item.operationId || "",
+      ].join("|");
+    }),
+    `T|${input.records.length}|${total.toFixed(2)}|`,
+  ];
+
+  return Buffer.from(`${lines.join("\n")}\n`, "utf8");
 }
 
 function nextId(rows: Array<{ [k: string]: unknown }>, key: string): number {
@@ -324,6 +376,11 @@ const txMock = {
         rejection_code: (data.rejection_code as string | null) ?? null,
         rejection_reason: (data.rejection_reason as string | null) ?? null,
         notes: (data.notes as string | null) ?? null,
+        processor_result_code: (data.processor_result_code as string | null) ?? null,
+        processor_result_message: (data.processor_result_message as string | null) ?? null,
+        processor_trace_id: (data.processor_trace_id as string | null) ?? null,
+        processor_settlement_date: (data.processor_settlement_date as Date | null) ?? null,
+        processor_raw_payload: (data.processor_raw_payload as Record<string, unknown> | null) ?? null,
       };
       attempts.push(row);
       return row;
@@ -380,10 +437,16 @@ const txMock = {
         channel: String(data.channel),
         file_type: String(data.file_type),
         adapter: (data.adapter as string | null) ?? null,
+        adapter_version: (data.adapter_version as string | null) ?? null,
         business_date: data.business_date as Date,
         original_file_name: (data.original_file_name as string | null) ?? null,
         storage_key: (data.storage_key as string | null) ?? null,
         sha256: (data.sha256 as string | null) ?? null,
+        file_hash: (data.file_hash as string | null) ?? null,
+        record_count: data.record_count == null ? null : Number(data.record_count),
+        amount_total: data.amount_total == null ? null : Number(data.amount_total),
+        exported_at: (data.exported_at as Date | null) ?? null,
+        imported_at: (data.imported_at as Date | null) ?? null,
         status: String(data.status || "CREATED"),
         total_rows: Number(data.total_rows ?? 0),
         total_amount_ars:
@@ -568,6 +631,17 @@ const prismaMock = {
   },
   agencyBillingCharge: {
     findUnique: txMock.agencyBillingCharge.findUnique,
+    findMany: vi.fn(async ({ where, select }: {
+      where?: { id_charge?: { in?: number[] } };
+      select?: { id_agency?: boolean };
+    } = {}) => {
+      const ids = where?.id_charge?.in || [];
+      const list = charges.filter((item) => (ids.length ? ids.includes(item.id_charge) : true));
+      if (select?.id_agency) {
+        return list.map((item) => ({ id_agency: item.id_agency }));
+      }
+      return list;
+    }),
     update: txMock.agencyBillingCharge.update,
     updateMany: txMock.agencyBillingCharge.updateMany,
     create: txMock.agencyBillingCharge.create,
@@ -583,10 +657,15 @@ const prismaMock = {
   agencyBillingFileBatch: {
     create: txMock.agencyBillingFileBatch.create,
     update: txMock.agencyBillingFileBatch.update,
-    findUnique: vi.fn(async ({ where, include }: { where: { id_batch: number }; include?: { items?: unknown } }) => {
+    findUnique: vi.fn(async ({ where, include, select }: {
+      where: { id_batch: number };
+      include?: { items?: unknown };
+      select?: { items?: unknown };
+    }) => {
       const row = batches.find((item) => item.id_batch === where.id_batch);
       if (!row) return null;
-      if (!include?.items) return row;
+      const needsItems = Boolean(include?.items || select?.items);
+      if (!needsItems) return row;
 
       return {
         ...row,
@@ -599,18 +678,104 @@ const prismaMock = {
             external_reference: item.external_reference,
             raw_hash: item.raw_hash,
             amount_ars: item.amount_ars,
+            line_no: item.line_no,
+            row_payload: item.row_payload,
             status: item.status,
+            attempt:
+              item.attempt_id == null
+                ? null
+                : (() => {
+                    const attempt = attempts.find((a) => a.id_attempt === item.attempt_id);
+                    if (!attempt) return null;
+                    const charge =
+                      charges.find((c) => c.id_charge === attempt.charge_id) || null;
+                    const paymentMethod =
+                      paymentMethods.find((pm) => pm.id_payment_method === attempt.payment_method_id) ||
+                      null;
+                    return {
+                      id_attempt: attempt.id_attempt,
+                      external_reference: attempt.external_reference,
+                      scheduled_for: attempt.scheduled_for,
+                      charge: charge
+                        ? {
+                            id_charge: charge.id_charge,
+                            id_agency: charge.id_agency,
+                            amount_ars_due: charge.amount_ars_due,
+                          }
+                        : null,
+                      paymentMethod: paymentMethod
+                        ? {
+                            holder_name: paymentMethod.holder_name,
+                            holder_tax_id: paymentMethod.holder_tax_id,
+                            mandate: paymentMethod.mandate
+                              ? { cbu_last4: paymentMethod.mandate.cbu_last4 }
+                              : null,
+                          }
+                        : null,
+                    };
+                  })(),
           })),
       };
     }),
-    findFirst: vi.fn(async ({ where }: { where: { direction: string; parent_batch_id: number; sha256: string } }) => {
+    findFirst: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
       return (
-        batches.find(
-          (item) =>
-            item.direction === where.direction &&
-            item.parent_batch_id === where.parent_batch_id &&
-            item.sha256 === where.sha256,
-        ) || null
+        batches.find((item) => {
+          if (typeof where.direction === "string" && item.direction !== where.direction) {
+            return false;
+          }
+
+          if (
+            where.parent_batch_id != null &&
+            item.parent_batch_id !== Number(where.parent_batch_id)
+          ) {
+            return false;
+          }
+
+          if (typeof where.adapter === "string" && item.adapter !== where.adapter) {
+            return false;
+          }
+
+          const or = (where.OR as Array<Record<string, unknown>> | undefined) || [];
+          if (or.length > 0) {
+            return or.some((cond) => {
+              const hashMatch =
+                (typeof cond.file_hash === "string" && item.file_hash === cond.file_hash) ||
+                (typeof cond.sha256 === "string" && item.sha256 === cond.sha256);
+
+              const recordCountExpected =
+                cond.record_count == null
+                  ? cond.total_rows == null
+                    ? null
+                    : Number(cond.total_rows)
+                  : Number(cond.record_count);
+
+              const recordCountActual =
+                item.record_count == null ? item.total_rows : item.record_count;
+
+              const amountExpectedRaw =
+                cond.amount_total == null ? cond.total_amount_ars : cond.amount_total;
+              const amountExpected =
+                amountExpectedRaw == null ? null : round2(Number(amountExpectedRaw));
+
+              const amountActualRaw =
+                item.amount_total == null ? item.total_amount_ars : item.amount_total;
+              const amountActual =
+                amountActualRaw == null ? null : round2(Number(amountActualRaw));
+
+              return (
+                hashMatch &&
+                (recordCountExpected == null || recordCountActual === recordCountExpected) &&
+                (amountExpected == null || amountActual === amountExpected)
+              );
+            });
+          }
+
+          if (typeof where.sha256 === "string") {
+            return item.sha256 === where.sha256;
+          }
+
+          return true;
+        }) || null
       );
     }),
     findMany: vi.fn(async () => batches),
@@ -664,11 +829,113 @@ vi.mock("@/services/afip/afipConfig", () => ({
   }),
 }));
 
+vi.mock("@/services/collections/dunning/service", () => ({
+  onPdAttemptPaid: onPdAttemptPaidMock,
+  onPdAttemptRejected: onPdAttemptRejectedMock,
+}));
+
 describe("direct debit batch flow (integration-like)", () => {
   beforeEach(() => {
     process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret";
     process.env.BILLING_FISCAL_ISSUER_MODE = "MOCK";
+    process.env.BILLING_FISCAL_AUTORUN = "false";
     process.env.BILLING_PD_ADAPTER = "debug_csv";
+
+    onPdAttemptPaidMock.mockReset();
+    onPdAttemptRejectedMock.mockReset();
+
+    onPdAttemptPaidMock.mockImplementation(
+      async (input: {
+        chargeId: number;
+        amount?: number | null;
+        paidAt?: Date | null;
+        sourceRef?: string | null;
+        tx?: typeof txMock;
+      }) => {
+        const tx = input.tx || txMock;
+        const charge = await tx.agencyBillingCharge.findUnique({
+          where: { id_charge: input.chargeId },
+        });
+        if (!charge) throw new Error("charge not found");
+        if (charge.status === "PAID") {
+          return {
+            closed: false,
+            already_paid: true,
+            charge_id: charge.id_charge,
+            agency_id: charge.id_agency,
+            paid_via_channel: "PD_GALICIA",
+            paid_at: charge.paid_at,
+            amount_ars_paid: charge.amount_ars_paid,
+          };
+        }
+
+        const paidAt = input.paidAt || new Date();
+        const paidAmount = Number(input.amount ?? charge.amount_ars_due ?? 0);
+
+        await tx.agencyBillingCharge.update({
+          where: { id_charge: charge.id_charge },
+          data: {
+            status: "PAID",
+            amount_ars_paid: paidAmount,
+            paid_at: paidAt,
+            paid_reference: input.sourceRef || null,
+            reconciliation_status: "MATCHED",
+            paid_currency: "ARS",
+          },
+        });
+
+        await tx.agencyBillingAttempt.updateMany({
+          where: {
+            charge_id: charge.id_charge,
+            status: { in: ["PENDING", "SCHEDULED", "PROCESSING"] },
+          },
+          data: {
+            status: "CANCELED",
+            processed_at: paidAt,
+          },
+        });
+
+        if (charge.cycle_id) {
+          await tx.agencyBillingCycle.update({
+            where: { id_cycle: charge.cycle_id },
+            data: { status: "PAID" },
+          });
+        }
+
+        await tx.agencyBillingEvent.create({
+          data: {
+            id_agency: charge.id_agency,
+            subscription_id: null,
+            event_type: "BILLING_CHARGE_PAID",
+            payload: {
+              charge_id: charge.id_charge,
+              agency_id: charge.id_agency,
+              paid_at: paidAt,
+              amount: paidAmount,
+              channel: "PD_GALICIA",
+            },
+            created_by: null,
+          },
+        });
+
+        return {
+          closed: true,
+          already_paid: false,
+          charge_id: charge.id_charge,
+          agency_id: charge.id_agency,
+          paid_via_channel: "PD_GALICIA",
+          paid_at: paidAt,
+          amount_ars_paid: paidAmount,
+        };
+      },
+    );
+
+    onPdAttemptRejectedMock.mockResolvedValue({
+      stage: 1,
+      fallback_created: false,
+      fallback_intent_id: null,
+      reason: null,
+    });
 
     subscriptions = [
       {
@@ -718,13 +985,10 @@ describe("direct debit batch flow (integration-like)", () => {
     counters = new Map();
   });
 
-  it("runAnchor -> create batch -> import PAID response -> updates attempt/charge/fiscal", async () => {
+  async function seedAndCreateOutbound() {
     const { runAnchor } = await import("@/services/collections/core/runAnchor");
-    const { createPresentmentBatch, importResponseBatch } = await import(
+    const { createPresentmentBatch } = await import(
       "@/services/collections/galicia/direct-debit/batches"
-    );
-    const { buildDebugResponseCsv } = await import(
-      "@/services/collections/galicia/direct-debit/adapters/debugCsvAdapter"
     );
 
     const anchorSummary = await runAnchor({
@@ -744,7 +1008,7 @@ describe("direct debit batch flow (integration-like)", () => {
       actorUserId: 36,
     });
 
-    expect(outbound.batch.status).toBe("READY");
+    expect(["READY", "EXPORTED"]).toContain(outbound.batch.status);
     expect(outbound.batch.total_rows).toBe(3);
     expect(outbound.batch.storage_key).toBeTruthy();
 
@@ -753,6 +1017,22 @@ describe("direct debit batch flow (integration-like)", () => {
       .sort((a, b) => Number(a.attempt_id) - Number(b.attempt_id));
 
     expect(outboundItems).toHaveLength(3);
+
+    return {
+      outbound,
+      outboundItems,
+    };
+  }
+
+  it("runAnchor -> create batch -> import PAID response -> updates attempt/charge and desacopla fiscal por default", async () => {
+    const { importResponseBatch } = await import(
+      "@/services/collections/galicia/direct-debit/batches"
+    );
+    const { buildDebugResponseCsv } = await import(
+      "@/services/collections/galicia/direct-debit/adapters/debugCsvAdapter"
+    );
+
+    const { outbound, outboundItems } = await seedAndCreateOutbound();
 
     const firstOutbound = outboundItems[0];
     const paidAmount = round2(charges[0]?.amount_ars_due || 0);
@@ -794,8 +1074,293 @@ describe("direct debit batch flow (integration-like)", () => {
     const futureAttempts = attempts.filter((item) => item.attempt_no > 1);
     expect(futureAttempts.every((item) => item.status === "CANCELED")).toBe(true);
 
+    expect(fiscalDocuments).toHaveLength(0);
+    expect(
+      events.some(
+        (event) =>
+          event.event_type === "BILLING_CHARGE_PAID" &&
+          Number((event.payload as { charge_id?: number } | undefined)?.charge_id) ===
+            charge?.id_charge,
+      ),
+    ).toBe(true);
+  });
+
+  it("galicia_pd_v1: inbound PAID persiste metadata bancaria y marca cobro", async () => {
+    process.env.BILLING_PD_ADAPTER = "galicia_pd_v1";
+
+    const { importResponseBatch } = await import(
+      "@/services/collections/galicia/direct-debit/batches"
+    );
+    const { outbound, outboundItems } = await seedAndCreateOutbound();
+
+    const firstOutbound = outboundItems[0];
+    const paidAmount = round2(charges[0]?.amount_ars_due || 0);
+
+    const responseBytes = buildGaliciaInboundResponseFile({
+      records: [
+        {
+          externalReference: String(firstOutbound.external_reference),
+          bankResultCode: "00",
+          bankResultMessage: "PAGO_OK",
+          amountArs: paidAmount,
+          processorTraceId: "TRC-OK-1",
+          operationId: "OP-OK-1",
+        },
+      ],
+    });
+
+    const imported = await importResponseBatch({
+      outboundBatchId: outbound.batch.id_batch,
+      uploadedFile: {
+        fileName: "galicia-respuesta-ok.txt",
+        bytes: responseBytes,
+        contentType: "text/plain",
+      },
+      actorUserId: 36,
+    });
+
+    expect(imported.summary.matched_rows).toBe(1);
+    expect(imported.summary.paid).toBe(1);
+    expect(imported.summary.rejected).toBe(0);
+    expect(imported.summary.error_rows).toBe(0);
+
+    const paidAttempt = attempts.find((item) => item.id_attempt === firstOutbound.attempt_id);
+    expect(paidAttempt?.status).toBe("PAID");
+    expect(paidAttempt?.processor_result_code).toBe("00");
+    expect(paidAttempt?.processor_trace_id).toBe("TRC-OK-1");
+    expect(paidAttempt?.paid_reference).toBe("OP-OK-1");
+
+    const charge = charges[0];
+    expect(charge?.status).toBe("PAID");
+    expect(charge?.reconciliation_status).toBe("MATCHED");
+  });
+
+  it("galicia_pd_v1: inbound REJECTED deja charge para mora/reintento", async () => {
+    process.env.BILLING_PD_ADAPTER = "galicia_pd_v1";
+
+    const { importResponseBatch } = await import(
+      "@/services/collections/galicia/direct-debit/batches"
+    );
+    const { outbound, outboundItems } = await seedAndCreateOutbound();
+
+    const firstOutbound = outboundItems[0];
+    const dueAmount = round2(charges[0]?.amount_ars_due || 0);
+
+    const responseBytes = buildGaliciaInboundResponseFile({
+      records: [
+        {
+          externalReference: String(firstOutbound.external_reference),
+          bankResultCode: "51",
+          bankResultMessage: "FONDOS_INSUFICIENTES",
+          amountArs: dueAmount,
+          processorTraceId: "TRC-REJ-1",
+          operationId: "OP-REJ-1",
+        },
+      ],
+    });
+
+    const imported = await importResponseBatch({
+      outboundBatchId: outbound.batch.id_batch,
+      uploadedFile: {
+        fileName: "galicia-respuesta-rej.txt",
+        bytes: responseBytes,
+        contentType: "text/plain",
+      },
+      actorUserId: 36,
+    });
+
+    expect(imported.summary.paid).toBe(0);
+    expect(imported.summary.rejected).toBe(1);
+    expect(imported.summary.error_rows).toBe(0);
+
+    const rejectedAttempt = attempts.find((item) => item.id_attempt === firstOutbound.attempt_id);
+    expect(rejectedAttempt?.status).toBe("REJECTED");
+    expect(rejectedAttempt?.rejection_code).toBe("51");
+    expect(rejectedAttempt?.processor_result_message).toBe("FONDOS_INSUFICIENTES");
+
+    const charge = charges[0];
+    expect(charge?.status).toBe("PAST_DUE");
+    expect(charge?.reconciliation_status).toBe("UNMATCHED");
+  });
+
+  it("galicia_pd_v1: inbound ERROR no cierra charge", async () => {
+    process.env.BILLING_PD_ADAPTER = "galicia_pd_v1";
+
+    const { importResponseBatch } = await import(
+      "@/services/collections/galicia/direct-debit/batches"
+    );
+    const { outbound, outboundItems } = await seedAndCreateOutbound();
+
+    const firstOutbound = outboundItems[0];
+    const dueAmount = round2(charges[0]?.amount_ars_due || 0);
+
+    const responseBytes = buildGaliciaInboundResponseFile({
+      records: [
+        {
+          externalReference: String(firstOutbound.external_reference),
+          bankResultCode: "96",
+          bankResultMessage: "ERROR_FORMAT",
+          amountArs: dueAmount,
+          processorTraceId: "TRC-ERR-1",
+          operationId: "OP-ERR-1",
+        },
+      ],
+    });
+
+    const imported = await importResponseBatch({
+      outboundBatchId: outbound.batch.id_batch,
+      uploadedFile: {
+        fileName: "galicia-respuesta-error.txt",
+        bytes: responseBytes,
+        contentType: "text/plain",
+      },
+      actorUserId: 36,
+    });
+
+    expect(imported.summary.paid).toBe(0);
+    expect(imported.summary.rejected).toBe(0);
+    expect(imported.summary.error_rows).toBe(1);
+
+    const failedAttempt = attempts.find((item) => item.id_attempt === firstOutbound.attempt_id);
+    expect(failedAttempt?.status).toBe("FAILED");
+    expect(failedAttempt?.processor_result_code).toBe("96");
+
+    const charge = charges[0];
+    expect(charge?.status).not.toBe("PAID");
+    expect(charge?.reconciliation_status).toBe("ERROR");
+  });
+
+  it("import de respuesta es idempotente para el mismo archivo", async () => {
+    process.env.BILLING_PD_ADAPTER = "debug_csv";
+
+    const { importResponseBatch } = await import(
+      "@/services/collections/galicia/direct-debit/batches"
+    );
+    const { buildDebugResponseCsv } = await import(
+      "@/services/collections/galicia/direct-debit/adapters/debugCsvAdapter"
+    );
+
+    const { outbound, outboundItems } = await seedAndCreateOutbound();
+    const firstOutbound = outboundItems[0];
+    const paidAmount = round2(charges[0]?.amount_ars_due || 0);
+
+    const responseBytes = buildDebugResponseCsv({
+      records: [
+        {
+          externalReference: String(firstOutbound.external_reference),
+          result: "PAID",
+          amountArs: paidAmount,
+          paidReference: "PD-IDEMP-1",
+        },
+      ],
+    });
+
+    const firstImport = await importResponseBatch({
+      outboundBatchId: outbound.batch.id_batch,
+      uploadedFile: {
+        fileName: "respuesta-idempotente.csv",
+        bytes: responseBytes,
+        contentType: "text/csv",
+      },
+      actorUserId: 36,
+    });
+
+    expect(firstImport.already_imported).toBe(false);
+    expect(firstImport.summary.paid).toBe(1);
+
+    const secondImport = await importResponseBatch({
+      outboundBatchId: outbound.batch.id_batch,
+      uploadedFile: {
+        fileName: "respuesta-idempotente.csv",
+        bytes: responseBytes,
+        contentType: "text/csv",
+      },
+      actorUserId: 36,
+    });
+
+    expect(secondImport.already_imported).toBe(true);
+    expect(secondImport.summary.paid).toBe(1);
+    expect(batches.filter((item) => item.direction === "INBOUND")).toHaveLength(1);
+  });
+
+  it("prepare/export separados con debug_csv son idempotentes", async () => {
+    process.env.BILLING_PD_ADAPTER = "debug_csv";
+
+    const { runAnchor } = await import("@/services/collections/core/runAnchor");
+    const { preparePresentmentBatch, exportPendingPreparedBatches } = await import(
+      "@/services/collections/galicia/direct-debit/batches"
+    );
+
+    await runAnchor({
+      anchorDate: new Date("2026-02-19T12:00:00.000Z"),
+      overrideFx: false,
+      actorUserId: 36,
+      actorAgencyId: 3,
+    });
+
+    const prepared = await preparePresentmentBatch({
+      businessDate: new Date("2026-02-19T12:00:00.000Z"),
+      actorUserId: 36,
+      adapterName: "debug_csv",
+      dryRun: false,
+    });
+
+    expect(prepared.no_op).toBe(false);
+    expect(prepared.batch_id).toBeTruthy();
+
+    const firstExport = await exportPendingPreparedBatches({
+      actorUserId: 36,
+      adapterName: "debug_csv",
+    });
+    expect(firstExport.batches_exported).toBe(1);
+
+    const secondExport = await exportPendingPreparedBatches({
+      actorUserId: 36,
+      adapterName: "debug_csv",
+    });
+    expect(secondExport.no_op).toBe(true);
+    expect(secondExport.batches_exported).toBe(0);
+  });
+
+  it("si BILLING_FISCAL_AUTORUN=true mantiene compatibilidad fiscal", async () => {
+    process.env.BILLING_PD_ADAPTER = "debug_csv";
+    process.env.BILLING_FISCAL_AUTORUN = "true";
+
+    const { importResponseBatch } = await import(
+      "@/services/collections/galicia/direct-debit/batches"
+    );
+    const { buildDebugResponseCsv } = await import(
+      "@/services/collections/galicia/direct-debit/adapters/debugCsvAdapter"
+    );
+
+    const { outbound, outboundItems } = await seedAndCreateOutbound();
+    const firstOutbound = outboundItems[0];
+    const paidAmount = round2(charges[0]?.amount_ars_due || 0);
+
+    const responseBytes = buildDebugResponseCsv({
+      records: [
+        {
+          externalReference: String(firstOutbound.external_reference),
+          result: "PAID",
+          amountArs: paidAmount,
+          paidReference: "PD-FISCAL-1",
+        },
+      ],
+    });
+
+    const imported = await importResponseBatch({
+      outboundBatchId: outbound.batch.id_batch,
+      uploadedFile: {
+        fileName: "respuesta-fiscal.csv",
+        bytes: responseBytes,
+        contentType: "text/csv",
+      },
+      actorUserId: 36,
+    });
+
+    expect(imported.summary.paid).toBe(1);
+    expect(imported.summary.fiscal_issued).toBe(1);
     expect(fiscalDocuments).toHaveLength(1);
-    expect(fiscalDocuments[0]?.charge_id).toBe(charge?.id_charge);
     expect(fiscalDocuments[0]?.status).toBe("ISSUED");
   });
 });

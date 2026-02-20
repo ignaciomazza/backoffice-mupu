@@ -79,6 +79,8 @@ export default async function handler(
       retry_days: config.dunningRetryDays,
       method_type: null,
       mandate_status: null,
+      mandate_rejected_reason_code: null,
+      mandate_rejected_reason_text: null,
       current_cycle: null,
       current_charge: null,
       attempts: [],
@@ -147,6 +149,14 @@ export default async function handler(
     retry_days: config.dunningRetryDays,
     method_type: defaultMethod?.method_type ?? null,
     mandate_status: defaultMethod?.mandate?.status ?? null,
+    mandate_rejected_reason_code:
+      defaultMethod?.mandate?.rejected_reason_code ??
+      defaultMethod?.mandate?.rejection_code ??
+      null,
+    mandate_rejected_reason_text:
+      defaultMethod?.mandate?.rejected_reason_text ??
+      defaultMethod?.mandate?.rejection_reason ??
+      null,
 
     current_cycle: currentCycle
       ? {
