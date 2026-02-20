@@ -2,8 +2,8 @@
 
 datasource db {
   provider          = "postgresql"
-  url               = env("DATABASE_URL") // pool (PgBouncer)
-  directUrl         = env("DIRECT_URL") // conexión directa
+  url               = env("DATABASE_URL") // runtime vía pool (PgBouncer)
+  directUrl         = env("DIRECT_URL") // migraciones/DDL directo (misma DB real que runtime)
   shadowDatabaseUrl = env("SHADOW_DATABASE_URL") // requerido para `migrate dev` en DB remota
 }
 
@@ -66,7 +66,10 @@ model Agency {
   ClientConfig                 ClientConfig?
   billingConfig                AgencyBillingConfig?
   billingAdjustments           AgencyBillingAdjustment[]
+  billingCycles                AgencyBillingCycle[]
   billingCharges               AgencyBillingCharge[]
+  billingSubscription          AgencyBillingSubscription?
+  billingEvents                AgencyBillingEvent[]
   storageConfig                AgencyStorageConfig?
   storageUsage                 AgencyStorageUsage?
   files                        FileAsset[]
@@ -171,17 +174,19 @@ model User {
   CommissionShare                   CommissionShare[]
 
   // 👇 Relaciones nuevas y con nombre simétrico:
-  createdDestinations      Destination[]        @relation("DestinationCreatedBy")
-  serviceDestinationsAdded ServiceDestination[] @relation("ServiceDestinationAddedBy")
-  creditEntries            CreditEntry[]
-  verifiedReceipts         Receipt[]            @relation("ReceiptVerifiedBy")
-  verifiedOtherIncomes     OtherIncome[]        @relation("OtherIncomeVerifiedBy")
-  createdFiles             FileAsset[]          @relation("FileCreatedBy")
-  createdOtherIncomes      OtherIncome[]        @relation("OtherIncomeCreatedBy")
-  paidClientPayments       ClientPayment[]      @relation("ClientPaymentPaidBy")
-  clientPaymentAudits      ClientPaymentAudit[] @relation("ClientPaymentAuditChangedBy")
-  createdTravelGroups      TravelGroup[]        @relation("TravelGroupCreatedBy")
+  createdDestinations                Destination[]                @relation("DestinationCreatedBy")
+  serviceDestinationsAdded           ServiceDestination[]         @relation("ServiceDestinationAddedBy")
+  creditEntries                      CreditEntry[]
+  verifiedReceipts                   Receipt[]                    @relation("ReceiptVerifiedBy")
+  verifiedOtherIncomes               OtherIncome[]                @relation("OtherIncomeVerifiedBy")
+  createdFiles                       FileAsset[]                  @relation("FileCreatedBy")
+  createdOtherIncomes                OtherIncome[]                @relation("OtherIncomeCreatedBy")
+  paidClientPayments                 ClientPayment[]              @relation("ClientPaymentPaidBy")
+  clientPaymentAudits                ClientPaymentAudit[]         @relation("ClientPaymentAuditChangedBy")
+  createdTravelGroups                TravelGroup[]                @relation("TravelGroupCreatedBy")
   createdTravelGroupPaymentTemplates TravelGroupPaymentTemplate[] @relation("TravelGroupPaymentTemplateCreatedBy")
+  loadedBillingFxRates               BillingFxRate[]
+  billingEventsCreated               AgencyBillingEvent[]
 
   @@unique([id_agency, agency_user_id], name: "agency_user_id_unique")
 }
@@ -414,35 +419,35 @@ model TravelGroupPassenger {
 }
 
 model TravelGroupConfig {
-  id_travel_group_config       Int      @id @default(autoincrement())
-  id_agency                    Int      @unique
-  agency                       Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
-  required_fields_agencia      String[] @default([])
-  required_fields_estudiantil  String[] @default([])
-  required_fields_precomprado  String[] @default([])
-  capacity_options             String[] @default(["TOTAL", "SERVICIO", "OVERBOOKING", "WAITLIST"])
-  default_capacity_mode        String   @default("TOTAL")
-  default_allow_overbooking    Boolean  @default(false)
-  default_waitlist_enabled     Boolean  @default(false)
-  created_at                   DateTime @default(now())
-  updated_at                   DateTime @updatedAt
+  id_travel_group_config      Int      @id @default(autoincrement())
+  id_agency                   Int      @unique
+  agency                      Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  required_fields_agencia     String[] @default([])
+  required_fields_estudiantil String[] @default([])
+  required_fields_precomprado String[] @default([])
+  capacity_options            String[] @default(["TOTAL", "SERVICIO", "OVERBOOKING", "WAITLIST"])
+  default_capacity_mode       String   @default("TOTAL")
+  default_allow_overbooking   Boolean  @default(false)
+  default_waitlist_enabled    Boolean  @default(false)
+  created_at                  DateTime @default(now())
+  updated_at                  DateTime @updatedAt
 }
 
 model TravelGroupPaymentTemplate {
-  id_travel_group_payment_template        Int      @id @default(autoincrement())
+  id_travel_group_payment_template        Int    @id @default(autoincrement())
   agency_travel_group_payment_template_id Int?
   id_agency                               Int
-  agency                                  Agency   @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  agency                                  Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
   created_by                              Int?
-  createdBy                               User?    @relation("TravelGroupPaymentTemplateCreatedBy", fields: [created_by], references: [id_user], onDelete: SetNull)
+  createdBy                               User?  @relation("TravelGroupPaymentTemplateCreatedBy", fields: [created_by], references: [id_user], onDelete: SetNull)
 
   name              String
   description       String?
   target_type       String?
   payment_mode      String?
-  is_active         Boolean  @default(true)
-  is_preloaded      Boolean  @default(false)
-  assigned_user_ids Int[]    @default([])
+  is_active         Boolean @default(true)
+  is_preloaded      Boolean @default(false)
+  assigned_user_ids Int[]   @default([])
   installments      Json
   metadata          Json?
 
@@ -456,7 +461,7 @@ model TravelGroupPaymentTemplate {
 }
 
 model TravelGroupClientPayment {
-  id_travel_group_client_payment        Int      @id @default(autoincrement())
+  id_travel_group_client_payment        Int       @id @default(autoincrement())
   agency_travel_group_client_payment_id Int?
   id_agency                             Int
   travel_group_id                       Int
@@ -465,17 +470,17 @@ model TravelGroupClientPayment {
   client_id                             Int
   concept                               String?
   service_ref                           String?
-  amount                                Decimal  @db.Decimal(18, 2)
+  amount                                Decimal   @db.Decimal(18, 2)
   currency                              String
   due_date                              DateTime
-  status                                String   @default("PENDIENTE")
+  status                                String    @default("PENDIENTE")
   paid_at                               DateTime?
   paid_by                               Int?
   status_reason                         String?
   receipt_id                            Int?
   metadata                              Json?
-  created_at                            DateTime @default(now())
-  updated_at                            DateTime @updatedAt
+  created_at                            DateTime  @default(now())
+  updated_at                            DateTime  @updatedAt
 
   @@unique([id_agency, agency_travel_group_client_payment_id], name: "agency_travel_group_client_payment_id_unique")
   @@index([id_agency, travel_group_id])
@@ -549,7 +554,7 @@ model TravelGroupOperatorDue {
 }
 
 model TravelGroupOperatorPayment {
-  id_travel_group_operator_payment        Int      @id @default(autoincrement())
+  id_travel_group_operator_payment        Int       @id @default(autoincrement())
   agency_travel_group_operator_payment_id Int?
   id_agency                               Int
   travel_group_id                         Int
@@ -558,20 +563,20 @@ model TravelGroupOperatorPayment {
   operator_id                             Int?
   category                                String
   description                             String
-  amount                                  Decimal  @db.Decimal(18, 2)
+  amount                                  Decimal   @db.Decimal(18, 2)
   currency                                String
   paid_at                                 DateTime?
   payment_method                          String?
   account                                 String?
-  base_amount                             Decimal? @db.Decimal(18, 2)
+  base_amount                             Decimal?  @db.Decimal(18, 2)
   base_currency                           String?
-  counter_amount                          Decimal? @db.Decimal(18, 2)
+  counter_amount                          Decimal?  @db.Decimal(18, 2)
   counter_currency                        String?
-  service_refs                            Int[]    @default([])
+  service_refs                            Int[]     @default([])
   payload                                 Json?
   created_by                              Int?
-  created_at                              DateTime @default(now())
-  updated_at                              DateTime @updatedAt
+  created_at                              DateTime  @default(now())
+  updated_at                              DateTime  @updatedAt
 
   @@unique([id_agency, agency_travel_group_operator_payment_id], name: "agency_travel_group_operator_payment_id_unique")
   @@index([id_agency, travel_group_id])
@@ -1122,9 +1127,9 @@ model Investment {
 }
 
 model InvestmentPayment {
-  id_investment_payment Int     @id @default(autoincrement())
+  id_investment_payment Int      @id @default(autoincrement())
   investment_id         Int
-  amount                Decimal @db.Decimal(18, 2)
+  amount                Decimal  @db.Decimal(18, 2)
   payment_method        String
   account               String?
   payment_currency      String
@@ -1575,6 +1580,46 @@ model AgencyBillingAdjustment {
   @@index([ends_at])
 }
 
+model AgencyBillingCycle {
+  id_cycle         Int                       @id @default(autoincrement())
+  id_agency        Int
+  agency           Agency                    @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+  subscription_id  Int
+  subscription     AgencyBillingSubscription @relation(fields: [subscription_id], references: [id_subscription], onDelete: Cascade)
+
+  anchor_date DateTime
+  period_start DateTime
+  period_end DateTime
+  status      String   @default("FROZEN")
+
+  fx_type             BillingFxType @default(DOLAR_BSP)
+  fx_rate_date        DateTime?
+  fx_rate_ars_per_usd Decimal?      @db.Decimal(18, 6)
+
+  base_amount_usd     Decimal @default(0) @db.Decimal(18, 2)
+  addons_total_usd    Decimal @default(0) @db.Decimal(18, 2)
+  discount_pct        Decimal @default(0) @db.Decimal(5, 2)
+  discount_amount_usd Decimal @default(0) @db.Decimal(18, 2)
+  net_amount_usd      Decimal @default(0) @db.Decimal(18, 2)
+  vat_rate            Decimal @default(0.21) @db.Decimal(8, 6)
+  vat_amount_usd      Decimal @default(0) @db.Decimal(18, 2)
+  total_usd           Decimal @default(0) @db.Decimal(18, 2)
+  total_ars           Decimal @default(0) @db.Decimal(18, 2)
+
+  plan_snapshot   Json?
+  addons_snapshot Json?
+  frozen_at       DateTime?
+
+  charges AgencyBillingCharge[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([subscription_id, anchor_date], name: "agency_billing_cycle_unique")
+  @@index([id_agency, anchor_date])
+  @@index([status, anchor_date])
+}
+
 model AgencyBillingCharge {
   id_charge                Int    @id @default(autoincrement())
   agency_billing_charge_id Int
@@ -1600,13 +1645,322 @@ model AgencyBillingCharge {
   payment_method String?
   notes          String?
 
+  subscription_id       Int?
+  subscription          AgencyBillingSubscription?   @relation(fields: [subscription_id], references: [id_subscription], onDelete: SetNull)
+  cycle_id              Int?
+  cycle                 AgencyBillingCycle?          @relation(fields: [cycle_id], references: [id_cycle], onDelete: SetNull)
+  selected_method_id    Int?
+  selectedMethod        AgencyBillingPaymentMethod?  @relation("AgencyBillingChargeSelectedMethod", fields: [selected_method_id], references: [id_payment_method], onDelete: SetNull)
+  amount_ars_due        Decimal?                     @db.Decimal(18, 2)
+  amount_ars_paid       Decimal?                     @db.Decimal(18, 2)
+  paid_reference        String?
+  reconciliation_status BillingReconciliationStatus?
+  idempotency_key       String?
+
+  attempts        AgencyBillingAttempt[]
+  batchItems      AgencyBillingFileBatchItem[]
+  fiscalDocuments AgencyBillingFiscalDocument[]
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   @@unique([id_agency, agency_billing_charge_id], name: "agency_billing_charge_id_unique")
+  @@unique([id_agency, idempotency_key], name: "agency_billing_charge_idempotency_unique")
+  @@unique([cycle_id], name: "agency_billing_charge_cycle_unique")
   @@index([id_agency, status])
   @@index([id_agency, due_date])
   @@index([id_agency, period_start])
+  @@index([subscription_id])
+  @@index([cycle_id])
+  @@index([selected_method_id])
+  @@index([reconciliation_status])
+}
+
+enum BillingFxType {
+  DOLAR_BSP
+}
+
+enum BillingSubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELED
+}
+
+enum BillingMethodType {
+  DIRECT_DEBIT_CBU_GALICIA
+  CIG_GALICIA
+  MP_FALLBACK
+}
+
+enum BillingMethodStatus {
+  PENDING
+  ACTIVE
+  DISABLED
+}
+
+enum BillingMandateStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+  REJECTED
+  EXPIRED
+}
+
+enum BillingAttemptStatus {
+  PENDING
+  SCHEDULED
+  PROCESSING
+  PAID
+  REJECTED
+  FAILED
+  CANCELED
+}
+
+enum BillingReconciliationStatus {
+  PENDING
+  MATCHED
+  PARTIAL
+  UNMATCHED
+  ERROR
+}
+
+model BillingFxRate {
+  id_fx_rate  Int           @id @default(autoincrement())
+  fx_type     BillingFxType @default(DOLAR_BSP)
+  rate_date   DateTime
+  ars_per_usd Decimal       @db.Decimal(18, 6)
+
+  loaded_by Int?
+  loadedBy  User? @relation(fields: [loaded_by], references: [id_user], onDelete: SetNull)
+
+  note       String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([fx_type, rate_date])
+  @@index([rate_date])
+}
+
+model AgencyBillingSubscription {
+  id_subscription Int    @id @default(autoincrement())
+  id_agency       Int    @unique
+  agency          Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  status                    BillingSubscriptionStatus @default(ACTIVE)
+  anchor_day                Int                       @default(8)
+  timezone                  String                    @default("America/Argentina/Buenos_Aires")
+  direct_debit_discount_pct Decimal                   @default(10.00) @db.Decimal(5, 2)
+  next_anchor_date          DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  paymentMethods AgencyBillingPaymentMethod[]
+  cycles         AgencyBillingCycle[]
+  charges        AgencyBillingCharge[]
+  events         AgencyBillingEvent[]
+
+  @@index([status])
+  @@index([next_anchor_date])
+}
+
+model AgencyBillingPaymentMethod {
+  id_payment_method Int                       @id @default(autoincrement())
+  subscription_id   Int
+  subscription      AgencyBillingSubscription @relation(fields: [subscription_id], references: [id_subscription], onDelete: Cascade)
+
+  method_type BillingMethodType
+  status      BillingMethodStatus @default(PENDING)
+  is_default  Boolean             @default(false)
+
+  holder_name   String?
+  holder_tax_id String?
+  metadata      Json?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  mandate  AgencyBillingMandate?
+  charges  AgencyBillingCharge[]  @relation("AgencyBillingChargeSelectedMethod")
+  attempts AgencyBillingAttempt[]
+
+  @@unique([subscription_id, method_type], name: "agency_billing_method_unique")
+  @@index([subscription_id, is_default])
+}
+
+model AgencyBillingMandate {
+  id_mandate        Int                        @id @default(autoincrement())
+  payment_method_id Int                        @unique
+  paymentMethod     AgencyBillingPaymentMethod @relation(fields: [payment_method_id], references: [id_payment_method], onDelete: Cascade)
+
+  status BillingMandateStatus @default(PENDING)
+
+  cbu_encrypted String
+  cbu_last4     String
+  cbu_hash      String
+
+  consent_version     String?
+  consent_accepted_at DateTime?
+  consent_ip          String?
+
+  bank_mandate_ref String?
+  rejection_code   String?
+  rejection_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([status])
+  @@index([cbu_hash])
+}
+
+model AgencyBillingAttempt {
+  id_attempt Int                 @id @default(autoincrement())
+  charge_id  Int
+  charge     AgencyBillingCharge @relation(fields: [charge_id], references: [id_charge], onDelete: Cascade)
+
+  payment_method_id Int?
+  paymentMethod     AgencyBillingPaymentMethod? @relation(fields: [payment_method_id], references: [id_payment_method], onDelete: SetNull)
+
+  attempt_no Int                  @default(1)
+  status     BillingAttemptStatus @default(PENDING)
+  channel    String               @default("OFFICE_BANKING")
+  external_reference String?
+  paid_reference     String?
+
+  scheduled_for DateTime?
+  processed_at  DateTime?
+
+  rejection_code   String?
+  rejection_reason String?
+  notes            String?
+
+  created_at DateTime                 @default(now())
+  updated_at DateTime                 @updatedAt
+  batchItems AgencyBillingFileBatchItem[]
+
+  @@unique([charge_id, attempt_no], name: "agency_billing_attempt_unique")
+  @@index([payment_method_id, status])
+  @@index([status, scheduled_for])
+  @@index([scheduled_for])
+}
+
+model AgencyBillingEvent {
+  id_event  Int    @id @default(autoincrement())
+  id_agency Int
+  agency    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  subscription_id Int?
+  subscription    AgencyBillingSubscription? @relation(fields: [subscription_id], references: [id_subscription], onDelete: SetNull)
+
+  event_type String
+  payload    Json?
+
+  created_by Int?
+  createdBy  User? @relation(fields: [created_by], references: [id_user], onDelete: SetNull)
+
+  created_at DateTime @default(now())
+
+  @@index([id_agency, created_at])
+  @@index([event_type, created_at])
+}
+
+model AgencyBillingFileBatch {
+  id_batch        Int      @id @default(autoincrement())
+  parent_batch_id Int?
+  parentBatch     AgencyBillingFileBatch?  @relation("AgencyBillingFileBatchParent", fields: [parent_batch_id], references: [id_batch], onDelete: SetNull)
+  childBatches    AgencyBillingFileBatch[] @relation("AgencyBillingFileBatchParent")
+
+  direction     String
+  channel       String
+  file_type     String
+  adapter       String?
+  business_date DateTime
+
+  original_file_name String?
+  storage_key        String?
+  sha256             String?
+  status             String @default("CREATED")
+
+  total_rows         Int      @default(0)
+  total_amount_ars   Decimal? @db.Decimal(18, 2)
+  total_paid_rows    Int      @default(0)
+  total_rejected_rows Int     @default(0)
+  total_error_rows   Int      @default(0)
+
+  meta Json?
+
+  created_by Int?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  items AgencyBillingFileBatchItem[]
+
+  @@index([direction, business_date])
+  @@index([status, business_date])
+  @@index([parent_batch_id])
+  @@unique([direction, sha256], name: "agency_billing_file_batch_unique_sha")
+}
+
+model AgencyBillingFileBatchItem {
+  id_item    Int                    @id @default(autoincrement())
+  batch_id   Int
+  batch      AgencyBillingFileBatch @relation(fields: [batch_id], references: [id_batch], onDelete: Cascade)
+  attempt_id Int?
+  attempt    AgencyBillingAttempt?  @relation(fields: [attempt_id], references: [id_attempt], onDelete: SetNull)
+  charge_id  Int?
+  charge     AgencyBillingCharge?   @relation(fields: [charge_id], references: [id_charge], onDelete: SetNull)
+
+  line_no            Int?
+  external_reference String?
+  raw_hash           String?
+  amount_ars         Decimal? @db.Decimal(18, 2)
+  status             String   @default("PENDING")
+
+  response_code    String?
+  response_message String?
+  paid_reference   String?
+  row_payload      Json?
+
+  processed_at DateTime?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  @@index([batch_id, line_no])
+  @@index([attempt_id])
+  @@index([charge_id])
+  @@index([external_reference])
+  @@index([raw_hash])
+  @@unique([batch_id, attempt_id], name: "agency_billing_file_batch_item_unique_attempt")
+}
+
+model AgencyBillingFiscalDocument {
+  id_fiscal_document Int                @id @default(autoincrement())
+  charge_id          Int
+  charge             AgencyBillingCharge @relation(fields: [charge_id], references: [id_charge], onDelete: Cascade)
+
+  document_type String @default("INVOICE_A")
+  status        String @default("PENDING")
+
+  afip_pto_vta   Int?
+  afip_cbte_tipo Int?
+  afip_number    String?
+  afip_cae       String?
+  afip_cae_due   DateTime?
+
+  external_reference String?
+  payload            Json?
+  error_message      String?
+  retry_count        Int      @default(0)
+  issued_at          DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([charge_id, document_type], name: "agency_billing_fiscal_unique")
+  @@index([status, created_at])
+  @@index([issued_at])
 }
 
 model AgencyStorageConfig {
@@ -1877,8 +2231,8 @@ model ExpenseCategory {
   name              String // "SUELDO", "COMISION", "OPERADOR", etc.
   code              String? // opcional: sueldo | comision | operador | ...
   scope             ExpenseCategoryScope
-  requires_operator Boolean @default(false)
-  requires_user     Boolean @default(false)
+  requires_operator Boolean              @default(false)
+  requires_user     Boolean              @default(false)
 
   enabled     Boolean @default(true)
   sort_order  Int     @default(0)

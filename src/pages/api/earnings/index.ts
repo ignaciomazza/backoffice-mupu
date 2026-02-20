@@ -239,7 +239,9 @@ export default async function handler(
       where: { id_agency: auth.id_agency },
       select: { use_booking_sale_total: true, billing_adjustments: true },
     });
-    const useBookingSaleTotal = Boolean(calcConfig?.use_booking_sale_total);
+    const inheritedUseBookingSaleTotal = Boolean(
+      calcConfig?.use_booking_sale_total,
+    );
     const billingAdjustments = Array.isArray(calcConfig?.billing_adjustments)
       ? (calcConfig?.billing_adjustments as BillingAdjustmentConfig[])
       : [];
@@ -306,6 +308,7 @@ export default async function handler(
         transfer_fee_pct: true,
         extra_costs_amount: true,
         extra_taxes_amount: true,
+        extra_adjustments: true,
         destination: true,
         ServiceDestination: {
           select: {
@@ -343,6 +346,10 @@ export default async function handler(
     const fallbackSaleTotalsByBooking = new Map<number, Record<string, number>>();
     const costTotalsByBooking = new Map<number, Record<string, number>>();
     const taxTotalsByBooking = new Map<number, Record<string, number>>();
+    const serviceAdjustmentsByBookingCurrency = new Map<
+      number,
+      Record<string, BillingAdjustmentConfig[]>
+    >();
 
     const bookingCountry = new Map<number, string>();
 
@@ -370,6 +377,61 @@ export default async function handler(
         Number(svc.other_taxes) || 0,
       );
 
+      const items = Array.isArray(svc.extra_adjustments)
+        ? (svc.extra_adjustments as unknown[])
+        : [];
+      if (items.length > 0) {
+        const normalized = items
+          .filter((item) => {
+            if (!item || typeof item !== "object") return false;
+            const rec = item as Record<string, unknown>;
+            return (
+              rec.active !== false &&
+              String(rec.source || "").toLowerCase() === "service"
+            );
+          })
+          .map((item, idx): BillingAdjustmentConfig => {
+            const rec = item as Record<string, unknown>;
+            const kind: BillingAdjustmentConfig["kind"] =
+              rec.kind === "tax" || rec.kind === "cost" ? rec.kind : "cost";
+            const basis: BillingAdjustmentConfig["basis"] =
+              rec.basis === "cost" ||
+              rec.basis === "margin" ||
+              rec.basis === "sale"
+                ? rec.basis
+                : "sale";
+            const valueType: BillingAdjustmentConfig["valueType"] =
+              rec.valueType === "fixed" || rec.valueType === "percent"
+                ? rec.valueType
+                : "percent";
+            const value =
+              typeof rec.value === "number"
+                ? rec.value
+                : Number(String(rec.value ?? "").replace(",", "."));
+            return {
+              id:
+                typeof rec.id === "string" && rec.id
+                  ? rec.id
+                  : `service-${svc.id_service}-${idx}`,
+              label:
+                typeof rec.label === "string" && rec.label
+                  ? rec.label
+                  : "Ajuste servicio",
+              kind,
+              basis,
+              valueType,
+              value: Number.isFinite(value) ? value : 0,
+              active: rec.active !== false,
+              source: "service",
+            };
+          });
+        if (normalized.length > 0) {
+          const byCurrency = serviceAdjustmentsByBookingCurrency.get(bid) || {};
+          byCurrency[cur] = [...(byCurrency[cur] || []), ...normalized];
+          serviceAdjustmentsByBookingCurrency.set(bid, byCurrency);
+        }
+      }
+
       if (!bookingCountry.has(bid)) {
         const sd = svc.ServiceDestination?.[0];
         const country = sd?.destination?.country;
@@ -392,6 +454,7 @@ export default async function handler(
       creation_date: Date;
       departure_date: Date;
       sale_totals: unknown | null;
+      use_booking_sale_total_override: boolean | null;
       commission_overrides: unknown | null;
       user: { id_user: number; first_name: string; last_name: string };
     }> = [];
@@ -406,6 +469,7 @@ export default async function handler(
           creation_date: true,
           departure_date: true,
           sale_totals: true,
+          use_booking_sale_total_override: true,
           commission_overrides: true,
           user: { select: { id_user: true, first_name: true, last_name: true } },
         },
@@ -423,10 +487,17 @@ export default async function handler(
       number,
       ReturnType<typeof normalizeCommissionOverridesLenient>
     >();
+    const bookingSaleModeByBooking = new Map<number, boolean>();
     bookings.forEach((b) => {
       overridesByBooking.set(
         b.id_booking,
         normalizeCommissionOverridesLenient(b.commission_overrides),
+      );
+      bookingSaleModeByBooking.set(
+        b.id_booking,
+        typeof b.use_booking_sale_total_override === "boolean"
+          ? b.use_booking_sale_total_override
+          : inheritedUseBookingSaleTotal,
       );
     });
 
@@ -465,26 +536,23 @@ export default async function handler(
 
     // 3) Venta total por reserva/moneda (para deuda y % pago)
     const saleTotalsByBooking = new Map<number, Record<string, number>>();
-    if (useBookingSaleTotal) {
-      bookings.forEach((b) => {
-        if (!allowedBookingIds.has(b.id_booking)) return;
-        const normalized = normalizeSaleTotals(
-          b.sale_totals,
-          hasCurrencyFilter ? enabledCurrencies : undefined,
-        );
-        const fallback = fallbackSaleTotalsByBooking.get(b.id_booking) || {};
-        const hasValues = Object.values(normalized).some((v) => v > 0);
-        saleTotalsByBooking.set(
-          b.id_booking,
-          hasValues ? normalized : fallback,
-        );
-      });
-    } else {
-      fallbackSaleTotalsByBooking.forEach((totals, bid) => {
-        if (!allowedBookingIds.has(bid)) return;
-        saleTotalsByBooking.set(bid, totals);
-      });
-    }
+    bookings.forEach((b) => {
+      if (!allowedBookingIds.has(b.id_booking)) return;
+      const useBookingSaleTotal =
+        bookingSaleModeByBooking.get(b.id_booking) ??
+        inheritedUseBookingSaleTotal;
+      const fallback = fallbackSaleTotalsByBooking.get(b.id_booking) || {};
+      if (!useBookingSaleTotal) {
+        saleTotalsByBooking.set(b.id_booking, fallback);
+        return;
+      }
+      const normalized = normalizeSaleTotals(
+        b.sale_totals,
+        hasCurrencyFilter ? enabledCurrencies : undefined,
+      );
+      const hasValues = Object.values(normalized).some((v) => v > 0);
+      saleTotalsByBooking.set(b.id_booking, hasValues ? normalized : fallback);
+    });
 
     // 4) Recibos de esas reservas (misma agencia por FK booking)
     const receiptBookingIds = Array.from(saleTotalsByBooking.keys()).filter(
@@ -611,15 +679,14 @@ export default async function handler(
     }
 
     // 8) Filtrar servicios válidos por % pago
-    const filteredServices = useBookingSaleTotal
-      ? []
-      : services.filter((svc) =>
-          validBookingCurrency.has(
-            `${svc.booking_id}-${String(svc.currency || "")
-              .trim()
-              .toUpperCase()}`,
-          ),
-        );
+    const filteredServices = services.filter((svc) => {
+      const bid = svc.booking_id;
+      const useBookingSaleTotal =
+        bookingSaleModeByBooking.get(bid) ?? inheritedUseBookingSaleTotal;
+      if (useBookingSaleTotal) return false;
+      const cur = String(svc.currency || "").trim().toUpperCase();
+      return validBookingCurrency.has(`${bid}-${cur}`);
+    });
 
     // 9) Agregación (una fila por vendedor+moneda, NO por equipo)
     const totals = {
@@ -749,135 +816,68 @@ export default async function handler(
       return true;
     }
 
-    if (useBookingSaleTotal) {
-      const commissionBaseByBooking = new Map<number, Record<string, number>>();
+    const commissionBaseByBooking = new Map<number, Record<string, number>>();
 
-      saleTotalsByBooking.forEach((totalsByCur, bid) => {
-        const costTotals = costTotalsByBooking.get(bid) || {};
-        const taxTotals = taxTotalsByBooking.get(bid) || {};
-        const baseByCur: Record<string, number> = {};
+    saleTotalsByBooking.forEach((totalsByCur, bid) => {
+      const useBookingSaleTotal =
+        bookingSaleModeByBooking.get(bid) ?? inheritedUseBookingSaleTotal;
+      if (!useBookingSaleTotal) return;
+      const costTotals = costTotalsByBooking.get(bid) || {};
+      const taxTotals = taxTotalsByBooking.get(bid) || {};
+      const baseByCur: Record<string, number> = {};
 
-        for (const [cur, total] of Object.entries(totalsByCur)) {
-          const sale = Number(total) || 0;
-          const cost = Number(costTotals[cur] || 0);
-          const taxes = Number(taxTotals[cur] || 0);
-          const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
-          const fee =
-            sale * (Number.isFinite(agencyFeePct) ? agencyFeePct : 0.024);
-          const adjustments = computeBillingAdjustments(
-            billingAdjustments,
-            sale,
-            cost,
-          ).total;
-          baseByCur[cur] = Math.max(
-            commissionBeforeFee - fee - adjustments,
-            0,
-          );
-        }
-
-        commissionBaseByBooking.set(bid, baseByCur);
-      });
-
-      for (const [bid, baseByCur] of commissionBaseByBooking.entries()) {
-        const owner = bookingOwners.get(bid);
-        if (!owner) continue;
-        const {
-          userId: sellerId,
-          userName: sellerName,
-          bookingCreatedAt,
-        } = owner;
-
-        const rule = resolveRule(sellerId, bookingCreatedAt);
-        const overrides = sanitizeCommissionOverrides(
-          pruneOverridesByLeaderIds(
-            overridesByBooking.get(bid) || null,
-            rule.leaders.map((l) => l.userId),
-          ),
-        );
-
-        for (const [cur, commissionBase] of Object.entries(baseByCur)) {
-          if (!validBookingCurrency.has(`${bid}-${cur}`)) continue;
-          const { sellerPct, leaderPcts } = resolveCommissionForContext({
-            rule,
-            overrides,
-            currency: cur,
-            allowService: false,
-          });
-          const sellerComm = commissionBase * (sellerPct / 100);
-          const leaderComm = Object.values(leaderPcts).reduce(
-            (sum, pct) => sum + commissionBase * (pct / 100),
-            0,
-          );
-          const agencyShareAmt = Math.max(
-            0,
-            commissionBase - sellerComm - leaderComm,
-          );
-          const debtForBooking = debtByBooking.get(bid)?.[cur] ?? 0;
-
-          const added = addRow(
-            cur,
-            sellerId,
-            sellerName,
-            sellerComm,
-            leaderComm,
-            agencyShareAmt,
-            debtForBooking,
-            bid,
-          );
-          if (added) {
-            const bookingComm = commissionByBooking.get(bid) || {};
-            bookingComm[cur] = (bookingComm[cur] || 0) + commissionBase;
-            commissionByBooking.set(bid, bookingComm);
-          }
-        }
-      }
-    } else {
-      for (const svc of filteredServices) {
-        const bid = svc.booking_id;
-        const cur = String(svc.currency || "").trim().toUpperCase();
-        if (!cur) continue;
-        const owner = bookingOwners.get(bid);
-        if (!owner) continue;
-        const {
-          userId: sellerId,
-          userName: sellerName,
-          bookingCreatedAt,
-        } = owner;
-
-        // base de comisión (con tu ajuste actual)
-        const sale = Number(svc.sale_price) || 0;
-        const pct =
-          svc.transfer_fee_pct != null
-            ? Number(svc.transfer_fee_pct)
-            : agencyFeePct;
+      for (const [cur, total] of Object.entries(totalsByCur)) {
+        const sale = Number(total) || 0;
+        const cost = Number(costTotals[cur] || 0);
+        const taxes = Number(taxTotals[cur] || 0);
+        const commissionBeforeFee = Math.max(sale - cost - taxes, 0);
         const fee =
-          svc.transfer_fee_amount != null
-            ? Number(svc.transfer_fee_amount)
-            : sale * (Number.isFinite(pct) ? pct : 0.024);
-        const dbCommission = Number(svc.totalCommissionWithoutVAT ?? 0);
-        const extraCosts = Number(svc.extra_costs_amount ?? 0);
-        const extraTaxes = Number(svc.extra_taxes_amount ?? 0);
-        const commissionBase = Math.max(
-          dbCommission - fee - extraCosts - extraTaxes,
+          sale * (Number.isFinite(agencyFeePct) ? agencyFeePct : 0.024);
+        const serviceAdjustments =
+          serviceAdjustmentsByBookingCurrency.get(bid)?.[cur] || [];
+        const combinedAdjustments = [
+          ...billingAdjustments,
+          ...serviceAdjustments,
+        ];
+        const adjustments = computeBillingAdjustments(
+          combinedAdjustments,
+          sale,
+          cost,
+        ).total;
+        baseByCur[cur] = Math.max(
+          commissionBeforeFee - fee - adjustments,
           0,
         );
+      }
 
-        // regla efectiva por fecha de creación de la reserva
-        const rule = resolveRule(sellerId, bookingCreatedAt);
-        const overrides = sanitizeCommissionOverrides(
-          pruneOverridesByLeaderIds(
-            overridesByBooking.get(bid) || null,
-            rule.leaders.map((l) => l.userId),
-          ),
-        );
+      commissionBaseByBooking.set(bid, baseByCur);
+    });
+
+    for (const [bid, baseByCur] of commissionBaseByBooking.entries()) {
+      const owner = bookingOwners.get(bid);
+      if (!owner) continue;
+      const {
+        userId: sellerId,
+        userName: sellerName,
+        bookingCreatedAt,
+      } = owner;
+
+      const rule = resolveRule(sellerId, bookingCreatedAt);
+      const overrides = sanitizeCommissionOverrides(
+        pruneOverridesByLeaderIds(
+          overridesByBooking.get(bid) || null,
+          rule.leaders.map((l) => l.userId),
+        ),
+      );
+
+      for (const [cur, commissionBase] of Object.entries(baseByCur)) {
+        if (!validBookingCurrency.has(`${bid}-${cur}`)) continue;
         const { sellerPct, leaderPcts } = resolveCommissionForContext({
           rule,
           overrides,
           currency: cur,
-          serviceId: svc.id_service,
-          allowService: true,
+          allowService: false,
         });
-
         const sellerComm = commissionBase * (sellerPct / 100);
         const leaderComm = Object.values(leaderPcts).reduce(
           (sum, pct) => sum + commissionBase * (pct / 100),
@@ -887,10 +887,8 @@ export default async function handler(
           0,
           commissionBase - sellerComm - leaderComm,
         );
-
         const debtForBooking = debtByBooking.get(bid)?.[cur] ?? 0;
 
-        // 🔴 OJO: ahora agregamos UNA sola fila por vendedor+moneda
         const added = addRow(
           cur,
           sellerId,
@@ -906,6 +904,82 @@ export default async function handler(
           bookingComm[cur] = (bookingComm[cur] || 0) + commissionBase;
           commissionByBooking.set(bid, bookingComm);
         }
+      }
+    }
+
+    for (const svc of filteredServices) {
+      const bid = svc.booking_id;
+      const cur = String(svc.currency || "").trim().toUpperCase();
+      if (!cur) continue;
+      const owner = bookingOwners.get(bid);
+      if (!owner) continue;
+      const {
+        userId: sellerId,
+        userName: sellerName,
+        bookingCreatedAt,
+      } = owner;
+
+      // base de comisión (con tu ajuste actual)
+      const sale = Number(svc.sale_price) || 0;
+      const pct =
+        svc.transfer_fee_pct != null
+          ? Number(svc.transfer_fee_pct)
+          : agencyFeePct;
+      const fee =
+        svc.transfer_fee_amount != null
+          ? Number(svc.transfer_fee_amount)
+          : sale * (Number.isFinite(pct) ? pct : 0.024);
+      const dbCommission = Number(svc.totalCommissionWithoutVAT ?? 0);
+      const extraCosts = Number(svc.extra_costs_amount ?? 0);
+      const extraTaxes = Number(svc.extra_taxes_amount ?? 0);
+      const commissionBase = Math.max(
+        dbCommission - fee - extraCosts - extraTaxes,
+        0,
+      );
+
+      // regla efectiva por fecha de creación de la reserva
+      const rule = resolveRule(sellerId, bookingCreatedAt);
+      const overrides = sanitizeCommissionOverrides(
+        pruneOverridesByLeaderIds(
+          overridesByBooking.get(bid) || null,
+          rule.leaders.map((l) => l.userId),
+        ),
+      );
+      const { sellerPct, leaderPcts } = resolveCommissionForContext({
+        rule,
+        overrides,
+        currency: cur,
+        serviceId: svc.id_service,
+        allowService: true,
+      });
+
+      const sellerComm = commissionBase * (sellerPct / 100);
+      const leaderComm = Object.values(leaderPcts).reduce(
+        (sum, pct) => sum + commissionBase * (pct / 100),
+        0,
+      );
+      const agencyShareAmt = Math.max(
+        0,
+        commissionBase - sellerComm - leaderComm,
+      );
+
+      const debtForBooking = debtByBooking.get(bid)?.[cur] ?? 0;
+
+      // 🔴 OJO: ahora agregamos UNA sola fila por vendedor+moneda
+      const added = addRow(
+        cur,
+        sellerId,
+        sellerName,
+        sellerComm,
+        leaderComm,
+        agencyShareAmt,
+        debtForBooking,
+        bid,
+      );
+      if (added) {
+        const bookingComm = commissionByBooking.get(bid) || {};
+        bookingComm[cur] = (bookingComm[cur] || 0) + commissionBase;
+        commissionByBooking.set(bid, bookingComm);
       }
     }
 

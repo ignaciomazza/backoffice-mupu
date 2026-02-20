@@ -1052,7 +1052,7 @@ export default function SummaryCard({
         const commissionBeforeFee = sale - cost - taxes;
         const fee = sale * (Number.isFinite(transferPct) ? transferPct : 0.024);
         const adjustments = bookingAdjustmentsByCurrency[cur]?.total || 0;
-        out[cur] = commissionBeforeFee - fee - adjustments;
+        out[cur] = Math.max(commissionBeforeFee - fee - adjustments, 0);
       }
       return out;
     }
@@ -1066,7 +1066,7 @@ export default function SummaryCard({
       const extraCosts = toNum((s as ServiceWithCalcs).extra_costs_amount);
       const extraTaxes = toNum((s as ServiceWithCalcs).extra_taxes_amount);
       const adjustments = extraCosts + extraTaxes;
-      const base = dbCommission - fee - adjustments;
+      const base = Math.max(dbCommission - fee - adjustments, 0);
       acc[cur] = (acc[cur] || 0) + base;
       return acc;
     }, {});

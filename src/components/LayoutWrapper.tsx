@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import Header from "./Header";
 import SideBar from "./SideBar";
 import VantaBackground from "./VantaBackground";
+import SubscriptionStatusBanner from "@/components/billing/SubscriptionStatusBanner";
 
 export default function LayoutWrapper({
   children,
@@ -89,6 +90,7 @@ export default function LayoutWrapper({
             : ""
           }`}
         >
+          {showSidebar && <SubscriptionStatusBanner />}
           {children}
         </main>
       </div>

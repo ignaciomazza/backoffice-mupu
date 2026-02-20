@@ -8,23 +8,19 @@ declare global {
   var prisma: PrismaClient | undefined;
 }
 
-const DEFAULT_POOL_LIMIT = 5;
-const DEFAULT_POOL_TIMEOUT = 30;
-
 const applyPoolParams = (url: string) => {
   try {
     const parsed = new URL(url);
-    const rawLimit = Number(parsed.searchParams.get("connection_limit"));
-    const rawTimeout = Number(parsed.searchParams.get("pool_timeout"));
-    const minLimit = Number(process.env.PRISMA_POOL_LIMIT) || DEFAULT_POOL_LIMIT;
-    const minTimeout =
-      Number(process.env.PRISMA_POOL_TIMEOUT) || DEFAULT_POOL_TIMEOUT;
+    const explicitLimit = Number(process.env.PRISMA_POOL_LIMIT);
+    const explicitTimeout = Number(process.env.PRISMA_POOL_TIMEOUT);
 
-    if (!Number.isFinite(rawLimit) || rawLimit < minLimit) {
-      parsed.searchParams.set("connection_limit", String(minLimit));
+    // No tocamos el pool por defecto: respetamos DATABASE_URL/DIRECT_URL.
+    // Solo aplicamos override si se configuró explícitamente por env.
+    if (Number.isFinite(explicitLimit) && explicitLimit > 0) {
+      parsed.searchParams.set("connection_limit", String(Math.trunc(explicitLimit)));
     }
-    if (!Number.isFinite(rawTimeout) || rawTimeout < minTimeout) {
-      parsed.searchParams.set("pool_timeout", String(minTimeout));
+    if (Number.isFinite(explicitTimeout) && explicitTimeout > 0) {
+      parsed.searchParams.set("pool_timeout", String(Math.trunc(explicitTimeout)));
     }
 
     return parsed.toString();
@@ -33,8 +29,11 @@ const applyPoolParams = (url: string) => {
   }
 };
 
-// Por defecto en dev usamos DATABASE_URL (pooler), que es más estable para tráfico web.
-// Si necesitás alinear runtime con DIRECT_URL para debug puntual, activá:
+// Por defecto en dev usamos DATABASE_URL (pool), que es más estable para tráfico web.
+// Nota DigitalOcean: el path del pool (ej: /ofistur-app) puede ser el NOMBRE del pool y
+// NO necesariamente el nombre real de la base de datos backend.
+//
+// Si necesitás forzar runtime con DIRECT_URL para debug puntual, activá:
 // PRISMA_USE_DIRECT_IN_DEV=true
 const useDirectInDev = process.env.PRISMA_USE_DIRECT_IN_DEV === "true";
 const baseUrl =
@@ -44,9 +43,7 @@ const baseUrl =
     ? process.env.DIRECT_URL
     : process.env.DATABASE_URL;
 const shouldPatchPool =
-  process.env.NODE_ENV !== "production" ||
-  !!process.env.PRISMA_POOL_LIMIT ||
-  !!process.env.PRISMA_POOL_TIMEOUT;
+  !!process.env.PRISMA_POOL_LIMIT || !!process.env.PRISMA_POOL_TIMEOUT;
 const prismaUrl =
   baseUrl && shouldPatchPool ? applyPoolParams(baseUrl) : baseUrl;
 

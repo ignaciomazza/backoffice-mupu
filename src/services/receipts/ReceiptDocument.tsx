@@ -11,6 +11,7 @@ import {
   Font,
 } from "@react-pdf/renderer";
 import { softWrapLongWords } from "@/lib/pdfText";
+import { formatDateOnlyInBuenosAires } from "@/lib/buenosAiresDate";
 
 /** Línea de pago para el PDF */
 export type ReceiptPdfPaymentLine = {
@@ -131,33 +132,26 @@ const safeFmtCurrency = (value: number, curr: string) => {
   return `${fmtNumber(value)} ${curr}`;
 };
 
-const fmtDate = (d: Date) =>
-  new Intl.DateTimeFormat("es-AR", {
-    timeZone: "America/Argentina/Buenos_Aires",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(d);
-
-const toValidDate = (value?: string | Date | null) => {
-  if (!value) return null;
-  const d = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d;
+const fmtDate = (
+  value: string | number | Date | null | undefined,
+): string => {
+  const formatted = formatDateOnlyInBuenosAires(value);
+  return formatted === "-" ? "—" : formatted;
 };
 
 const formatServiceRange = (svc: {
   departureDate?: string | Date | null;
   returnDate?: string | Date | null;
 }) => {
-  const dep = toValidDate(svc.departureDate);
-  const ret = toValidDate(svc.returnDate);
-  if (dep && ret) {
-    const depLabel = fmtDate(dep);
-    const retLabel = fmtDate(ret);
+  const depLabel = fmtDate(svc.departureDate);
+  const retLabel = fmtDate(svc.returnDate);
+  const hasDep = depLabel !== "—";
+  const hasRet = retLabel !== "—";
+  if (hasDep && hasRet) {
     return depLabel === retLabel ? depLabel : `${depLabel} - ${retLabel}`;
   }
-  if (dep) return fmtDate(dep);
-  if (ret) return fmtDate(ret);
+  if (hasDep) return depLabel;
+  if (hasRet) return retLabel;
   return "—";
 };
 
@@ -414,7 +408,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
           <View style={styles.headerRightRow}>
             <Text style={styles.docTitle}>Recibo de pago</Text>
             <Text style={styles.docSub}>Nro {receiptNumber}</Text>
-            <Text style={styles.docSub}>{fmtDate(new Date(issueDate))}</Text>
+            <Text style={styles.docSub}>{fmtDate(issueDate)}</Text>
           </View>
         </View>
 
@@ -591,8 +585,7 @@ const ReceiptDocument: React.FC<ReceiptPdfData> = ({
             <View style={styles.infoBox}>
               <Text style={styles.infoLabel}>Desde / Hasta</Text>
               <Text style={styles.infoText}>
-                {fmtDate(new Date(departureDate))} -{" "}
-                {fmtDate(new Date(returnDate))}
+                {fmtDate(departureDate)} - {fmtDate(returnDate)}
               </Text>
             </View>
           </View>

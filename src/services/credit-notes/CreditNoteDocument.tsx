@@ -10,6 +10,7 @@ import {
   Font,
 } from "@react-pdf/renderer";
 import type { CreditNoteItem } from "@prisma/client";
+import { formatDateOnlyInBuenosAires } from "@/lib/buenosAiresDate";
 
 export interface VoucherData {
   CbteTipo: number; // 3: NC A, 8: NC B
@@ -47,19 +48,12 @@ Font.register({
 
 const fmtDate = (raw: string | number | Date): string => {
   const s = raw?.toString();
-  if (/^\d{8}$/.test(s || "")) {
-    return `${s!.slice(6, 8)}/${s!.slice(4, 6)}/${s!.slice(0, 4)}`;
-  }
-  const iso = s?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
-  const d = raw instanceof Date ? raw : new Date(s || "");
-  if (isNaN(d.getTime())) return String(s || "");
-  return new Intl.DateTimeFormat("es-AR", {
-    timeZone: "America/Argentina/Buenos_Aires",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(d);
+  const normalized =
+    /^\d{8}$/.test(s || "")
+      ? `${s!.slice(0, 4)}-${s!.slice(4, 6)}-${s!.slice(6, 8)}`
+      : raw;
+  const formatted = formatDateOnlyInBuenosAires(normalized);
+  return formatted === "-" ? String(s || "") : formatted;
 };
 
 const safeFmtCurrency = (value: number, curr: string): string => {

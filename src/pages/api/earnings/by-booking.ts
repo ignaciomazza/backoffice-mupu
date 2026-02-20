@@ -267,7 +267,10 @@ export default async function handler(
           sale,
           cost,
         );
-        commissionBaseByCurrency[cur] = commissionBeforeFee - fee - adjustments.total;
+        commissionBaseByCurrency[cur] = Math.max(
+          commissionBeforeFee - fee - adjustments.total,
+          0,
+        );
       }
     } else {
       // Base por moneda (mismo cálculo de /api/earnings)
@@ -285,7 +288,7 @@ export default async function handler(
         const dbCommission = Number(s.totalCommissionWithoutVAT ?? 0);
         const extraCosts = Number(s.extra_costs_amount ?? 0);
         const extraTaxes = Number(s.extra_taxes_amount ?? 0);
-        inc(cur, dbCommission - fee - extraCosts - extraTaxes);
+        inc(cur, Math.max(dbCommission - fee - extraCosts - extraTaxes, 0));
       }
     }
 
@@ -362,7 +365,7 @@ export default async function handler(
         const dbCommission = Number(s.totalCommissionWithoutVAT ?? 0);
         const extraCosts = Number(s.extra_costs_amount ?? 0);
         const extraTaxes = Number(s.extra_taxes_amount ?? 0);
-        const base = dbCommission - fee - extraCosts - extraTaxes;
+        const base = Math.max(dbCommission - fee - extraCosts - extraTaxes, 0);
         const { sellerPct } = resolveCommissionForContext({
           rule,
           overrides: custom,

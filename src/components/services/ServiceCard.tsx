@@ -195,10 +195,11 @@ export default function ServiceCard({
     ? (service.extra_adjustments as BillingAdjustmentComputed[])
     : [];
   const extraAdjustmentsTotal = extraCosts + extraTaxes;
-  const netCommission =
+  const netCommissionRaw =
     (service.totalCommissionWithoutVAT ?? 0) -
     (feeAmount ?? 0) -
     extraAdjustmentsTotal;
+  const netCommission = Math.max(netCommissionRaw, 0);
   const showAdjustments =
     Math.abs(extraAdjustmentsTotal) > 0.000001 || extraAdjustments.length > 0;
 
@@ -311,7 +312,11 @@ export default function ServiceCard({
           <div className="col-span-2 flex h-full items-center">
             <Stat
               label="Total Comisión neta"
-              value={fmtMoney(netCommission)}
+              value={
+                effectiveUseBookingSaleTotal
+                  ? "Se calcula por reserva"
+                  : fmtMoney(netCommission)
+              }
             />
           </div>
         )}
@@ -421,14 +426,23 @@ export default function ServiceCard({
           )}
 
           <Section title="Totales">
-            <Row
-              label={`Costos bancarios · ${(Number(feePct || 0) * 100).toFixed(2)}%`}
-              value={fmtMoney(feeAmount)}
-            />
-            <Row
-              label="Total Comisión neta"
-              value={fmtMoney(netCommission)}
-            />
+            {effectiveUseBookingSaleTotal ? (
+              <Row
+                label="Total Comisión neta"
+                value="Se calcula por reserva"
+              />
+            ) : (
+              <>
+                <Row
+                  label={`Costos bancarios · ${(Number(feePct || 0) * 100).toFixed(2)}%`}
+                  value={fmtMoney(feeAmount)}
+                />
+                <Row
+                  label="Total Comisión neta"
+                  value={fmtMoney(netCommission)}
+                />
+              </>
+            )}
           </Section>
 
           <ServiceFilesPanel

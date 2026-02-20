@@ -34,3 +34,29 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Billing recurrente (PR #1)
+
+Variables de entorno esperadas:
+
+```bash
+BILLING_TIMEZONE=America/Argentina/Buenos_Aires
+BILLING_ANCHOR_DAY=8
+BILLING_DUNNING_RETRY_DAYS=2,4
+BILLING_DIRECT_DEBIT_DISCOUNT_PCT=10
+BILLING_DEFAULT_VAT_RATE=0.21
+BILLING_REQUIRE_BSP_TODAY=true
+BILLING_SECRETS_KEY_B64=<base64-de-32-bytes>
+```
+
+## Base de datos y migraciones
+
+Antes de correr migraciones o validar endpoints nuevos:
+
+```bash
+npm run db:check-alignment
+```
+
+Guía completa:
+
+- `docs/DATABASE_RUNTIME_MIGRATIONS.md`

@@ -208,7 +208,10 @@ export default function SideBar({
       "/operators/panel": ["desarrollador", "administrativo", "gerente"],
       "/operators/insights": ["desarrollador", "administrativo", "gerente"],
       "/agency": devMgr,
+      "/agency/subscription": adm,
       "/agency/storage": adm,
+      "/dev/collections/fx": devMgr,
+      "/dev/collections/recurring": devMgr,
       "/arca": devMgr,
       "/teams": devMgr,
       "/invoices": adm,
@@ -416,6 +419,9 @@ export default function SideBar({
         title: "Agencia",
         items: [
           hasAccess("/agency") ? { href: "/agency", label: "Agencia" } : null,
+          hasAccess("/agency/subscription")
+            ? { href: "/agency/subscription", label: "Suscripción" }
+            : null,
           hasAccess("/agency/storage")
             ? { href: "/agency/storage", label: "Almacenamiento" }
             : null,
@@ -443,6 +449,12 @@ export default function SideBar({
             : null,
           hasAccess("/dev/agencies/leads")
             ? { href: "/dev/agencies/leads", label: "Leads" }
+            : null,
+          hasAccess("/dev/collections/fx")
+            ? { href: "/dev/collections/fx", label: "Cotización BSP" }
+            : null,
+          hasAccess("/dev/collections/recurring")
+            ? { href: "/dev/collections/recurring", label: "Cobranzas recurrentes" }
             : null,
         ].filter(Boolean) as { href: string; label: string }[],
       },

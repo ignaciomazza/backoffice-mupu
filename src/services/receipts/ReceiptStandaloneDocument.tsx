@@ -11,6 +11,7 @@ import {
   Font,
 } from "@react-pdf/renderer";
 import { softWrapLongWords } from "@/lib/pdfText";
+import { formatDateOnlyInBuenosAires } from "@/lib/buenosAiresDate";
 import type { ReceiptPdfPaymentLine } from "./ReceiptDocument";
 
 export type ReceiptStandalonePdfData = {
@@ -84,13 +85,12 @@ const safeFmtCurrency = (value: number, curr: string) => {
   return `${fmtNumber(value)} ${curr}`;
 };
 
-const fmtDate = (d: Date) =>
-  new Intl.DateTimeFormat("es-AR", {
-    timeZone: "America/Argentina/Buenos_Aires",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(d);
+const fmtDate = (
+  value: string | number | Date | null | undefined,
+): string => {
+  const formatted = formatDateOnlyInBuenosAires(value);
+  return formatted === "-" ? "—" : formatted;
+};
 
 const CREDIT_METHOD_LABEL = "Credito operador";
 const VIRTUAL_CREDIT_METHOD_ID = 999000000;
