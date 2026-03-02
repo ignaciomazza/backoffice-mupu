@@ -13,6 +13,13 @@ import {
   formatDateInBuenosAires,
   todayDateKeyInBuenosAires,
 } from "@/lib/buenosAiresDate";
+import {
+  downloadCsvFile,
+  formatCsvNumber,
+  toCsvHeaderRow,
+  toCsvRow,
+} from "@/utils/csv";
+import ExportSheetButton from "@/components/ui/ExportSheetButton";
 
 /* =========================================================
  * Tipos (alineados con /api/cashbox)
@@ -208,6 +215,27 @@ function movementTypeLabel(type: MovementKind): string {
       return "Deuda pax";
     case "operator_debt":
       return "Deuda operador";
+    default:
+      return "Otro";
+  }
+}
+
+function movementSourceLabel(source: MovementSource): string {
+  switch (source) {
+    case "receipt":
+      return "Recibo";
+    case "other_income":
+      return "Ingreso";
+    case "investment":
+      return "Pago a operador";
+    case "client_payment":
+      return "Cuota de pax";
+    case "operator_due":
+      return "Deuda de operador";
+    case "credit_entry":
+      return "Movimiento de crédito";
+    case "manual":
+      return "Manual";
     default:
       return "Otro";
   }
@@ -595,7 +623,7 @@ export default function CashboxPage() {
         "Cuenta",
         "Relacionado",
         "Vence",
-      ].join(";");
+      ];
 
       const rows = sortedFilteredMovements.map((movement) => {
         const paymentEntries =
@@ -633,37 +661,25 @@ export default function CashboxPage() {
           .filter(Boolean)
           .join(" | ");
 
-        const cells = [
-          formatDateShort(movement.date),
-          movementTypeLabel(movement.type),
-          movement.source,
-          movement.categoryName || "",
-          movement.description || "",
-          movement.counterpartyName || "",
-          movement.payeeName || "",
-          normCurrency(movement.currency),
-          formatAmount(movement.amount, movement.currency),
-          methodText || "",
-          accountText || "",
-          relatedText,
-          movement.dueDate ? formatDateShort(movement.dueDate) : "",
-        ];
-
-        return cells
-          .map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`)
-          .join(";");
+        return toCsvRow([
+          { value: formatDateShort(movement.date) },
+          { value: movementTypeLabel(movement.type) },
+          { value: movementSourceLabel(movement.source) },
+          { value: movement.categoryName || "" },
+          { value: movement.description || "" },
+          { value: movement.counterpartyName || "" },
+          { value: movement.payeeName || "" },
+          { value: normCurrency(movement.currency) },
+          { value: formatCsvNumber(movement.amount), numeric: true },
+          { value: methodText || "" },
+          { value: accountText || "" },
+          { value: relatedText },
+          { value: movement.dueDate ? formatDateShort(movement.dueDate) : "" },
+        ]);
       });
 
-      const csv = [headers, ...rows].join("\r\n");
-      const blob = new Blob(["\uFEFF", csv], {
-        type: "text/csv;charset=utf-8;",
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `caja_movimientos_${todayDateKeyInBuenosAires()}.csv`;
-      link.click();
-      URL.revokeObjectURL(url);
+      const csv = [toCsvHeaderRow(headers), ...rows].join("\r\n");
+      downloadCsvFile(csv, `caja_movimientos_${todayDateKeyInBuenosAires()}.csv`);
     } catch (error) {
       console.error("[cashbox/page] Error exportando CSV:", error);
       toast.error("No se pudo exportar los movimientos.");
@@ -1107,16 +1123,11 @@ export default function CashboxPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
+                    <ExportSheetButton
                       onClick={downloadCSV}
-                      disabled={
-                        exportingCsv || sortedFilteredMovements.length === 0
-                      }
-                      className="rounded-full border border-emerald-500/40 bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-60 dark:text-emerald-100"
-                    >
-                      {exportingCsv ? "Exportando..." : "Exportar CSV"}
-                    </button>
+                      loading={exportingCsv}
+                      disabled={exportingCsv || sortedFilteredMovements.length === 0}
+                    />
                     <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold text-zinc-800 shadow-sm shadow-zinc-900/10 dark:bg-sky-800/10 dark:text-zinc-200">
                       {sortedFilteredMovements.length} movimiento
                       {sortedFilteredMovements.length === 1 ? "" : "s"} (con

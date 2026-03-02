@@ -13,6 +13,13 @@ import {
   toDateKeyInBuenosAiresLegacySafe,
   todayDateKeyInBuenosAires,
 } from "@/lib/buenosAiresDate";
+import {
+  downloadCsvFile,
+  formatCsvNumber,
+  toCsvHeaderRow,
+  toCsvRow,
+} from "@/utils/csv";
+import ExportSheetButton from "@/components/ui/ExportSheetButton";
 import "react-toastify/dist/ReactToastify.css";
 
 const PANEL =
@@ -258,6 +265,15 @@ const fmtDate = (iso?: string | null) => {
   return formatDateOnlyInBuenosAires(iso ?? null);
 };
 
+const incomeVerificationStatusLabel = (status?: string | null): string => {
+  const normalized = String(status || "")
+    .trim()
+    .toUpperCase();
+  if (normalized === "VERIFIED") return "Verificado";
+  if (normalized === "PENDING" || !normalized) return "Pendiente";
+  return normalized;
+};
+
 const ymdToday = () => todayDateKeyInBuenosAires();
 
 function toYmd(iso?: string | null): string {
@@ -310,6 +326,7 @@ export default function OtherIncomesPage() {
   const [cursor, setCursor] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
 
@@ -921,7 +938,8 @@ export default function OtherIncomesPage() {
   };
 
   const downloadCSV = async () => {
-    if (!token) return;
+    if (!token || exportingCsv) return;
+    setExportingCsv(true);
     try {
       const headers = [
         "Fecha",
@@ -936,7 +954,7 @@ export default function OtherIncomesPage() {
         "Costo financiero",
         "Estado",
         "Cobros",
-      ].join(";");
+      ];
 
       let next: number | null = null;
       const rows: string[] = [];
@@ -972,26 +990,27 @@ export default function OtherIncomesPage() {
             })
             .join(" | ");
 
-          const cells = [
-            fmtDate(row.issue_date),
-            String(row.agency_other_income_id ?? row.id_other_income),
-            row.description,
-            categoryLabel,
-            operatorLabel,
-            counterparty,
-            textOrEmpty(row.reference_note),
-            row.currency,
-            fmtMoney(row.amount, row.currency),
-            row.payment_fee_amount != null
-              ? fmtMoney(row.payment_fee_amount, row.currency)
-              : "",
-            row.verification_status || "PENDING",
-            paymentsLabel,
-          ];
           rows.push(
-            cells
-              .map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`)
-              .join(";"),
+            toCsvRow([
+              { value: fmtDate(row.issue_date) },
+              { value: String(row.agency_other_income_id ?? row.id_other_income) },
+              { value: row.description },
+              { value: categoryLabel },
+              { value: operatorLabel },
+              { value: counterparty },
+              { value: textOrEmpty(row.reference_note) },
+              { value: row.currency },
+              { value: formatCsvNumber(row.amount), numeric: true },
+              {
+                value:
+                  row.payment_fee_amount != null
+                    ? formatCsvNumber(row.payment_fee_amount)
+                    : "",
+                numeric: row.payment_fee_amount != null,
+              },
+              { value: incomeVerificationStatusLabel(row.verification_status) },
+              { value: paymentsLabel },
+            ]),
           );
         }
 
@@ -999,19 +1018,13 @@ export default function OtherIncomesPage() {
         if (next === null) break;
       }
 
-      const csv = [headers, ...rows].join("\r\n");
-      const blob = new Blob(["\uFEFF", csv], {
-        type: "text/csv;charset=utf-8;",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `ingresos_${todayDateKeyInBuenosAires()}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const csv = [toCsvHeaderRow(headers), ...rows].join("\r\n");
+      downloadCsvFile(csv, `ingresos_${todayDateKeyInBuenosAires()}.csv`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error al descargar CSV";
       toast.error(msg);
+    } finally {
+      setExportingCsv(false);
     }
   };
 
@@ -1124,13 +1137,12 @@ export default function OtherIncomesPage() {
                   ? "Ocultar filtros"
                   : `Filtros (${activeFilters.length})`}
               </button>
-              <button
-                type="button"
+              <ExportSheetButton
                 onClick={downloadCSV}
-                className="rounded-full border border-emerald-500/40 bg-emerald-500/20 px-4 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-500/30 dark:text-emerald-100"
-              >
-                Exportar CSV
-              </button>
+                loading={exportingCsv}
+                disabled={exportingCsv}
+                className="px-4 py-2 text-xs sm:text-xs"
+              />
               <button
                 type="button"
                 onClick={refreshList}

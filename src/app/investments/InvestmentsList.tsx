@@ -5,6 +5,7 @@ import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
 import { toast } from "react-toastify";
 import Spinner from "@/components/Spinner";
+import ExportSheetButton from "@/components/ui/ExportSheetButton";
 import { authFetch } from "@/utils/authFetch";
 import type { Investment, Operator } from "./types";
 
@@ -793,15 +794,12 @@ export default function InvestmentsList({
             </svg>
           </button>
 
-          <button
-            type="button"
+          <ExportSheetButton
             onClick={onExportCSV}
+            loading={exportingCsv}
             disabled={exportingCsv}
-            className={compactFilterControlClass}
-            title="Exportar CSV"
-          >
-            {exportingCsv ? "Exportando..." : "Exportar CSV"}
-          </button>
+            className="sm:text-xs"
+          />
         </div>
       </div>
 

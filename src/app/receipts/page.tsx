@@ -25,6 +25,13 @@ import {
   toDateKeyInBuenosAiresLegacySafe,
   todayDateKeyInBuenosAires,
 } from "@/lib/buenosAiresDate";
+import {
+  downloadCsvFile,
+  formatCsvNumber,
+  toCsvHeaderRow,
+  toCsvRow,
+} from "@/utils/csv";
+import ExportSheetButton from "@/components/ui/ExportSheetButton";
 import type {
   BookingOption,
   ServiceLite,
@@ -283,6 +290,7 @@ export default function ReceiptsPage() {
   const [data, setData] = useState<ReceiptRow[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const [pageInit, setPageInit] = useState(false);
   const [loadingPdfId, setLoadingPdfId] = useState<number | null>(null);
   const [loadingDeleteId, setLoadingDeleteId] = useState<number | null>(null);
@@ -846,6 +854,8 @@ export default function ReceiptsPage() {
 
   /* ---------- CSV (scan multipágina) ---------- */
   const downloadCSV = async () => {
+    if (exportingCsv) return;
+    setExportingCsv(true);
     try {
       const headers = [
         "Fecha",
@@ -855,14 +865,17 @@ export default function ReceiptsPage() {
         "Vendedor",
         "Método",
         "Cuenta",
+        "Moneda valor aplicado",
         "Valor aplicado",
+        "Moneda costo medio",
         "Costo medio",
+        "Moneda cobrado al pax",
         "Cobrado al pax",
         "Conversión",
         "Concepto",
         "Servicios",
         "Pasajeros",
-      ].join(";");
+      ];
 
       let next: number | null = null;
       const rows: string[] = [];
@@ -882,26 +895,48 @@ export default function ReceiptsPage() {
         );
 
         for (const r of pageNorm) {
-          const cells = [
-            r._dateLabel,
-            r._displayReceiptNumber,
-            String(r.booking?.id_booking ?? ""),
-            r._titularFull,
-            r._ownerFull,
-            r.payment_method || r.currency || "",
-            r.account || "",
-            r._amountLabel,
-            r._feeLabel,
-            r._clientTotalLabel,
-            r._convLabel,
-            r.concept || "",
-            String(r.serviceIds?.length ?? 0),
-            String(r.clientIds?.length ?? 0),
-          ];
+          const displayCurrency = (r._displayCurrency || "ARS").toUpperCase();
+          const fee = toNum(r.payment_fee_amount);
+          const feeCurrency = String(
+            r.payment_fee_currency || r.amount_currency || displayCurrency,
+          ).toUpperCase();
+          const clientTotal = toNum(r.amount) + fee;
+          const clientTotalCurrency = String(
+            r.amount_currency || feeCurrency || displayCurrency,
+          ).toUpperCase();
+
           rows.push(
-            cells
-              .map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`)
-              .join(";"),
+            toCsvRow([
+              { value: r._dateLabel },
+              { value: r._displayReceiptNumber },
+              { value: String(r.booking?.id_booking ?? "") },
+              { value: r._titularFull },
+              { value: r._ownerFull },
+              { value: r.payment_method || r.currency || "" },
+              { value: r.account || "" },
+              { value: displayCurrency },
+              { value: formatCsvNumber(r._displayAmount), numeric: true },
+              { value: feeCurrency },
+              { value: formatCsvNumber(fee), numeric: true },
+              { value: clientTotalCurrency },
+              { value: formatCsvNumber(clientTotal), numeric: true },
+              { value: r._convLabel },
+              { value: r.concept || "" },
+              {
+                value: formatCsvNumber(r.serviceIds?.length ?? 0, {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0,
+                }),
+                numeric: true,
+              },
+              {
+                value: formatCsvNumber(r.clientIds?.length ?? 0, {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0,
+                }),
+                numeric: true,
+              },
+            ]),
           );
         }
 
@@ -909,19 +944,13 @@ export default function ReceiptsPage() {
         if (next === null) break;
       }
 
-      const csv = [headers, ...rows].join("\r\n");
-      const blob = new Blob(["\uFEFF", csv], {
-        type: "text/csv;charset=utf-8;",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `receipts_${todayDateKeyInBuenosAires()}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const csv = [toCsvHeaderRow(headers), ...rows].join("\r\n");
+      downloadCsvFile(csv, `receipts_${todayDateKeyInBuenosAires()}.csv`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error al descargar CSV";
       toast.error(msg);
+    } finally {
+      setExportingCsv(false);
     }
   };
 
@@ -1723,9 +1752,11 @@ export default function ReceiptsPage() {
             </button>
           </div>
 
-          <button onClick={downloadCSV} className={ICON_BTN}>
-            Exportar CSV
-          </button>
+          <ExportSheetButton
+            onClick={downloadCSV}
+            loading={exportingCsv}
+            disabled={exportingCsv}
+          />
         </div>
 
         {/* Filtros */}

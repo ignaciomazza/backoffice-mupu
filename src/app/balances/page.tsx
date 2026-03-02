@@ -15,6 +15,13 @@ import {
   toDateKeyInBuenosAiresLegacySafe,
   todayDateKeyInBuenosAires,
 } from "@/lib/buenosAiresDate";
+import {
+  downloadCsvFile,
+  formatCsvNumber,
+  toCsvHeaderRow,
+  toCsvRow,
+} from "@/utils/csv";
+import ExportSheetButton from "@/components/ui/ExportSheetButton";
 
 /* ================= Tipos ================= */
 
@@ -454,6 +461,7 @@ export default function BalancesPage() {
   const [data, setData] = useState<Booking[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const [pageInit, setPageInit] = useState(false);
 
   /* ---------- Densidad / layout ---------- */
@@ -1413,97 +1421,36 @@ export default function BalancesPage() {
   }, [getNumericColumnValues, sortedRows, visibleCols]);
 
   /* ---------- CSV (full-scan, no sólo lo cargado) ---------- */
-  const toCell = (col: VisibleKey, b: NormalizedBooking): string => {
-    let raw = "";
+  const toTextCellValue = (col: VisibleKey, b: NormalizedBooking): string => {
     switch (col) {
       case "id_booking":
-        raw = String(b.agency_booking_id ?? b.id_booking);
-        break;
+        return String(b.agency_booking_id ?? b.id_booking);
       case "titular":
-        raw = b._titularFull || "";
-        break;
+        return b._titularFull || "";
       case "owner":
-        raw = b._ownerFull || "";
-        break;
+        return b._ownerFull || "";
       case "clientStatus":
-        raw = b.clientStatus || "";
-        break;
+        return b.clientStatus || "";
       case "operatorStatus":
-        raw = b.operatorStatus || "";
-        break;
+        return b.operatorStatus || "";
       case "creation_date":
-        raw = formatDateAR(b.creation_date);
-        break;
+        return formatDateAR(b.creation_date);
       case "travel":
-        raw = b._travelLabel;
-        break;
-      case "sale_total":
-        raw = b._saleLabel;
-        break;
-      case "paid_total":
-        raw = b._paidLabel;
-        break;
-      case "debt_total":
-        raw = b._debtLabel;
-        break;
-      case "operator_debt":
-        raw = b._operatorDebtLabel;
-        break;
-      case "tax_iva21":
-        raw = formatTaxField(b, "iva21") || "—";
-        break;
-      case "tax_iva105":
-        raw = formatTaxField(b, "iva105") || "—";
-        break;
-      case "tax_iva21_comm":
-        raw = formatTaxField(b, "iva21Comm") || "—";
-        break;
-      case "tax_iva105_comm":
-        raw = formatTaxField(b, "iva105Comm") || "—";
-        break;
-      case "tax_base21":
-        raw = formatTaxField(b, "base21") || "—";
-        break;
-      case "tax_base105":
-        raw = formatTaxField(b, "base105") || "—";
-        break;
-      case "tax_exento":
-        raw = formatTaxField(b, "exento") || "—";
-        break;
-      case "tax_otros":
-        raw = formatTaxField(b, "otros") || "—";
-        break;
-      case "tax_noComp":
-        raw = formatTaxField(b, "noComp") || "—";
-        break;
-      case "tax_transf":
-        raw = formatTaxField(b, "transf") || "—";
-        break;
-      case "tax_cardBase":
-        raw = formatTaxField(b, "cardIntBase") || "—";
-        break;
-      case "tax_cardIVA":
-        raw = formatTaxField(b, "cardIntIVA") || "—";
-        break;
-      case "tax_commNoVAT":
-        raw = formatTaxField(b, "commSinIVA") || "—";
-        break;
-      case "tax_commNet":
-        raw = formatTaxField(b, "commNet") || "—";
-        break;
-      case "tax_commWithVAT":
-        raw = formatTaxField(b, "commWithVAT") || "—";
-        break;
-      case "tax_total":
-        raw = formatTaxField(b, "total") || "—";
-        break;
+        return b._travelLabel;
+      default:
+        return "";
     }
-    return `"${String(raw).replace(/"/g, '""')}"`;
   };
 
   const downloadCSV = async () => {
+    if (exportingCsv) return;
+    setExportingCsv(true);
     try {
-      const headers = visibleCols.map((c) => c.label).join(";");
+      const headers = visibleCols.flatMap((col) =>
+        isNumericColumnKey(col.key)
+          ? [`${col.label} ARS`, `${col.label} USD`]
+          : [col.label],
+      );
 
       // Full-scan con paginado
       let next: number | null = null;
@@ -1524,23 +1471,30 @@ export default function BalancesPage() {
         );
 
         for (const b of pageNorm) {
-          rows.push(visibleCols.map((col) => toCell(col.key, b)).join(";"));
+          const rowCells = visibleCols.flatMap((col) => {
+            if (isNumericColumnKey(col.key)) {
+              const values = getNumericColumnValues(b, col.key);
+              return [
+                { value: formatCsvNumber(values.ARS), numeric: true },
+                { value: formatCsvNumber(values.USD), numeric: true },
+              ];
+            }
+            return [{ value: toTextCellValue(col.key, b) }];
+          });
+          rows.push(toCsvRow(rowCells));
         }
 
         next = json.nextCursor ?? null;
         if (next === null) break;
       }
 
-      const csv = [headers, ...rows].join("\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `reservas_${todayDateKeyInBuenosAires()}.csv`;
-      a.click();
+      const csv = [toCsvHeaderRow(headers), ...rows].join("\r\n");
+      downloadCsvFile(csv, `reservas_${todayDateKeyInBuenosAires()}.csv`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error al descargar CSV";
       toast.error(msg);
+    } finally {
+      setExportingCsv(false);
     }
   };
 
@@ -1767,9 +1721,11 @@ export default function BalancesPage() {
 
           <div className="hidden h-5 w-px bg-sky-950/30 dark:bg-white/30 sm:block" />
 
-          <button onClick={downloadCSV} className={PRIMARY_BTN}>
-            Exportar CSV
-          </button>
+          <ExportSheetButton
+            onClick={downloadCSV}
+            loading={exportingCsv}
+            disabled={exportingCsv}
+          />
           {activeFilterCount > 0 && (
             <button onClick={clearFilters} className={ICON_BTN}>
               Limpiar filtros

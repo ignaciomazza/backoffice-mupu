@@ -3,6 +3,7 @@
 
 import React from "react";
 import Spinner from "@/components/Spinner";
+import ExportSheetButton from "@/components/ui/ExportSheetButton";
 
 /* ============================================
  * Tipos UI (solo para este componente)
@@ -224,13 +225,11 @@ export default function ClientStatsView<
           Columnas
         </button>
 
-        <button
+        <ExportSheetButton
           onClick={onDownloadCSV}
-          className={`${PRIMARY_BTN} disabled:opacity-50`}
+          loading={csvLoading}
           disabled={csvLoading}
-        >
-          {csvLoading ? <Spinner /> : "Descargar CSV"}
-        </button>
+        />
       </div>
 
       {/* Panel de filtros */}

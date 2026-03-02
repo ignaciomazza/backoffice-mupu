@@ -9,6 +9,11 @@ import "react-toastify/dist/ReactToastify.css";
 import { authFetch } from "@/utils/authFetch";
 import { useAuth } from "@/context/AuthContext";
 import { todayDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
+import {
+  downloadCsvFile,
+  toCsvHeaderRow,
+  toCsvRow,
+} from "@/utils/csv";
 import ClientStatsView, {
   type VisibleKey,
   type ColumnDef,
@@ -143,7 +148,7 @@ function toCSVCell(
     typeof v === "string" || typeof v === "number"
       ? String(v)
       : String(c.id_client);
-  return `"${raw.replace(/"/g, '""')}"`;
+  return raw;
 }
 
 /* =========================================================
@@ -842,18 +847,12 @@ export default function ClientStatsPage() {
         return sa.localeCompare(sb, "es") * factor;
       });
 
-      const headers = visibleCols.map((c) => c.label).join(";");
+      const headerRow = toCsvHeaderRow(visibleCols.map((c) => c.label));
       const rows = all.map((c) =>
-        visibleCols.map((col) => toCSVCell(col.key, c)).join(";"),
+        toCsvRow(visibleCols.map((col) => ({ value: toCSVCell(col.key, c) }))),
       );
-      const csv = [headers, ...rows].join("\n");
-
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `pasajeros_${todayDateKeyInBuenosAires()}.csv`;
-      a.click();
+      const csv = [headerRow, ...rows].join("\r\n");
+      downloadCsvFile(csv, `pasajeros_${todayDateKeyInBuenosAires()}.csv`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error al exportar CSV";
       toast.error(msg);

@@ -11,6 +11,13 @@ import Link from "next/link";
 import { authFetch } from "@/utils/authFetch";
 import { displayInvoiceNumber } from "@/utils/invoiceNumbers";
 import { formatDateOnlyInBuenosAires } from "@/lib/buenosAiresDate";
+import {
+  downloadCsvFile,
+  formatCsvNumber,
+  toCsvHeaderRow,
+  toCsvRow,
+} from "@/utils/csv";
+import ExportSheetButton from "@/components/ui/ExportSheetButton";
 
 interface Invoice {
   id_invoice: number;
@@ -103,6 +110,7 @@ export default function InvoicesPage() {
   const [to, setTo] = useState("");
   const [data, setData] = useState<InvoiceRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [csvLoading, setCsvLoading] = useState(false);
 
   const fmt = useCallback((v?: number, curr?: string) => {
     const currency =
@@ -252,93 +260,72 @@ export default function InvoicesPage() {
   }, [from, to, token]);
 
   const downloadCSV = () => {
-    // Helper: número con coma decimal (sin miles) para que Excel lo tome como número
-    const num = (v?: number) =>
-      Number(v ?? 0).toLocaleString("es-AR", {
-        useGrouping: false,
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
+    if (csvLoading) return;
+    setCsvLoading(true);
+    try {
+      const header = [
+        "Factura",
+        "Tipo de factura",
+        "Fecha",
+        "Pax",
+        "Dirección",
+        "Localidad",
+        "Código Postal",
+        "Moneda",
+        "Base21",
+        "Base10.5",
+        "Exento",
+        "Neto",
+        "IVA",
+        "Cotización",
+        "Total",
+      ];
+
+      const rows = data.map((inv) => {
+        const { base21, base105, baseEx, neto, iva } = getTaxBreakdown(inv);
+        const direccion = inv.address ?? "";
+        const localidad = inv.locality ?? "";
+        const codigoPostal = inv.postal_code ?? "";
+        const tipo = inv.isCredit
+          ? `Nota de crédito ${inv.type.slice(-1)}`
+          : inv.type;
+        const moneda = inv.currency === "DOL" ? "USD" : inv.currency || "ARS";
+        const cotizacion =
+          moneda === "USD"
+            ? formatCsvNumber(inv.payloadAfip.voucherData.MonCotiz ?? undefined, {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 6,
+              })
+            : "";
+
+        return toCsvRow([
+          { value: displayInvoiceNumber(inv.invoice_number) },
+          { value: tipo },
+          { value: getCbteDate(inv) },
+          { value: getClientName(inv) },
+          { value: direccion },
+          { value: localidad },
+          { value: codigoPostal },
+          { value: moneda },
+          { value: formatCsvNumber(base21), numeric: true },
+          { value: formatCsvNumber(base105), numeric: true },
+          { value: formatCsvNumber(baseEx), numeric: true },
+          { value: formatCsvNumber(neto), numeric: true },
+          { value: formatCsvNumber(iva), numeric: true },
+          { value: cotizacion, numeric: cotizacion !== "" },
+          { value: formatCsvNumber(inv.total_amount), numeric: true },
+        ]);
       });
 
-    // Helper: cotización (puede tener más decimales)
-    const rate = (v?: number) =>
-      v == null
-        ? ""
-        : Number(v).toLocaleString("es-AR", {
-            useGrouping: false,
-            maximumFractionDigits: 6,
-          });
-
-    // Celdas de texto entre comillas, números sin comillas
-    const escapeCell = (text: string) => `"${text.replace(/"/g, '""')}"`;
-    const csvRow = (cells: Array<{ value: string; numeric?: boolean }>) =>
-      cells.map((c) => (c.numeric ? c.value : escapeCell(c.value))).join(";");
-
-    // Agrego columna "Moneda"
-    const header = [
-      "Factura",
-      "Tipo de factura",
-      "Fecha",
-      "Pax",
-      "Dirección",
-      "Localidad",
-      "Código Postal",
-      "Moneda",
-      "Base21",
-      "Base10.5",
-      "Exento",
-      "Neto",
-      "IVA",
-      "Cotización",
-      "Total",
-    ];
-
-    const rows = data.map((inv) => {
-      const { base21, base105, baseEx, neto, iva } = getTaxBreakdown(inv);
-
-      const direccion = inv.address ?? "";
-      const localidad = inv.locality ?? "";
-      const codigoPostal = inv.postal_code ?? "";
-      const tipo = inv.isCredit
-        ? `Nota de crédito ${inv.type.slice(-1)}`
-        : inv.type;
-
-      // Normalizo moneda
-      const moneda = inv.currency === "DOL" ? "USD" : inv.currency || "ARS";
-
-      // Si es USD, muestro cotización numérica; si no, vacío
-      const cotizacion =
-        moneda === "USD"
-          ? rate(inv.payloadAfip.voucherData.MonCotiz ?? undefined)
-          : "";
-
-      return csvRow([
-        { value: displayInvoiceNumber(inv.invoice_number) }, // Factura (texto)
-        { value: tipo }, // Tipo (texto)
-        { value: getCbteDate(inv) }, // Fecha (texto dd/mm/aaaa)
-        { value: getClientName(inv) }, // Pax (texto)
-        { value: direccion }, // Dirección (texto)
-        { value: localidad }, // Localidad (texto)
-        { value: codigoPostal }, // CP (texto)
-        { value: moneda }, // Moneda (texto)
-        { value: num(base21), numeric: true }, // Base21 (número)
-        { value: num(base105), numeric: true }, // Base10.5 (número)
-        { value: num(baseEx), numeric: true }, // Exento (número)
-        { value: num(neto), numeric: true }, // Neto (número)
-        { value: num(iva), numeric: true }, // IVA (número)
-        { value: cotizacion, numeric: cotizacion !== "" }, // Cotización (número o vacío)
-        { value: num(inv.total_amount), numeric: true }, // Total (número)
-      ]);
-    });
-
-    const csvContent = [header.map(escapeCell).join(";"), ...rows].join("\r\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `facturas_${from}_${to}.csv`;
-    a.click();
+      const csvContent = [toCsvHeaderRow(header), ...rows].join("\r\n");
+      downloadCsvFile(csvContent, `facturas_${from}_${to}.csv`);
+    } catch (error) {
+      const msg =
+        error instanceof Error ? error.message : "Error al descargar planilla";
+      toast.error(msg);
+    } finally {
+      setCsvLoading(false);
+    }
   };
 
   return (
@@ -501,12 +488,11 @@ export default function InvoicesPage() {
                 </tbody>
               </table>
               <div className="flex w-full justify-end border-t border-white/10 px-4 py-2">
-                <button
+                <ExportSheetButton
                   onClick={downloadCSV}
-                  className="w-fit rounded-full bg-sky-100 px-4 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-                >
-                  Descargar Listado
-                </button>
+                  loading={csvLoading}
+                  disabled={csvLoading}
+                />
               </div>
             </div>
           )

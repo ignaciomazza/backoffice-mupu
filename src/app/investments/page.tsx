@@ -21,6 +21,12 @@ import {
   formatDateInBuenosAires,
   todayDateKeyInBuenosAires,
 } from "@/lib/buenosAiresDate";
+import {
+  downloadCsvFile,
+  formatCsvNumber,
+  toCsvHeaderRow,
+  toCsvRow,
+} from "@/utils/csv";
 import type { PlanKey } from "@/lib/billing/pricing";
 import type {
   Investment,
@@ -1180,7 +1186,7 @@ export default function Page() {
         "Cuenta",
         "Reserva",
         "Cargado por",
-      ].join(";");
+      ];
 
       let next: number | null = null;
       const rows: string[] = [];
@@ -1217,10 +1223,7 @@ export default function Page() {
             : "";
           const bookingNumber =
             item.booking?.agency_booking_id ?? item.booking_id ?? "";
-          const amountLabel = new Intl.NumberFormat("es-AR", {
-            style: "currency",
-            currency: item.currency || "ARS",
-          }).format(Number(item.amount || 0));
+          const amountValue = formatCsvNumber(item.amount ?? 0);
 
           const paymentLabel =
             Array.isArray(item.payments) && item.payments.length > 0
@@ -1233,26 +1236,22 @@ export default function Page() {
                   .join(" | ")
               : item.payment_method || "";
 
-          const cells = [
-            formatDateInBuenosAires(item.paid_at ?? item.created_at),
-            String(item.agency_investment_id ?? item.id_investment),
-            item.category || "",
-            item.description || "",
-            item.counterparty_name || "",
-            operatorName,
-            userName,
-            (item.currency || "ARS").toUpperCase(),
-            amountLabel,
-            paymentLabel,
-            item.account || "",
-            String(bookingNumber),
-            createdByName,
-          ];
-
           rows.push(
-            cells
-              .map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`)
-              .join(";"),
+            toCsvRow([
+              { value: formatDateInBuenosAires(item.paid_at ?? item.created_at) },
+              { value: String(item.agency_investment_id ?? item.id_investment) },
+              { value: item.category || "" },
+              { value: item.description || "" },
+              { value: item.counterparty_name || "" },
+              { value: operatorName },
+              { value: userName },
+              { value: (item.currency || "ARS").toUpperCase() },
+              { value: amountValue, numeric: true },
+              { value: paymentLabel },
+              { value: item.account || "" },
+              { value: String(bookingNumber) },
+              { value: createdByName },
+            ]),
           );
         }
 
@@ -1260,16 +1259,8 @@ export default function Page() {
         if (next === null) break;
       }
 
-      const csv = [headers, ...rows].join("\r\n");
-      const blob = new Blob(["\uFEFF", csv], {
-        type: "text/csv;charset=utf-8;",
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `inversion_${todayDateKeyInBuenosAires()}.csv`;
-      link.click();
-      URL.revokeObjectURL(url);
+      const csv = [toCsvHeaderRow(headers), ...rows].join("\r\n");
+      downloadCsvFile(csv, `inversion_${todayDateKeyInBuenosAires()}.csv`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al exportar CSV");
     } finally {
