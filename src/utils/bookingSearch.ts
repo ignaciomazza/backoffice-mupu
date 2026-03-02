@@ -1,31 +1,40 @@
-import { toDateKeyInBuenosAires } from "@/lib/buenosAiresDate";
-
-type SearchUser = {
-  first_name?: string | null;
-  last_name?: string | null;
-  email?: string | null;
-};
-
-export type SearchableClient = {
+type SearchBookingPerson = {
   id_client?: number | null;
   agency_client_id?: number | null;
   first_name?: string | null;
   last_name?: string | null;
-  phone?: string | null;
-  address?: string | null;
-  postal_code?: string | null;
-  locality?: string | null;
   company_name?: string | null;
-  tax_id?: string | null;
-  commercial_address?: string | null;
   dni_number?: string | null;
   passport_number?: string | null;
-  birth_date?: string | Date | null;
-  nationality?: string | null;
-  gender?: string | null;
+  tax_id?: string | null;
+  phone?: string | null;
   email?: string | null;
-  custom_fields?: unknown;
-  user?: SearchUser | null;
+};
+
+type SearchBookingCompanionCategory = {
+  name?: string | null;
+  code?: string | null;
+};
+
+type SearchBookingCompanion = {
+  age?: number | null;
+  notes?: string | null;
+  category?: SearchBookingCompanionCategory | null;
+};
+
+export type SearchableBooking = {
+  id_booking?: number | null;
+  agency_booking_id?: number | null;
+  details?: string | null;
+  observation?: string | null;
+  invoice_observation?: string | null;
+  invoice_type?: string | null;
+  clientStatus?: string | null;
+  operatorStatus?: string | null;
+  status?: string | null;
+  titular?: SearchBookingPerson | null;
+  clients?: Array<SearchBookingPerson | null> | null;
+  simple_companions?: Array<SearchBookingCompanion | null> | null;
 };
 
 const NO_MATCH_SCORE = 1_000_000;
@@ -44,40 +53,6 @@ function toDigits(value: unknown): string {
   return String(value ?? "").replace(/\D/g, "");
 }
 
-function toDateText(value: unknown): string {
-  if (!value) return "";
-  if (
-    value instanceof Date ||
-    typeof value === "string" ||
-    typeof value === "number"
-  ) {
-    return toDateKeyInBuenosAires(value) ?? "";
-  }
-  return "";
-}
-
-function flattenUnknown(value: unknown, seen = new WeakSet<object>()): string[] {
-  if (value == null) return [];
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return [String(value)];
-  }
-  if (Array.isArray(value)) {
-    return value.flatMap((item) => flattenUnknown(item, seen));
-  }
-  if (typeof value === "object") {
-    if (seen.has(value)) return [];
-    seen.add(value);
-    return Object.entries(value as Record<string, unknown>).flatMap(
-      ([key, nested]) => [key, ...flattenUnknown(nested, seen)],
-    );
-  }
-  return [];
-}
-
 function uniqueNonEmpty(values: string[]): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -90,32 +65,59 @@ function uniqueNonEmpty(values: string[]): string[] {
   return out;
 }
 
-function collectSearchValues(client: SearchableClient): string[] {
-  const customValues = flattenUnknown(client.custom_fields);
-  const userName = `${client.user?.first_name ?? ""} ${client.user?.last_name ?? ""}`.trim();
+function collectPersonValues(person?: SearchBookingPerson | null): string[] {
+  if (!person) return [];
+  const firstName = person.first_name ?? "";
+  const lastName = person.last_name ?? "";
+  const fullName = `${firstName} ${lastName}`.trim();
+  const invertedName = `${lastName} ${firstName}`.trim();
   return uniqueNonEmpty([
-    String(client.id_client ?? ""),
-    String(client.agency_client_id ?? ""),
-    client.first_name ?? "",
-    client.last_name ?? "",
-    `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim(),
-    `${client.last_name ?? ""} ${client.first_name ?? ""}`.trim(),
-    client.phone ?? "",
-    client.address ?? "",
-    client.postal_code ?? "",
-    client.locality ?? "",
-    client.company_name ?? "",
-    client.tax_id ?? "",
-    client.commercial_address ?? "",
-    client.dni_number ?? "",
-    client.passport_number ?? "",
-    client.email ?? "",
-    client.nationality ?? "",
-    client.gender ?? "",
-    toDateText(client.birth_date),
-    userName,
-    client.user?.email ?? "",
-    ...customValues,
+    String(person.id_client ?? ""),
+    String(person.agency_client_id ?? ""),
+    firstName,
+    lastName,
+    fullName,
+    invertedName,
+    person.company_name ?? "",
+    person.dni_number ?? "",
+    person.passport_number ?? "",
+    person.tax_id ?? "",
+    person.phone ?? "",
+    person.email ?? "",
+  ]);
+}
+
+function collectCompanionValues(companion?: SearchBookingCompanion | null): string[] {
+  if (!companion) return [];
+  return uniqueNonEmpty([
+    String(companion.age ?? ""),
+    companion.notes ?? "",
+    companion.category?.name ?? "",
+    companion.category?.code ?? "",
+  ]);
+}
+
+function collectSearchValues(booking: SearchableBooking): string[] {
+  const titularValues = collectPersonValues(booking.titular);
+  const clientValues = (booking.clients ?? []).flatMap((person) =>
+    collectPersonValues(person),
+  );
+  const companionValues = (booking.simple_companions ?? []).flatMap((companion) =>
+    collectCompanionValues(companion),
+  );
+  return uniqueNonEmpty([
+    String(booking.id_booking ?? ""),
+    String(booking.agency_booking_id ?? ""),
+    booking.details ?? "",
+    booking.observation ?? "",
+    booking.invoice_observation ?? "",
+    booking.invoice_type ?? "",
+    booking.clientStatus ?? "",
+    booking.operatorStatus ?? "",
+    booking.status ?? "",
+    ...titularValues,
+    ...clientValues,
+    ...companionValues,
   ]);
 }
 
@@ -161,7 +163,6 @@ function levenshteinWithin(a: string, b: string, maxDistance: number): number {
 
 function scoreTextToken(token: string, candidate: string): number {
   if (!candidate) return NO_MATCH_SCORE;
-
   if (candidate === token || candidate.startsWith(token)) return 0;
   if (candidate.includes(token)) return 1;
 
@@ -218,8 +219,8 @@ function scoreDigitToken(queryDigits: string, candidateDigits: string): number {
   return NO_MATCH_SCORE;
 }
 
-export function scoreClientBySimilarity(
-  client: SearchableClient,
+export function scoreBookingBySimilarity(
+  booking: SearchableBooking,
   query: string,
 ): number {
   const normalizedQuery = normalizeText(query);
@@ -228,12 +229,10 @@ export function scoreClientBySimilarity(
 
   if (!queryTokens.length && !queryDigits) return 0;
 
-  const values = collectSearchValues(client);
+  const values = collectSearchValues(booking);
   if (!values.length) return NO_MATCH_SCORE;
 
-  const textCandidates = values
-    .map((value) => normalizeText(value))
-    .filter(Boolean);
+  const textCandidates = values.map((value) => normalizeText(value)).filter(Boolean);
   const digitCandidates = values.map((value) => toDigits(value)).filter(Boolean);
 
   let textScore = NO_MATCH_SCORE;
@@ -271,7 +270,7 @@ export function scoreClientBySimilarity(
   return Number.isFinite(bestScore) ? bestScore : NO_MATCH_SCORE;
 }
 
-export function rankClientsBySimilarity<T extends SearchableClient>(
+export function rankBookingsBySimilarity<T extends SearchableBooking>(
   list: T[],
   query: string,
 ): T[] {
@@ -280,15 +279,15 @@ export function rankClientsBySimilarity<T extends SearchableClient>(
   if (!normalizedQuery && !queryDigits) return list;
 
   const ranked = list
-    .map((client) => ({
-      client,
-      score: scoreClientBySimilarity(client, query),
+    .map((booking) => ({
+      booking,
+      score: scoreBookingBySimilarity(booking, query),
     }))
     .filter((entry) => entry.score < NO_MATCH_SCORE)
     .sort((a, b) => {
       if (a.score !== b.score) return a.score - b.score;
-      return Number(b.client.id_client ?? 0) - Number(a.client.id_client ?? 0);
+      return Number(b.booking.id_booking ?? 0) - Number(a.booking.id_booking ?? 0);
     });
 
-  return ranked.map((entry) => entry.client);
+  return ranked.map((entry) => entry.booking);
 }

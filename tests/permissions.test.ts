@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  canAccessResourceSection,
+  canManageResourceSection,
   canAccessBookingComponent,
   canAccessFinanceSection,
   normalizeRole,
+  resolveCalendarVisibility,
 } from "@/utils/permissions";
 
 describe("permissions role normalization", () => {
@@ -20,5 +23,46 @@ describe("permissions role normalization", () => {
     expect(canAccessFinanceSection("Administración", [], "receipts")).toBe(
       true,
     );
+  });
+
+  it("always allows viewing resources and calendar", () => {
+    expect(canAccessResourceSection("vendedor", [], "resources_notes")).toBe(
+      true,
+    );
+    expect(canAccessResourceSection("vendedor", [], "calendar", true)).toBe(
+      true,
+    );
+  });
+
+  it("applies custom rules only to edit permissions", () => {
+    expect(canManageResourceSection("lider", [], "resources_notes")).toBe(true);
+    expect(canManageResourceSection("vendedor", [], "calendar")).toBe(false);
+    expect(
+      canManageResourceSection("vendedor", ["calendar"], "calendar", true),
+    ).toBe(true);
+    expect(
+      canManageResourceSection(
+        "administrativo",
+        ["resources_notes"],
+        "calendar",
+        true,
+      ),
+    ).toBe(false);
+  });
+
+  it("resolves calendar visibility by role or custom rule", () => {
+    expect(resolveCalendarVisibility("vendedor", null, false)).toBe("own");
+    expect(resolveCalendarVisibility("gerente", null, false)).toBe("all");
+    expect(
+      resolveCalendarVisibility(
+        "gerente",
+        {
+          id_user: 1,
+          sections: [],
+          calendar_visibility: "own",
+        },
+        true,
+      ),
+    ).toBe("own");
   });
 });

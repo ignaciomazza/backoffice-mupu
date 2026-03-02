@@ -64,6 +64,7 @@ model Agency {
   ExpenseCategory              ExpenseCategory[]
   FinanceConfig                FinanceConfig?
   ClientConfig                 ClientConfig?
+  ResourceConfig               ResourceConfig?
   billingConfig                AgencyBillingConfig?
   billingAdjustments           AgencyBillingAdjustment[]
   billingCycles                AgencyBillingCycle[]
@@ -1436,6 +1437,21 @@ model QuoteConfig {
   updated_at DateTime @updatedAt
 
   @@unique([id_agency, agency_quote_config_id], name: "agency_quote_config_id_unique")
+  @@index([id_agency])
+}
+
+model ResourceConfig {
+  id_config                 Int    @id @default(autoincrement())
+  agency_resource_config_id Int
+  id_agency                 Int    @unique
+  agency                    Agency @relation(fields: [id_agency], references: [id_agency], onDelete: Cascade)
+
+  access_rules Json?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([id_agency, agency_resource_config_id], name: "agency_resource_config_id_unique")
   @@index([id_agency])
 }
 

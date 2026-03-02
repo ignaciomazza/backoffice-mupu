@@ -9,6 +9,12 @@ import Spinner from "@/components/Spinner";
 import ResourceCard from "@/components/resources/ResourceCard";
 import ResourceForm from "@/components/resources/ResourceForm";
 import { authFetch } from "@/utils/authFetch";
+import {
+  canManageResourceSection,
+  normalizeResourceSectionRules,
+  normalizeRole,
+  type ResourceSectionKey,
+} from "@/utils/permissions";
 
 interface Resource {
   id_resource: number;
@@ -35,6 +41,10 @@ export default function Page() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string | null>(null);
+  const [resourceSections, setResourceSections] = useState<ResourceSectionKey[]>(
+    [],
+  );
+  const [resourceHasCustomRule, setResourceHasCustomRule] = useState(false);
   const [agencyId, setAgencyId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -68,6 +78,48 @@ export default function Page() {
     })();
 
     return () => controller.abort();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/resources/config",
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) {
+          if (alive) {
+            setResourceSections([]);
+            setResourceHasCustomRule(false);
+          }
+          return;
+        }
+        const payload = (await res.json()) as {
+          rules?: unknown;
+          has_custom_rule?: boolean;
+        };
+        const parsed = normalizeResourceSectionRules(payload?.rules);
+        if (!alive) return;
+        setResourceSections(parsed[0]?.sections ?? []);
+        setResourceHasCustomRule(
+          typeof payload?.has_custom_rule === "boolean"
+            ? payload.has_custom_rule
+            : parsed.length > 0,
+        );
+      } catch {
+        if (!alive) return;
+        setResourceSections([]);
+        setResourceHasCustomRule(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, [token]);
 
   // 2) Recursos por agencyId
@@ -148,11 +200,24 @@ export default function Page() {
     setResources((prev) => [newRes, ...prev]);
   };
 
-  const isManager =
-    role === "gerente" ||
-    role === "desarrollador" ||
-    role === "lider" ||
-    role === "administrativo";
+  const canManageResources = useMemo(
+    () =>
+      canManageResourceSection(
+        role,
+        resourceSections,
+        "resources_notes",
+        resourceHasCustomRule,
+      ),
+    [resourceHasCustomRule, resourceSections, role],
+  );
+
+  const canConfigureResources = useMemo(
+    () =>
+      ["gerente", "desarrollador", "administrativo"].includes(
+        normalizeRole(role),
+      ),
+    [role],
+  );
 
   return (
     <ProtectedRoute>
@@ -171,6 +236,14 @@ export default function Page() {
                 clara. Buscá rápido, filtrá por links y alterná entre cards o
                 tabla.
               </p>
+              {canConfigureResources && (
+                <Link
+                  href="/resources/config"
+                  className="inline-flex items-center gap-2 rounded-full border border-sky-200/70 bg-white/70 px-4 py-2 text-xs font-semibold text-sky-900 shadow-sm shadow-sky-950/10 transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/5 dark:text-white"
+                >
+                  Configuración
+                </Link>
+              )}
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-2xl border border-sky-200/60 bg-white/70 p-4 text-sky-950 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-white">
@@ -201,7 +274,7 @@ export default function Page() {
           </div>
         </div>
 
-        {isManager && (
+        {canManageResources && (
           <ResourceForm onCreated={handleCreated} agencyId={agencyId} />
         )}
 

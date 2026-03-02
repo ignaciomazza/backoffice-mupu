@@ -1,8 +1,12 @@
-// src/pages/api/calendar/notes/[id].ts
+// src/pages/api/calendar/[id].ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { resolveAuth } from "@/lib/auth";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import {
+  canManageResourceSectionByUser,
+  resolveCalendarVisibilityByUser,
+} from "@/lib/resourceAccess";
 
 export default async function handler(
   req: NextApiRequest,
@@ -23,18 +27,32 @@ export default async function handler(
     if (!planAccess.allowed) {
       return res.status(403).json({ error: "Plan insuficiente" });
     }
-    const { id_agency, role } = auth;
-    if (!["gerente", "administrativo", "desarrollador"].includes(role)) {
+    const { id_agency, id_user, role } = auth;
+    const canManage = await canManageResourceSectionByUser({
+      id_agency,
+      id_user,
+      role,
+      key: "calendar",
+    });
+    if (!canManage) {
       return res.status(403).json({ error: "Sin permisos" });
     }
+    const calendarVisibility = await resolveCalendarVisibilityByUser({
+      id_agency,
+      id_user,
+      role,
+    });
 
     // Aseguramos que la nota pertenezca a la misma agencia (vía el creador)
     const owned = await prisma.calendarNote.findFirst({
-      where: { id: noteId, creator: { id_agency } },
+      where:
+        calendarVisibility === "own"
+          ? { id: noteId, creator: { id_agency, id_user } }
+          : { id: noteId, creator: { id_agency } },
       select: { id: true },
     });
     if (!owned) {
-      return res.status(403).json({ error: "Nota de otra agencia" });
+      return res.status(403).json({ error: "Nota fuera de alcance" });
     }
 
     if (req.method === "PUT") {

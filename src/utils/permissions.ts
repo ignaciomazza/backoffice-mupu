@@ -140,14 +140,70 @@ export type BookingComponentAccessRule = {
   components: BookingComponentKey[];
 };
 
+const RESOURCE_ACCESS_ADMIN_ROLES = [
+  "desarrollador",
+  "gerente",
+  "administrativo",
+] as const;
+
+const RESOURCE_NOTES_MANAGER_ROLES = [
+  "desarrollador",
+  "gerente",
+  "administrativo",
+  "lider",
+] as const;
+
+const CALENDAR_MANAGER_ROLES = [
+  "desarrollador",
+  "gerente",
+  "administrativo",
+] as const;
+
+export const RESOURCE_SECTIONS = [
+  {
+    key: "resources_notes",
+    label: "Notas (Recursos)",
+    route: "/resources",
+    // El sistema historicamente dejo este modulo abierto para cualquier rol.
+    // Si hay regla explicita por usuario, esa regla toma prioridad.
+    openByDefault: true,
+    defaultRoles: RESOURCE_ACCESS_ADMIN_ROLES,
+    manageRoles: RESOURCE_NOTES_MANAGER_ROLES,
+  },
+  {
+    key: "calendar",
+    label: "Calendario",
+    route: "/calendar",
+    // El sistema historicamente dejo este modulo abierto para cualquier rol.
+    // Si hay regla explicita por usuario, esa regla toma prioridad.
+    openByDefault: true,
+    defaultRoles: RESOURCE_ACCESS_ADMIN_ROLES,
+    manageRoles: CALENDAR_MANAGER_ROLES,
+  },
+] as const;
+
+export type ResourceSectionKey = (typeof RESOURCE_SECTIONS)[number]["key"];
+
+export type CalendarVisibilityMode = "all" | "own";
+
+export type ResourceSectionAccessRule = {
+  id_user: number;
+  sections: ResourceSectionKey[];
+  calendar_visibility: CalendarVisibilityMode;
+};
+
 const financeKeySet = new Set(FINANCE_SECTIONS.map((s) => s.key));
 const bookingKeySet = new Set(BOOKING_COMPONENTS.map((c) => c.key));
+const resourceKeySet = new Set(RESOURCE_SECTIONS.map((s) => s.key));
 
 const financeByKey = new Map(
   FINANCE_SECTIONS.map((section) => [section.key, section]),
 );
 const bookingByKey = new Map(
   BOOKING_COMPONENTS.map((component) => [component.key, component]),
+);
+const resourceByKey = new Map(
+  RESOURCE_SECTIONS.map((section) => [section.key, section]),
 );
 
 function toPositiveInt(value: unknown): number | null {
@@ -175,6 +231,12 @@ function toKeyArray<T extends string>(
     seen.add(key);
   }
   return Array.from(seen).sort();
+}
+
+function normalizeCalendarVisibility(
+  value: unknown,
+): CalendarVisibilityMode {
+  return value === "own" ? "own" : "all";
 }
 
 export function normalizeRole(role?: string | null): string {
@@ -234,6 +296,25 @@ export function normalizeBookingComponentRules(
   return rules.sort((a, b) => a.id_user - b.id_user);
 }
 
+export function normalizeResourceSectionRules(
+  raw: unknown,
+): ResourceSectionAccessRule[] {
+  if (!Array.isArray(raw)) return [];
+  const rules: ResourceSectionAccessRule[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const id = toPositiveInt(rec.id_user);
+    if (!id) continue;
+    rules.push({
+      id_user: id,
+      sections: toKeyArray(rec.sections, resourceKeySet),
+      calendar_visibility: normalizeCalendarVisibility(rec.calendar_visibility),
+    });
+  }
+  return rules.sort((a, b) => a.id_user - b.id_user);
+}
+
 export function pickFinanceSectionRule(
   rules: FinanceSectionAccessRule[],
   userId?: number | null,
@@ -246,6 +327,14 @@ export function pickBookingComponentRule(
   rules: BookingComponentAccessRule[],
   userId?: number | null,
 ): BookingComponentAccessRule | null {
+  if (!userId) return null;
+  return rules.find((rule) => rule.id_user === userId) ?? null;
+}
+
+export function pickResourceSectionRule(
+  rules: ResourceSectionAccessRule[],
+  userId?: number | null,
+): ResourceSectionAccessRule | null {
   if (!userId) return null;
   return rules.find((rule) => rule.id_user === userId) ?? null;
 }
@@ -285,4 +374,57 @@ export function canAccessBookingComponent(
   const normalized = normalizeRole(role);
   if (hasRole(component.defaultRoles, normalized)) return true;
   return !!granted?.includes(key);
+}
+
+export function canAccessResourceSection(
+  role: string | null | undefined,
+  granted: ResourceSectionKey[] | null | undefined,
+  key: ResourceSectionKey,
+  hasCustomRule = false,
+): boolean {
+  void role;
+  void granted;
+  void key;
+  void hasCustomRule;
+  // Recursos y calendario siempre son visibles.
+  return true;
+}
+
+export function canAccessAnyResourceSection(
+  role: string | null | undefined,
+  granted: ResourceSectionKey[] | null | undefined,
+  hasCustomRule = false,
+): boolean {
+  return RESOURCE_SECTIONS.some((section) =>
+    canAccessResourceSection(role, granted, section.key, hasCustomRule),
+  );
+}
+
+export function canManageResourceSection(
+  role: string | null | undefined,
+  granted: ResourceSectionKey[] | null | undefined,
+  key: ResourceSectionKey,
+  hasCustomRule = false,
+): boolean {
+  if (hasCustomRule) return !!granted?.includes(key);
+
+  const section = resourceByKey.get(key);
+  if (!section) return false;
+  const normalized = normalizeRole(role);
+  if (hasRole(section.manageRoles, normalized)) return true;
+
+  // Compat: si llega una lista de grants (sin regla explicita), respetarla.
+  return !!granted?.includes(key);
+}
+
+export function resolveCalendarVisibility(
+  role: string | null | undefined,
+  rule?: ResourceSectionAccessRule | null,
+  hasCustomRule = false,
+): CalendarVisibilityMode {
+  if (hasCustomRule) {
+    return normalizeCalendarVisibility(rule?.calendar_visibility);
+  }
+  const normalized = normalizeRole(role);
+  return normalized === "vendedor" ? "own" : "all";
 }

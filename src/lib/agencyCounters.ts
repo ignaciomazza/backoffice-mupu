@@ -22,6 +22,7 @@ export const COUNTER_KEYS = [
   "finance_config",
   "client_config",
   "quote_config",
+  "resource_config",
   "agency_billing_config",
   "agency_billing_adjustment",
   "agency_billing_charge",

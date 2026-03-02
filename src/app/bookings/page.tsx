@@ -14,6 +14,7 @@ import "react-toastify/dist/ReactToastify.css";
 import { Booking, User, SalesTeam, PassengerCategory } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/utils/authFetch";
+import { rankBookingsBySimilarity } from "@/utils/bookingSearch";
 import { normalizeRole } from "@/utils/permissions";
 import {
   toDateKeyInBuenosAires,
@@ -989,24 +990,11 @@ export default function Page() {
     }
   };
 
-  // Nota: ya filtrás por q en el servidor; este extra es solo “client-side refine”
+  // Refine local consistente con la búsqueda server-side.
   const displayedBookings = useMemo(() => {
-    if (!debouncedSearch.trim()) return bookings;
-    const s = debouncedSearch.toLowerCase();
-    return bookings.filter((b) => {
-      const titularFull = b.titular
-        ? `${b.titular.first_name} ${b.titular.last_name}`
-        : "";
-      return (
-        b.id_booking.toString().includes(s) ||
-        (b.details || "").toLowerCase().includes(s) ||
-        (b.titular?.id_client ?? "").toString().includes(s) ||
-        titularFull.toLowerCase().includes(s) ||
-        (b.clients || []).some((c) =>
-          `${c.first_name} ${c.last_name}`.toLowerCase().includes(s),
-        )
-      );
-    });
+    const query = debouncedSearch.trim();
+    if (!query) return bookings;
+    return rankBookingsBySimilarity(bookings, query);
   }, [bookings, debouncedSearch]);
 
   const displayedTeamMembers = useMemo(() => {

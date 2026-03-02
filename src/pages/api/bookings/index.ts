@@ -17,6 +17,7 @@ import {
   getBookingTeamScope,
   resolveBookingVisibilityMode,
 } from "@/lib/bookingVisibility";
+import { rankBookingsBySimilarity } from "@/utils/bookingSearch";
 import { normalizeRole } from "@/utils/permissions";
 import { jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
@@ -252,6 +253,53 @@ const BOOKING_SELECT_WITHOUT_GROUP_COLUMNS = {
   Receipt: true,
 } satisfies Prisma.BookingSelect;
 
+const BOOKING_SEARCH_CANDIDATE_SELECT = {
+  id_booking: true,
+  agency_booking_id: true,
+  details: true,
+  observation: true,
+  invoice_observation: true,
+  invoice_type: true,
+  clientStatus: true,
+  operatorStatus: true,
+  status: true,
+  titular: {
+    select: {
+      id_client: true,
+      agency_client_id: true,
+      first_name: true,
+      last_name: true,
+      company_name: true,
+      dni_number: true,
+      passport_number: true,
+      tax_id: true,
+      phone: true,
+      email: true,
+    },
+  },
+  clients: {
+    select: {
+      id_client: true,
+      agency_client_id: true,
+      first_name: true,
+      last_name: true,
+      company_name: true,
+      dni_number: true,
+      passport_number: true,
+      tax_id: true,
+      phone: true,
+      email: true,
+    },
+  },
+  simple_companions: {
+    select: {
+      age: true,
+      notes: true,
+      category: { select: { name: true, code: true } },
+    },
+  },
+} satisfies Prisma.BookingSelect;
+
 function buildBookingSelectWithoutGroupColumns(
   includeOperatorDues: boolean,
 ): Prisma.BookingSelect {
@@ -286,6 +334,10 @@ type BookingListRow = {
   }>;
   [key: string]: unknown;
 };
+
+type BookingSearchCandidate = Prisma.BookingGetPayload<{
+  select: typeof BOOKING_SEARCH_CANDIDATE_SELECT;
+}>;
 
 async function isSimpleCompanionsEnabled(id_agency: number) {
   const cfg = await prisma.clientConfig.findUnique({
@@ -383,37 +435,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     // where base
     const where: Prisma.BookingWhereInput = { id_agency: authAgencyId };
 
-    // búsqueda simple
-    const q = typeof req.query.q === "string" ? req.query.q.trim() : undefined;
-    if (q && q.length > 0) {
-      const or: Prisma.BookingWhereInput[] = [];
-      const qNum = Number(q);
-      if (!isNaN(qNum)) {
-        or.push({ id_booking: qNum });
-        or.push({ agency_booking_id: qNum });
-        or.push({ titular: { id_client: qNum } });
-        or.push({ clients: { some: { id_client: qNum } } });
-      }
-      or.push({ details: { contains: q, mode: "insensitive" } });
-      or.push({
-        titular: { first_name: { contains: q, mode: "insensitive" } },
-      });
-      or.push({ titular: { last_name: { contains: q, mode: "insensitive" } } });
-      or.push({
-        clients: { some: { first_name: { contains: q, mode: "insensitive" } } },
-      });
-      or.push({
-        clients: { some: { last_name: { contains: q, mode: "insensitive" } } },
-      });
-      where.AND = [
-        ...(Array.isArray(where.AND)
-          ? where.AND
-          : where.AND
-            ? [where.AND]
-            : []),
-        { OR: or },
-      ];
-    }
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
     const visibilityMode = await resolveBookingVisibilityMode({
       id_agency: authAgencyId,
@@ -523,6 +545,126 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    const include: Prisma.BookingInclude = {
+      titular: true,
+      user: true,
+      agency: true,
+      clients: true,
+      simple_companions: { include: { category: true } },
+      services: { include: { operator: true } },
+      invoices: true,
+      Receipt: true,
+    };
+    if (includeOperatorDues) {
+      include.OperatorDue = {
+        select: {
+          amount: true,
+          currency: true,
+          status: true,
+        },
+      };
+    }
+
+    const enhanceBookings = (list: BookingListRow[]) =>
+      list.map((b) => {
+        const totalSale = b.services.reduce((sum, s) => sum + s.sale_price, 0);
+        const totalCommission = b.services.reduce(
+          (sum, s) => sum + (s.totalCommissionWithoutVAT ?? 0),
+          0,
+        );
+        const totalReceipts = b.Receipt.reduce((sum, r) => {
+          const hasBase = r.base_amount != null && r.base_currency;
+          const val = hasBase ? Number(r.base_amount) : r.amount;
+          return sum + (Number.isFinite(val) ? val : 0);
+        }, 0);
+        const debt = totalSale - totalReceipts;
+        const public_id =
+          b.agency_booking_id != null
+            ? encodePublicId({
+                t: "booking",
+                a: b.id_agency,
+                i: b.agency_booking_id,
+              })
+            : null;
+        return { ...b, totalSale, totalCommission, debt, public_id };
+      });
+
+    if (q) {
+      const searchWhereBase: Prisma.BookingWhereInput = where;
+      const searchWhere: Prisma.BookingWhereInput = includeGroupBookings
+        ? searchWhereBase
+        : appendWhereAnd(searchWhereBase, { travel_group_id: null });
+
+      let candidates: BookingSearchCandidate[] = [];
+      try {
+        candidates = await prisma.booking.findMany({
+          where: searchWhere,
+          select: BOOKING_SEARCH_CANDIDATE_SELECT,
+          orderBy: { id_booking: "desc" },
+        });
+      } catch (error) {
+        if (!isMissingBookingGroupColumnError(error)) {
+          throw error;
+        }
+
+        console.warn(
+          "[bookings][GET] Fallback de búsqueda por columnas de grupales no disponibles en Booking.",
+        );
+        candidates = await prisma.booking.findMany({
+          // Esquemas legacy sin columna travel_group_id no permiten excluir
+          // reservas de grupales desde SQL.
+          where: searchWhereBase,
+          select: BOOKING_SEARCH_CANDIDATE_SELECT,
+          orderBy: { id_booking: "desc" },
+        });
+      }
+
+      const rankedCandidates = rankBookingsBySimilarity(candidates, q);
+      const offset =
+        typeof cursor === "number" && Number.isFinite(cursor) && cursor > 0
+          ? Math.trunc(cursor)
+          : 0;
+      const paged = rankedCandidates.slice(offset, offset + take);
+      const nextCursor =
+        offset + paged.length < rankedCandidates.length ? offset + paged.length : null;
+
+      const pagedIds = paged.map((item) => item.id_booking);
+      if (!pagedIds.length) {
+        return res.status(200).json({ items: [], nextCursor: null });
+      }
+
+      let rows: BookingListRow[];
+      try {
+        rows = (await prisma.booking.findMany({
+          where: {
+            id_agency: authAgencyId,
+            id_booking: { in: pagedIds },
+          },
+          include,
+        })) as BookingListRow[];
+      } catch (error) {
+        if (!isMissingBookingGroupColumnError(error)) {
+          throw error;
+        }
+        rows = (await prisma.booking.findMany({
+          where: {
+            id_agency: authAgencyId,
+            id_booking: { in: pagedIds },
+          },
+          select: buildBookingSelectWithoutGroupColumns(includeOperatorDues),
+        })) as BookingListRow[];
+      }
+
+      const byId = new Map<number, BookingListRow>(
+        rows.map((row) => [row.id_booking, row]),
+      );
+      const orderedRows = pagedIds
+        .map((id) => byId.get(id))
+        .filter((row): row is BookingListRow => Boolean(row));
+      const enhanced = enhanceBookings(orderedRows);
+      return res.status(200).json({ items: enhanced, nextCursor });
+    }
+
     // ======= ORDEN Y KEYSET PAGINATION POR creation_date + id_booking =======
     // Más nuevas primero. Si querés más viejas primero, cambiar a "asc"
     const orderBy: Prisma.BookingOrderByWithRelationInput[] = [
@@ -566,26 +708,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       ? finalWhereBase
       : appendWhereAnd(finalWhereBase, { travel_group_id: null });
 
-    const include: Prisma.BookingInclude = {
-      titular: true,
-      user: true,
-      agency: true,
-      clients: true,
-      simple_companions: { include: { category: true } },
-      services: { include: { operator: true } },
-      invoices: true,
-      Receipt: true,
-    };
-    if (includeOperatorDues) {
-      include.OperatorDue = {
-        select: {
-          amount: true,
-          currency: true,
-          status: true,
-        },
-      };
-    }
-
     let rows: BookingListRow[];
     try {
       rows = (await prisma.booking.findMany({
@@ -616,28 +738,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const sliced = hasMore ? rows.slice(0, take) : rows;
     const nextCursor = hasMore ? sliced[sliced.length - 1].id_booking : null;
 
-    const enhanced = sliced.map((b) => {
-      const totalSale = b.services.reduce((sum, s) => sum + s.sale_price, 0);
-      const totalCommission = b.services.reduce(
-        (sum, s) => sum + (s.totalCommissionWithoutVAT ?? 0),
-        0,
-      );
-      const totalReceipts = b.Receipt.reduce((sum, r) => {
-        const hasBase = r.base_amount != null && r.base_currency;
-        const val = hasBase ? Number(r.base_amount) : r.amount;
-        return sum + (Number.isFinite(val) ? val : 0);
-      }, 0);
-      const debt = totalSale - totalReceipts;
-      const public_id =
-        b.agency_booking_id != null
-          ? encodePublicId({
-              t: "booking",
-              a: b.id_agency,
-              i: b.agency_booking_id,
-            })
-          : null;
-      return { ...b, totalSale, totalCommission, debt, public_id };
-    });
+    const enhanced = enhanceBookings(sliced);
 
     return res.status(200).json({ items: enhanced, nextCursor });
   } catch (error) {

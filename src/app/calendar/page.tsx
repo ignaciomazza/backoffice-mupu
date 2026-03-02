@@ -12,6 +12,12 @@ import Spinner from "@/components/Spinner";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { authFetch } from "@/utils/authFetch";
 import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
+import {
+  canManageResourceSection,
+  normalizeResourceSectionRules,
+  resolveCalendarVisibility,
+  type ResourceSectionAccessRule,
+} from "@/utils/permissions";
 
 type ClientStatus = "Todas" | "Pendiente" | "Pago" | "Facturado";
 type ViewOption = "dayGridMonth" | "dayGridWeek" | "dayGridDay";
@@ -25,12 +31,6 @@ interface User {
   last_name: string;
   role: string;
   id_agency: number;
-}
-
-interface SalesTeam {
-  id_team: number;
-  name: string;
-  user_teams: { user: User }[];
 }
 
 interface CalendarEvent extends EventInput {
@@ -73,7 +73,6 @@ export default function CalendarPage() {
 
   const [profile, setProfile] = useState<User | null>(null);
   const [vendors, setVendors] = useState<User[]>([]);
-  const [salesTeams, setSalesTeams] = useState<SalesTeam[]>([]);
   const [vendorInput, setVendorInput] = useState("");
   const [selectedVendor, setSelectedVendor] = useState(0);
   const [selectedClientStatus, setSelectedClientStatus] =
@@ -89,6 +88,9 @@ export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [loadingNote, setLoadingNote] = useState(false);
+  const [resourceRule, setResourceRule] =
+    useState<ResourceSectionAccessRule | null>(null);
+  const [resourceHasCustomRule, setResourceHasCustomRule] = useState(false);
 
   const [noteModal, setNoteModal] = useState<NoteModalData>({
     open: false,
@@ -111,6 +113,22 @@ export default function CalendarPage() {
     "Facturado",
   ];
 
+  const canManageCalendarNotes = useMemo(
+    () =>
+      canManageResourceSection(
+        role,
+        resourceRule?.sections ?? [],
+        "calendar",
+        resourceHasCustomRule,
+      ),
+    [resourceHasCustomRule, resourceRule, role],
+  );
+
+  const calendarVisibility = useMemo(
+    () => resolveCalendarVisibility(role, resourceRule, resourceHasCustomRule),
+    [resourceHasCustomRule, resourceRule, role],
+  );
+
   // Perfil + vendors + teams
   useEffect(() => {
     if (!token) return;
@@ -127,28 +145,15 @@ export default function CalendarPage() {
         const p = (await rProfile.json()) as User;
         setProfile(p);
 
-        const [rUsers, rTeams] = await Promise.all([
-          authFetch(
-            `/api/users?agencyId=${p.id_agency}`,
-            { cache: "no-store" },
-            token,
-          ),
-          authFetch(
-            `/api/teams?agencyId=${p.id_agency}`,
-            { cache: "no-store" },
-            token,
-          ),
-        ]);
+        const rUsers = await authFetch(
+          `/api/users?agencyId=${p.id_agency}`,
+          { cache: "no-store" },
+          token,
+        );
         if (!rUsers.ok) throw new Error("Error al obtener vendedores");
-        if (!rTeams.ok) throw new Error("Error al obtener equipos");
-
-        const [users, teams] = (await Promise.all([
-          rUsers.json(),
-          rTeams.json(),
-        ])) as [User[], SalesTeam[]];
+        const users = (await rUsers.json()) as User[];
 
         setVendors(users);
-        setSalesTeams(teams);
       } catch (e) {
         console.error(e);
       } finally {
@@ -157,33 +162,56 @@ export default function CalendarPage() {
     })();
   }, [token]);
 
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/resources/config",
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) {
+          if (alive) {
+            setResourceRule(null);
+            setResourceHasCustomRule(false);
+          }
+          return;
+        }
+        const payload = (await res.json()) as {
+          rules?: unknown;
+          has_custom_rule?: boolean;
+        };
+        const parsed = normalizeResourceSectionRules(payload?.rules);
+        if (!alive) return;
+        setResourceRule(parsed[0] ?? null);
+        setResourceHasCustomRule(
+          typeof payload?.has_custom_rule === "boolean"
+            ? payload.has_custom_rule
+            : parsed.length > 0,
+        );
+      } catch {
+        if (!alive) return;
+        setResourceRule(null);
+        setResourceHasCustomRule(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+
   // Vendedores permitidos según rol
   const allowedVendors = useMemo(() => {
     if (!profile) return [];
-    if (profile.role === "vendedor") {
+    if (calendarVisibility === "own") {
       return vendors.filter((u) => u.id_user === profile.id_user);
     }
-    if (profile.role === "lider") {
-      const mine = salesTeams.filter((t) =>
-        t.user_teams.some(
-          (ut) =>
-            ut.user.id_user === profile.id_user && ut.user.role === "lider",
-        ),
-      );
-      const members = Array.from(
-        new Map(
-          mine
-            .flatMap((t) => t.user_teams.map((ut) => ut.user))
-            .map((u) => [u.id_user, u]),
-        ).values(),
-      );
-      const self = vendors.find((u) => u.id_user === profile.id_user);
-      return self
-        ? [self, ...members.filter((m) => m.id_user !== self.id_user)]
-        : members;
-    }
     return vendors;
-  }, [profile, vendors, salesTeams]);
+  }, [calendarVisibility, profile, vendors]);
 
   // Autocompletar -> id de vendedor
   useEffect(() => {
@@ -193,18 +221,18 @@ export default function CalendarPage() {
     setSelectedVendor(match ? match.id_user : 0);
   }, [vendorInput, allowedVendors]);
 
+  useEffect(() => {
+    if (calendarVisibility !== "own") return;
+    setSelectedVendor(0);
+  }, [calendarVisibility]);
+
   // Cargar eventos de calendario
   useEffect(() => {
     if (!token || !profile) return;
 
     const qs = new URLSearchParams();
-    if (profile.role === "vendedor") {
+    if (calendarVisibility === "own") {
       qs.append("userId", String(profile.id_user));
-    } else if (profile.role === "lider") {
-      const ids = selectedVendor
-        ? [selectedVendor]
-        : allowedVendors.map((u) => u.id_user);
-      qs.append("userIds", ids.join(","));
     } else if (selectedVendor) {
       qs.append("userId", String(selectedVendor));
     }
@@ -241,6 +269,7 @@ export default function CalendarPage() {
   }, [
     token,
     profile,
+    calendarVisibility,
     selectedVendor,
     selectedClientStatus,
     dateRange,
@@ -326,7 +355,7 @@ export default function CalendarPage() {
   };
 
   const handleDateClick = (arg: DateClickArg) => {
-    if (["gerente", "administrativo", "desarrollador"].includes(role!)) {
+    if (canManageCalendarNotes) {
       setNoteModal({
         open: true,
         mode: "create",
@@ -340,6 +369,10 @@ export default function CalendarPage() {
 
   // Crear nota
   const submitNote = async () => {
+    if (!canManageCalendarNotes) {
+      alert("No tenés permisos para crear notas.");
+      return;
+    }
     if (!form.title.trim()) {
       alert("El título es obligatorio");
       return;
@@ -392,6 +425,10 @@ export default function CalendarPage() {
 
   // Eliminar nota
   const deleteNote = async (id: number) => {
+    if (!canManageCalendarNotes) {
+      alert("No tenés permisos para eliminar notas.");
+      return;
+    }
     if (!confirm("¿Seguro que querés eliminar esta nota?")) return;
 
     setLoadingNote(true);
@@ -417,6 +454,10 @@ export default function CalendarPage() {
 
   // Actualizar nota
   const updateNote = async () => {
+    if (!canManageCalendarNotes) {
+      alert("No tenés permisos para editar notas.");
+      return;
+    }
     if (!noteModal.id) return;
 
     setLoadingNote(true);
@@ -432,11 +473,6 @@ export default function CalendarPage() {
         },
         token,
       );
-
-      if (!res.ok) {
-        alert("Error al actualizar");
-        return;
-      }
 
       if (!res.ok) {
         alert("Error al actualizar");
@@ -467,6 +503,7 @@ export default function CalendarPage() {
   };
 
   const onEditClick = () => {
+    if (!canManageCalendarNotes) return;
     setForm({
       title: noteModal.title,
       content: noteModal.content,
@@ -942,7 +979,7 @@ export default function CalendarPage() {
               </div>
             </div>
 
-            {profile?.role !== "vendedor" && (
+            {calendarVisibility === "all" && (
               <div className="min-w-[200px] flex-1">
                 <label className="block cursor-text text-sm font-medium dark:text-white">
                   Vendedor
@@ -1218,55 +1255,59 @@ export default function CalendarPage() {
                 {noteModal.content || <em>(Sin contenido adicional)</em>}
               </div>
               <div className="flex gap-3">
-                <button
-                  onClick={onEditClick}
-                  className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={1.5}
-                    stroke="currentColor"
-                    className="size-6"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
-                    />
-                  </svg>
-                </button>
-                <button
-                  onClick={() =>
-                    noteModal.id !== undefined && deleteNote(noteModal.id)
-                  }
-                  className={`rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800 ${
-                    loadingNote
-                      ? "cursor-not-allowed bg-red-600/80 text-red-100/80 dark:bg-red-800/80"
-                      : ""
-                  }`}
-                  disabled={loadingNote}
-                >
-                  {loadingNote ? (
-                    <Spinner />
-                  ) : (
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      strokeWidth={1.5}
-                      stroke="currentColor"
-                      className="size-6"
+                {canManageCalendarNotes && (
+                  <>
+                    <button
+                      onClick={onEditClick}
+                      className="rounded-full bg-sky-100 px-6 py-2 text-sky-950 shadow-sm shadow-sky-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-white/10 dark:text-white dark:backdrop-blur"
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
-                      />
-                    </svg>
-                  )}
-                </button>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={1.5}
+                        stroke="currentColor"
+                        className="size-6"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() =>
+                        noteModal.id !== undefined && deleteNote(noteModal.id)
+                      }
+                      className={`rounded-full bg-red-600 px-6 py-2 text-center text-red-100 shadow-sm shadow-red-950/20 transition-transform hover:scale-95 active:scale-90 dark:bg-red-800 ${
+                        loadingNote
+                          ? "cursor-not-allowed bg-red-600/80 text-red-100/80 dark:bg-red-800/80"
+                          : ""
+                      }`}
+                      disabled={loadingNote}
+                    >
+                      {loadingNote ? (
+                        <Spinner />
+                      ) : (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          strokeWidth={1.5}
+                          stroke="currentColor"
+                          className="size-6"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  </>
+                )}
 
                 <div className="flex w-full justify-end">
                   <button

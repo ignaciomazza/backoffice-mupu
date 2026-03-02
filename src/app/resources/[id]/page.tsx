@@ -9,6 +9,11 @@ import { useAuth } from "@/context/AuthContext";
 import { toast } from "react-toastify";
 import Link from "next/link";
 import { authFetch } from "@/utils/authFetch";
+import {
+  canManageResourceSection,
+  normalizeResourceSectionRules,
+  type ResourceSectionKey,
+} from "@/utils/permissions";
 
 interface Resource {
   id_resource: number;
@@ -76,12 +81,21 @@ export default function ResourceDetailPage() {
   const [resource, setResource] = useState<Resource | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string | null>(null);
+  const [resourceSections, setResourceSections] = useState<ResourceSectionKey[]>(
+    [],
+  );
+  const [resourceHasCustomRule, setResourceHasCustomRule] = useState(false);
 
-  const isManager =
-    role === "gerente" ||
-    role === "desarrollador" ||
-    role === "lider" ||
-    role === "administrativo";
+  const canManageResources = useMemo(
+    () =>
+      canManageResourceSection(
+        role,
+        resourceSections,
+        "resources_notes",
+        resourceHasCustomRule,
+      ),
+    [resourceHasCustomRule, resourceSections, role],
+  );
 
   // Estados para edición inline
   const [isEditing, setIsEditing] = useState(false);
@@ -119,6 +133,48 @@ export default function ResourceDetailPage() {
     })();
 
     return () => controller.abort();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+
+    (async () => {
+      try {
+        const res = await authFetch(
+          "/api/resources/config",
+          { cache: "no-store" },
+          token,
+        );
+        if (!res.ok) {
+          if (alive) {
+            setResourceSections([]);
+            setResourceHasCustomRule(false);
+          }
+          return;
+        }
+        const payload = (await res.json()) as {
+          rules?: unknown;
+          has_custom_rule?: boolean;
+        };
+        const parsed = normalizeResourceSectionRules(payload?.rules);
+        if (!alive) return;
+        setResourceSections(parsed[0]?.sections ?? []);
+        setResourceHasCustomRule(
+          typeof payload?.has_custom_rule === "boolean"
+            ? payload.has_custom_rule
+            : parsed.length > 0,
+        );
+      } catch {
+        if (!alive) return;
+        setResourceSections([]);
+        setResourceHasCustomRule(false);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
   }, [token]);
 
   // 2) Carga recurso
@@ -271,7 +327,7 @@ export default function ResourceDetailPage() {
                   Volver a recursos
                 </Link>
 
-                {isManager && !isEditing && (
+                {canManageResources && !isEditing && (
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => setIsEditing(true)}

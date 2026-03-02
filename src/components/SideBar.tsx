@@ -235,6 +235,7 @@ export default function SideBar({
       "/other-incomes/verify": adm,
       "/finance/config": adm,
       "/clients/config": adm,
+      "/resources/config": adm,
       "/credits": adm,
       "/cashbox": adm,
       "/finance/pases-saldo": adm,
@@ -411,6 +412,9 @@ export default function SideBar({
             : null,
           hasAccess("/calendar")
             ? { href: "/calendar", label: "Calendario" }
+            : null,
+          hasAccess("/resources/config")
+            ? { href: "/resources/config", label: "Configuración" }
             : null,
         ].filter(Boolean) as { href: string; label: string }[],
       },

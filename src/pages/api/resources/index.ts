@@ -6,6 +6,7 @@ import { getNextAgencyCounter } from "@/lib/agencyCounters";
 import { encodePublicId } from "@/lib/publicIds";
 import { resolveAuth } from "@/lib/auth";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import { canManageResourceSectionByUser } from "@/lib/resourceAccess";
 
 export default async function handler(
   req: NextApiRequest,
@@ -62,6 +63,16 @@ export default async function handler(
     );
     if (!planAccess.allowed) {
       return res.status(403).json({ error: "Plan insuficiente" });
+    }
+
+    const canWrite = await canManageResourceSectionByUser({
+      id_agency: auth.id_agency,
+      id_user: auth.id_user,
+      role: auth.role,
+      key: "resources_notes",
+    });
+    if (!canWrite) {
+      return res.status(403).json({ error: "Sin permisos" });
     }
 
     const { title, id_agency, description } = req.body;

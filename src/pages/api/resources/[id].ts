@@ -4,6 +4,9 @@ import { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { resolveAuth } from "@/lib/auth";
+import {
+  canManageResourceSectionByUser,
+} from "@/lib/resourceAccess";
 
 export default async function handler(
   req: NextApiRequest,
@@ -52,6 +55,16 @@ export default async function handler(
     }
 
     if (req.method === "PUT") {
+      const canWrite = await canManageResourceSectionByUser({
+        id_agency: auth.id_agency,
+        id_user: auth.id_user,
+        role: auth.role,
+        key: "resources_notes",
+      });
+      if (!canWrite) {
+        return res.status(403).json({ error: "Sin permisos" });
+      }
+
       // Actualizar título y/o descripción
       const { title, description } = req.body;
       if (!title?.trim()) {
@@ -78,6 +91,16 @@ export default async function handler(
     }
 
     if (req.method === "DELETE") {
+      const canWrite = await canManageResourceSectionByUser({
+        id_agency: auth.id_agency,
+        id_user: auth.id_user,
+        role: auth.role,
+        key: "resources_notes",
+      });
+      if (!canWrite) {
+        return res.status(403).json({ error: "Sin permisos" });
+      }
+
       // Eliminar recurso
       const existing = await prisma.resources.findFirst({
         where: decoded

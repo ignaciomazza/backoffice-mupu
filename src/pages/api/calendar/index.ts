@@ -4,6 +4,7 @@ import prisma, { Prisma } from "@/lib/prisma";
 import { jwtVerify, type JWTPayload } from "jose";
 import { encodePublicId } from "@/lib/publicIds";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import { resolveCalendarVisibilityByUser } from "@/lib/resourceAccess";
 
 /** ====== Auth local al endpoint (sin helpers externos) ====== */
 type TokenPayload = JWTPayload & {
@@ -131,6 +132,11 @@ export default async function handler(
     }
 
     const { id_agency } = auth;
+    const calendarVisibility = await resolveCalendarVisibilityByUser({
+      id_agency: auth.id_agency,
+      id_user: auth.id_user,
+      role: auth.role,
+    });
 
     // --------- parámetros ---------
     const { userId, userIds, clientStatus, from, to, mode } = req.query;
@@ -139,16 +145,20 @@ export default async function handler(
 
     const baseBookingFilter: Prisma.BookingWhereInput = { id_agency };
 
-    // userIds CSV (p.ej. "5,12,27")
-    if (typeof userIds === "string") {
-      const ids = userIds
-        .split(",")
-        .map((s) => parseInt(s, 10))
-        .filter((n) => Number.isFinite(n));
-      if (ids.length) baseBookingFilter.id_user = { in: ids };
-    } else if (typeof userId === "string") {
-      const n = parseInt(userId, 10);
-      if (Number.isFinite(n)) baseBookingFilter.id_user = n;
+    if (calendarVisibility === "own") {
+      baseBookingFilter.id_user = auth.id_user;
+    } else {
+      // userIds CSV (p.ej. "5,12,27")
+      if (typeof userIds === "string") {
+        const ids = userIds
+          .split(",")
+          .map((s) => parseInt(s, 10))
+          .filter((n) => Number.isFinite(n));
+        if (ids.length) baseBookingFilter.id_user = { in: ids };
+      } else if (typeof userId === "string") {
+        const n = parseInt(userId, 10);
+        if (Number.isFinite(n)) baseBookingFilter.id_user = n;
+      }
     }
 
     // estado de pax (siempre dentro de la agencia)
@@ -269,7 +279,10 @@ export default async function handler(
 
     // Notas de la misma agencia (se une por el creador)
     const notes = await prisma.calendarNote.findMany({
-      where: { creator: { id_agency } },
+      where:
+        calendarVisibility === "own"
+          ? { creator: { id_agency, id_user: auth.id_user } }
+          : { creator: { id_agency } },
       include: { creator: { select: { first_name: true, last_name: true } } },
     });
 

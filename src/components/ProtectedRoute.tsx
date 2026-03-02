@@ -221,6 +221,8 @@ export default function ProtectedRoute({
         allowedRoles = ["desarrollador", "gerente"];
       } else if (pathname === "/operators") {
         allowedRoles = ["desarrollador", "administrativo", "gerente"];
+      } else if (/^\/resources\/config(\/|$)/.test(pathname)) {
+        allowedRoles = ["desarrollador", "gerente", "administrativo"];
       }
       dlog("route guard", {
         path: pathname,

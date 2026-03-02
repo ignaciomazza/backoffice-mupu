@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import prisma from "@/lib/prisma";
 import { resolveAuth } from "@/lib/auth";
 import { ensurePlanFeatureAccess } from "@/lib/planAccess.server";
+import { canManageResourceSectionByUser } from "@/lib/resourceAccess";
 
 export default async function handler(
   req: NextApiRequest,
@@ -22,9 +23,14 @@ export default async function handler(
       return res.status(403).json({ error: "Plan insuficiente" });
     }
 
-    const { id_user, role } = auth;
-
-    if (!["gerente", "administrativo", "desarrollador"].includes(role)) {
+    const { id_user, role, id_agency } = auth;
+    const canManage = await canManageResourceSectionByUser({
+      id_agency,
+      id_user,
+      role,
+      key: "calendar",
+    });
+    if (!canManage) {
       return res.status(403).json({ error: "Sin permisos para crear notas" });
     }
 
