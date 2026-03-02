@@ -62,6 +62,18 @@ const getStr = (o: Record<string, unknown>, k: string): string | undefined => {
   return typeof v === "string" ? v : undefined;
 };
 
+const toAgencyNumber = (value: number | null | undefined): number | null => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  return Math.trunc(value);
+};
+
+const formatAgencyNumber = (value: number | null | undefined): string => {
+  const normalized = toAgencyNumber(value);
+  return normalized != null ? String(normalized) : "Sin Nº";
+};
+
 const getBool = (
   o: Record<string, unknown>,
   k: string,
@@ -829,7 +841,7 @@ export default function GroupOperatorPaymentForm({
     (id?: number | null) => {
       if (!id) return id ?? null;
       const found = operators.find((o) => o.id_operator === id);
-      return found?.agency_operator_id ?? id;
+      return found?.agency_operator_id ?? null;
     },
     [operators],
   );
@@ -1119,15 +1131,15 @@ export default function GroupOperatorPaymentForm({
 
     if (selectedServices.length > 0) {
       const ids = selectedServices
-        .map((s) => `N° ${s.agency_service_id ?? s.id_service}`)
+        .map((s) => `Nº ${formatAgencyNumber(s.agency_service_id)}`)
         .join(", ");
       const opName =
         operators.find((o) => o.id_operator === operatorIdFromSelection)
           ?.name || "Operador";
       setDescription(
-        `Pago a operador ${opName} | Reserva N° ${
-          booking.agency_booking_id ?? booking.id_booking
-        } | Servicios ${ids}`,
+        `Pago a operador ${opName} | Reserva Nº ${formatAgencyNumber(
+          booking.agency_booking_id,
+        )} | Servicios ${ids}`,
       );
     } else {
       setDescription("");
@@ -1846,13 +1858,11 @@ export default function GroupOperatorPaymentForm({
 
     try {
       const ids = selectedServices
-        .map((s) => s.agency_service_id ?? s.id_service)
+        .map((s) => formatAgencyNumber(s.agency_service_id))
         .join(", ");
       const desc =
         description.trim() ||
-        `Pago a operador | Reserva N° ${
-          booking.agency_booking_id ?? booking.id_booking
-        } | Servicios ${ids}`;
+        `Pago a operador | Reserva Nº ${formatAgencyNumber(booking.agency_booking_id)} | Servicios ${ids}`;
 
       const payload: Record<string, unknown> = {
         category,
@@ -1914,7 +1924,7 @@ export default function GroupOperatorPaymentForm({
       toast.success(
         groupId
           ? "Pago al operador cargado en la financiera de la grupal."
-          : "Pago al operador cargado en Investments.",
+          : "Pago al operador cargado en Inversiones.",
       );
 
       onCreated?.();
@@ -1974,7 +1984,7 @@ export default function GroupOperatorPaymentForm({
     if (operatorId) {
       pills.push(
         <span key="op" className={`${pillBase} ${pillNeutral}`}>
-          Operador N° {getOperatorDisplayId(operatorId)}
+          Operador Nº {formatAgencyNumber(getOperatorDisplayId(operatorId))}
         </span>,
       );
     }
@@ -2084,7 +2094,7 @@ export default function GroupOperatorPaymentForm({
                     : "Cargar Pago a Operador"}
               </p>
               <p className="text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
-                Reserva N° {booking.agency_booking_id ?? booking.id_booking}
+                Reserva Nº {formatAgencyNumber(booking.agency_booking_id)}
               </p>
             </div>
           </div>
@@ -2178,7 +2188,7 @@ export default function GroupOperatorPaymentForm({
                             />
                             <div className="flex-1">
                               <div className="text-[13px] font-medium leading-snug md:text-sm">
-                                N° {svc.agency_service_id ?? svc.id_service} ·{" "}
+                                Nº {formatAgencyNumber(svc.agency_service_id)} ·{" "}
                                 {svc.type}
                                 {svc.destination ? ` · ${svc.destination}` : ""}
                               </div>
@@ -2210,7 +2220,10 @@ export default function GroupOperatorPaymentForm({
                     </span>
                     {operatorIdFromSelection != null && (
                       <span className={`${pillBase} ${pillNeutral}`}>
-                        Operador sugerido: N° {operatorIdFromSelection}
+                        Operador sugerido: Nº{" "}
+                        {formatAgencyNumber(
+                          getOperatorDisplayId(operatorIdFromSelection),
+                        )}
                       </span>
                     )}
                   </div>
@@ -2267,8 +2280,9 @@ export default function GroupOperatorPaymentForm({
                           const active =
                             selectedPayment?.id_investment ===
                             opt.id_investment;
-                          const displayId =
-                            opt.agency_investment_id ?? opt.id_investment;
+                          const displayId = formatAgencyNumber(
+                            opt.agency_investment_id,
+                          );
                           return (
                             <button
                               key={opt.id_investment}
@@ -2281,7 +2295,7 @@ export default function GroupOperatorPaymentForm({
                               onClick={() => setSelectedPayment(opt)}
                             >
                               <div className="text-[13px] font-medium leading-snug md:text-sm">
-                                N° {displayId} ·{" "}
+                                Nº {displayId} ·{" "}
                                 {opt.operator_name || "Operador"} ·{" "}
                                 {formatMoney(opt.amount, opt.currency)}
                               </div>
@@ -2303,9 +2317,10 @@ export default function GroupOperatorPaymentForm({
                     <div className="rounded-2xl border border-sky-200/70 bg-sky-50/45 p-4 text-[11px] text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-300 md:col-span-2 md:text-xs">
                       <div className="flex flex-wrap items-start gap-2">
                         <span className="font-semibold">
-                          Pago N°{" "}
-                          {selectedPayment.agency_investment_id ??
-                            selectedPayment.id_investment}
+                          Pago Nº{" "}
+                          {formatAgencyNumber(
+                            selectedPayment.agency_investment_id,
+                          )}
                         </span>
                         <span className="text-slate-500 dark:text-slate-400">
                           {selectedPayment.operator_name || "Operador"}
@@ -2434,7 +2449,7 @@ export default function GroupOperatorPaymentForm({
                         >
                           <div className="mb-3 flex items-center justify-between">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
-                              Pago #{idx + 1}
+                              Pago Nº {idx + 1}
                             </p>
                             <button
                               type="button"

@@ -88,8 +88,8 @@ const PLAN_FEATURES: Record<
       "Calendario y recursos internos",
       "Templates PDF y documentos listos",
       "Gastos / inversiones y caja mensual",
-      "Balances por reserva e impuestos",
-      "Ganancias, comisiones e insights",
+      "Saldos por reserva e impuestos",
+      "Ganancias, comisiones y análisis",
       "Estadísticas avanzadas de pasajeros",
       "Verificación de recibos y cuentas de crédito",
     ],
@@ -130,7 +130,7 @@ const MODULE_GROUPS: {
       "Pagos a operadores",
       "Gastos / inversiones",
       "Caja mensual",
-      "Balances por reserva",
+      "Saldos por reserva",
       "Cuentas de crédito",
       "Templates PDF",
     ],
@@ -140,7 +140,7 @@ const MODULE_GROUPS: {
     variant: "amber",
     items: [
       "Ganancias y comisiones",
-      "Insights comerciales",
+      "Análisis comerciales",
       "Estadísticas de pasajeros",
       "Verificación de recibos",
       "Usuarios y roles",
@@ -1585,7 +1585,7 @@ export default function LandingClient() {
           />
           <FeatureCard
             title="Finanzas"
-            desc="Facturación AFIP, notas de crédito, recibos, planes de pago, caja y balances por reserva."
+            desc="Facturación AFIP, notas de crédito, recibos, planes de pago, caja y saldos por reserva."
             icon={<IconInvoice className="size-5" aria-hidden />}
           />
           <FeatureCard

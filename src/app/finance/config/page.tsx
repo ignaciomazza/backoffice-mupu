@@ -1441,7 +1441,7 @@ function FinanceConfigPageInner() {
                         }))
                       }
                       label="Ocultar egresos de Operador en 'Gastos'"
-                      title="Impacta en la vista de Investments / Gastos"
+                      title="Impacta en la vista de Inversiones / Gastos"
                     />
                   </div>
                 </div>

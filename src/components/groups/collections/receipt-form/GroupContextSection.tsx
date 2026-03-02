@@ -9,6 +9,13 @@ import { Field, Section, inputBase, pillBase, pillNeutral, pillOk } from "./prim
 type Mode = "agency" | "booking";
 type Action = "create" | "attach";
 
+const formatAgencyNumber = (value: number | null | undefined): string => {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return String(Math.trunc(value));
+  }
+  return "Sin Nº";
+};
+
 export default function GroupContextSection(props: {
   attachEnabled: boolean;
   action: Action;
@@ -155,7 +162,10 @@ export default function GroupContextSection(props: {
           <>
             {forcedBookingMode ? (
               <div className="rounded-xl border border-sky-200/70 bg-sky-50/45 p-3 text-[13px] text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-300 md:col-span-2 md:text-sm">
-                ID de reserva: <span className="font-semibold">N° {bookingId}</span>{" "}
+                Reserva asociada:{" "}
+                <span className="font-semibold">
+                  {bookingId ? "bloqueada" : "sin Nº interno"}
+                </span>{" "}
                 <span className="ml-2 rounded-full border border-sky-200/70 bg-sky-50/60 px-2 py-0.5 text-[11px] dark:border-sky-900/40 dark:bg-slate-900/55 md:text-xs">
                   bloqueado
                 </span>
@@ -258,7 +268,7 @@ export default function GroupContextSection(props: {
                           />
                           <div className="flex-1">
                             <div className="text-[13px] font-medium md:text-sm">
-                              N° {svc.agency_service_id ?? svc.id_service}{" "}
+                              Nº {formatAgencyNumber(svc.agency_service_id)}{" "}
                               {svc.type
                                 ? `· ${svc.type}`
                                 : svc.description || "Servicio"}

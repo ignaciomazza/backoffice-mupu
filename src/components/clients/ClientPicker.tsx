@@ -21,7 +21,7 @@ type Props = {
 export default function ClientPicker({
   token,
   label,
-  placeholder = "Buscar por ID, DNI, Pasaporte, CUIT o nombre...",
+  placeholder = "Buscar por Nº interno, DNI, Pasaporte, CUIT o nombre...",
   valueId,
   onSelect,
   onClear,
@@ -40,7 +40,7 @@ export default function ClientPicker({
   // Para accesibilidad del listbox
   const listboxId = useId();
 
-  // Cargar el pax actual si tenemos un id (modo edición) —> **FIX: por ID exacto**
+  // Cargar el pax actual si tenemos un id (modo edición) por ID exacto
   useEffect(() => {
     if (!valueId) {
       setSelected(null);
@@ -222,7 +222,7 @@ export default function ClientPicker({
           className="mt-2 w-full appearance-none rounded-2xl border border-sky-950/10 p-2 outline-none backdrop-blur placeholder:font-light placeholder:tracking-wide dark:border-white/10 dark:bg-white/10 dark:text-white"
         >
           {results.map((c) => {
-            const clientNumber = c.agency_client_id ?? c.id_client;
+            const clientNumber = formatAgencyClientNumber(c.agency_client_id);
             return (
               <li
                 key={c.id_client}
@@ -235,7 +235,7 @@ export default function ClientPicker({
                   <span className="font-medium">
                     {c.first_name} {c.last_name}
                   </span>
-                  <span className="opacity-70">N° {clientNumber}</span>
+                  <span className="opacity-70">Nº {clientNumber}</span>
                 </div>
                 <div className="text-xs opacity-80">{compactIdentity(c)}</div>
               </li>
@@ -252,7 +252,7 @@ export default function ClientPicker({
               {selected.first_name} {selected.last_name}
             </span>
             <span className="opacity-70">
-              N° {selected.agency_client_id ?? selected.id_client}
+              Nº {formatAgencyClientNumber(selected.agency_client_id)}
             </span>
           </div>
           <div className="mt-1 text-xs opacity-80">
@@ -265,14 +265,21 @@ export default function ClientPicker({
 }
 
 function displayClient(c: Client) {
-  const clientNumber = c.agency_client_id ?? c.id_client;
-  return `${c.first_name ?? ""} ${c.last_name ?? ""} — N° ${clientNumber}`;
+  const clientNumber = formatAgencyClientNumber(c.agency_client_id);
+  return `${c.first_name ?? ""} ${c.last_name ?? ""} — Nº ${clientNumber}`;
+}
+
+function formatAgencyClientNumber(value: number | null | undefined): string {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return String(Math.trunc(value));
+  }
+  return "Sin Nº";
 }
 
 function compactIdentity(c: Client) {
   const parts = [
     c.dni_number && `DNI ${c.dni_number}`,
-    c.passport_number && `Pass ${c.passport_number}`,
+    c.passport_number && `Pasaporte ${c.passport_number}`,
     c.tax_id && `CUIT ${c.tax_id}`,
     c.email,
   ].filter(Boolean) as string[];

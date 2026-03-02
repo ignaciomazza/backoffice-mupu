@@ -235,7 +235,7 @@ export default function GroupCreateReceiptFields(props: {
               <ClientPicker
                 token={token}
                 label={`Pax ${idx + 1}`}
-                placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
+                placeholder="Buscar por Nº interno, DNI, Pasaporte, CUIT o nombre..."
                 valueId={clientIds[idx] ?? null}
                 excludeIds={excludeForIndex(idx)}
                 onSelect={(c) => setClientAt(idx, c)}
@@ -375,7 +375,7 @@ export default function GroupCreateReceiptFields(props: {
               >
                 <div className="mb-3 flex items-center justify-between">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-                    Pago #{idx + 1}
+                    Pago Nº {idx + 1}
                   </p>
                   <button
                     type="button"
@@ -856,7 +856,7 @@ export default function GroupCreateReceiptFields(props: {
                 id="concept"
                 value={concept}
                 onChange={(e) => setConcept(e.target.value)}
-                placeholder="Ej.: Pago parcial reserva N° 1024"
+                placeholder="Ej.: Pago parcial reserva Nº 1024"
                 className={inputBase}
               />
             </Field>

@@ -2021,7 +2021,7 @@ export default function OperatorPaymentForm({
       }
 
       await safeJson<InvestmentLite>(res);
-      toast.success("Pago al operador cargado en Investments.");
+      toast.success("Pago al operador cargado en Inversiones.");
 
       onCreated?.();
 

@@ -24,6 +24,19 @@ const money = (amount: number, currency?: string) => {
   }
 };
 
+const invoiceStatusLabel = (status?: string | null) => {
+  const normalized = String(status || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "Emitida";
+  if (normalized === "approved" || normalized === "aprobada") return "Aprobada";
+  if (normalized === "pending" || normalized === "pendiente") return "Pendiente";
+  if (normalized === "issued" || normalized === "emitida") return "Emitida";
+  if (normalized === "cancelled" || normalized === "canceled" || normalized === "anulada")
+    return "Anulada";
+  return status?.trim() || "Emitida";
+};
+
 export default function GroupInvoiceList({ invoices, loading = false }: Props) {
   if (loading) {
     return (
@@ -49,7 +62,7 @@ export default function GroupInvoiceList({ invoices, loading = false }: Props) {
           className="rounded-2xl border border-sky-200/80 bg-white/75 p-4 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55"
         >
           <p className="text-[11px] uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
-            Factura N° {invoice.invoice_number}
+            Factura Nº {invoice.invoice_number}
           </p>
           <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-slate-100">
             {money(Number(invoice.total_amount || 0), String(invoice.currency || "ARS"))}
@@ -62,7 +75,7 @@ export default function GroupInvoiceList({ invoices, loading = false }: Props) {
             {invoice.issue_date
               ? formatDateOnlyInBuenosAires(invoice.issue_date)
               : "-"}
-            {" · "}Estado: {invoice.status || "EMITIDA"}
+            {" · "}Estado: {invoiceStatusLabel(invoice.status)}
           </p>
         </article>
       ))}

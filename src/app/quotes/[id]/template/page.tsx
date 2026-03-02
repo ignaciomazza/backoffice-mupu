@@ -238,10 +238,17 @@ function formatMoney(amount: number | null, currency?: string | null): string {
   }
 }
 
+function formatInternalNumber(value: number | null | undefined): string {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return String(Math.trunc(value));
+  }
+  return "Sin Nº";
+}
+
 function formatPaxName(pax: QuotePaxDraft, index: number): string {
   const full = `${pax.first_name || ""} ${pax.last_name || ""}`.trim();
   if (full) return full;
-  if (pax.mode === "existing" && pax.client_id) return `Pax existente Nº ${pax.client_id}`;
+  if (pax.mode === "existing" && pax.client_id) return "Pax existente";
   return `Pasajero Nº ${index + 1}`;
 }
 
@@ -269,7 +276,9 @@ function buildQuoteCoreBlocks(quote: QuoteTemplateItem): OrderedBlock[] {
   const serviceDrafts = normalizeQuoteServiceDrafts(quote.service_drafts);
   const customValues = normalizeQuoteCustomValues(quote.custom_values);
 
-  const displayId = quote.agency_quote_id ?? quote.id_quote;
+  const displayId = formatInternalNumber(
+    quote.agency_quote_id ?? quote.user_quote_id ?? null,
+  );
   const quoteCurrency = cleanString(bookingDraft.currency || "ARS").toUpperCase() || "ARS";
 
   const blocks: OrderedBlock[] = [
@@ -905,10 +914,19 @@ export default function QuoteTemplatePage() {
     if (!quote) return "cotizacion";
     const isOtherOwner = viewerUserId != null && quote.id_user !== viewerUserId;
     if (isOtherOwner) {
-      return quote.agency_quote_id ?? quote.id_quote;
+      return formatInternalNumber(quote.agency_quote_id ?? null);
     }
-    return quote.user_quote_id ?? quote.agency_quote_id ?? quote.id_quote;
+    return formatInternalNumber(
+      quote.user_quote_id ?? quote.agency_quote_id ?? null,
+    );
   }, [quote, viewerUserId]);
+  const quoteFileId = useMemo(() => {
+    const normalized = quoteDisplayId
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return normalized || "sin-numero";
+  }, [quoteDisplayId]);
   const quoteSummary = useMemo(() => {
     if (!quote) {
       return {
@@ -1783,7 +1801,7 @@ export default function QuoteTemplatePage() {
                 onChange={setFormValue}
                 docType="quote_budget"
                 token={token}
-                filename={`presupuesto-cotizacion-${quoteDisplayId}.pdf`}
+                filename={`presupuesto-cotizacion-${quoteFileId}.pdf`}
                 onPdfDownloaded={handlePdfDownloaded}
                 toolbarMode="studio"
               />

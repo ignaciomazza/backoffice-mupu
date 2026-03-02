@@ -85,6 +85,13 @@ const toAmount = (raw: string | number | null | undefined) => {
   return parsed != null && Number.isFinite(parsed) ? parsed : 0;
 };
 
+const formatAgencyNumber = (value: number | null | undefined): string => {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return String(Math.trunc(value));
+  }
+  return "Sin Nº";
+};
+
 export default function GroupOperatorDueForm({
   token,
   booking,
@@ -155,10 +162,8 @@ export default function GroupOperatorDueForm({
         "Vencimiento pago a operador",
         selectedService.type ? `· ${selectedService.type}` : "",
         selectedService.destination ? `· ${selectedService.destination}` : "",
-        `· Servicio N° ${
-          selectedService.agency_service_id ?? selectedService.id_service
-        }`,
-        `· Reserva N° ${booking.agency_booking_id ?? booking.id_booking}`,
+        `· Servicio Nº ${formatAgencyNumber(selectedService.agency_service_id)}`,
+        `· Reserva Nº ${formatAgencyNumber(booking.agency_booking_id)}`,
       ].filter(Boolean);
       setConcept(parts.join(" "));
     }
@@ -199,8 +204,7 @@ export default function GroupOperatorDueForm({
           key="service"
           className="rounded-full border border-sky-200/70 bg-sky-50/45 px-3 py-1 text-[11px] font-medium text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-200 md:text-xs"
         >
-          Servicio N°{" "}
-          {selectedService.agency_service_id ?? selectedService.id_service}
+          Servicio Nº {formatAgencyNumber(selectedService.agency_service_id)}
         </span>,
       );
     }
@@ -365,7 +369,7 @@ export default function GroupOperatorDueForm({
                 {isFormVisible ? "Vencimientos de operador" : "Cargar vencimiento"}
               </p>
               <p className="text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
-                Reserva N° {booking.agency_booking_id ?? booking.id_booking}
+                Reserva Nº {formatAgencyNumber(booking.agency_booking_id)}
               </p>
             </div>
           </div>
@@ -407,13 +411,13 @@ export default function GroupOperatorDueForm({
                               ? "border-sky-300/80 bg-sky-100/70 text-slate-900 shadow-sky-100/60 dark:border-sky-700 dark:bg-sky-900/25 dark:text-slate-100"
                               : "border-slate-300/70 bg-white/80 text-slate-800 shadow-slate-900/10 hover:border-sky-200/70 hover:bg-sky-50/45 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-sky-900/40 dark:hover:bg-slate-800/70"
                           }`}
-                          title={`Servicio N° ${
-                            svc.agency_service_id ?? svc.id_service
+                          title={`Servicio Nº ${
+                            formatAgencyNumber(svc.agency_service_id)
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="text-[13px] font-medium leading-snug md:text-sm">
-                              N° {svc.agency_service_id ?? svc.id_service} ·{" "}
+                              Nº {formatAgencyNumber(svc.agency_service_id)} ·{" "}
                               {svc.type}
                               {svc.destination ? ` · ${svc.destination}` : ""}
                             </div>
@@ -440,9 +444,8 @@ export default function GroupOperatorDueForm({
                 )}
                 {selectedService && (
                   <div className="ml-1 mt-2 text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
-                    Seleccionado: N°{" "}
-                    {selectedService.agency_service_id ??
-                      selectedService.id_service}
+                    Seleccionado: Nº{" "}
+                    {formatAgencyNumber(selectedService.agency_service_id)}
                   </div>
                 )}
               </div>

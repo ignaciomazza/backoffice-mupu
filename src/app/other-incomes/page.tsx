@@ -2003,7 +2003,7 @@ export default function OtherIncomesPage() {
                                 : "border-amber-300 bg-amber-100 text-amber-900"
                             }`}
                           >
-                            {item.verification_status || "PENDING"}
+                            {incomeVerificationStatusLabel(item.verification_status)}
                           </span>
                         </td>
                         <td className="px-3 py-2 text-xs text-zinc-600">
@@ -2175,7 +2175,7 @@ export default function OtherIncomesPage() {
                               : "border-amber-300 bg-amber-100 text-amber-900"
                           }`}
                         >
-                          {item.verification_status || "PENDING"}
+                          {incomeVerificationStatusLabel(item.verification_status)}
                         </span>
                       </div>
                     </div>

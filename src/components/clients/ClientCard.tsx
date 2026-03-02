@@ -31,7 +31,12 @@ export default function ClientCard({
   profileLabels = {},
 }: ClientCardProps) {
   const isExpanded = expandedClientId === client.id_client;
-  const clientNumber = client.agency_client_id ?? client.id_client;
+  const clientNumber =
+    typeof client.agency_client_id === "number" &&
+    Number.isFinite(client.agency_client_id) &&
+    client.agency_client_id > 0
+      ? String(Math.trunc(client.agency_client_id))
+      : "Sin Nº";
   const categoryLabel =
     client.category_id && passengerCategories.length
       ? passengerCategories.find((c) => c.id_category === client.category_id)
@@ -82,7 +87,7 @@ export default function ClientCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.2em] text-sky-900/85 dark:text-sky-100/85">
-            Pax N°{clientNumber}
+            Pax Nº {clientNumber}
           </p>
           <p
             className="mt-1 truncate text-lg font-semibold text-sky-950 dark:text-white"

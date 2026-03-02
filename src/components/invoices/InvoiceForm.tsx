@@ -2294,7 +2294,7 @@ export default function InvoiceForm({
             </Section>
 
             <Section
-              title="Items de factura"
+              title="Ítems de factura"
               desc="Definí acá todas las descripciones y montos visibles en el PDF. Si un ítem no tiene monto, no se muestra."
             >
               <div className="space-y-3 md:col-span-2">

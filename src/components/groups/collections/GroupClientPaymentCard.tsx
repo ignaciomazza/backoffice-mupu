@@ -62,6 +62,13 @@ const dateKeyFrom = (d?: string | Date | null): string | null =>
 const formatDateKey = (key: string | null): string =>
   key ? formatDateInBuenosAires(key) : "–";
 
+const formatAgencyNumber = (value: number | null | undefined): string => {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return String(Math.trunc(value));
+  }
+  return "Sin Nº";
+};
+
 const normalizeStatus = (status?: string) => {
   const normalized = String(status || "").trim().toUpperCase();
   if (normalized === "PAGADA") return "PAGADA";
@@ -127,24 +134,23 @@ export default function GroupClientPaymentCard({
     const fromPayment = payment?.client;
     if (fromPayment) {
       const full = `${fromPayment.first_name ?? ""} ${fromPayment.last_name ?? ""}`.trim();
-      const num = fromPayment.agency_client_id ?? fromPayment.id_client;
-      if (full) return `${full} · N° ${num}`;
+      const num = formatAgencyNumber(fromPayment.agency_client_id);
+      if (full) return `${full} · Nº ${num}`;
     }
     if (!payment?.client_id) return "—";
     const tid = booking.titular?.id_client;
-    const tnum =
-      booking.titular?.agency_client_id ?? booking.titular?.id_client ?? tid;
+    const tnum = formatAgencyNumber(booking.titular?.agency_client_id);
     if (payment.client_id === tid) {
-      return `${booking.titular.first_name} ${booking.titular.last_name} · N° ${tnum}`;
+      return `${booking.titular.first_name} ${booking.titular.last_name} · Nº ${tnum}`;
     }
     const found = booking.clients?.find(
       (c) => c.id_client === payment.client_id,
     );
     return found
-      ? `${found.first_name} ${found.last_name} · N° ${
-          found.agency_client_id ?? found.id_client
+      ? `${found.first_name} ${found.last_name} · Nº ${
+          formatAgencyNumber(found.agency_client_id)
         }`
-      : `N° ${payment.client_id}`;
+      : "Sin Nº";
   }, [
     payment?.client,
     payment?.client_id,
@@ -245,15 +251,14 @@ export default function GroupClientPaymentCard({
     }
   };
 
-  const paymentNumber =
-    payment.agency_client_payment_id ?? payment.id_payment;
+  const paymentNumber = formatAgencyNumber(payment.agency_client_payment_id);
 
   return (
     <div className="h-fit space-y-6 overflow-hidden rounded-2xl border border-sky-200/80 bg-white/75 p-5 text-slate-900 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-100">
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 md:text-xs">
-            Pago N° {paymentNumber}
+            Pago Nº {paymentNumber}
           </p>
           <p className="mt-2 text-xl font-semibold md:text-2xl">
             {fmtMoney(payment.amount, payment.currency)}
@@ -283,7 +288,10 @@ export default function GroupClientPaymentCard({
             </p>
           )}
           {payment.receipt && (
-            <p>Recibo: {payment.receipt.receipt_number || payment.receipt.id_receipt}</p>
+            <p>
+              Recibo:{" "}
+              {formatAgencyNumber(payment.receipt.agency_receipt_id)}
+            </p>
           )}
           {payment.paid_at && (
             <p>

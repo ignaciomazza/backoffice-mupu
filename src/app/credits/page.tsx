@@ -192,8 +192,18 @@ function docTypeMeta(docType?: string | null): {
     return { tone: "rose", label: "Ajuste -", icon: <DownIcon /> };
   if (dt === "adjust_up")
     return { tone: "emerald", label: "Ajuste +", icon: <UpIcon /> };
+  if (dt === "other_income")
+    return { tone: "emerald", label: "Otro ingreso", icon: <UpIcon /> };
+  if (dt === "client_payment")
+    return { tone: "emerald", label: "Cuota de pasajero", icon: <UpIcon /> };
+  if (dt === "operator_due")
+    return { tone: "rose", label: "Deuda de operador", icon: <DownIcon /> };
+  if (dt === "credit_entry")
+    return { tone: "sky", label: "Movimiento de crédito" };
+  if (dt === "manual")
+    return { tone: "zinc", label: "Manual" };
 
-  return { tone: "zinc", label: docType || "—" };
+  return { tone: "zinc", label: "Movimiento" };
 }
 
 function ChevronIcon({ open }: { open: boolean }) {
@@ -1240,7 +1250,7 @@ export default function CreditsPage() {
                                             <span
                                               className={pillClasses("zinc")}
                                             >
-                                              Entry N° {m.id_entry}
+                                              Movimiento N° {m.id_entry}
                                             </span>
 
                                             {m.createdBy?.first_name ||

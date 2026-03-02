@@ -83,6 +83,13 @@ const cleanServiceDescription = (value: unknown) => {
   return withoutNumberList.replace(/[,\s-]+$/g, "").trim();
 };
 
+const formatAgencyNumber = (value: number | null | undefined): string => {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return String(Math.trunc(value));
+  }
+  return "Sin Nº";
+};
+
 /* ======================== Micro-componentes ======================== */
 
 const Chip: React.FC<{
@@ -154,14 +161,17 @@ export default function GroupReceiptCard({
   const getClientName = useCallback(
     (id: number): string => {
       if (booking.titular?.id_client === id) {
-        const titularNumber =
-          booking.titular.agency_client_id ?? booking.titular.id_client;
-        return `${booking.titular.first_name} ${booking.titular.last_name} · N°${titularNumber}`;
+        const titularNumber = formatAgencyNumber(
+          booking.titular.agency_client_id,
+        );
+        return `${booking.titular.first_name} ${booking.titular.last_name} · Nº${titularNumber}`;
       }
       const found = booking.clients?.find((c) => c.id_client === id);
       return found
-        ? `${found.first_name} ${found.last_name} · N°${id}`
-        : `N°${id}`;
+        ? `${found.first_name} ${found.last_name} · Nº${formatAgencyNumber(
+            found.agency_client_id,
+          )}`
+        : "Sin Nº";
     },
     [booking],
   );
@@ -170,8 +180,8 @@ export default function GroupReceiptCard({
     return receipt.clientIds?.length
       ? receipt.clientIds.map(getClientName).join(", ")
       : booking.titular
-        ? `${booking.titular.first_name} ${booking.titular.last_name} · N°${
-            booking.titular.agency_client_id ?? booking.titular.id_client
+        ? `${booking.titular.first_name} ${booking.titular.last_name} · Nº${
+            formatAgencyNumber(booking.titular.agency_client_id)
           }`
         : "—";
   }, [receipt.clientIds, getClientName, booking.titular]);
@@ -193,9 +203,9 @@ export default function GroupReceiptCard({
     if (!ids.length) return [];
     return ids.map((id) => {
       const svc = serviceMap.get(id);
-      const labelId = cleanServiceLabel(svc?.agency_service_id ?? id);
+      const labelId = cleanServiceLabel(svc?.agency_service_id);
       const rawDescription =
-        svc?.description || svc?.type || (id ? `Servicio ${id}` : "Servicio");
+        svc?.description || svc?.type || "Servicio";
       const description = truncate(
         cleanServiceDescription(rawDescription),
         MAX_SERVICE_DESC,
@@ -214,9 +224,7 @@ export default function GroupReceiptCard({
     const ids = receipt.serviceIds ?? [];
     if (!ids.length) return [];
     const labels = ids
-      .map((id) =>
-        cleanServiceLabel(serviceMap.get(id)?.agency_service_id ?? id),
-      )
+      .map((id) => cleanServiceLabel(serviceMap.get(id)?.agency_service_id))
       .filter((id) => id && id !== "0");
     return Array.from(new Set(labels));
   }, [receipt.serviceIds, serviceMap]);
@@ -235,7 +243,7 @@ export default function GroupReceiptCard({
 
   const serviceNumbersLabel = useMemo(() => {
     if (!serviceNumbers.length) return "—";
-    const base = serviceNumbers.map((id) => `N° ${id}`).join(", ");
+    const base = serviceNumbers.map((id) => `Nº ${id}`).join(", ");
     return serviceDescriptions.length ? `${base}:` : base;
   }, [serviceNumbers, serviceDescriptions.length]);
 
@@ -253,10 +261,7 @@ export default function GroupReceiptCard({
     receipt.payment_fee_amount !== undefined &&
     toNumber(receipt.payment_fee_amount) !== 0;
 
-  const receiptDisplayNumber =
-    receipt.agency_receipt_id != null
-      ? String(receipt.agency_receipt_id)
-      : receipt.receipt_number;
+  const receiptDisplayNumber = formatAgencyNumber(receipt.agency_receipt_id);
   const receiptFileLabel = receiptDisplayNumber.replace(
     /[^a-zA-Z0-9_-]+/g,
     "_",
@@ -460,7 +465,7 @@ export default function GroupReceiptCard({
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-[13px] text-slate-600 dark:text-slate-400 md:text-sm">
               Recibo{" "}
-              <span className="font-medium">N° {receiptDisplayNumber}</span>
+              <span className="font-medium">Nº {receiptDisplayNumber}</span>
             </p>
             {receipt.payment_method ? (
               <Chip tone="brand" title="Método de pago">

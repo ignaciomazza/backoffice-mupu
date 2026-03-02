@@ -89,6 +89,13 @@ const clamp = (value: number, min: number, max: number) =>
 const formatDistributionNumber = (value: number) =>
   String(Number(value.toFixed(2)));
 
+const formatAgencyNumber = (value: number | null | undefined): string => {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return String(Math.trunc(value));
+  }
+  return "Sin Nº";
+};
+
 function splitAmountByShares(value: number, shares: number[]): number[] {
   if (shares.length <= 1) return [toMoney(value)];
   const out = shares.map((share) => toMoney(value * share));
@@ -1849,7 +1856,7 @@ export default function GroupInvoiceForm({
                     <ClientPicker
                       token={token}
                       label={`Pax ${idx + 1}`}
-                      placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
+                      placeholder="Buscar por Nº interno, DNI, Pasaporte, CUIT o nombre..."
                       valueId={
                         formData.clientIds?.[idx]
                           ? parseInt(formData.clientIds[idx]!, 10)
@@ -2225,13 +2232,13 @@ export default function GroupInvoiceForm({
                               ? "border-sky-300/40 bg-sky-100 text-sky-950 shadow-sm dark:bg-white/10 dark:text-white"
                               : "border-white/10 bg-white/10 hover:bg-white/20 dark:border-white/10 dark:bg-white/10"
                           }`}
-                          title={`Servicio N° ${
-                            svc.agency_service_id ?? svc.id_service
+                          title={`Servicio Nº ${
+                            formatAgencyNumber(svc.agency_service_id)
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="text-sm font-medium">
-                              N° {svc.agency_service_id ?? svc.id_service} ·{" "}
+                              Nº {formatAgencyNumber(svc.agency_service_id)} ·{" "}
                               {svc.type}
                               {svc.destination ? ` · ${svc.destination}` : ""}
                             </div>
@@ -2264,7 +2271,7 @@ export default function GroupInvoiceForm({
                   <div className="ml-1 mt-2 text-xs text-sky-950/70 dark:text-white/70">
                     Seleccionados:{" "}
                     {selectedServices
-                      .map((s) => `N° ${s.agency_service_id ?? s.id_service}`)
+                      .map((s) => `Nº ${formatAgencyNumber(s.agency_service_id)}`)
                       .join(", ")}
                   </div>
                 ) : availableServices.length > 0 ? (
@@ -2276,7 +2283,7 @@ export default function GroupInvoiceForm({
             </Section>
 
             <Section
-              title="Items de factura"
+              title="Ítems de factura"
               desc="Definí acá todas las descripciones y montos visibles en el PDF. Si un ítem no tiene monto, no se muestra."
             >
               <div className="space-y-3 md:col-span-2">
@@ -2363,7 +2370,7 @@ export default function GroupInvoiceForm({
                     <ul className="mt-2 space-y-1">
                       {selectedServices.map((svc) => (
                         <li key={`reservation-detail-${svc.id_service}`}>
-                          N° {svc.agency_service_id ?? svc.id_service} ·{" "}
+                          Nº {formatAgencyNumber(svc.agency_service_id)} ·{" "}
                           {svc.type} · {svc.description || "Sin descripción"}
                         </li>
                       ))}

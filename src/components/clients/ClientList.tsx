@@ -117,7 +117,12 @@ function ClientListRow({
   profileLabels = {},
 }: ClientRowProps) {
   const isExpanded = expandedClientId === client.id_client;
-  const clientNumber = client.agency_client_id ?? client.id_client;
+  const clientNumber =
+    typeof client.agency_client_id === "number" &&
+    Number.isFinite(client.agency_client_id) &&
+    client.agency_client_id > 0
+      ? String(Math.trunc(client.agency_client_id))
+      : "Sin Nº";
   const fullName = `${client.first_name} ${client.last_name}`.trim() || "—";
   const categoryLabel =
     client.category_id && passengerCategories.length
@@ -160,7 +165,7 @@ function ClientListRow({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <span className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-900/80 dark:text-sky-100/80">
-            Pax N°{clientNumber}
+            Pax Nº {clientNumber}
           </span>
           <p
             className="min-w-0 truncate text-base font-semibold text-sky-950 dark:text-white"

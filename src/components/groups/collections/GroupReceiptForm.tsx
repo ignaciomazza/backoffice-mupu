@@ -468,7 +468,7 @@ export default function GroupReceiptForm({
   const selectedBookingDisplayId = useMemo(() => {
     if (!selectedBookingId) return null;
     const opt = bookingOptions.find((b) => b.id_booking === selectedBookingId);
-    return opt?.agency_booking_id ?? selectedBookingId;
+    return opt?.agency_booking_id ?? null;
   }, [bookingOptions, selectedBookingId]);
 
   const lockedCurrency = useMemo(() => {
@@ -857,7 +857,7 @@ export default function GroupReceiptForm({
               name:
                 rawName && rawName.trim().length > 0
                   ? rawName
-                  : `Cuenta N° ${id}`,
+                  : `Cuenta Nº ${id}`,
               currency:
                 typeof x["currency"] === "string"
                   ? String(x["currency"])
@@ -1889,7 +1889,7 @@ export default function GroupReceiptForm({
       }
 
       if (!rid) {
-        toast.success("Recibo creado (sin ID detectable para movimientos).");
+        toast.success("Recibo creado (sin Nº interno detectable para movimientos).");
         setVisible(false);
         return;
       }

@@ -36,7 +36,7 @@ const PLAN_DATA: Record<
   medio: {
     label: "Medio",
     base: 40,
-    short: "Calendario, templates, gastos e insights",
+    short: "Calendario, templates, gastos y análisis",
   },
   pro: {
     label: "Pro",

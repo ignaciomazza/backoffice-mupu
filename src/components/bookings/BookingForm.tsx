@@ -293,14 +293,14 @@ export default function BookingForm({
   const totalPax = formData.pax_count;
   const hasTitular = isValidId(formData.titular_id);
   const titularPill = hasTitular
-    ? `Titular N° ${formData.titular_id}`
+    ? "Titular seleccionado"
     : "Sin titular";
   const hasDeparture = !!formData.departure_date;
   const hasReturn = !!formData.return_date;
   const bothDates = hasDeparture && hasReturn;
   const manualAgencyBookingHint =
     nextAutoAgencyBookingId != null
-      ? `Si lo dejás vacío, se asigna automáticamente (próximo: N° ${nextAutoAgencyBookingId}).`
+      ? `Si lo dejás vacío, se asigna automáticamente (próximo: Nº ${nextAutoAgencyBookingId}).`
       : "Si lo dejás vacío, se asigna automáticamente.";
 
   useEffect(() => {
@@ -580,7 +580,7 @@ export default function BookingForm({
                 {allowManualAgencyBookingId && (
                   <Field
                     id="agency_booking_id"
-                    label="N° de reserva de agencia (manual)"
+                    label="Nº de reserva de agencia (manual)"
                     hint={manualAgencyBookingHint}
                   >
                     <input
@@ -692,7 +692,7 @@ export default function BookingForm({
                 <Field
                   id="invoice_observation"
                   label="Observaciones de Factura"
-                  hint="Ej.: Facturar al pax N° 342"
+                  hint="Ej.: Facturar al pax Nº 342"
                 >
                   <input
                     id="invoice_observation"
@@ -700,7 +700,7 @@ export default function BookingForm({
                     name="invoice_observation"
                     value={formData.invoice_observation || ""}
                     onChange={handleChange}
-                    placeholder="Ej: Facturar al pax N° 342"
+                    placeholder="Ej: Facturar al pax Nº 342"
                     className={`${inputBase} ${formData.invoice_observation ? inputOkFocus : ""}`}
                   />
                 </Field>
@@ -758,7 +758,7 @@ export default function BookingForm({
                   <ClientPicker
                     token={token}
                     label="Titular"
-                    placeholder="Buscar por N° Pax, DNI, Pasaporte, CUIT o Nombre..."
+                    placeholder="Buscar por Nº de pax, DNI, Pasaporte, CUIT o nombre..."
                     valueId={hasTitular ? formData.titular_id : null}
                     excludeIds={formData.clients_ids.filter(isValidId)}
                     required
@@ -861,7 +861,7 @@ export default function BookingForm({
                                 <ClientPicker
                                   token={token}
                                   label={`Acompañante ${index + 1}`}
-                                  placeholder="Buscar por ID, DNI, Pasaporte, CUIT o nombre..."
+                                  placeholder="Buscar por Nº interno, DNI, Pasaporte, CUIT o nombre..."
                                   valueId={currentId}
                                   excludeIds={exclude}
                                   onSelect={(c: Client) =>
@@ -1013,10 +1013,10 @@ export default function BookingForm({
                                 addRelatedClientAsCompanion(c.id_client)
                               }
                               className="rounded-full border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
-                              title={`N° ${c.agency_client_id ?? c.id_client}`}
+                              title={`Nº ${c.agency_client_id ?? "Sin Nº"}`}
                             >
                               {`${c.first_name ?? ""} ${c.last_name ?? ""}`.trim() ||
-                                `Pax ${c.agency_client_id ?? c.id_client}`}
+                                `Pax ${c.agency_client_id ?? "sin Nº"}`}
                             </button>
                           ))}
                         </div>

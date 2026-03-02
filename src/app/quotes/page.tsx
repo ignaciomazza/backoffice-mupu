@@ -657,11 +657,18 @@ function formatUserName(
 }
 
 function getQuoteUserNumber(quote: QuoteItem): number {
-  return quote.user_quote_id ?? quote.agency_quote_id ?? quote.id_quote;
+  return quote.user_quote_id ?? quote.agency_quote_id ?? 0;
 }
 
 function getQuoteAgencyNumber(quote: QuoteItem): number {
-  return quote.agency_quote_id ?? quote.id_quote;
+  return quote.agency_quote_id ?? 0;
+}
+
+function formatInternalNumber(value: number | null | undefined): string {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return String(Math.trunc(value));
+  }
+  return "Sin Nº";
 }
 
 function startOfDayMs(dateValue: string): number | null {
@@ -1740,9 +1747,11 @@ export default function QuotesPage() {
 
   const deleteQuote = async (quote: QuoteItem) => {
     if (!token) return;
-    const quoteLabel = showsAgencyCounter
-      ? getQuoteAgencyNumber(quote)
-      : getQuoteUserNumber(quote);
+    const quoteLabel = formatInternalNumber(
+      showsAgencyCounter
+        ? getQuoteAgencyNumber(quote)
+        : getQuoteUserNumber(quote),
+    );
     const ok = window.confirm(`¿Eliminar cotización ${quoteLabel}?`);
     if (!ok) return;
     try {
@@ -2423,12 +2432,16 @@ export default function QuotesPage() {
       const data = (await res.json().catch(() => null)) as {
         error?: string;
         id_booking?: number;
+        agency_booking_id?: number | null;
       } | null;
       if (!res.ok) {
         throw new Error(data?.error || "No se pudo convertir");
       }
+      const convertedBookingNumber = formatInternalNumber(
+        data?.agency_booking_id ?? null,
+      );
       toast.success(
-        `Cotización convertida y movida a Convertidas (reserva Nº ${data?.id_booking ?? ""})`,
+        `Cotización convertida y movida a Convertidas (reserva Nº ${convertedBookingNumber})`,
       );
       setShowConvertValidation(false);
       closeConvert();
@@ -2668,7 +2681,7 @@ export default function QuotesPage() {
                           <div className="mb-4 flex items-start justify-between gap-3">
                             <div>
                               <p className="text-xs uppercase tracking-[0.16em] text-sky-800/70 dark:text-sky-100/70">
-                                Pax #{idx + 1}
+                                Pax Nº {idx + 1}
                               </p>
                               <p className="text-xs text-sky-900/75 dark:text-sky-100/75">
                                 {p.is_titular
@@ -2979,7 +2992,7 @@ export default function QuotesPage() {
                           <div className="mb-4 flex items-start justify-between gap-3">
                             <div>
                               <p className="text-xs uppercase tracking-[0.16em] text-sky-800/70 dark:text-sky-100/70">
-                                Servicio #{idx + 1}
+                                Servicio Nº {idx + 1}
                               </p>
                               <p className="text-xs text-sky-900/75 dark:text-sky-100/75">
                                 Carga comercial y de viaje
@@ -3959,7 +3972,7 @@ export default function QuotesPage() {
                               onClick={() => toggleExpandedQuote(q.id_quote)}
                             >
                               <td className="px-3 py-2 font-semibold">
-                                {row.displayId}
+                                {formatInternalNumber(row.displayId)}
                               </td>
                               <td className="px-3 py-2">
                                 <p className="font-semibold">
@@ -4023,16 +4036,15 @@ export default function QuotesPage() {
                                         <span className="font-semibold">
                                           Correlativos:
                                         </span>{" "}
-                                        Usuario Nº {row.userDisplayId} · Agencia
-                                        Nº {row.agencyDisplayId} · DB #
-                                        {row.dbDisplayId}
+                                        Usuario Nº {formatInternalNumber(row.userDisplayId)} · Agencia
+                                        Nº {formatInternalNumber(row.agencyDisplayId)}
                                       </p>
                                     ) : (
                                       <p>
                                         <span className="font-semibold">
                                           Correlativo:
                                         </span>{" "}
-                                        Usuario Nº {row.userDisplayId}
+                                        Usuario Nº {formatInternalNumber(row.userDisplayId)}
                                       </p>
                                     )}
                                     <p>
@@ -4135,7 +4147,7 @@ export default function QuotesPage() {
                             {showsAgencyCounter
                               ? "Cotización agencia Nº"
                               : "Cotización Nº"}{" "}
-                            {row.displayId}
+                            {formatInternalNumber(row.displayId)}
                           </p>
                           <h3 className="text-sm font-semibold text-sky-950 dark:text-sky-50">
                             {q.lead_name || "Cliente sin nombre"}
@@ -4325,15 +4337,15 @@ export default function QuotesPage() {
                                   <span className="font-semibold">
                                     Correlativos:
                                   </span>{" "}
-                                  Usuario Nº {row.userDisplayId} · Agencia Nº{" "}
-                                  {row.agencyDisplayId} · DB #{row.dbDisplayId}
+                                  Usuario Nº {formatInternalNumber(row.userDisplayId)} · Agencia Nº{" "}
+                                  {formatInternalNumber(row.agencyDisplayId)}
                                 </p>
                               ) : (
                                 <p>
                                   <span className="font-semibold">
                                     Correlativo:
                                   </span>{" "}
-                                  Usuario Nº {row.userDisplayId}
+                                  Usuario Nº {formatInternalNumber(row.userDisplayId)}
                                 </p>
                               )}
                               <p>
@@ -4382,9 +4394,11 @@ export default function QuotesPage() {
                 <div>
                   <h2 className="text-base font-semibold text-sky-950 dark:text-sky-50">
                     Convertir cotización Nº{" "}
-                    {showsAgencyCounter
-                      ? getQuoteAgencyNumber(convertQuote)
-                      : getQuoteUserNumber(convertQuote)}
+                    {formatInternalNumber(
+                      showsAgencyCounter
+                        ? getQuoteAgencyNumber(convertQuote)
+                        : getQuoteUserNumber(convertQuote),
+                    )}
                   </h2>
                   <p className="text-xs text-sky-900/75 dark:text-sky-100/70">
                     Completá los datos y confirmá para moverla a Convertidas.
@@ -5115,7 +5129,7 @@ export default function QuotesPage() {
                           <div className="mb-3 flex items-start justify-between gap-3">
                             <div className="flex-1">
                               <p className="text-xs uppercase tracking-[0.16em] text-sky-800/70 dark:text-sky-100/70">
-                                Acompañante #{idx + 1}
+                                Acompañante Nº {idx + 1}
                               </p>
                               <div className={`mt-1 ${MINI_TOGGLE_GROUP}`}>
                                 <button
@@ -5626,7 +5640,7 @@ export default function QuotesPage() {
                           <div className="mb-3 flex items-start justify-between gap-3">
                             <div>
                               <p className="text-xs uppercase tracking-[0.16em] text-sky-800/70 dark:text-sky-100/70">
-                                Servicio #{idx + 1}
+                                Servicio Nº {idx + 1}
                               </p>
                               <p className="text-xs text-sky-900/75 dark:text-sky-100/75">
                                 Datos comerciales y operativos
@@ -5766,7 +5780,7 @@ export default function QuotesPage() {
                                     {operator.name || "Operador"}{" "}
                                     {operator.agency_operator_id
                                       ? `· Nº ${operator.agency_operator_id}`
-                                      : `· ID ${operator.id_operator}`}
+                                      : "· Sin Nº interno"}
                                   </option>
                                 ))}
                                 {typeof s.operator_id === "number" &&
@@ -5777,7 +5791,7 @@ export default function QuotesPage() {
                                     operator.id_operator === s.operator_id,
                                 ) ? (
                                   <option value={s.operator_id}>
-                                    Operador ID {s.operator_id} (no listado)
+                                    Operador sin Nº interno (no listado)
                                   </option>
                                 ) : null}
                               </select>

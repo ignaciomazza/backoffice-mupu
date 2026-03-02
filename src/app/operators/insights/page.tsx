@@ -1282,7 +1282,7 @@ export default function OperatorInsightsPage() {
                               <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                                 <span>Servicios del operador sin recibo</span>
                                 <StatusPill
-                                  label={`${booking.unreceipted_services.length} items`}
+                                  label={`${booking.unreceipted_services.length} ítems`}
                                   tone="amber"
                                 />
                               </div>
@@ -1463,7 +1463,7 @@ export default function OperatorInsightsPage() {
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     <span>Vencimientos de pago</span>
                     <StatusPill
-                      label={`${data.lists.operatorDues.length} items`}
+                      label={`${data.lists.operatorDues.length} ítems`}
                       tone="slate"
                     />
                   </div>
@@ -1609,7 +1609,7 @@ export default function OperatorInsightsPage() {
                       <div className="mb-3 flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         <span>Movimientos - Ingresos</span>
                         <StatusPill
-                          label={`${incomeMovements.length} items`}
+                          label={`${incomeMovements.length} ítems`}
                           tone="slate"
                         />
                       </div>
@@ -1696,7 +1696,7 @@ export default function OperatorInsightsPage() {
                       <div className="mb-3 flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         <span>Movimientos - Egresos</span>
                         <StatusPill
-                          label={`${data.lists.investments.length} items`}
+                          label={`${data.lists.investments.length} ítems`}
                           tone="slate"
                         />
                       </div>
@@ -1765,7 +1765,7 @@ export default function OperatorInsightsPage() {
                           <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                             <span>Pagos sin reserva</span>
                             <StatusPill
-                              label={`${data.counts.investmentsUnlinked} items`}
+                              label={`${data.counts.investmentsUnlinked} ítems`}
                               tone="slate"
                             />
                           </div>

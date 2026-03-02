@@ -74,6 +74,13 @@ function fmtMoney(v?: number | string | null, cur?: string | null) {
   }
 }
 
+function formatAgencyNumber(value: number | null | undefined): string {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return String(Math.trunc(value));
+  }
+  return "Sin Nº";
+}
+
 function GroupOperatorPaymentCard({
   item,
   token,
@@ -84,8 +91,18 @@ function GroupOperatorPaymentCard({
     () => fmtMoney(item.amount, item.currency),
     [item.amount, item.currency],
   );
-  const bookingNumber = item.booking?.agency_booking_id ?? item.booking_id;
-  const paymentDisplayId = item.agency_investment_id ?? item.id_investment;
+  const bookingNumber = formatAgencyNumber(item.booking?.agency_booking_id);
+  const paymentDisplayId = formatAgencyNumber(item.agency_investment_id);
+  const paymentFileId = useMemo(() => {
+    if (
+      typeof item.agency_investment_id === "number" &&
+      Number.isFinite(item.agency_investment_id) &&
+      item.agency_investment_id > 0
+    ) {
+      return String(Math.trunc(item.agency_investment_id));
+    }
+    return "sin-numero";
+  }, [item.agency_investment_id]);
 
   const downloadPDF = async () => {
     if (!token) {
@@ -105,7 +122,7 @@ function GroupOperatorPaymentCard({
       const a = document.createElement("a");
       const operatorName = item.operator?.name || "Operador";
       a.href = url;
-      a.download = `Pago_Operador_${slugify(operatorName)}_${paymentDisplayId}.pdf`;
+      a.download = `Pago_Operador_${slugify(operatorName)}_${paymentFileId}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -148,8 +165,8 @@ function GroupOperatorPaymentCard({
             {item.operator?.name || "Operador"}
           </h3>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 md:text-xs">
-            N° {paymentDisplayId}
-            {item.booking_id ? ` · Reserva N° ${bookingNumber}` : ""}
+            Nº {paymentDisplayId}
+            {item.booking_id ? ` · Reserva Nº ${bookingNumber}` : ""}
           </p>
         </div>
         <div className="flex items-center gap-3">

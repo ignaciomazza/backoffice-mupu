@@ -225,7 +225,7 @@ function movementSourceLabel(source: MovementSource): string {
     case "receipt":
       return "Recibo";
     case "other_income":
-      return "Ingreso";
+      return "Otro ingreso";
     case "investment":
       return "Pago a operador";
     case "client_payment":
@@ -910,9 +910,9 @@ export default function CashboxPage() {
                 {/* Saldos globales (deudas) */}
                 <div className="rounded-3xl border border-white/20 bg-white/10 p-5 shadow-md shadow-zinc-900/10 backdrop-blur dark:border-white/10 dark:bg-sky-900/10 dark:shadow-zinc-950/70">
                   <p className="text-xs font-medium uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
-                    Cuentas Credito{" "}
+                    Cuentas de crédito{" "}
                     <span className="font-light lowercase opacity-70">
-                      (General)
+                      (general)
                     </span>
                   </p>
                   <div className="mt-3 grid grid-cols-2 gap-3 text-[11px]">
@@ -970,7 +970,7 @@ export default function CashboxPage() {
                     </div>
                   </div>
                   <p className="mt-2 text-[11px] text-zinc-600 dark:text-zinc-400">
-                    {`Para ver mas informacion ingresa a la seccion "Creditos".`}
+                    {`Para ver más información ingresá a la sección "Créditos".`}
                   </p>
                 </div>
               </section>
@@ -1317,7 +1317,7 @@ export default function CashboxPage() {
                                       {movementTypeLabel(m.type)}
                                     </span>
                                     <span className="inline-flex rounded-full bg-zinc-900/5 px-2 py-0.5 text-[10px] text-zinc-700 dark:bg-sky-800/10 dark:text-zinc-200">
-                                      {m.source}
+                                      {movementSourceLabel(m.source)}
                                     </span>
                                   </div>
                                 </td>

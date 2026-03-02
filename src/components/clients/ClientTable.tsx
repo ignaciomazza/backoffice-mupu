@@ -78,7 +78,7 @@ const GENDER_OPTIONS = ["Masculino", "Femenino", "No Binario"] as const;
 const COLUMN_DEFS: ColumnDef[] = [
   {
     key: "client_number",
-    label: "N°",
+    label: "Nº",
     readOnly: true,
     always: true,
     defaultVisible: true,
@@ -108,7 +108,6 @@ const COLUMN_DEFS: ColumnDef[] = [
     label: "Dirección Comercial",
     defaultVisible: false,
   },
-  { key: "id_client", label: "ID", readOnly: true, defaultVisible: false },
   {
     key: "registration_date",
     label: "Registrado",
@@ -731,7 +730,7 @@ export default function ClientTable({
 
   const renderCell = (client: Client, field: ColumnKey) => {
     if (field === "client_number") {
-      return client.agency_client_id ?? client.id_client;
+      return client.agency_client_id ?? "Sin Nº";
     }
     if (field === "profile_key") {
       const key = String(client.profile_key || "");
@@ -1157,8 +1156,7 @@ function SaveAllModal({
               )}
               {changes.map((c, idx) => {
                 const client = clientMap.get(c.clientId);
-                const clientNumber =
-                  client?.agency_client_id ?? client?.id_client ?? c.clientId;
+                const clientNumber = client?.agency_client_id ?? "Sin Nº";
                 const clientName =
                   client?.first_name || client?.last_name
                     ? `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()
@@ -1170,7 +1168,7 @@ function SaveAllModal({
                   >
                     <div className="flex flex-col gap-1">
                       <span className="text-xs uppercase tracking-[0.2em] text-sky-900/60 dark:text-sky-100/60">
-                        Pax N°{clientNumber}
+                        Pax Nº {clientNumber}
                       </span>
                       <span className="font-medium">{clientName}</span>
                       <span className="opacity-70">
@@ -1198,10 +1196,7 @@ function SaveAllModal({
               <div className="mt-2 space-y-2">
                 {errors.map((err) => {
                   const client = clientMap.get(err.clientId);
-                  const clientNumber =
-                    client?.agency_client_id ??
-                    client?.id_client ??
-                    err.clientId;
+                  const clientNumber = client?.agency_client_id ?? "Sin Nº";
                   const clientName =
                     client?.first_name || client?.last_name
                       ? `${client?.first_name ?? ""} ${client?.last_name ?? ""}`.trim()
@@ -1211,7 +1206,7 @@ function SaveAllModal({
                       key={`${err.clientId}-${err.message}`}
                       className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-900 dark:text-rose-100"
                     >
-                      Pax N°{clientNumber} {clientName && `(${clientName})`}
+                      Pax Nº {clientNumber} {clientName && `(${clientName})`}
                       : {err.message}
                     </div>
                   );

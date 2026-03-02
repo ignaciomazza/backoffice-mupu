@@ -108,7 +108,7 @@ export default function GroupReceiptHeader(props: {
 
           {mode === "booking" && selectedBookingDisplayId && (
             <span className={`${pillBase} ${pillNeutral}`}>
-              Reserva N° {selectedBookingDisplayId}
+              Reserva Nº {selectedBookingDisplayId}
             </span>
           )}
 

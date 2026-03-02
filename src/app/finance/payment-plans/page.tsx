@@ -184,6 +184,40 @@ function statusTone(status: PaymentDisplayStatus): string {
   return "border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-800/40 dark:bg-amber-900/30 dark:text-amber-100";
 }
 
+function paymentStatusLabel(status?: string | null): string {
+  const raw = String(status || "")
+    .trim()
+    .toUpperCase();
+  if (!raw) return "-";
+  if (raw === "PENDIENTE" || raw === "PENDING") return "Pendiente";
+  if (raw === "VENCIDA" || raw === "OVERDUE") return "Vencida";
+  if (raw === "PAGADA" || raw === "PAID" || raw === "SETTLED") return "Pagada";
+  if (raw === "CANCELADA" || raw === "CANCELLED" || raw === "CANCELED")
+    return "Cancelada";
+  return String(status || "-");
+}
+
+function paymentAuditActionLabel(action?: string | null): string {
+  const raw = String(action || "")
+    .trim()
+    .toUpperCase();
+  if (!raw) return "Actualización";
+  if (
+    raw === "STATUS_CHANGED" ||
+    raw === "STATUS_CHANGE" ||
+    raw === "CHANGE_STATUS" ||
+    raw === "UPDATE_STATUS"
+  ) {
+    return "Cambio de estado";
+  }
+  if (raw === "CREATED" || raw === "CREATE") return "Creación";
+  if (raw === "UPDATED" || raw === "UPDATE") return "Actualización";
+  if (raw === "SETTLED" || raw === "SETTLE") return "Liquidación";
+  if (raw === "REOPENED" || raw === "REOPEN") return "Reapertura";
+  if (raw === "DELETED" || raw === "DELETE") return "Eliminación";
+  return "Actualización";
+}
+
 function extractReceiptId(payload: unknown): number | null {
   if (!isRecord(payload)) return null;
 
@@ -1240,13 +1274,16 @@ export default function PaymentPlansPage() {
                         className="rounded-2xl border border-white/15 bg-white/10 p-3"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2 text-xs opacity-80">
-                          <span className={CHIP}>{audit.action}</span>
+                          <span className={CHIP}>
+                            {paymentAuditActionLabel(audit.action)}
+                          </span>
                           <span>{formatDate(audit.changed_at)}</span>
                         </div>
 
                         {(audit.from_status || audit.to_status) && (
                           <p className="mt-2 text-sm">
-                            Estado: {audit.from_status || "-"} -&gt; {audit.to_status || "-"}
+                            Estado: {paymentStatusLabel(audit.from_status)} -&gt;{" "}
+                            {paymentStatusLabel(audit.to_status)}
                           </p>
                         )}
 

@@ -55,17 +55,31 @@ const TipoChip: React.FC<{ tipo?: number }> = ({ tipo }) => {
   );
 };
 
+const invoiceStatusLabel = (status?: string): string => {
+  const normalized = String(status || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "—";
+  if (normalized === "approved" || normalized === "aprobada") return "Aprobada";
+  if (normalized === "pending" || normalized === "pendiente") return "Pendiente";
+  if (normalized === "issued" || normalized === "emitida") return "Emitida";
+  if (normalized === "cancelled" || normalized === "canceled" || normalized === "anulada")
+    return "Anulada";
+  return status?.trim() || "—";
+};
+
 const StatusChip: React.FC<{ status?: string }> = ({ status }) => {
-  const s = (status || "").toLowerCase();
+  const label = invoiceStatusLabel(status);
+  const s = label.toLowerCase();
   const palette =
-    s === "aprobada" || s === "approved"
+    s === "aprobada"
       ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200"
-      : s === "pendiente" || s === "pending"
+      : s === "pendiente"
         ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
-        : "bg-sky-100 text-sky-900 dark:bg-white/10 dark:text-white";
+      : "bg-sky-100 text-sky-900 dark:bg-white/10 dark:text-white";
   return (
     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${palette}`}>
-      {status || "—"}
+      {label}
     </span>
   );
 };

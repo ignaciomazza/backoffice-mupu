@@ -135,7 +135,12 @@ export default function BookingCard({
   const returnDate = formatDate(booking.return_date);
   const creationDate = formatDate(booking.creation_date);
   const paxCount = Math.max(1, booking.pax_count);
-  const bookingNumber = booking.agency_booking_id ?? booking.id_booking;
+  const bookingNumber =
+    typeof booking.agency_booking_id === "number" &&
+    Number.isFinite(booking.agency_booking_id) &&
+    booking.agency_booking_id > 0
+      ? String(Math.trunc(booking.agency_booking_id))
+      : "Sin Nº";
   const toggleExpanded = () =>
     setExpandedBookingId((prevId) =>
       prevId === booking.id_booking ? null : booking.id_booking,
@@ -151,7 +156,7 @@ export default function BookingCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-sky-900/85 dark:text-sky-100/85">
-            Reserva N°{bookingNumber}
+            Reserva Nº {bookingNumber}
           </p>
           <p className="mt-1 text-lg font-semibold text-sky-950 dark:text-white">
             {booking.details.toUpperCase() || "Sin detalle"}

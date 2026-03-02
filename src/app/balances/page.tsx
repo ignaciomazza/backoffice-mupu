@@ -1563,7 +1563,7 @@ export default function BalancesPage() {
         <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-xl font-semibold text-sky-950 dark:text-white">
-              Balances / Reservas
+              Saldos / Reservas
             </h1>
             <p className="text-sm opacity-70">
               Visualizá ventas, cobros, deuda e impuestos por reserva.

@@ -99,6 +99,13 @@ const dateKeyFrom = (d?: string | Date | null): string | null =>
 const formatDateKey = (key: string | null): string =>
   key ? formatDateInBuenosAires(key) : "-";
 
+const formatAgencyNumber = (value: number | null | undefined): string => {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return String(Math.trunc(value));
+  }
+  return "Sin Nº";
+};
+
 interface Props {
   due: OperatorDue;
   booking: Booking;
@@ -146,25 +153,29 @@ export default function GroupOperatorDueCard({
   );
 
   const serviceLabel = useMemo(() => {
-    const serviceNumber = service?.agency_service_id ?? due.service_id;
-    const parts = [`N° ${serviceNumber}`];
+    const serviceNumber = formatAgencyNumber(service?.agency_service_id);
+    const parts = [`Nº ${serviceNumber}`];
     if (service?.type) parts.push(service.type);
     if (service?.destination) parts.push(service.destination);
     return `Servicio ${parts.join(" · ")}`;
   }, [
-    due.service_id,
     service?.agency_service_id,
     service?.type,
     service?.destination,
   ]);
 
   const operatorIndex = useMemo(() => {
-    const map = new Map<number, { name?: string; displayId: number }>();
+    const map = new Map<number, { name?: string; displayId: number | null }>();
     for (const op of operators || []) {
       if (op && typeof op.id_operator === "number") {
         map.set(op.id_operator, {
           name: op.name,
-          displayId: op.agency_operator_id ?? op.id_operator,
+          displayId:
+            typeof op.agency_operator_id === "number" &&
+              Number.isFinite(op.agency_operator_id) &&
+              op.agency_operator_id > 0
+              ? Math.trunc(op.agency_operator_id)
+              : null,
         });
       }
     }
@@ -180,7 +191,7 @@ export default function GroupOperatorDueCard({
     if (typeof operatorId !== "number") return "Operador";
     const entry = operatorIndex.get(operatorId);
     if (entry?.name?.trim()) return entry.name;
-    return `Operador N° ${entry?.displayId ?? operatorId}`;
+    return `Operador Nº ${formatAgencyNumber(entry?.displayId)}`;
   }, [service, operatorIndex]);
 
   const statusMeta = useMemo(
@@ -271,7 +282,7 @@ export default function GroupOperatorDueCard({
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 md:text-xs">
-            Vencimiento N° {due.id_due}
+            Vencimiento Nº {formatAgencyNumber(due.agency_operator_due_id)}
           </p>
           <p className="mt-2 text-xl font-semibold md:text-2xl">
             {fmtMoney(due.amount, due.currency)}

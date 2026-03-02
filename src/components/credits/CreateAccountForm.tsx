@@ -25,7 +25,7 @@ export type CreateCreditAccountPayload = {
   currency: string;
   /** Estado */
   status?: "ACTIVE" | "PAUSED" | "CLOSED";
-  /** Balance inicial opcional (puede ser negativo o positivo) */
+  /** Saldo inicial opcional (puede ser negativo o positivo) */
   initial_balance?: string;
 };
 
@@ -248,7 +248,7 @@ export default function CreateAccountForm({
     if (initialBalance.trim()) {
       const n = Number(initialBalance);
       if (!Number.isFinite(n)) {
-        e.initial_balance = "El balance inicial debe ser un número válido.";
+        e.initial_balance = "El saldo inicial debe ser un número válido.";
       }
     }
 
@@ -554,10 +554,10 @@ export default function CreateAccountForm({
                 </Field>
               </Section>
 
-              {/* PARÁMETROS (moneda + balance inicial) */}
+              {/* PARÁMETROS (moneda + saldo inicial) */}
               <Section
                 title="Parámetros"
-                desc="Configurá la moneda y, opcionalmente, un balance inicial para la cuenta."
+                desc="Configurá la moneda y, opcionalmente, un saldo inicial para la cuenta."
               >
                 <Field id="currency" label="Moneda" required>
                   {loadingCurrencies ? (
@@ -593,7 +593,7 @@ export default function CreateAccountForm({
 
                 <Field
                   id="initial_balance"
-                  label="Balance inicial"
+                  label="Saldo inicial"
                   hint="Opcional. Podés cargar un saldo a favor (+) o en contra (−)."
                 >
                   <input

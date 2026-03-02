@@ -289,8 +289,8 @@ export default function InsightsPage() {
         if (!res.ok) {
           const msg =
             res.status === 401
-              ? "No estás autorizado para ver estos insights."
-              : "No se pudieron cargar los insights.";
+              ? "No estás autorizado para ver estos análisis."
+              : "No se pudieron cargar los análisis.";
           toast.error(msg);
           setData(null);
           return;
@@ -307,8 +307,8 @@ export default function InsightsPage() {
           return;
         }
         // eslint-disable-next-line no-console
-        console.error("[InsightsPage] Error cargando insights:", error);
-        toast.error("Ocurrió un error al cargar los insights.");
+        console.error("[InsightsPage] Error cargando analisis:", error);
+        toast.error("Ocurrió un error al cargar los análisis.");
         setData(null);
       } finally {
         setLoading(false);
@@ -422,7 +422,7 @@ export default function InsightsPage() {
         <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-50 md:text-2xl">
-              Insights comerciales
+              Análisis comerciales
             </h1>
             <p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-400">
               Vista pensada para marketing y gerencia: destinos, evolución

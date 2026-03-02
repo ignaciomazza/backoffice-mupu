@@ -122,6 +122,13 @@ const toAmount = (raw: string | number | null | undefined) => {
   return parsed != null && Number.isFinite(parsed) ? parsed : 0;
 };
 
+const formatAgencyNumber = (value: number | null | undefined): string => {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return String(Math.trunc(value));
+  }
+  return "Sin Nº";
+};
+
 export default function GroupClientPaymentForm({
   token,
   booking,
@@ -146,10 +153,10 @@ export default function GroupClientPaymentForm({
       if (!pax?.id_client) continue;
       if (unique.has(pax.id_client)) continue;
       const fullName = `${pax.first_name ?? ""} ${pax.last_name ?? ""}`.trim();
-      const paxCode = pax.agency_client_id ?? pax.id_client;
+      const paxCode = formatAgencyNumber(pax.agency_client_id);
       unique.set(pax.id_client, {
         id: pax.id_client,
-        label: `${fullName || `Pax ${pax.id_client}`} · N° ${paxCode}`,
+        label: `${fullName || "Pax"} · Nº ${paxCode}`,
       });
     }
 
@@ -164,7 +171,7 @@ export default function GroupClientPaymentForm({
     if (bookingPaxOptions.some((opt) => opt.id === normalized)) return null;
     return {
       id: normalized,
-      label: `Pax bloqueado · N° ${normalized}`,
+      label: "Pax bloqueado · Sin Nº",
     };
   }, [bookingPaxOptions, defaultClientId, lockClient]);
 
@@ -176,9 +183,9 @@ export default function GroupClientPaymentForm({
   const bookingServiceOptions = useMemo(() => {
     const services = Array.isArray(booking.services) ? booking.services : [];
     return services.map((svc) => {
-      const code = svc.agency_service_id ?? svc.id_service;
+      const code = formatAgencyNumber(svc.agency_service_id);
       const title = svc.description || svc.type || `Servicio ${code}`;
-      return { id: svc.id_service, label: `${title} · N° ${code}` };
+      return { id: svc.id_service, label: `${title} · Nº ${code}` };
     });
   }, [booking.services]);
 
@@ -296,7 +303,7 @@ export default function GroupClientPaymentForm({
     const total = sumCustom(amountsArray);
     if (total <= 0) return "";
     return `${amountsArray
-      .map((v, i) => `N°${i + 1}: ${formatMoney(toAmount(v), code)}`)
+      .map((v, i) => `Nº${i + 1}: ${formatMoney(toAmount(v), code)}`)
       .join(" + ")} = ${formatMoney(total, code)}`;
   }, [amountMode, amountInput, currency, count, amountsArray, formatMoney]);
 
@@ -580,7 +587,7 @@ export default function GroupClientPaymentForm({
                 {isFormVisible ? "Plan de pagos" : "Cargar plan de pagos"}
               </p>
               <p className="text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
-                Reserva N° {booking.agency_booking_id ?? booking.id_booking}
+                Reserva Nº {formatAgencyNumber(booking.agency_booking_id)}
               </p>
             </div>
           </div>
@@ -797,7 +804,7 @@ export default function GroupClientPaymentForm({
                         <Field
                           key={idx}
                           id={`custom_amount_${idx}`}
-                          label={`Monto cuota N°${idx + 1}`}
+                          label={`Monto cuota Nº${idx + 1}`}
                           required
                         >
                           <input
@@ -872,7 +879,7 @@ export default function GroupClientPaymentForm({
                     <Field
                       key={idx}
                       id={`due_date_${idx}`}
-                      label={`Vencimiento cuota N°${idx + 1}`}
+                      label={`Vencimiento cuota Nº${idx + 1}`}
                       required
                     >
                       <input
