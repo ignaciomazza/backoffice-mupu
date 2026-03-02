@@ -551,20 +551,21 @@ export default function OtherIncomesPage() {
         qs.set("category_id", appliedFilters.categoryId);
 
       qs.set("take", String(TAKE));
-      if (withCursor) qs.set("cursor", String(withCursor));
+      if (withCursor !== null && withCursor !== undefined)
+        qs.set("cursor", String(withCursor));
       return qs;
     },
     [appliedFilters],
   );
 
   const fetchItems = useCallback(
-    async (resetList: boolean) => {
+    async (resetList: boolean, pageCursor?: number | null) => {
       if (!token) return;
       if (resetList) setLoading(true);
       else setLoadingMore(true);
 
       try {
-        const qs = buildQS(resetList ? undefined : cursor);
+        const qs = buildQS(resetList ? undefined : pageCursor);
         const res = await authFetch(
           `/api/other-incomes?${qs.toString()}`,
           { cache: "no-store" },
@@ -583,7 +584,7 @@ export default function OtherIncomesPage() {
         setLoadingMore(false);
       }
     },
-    [token, buildQS, cursor],
+    [token, buildQS],
   );
 
   const fetchReport = useCallback(async () => {
@@ -2221,7 +2222,7 @@ export default function OtherIncomesPage() {
               <div className="mt-4 flex justify-center">
                 <button
                   type="button"
-                  onClick={() => fetchItems(false)}
+                  onClick={() => fetchItems(false, cursor)}
                   className="rounded-full border border-white/30 bg-white/20 px-4 py-2 text-xs font-medium text-zinc-700 transition hover:bg-white/30 dark:text-zinc-100"
                   disabled={loadingMore}
                 >
