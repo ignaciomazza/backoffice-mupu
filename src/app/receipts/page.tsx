@@ -288,6 +288,7 @@ export default function ReceiptsPage() {
   const [loadingDeleteId, setLoadingDeleteId] = useState<number | null>(null);
   const [editingReceipt, setEditingReceipt] = useState<ReceiptRow | null>(null);
   const [formVisible, setFormVisible] = useState(false);
+  const pendingEditScrollRef = useRef(false);
   const lastAssociationFilter = useRef(associationFilter);
   const [servicesByBooking, setServicesByBooking] = useState<
     Record<number, ServiceLite[]>
@@ -411,6 +412,46 @@ export default function ReceiptsPage() {
     },
     [fmtDate],
   );
+
+  const scrollToReceiptForm = useCallback((behavior: ScrollBehavior) => {
+    if (typeof window === "undefined") return false;
+    const node = document.getElementById("receipt-form");
+    if (!node) return false;
+    const y =
+      node.getBoundingClientRect().top +
+      window.pageYOffset -
+      window.innerHeight * 0.1;
+    window.scrollTo({ top: Math.max(0, y), behavior });
+    return true;
+  }, []);
+
+  useEffect(() => {
+    if (!pendingEditScrollRef.current || !formVisible) return;
+    if (typeof window === "undefined") return;
+
+    const prefersReduced =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const behavior: ScrollBehavior = prefersReduced ? "auto" : "smooth";
+
+    let attempts = 0;
+    let timeoutId: number | null = null;
+
+    const runScrollAttempt = () => {
+      attempts += 1;
+      const found = scrollToReceiptForm(behavior);
+      if (attempts >= 6 || (found && attempts >= 2)) {
+        pendingEditScrollRef.current = false;
+        return;
+      }
+      timeoutId = window.setTimeout(runScrollAttempt, 120);
+    };
+
+    const rafId = window.requestAnimationFrame(runScrollAttempt);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+    };
+  }, [editingReceipt?.id_receipt, formVisible, scrollToReceiptForm]);
 
   const getReceiptDisplayNumber = useCallback(
     (r: Pick<ReceiptRow, "agency_receipt_id" | "receipt_number">) => {
@@ -1298,11 +1339,13 @@ export default function ReceiptsPage() {
   );
 
   const startEditReceipt = (row: ReceiptRow) => {
+    pendingEditScrollRef.current = true;
     setEditingReceipt(row);
     setFormVisible(true);
   };
 
   const cancelEditReceipt = () => {
+    pendingEditScrollRef.current = false;
     setEditingReceipt(null);
     setFormVisible(false);
   };
