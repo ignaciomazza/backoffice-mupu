@@ -254,7 +254,7 @@ export default async function handler(
       if (!type) {
         return groupApiError(res, 400, "El tipo de grupal es inválido.", {
           code: "GROUP_TYPE_INVALID",
-          solution: "Elegí Agencia, Estudiantil o Precomprado.",
+          solution: "Elegí Agencia, Estudiantil, Micro o Cupos.",
         });
       }
       patch.type = type;

@@ -70,7 +70,7 @@ type GroupStatus =
   | "CERRADA"
   | "CANCELADA";
 
-type GroupType = "AGENCIA" | "ESTUDIANTIL" | "PRECOMPRADO";
+type GroupType = "AGENCIA" | "ESTUDIANTIL" | "MICRO" | "PRECOMPRADO";
 
 type Departure = {
   id_travel_group_departure: number;
@@ -219,26 +219,6 @@ type InventoryFinancialRow = {
   costAvailable: number;
   saleTotal: number;
   transferFeePct: number;
-  transferFeeAmount: number;
-  taxesTotal: number;
-  grossMargin: number;
-  operationalDebt: number;
-};
-
-type InventoryFinancialSummary = {
-  currency: string;
-  servicesCount: number;
-  totalQty: number;
-  assignedQty: number;
-  confirmedQty: number;
-  blockedQty: number;
-  availableQty: number;
-  costTotal: number;
-  costAssigned: number;
-  costConfirmed: number;
-  costBlocked: number;
-  costAvailable: number;
-  saleTotal: number;
   transferFeeAmount: number;
   taxesTotal: number;
   grossMargin: number;
@@ -496,14 +476,6 @@ const PASSENGER_STATUSES = [
   "CANCELADO",
 ] as const;
 
-const DEPARTURE_STATUS_OPTIONS: GroupStatus[] = [
-  "BORRADOR",
-  "PUBLICADA",
-  "CONFIRMADA",
-  "CERRADA",
-  "CANCELADA",
-];
-
 const STATUS_STYLES: Record<string, string> = {
   BORRADOR:
     "border-slate-300/80 bg-slate-100/80 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200",
@@ -523,20 +495,6 @@ const STATUS_STYLES: Record<string, string> = {
     "border-sky-300/80 bg-sky-100/80 text-sky-700 dark:border-sky-600 dark:bg-sky-900/30 dark:text-sky-200",
   CANCELADO:
     "border-zinc-300/80 bg-zinc-100/80 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200",
-};
-
-const GROUP_STATUS_LABELS: Record<GroupStatus, string> = {
-  BORRADOR: "Borrador",
-  PUBLICADA: "Publicada",
-  CONFIRMADA: "Confirmada",
-  CERRADA: "Cerrada",
-  CANCELADA: "Cancelada",
-};
-
-const GROUP_TYPE_LABELS: Record<GroupType, string> = {
-  AGENCIA: "Agencia",
-  ESTUDIANTIL: "Estudiantil",
-  PRECOMPRADO: "Precomprado",
 };
 
 const PASSENGER_STATUS_LABELS: Record<
@@ -559,10 +517,6 @@ const PILL_EMERALD_ACTIVE =
   "border-emerald-400 bg-emerald-100/90 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-900/35 dark:text-emerald-200";
 const PILL_AMBER_ACTIVE =
   "border-amber-400 bg-amber-100/90 text-amber-800 dark:border-amber-500 dark:bg-amber-900/35 dark:text-amber-200";
-const RESULT_PILL_BASE = "rounded-full px-2.5 py-0.5 text-xs font-medium";
-const RESULT_PILL_OK =
-  "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
-const RESULT_PILL_WARN = "bg-rose-500/15 text-rose-700 dark:text-rose-300";
 const DOC_FIELD_KEYS = ["dni_number", "passport_number", "tax_id"] as const;
 const FIELD_INPUT_CLASS =
   "w-full rounded-2xl border border-sky-300/80 bg-white/90 px-3 py-2 text-sm text-slate-900 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-700/70 dark:bg-slate-900/70 dark:text-slate-100 dark:focus:border-sky-400";
@@ -1094,31 +1048,11 @@ function PassengerClientFields({
   );
 }
 
-function formatGroupStatus(value: GroupStatus): string {
-  return GROUP_STATUS_LABELS[value] ?? value;
-}
-
-function formatGroupType(value: GroupType): string {
-  return GROUP_TYPE_LABELS[value] ?? value;
-}
-
 function formatPassengerStatus(value: string): string {
   return (
     PASSENGER_STATUS_LABELS[value as keyof typeof PASSENGER_STATUS_LABELS] ??
     value
   );
-}
-
-function formatDepartureStatus(value: string): string {
-  return GROUP_STATUS_LABELS[value as GroupStatus] ?? value;
-}
-
-function formatGroupReference(group: Group): string {
-  const code = typeof group.code === "string" ? group.code.trim() : "";
-  if (code) return `Código ${code}`;
-  if (group.agency_travel_group_id)
-    return `Grupal Nº${group.agency_travel_group_id}`;
-  return `Grupal Nº${group.id_travel_group}`;
 }
 
 function formatDepartureReference(dep: Departure): string {
@@ -1196,9 +1130,8 @@ function defaultInventoryDraft(
     label: source?.label ?? "",
     provider: source?.provider ?? "",
     locator: source?.locator ?? "",
-    pricing_mode:
-      meta?.pricingMode === "VENTA_TOTAL" ? "VENTA_TOTAL" : "MANUAL",
-    billing_mode: meta?.billingMode === "MANUAL" ? "MANUAL" : "AUTO",
+    pricing_mode: "MANUAL",
+    billing_mode: "AUTO",
     total_qty: source?.total_qty != null ? String(source.total_qty) : "",
     assigned_qty:
       source?.assigned_qty != null ? String(source.assigned_qty) : "0",
@@ -1327,7 +1260,6 @@ export default function GroupDetailPage() {
   const [loadingDepartureId, setLoadingDepartureId] = useState<number | null>(
     null,
   );
-  const [showDepartureFilters, setShowDepartureFilters] = useState(false);
 
   const [passengerView, setPassengerView] = useState<"TABLE" | "LIST" | "GRID">(
     "TABLE",
@@ -1337,13 +1269,10 @@ export default function GroupDetailPage() {
     "ALL" | string
   >("ALL");
   const [showPassengerFilters, setShowPassengerFilters] = useState(false);
-  const [showPassengerForm, setShowPassengerForm] = useState(true);
+  const [showPassengerForm, setShowPassengerForm] = useState(false);
   const [passengerFormMode, setPassengerFormMode] = useState<
     "ALTA" | "EDICION"
   >("ALTA");
-  const [updatingPassengerStatusId, setUpdatingPassengerStatusId] = useState<
-    number | null
-  >(null);
 
   const [newPassengerMode, setNewPassengerMode] = useState<
     "EXISTENTE" | "NUEVO"
@@ -1384,14 +1313,12 @@ export default function GroupDetailPage() {
   const [editingInventoryId, setEditingInventoryId] = useState<number | null>(
     null,
   );
-  const [inventoryProviderMode, setInventoryProviderMode] = useState<
-    "OPERADOR" | "MANUAL"
-  >("OPERADOR");
   const [inventoryDraft, setInventoryDraft] = useState<InventoryDraft>(() =>
     defaultInventoryDraft(undefined, { defaultTransferFeePct: 2.4 }),
   );
   const [showCollectForm, setShowCollectForm] = useState(true);
-  const [sectionFilter, setSectionFilter] = useState<SectionFilterKey>("GRUPAL");
+  const [sectionFilter, setSectionFilter] =
+    useState<SectionFilterKey>("GRUPAL");
   const [collectBooking, setCollectBooking] =
     useState<FinanceBookingPayload | null>(null);
   const [collectClientPayments, setCollectClientPayments] = useState<
@@ -1427,8 +1354,6 @@ export default function GroupDetailPage() {
     financeOperatorPaymentsReloadKey,
     setFinanceOperatorPaymentsReloadKey,
   ] = useState(0);
-  const [showManualInventoryStatsInputs, setShowManualInventoryStatsInputs] =
-    useState(false);
 
   const [paymentsReservationKey, setPaymentsReservationKey] = useState("");
   const [paymentsBooking, setPaymentsBooking] =
@@ -1705,6 +1630,11 @@ export default function GroupDetailPage() {
     return String(group?.sale_mode || "").toUpperCase() === "UNICA";
   }, [group?.sale_mode]);
 
+  const primaryDeparture = useMemo(() => {
+    if (!isSingleDepartureMode) return null;
+    return sortedDepartures[0] ?? null;
+  }, [isSingleDepartureMode, sortedDepartures]);
+
   const activePassenger = useMemo(() => {
     if (!activePassengerId) return null;
     return (
@@ -1862,22 +1792,19 @@ export default function GroupDetailPage() {
       return;
     }
     const preferredKey =
-      activePassenger?.travelGroupDeparture
-        ?.id_travel_group_departure != null
+      activePassenger?.travelGroupDeparture?.id_travel_group_departure != null
         ? `departure:${activePassenger.travelGroupDeparture.id_travel_group_departure}`
         : "group";
     const hasPreferred = financeReservationOptions.some(
       (item) => item.key === preferredKey,
     );
-    const nextKey = hasPreferred ? preferredKey : financeReservationOptions[0].key;
+    const nextKey = hasPreferred
+      ? preferredKey
+      : financeReservationOptions[0].key;
     if (paymentsReservationKey !== nextKey) {
       setPaymentsReservationKey(nextKey);
     }
-  }, [
-    activePassenger,
-    financeReservationOptions,
-    paymentsReservationKey,
-  ]);
+  }, [activePassenger, financeReservationOptions, paymentsReservationKey]);
 
   useEffect(() => {
     setEditingCollectReceipt(null);
@@ -2001,51 +1928,6 @@ export default function GroupDetailPage() {
     });
   }, [defaultTransferFeePct, inventories]);
 
-  const inventoryFinancialSummary = useMemo<InventoryFinancialSummary[]>(() => {
-    const acc = new Map<string, InventoryFinancialSummary>();
-    for (const row of inventoryFinancialRows) {
-      const current = acc.get(row.currency) ?? {
-        currency: row.currency,
-        servicesCount: 0,
-        totalQty: 0,
-        assignedQty: 0,
-        confirmedQty: 0,
-        blockedQty: 0,
-        availableQty: 0,
-        costTotal: 0,
-        costAssigned: 0,
-        costConfirmed: 0,
-        costBlocked: 0,
-        costAvailable: 0,
-        saleTotal: 0,
-        transferFeeAmount: 0,
-        taxesTotal: 0,
-        grossMargin: 0,
-        operationalDebt: 0,
-      };
-      current.servicesCount += 1;
-      current.totalQty += row.totalQty;
-      current.assignedQty += row.assignedQty;
-      current.confirmedQty += row.confirmedQty;
-      current.blockedQty += row.blockedQty;
-      current.availableQty += row.availableQty;
-      current.costTotal += row.costTotal;
-      current.costAssigned += row.costAssigned;
-      current.costConfirmed += row.costConfirmed;
-      current.costBlocked += row.costBlocked;
-      current.costAvailable += row.costAvailable;
-      current.saleTotal += row.saleTotal;
-      current.transferFeeAmount += row.transferFeeAmount;
-      current.taxesTotal += row.taxesTotal;
-      current.grossMargin += row.grossMargin;
-      current.operationalDebt += row.operationalDebt;
-      acc.set(row.currency, current);
-    }
-    return [...acc.values()].sort((a, b) =>
-      a.currency.localeCompare(b.currency),
-    );
-  }, [inventoryFinancialRows]);
-
   const inventoryFinancialById = useMemo(() => {
     return new Map(
       inventoryFinancialRows.map((item) => [item.inventoryId, item] as const),
@@ -2060,10 +1942,7 @@ export default function GroupDetailPage() {
     const qtyAvailable = Math.max(qtyTotal - qtyAssigned - qtyBlocked, 0);
     const unitCost = toAmountNumber(inventoryDraft.unit_cost);
     const costTotal = unitCost * qtyTotal;
-    const saleTotal =
-      inventoryDraft.pricing_mode === "VENTA_TOTAL"
-        ? toAmountNumber(inventoryDraft.sale_total_price)
-        : toAmountNumber(inventoryDraft.sale_unit_price) * qtyTotal;
+    const saleTotal = toAmountNumber(inventoryDraft.sale_unit_price) * qtyTotal;
     const taxes =
       toAmountNumber(inventoryDraft.taxable_21) +
       toAmountNumber(inventoryDraft.taxable_105) +
@@ -2577,7 +2456,9 @@ export default function GroupDetailPage() {
         );
       } else {
         setFinanceInvoices([]);
-        errors.push(invoicesResult.reason?.message || "Facturas no disponibles.");
+        errors.push(
+          invoicesResult.reason?.message || "Facturas no disponibles.",
+        );
       }
 
       if (notesResult.status === "fulfilled") {
@@ -3130,6 +3011,11 @@ export default function GroupDetailPage() {
   const showCobrosPanels = sectionFilter === "COBROS";
   const showPagosPanels = sectionFilter === "PAGOS";
   const showFacturacionPanel = sectionFilter === "FACTURACION";
+  const showDepartureSection =
+    !isSingleDepartureMode ||
+    sortedDepartures.length === 0 ||
+    showDepartureCreate ||
+    Boolean(editingDepartureId);
 
   type ActionResult = {
     toastMessage?: string;
@@ -3252,42 +3138,44 @@ export default function GroupDetailPage() {
     const completed = await runAction(
       "Alta de pasajero",
       async () => {
-      const data = await requestGroupApi<{
-        created_count?: number;
-        skipped_count?: number;
-        created?: Array<{ passenger_id?: number }>;
-      }>(
-        `/api/groups/${encodeURIComponent(groupId)}/passengers/single-create`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            clientIds: [clientIdToAdd],
-            departureId: newPassengerDepartureId || null,
-          }),
-        },
-        "No pudimos agregar el pasajero.",
-      );
-      createdCount = Number(data.created_count ?? 0);
-      const firstCreated = Array.isArray(data.created) ? data.created[0] : null;
-      createdPassengerId =
-        firstCreated && typeof firstCreated.passenger_id === "number"
-          ? firstCreated.passenger_id
+        const data = await requestGroupApi<{
+          created_count?: number;
+          skipped_count?: number;
+          created?: Array<{ passenger_id?: number }>;
+        }>(
+          `/api/groups/${encodeURIComponent(groupId)}/passengers/single-create`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              clientIds: [clientIdToAdd],
+              departureId: newPassengerDepartureId || null,
+            }),
+          },
+          "No pudimos agregar el pasajero.",
+        );
+        createdCount = Number(data.created_count ?? 0);
+        const firstCreated = Array.isArray(data.created)
+          ? data.created[0]
           : null;
-      setNewPassengerClientId(null);
-      setNewPassengerDepartureId("");
-      if (newPassengerMode === "NUEVO") {
-        setNewClientDraft(defaultClientDraft());
-        setNewPassengerMode("EXISTENTE");
-      }
-      return {
-        toastMessage: `Pasajero agregado. Creados: ${data.created_count ?? 0}.`,
-        summaryLines: [
-          `Pasajeros creados: ${data.created_count ?? 0}`,
-          `Pasajeros omitidos: ${data.skipped_count ?? 0}`,
-        ],
-      };
+        createdPassengerId =
+          firstCreated && typeof firstCreated.passenger_id === "number"
+            ? firstCreated.passenger_id
+            : null;
+        setNewPassengerClientId(null);
+        setNewPassengerDepartureId("");
+        if (newPassengerMode === "NUEVO") {
+          setNewClientDraft(defaultClientDraft());
+          setNewPassengerMode("EXISTENTE");
+        }
+        return {
+          toastMessage: `Pasajero agregado. Creados: ${data.created_count ?? 0}.`,
+          summaryLines: [
+            `Pasajeros creados: ${data.created_count ?? 0}`,
+            `Pasajeros omitidos: ${data.skipped_count ?? 0}`,
+          ],
+        };
       },
       { notifySuccess: false },
     );
@@ -3423,65 +3311,6 @@ export default function GroupDetailPage() {
     });
   }
 
-  async function handleInlinePassengerStatusChange(
-    passenger: PassengerItem,
-    nextStatus: string,
-  ) {
-    const normalizedNextStatus = String(nextStatus || "")
-      .trim()
-      .toUpperCase();
-    if (!normalizedNextStatus || normalizedNextStatus === passenger.status)
-      return;
-
-    setError(null);
-    setUpdatingPassengerStatusId(passenger.id_travel_group_passenger);
-    try {
-      const data = await requestGroupApi<{ updated_count?: number }>(
-        `/api/groups/${encodeURIComponent(groupId)}/passengers/single-update`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            passengerIds: [passenger.id_travel_group_passenger],
-            status: normalizedNextStatus,
-          }),
-        },
-        "No pudimos cambiar el estado del pasajero.",
-      );
-
-      setPassengers((prev) =>
-        prev.map((item) =>
-          item.id_travel_group_passenger === passenger.id_travel_group_passenger
-            ? { ...item, status: normalizedNextStatus }
-            : item,
-        ),
-      );
-
-      if (
-        activePassengerId === passenger.id_travel_group_passenger &&
-        activePassengerStatus !== normalizedNextStatus
-      ) {
-        setActivePassengerStatus(normalizedNextStatus);
-      }
-
-      toast.success(
-        data.updated_count && data.updated_count > 0
-          ? "Estado del pasajero actualizado."
-          : "No hubo cambios para aplicar.",
-      );
-    } catch (e) {
-      const msg =
-        e instanceof Error
-          ? e.message
-          : "No pudimos cambiar el estado del pasajero.";
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setUpdatingPassengerStatusId(null);
-    }
-  }
-
   async function handleDeletePassenger(passenger: PassengerItem) {
     const passengerLabel = passenger.client
       ? `${passenger.client.first_name} ${passenger.client.last_name}`
@@ -3528,16 +3357,14 @@ export default function GroupDetailPage() {
             ?.name ?? "")
         : "";
     const providerValue =
-      inventoryProviderMode === "OPERADOR"
-        ? selectedOperatorName.trim() || inventoryDraft.provider.trim()
-        : inventoryDraft.provider.trim();
+      selectedOperatorName.trim() || inventoryDraft.provider.trim();
     const financialMeta: InventoryFinancialMeta = {
       v: 1,
-      pricingMode: inventoryDraft.pricing_mode,
-      billingMode: inventoryDraft.billing_mode,
+      pricingMode: "MANUAL",
+      billingMode: "AUTO",
       operatorId: parsedOperatorId ?? null,
       saleUnitPrice: normalizeMoneyValue(inventoryDraft.sale_unit_price),
-      saleTotalPrice: normalizeMoneyValue(inventoryDraft.sale_total_price),
+      saleTotalPrice: null,
       taxable21: normalizeMoneyValue(inventoryDraft.taxable_21),
       taxable105: normalizeMoneyValue(inventoryDraft.taxable_105),
       exemptAmount: normalizeMoneyValue(inventoryDraft.exempt_amount),
@@ -3561,6 +3388,12 @@ export default function GroupDetailPage() {
       note: buildInventoryNote(inventoryDraft.note, financialMeta),
     };
 
+    if (parsedOperatorId == null) {
+      const msg = "Seleccioná un operador para el servicio.";
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
     if (!payload.label || !payload.inventory_type || !payload.total_qty) {
       const msg = "Completá tipo, nombre y cantidad total del servicio.";
       setError(msg);
@@ -3610,9 +3443,7 @@ export default function GroupDetailPage() {
         }),
       );
       setEditingInventoryId(null);
-      setInventoryProviderMode("OPERADOR");
       setShowInventoryForm(false);
-      setShowManualInventoryStatsInputs(false);
       await fetchAll();
     } catch (e) {
       const msg =
@@ -3631,12 +3462,6 @@ export default function GroupDetailPage() {
       operators: operatorOptions,
     });
     setInventoryDraft(nextDraft);
-    setInventoryProviderMode(
-      parseOptionalPositiveInteger(nextDraft.operator_id) != null
-        ? "OPERADOR"
-        : "MANUAL",
-    );
-    setShowManualInventoryStatsInputs(false);
     setShowInventoryForm(true);
   }
 
@@ -3936,27 +3761,7 @@ export default function GroupDetailPage() {
                 <h1 className="text-2xl font-extrabold text-slate-900 dark:text-slate-100">
                   {group.name}
                 </h1>
-                <span
-                  className={`rounded-full border px-2 py-0.5 text-xs font-bold ${STATUS_STYLES[group.status] || STATUS_STYLES.BORRADOR}`}
-                >
-                  {formatGroupStatus(group.status)}
-                </span>
-                <span
-                  className={`${RESULT_PILL_BASE} ${
-                    group._count.passengers > 0
-                      ? RESULT_PILL_OK
-                      : RESULT_PILL_WARN
-                  }`}
-                >
-                  {group._count.passengers} pasajeros
-                </span>
               </div>
-              <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
-                {formatGroupType(group.type)} · Fechas por salida
-              </p>
-              <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">
-                {formatGroupReference(group)}
-              </p>
             </div>
             <Link
               href="/groups"
@@ -3965,30 +3770,54 @@ export default function GroupDetailPage() {
               Volver
             </Link>
           </div>
-          <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-700 dark:text-slate-300">
-            <span className="rounded-full border border-slate-300 bg-white/80 px-2 py-1 dark:border-slate-600 dark:bg-slate-900/70">
-              Pasajeros: {group._count.passengers}
-            </span>
-            <span className="rounded-full border border-slate-300 bg-white/80 px-2 py-1 dark:border-slate-600 dark:bg-slate-900/70">
-              Reservas: {group._count.bookings}
-            </span>
-            <span className="rounded-full border border-slate-300 bg-white/80 px-2 py-1 dark:border-slate-600 dark:bg-slate-900/70">
-              Salidas: {group._count.departures}
-            </span>
-            <span className="rounded-full border border-slate-300 bg-white/80 px-2 py-1 dark:border-slate-600 dark:bg-slate-900/70">
-              Cupo: {group.capacity_total ?? "-"}
-            </span>
-            {group.allow_overbooking ? (
-              <span className="rounded-full border border-emerald-300 bg-emerald-100 px-2 py-1 text-emerald-700 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-200">
-                Sobreventa
-              </span>
-            ) : null}
-            {group.waitlist_enabled ? (
-              <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-1 text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
-                Lista de espera
-              </span>
-            ) : null}
-          </div>
+          {showGroupPanels && isSingleDepartureMode ? (
+            <div className="mt-4 rounded-2xl border border-sky-200/80 bg-white/75 p-4 shadow-sm shadow-slate-900/10 dark:border-sky-700/70 dark:bg-slate-900/55">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    Salida principal
+                  </p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    {primaryDeparture
+                      ? formatDepartureReference(primaryDeparture)
+                      : "Sin salida creada"}
+                  </p>
+                </div>
+                {primaryDeparture ? (
+                  <button
+                    type="button"
+                    onClick={() => void startEditDeparture(primaryDeparture)}
+                    disabled={
+                      submitting ||
+                      loadingDepartureId ===
+                        primaryDeparture.id_travel_group_departure
+                    }
+                    className="rounded-full border border-slate-300 bg-white/85 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
+                  >
+                    {loadingDepartureId ===
+                    primaryDeparture.id_travel_group_departure ? (
+                      "Cargando..."
+                    ) : (
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={1.5}
+                        stroke="currentColor"
+                        className="size-5"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </header>
 
         <nav className="sticky top-3 z-10 rounded-2xl border border-sky-200/80 bg-white/85 p-2 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/70">
@@ -4007,13 +3836,6 @@ export default function GroupDetailPage() {
               </button>
             ))}
           </div>
-          <p className="mt-2 px-1 text-[11px] text-slate-600 dark:text-slate-400">
-            Mostrando:{" "}
-            <span className="font-semibold">
-              {SECTION_FILTERS.find((item) => item.id === sectionFilter)
-                ?.label || "Grupal"}
-            </span>
-          </p>
         </nav>
 
         {error ? (
@@ -4027,37 +3849,28 @@ export default function GroupDetailPage() {
           </p>
         ) : null}
 
-        {showGroupPanels ? (
+        {showGroupPanels && showDepartureSection ? (
           <section
             id="panel-salidas"
             className={`rounded-3xl border border-sky-200/80 bg-white/70 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55 ${
               isSingleDepartureMode ? "p-4" : "p-5"
             }`}
           >
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                  {isSingleDepartureMode
-                    ? "Salida principal"
-                    : "Gestión de salidas"}
-                </h2>
-                <p className="text-xs text-slate-700 dark:text-slate-300">
-                  {isSingleDepartureMode
-                    ? "Esta grupal usa salida única. Se reutiliza en toda la operación."
-                    : "Creá, editá o eliminá lotes/salidas de esta grupal."}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowDepartureFilters((prev) => !prev)}
-                  className={pillClass(showDepartureFilters, "emerald")}
-                >
-                  {showDepartureFilters
-                    ? "Ocultar campos avanzados"
-                    : "Mostrar campos avanzados"}
-                </button>
-                {!isSingleDepartureMode || sortedDepartures.length === 0 ? (
+            {!isSingleDepartureMode || sortedDepartures.length === 0 ? (
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                    {isSingleDepartureMode
+                      ? "Salida principal"
+                      : "Gestión de salidas"}
+                  </h2>
+                  <p className="text-xs text-slate-700 dark:text-slate-300">
+                    {isSingleDepartureMode
+                      ? "Creá la salida principal para operar esta grupal."
+                      : "Creá, editá o eliminá lotes/salidas de esta grupal."}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => {
@@ -4082,9 +3895,9 @@ export default function GroupDetailPage() {
                         ? "Crear salida principal"
                         : "Agregar salida"}
                   </button>
-                ) : null}
+                </div>
               </div>
-            </div>
+            ) : null}
 
             {sortedDepartures.length === 0 ? (
               <p className="rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
@@ -4092,18 +3905,9 @@ export default function GroupDetailPage() {
                   ? "La salida principal todavía no está creada."
                   : "Esta grupal todavía no tiene salidas cargadas."}
               </p>
-            ) : (
-              <div
-                className={
-                  isSingleDepartureMode
-                    ? "grid grid-cols-1 gap-3"
-                    : "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3"
-                }
-              >
-                {(isSingleDepartureMode
-                  ? sortedDepartures.slice(0, 1)
-                  : sortedDepartures
-                ).map((dep) => (
+            ) : isSingleDepartureMode ? null : (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {sortedDepartures.map((dep) => (
                   <article
                     key={dep.id_travel_group_departure}
                     className="rounded-2xl border border-slate-300/80 bg-white/85 p-4 shadow-sm shadow-slate-900/10 dark:border-slate-600 dark:bg-slate-900/60"
@@ -4117,32 +3921,27 @@ export default function GroupDetailPage() {
                           {formatDepartureReference(dep)}
                         </p>
                       </div>
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_STYLES[dep.status] || STATUS_STYLES.BORRADOR}`}
-                      >
-                        {formatDepartureStatus(dep.status)}
-                      </span>
                     </div>
-                    <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-slate-700 dark:text-slate-300 sm:grid-cols-2">
-                      <span>Salida: {formatDate(dep.departure_date)}</span>
-                      <span>Regreso: {formatDate(dep.return_date)}</span>
-                      <span>Cupo: {dep.capacity_total ?? "-"}</span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void startEditDeparture(dep)}
-                        disabled={
-                          submitting ||
-                          loadingDepartureId === dep.id_travel_group_departure
-                        }
-                        className="rounded-full border border-slate-300 bg-white/85 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
-                      >
-                        {loadingDepartureId === dep.id_travel_group_departure
-                          ? "Cargando..."
-                          : "Editar"}
-                      </button>
-                      {!isSingleDepartureMode ? (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-700 dark:text-slate-300">
+                        <span>Salida: {formatDate(dep.departure_date)}</span>
+                        <span>Regreso: {formatDate(dep.return_date)}</span>
+                        <span>Cupo: {dep.capacity_total ?? "-"}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void startEditDeparture(dep)}
+                          disabled={
+                            submitting ||
+                            loadingDepartureId === dep.id_travel_group_departure
+                          }
+                          className="rounded-full border border-slate-300 bg-white/85 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
+                        >
+                          {loadingDepartureId === dep.id_travel_group_departure
+                            ? "Cargando..."
+                            : "Editar"}
+                        </button>
                         <button
                           type="button"
                           onClick={() => void handleDeleteDeparture(dep)}
@@ -4151,7 +3950,7 @@ export default function GroupDetailPage() {
                         >
                           Eliminar
                         </button>
-                      ) : null}
+                      </div>
                     </div>
                   </article>
                 ))}
@@ -4166,8 +3965,8 @@ export default function GroupDetailPage() {
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                   Nueva salida
                 </p>
-                <div className="flex flex-col gap-2">
-                  <label className="flex flex-col gap-1 text-sm">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-sm md:col-span-2">
                     Nombre
                     <input
                       value={createDepartureDraft.name}
@@ -4181,29 +3980,6 @@ export default function GroupDetailPage() {
                       className={FIELD_INPUT_CLASS}
                       placeholder="Lote 1 / Salida principal"
                     />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    Estado
-                    <select
-                      value={createDepartureDraft.status}
-                      onChange={(e) =>
-                        setCreateDepartureDraft((prev) => ({
-                          ...prev,
-                          status: e.target.value as GroupStatus,
-                        }))
-                      }
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    >
-                      {DEPARTURE_STATUS_OPTIONS.map((status) => (
-                        <option
-                          key={`create-dep-status-${status}`}
-                          value={status}
-                        >
-                          {formatGroupStatus(status)}
-                        </option>
-                      ))}
-                    </select>
                   </label>
                   <label className="flex flex-col gap-1 text-sm">
                     Cupo total
@@ -4251,10 +4027,7 @@ export default function GroupDetailPage() {
                       className={FIELD_INPUT_CLASS}
                     />
                   </label>
-                  <CollapsiblePanel
-                    open={showDepartureFilters}
-                    className="space-y-2"
-                  >
+                  <div className="space-y-2 md:col-span-2">
                     <label className="flex flex-col gap-1 text-sm">
                       Código
                       <input
@@ -4370,7 +4143,7 @@ export default function GroupDetailPage() {
                         className={FIELD_INPUT_CLASS}
                       />
                     </label>
-                  </CollapsiblePanel>
+                  </div>
                 </div>
                 <button
                   type="submit"
@@ -4392,7 +4165,7 @@ export default function GroupDetailPage() {
             >
               <form
                 onSubmit={handleUpdateDeparture}
-                className="space-y-3 rounded-2xl border border-amber-300/80 bg-amber-100/60 p-4 dark:border-amber-600 dark:bg-amber-900/30"
+                className="space-y-3 rounded-2xl border border-amber-300/80 bg-amber-100/35 p-4 dark:border-amber-600 dark:bg-amber-900/20"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
@@ -4409,8 +4182,8 @@ export default function GroupDetailPage() {
                     Cancelar edición
                   </button>
                 </div>
-                <div className="flex flex-col gap-2">
-                  <label className="flex flex-col gap-1 text-sm">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <label className="flex flex-col gap-1 text-sm md:col-span-2">
                     Nombre
                     <input
                       value={editingDepartureDraft.name}
@@ -4423,29 +4196,6 @@ export default function GroupDetailPage() {
                       disabled={submitting}
                       className={FIELD_INPUT_CLASS}
                     />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    Estado
-                    <select
-                      value={editingDepartureDraft.status}
-                      onChange={(e) =>
-                        setEditingDepartureDraft((prev) => ({
-                          ...prev,
-                          status: e.target.value as GroupStatus,
-                        }))
-                      }
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    >
-                      {DEPARTURE_STATUS_OPTIONS.map((status) => (
-                        <option
-                          key={`edit-dep-status-${status}`}
-                          value={status}
-                        >
-                          {formatGroupStatus(status)}
-                        </option>
-                      ))}
-                    </select>
                   </label>
                   <label className="flex flex-col gap-1 text-sm">
                     Cupo total
@@ -4492,10 +4242,7 @@ export default function GroupDetailPage() {
                       className={FIELD_INPUT_CLASS}
                     />
                   </label>
-                  <CollapsiblePanel
-                    open={showDepartureFilters}
-                    className="space-y-2"
-                  >
+                  <div className="space-y-2 md:col-span-2">
                     <label className="flex flex-col gap-1 text-sm">
                       Código
                       <input
@@ -4610,7 +4357,7 @@ export default function GroupDetailPage() {
                         className={FIELD_INPUT_CLASS}
                       />
                     </label>
-                  </CollapsiblePanel>
+                  </div>
                 </div>
                 <button
                   type="submit"
@@ -4650,26 +4397,62 @@ export default function GroupDetailPage() {
             </div>
 
             <CollapsiblePanel open={showPassengerForm} className="mt-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPassengerFormMode("ALTA")}
-                  className={pillClass(passengerFormMode === "ALTA", "sky")}
-                  disabled={submitting}
-                >
-                  Alta
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPassengerFormMode("EDICION")}
-                  className={pillClass(
-                    passengerFormMode === "EDICION",
-                    "emerald",
-                  )}
-                  disabled={submitting || !activePassenger}
-                >
-                  Edición
-                </button>
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="inline-flex items-center gap-1 rounded-2xl bg-sky-50 p-1.5 shadow-inner dark:bg-slate-800/70">
+                  <button
+                    type="button"
+                    onClick={() => setPassengerFormMode("ALTA")}
+                    className={`rounded-xl border border-transparent px-4 py-1.5 text-xs font-semibold transition ${
+                      passengerFormMode === "ALTA"
+                        ? "!border-sky-200 bg-sky-50/80 text-sky-950 shadow-sm shadow-sky-700/10 hover:border dark:border-sky-500/45 dark:bg-sky-500/15 dark:text-sky-100"
+                        : "text-sky-950 hover:border-sky-200 hover:bg-sky-50/80 dark:text-sky-100 dark:hover:bg-slate-700/70"
+                    }`}
+                    disabled={submitting}
+                  >
+                    Alta
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPassengerFormMode("EDICION")}
+                    className={`rounded-xl border border-transparent px-4 py-1.5 text-xs font-semibold transition ${
+                      passengerFormMode === "EDICION"
+                        ? "!border-sky-200 bg-sky-50/80 text-sky-950 shadow-sm shadow-sky-700/10 hover:border dark:border-sky-500/45 dark:bg-sky-500/15 dark:text-sky-100"
+                        : "text-sky-950 hover:border-sky-200 hover:bg-sky-50/80 dark:text-sky-100 dark:hover:bg-slate-700/70"
+                    }`}
+                    disabled={submitting || !activePassenger}
+                  >
+                    Edición
+                  </button>
+                </div>
+
+                {passengerFormMode === "ALTA" ? (
+                  <div className="inline-flex items-center gap-1 rounded-2xl bg-sky-50 p-1.5 shadow-inner dark:bg-slate-800/70">
+                    <button
+                      type="button"
+                      onClick={() => setNewPassengerMode("EXISTENTE")}
+                      className={`rounded-xl border border-transparent px-4 py-1.5 text-xs font-semibold transition ${
+                        newPassengerMode === "EXISTENTE"
+                          ? "!border-sky-200 bg-sky-50/80 text-sky-950 shadow-sm shadow-sky-700/10 hover:border dark:border-sky-500/45 dark:bg-sky-500/15 dark:text-sky-100"
+                          : "text-sky-950 hover:border-sky-200 hover:bg-sky-50/80 dark:text-sky-100 dark:hover:bg-slate-700/70"
+                      }`}
+                      disabled={submitting}
+                    >
+                      Pasajero existente
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewPassengerMode("NUEVO")}
+                      className={`rounded-xl border border-transparent px-4 py-1.5 text-xs font-semibold transition ${
+                        newPassengerMode === "NUEVO"
+                          ? "!border-sky-200 bg-sky-50/80 text-sky-950 shadow-sm shadow-sky-700/10 hover:border dark:border-sky-500/45 dark:bg-sky-500/15 dark:text-sky-100"
+                          : "text-sky-950 hover:border-sky-200 hover:bg-sky-50/80 dark:text-sky-100 dark:hover:bg-slate-700/70"
+                      }`}
+                      disabled={submitting}
+                    >
+                      Pasajero nuevo
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
               <AnimatePresence mode="wait" initial={false}>
@@ -4685,31 +4468,6 @@ export default function GroupDetailPage() {
                       onSubmit={handleAddPassenger}
                       className="mt-3 flex flex-col gap-4"
                     >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setNewPassengerMode("EXISTENTE")}
-                          className={pillClass(
-                            newPassengerMode === "EXISTENTE",
-                            "sky",
-                          )}
-                          disabled={submitting}
-                        >
-                          Pasajero existente
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setNewPassengerMode("NUEVO")}
-                          className={pillClass(
-                            newPassengerMode === "NUEVO",
-                            "emerald",
-                          )}
-                          disabled={submitting}
-                        >
-                          Pasajero nuevo
-                        </button>
-                      </div>
-
                       <AnimatePresence mode="wait" initial={false}>
                         <motion.div
                           key={newPassengerMode}
@@ -4723,19 +4481,32 @@ export default function GroupDetailPage() {
                               <label className="ml-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
                                 Pasajero
                               </label>
-                              <ClientPicker
-                                label=""
-                                valueId={newPassengerClientId}
-                                onSelect={(client: Client) =>
-                                  setNewPassengerClientId(client.id_client)
-                                }
-                                onClear={() => setNewPassengerClientId(null)}
-                                placeholder="Buscar por N° pax, DNI, pasaporte, CUIT o nombre..."
-                              />
-                              <p className="ml-1 text-xs text-slate-600 dark:text-slate-400">
-                                Seleccioná un pasajero existente o cambiá a modo
-                                nuevo para crearlo acá.
-                              </p>
+                              <div className="flex flex-col gap-2 md:flex-row md:items-end">
+                                <div className="min-w-0 flex-1">
+                                  <ClientPicker
+                                    label=""
+                                    valueId={newPassengerClientId}
+                                    onSelect={(client: Client) =>
+                                      setNewPassengerClientId(client.id_client)
+                                    }
+                                    onClear={() =>
+                                      setNewPassengerClientId(null)
+                                    }
+                                    placeholder="Buscar por N° pax, DNI, pasaporte, CUIT o nombre..."
+                                  />
+                                </div>
+                                <button
+                                  type="submit"
+                                  disabled={submitting || !newPassengerClientId}
+                                  className="h-10 shrink-0 whitespace-nowrap rounded-2xl border border-sky-300 bg-sky-50/70 px-5 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
+                                >
+                                  {submitting ? (
+                                    <Spinner label="Guardando..." />
+                                  ) : (
+                                    "Agregar pasajero"
+                                  )}
+                                </button>
+                              </div>
                             </div>
                           ) : (
                             <PassengerClientFields
@@ -4759,15 +4530,7 @@ export default function GroupDetailPage() {
                         </motion.div>
                       </AnimatePresence>
 
-                      {isSingleDepartureMode ? (
-                        <p className="rounded-2xl border border-slate-300/80 bg-white/70 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-                          Se asigna automáticamente a la salida principal:{" "}
-                          <span className="font-semibold">
-                            {sortedDepartures[0]?.name ||
-                              "Sin salida principal"}
-                          </span>
-                        </p>
-                      ) : (
+                      {!isSingleDepartureMode ? (
                         <label className="flex flex-col gap-1 text-sm">
                           <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
                             Salida destino
@@ -4793,25 +4556,21 @@ export default function GroupDetailPage() {
                             ))}
                           </select>
                         </label>
-                      )}
+                      ) : null}
 
-                      <button
-                        type="submit"
-                        disabled={
-                          submitting ||
-                          (newPassengerMode === "EXISTENTE" &&
-                            !newPassengerClientId)
-                        }
-                        className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
-                      >
-                        {submitting ? (
-                          <Spinner label="Guardando..." />
-                        ) : newPassengerMode === "NUEVO" ? (
-                          "Crear pasajero y agregar"
-                        ) : (
-                          "Agregar pasajero"
-                        )}
-                      </button>
+                      {newPassengerMode === "NUEVO" ? (
+                        <button
+                          type="submit"
+                          disabled={submitting}
+                          className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
+                        >
+                          {submitting ? (
+                            <Spinner label="Guardando..." />
+                          ) : (
+                            "Crear pasajero y agregar"
+                          )}
+                        </button>
+                      ) : null}
                     </form>
                   ) : !activePassenger ? (
                     <p className="mt-3 rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
@@ -4820,21 +4579,13 @@ export default function GroupDetailPage() {
                     </p>
                   ) : (
                     <div className="mt-3 flex flex-col gap-4">
-                      <div className="rounded-2xl border border-slate-300/80 bg-white/70 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+                      <div className="w-fit rounded-2xl border border-emerald-300/80 bg-emerald-50/30 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-600 dark:bg-emerald-900/60 dark:text-emerald-300">
                         Pasajero activo:{" "}
-                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        <span className="font-semibold text-emerald-900 dark:text-emerald-100">
                           {activePassenger.client
                             ? `${activePassenger.client.first_name} ${activePassenger.client.last_name}`
                             : `Cliente Nº${activePassenger.client_id ?? "-"}`}
                         </span>
-                        {" · "}
-                        Estado:{" "}
-                        <span className="font-semibold">
-                          {formatPassengerStatus(
-                            activePassengerStatus || activePassenger.status,
-                          )}
-                        </span>
-                        {" · "}El estado se cambia rápido desde la tabla.
                       </div>
 
                       <form
@@ -4844,15 +4595,7 @@ export default function GroupDetailPage() {
                         <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                           Datos operativos
                         </p>
-                        {isSingleDepartureMode ? (
-                          <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-3 py-2 text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
-                            Salida de este pasajero:{" "}
-                            <span className="font-semibold">
-                              {sortedDepartures[0]?.name ||
-                                "Sin salida principal"}
-                            </span>
-                          </p>
-                        ) : (
+                        {!isSingleDepartureMode && (
                           <label className="flex flex-col gap-1 text-sm">
                             <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
                               Salida
@@ -4910,10 +4653,25 @@ export default function GroupDetailPage() {
                           <button
                             type="button"
                             disabled={submitting}
-                            onClick={() => void handleDeletePassenger(activePassenger)}
-                            className="rounded-full border border-amber-300 bg-amber-100/90 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                            onClick={() =>
+                              void handleDeletePassenger(activePassenger)
+                            }
+                            className="rounded-full border border-rose-300 bg-rose-100/90 px-4 py-2 text-sm font-semibold text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-600 dark:bg-rose-900/30 dark:text-rose-200"
                           >
-                            Eliminar pasajero
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              strokeWidth={1.5}
+                              stroke="currentColor"
+                              className="size-5"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                              />
+                            </svg>
                           </button>
                         </div>
                       </form>
@@ -4970,183 +4728,148 @@ export default function GroupDetailPage() {
         ) : null}
 
         {showGroupPanels ? (
-          <section
-            id="panel-servicios"
-            className="rounded-3xl border border-sky-200/80 bg-white/70 p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                  Servicios de la grupal
-                </h2>
-                <p className="text-xs text-slate-700 dark:text-slate-300">
-                  {editingInventoryId
-                    ? "Edición de servicio activa."
-                    : "Agregá y administrá servicios por salida o generales."}
-                </p>
-              </div>
-              <ToggleIconButton
-                open={showInventoryForm}
-                onClick={() => {
-                  setShowInventoryForm((prev) => !prev);
-                  if (showInventoryForm) {
-                    setEditingInventoryId(null);
-                    setInventoryDraft(
-                      defaultInventoryDraft(undefined, {
-                        defaultTransferFeePct,
-                        operators: operatorOptions,
-                      }),
-                    );
-                    setInventoryProviderMode("OPERADOR");
-                    setShowManualInventoryStatsInputs(false);
-                  }
-                }}
-                label="formulario de servicios"
-              />
-            </div>
-            {serviceOptionsError ? (
-              <p className="mt-3 rounded-2xl border border-amber-300/80 bg-amber-100/85 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
-                {serviceOptionsError}
-              </p>
-            ) : null}
-            <CollapsiblePanel open={showInventoryForm} className="mt-3">
-              <form
-                onSubmit={handleSaveInventory}
-                className="space-y-4 rounded-2xl border border-sky-300/70 bg-white/60 p-4 dark:border-sky-700/60 dark:bg-slate-900/55"
-              >
+          <>
+            <section
+              id="panel-servicios"
+              className="rounded-3xl border border-sky-200/80 bg-white/70 p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    Datos del servicio
-                  </p>
-                  <p className="text-xs text-slate-600 dark:text-slate-400">
-                    Cargá inventario con configuración de tipos, operadores y
-                    moneda.
+                  <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                    Servicios de la grupal
+                  </h2>
+                  <p className="text-xs text-slate-700 dark:text-slate-300">
+                    {editingInventoryId
+                      ? "Edición de servicio activa."
+                      : "Agregá y administrá servicios por salida o generales."}
                   </p>
                 </div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <label className="flex flex-col gap-1 text-sm">
-                    Tipo de servicio (configuración)
-                    <select
-                      value={inventoryDraft.service_type}
-                      onChange={(e) => {
-                        const next = e.target.value;
-                        const selected = serviceTypeOptions.find(
-                          (item) => item.code === next,
-                        );
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          service_type: next,
-                          inventory_type:
-                            selected?.name?.trim() || prev.inventory_type,
-                        }));
-                      }}
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    >
-                      <option value="">Seleccionar tipo</option>
-                      {serviceTypeOptions.map((option) => (
-                        <option
-                          key={option.id_service_type}
-                          value={option.code}
-                        >
-                          {option.name} ({option.code})
-                        </option>
-                      ))}
-                      {inventoryDraft.service_type &&
-                      !serviceTypeOptions.some(
-                        (item) => item.code === inventoryDraft.service_type,
-                      ) ? (
-                        <option value={inventoryDraft.service_type}>
-                          {inventoryDraft.service_type} (no listado)
-                        </option>
-                      ) : null}
-                    </select>
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    Tipo de inventario
-                    <input
-                      value={inventoryDraft.inventory_type}
-                      onChange={(e) =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          inventory_type: e.target.value,
-                        }))
-                      }
-                      placeholder="Aéreo, hotel, traslado..."
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                    Nombre / etiqueta
-                    <input
-                      value={inventoryDraft.label}
-                      onChange={(e) =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          label: e.target.value,
-                        }))
-                      }
-                      placeholder="Ej: Bloqueo hotel Río / Aéreo AR1234"
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                    Salida asociada (opcional)
-                    <select
-                      value={inventoryDraft.departure_id}
-                      onChange={(e) =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          departure_id: e.target.value,
-                        }))
-                      }
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    >
-                      <option value="">Sin salida específica</option>
-                      {sortedDepartures.map((dep) => (
-                        <option
-                          key={dep.id_travel_group_departure}
-                          value={dep.public_id || dep.id_travel_group_departure}
-                        >
-                          {dep.name} · {formatDate(dep.departure_date)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <div className="rounded-2xl border border-sky-300/70 bg-white/65 p-3 dark:border-sky-700/60 dark:bg-slate-900/55">
-                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
-                    Operador y moneda
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setInventoryProviderMode("OPERADOR")}
-                      className={pillClass(
-                        inventoryProviderMode === "OPERADOR",
-                        "sky",
-                      )}
-                    >
-                      Operador desde configuración
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setInventoryProviderMode("MANUAL")}
-                      className={pillClass(
-                        inventoryProviderMode === "MANUAL",
-                        "amber",
-                      )}
-                    >
-                      Proveedor manual
-                    </button>
+                <ToggleIconButton
+                  open={showInventoryForm}
+                  onClick={() => {
+                    setShowInventoryForm((prev) => !prev);
+                    if (showInventoryForm) {
+                      setEditingInventoryId(null);
+                      setInventoryDraft(
+                        defaultInventoryDraft(undefined, {
+                          defaultTransferFeePct,
+                          operators: operatorOptions,
+                        }),
+                      );
+                    }
+                  }}
+                  label="formulario de servicios"
+                />
+              </div>
+              {serviceOptionsError ? (
+                <p className="mt-3 rounded-2xl border border-amber-300/80 bg-amber-100/85 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+                  {serviceOptionsError}
+                </p>
+              ) : null}
+              <CollapsiblePanel open={showInventoryForm} className="mt-3">
+                <form
+                  onSubmit={handleSaveInventory}
+                  className="space-y-4 rounded-2xl border border-sky-300/70 bg-white/60 p-4 dark:border-sky-700/60 dark:bg-slate-900/55"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      Datos del servicio
+                    </p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      Cargá inventario con configuración de tipos, operadores y
+                      moneda.
+                    </p>
                   </div>
-                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                    {inventoryProviderMode === "OPERADOR" ? (
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <label className="flex flex-col gap-1 text-sm">
+                      Tipo de servicio (configuración)
+                      <select
+                        value={inventoryDraft.service_type}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          const selected = serviceTypeOptions.find(
+                            (item) => item.code === next,
+                          );
+                          setInventoryDraft((prev) => ({
+                            ...prev,
+                            service_type: next,
+                            inventory_type:
+                              selected?.name?.trim() || prev.inventory_type,
+                          }));
+                        }}
+                        disabled={submitting}
+                        className={FIELD_INPUT_CLASS}
+                      >
+                        <option value="">Seleccionar tipo</option>
+                        {serviceTypeOptions.map((option) => (
+                          <option
+                            key={option.id_service_type}
+                            value={option.code}
+                          >
+                            {option.name} ({option.code})
+                          </option>
+                        ))}
+                        {inventoryDraft.service_type &&
+                        !serviceTypeOptions.some(
+                          (item) => item.code === inventoryDraft.service_type,
+                        ) ? (
+                          <option value={inventoryDraft.service_type}>
+                            {inventoryDraft.service_type} (no listado)
+                          </option>
+                        ) : null}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                      Nombre / etiqueta
+                      <input
+                        value={inventoryDraft.label}
+                        onChange={(e) =>
+                          setInventoryDraft((prev) => ({
+                            ...prev,
+                            label: e.target.value,
+                          }))
+                        }
+                        placeholder="Ej: Bloqueo hotel Río / Aéreo AR1234"
+                        disabled={submitting}
+                        className={FIELD_INPUT_CLASS}
+                      />
+                    </label>
+                    {!isSingleDepartureMode ? (
+                      <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                        Salida asociada (opcional)
+                        <select
+                          value={inventoryDraft.departure_id}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              departure_id: e.target.value,
+                            }))
+                          }
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        >
+                          <option value="">Sin salida específica</option>
+                          {sortedDepartures.map((dep) => (
+                            <option
+                              key={dep.id_travel_group_departure}
+                              value={
+                                dep.public_id || dep.id_travel_group_departure
+                              }
+                            >
+                              {dep.name} · {formatDate(dep.departure_date)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-2xl border border-sky-300/70 bg-white/65 p-3 dark:border-sky-700/60 dark:bg-slate-900/55">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+                      Operador y moneda
+                    </p>
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                       <label className="flex flex-col gap-1 text-sm">
                         Operador
                         <select
@@ -5180,150 +4903,53 @@ export default function GroupDetailPage() {
                           ))}
                         </select>
                       </label>
-                    ) : (
                       <label className="flex flex-col gap-1 text-sm">
-                        Proveedor (manual)
-                        <input
-                          value={inventoryDraft.provider}
+                        Moneda
+                        <select
+                          value={inventoryDraft.currency}
                           onChange={(e) =>
                             setInventoryDraft((prev) => ({
                               ...prev,
-                              provider: e.target.value,
-                              operator_id: "",
+                              currency: e.target.value.toUpperCase(),
                             }))
                           }
                           disabled={submitting}
-                          placeholder="Ej: Operador interno / cupo propio"
+                          className={FIELD_INPUT_CLASS}
+                        >
+                          {inventoryCurrencyOptions.map((code) => (
+                            <option key={code} value={code}>
+                              {currencyLabelByCode.get(code) || code}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                        Localizador / referencia (opcional)
+                        <input
+                          value={inventoryDraft.locator}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              locator: e.target.value,
+                            }))
+                          }
+                          disabled={submitting}
+                          placeholder="Ej: ABC123 / LOC-7788"
                           className={FIELD_INPUT_CLASS}
                         />
                       </label>
-                    )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3">
                     <label className="flex flex-col gap-1 text-sm">
-                      Moneda
-                      <select
-                        value={inventoryDraft.currency}
-                        onChange={(e) =>
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            currency: e.target.value.toUpperCase(),
-                          }))
-                        }
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      >
-                        {inventoryCurrencyOptions.map((code) => (
-                          <option key={code} value={code}>
-                            {currencyLabelByCode.get(code) || code}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                      Localizador / referencia (opcional)
+                      Cupos comprados
                       <input
-                        value={inventoryDraft.locator}
+                        value={inventoryDraft.total_qty}
                         onChange={(e) =>
                           setInventoryDraft((prev) => ({
                             ...prev,
-                            locator: e.target.value,
-                          }))
-                        }
-                        disabled={submitting}
-                        placeholder="Ej: ABC123 / LOC-7788"
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 rounded-2xl border border-sky-300/70 bg-sky-50/55 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-sky-900/15 dark:text-slate-300 md:grid-cols-5">
-                  <div className="rounded-xl border border-sky-300/50 bg-white/80 p-2 dark:border-sky-700/60 dark:bg-slate-900/60">
-                    <p className="text-[11px]">Comprados</p>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      {inventoryDraftPreview.qtyTotal}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-sky-300/50 bg-white/80 p-2 dark:border-sky-700/60 dark:bg-slate-900/60">
-                    <p className="text-[11px]">Asignados</p>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      {inventoryDraftPreview.qtyAssigned}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-sky-300/50 bg-white/80 p-2 dark:border-sky-700/60 dark:bg-slate-900/60">
-                    <p className="text-[11px]">Confirmados</p>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      {inventoryDraftPreview.qtyConfirmed}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-sky-300/50 bg-white/80 p-2 dark:border-sky-700/60 dark:bg-slate-900/60">
-                    <p className="text-[11px]">Bloqueados</p>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      {inventoryDraftPreview.qtyBlocked}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-emerald-300/60 bg-emerald-100/85 p-2 text-emerald-800 dark:border-emerald-700/70 dark:bg-emerald-900/20 dark:text-emerald-200">
-                    <p className="text-[11px]">Disponibles</p>
-                    <p className="text-sm font-semibold">
-                      {inventoryDraftPreview.qtyAvailable}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <label className="flex flex-col gap-1 text-sm">
-                    Cupos comprados
-                    <input
-                      value={inventoryDraft.total_qty}
-                      onChange={(e) =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          total_qty: e.target.value,
-                        }))
-                      }
-                      inputMode="numeric"
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-sm">
-                    Bloqueados operativos
-                    <input
-                      value={inventoryDraft.blocked_qty}
-                      onChange={(e) =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          blocked_qty: e.target.value,
-                        }))
-                      }
-                      inputMode="numeric"
-                      disabled={submitting}
-                      className={FIELD_INPUT_CLASS}
-                    />
-                  </label>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setShowManualInventoryStatsInputs((prev) => !prev)
-                  }
-                  className={pillClass(showManualInventoryStatsInputs, "amber")}
-                >
-                  {showManualInventoryStatsInputs
-                    ? "Ocultar ajuste manual de asignados/confirmados"
-                    : "Ajustar manualmente asignados/confirmados"}
-                </button>
-
-                <CollapsiblePanel open={showManualInventoryStatsInputs}>
-                  <div className="mt-2 grid grid-cols-1 gap-3 rounded-2xl border border-amber-300/70 bg-amber-100/70 p-3 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100 md:grid-cols-2">
-                    <label className="flex flex-col gap-1 text-sm">
-                      Asignados a pasajeros
-                      <input
-                        value={inventoryDraft.assigned_qty}
-                        onChange={(e) =>
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            assigned_qty: e.target.value,
+                            total_qty: e.target.value,
                           }))
                         }
                         inputMode="numeric"
@@ -5331,109 +4957,33 @@ export default function GroupDetailPage() {
                         className={FIELD_INPUT_CLASS}
                       />
                     </label>
-                    <label className="flex flex-col gap-1 text-sm">
-                      Confirmados con operador
-                      <input
-                        value={inventoryDraft.confirmed_qty}
-                        onChange={(e) =>
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            confirmed_qty: e.target.value,
-                          }))
-                        }
-                        inputMode="numeric"
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                    <p className="md:col-span-2">
-                      Este bloque es solo para correcciones puntuales. En
-                      operación diaria, usá los indicadores para seguimiento y
-                      mantené mínimos los ajustes manuales.
+                  </div>
+
+                  <div className="rounded-2xl border border-sky-300/70 bg-white/65 p-3 dark:border-sky-700/60 dark:bg-slate-900/55">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+                      Precios e impuestos (estimación)
                     </p>
-                  </div>
-                </CollapsiblePanel>
+                    <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+                      Modo de venta: por unidad.
+                    </p>
 
-                <p className="rounded-2xl border border-sky-300/70 bg-sky-50/55 px-3 py-2 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-sky-900/15 dark:text-slate-300">
-                  <span className="font-semibold">Cómo leer estos cupos:</span>{" "}
-                  comprados = total adquirido, asignados = vinculados a
-                  pasajeros, confirmados = validados con operador, bloqueados =
-                  no disponibles para asignar.
-                </p>
-
-                <div className="rounded-2xl border border-sky-300/70 bg-white/65 p-3 dark:border-sky-700/60 dark:bg-slate-900/55">
-                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
-                    Precios e impuestos (estimación)
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          pricing_mode: "MANUAL",
-                        }))
-                      }
-                      className={pillClass(
-                        inventoryDraft.pricing_mode === "MANUAL",
-                        "sky",
-                      )}
-                    >
-                      Venta por unidad
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          pricing_mode: "VENTA_TOTAL",
-                        }))
-                      }
-                      className={pillClass(
-                        inventoryDraft.pricing_mode === "VENTA_TOTAL",
-                        "emerald",
-                      )}
-                    >
-                      Venta total del servicio
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setInventoryDraft((prev) => ({
-                          ...prev,
-                          billing_mode:
-                            prev.billing_mode === "MANUAL" ? "AUTO" : "MANUAL",
-                        }))
-                      }
-                      className={pillClass(
-                        inventoryDraft.billing_mode === "MANUAL",
-                        "amber",
-                      )}
-                    >
-                      {inventoryDraft.billing_mode === "MANUAL"
-                        ? "Facturación manual"
-                        : "Facturación automática"}
-                    </button>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <label className="flex flex-col gap-1 text-sm">
-                      Costo unitario
-                      <input
-                        value={inventoryDraft.unit_cost}
-                        onChange={(e) =>
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            unit_cost: e.target.value,
-                          }))
-                        }
-                        inputMode="decimal"
-                        placeholder="0,00"
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                    {inventoryDraft.pricing_mode === "MANUAL" ? (
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <label className="flex flex-col gap-1 text-sm">
+                        Costo unitario
+                        <input
+                          value={inventoryDraft.unit_cost}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              unit_cost: e.target.value,
+                            }))
+                          }
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        />
+                      </label>
                       <label className="flex flex-col gap-1 text-sm">
                         Venta unitaria estimada
                         <input
@@ -5450,15 +5000,14 @@ export default function GroupDetailPage() {
                           className={FIELD_INPUT_CLASS}
                         />
                       </label>
-                    ) : (
                       <label className="flex flex-col gap-1 text-sm">
-                        Venta total estimada
+                        Base/importe 21% (opcional)
                         <input
-                          value={inventoryDraft.sale_total_price}
+                          value={inventoryDraft.taxable_21}
                           onChange={(e) =>
                             setInventoryDraft((prev) => ({
                               ...prev,
-                              sale_total_price: e.target.value,
+                              taxable_21: e.target.value,
                             }))
                           }
                           inputMode="decimal"
@@ -5467,230 +5016,153 @@ export default function GroupDetailPage() {
                           className={FIELD_INPUT_CLASS}
                         />
                       </label>
-                    )}
-                    <label className="flex flex-col gap-1 text-sm">
-                      Base/importe 21% (opcional)
-                      <input
-                        value={inventoryDraft.taxable_21}
-                        onChange={(e) =>
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            taxable_21: e.target.value,
-                          }))
-                        }
-                        inputMode="decimal"
-                        placeholder="0,00"
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm">
-                      Base/importe 10,5% (opcional)
-                      <input
-                        value={inventoryDraft.taxable_105}
-                        onChange={(e) =>
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            taxable_105: e.target.value,
-                          }))
-                        }
-                        inputMode="decimal"
-                        placeholder="0,00"
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm">
-                      Exento (opcional)
-                      <input
-                        value={inventoryDraft.exempt_amount}
-                        onChange={(e) =>
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            exempt_amount: e.target.value,
-                          }))
-                        }
-                        inputMode="decimal"
-                        placeholder="0,00"
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm">
-                      Otros impuestos (opcional)
-                      <input
-                        value={inventoryDraft.other_taxes}
-                        onChange={(e) =>
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            other_taxes: e.target.value,
-                          }))
-                        }
-                        inputMode="decimal"
-                        placeholder="0,00"
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1 text-sm md:col-span-2">
-                      Costo de transferencia (%)
-                      <input
-                        value={inventoryDraft.transfer_fee_pct}
-                        onChange={(e) =>
-                          setInventoryDraft((prev) => ({
-                            ...prev,
-                            transfer_fee_pct: e.target.value,
-                          }))
-                        }
-                        inputMode="decimal"
-                        placeholder={String(defaultTransferFeePct)}
-                        disabled={submitting}
-                        className={FIELD_INPUT_CLASS}
-                      />
-                      <span className="ml-1 text-xs text-slate-600 dark:text-slate-400">
-                        Se usa para estimar costo financiero de cobro sobre la
-                        venta.
-                      </span>
-                    </label>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-1 gap-2 rounded-2xl border border-sky-300/70 bg-sky-50/55 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-sky-900/15 dark:text-slate-300 md:grid-cols-2">
-                    <p>
-                      Costo total estimado:{" "}
-                      <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {formatMoney(
-                          inventoryDraftPreview.costTotal,
-                          inventoryDraft.currency || "ARS",
-                        )}
-                      </span>
-                    </p>
-                    <p>
-                      Venta estimada:{" "}
-                      <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {formatMoney(
-                          inventoryDraftPreview.saleTotal,
-                          inventoryDraft.currency || "ARS",
-                        )}
-                      </span>
-                    </p>
-                    <p>
-                      Costos/impuestos adicionales:{" "}
-                      <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {formatMoney(
-                          inventoryDraftPreview.taxes +
-                            inventoryDraftPreview.transferFeeAmount,
-                          inventoryDraft.currency || "ARS",
-                        )}
-                      </span>
-                    </p>
-                    <p>
-                      Margen bruto estimado:{" "}
-                      <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {formatMoney(
-                          inventoryDraftPreview.margin,
-                          inventoryDraft.currency || "ARS",
-                        )}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-
-                <label className="flex flex-col gap-1 text-sm">
-                  Nota interna (opcional)
-                  <textarea
-                    value={inventoryDraft.note}
-                    onChange={(e) =>
-                      setInventoryDraft((prev) => ({
-                        ...prev,
-                        note: e.target.value,
-                      }))
-                    }
-                    rows={2}
-                    disabled={submitting}
-                    className={FIELD_TEXTAREA_CLASS}
-                  />
-                </label>
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
-                >
-                  {submitting ? (
-                    <Spinner label="Guardando servicio..." />
-                  ) : editingInventoryId ? (
-                    "Guardar servicio"
-                  ) : (
-                    "Agregar servicio"
-                  )}
-                </button>
-              </form>
-            </CollapsiblePanel>
-
-            {inventoryFinancialSummary.length > 0 ? (
-              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                {inventoryFinancialSummary.map((summary) => (
-                  <article
-                    key={`fin-${summary.currency}`}
-                    className="rounded-2xl border border-sky-300/70 bg-white/70 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-slate-900/60 dark:text-slate-300"
-                  >
-                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      Resumen financiero · {summary.currency}
-                    </p>
-                    <div className="mt-2 grid grid-cols-1 gap-1 md:grid-cols-2">
-                      <p>
-                        Servicios:{" "}
-                        <span className="font-semibold">
-                          {summary.servicesCount}
+                      <label className="flex flex-col gap-1 text-sm">
+                        Base/importe 10,5% (opcional)
+                        <input
+                          value={inventoryDraft.taxable_105}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              taxable_105: e.target.value,
+                            }))
+                          }
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm">
+                        Exento (opcional)
+                        <input
+                          value={inventoryDraft.exempt_amount}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              exempt_amount: e.target.value,
+                            }))
+                          }
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm">
+                        Otros impuestos (opcional)
+                        <input
+                          value={inventoryDraft.other_taxes}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              other_taxes: e.target.value,
+                            }))
+                          }
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 text-sm md:col-span-2">
+                        Costo de transferencia (%)
+                        <input
+                          value={inventoryDraft.transfer_fee_pct}
+                          onChange={(e) =>
+                            setInventoryDraft((prev) => ({
+                              ...prev,
+                              transfer_fee_pct: e.target.value,
+                            }))
+                          }
+                          inputMode="decimal"
+                          placeholder={String(defaultTransferFeePct)}
+                          disabled={submitting}
+                          className={FIELD_INPUT_CLASS}
+                        />
+                        <span className="ml-1 text-xs text-slate-600 dark:text-slate-400">
+                          Se usa para estimar costo financiero de cobro sobre la
+                          venta.
                         </span>
-                      </p>
+                      </label>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2 rounded-2xl border border-sky-300/70 bg-sky-50/55 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-sky-900/15 dark:text-slate-300 md:grid-cols-2">
                       <p>
-                        Cupos comprados:{" "}
-                        <span className="font-semibold">
-                          {summary.totalQty}
-                        </span>
-                      </p>
-                      <p>
-                        Cupos disponibles:{" "}
-                        <span className="font-semibold">
-                          {summary.availableQty}
-                        </span>
-                      </p>
-                      <p>
-                        Costo total:{" "}
-                        <span className="font-semibold">
-                          {formatMoney(summary.costTotal, summary.currency)}
+                        Costo total estimado:{" "}
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {formatMoney(
+                            inventoryDraftPreview.costTotal,
+                            inventoryDraft.currency || "ARS",
+                          )}
                         </span>
                       </p>
                       <p>
                         Venta estimada:{" "}
-                        <span className="font-semibold">
-                          {formatMoney(summary.saleTotal, summary.currency)}
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {formatMoney(
+                            inventoryDraftPreview.saleTotal,
+                            inventoryDraft.currency || "ARS",
+                          )}
+                        </span>
+                      </p>
+                      <p>
+                        Costos/impuestos adicionales:{" "}
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {formatMoney(
+                            inventoryDraftPreview.taxes +
+                              inventoryDraftPreview.transferFeeAmount,
+                            inventoryDraft.currency || "ARS",
+                          )}
                         </span>
                       </p>
                       <p>
                         Margen bruto estimado:{" "}
-                        <span className="font-semibold">
-                          {formatMoney(summary.grossMargin, summary.currency)}
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {formatMoney(
+                            inventoryDraftPreview.margin,
+                            inventoryDraft.currency || "ARS",
+                          )}
                         </span>
                       </p>
                     </div>
-                    <div className="mt-2 rounded-xl border border-amber-300/70 bg-amber-100/70 px-2.5 py-2 text-amber-900 dark:border-amber-600/60 dark:bg-amber-900/25 dark:text-amber-100">
-                      Deuda operativa estimada:{" "}
-                      <span className="font-semibold">
-                        {formatMoney(summary.operationalDebt, summary.currency)}
-                      </span>
-                      {" · "}costo de cupos asignados a pasajeros que todavía no
-                      están confirmados con operador.
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : null}
+                  </div>
 
-            <div className="mt-4 space-y-2">
+                  <label className="flex flex-col gap-1 text-sm">
+                    Nota interna (opcional)
+                    <textarea
+                      value={inventoryDraft.note}
+                      onChange={(e) =>
+                        setInventoryDraft((prev) => ({
+                          ...prev,
+                          note: e.target.value,
+                        }))
+                      }
+                      rows={2}
+                      disabled={submitting}
+                      className={FIELD_TEXTAREA_CLASS}
+                    />
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
+                  >
+                    {submitting ? (
+                      <Spinner label="Guardando servicio..." />
+                    ) : editingInventoryId ? (
+                      "Guardar servicio"
+                    ) : (
+                      "Agregar servicio"
+                    )}
+                  </button>
+                </form>
+              </CollapsiblePanel>
+            </section>
+
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
               {inventories.length === 0 ? (
-                <p className="rounded-2xl border border-sky-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-sky-700/70 dark:bg-slate-900/60 dark:text-slate-300">
+                <p className="rounded-2xl border border-sky-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-sky-700/70 dark:bg-slate-900/60 dark:text-slate-300 lg:col-span-3">
                   Todavía no hay servicios cargados.
                 </p>
               ) : (
@@ -5718,24 +5190,6 @@ export default function GroupDetailPage() {
                             {item.provider ? ` · ${item.provider}` : ""}
                           </p>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => startEditInventory(item)}
-                            disabled={submitting}
-                            className="rounded-full border border-sky-300 bg-sky-50/70 px-3 py-1.5 text-xs font-semibold text-sky-800 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-700 dark:bg-slate-900/70 dark:text-sky-200 dark:hover:border-sky-600"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleDeleteInventory(item)}
-                            disabled={submitting}
-                            className="rounded-full border border-amber-300 bg-amber-100/90 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
-                          >
-                            Eliminar
-                          </button>
-                        </div>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-700 dark:text-slate-300">
                         <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
@@ -5743,12 +5197,6 @@ export default function GroupDetailPage() {
                         </span>
                         <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
                           Asignados a pasajeros: {item.assigned_qty}
-                        </span>
-                        <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
-                          Confirmados con operador: {item.confirmed_qty}
-                        </span>
-                        <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
-                          Bloqueados: {item.blocked_qty}
                         </span>
                         {metrics ? (
                           <>
@@ -5765,15 +5213,56 @@ export default function GroupDetailPage() {
                                 )}
                               </span>
                             ) : null}
-                            <span className="rounded-full border border-amber-300/80 bg-amber-100/90 px-2 py-0.5 text-amber-800 dark:border-amber-700 dark:bg-amber-900/25 dark:text-amber-200">
-                              Deuda operativa:{" "}
-                              {formatMoney(
-                                metrics.operationalDebt,
-                                metrics.currency,
-                              )}
-                            </span>
                           </>
                         ) : null}
+                      </div>
+                      <div className="mt-2 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEditInventory(item)}
+                          disabled={submitting}
+                          className="inline-flex items-center justify-center rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sky-800 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-700 dark:bg-slate-900/70 dark:text-sky-200 dark:hover:border-sky-600"
+                          title="Editar servicio"
+                          aria-label="Editar servicio"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            strokeWidth={1.5}
+                            stroke="currentColor"
+                            className="size-5 p-px"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteInventory(item)}
+                          disabled={submitting}
+                          className="inline-flex items-center justify-center rounded-full border border-rose-300 bg-rose-100/90 px-4 py-2 text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-600 dark:bg-rose-900/30 dark:text-rose-200"
+                          title="Eliminar servicio"
+                          aria-label="Eliminar servicio"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            strokeWidth={1.5}
+                            stroke="currentColor"
+                            className="size-5 p-px"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                            />
+                          </svg>
+                        </button>
                       </div>
                       {parsedNote.noteText ? (
                         <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
@@ -5785,7 +5274,7 @@ export default function GroupDetailPage() {
                 })
               )}
             </div>
-          </section>
+          </>
         ) : null}
 
         {showCobrosPanels ? (
@@ -5820,8 +5309,7 @@ export default function GroupDetailPage() {
                   <p className={FLAT_NOTE_CLASS}>
                     Seleccioná un pasajero activo en la tabla para continuar.
                   </p>
-                ) : !selectedCollectBookingId ||
-                  !selectedCollectClientId ? (
+                ) : !selectedCollectBookingId || !selectedCollectClientId ? (
                   <p className={FLAT_NOTE_CLASS}>
                     El pasajero activo no tiene contexto financiero válido.
                   </p>
@@ -5853,9 +5341,7 @@ export default function GroupDetailPage() {
                     </div>
 
                     {collectLoadingError ? (
-                      <p className={FLAT_WARN_CLASS}>
-                        {collectLoadingError}
-                      </p>
+                      <p className={FLAT_WARN_CLASS}>{collectLoadingError}</p>
                     ) : null}
 
                     <section className="space-y-4 border-t border-slate-200/70 pt-4 dark:border-slate-700/70">
@@ -6035,17 +5521,16 @@ export default function GroupDetailPage() {
                                 destination: service.destination,
                               }));
                             }
-                            const payload =
-                              await requestGroupApi<{
-                                booking?: FinanceBookingPayload;
-                              }>(
-                                `/api/groups/${encodeURIComponent(groupId)}/finance/context?bookingId=${bookingId}`,
-                                {
-                                  credentials: "include",
-                                  cache: "no-store",
-                                },
-                                "No pudimos cargar servicios del contexto financiero.",
-                              );
+                            const payload = await requestGroupApi<{
+                              booking?: FinanceBookingPayload;
+                            }>(
+                              `/api/groups/${encodeURIComponent(groupId)}/finance/context?bookingId=${bookingId}`,
+                              {
+                                credentials: "include",
+                                cache: "no-store",
+                              },
+                              "No pudimos cargar servicios del contexto financiero.",
+                            );
                             const remoteServices = Array.isArray(
                               payload.booking?.services,
                             )
@@ -6234,7 +5719,9 @@ export default function GroupDetailPage() {
                         {selectedPaymentsReservation.label}
                       </span>
                       {" · "}
-                      <span className="font-semibold">Pasajeros vinculados:</span>{" "}
+                      <span className="font-semibold">
+                        Pasajeros vinculados:
+                      </span>{" "}
                       <span className="font-semibold">
                         {paymentsLinkedPassengers.length}
                       </span>
@@ -6248,9 +5735,7 @@ export default function GroupDetailPage() {
                   </div>
 
                   {paymentsLoadingError ? (
-                    <p className={FLAT_WARN_CLASS}>
-                      {paymentsLoadingError}
-                    </p>
+                    <p className={FLAT_WARN_CLASS}>{paymentsLoadingError}</p>
                   ) : null}
 
                   <section className="space-y-6 border-t border-slate-200/70 pt-6 dark:border-slate-700/70">
@@ -6386,7 +5871,9 @@ export default function GroupDetailPage() {
                           : `Cliente ${selectedFinancePassenger.client_id ?? "-"}`}
                       </span>
                       {" · "}
-                      <span className="font-semibold">Pasajeros vinculados:</span>{" "}
+                      <span className="font-semibold">
+                        Pasajeros vinculados:
+                      </span>{" "}
                       <span className="font-semibold">
                         {financeLinkedPassengers.length}
                       </span>
@@ -6491,15 +5978,6 @@ export default function GroupDetailPage() {
             <div className="my-1 flex flex-wrap items-center justify-between gap-4">
               <h2 className="flex items-center gap-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">
                 Pasajeros
-                <span
-                  className={`${RESULT_PILL_BASE} ${
-                    filteredPassengers.length > 0
-                      ? RESULT_PILL_OK
-                      : RESULT_PILL_WARN
-                  }`}
-                >
-                  {filteredPassengers.length}/{passengers.length}
-                </span>
               </h2>
 
               <div className="flex items-center gap-1 rounded-full border border-slate-300/80 bg-white/80 p-1 text-xs dark:border-slate-600 dark:bg-slate-900/70">
@@ -6719,8 +6197,9 @@ export default function GroupDetailPage() {
                   <thead className="border-b border-slate-200 text-xs uppercase tracking-[0.08em] text-slate-500 dark:border-slate-700 dark:text-slate-400">
                     <tr>
                       <th className="p-2">Pasajero</th>
-                      <th className="p-2">Estado</th>
-                      <th className="p-2">Salida</th>
+                      {!isSingleDepartureMode ? (
+                        <th className="p-2">Salida</th>
+                      ) : null}
                       <th className="p-2">Cuotas pendientes</th>
                       <th className="p-2">Acción</th>
                     </tr>
@@ -6749,53 +6228,13 @@ export default function GroupDetailPage() {
                               {item.client?.phone || "-"}
                             </p>
                           </td>
-                          <td className="p-2">
-                            <select
-                              value={item.status}
-                              onChange={(e) =>
-                                void handleInlinePassengerStatusChange(
-                                  item,
-                                  e.target.value,
-                                )
-                              }
-                              disabled={
-                                submitting ||
-                                updatingPassengerStatusId ===
-                                  item.id_travel_group_passenger
-                              }
-                              className={`cursor-pointer rounded-full border px-3 py-1 text-xs font-semibold outline-none transition ${
-                                STATUS_STYLES[item.status] ||
-                                STATUS_STYLES.PENDIENTE
-                              } disabled:cursor-not-allowed disabled:opacity-60`}
-                              aria-label={`Estado de ${
-                                item.client
-                                  ? `${item.client.first_name} ${item.client.last_name}`
-                                  : `pasajero ${item.id_travel_group_passenger}`
-                              }`}
-                            >
-                              {PASSENGER_STATUSES.map((status) => (
-                                <option key={status} value={status}>
-                                  {formatPassengerStatus(status)}
-                                </option>
-                              ))}
-                            </select>
-                            {updatingPassengerStatusId ===
-                            item.id_travel_group_passenger ? (
-                              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                                Actualizando...
-                              </p>
-                            ) : null}
-                            {item.waitlist_position ? (
-                              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                                Posición: {item.waitlist_position}
-                              </p>
-                            ) : null}
-                          </td>
-                          <td className="p-2 text-xs text-slate-700 dark:text-slate-300">
-                            {item.travelGroupDeparture
-                              ? item.travelGroupDeparture.name
-                              : "-"}
-                          </td>
+                          {!isSingleDepartureMode ? (
+                            <td className="p-2 text-xs text-slate-700 dark:text-slate-300">
+                              {item.travelGroupDeparture
+                                ? item.travelGroupDeparture.name
+                                : "-"}
+                            </td>
+                          ) : null}
                           <td className="p-2 text-xs text-slate-700 dark:text-slate-300">
                             {item.pending_payment.count} ·{" "}
                             {formatPendingInstallmentAmount(
@@ -6811,17 +6250,50 @@ export default function GroupDetailPage() {
                                     item.id_travel_group_passenger,
                                   )
                                 }
-                                className={pillClass(isActive, "sky")}
+                                className={`${pillClass(isActive, "sky")} inline-flex items-center gap-1`}
+                                title={isActive ? "En edición" : "Gestionar"}
+                                aria-label={
+                                  isActive ? "En edición" : "Gestionar"
+                                }
                               >
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  strokeWidth={1.5}
+                                  stroke="currentColor"
+                                  className="size-4"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                                  />
+                                </svg>
                                 {isActive ? "En edición" : "Gestionar"}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => void handleDeletePassenger(item)}
                                 disabled={submitting}
-                                className="rounded-full border border-amber-300 bg-amber-100/90 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                                className="grid size-8 place-items-center rounded-full border border-rose-300 bg-rose-100/90 text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-600 dark:bg-rose-900/30 dark:text-rose-200"
+                                title="Eliminar pasajero"
+                                aria-label="Eliminar pasajero"
                               >
-                                Eliminar
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  strokeWidth={1.5}
+                                  stroke="currentColor"
+                                  className="size-4"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                                  />
+                                </svg>
                               </button>
                             </div>
                           </td>

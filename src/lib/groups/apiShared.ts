@@ -5,7 +5,12 @@ import { decodePublicId, encodePublicId } from "@/lib/publicIds";
 import { resolveAuth, type AuthContext } from "@/lib/auth";
 import { normalizeRole } from "@/utils/permissions";
 
-export const GROUP_TYPES = ["AGENCIA", "ESTUDIANTIL", "PRECOMPRADO"] as const;
+export const GROUP_TYPES = [
+  "AGENCIA",
+  "ESTUDIANTIL",
+  "MICRO",
+  "PRECOMPRADO",
+] as const;
 export const GROUP_STATUSES = [
   "BORRADOR",
   "PUBLICADA",
@@ -186,6 +191,9 @@ export function normalizeGroupType(value: unknown): string | null {
   if (["ESTUDIANTIL", "ESTUDIANTES", "STUDENT", "SCHOOL"].includes(s)) {
     return "ESTUDIANTIL";
   }
+  if (["MICRO", "MINIBUS", "SHUTTLE"].includes(s)) {
+    return "MICRO";
+  }
   if (
     [
       "PRECOMPRADO",
@@ -194,6 +202,8 @@ export function normalizeGroupType(value: unknown): string | null {
       "PREPURCHASED",
       "PRE_PURCHASED",
       "PREBOUGHT",
+      "CUPO",
+      "CUPOS",
     ].includes(s)
   ) {
     return "PRECOMPRADO";

@@ -110,7 +110,7 @@ export default async function handler(
     if (body.target_type !== undefined && body.target_type !== null && body.target_type !== "" && !targetType) {
       return groupApiError(res, 400, "El tipo de grupal de destino es inválido.", {
         code: "GROUP_TEMPLATE_TARGET_TYPE_INVALID",
-        solution: "Elegí Agencia, Estudiantil, Precomprado o dejalo vacío para todos.",
+        solution: "Elegí Agencia, Estudiantil, Micro, Cupos o dejalo vacío para todos.",
       });
     }
 

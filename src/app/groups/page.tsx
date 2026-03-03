@@ -7,7 +7,7 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { requestGroupApi } from "@/lib/groups/clientApi";
 
-type GroupType = "AGENCIA" | "ESTUDIANTIL" | "PRECOMPRADO";
+type GroupType = "AGENCIA" | "ESTUDIANTIL" | "MICRO" | "PRECOMPRADO";
 type GroupStatus =
   | "BORRADOR"
   | "PUBLICADA"
@@ -41,42 +41,15 @@ type GroupItem = {
 const TYPE_OPTIONS: Array<{ label: string; value: GroupType }> = [
   { label: "Agencia", value: "AGENCIA" },
   { label: "Estudiantil", value: "ESTUDIANTIL" },
-  { label: "Precomprado", value: "PRECOMPRADO" },
+  { label: "Micro", value: "MICRO" },
+  { label: "Cupos", value: "PRECOMPRADO" },
 ];
-
-const STATUS_OPTIONS: GroupStatus[] = [
-  "BORRADOR",
-  "PUBLICADA",
-  "CONFIRMADA",
-  "CERRADA",
-  "CANCELADA",
-];
-
-const STATUS_STYLES: Record<GroupStatus, string> = {
-  BORRADOR:
-    "border-slate-300/80 bg-slate-100/80 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200",
-  PUBLICADA:
-    "border-sky-300/80 bg-sky-100/80 text-sky-700 dark:border-sky-600 dark:bg-sky-900/30 dark:text-sky-200",
-  CONFIRMADA:
-    "border-emerald-300/80 bg-emerald-100/80 text-emerald-700 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-200",
-  CERRADA:
-    "border-zinc-300/80 bg-zinc-100/80 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200",
-  CANCELADA:
-    "border-amber-300/80 bg-amber-100/90 text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200",
-};
-
-const GROUP_STATUS_LABELS: Record<GroupStatus, string> = {
-  BORRADOR: "Borrador",
-  PUBLICADA: "Publicada",
-  CONFIRMADA: "Confirmada",
-  CERRADA: "Cerrada",
-  CANCELADA: "Cancelada",
-};
 
 const GROUP_TYPE_LABELS: Record<GroupType, string> = {
   AGENCIA: "Agencia",
   ESTUDIANTIL: "Estudiantil",
-  PRECOMPRADO: "Precomprado",
+  MICRO: "Micro",
+  PRECOMPRADO: "Cupos",
 };
 
 const PILL_BASE =
@@ -108,10 +81,6 @@ function pillClass(
   return `${PILL_BASE} ${toneClass}`;
 }
 
-function formatGroupStatus(value: GroupStatus): string {
-  return GROUP_STATUS_LABELS[value] ?? value;
-}
-
 function formatGroupType(value: GroupType): string {
   return GROUP_TYPE_LABELS[value] ?? value;
 }
@@ -122,6 +91,47 @@ function formatGroupReference(group: GroupItem): string {
   if (group.agency_travel_group_id)
     return `Grupal Nº${group.agency_travel_group_id}`;
   return `Grupal Nº${group.id_travel_group}`;
+}
+
+const DEPARTURE_DATE_FORMATTER = new Intl.DateTimeFormat("es-AR", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
+
+function formatDepartureDate(value: string | null): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  return DEPARTURE_DATE_FORMATTER.format(parsed);
+}
+
+function buildDepartureSummary(group: GroupItem): {
+  title: string;
+  note: string;
+} {
+  const start = formatDepartureDate(group.start_date);
+  const end = formatDepartureDate(group.end_date);
+  if (start && end) {
+    return { title: `${start} -> ${end}`, note: "Rango operativo" };
+  }
+  if (start) {
+    return { title: `Salida: ${start}`, note: "Fecha operativa cargada" };
+  }
+  if (group._count.departures > 0) {
+    const departuresLabel =
+      group._count.departures === 1 ? "salida cargada" : "salidas cargadas";
+    return {
+      title: `${group._count.departures} ${departuresLabel}`,
+      note: "Completá fechas dentro de cada salida",
+    };
+  }
+  return { title: "Sin fechas cargadas", note: "Definilas en salidas" };
+}
+
+function isMultipleDepartureGroup(group: GroupItem): boolean {
+  const normalizedSaleMode = String(group.sale_mode || "").toUpperCase();
+  return normalizedSaleMode === "MULTIPLE" || group._count.departures > 1;
 }
 
 function Spinner({ label }: { label: string }) {
@@ -182,7 +192,6 @@ export default function GroupsPage() {
   const [departureReturnDate, setDepartureReturnDate] = useState("");
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | GroupStatus>("ALL");
   const [typeFilter, setTypeFilter] = useState<"ALL" | GroupType>("ALL");
   const [viewMode, setViewMode] = useState<"LIST" | "GRID" | "TABLE">("GRID");
   const [showAdvancedCreate, setShowAdvancedCreate] = useState(false);
@@ -190,6 +199,9 @@ export default function GroupsPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingGroup, setEditingGroup] = useState<GroupItem | null>(null);
+  const [expandedDepartureCards, setExpandedDepartureCards] = useState<
+    Record<number, boolean>
+  >({});
   const [schemaWarning, setSchemaWarning] = useState<string | null>(null);
   const [schemaSolution, setSchemaSolution] = useState<string | null>(null);
   const [schemaCode, setSchemaCode] = useState<string | null>(null);
@@ -201,7 +213,6 @@ export default function GroupsPage() {
       const query = new URLSearchParams();
       query.set("take", "200");
       if (search.trim()) query.set("q", search.trim());
-      if (statusFilter !== "ALL") query.set("status", statusFilter);
       if (typeFilter !== "ALL") query.set("type", typeFilter);
 
       const data = await requestGroupApi<{
@@ -255,7 +266,7 @@ export default function GroupsPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, typeFilter]);
+  }, [search, typeFilter]);
 
   useEffect(() => {
     void loadGroups();
@@ -547,7 +558,7 @@ export default function GroupsPage() {
             id="group-form-panel"
             className="rounded-3xl border border-slate-300/80 bg-white/90 p-5 shadow-sm shadow-slate-900/10 backdrop-blur-sm dark:border-slate-700/80 dark:bg-slate-900/70"
           >
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-1">
               <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
                 {editingGroup ? "Editar grupal" : "Nueva grupal"}
               </h2>
@@ -653,32 +664,6 @@ export default function GroupsPage() {
                         className={pillClass(type === item.value, "sky")}
                       >
                         {item.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1 text-sm">
-                  <span className="text-slate-800 dark:text-slate-200">
-                    Estado inicial
-                  </span>
-                  <div className="flex flex-wrap gap-2">
-                    {STATUS_OPTIONS.map((item) => (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => setStatus(item)}
-                        disabled={createDisabled}
-                        className={pillClass(
-                          status === item,
-                          item === "CONFIRMADA"
-                            ? "emerald"
-                            : item === "CANCELADA"
-                              ? "amber"
-                              : "sky",
-                        )}
-                      >
-                        {formatGroupStatus(item)}
                       </button>
                     ))}
                   </div>
@@ -828,7 +813,9 @@ export default function GroupsPage() {
                         <input
                           type="date"
                           value={departureReturnDate}
-                          onChange={(e) => setDepartureReturnDate(e.target.value)}
+                          onChange={(e) =>
+                            setDepartureReturnDate(e.target.value)
+                          }
                           disabled={createDisabled}
                           className="rounded-xl border border-slate-300/90 bg-white/95 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-100 dark:focus:border-slate-400"
                         />
@@ -854,7 +841,9 @@ export default function GroupsPage() {
 
                 <CollapsiblePanel
                   open={
-                    !editingGroup && departureMode === "MULTIPLE" && showDepartureDraft
+                    !editingGroup &&
+                    departureMode === "MULTIPLE" &&
+                    showDepartureDraft
                   }
                   className="mt-1"
                 >
@@ -907,7 +896,7 @@ export default function GroupsPage() {
             </CollapsiblePanel>
 
             {!showCreateForm ? (
-              <p className="mt-3 text-sm text-slate-700 dark:text-slate-300">
+              <p className="text-sm text-slate-700 dark:text-slate-300">
                 Desplegá el formulario para crear una nueva grupal.
               </p>
             ) : null}
@@ -1057,7 +1046,7 @@ export default function GroupsPage() {
               <button
                 type="button"
                 onClick={() => setShowFilters((v) => !v)}
-                className="flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-6 py-2 text-sky-950 shadow-md backdrop-blur dark:border-white/10 dark:text-white"
+                className="flex items-center justify-center gap-2 rounded-2xl border border-sky-300/70 bg-sky-50/35 px-6 py-2 text-sky-950 shadow-sm shadow-sky-900/10 backdrop-blur transition hover:border-sky-400 hover:bg-sky-100/50 dark:border-sky-500/60 dark:bg-sky-900/20 dark:text-sky-100 dark:hover:bg-sky-900/30"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -1080,7 +1069,7 @@ export default function GroupsPage() {
                 type="button"
                 onClick={() => void loadGroups()}
                 disabled={loading}
-                className="inline-flex size-10 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-sky-950 shadow-md backdrop-blur transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:text-white dark:hover:bg-white/10"
+                className="inline-flex size-10 items-center justify-center rounded-2xl border border-sky-300/70 bg-sky-50/35 px-2 text-sky-950 shadow-sm shadow-sky-900/10 backdrop-blur transition hover:border-sky-400 hover:bg-sky-100/50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-500/60 dark:bg-sky-900/20 dark:text-sky-100 dark:hover:bg-sky-900/30"
                 title="Refrescar"
                 aria-label="Refrescar"
               >
@@ -1107,26 +1096,7 @@ export default function GroupsPage() {
 
             <CollapsiblePanel open={showFilters}>
               <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-sm shadow-sky-950/10 backdrop-blur dark:bg-white/5 dark:text-white">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-sm font-medium">
-                      Estado
-                    </label>
-                    <select
-                      value={statusFilter}
-                      onChange={(e) =>
-                        setStatusFilter(e.target.value as "ALL" | GroupStatus)
-                      }
-                      className="w-full cursor-pointer appearance-none rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 text-sm shadow-sm shadow-sky-950/10 outline-none backdrop-blur dark:border-sky-200/60 dark:bg-sky-100/10 dark:text-white"
-                    >
-                      <option value="ALL">Todos los estados</option>
-                      {STATUS_OPTIONS.map((item) => (
-                        <option key={item} value={item}>
-                          {formatGroupStatus(item)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                <div className="grid grid-cols-1 gap-3">
                   <div>
                     <label className="mb-1 block text-sm font-medium">
                       Tipo
@@ -1166,7 +1136,6 @@ export default function GroupsPage() {
                       <tr>
                         <th className="p-3">Grupal</th>
                         <th className="p-3">Código</th>
-                        <th className="p-3">Estado</th>
                         <th className="p-3">Tipo</th>
                         <th className="p-3">Salidas</th>
                         <th className="p-3">Pasajeros</th>
@@ -1184,17 +1153,12 @@ export default function GroupsPage() {
                             <td className="p-3 text-xs text-sky-900/80 dark:text-sky-100/80">
                               {formatGroupReference(group)}
                             </td>
-                            <td className="p-3">
-                              <span
-                                className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_STYLES[group.status]}`}
-                              >
-                                {formatGroupStatus(group.status)}
-                              </span>
-                            </td>
                             <td className="p-3 text-xs">
                               {formatGroupType(group.type)}
                             </td>
-                            <td className="p-3 text-xs">{group._count.departures}</td>
+                            <td className="p-3 text-xs">
+                              {group._count.departures}
+                            </td>
                             <td className="p-3 text-xs">
                               {group._count.passengers}
                             </td>
@@ -1208,28 +1172,29 @@ export default function GroupsPage() {
               ) : viewMode === "GRID" ? (
                 <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
                   {sortedGroups.map((group) => {
+                    const multipleDepartures = isMultipleDepartureGroup(group);
+                    const departureSummary = buildDepartureSummary(group);
+                    const departureExpanded = Boolean(
+                      expandedDepartureCards[group.id_travel_group],
+                    );
                     return (
                       <article
                         key={group.id_travel_group}
-                        className="rounded-2xl border border-white/10 bg-white/10 p-4 text-sky-950 shadow-sm shadow-sky-950/10 backdrop-blur dark:bg-white/5 dark:text-white"
+                        className="dark:bg-sky/5 rounded-2xl border border-sky-200/80 bg-sky-50/10 p-4 text-sky-950 shadow-sm shadow-sky-950/10 backdrop-blur dark:text-sky-100"
                       >
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-900/80 dark:text-sky-100/80">
-                          {formatGroupReference(group)}
-                        </p>
-                        <p className="mt-2 line-clamp-2 text-xl font-semibold leading-tight">
-                          {group.name}
-                        </p>
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
-                          <span
-                            className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_STYLES[group.status]}`}
-                          >
-                            {formatGroupStatus(group.status)}
-                          </span>
-                          <span className="rounded-full border border-white/10 bg-white/15 px-2 py-0.5 text-[11px] font-semibold dark:bg-white/10">
+                        <div className="flex justify-between">
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-900/80 dark:text-sky-100/80">
+                            {formatGroupReference(group)}
+                          </p>
+                          <span className="rounded-full border border-sky-100/10 bg-sky-50/15 px-2 py-0.5 text-[11px] font-semibold dark:bg-sky-100/10">
                             {formatGroupType(group.type)}
                           </span>
                         </div>
-                        <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-sky-900/85 dark:text-sky-100/85">
+                        <p className="mt-2 line-clamp-2 text-xl font-semibold leading-tight">
+                          {group.name}
+                        </p>
+                        <div className="mt-3 flex flex-wrap items-center gap-2"></div>
+                        <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-sky-900/85 dark:text-sky-100/85">
                           <span className="rounded-full border border-white/10 bg-white/15 px-2 py-1 dark:bg-white/10">
                             Cupo: {group.capacity_total ?? "-"}
                           </span>
@@ -1239,14 +1204,60 @@ export default function GroupsPage() {
                           <span className="rounded-full border border-white/10 bg-white/15 px-2 py-1 dark:bg-white/10">
                             Pasajeros: {group._count.passengers}
                           </span>
-                          <span className="rounded-full border border-white/10 bg-white/15 px-2 py-1 dark:bg-white/10">
-                            Reservas: {group._count.bookings}
-                          </span>
                         </div>
-                        <div className="mt-4 flex items-center justify-between gap-2">
-                          <p className="text-xs text-sky-900/80 dark:text-sky-100/80">
-                            Fechas por salida
-                          </p>
+                        <CollapsiblePanel
+                          open={multipleDepartures && departureExpanded}
+                          className="mt-4"
+                        >
+                          <div className="rounded-2xl border border-sky-200/60 bg-sky-50/35 px-3 py-2 dark:border-sky-600/40 dark:bg-sky-900/20">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-900/75 dark:text-sky-100/80">
+                              Fechas por salida
+                            </p>
+                            <p className="mt-1 text-sm font-semibold text-sky-900 dark:text-sky-100">
+                              {departureSummary.title}
+                            </p>
+                            <p className="mt-0.5 text-xs text-sky-900/75 dark:text-sky-100/75">
+                              {departureSummary.note}
+                            </p>
+                          </div>
+                        </CollapsiblePanel>
+                        <div className="mt-4 flex min-h-9 items-center justify-between gap-2">
+                          {multipleDepartures ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedDepartureCards((prev) => ({
+                                  ...prev,
+                                  [group.id_travel_group]:
+                                    !prev[group.id_travel_group],
+                                }))
+                              }
+                              className="inline-flex items-center gap-1 text-xs font-semibold text-sky-900/85 transition hover:text-sky-900 dark:text-sky-100/85 dark:hover:text-sky-100"
+                              aria-expanded={departureExpanded}
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth={1.8}
+                                stroke="currentColor"
+                                className={`size-4 transition-transform ${
+                                  departureExpanded ? "rotate-90" : ""
+                                }`}
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="m9 6 6 6-6 6"
+                                />
+                              </svg>
+                              {departureExpanded
+                                ? "Ocultar fechas"
+                                : "Ver fechas"}
+                            </button>
+                          ) : (
+                            <span aria-hidden="true" />
+                          )}
                           {renderGroupActions(group)}
                         </div>
                       </article>
@@ -1256,6 +1267,11 @@ export default function GroupsPage() {
               ) : (
                 <div className="space-y-3">
                   {sortedGroups.map((group) => {
+                    const multipleDepartures = isMultipleDepartureGroup(group);
+                    const departureSummary = buildDepartureSummary(group);
+                    const departureExpanded = Boolean(
+                      expandedDepartureCards[group.id_travel_group],
+                    );
                     return (
                       <article
                         key={group.id_travel_group}
@@ -1269,25 +1285,73 @@ export default function GroupsPage() {
                             <p className="mt-1 truncate text-lg font-semibold">
                               {group.name}
                             </p>
-                            <p className="mt-1 text-xs text-sky-900/80 dark:text-sky-100/80">
-                              Fechas por salida
-                            </p>
                           </div>
 
                           <div className="flex items-center gap-2">
-                            <span
-                              className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_STYLES[group.status]}`}
-                            >
-                              {formatGroupStatus(group.status)}
-                            </span>
                             <span className="rounded-full border border-white/10 bg-white/15 px-2 py-0.5 text-[11px] font-semibold dark:bg-white/10">
                               {formatGroupType(group.type)}
                             </span>
-                            {renderGroupActions(group)}
                           </div>
                         </div>
 
-                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-sky-900/85 dark:text-sky-100/85">
+                        <div className="mt-3 flex min-h-9 items-center justify-between gap-2">
+                          {multipleDepartures ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedDepartureCards((prev) => ({
+                                  ...prev,
+                                  [group.id_travel_group]:
+                                    !prev[group.id_travel_group],
+                                }))
+                              }
+                              className="inline-flex items-center gap-1 text-xs font-semibold text-sky-900/85 transition hover:text-sky-900 dark:text-sky-100/85 dark:hover:text-sky-100"
+                              aria-expanded={departureExpanded}
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth={1.8}
+                                stroke="currentColor"
+                                className={`size-4 transition-transform ${
+                                  departureExpanded ? "rotate-90" : ""
+                                }`}
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="m9 6 6 6-6 6"
+                                />
+                              </svg>
+                              {departureExpanded
+                                ? "Ocultar fechas"
+                                : "Ver fechas"}
+                            </button>
+                          ) : (
+                            <span aria-hidden="true" />
+                          )}
+                          {renderGroupActions(group)}
+                        </div>
+
+                        <CollapsiblePanel
+                          open={multipleDepartures && departureExpanded}
+                          className="mt-1"
+                        >
+                          <div className="rounded-2xl border border-sky-200/60 bg-sky-50/35 px-3 py-2 dark:border-sky-600/40 dark:bg-sky-900/20">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-900/75 dark:text-sky-100/80">
+                              Fechas por salida
+                            </p>
+                            <p className="mt-1 text-sm font-semibold text-sky-900 dark:text-sky-100">
+                              {departureSummary.title}
+                            </p>
+                            <p className="mt-0.5 text-xs text-sky-900/75 dark:text-sky-100/75">
+                              {departureSummary.note}
+                            </p>
+                          </div>
+                        </CollapsiblePanel>
+
+                        <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-sky-900/85 dark:text-sky-100/85 sm:grid-cols-3">
                           <span className="rounded-full border border-white/10 bg-white/15 px-2 py-1 dark:bg-white/10">
                             Cupo: {group.capacity_total ?? "-"}
                           </span>
@@ -1297,20 +1361,21 @@ export default function GroupsPage() {
                           <span className="rounded-full border border-white/10 bg-white/15 px-2 py-1 dark:bg-white/10">
                             Pasajeros: {group._count.passengers}
                           </span>
-                          <span className="rounded-full border border-white/10 bg-white/15 px-2 py-1 dark:bg-white/10">
-                            Reservas: {group._count.bookings}
-                          </span>
-                          {group.allow_overbooking ? (
-                            <span className="rounded-full border border-emerald-300 bg-emerald-100 px-2 py-1 text-emerald-800 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-200">
-                              Sobreventa
-                            </span>
-                          ) : null}
-                          {group.waitlist_enabled ? (
-                            <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-1 text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
-                              Espera
-                            </span>
-                          ) : null}
                         </div>
+                        {group.allow_overbooking || group.waitlist_enabled ? (
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-sky-900/85 dark:text-sky-100/85">
+                            {group.allow_overbooking ? (
+                              <span className="rounded-full border border-emerald-300 bg-emerald-100 px-2 py-1 text-emerald-800 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-200">
+                                Sobreventa
+                              </span>
+                            ) : null}
+                            {group.waitlist_enabled ? (
+                              <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-1 text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+                                Espera
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </article>
                     );
                   })}
