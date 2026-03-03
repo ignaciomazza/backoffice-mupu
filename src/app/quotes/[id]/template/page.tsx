@@ -924,6 +924,17 @@ export default function QuoteTemplatePage() {
     }
   }, [formValue.blocks, token]);
 
+  const applyPresetInQuoteStudy = useCallback((presetBlocks: OrderedBlock[]) => {
+    setFormValue((prev) => {
+      const existing = Array.isArray(prev.blocks) ? prev.blocks : [];
+      const coreBlocks = existing.filter((block) => block.id.startsWith("q_core_"));
+      return {
+        ...prev,
+        blocks: [...coreBlocks, ...presetBlocks],
+      };
+    });
+  }, []);
+
   const quoteDisplayId = useMemo(() => {
     if (!quote) return "cotizacion";
     const isOtherOwner = viewerUserId != null && quote.id_user !== viewerUserId;
@@ -1656,30 +1667,21 @@ export default function QuoteTemplatePage() {
                 docType="quote_budget"
                 refreshSignal={presetRefreshSignal}
                 onApply={(content) => {
-                  if (!content?.trim()) return;
-                  setFormValue((prev) => ({
-                    ...prev,
-                    blocks: [
-                      ...(Array.isArray(prev.blocks) ? prev.blocks : []),
-                      {
-                        id: nanoid(),
-                        origin: "extra",
-                        type: "paragraph",
-                        value: { type: "paragraph", text: content },
-                      },
-                    ],
-                  }));
+                  const text = content?.trim();
+                  if (!text) return;
+                  applyPresetInQuoteStudy([
+                    {
+                      id: nanoid(),
+                      origin: "extra",
+                      type: "paragraph",
+                      value: { type: "paragraph", text },
+                    },
+                  ]);
                 }}
                 onApplyData={(maybeBlocks) => {
                   const nextBlocks = presetBlocksToOrdered(maybeBlocks);
                   if (nextBlocks.length === 0) return;
-                  setFormValue((prev) => ({
-                    ...prev,
-                    blocks: [
-                      ...(Array.isArray(prev.blocks) ? prev.blocks : []),
-                      ...nextBlocks,
-                    ],
-                  }));
+                  applyPresetInQuoteStudy(nextBlocks);
                 }}
               />
             </div>

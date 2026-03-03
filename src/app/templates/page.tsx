@@ -448,6 +448,13 @@ export default function TemplatesPage() {
     }
   }, [docType, formValue.blocks, token]);
 
+  const applyPresetInTemplateStudy = useCallback((nextBlocks: OrderedBlock[]) => {
+    setFormValue((prev) => ({
+      ...prev,
+      blocks: nextBlocks,
+    }));
+  }, []);
+
   const selectedBackgroundColor =
     formValue.styles?.colors?.background ?? cfg.styles?.colors?.background ?? "#ffffff";
   const selectedTextColor =
@@ -914,30 +921,21 @@ export default function TemplatesPage() {
                 docType={docType}
                 refreshSignal={presetRefreshSignal}
                 onApply={(content) => {
-                  if (!content?.trim()) return;
-                  setFormValue((prev) => ({
-                    ...prev,
-                    blocks: [
-                      ...(Array.isArray(prev.blocks) ? prev.blocks : []),
-                      {
-                        id: nanoid(),
-                        origin: "extra",
-                        type: "paragraph",
-                        value: { type: "paragraph", text: content },
-                      },
-                    ],
-                  }));
+                  const text = content?.trim();
+                  if (!text) return;
+                  applyPresetInTemplateStudy([
+                    {
+                      id: nanoid(),
+                      origin: "extra",
+                      type: "paragraph",
+                      value: { type: "paragraph", text },
+                    },
+                  ]);
                 }}
                 onApplyData={(maybeBlocks) => {
                   const nextBlocks = presetBlocksToOrdered(maybeBlocks);
                   if (nextBlocks.length === 0) return;
-                  setFormValue((prev) => ({
-                    ...prev,
-                    blocks: [
-                      ...(Array.isArray(prev.blocks) ? prev.blocks : []),
-                      ...nextBlocks,
-                    ],
-                  }));
+                  applyPresetInTemplateStudy(nextBlocks);
                 }}
               />
             </div>
