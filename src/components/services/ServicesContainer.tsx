@@ -100,6 +100,8 @@ export type ServiceFormData = {
 type BookingServiceItem = {
   id_service?: number | string | null;
   id?: number | string | null;
+  agency_service_id?: number | string | null;
+  agencyServiceId?: number | string | null;
   description?: string | null;
   type?: string | null;
   destination?: string | null;
@@ -2632,6 +2634,14 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                                 typeof rawId === "number"
                                   ? rawId
                                   : Number(rawId ?? 0);
+                              const rawAgencyId =
+                                s?.agency_service_id ?? s?.agencyServiceId;
+                              const agencyServiceId =
+                                rawAgencyId == null
+                                  ? Number.NaN
+                                  : typeof rawAgencyId === "number"
+                                    ? rawAgencyId
+                                    : Number(rawAgencyId ?? 0);
                               const currency = String(
                                 s?.currency ?? s?.sale_currency ?? "ARS",
                               ).toUpperCase();
@@ -2658,6 +2668,9 @@ export default function ServicesContainer(props: ServicesContainerProps) {
 
                               return {
                                 id_service: Number.isFinite(id) ? id : 0,
+                                agency_service_id: Number.isFinite(agencyServiceId)
+                                  ? agencyServiceId
+                                  : undefined,
                                 description:
                                   s?.description ??
                                   s?.type ??

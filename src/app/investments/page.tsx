@@ -21,6 +21,8 @@ import {
   formatDateInBuenosAires,
   todayDateKeyInBuenosAires,
 } from "@/lib/buenosAiresDate";
+import { formatMoneyInput } from "@/utils/moneyInput";
+import { parseAmountInput } from "@/utils/receipts/receiptForm";
 import {
   downloadCsvFile,
   formatCsvNumber,
@@ -31,6 +33,7 @@ import type { PlanKey } from "@/lib/billing/pricing";
 import type {
   Investment,
   InvestmentFormState,
+  InvestmentPaymentLineDraft,
   Operator,
   RecurringFormState,
   RecurringInvestment,
@@ -69,6 +72,37 @@ const uniqSorted = (arr: string[]) => {
 };
 
 const EXCESS_TOLERANCE = 0.01;
+const PAYMENT_LINE_TOLERANCE = 0.01;
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+const uid = () => `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+const parseDraftAmount = (raw: unknown): number => {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  const text = String(raw ?? "").trim();
+  if (!text) return Number.NaN;
+  const parsed = parseAmountInput(text);
+  if (parsed != null && Number.isFinite(parsed)) return parsed;
+  const fallback = Number(text);
+  return Number.isFinite(fallback) ? fallback : Number.NaN;
+};
+
+const toMoneyDraft = (raw: unknown, currency: string): string => {
+  const parsed = parseDraftAmount(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return "";
+  return formatMoneyInput(String(parsed), currency || "ARS");
+};
+
+const createPaymentLine = (currency = "ARS"): InvestmentPaymentLineDraft => ({
+  key: uid(),
+  amount: "",
+  payment_method: "",
+  account: "",
+  payment_currency: String(currency || "ARS")
+    .trim()
+    .toUpperCase(),
+  fee_mode: "NONE",
+  fee_value: "",
+});
 
 async function safeJson<T>(res: Response): Promise<T | null> {
   try {
@@ -381,6 +415,7 @@ export default function Page() {
     counter_currency: "",
 
     use_credit: false,
+    payments: [createPaymentLine()],
   });
 
   const [associateServices, setAssociateServices] = useState(false);
@@ -575,6 +610,7 @@ export default function Page() {
       counter_currency: "",
 
       use_credit: false,
+      payments: [createPaymentLine()],
     });
     setAssociateServices(false);
     clearServiceSelection();
@@ -619,12 +655,72 @@ export default function Page() {
         ? inv.excess_missing_account_action
         : "carry";
 
+    const parsedPayments: InvestmentPaymentLineDraft[] = Array.isArray(inv.payments)
+      ? inv.payments
+          .map((line) => {
+            const amountRaw = parseDraftAmount(line?.amount ?? 0);
+            if (!Number.isFinite(amountRaw) || amountRaw <= 0) return null;
+            const method = String(line?.payment_method ?? "").trim();
+            if (!method) return null;
+            const paymentCurrency = String(
+              line?.payment_currency ?? inv.currency ?? "ARS",
+            )
+              .trim()
+              .toUpperCase();
+            const feeModeRaw = String(line?.fee_mode ?? "").toUpperCase();
+            const fee_mode: InvestmentPaymentLineDraft["fee_mode"] =
+              feeModeRaw === "FIXED" || feeModeRaw === "PERCENT"
+                ? feeModeRaw
+                : "NONE";
+            const feeValueRaw = parseDraftAmount(line?.fee_value ?? 0);
+            return {
+              key: uid(),
+              amount: toMoneyDraft(amountRaw, paymentCurrency || "ARS"),
+              payment_method: method,
+              account: String(line?.account ?? "").trim(),
+              payment_currency: paymentCurrency || "ARS",
+              fee_mode,
+              fee_value:
+                fee_mode !== "NONE" &&
+                Number.isFinite(feeValueRaw) &&
+                feeValueRaw > 0
+                  ? fee_mode === "FIXED"
+                    ? toMoneyDraft(feeValueRaw, paymentCurrency || "ARS")
+                    : String(feeValueRaw)
+                  : "",
+            };
+          })
+          .filter((line): line is InvestmentPaymentLineDraft => line !== null)
+      : [];
+
+    const fallbackPaymentCurrency = String(inv.currency ?? "ARS")
+      .trim()
+      .toUpperCase();
+
+    const fallbackPayments: InvestmentPaymentLineDraft[] =
+      parsedPayments.length > 0
+        ? parsedPayments
+        : [
+            {
+              key: uid(),
+              amount: toMoneyDraft(
+                inv.amount ?? "",
+                fallbackPaymentCurrency || "ARS",
+              ),
+              payment_method: inv.payment_method ?? "",
+              account: inv.account ?? "",
+              payment_currency: fallbackPaymentCurrency || "ARS",
+              fee_mode: "NONE",
+              fee_value: "",
+            },
+          ];
+
     setForm({
       category: inv.category ?? "",
       description: inv.description ?? "",
       counterparty_name: inv.counterparty_name ?? "",
       amount: String(inv.amount ?? ""),
-      currency: (inv.currency ?? "").toUpperCase(),
+      currency: fallbackPaymentCurrency,
       paid_at: inv.paid_at ? inv.paid_at.slice(0, 10) : "",
       user_id: inv.user_id ?? null,
       operator_id: inv.operator_id ?? null,
@@ -638,13 +734,31 @@ export default function Page() {
         !!inv.base_currency ||
         !!inv.counter_amount ||
         !!inv.counter_currency,
-      base_amount: inv.base_amount != null ? String(inv.base_amount) : "",
+      base_amount:
+        inv.base_amount != null
+          ? operatorOnly
+            ? toMoneyDraft(
+                inv.base_amount,
+                String(inv.base_currency || fallbackPaymentCurrency || "ARS")
+                  .toUpperCase(),
+              )
+            : String(inv.base_amount)
+          : "",
       base_currency: (inv.base_currency ?? "").toUpperCase(),
       counter_amount:
-        inv.counter_amount != null ? String(inv.counter_amount) : "",
+        inv.counter_amount != null
+          ? operatorOnly
+            ? toMoneyDraft(
+                inv.counter_amount,
+                String(inv.counter_currency || fallbackPaymentCurrency || "ARS")
+                  .toUpperCase(),
+              )
+            : String(inv.counter_amount)
+          : "",
       counter_currency: (inv.counter_currency ?? "").toUpperCase(),
 
       use_credit: false,
+      payments: fallbackPayments,
     });
     if (operatorOnly) {
       const currentServiceIds = Array.isArray(inv.serviceIds)
@@ -1389,6 +1503,236 @@ export default function Page() {
     [finance?.accounts],
   );
 
+  const paymentLinesNormalized = useMemo(() => {
+    return (form.payments || []).map((line) => {
+      const amount = parseDraftAmount(line.amount);
+      const feeValue = parseDraftAmount(line.fee_value);
+      const paymentCurrency = String(line.payment_currency || form.currency || "ARS")
+        .trim()
+        .toUpperCase();
+      const feeModeRaw = String(line.fee_mode || "NONE").toUpperCase();
+      const fee_mode: InvestmentPaymentLineDraft["fee_mode"] =
+        feeModeRaw === "FIXED" || feeModeRaw === "PERCENT"
+          ? feeModeRaw
+          : "NONE";
+      const fee_amount =
+        fee_mode === "PERCENT"
+          ? round2(
+              (Number.isFinite(amount) && amount > 0 ? amount : 0) *
+                ((Number.isFinite(feeValue) && feeValue > 0 ? feeValue : 0) /
+                  100),
+            )
+          : fee_mode === "FIXED"
+            ? round2(Number.isFinite(feeValue) && feeValue > 0 ? feeValue : 0)
+            : 0;
+      return {
+        key: line.key,
+        amount: Number.isFinite(amount) ? amount : 0,
+        payment_method: String(line.payment_method || "").trim(),
+        account: String(line.account || "").trim(),
+        payment_currency: paymentCurrency || "ARS",
+        fee_mode,
+        fee_value:
+          fee_mode === "NONE" || !Number.isFinite(feeValue) || feeValue < 0
+            ? 0
+            : feeValue,
+        fee_amount,
+      };
+    });
+  }, [form.payments, form.currency]);
+
+  const operatorPaymentLines = useMemo(
+    () => paymentLinesNormalized.filter((line) => line.amount > 0),
+    [paymentLinesNormalized],
+  );
+
+  const operatorPaymentTotal = useMemo(
+    () =>
+      round2(
+        operatorPaymentLines.reduce((sum, line) => sum + Number(line.amount), 0),
+      ),
+    [operatorPaymentLines],
+  );
+
+  const operatorPaymentCurrencies = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          operatorPaymentLines
+            .map((line) => line.payment_currency)
+            .filter((cur) => !!cur),
+        ),
+      ),
+    [operatorPaymentLines],
+  );
+
+  const operatorPaymentCurrency =
+    operatorPaymentCurrencies.length === 1 ? operatorPaymentCurrencies[0] : "";
+
+  useEffect(() => {
+    if (!operatorOnly) return;
+    setForm((prev) => {
+      const normalizedLines =
+        Array.isArray(prev.payments) && prev.payments.length > 0
+          ? prev.payments
+          : [createPaymentLine(prev.currency || "ARS")];
+      if (normalizedLines === prev.payments) return prev;
+      return { ...prev, payments: normalizedLines };
+    });
+  }, [operatorOnly]);
+
+  useEffect(() => {
+    if (!operatorOnly) return;
+    setForm((prev) => {
+      const effectiveCurrency =
+        operatorPaymentCurrency ||
+        String(prev.payments?.[0]?.payment_currency || prev.currency || "ARS")
+          .trim()
+          .toUpperCase();
+      const nextAmount = operatorPaymentTotal > 0 ? String(operatorPaymentTotal) : "";
+      const nextPaymentMethod = String(prev.payments?.[0]?.payment_method || "");
+      const nextAccount = String(prev.payments?.[0]?.account || "");
+
+      if (
+        prev.amount === nextAmount &&
+        prev.currency === effectiveCurrency &&
+        prev.payment_method === nextPaymentMethod &&
+        prev.account === nextAccount
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        amount: nextAmount,
+        currency: effectiveCurrency,
+        payment_method: nextPaymentMethod,
+        account: nextAccount,
+      };
+    });
+  }, [operatorOnly, operatorPaymentCurrency, operatorPaymentTotal]);
+
+  const shouldAutoShowOperatorConversion = useMemo(() => {
+    if (!operatorOnly || !associateServices) return false;
+    if (!serviceSelection.serviceIds.length) return false;
+    const serviceCurrency = String(serviceSelection.currency || "")
+      .trim()
+      .toUpperCase();
+    const paymentCurrency = String(
+      operatorPaymentCurrency ||
+        form.payments?.[0]?.payment_currency ||
+        form.currency ||
+        "",
+    )
+      .trim()
+      .toUpperCase();
+    if (!serviceCurrency || !paymentCurrency) return false;
+    return serviceCurrency !== paymentCurrency;
+  }, [
+    operatorOnly,
+    associateServices,
+    serviceSelection.serviceIds.length,
+    serviceSelection.currency,
+    operatorPaymentCurrency,
+    form.payments,
+    form.currency,
+  ]);
+
+  useEffect(() => {
+    if (!operatorOnly) return;
+
+    if (!shouldAutoShowOperatorConversion) {
+      setForm((prev) => {
+        if (
+          !prev.use_conversion &&
+          !prev.base_amount &&
+          !prev.base_currency &&
+          !prev.counter_amount &&
+          !prev.counter_currency
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          use_conversion: false,
+          base_amount: "",
+          base_currency: "",
+          counter_amount: "",
+          counter_currency: "",
+        };
+      });
+      return;
+    }
+
+    setForm((prev) => {
+      const serviceCurrency = String(serviceSelection.currency || "")
+        .trim()
+        .toUpperCase();
+      const paymentCurrency = String(
+        operatorPaymentCurrency ||
+          prev.payments?.[0]?.payment_currency ||
+          prev.currency ||
+          "",
+      )
+        .trim()
+        .toUpperCase();
+      const baseCurrencyTarget = serviceCurrency || prev.base_currency || "ARS";
+      const counterCurrencyTarget =
+        paymentCurrency || prev.counter_currency || "ARS";
+      const defaultBaseAmount =
+        serviceSelection.totalCost > 0
+          ? formatMoneyInput(String(round2(serviceSelection.totalCost)), baseCurrencyTarget)
+          : prev.base_amount
+            ? formatMoneyInput(prev.base_amount, baseCurrencyTarget)
+            : prev.amount
+              ? formatMoneyInput(prev.amount, baseCurrencyTarget)
+              : "";
+      const defaultCounterAmount =
+        operatorPaymentTotal > 0
+          ? formatMoneyInput(String(round2(operatorPaymentTotal)), counterCurrencyTarget)
+          : prev.counter_amount
+            ? formatMoneyInput(prev.counter_amount, counterCurrencyTarget)
+            : prev.amount
+              ? formatMoneyInput(prev.amount, counterCurrencyTarget)
+              : "";
+
+      const next = {
+        ...prev,
+        use_conversion: true,
+        base_currency: serviceCurrency || prev.base_currency,
+        counter_currency: paymentCurrency || prev.counter_currency,
+        base_amount:
+          prev.base_amount && baseCurrencyTarget
+            ? formatMoneyInput(prev.base_amount, baseCurrencyTarget)
+            : defaultBaseAmount,
+        counter_amount:
+          prev.counter_amount && counterCurrencyTarget
+            ? formatMoneyInput(prev.counter_amount, counterCurrencyTarget)
+            : defaultCounterAmount,
+      };
+
+      if (
+        next.use_conversion === prev.use_conversion &&
+        next.base_currency === prev.base_currency &&
+        next.counter_currency === prev.counter_currency &&
+        next.base_amount === prev.base_amount &&
+        next.counter_amount === prev.counter_amount
+      ) {
+        return prev;
+      }
+
+      return next;
+    });
+  }, [
+    operatorOnly,
+    associateServices,
+    shouldAutoShowOperatorConversion,
+    serviceSelection.currency,
+    serviceSelection.totalCost,
+    operatorPaymentCurrency,
+    operatorPaymentTotal,
+  ]);
+
   const currencyOptions = useMemo(
     () =>
       uniqSorted(
@@ -1430,8 +1774,8 @@ export default function Page() {
   /* ========= Validación de conversión ========= */
   const validateConversion = (): { ok: boolean; msg?: string } => {
     if (!form.use_conversion) return { ok: true };
-    const bAmt = Number(form.base_amount);
-    const cAmt = Number(form.counter_amount);
+    const bAmt = parseDraftAmount(form.base_amount);
+    const cAmt = parseDraftAmount(form.counter_amount);
     if (!Number.isFinite(bAmt) || bAmt <= 0)
       return { ok: false, msg: "Ingresá un Valor base válido (> 0)." };
     if (!form.base_currency)
@@ -1545,8 +1889,8 @@ export default function Page() {
 
   const validateRecurringConversion = (): { ok: boolean; msg?: string } => {
     if (!recurringForm.use_conversion) return { ok: true };
-    const bAmt = Number(recurringForm.base_amount);
-    const cAmt = Number(recurringForm.counter_amount);
+    const bAmt = parseDraftAmount(recurringForm.base_amount);
+    const cAmt = parseDraftAmount(recurringForm.counter_amount);
     if (!Number.isFinite(bAmt) || bAmt <= 0)
       return { ok: false, msg: "Ingresá un Valor base válido (> 0)." };
     if (!recurringForm.base_currency)
@@ -1562,11 +1906,114 @@ export default function Page() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const amountNum = Number(form.amount);
+    let amountNum = parseDraftAmount(form.amount);
+    let currencyCode = String(form.currency || "")
+      .trim()
+      .toUpperCase();
+    let paymentMethod = String(form.payment_method || "").trim();
+    let accountName = String(form.account || "").trim();
+    let payloadPayments:
+      | Array<{
+          amount: number;
+          payment_method: string;
+          account?: string;
+          payment_currency: string;
+          fee_mode?: "FIXED" | "PERCENT";
+          fee_value?: number;
+          fee_amount: number;
+        }>
+      | undefined;
+
     const counterpartyName = form.counterparty_name.trim();
     const needsUser = isUserCategory(form.category);
 
-    if (!form.category || !form.description || !form.currency) {
+    if (operatorOnly) {
+      const lines = paymentLinesNormalized;
+      if (!lines.length) {
+        toast.error("Cargá al menos una línea de pago.");
+        return;
+      }
+
+      const normalizedForPayload: Array<{
+        amount: number;
+        payment_method: string;
+        account?: string;
+        payment_currency: string;
+        fee_mode?: "FIXED" | "PERCENT";
+        fee_value?: number;
+        fee_amount: number;
+      }> = [];
+
+      for (let idx = 0; idx < lines.length; idx += 1) {
+        const line = lines[idx];
+        const amountIsValid = Number.isFinite(line.amount) && line.amount > 0;
+        const hasAnyValue =
+          amountIsValid ||
+          !!line.payment_method ||
+          !!line.account ||
+          line.fee_mode !== "NONE" ||
+          Number(line.fee_value || 0) > 0;
+
+        if (!hasAnyValue) continue;
+
+        if (!amountIsValid) {
+          toast.error(`Completá un monto válido en el pago ${idx + 1}.`);
+          return;
+        }
+        if (!line.payment_method) {
+          toast.error(`Seleccioná método de pago en la línea ${idx + 1}.`);
+          return;
+        }
+        const requiresAccount = !!requiresAccountMap.get(norm(line.payment_method));
+        if (requiresAccount && !line.account) {
+          toast.error(`Seleccioná una cuenta en la línea ${idx + 1}.`);
+          return;
+        }
+
+        normalizedForPayload.push({
+          amount: round2(line.amount),
+          payment_method: line.payment_method,
+          account: line.account || undefined,
+          payment_currency: String(line.payment_currency || "ARS")
+            .trim()
+            .toUpperCase(),
+          fee_mode:
+            line.fee_mode === "FIXED" || line.fee_mode === "PERCENT"
+              ? line.fee_mode
+              : undefined,
+          fee_value:
+            line.fee_mode === "FIXED" || line.fee_mode === "PERCENT"
+              ? round2(line.fee_value)
+              : undefined,
+          fee_amount: round2(line.fee_amount || 0),
+        });
+      }
+
+      if (normalizedForPayload.length === 0) {
+        toast.error("Cargá al menos una línea de pago válida.");
+        return;
+      }
+
+      const lineCurrencies = Array.from(
+        new Set(normalizedForPayload.map((line) => line.payment_currency)),
+      );
+      if (lineCurrencies.length !== 1) {
+        toast.error(
+          "Todas las líneas de pago deben tener la misma moneda para este pago.",
+        );
+        return;
+      }
+
+      amountNum = round2(
+        normalizedForPayload.reduce((sum, line) => sum + line.amount, 0),
+      );
+      currencyCode = lineCurrencies[0];
+      paymentMethod = normalizedForPayload[0]?.payment_method ?? "";
+      accountName = normalizedForPayload[0]?.account ?? "";
+      payloadPayments = normalizedForPayload;
+    }
+
+    if (!form.category || !form.description || !currencyCode) {
       toast.error("Completá categoría, descripción y moneda");
       return;
     }
@@ -1576,15 +2023,20 @@ export default function Page() {
       );
       return;
     }
-    const payingWithCredit =
-      isOperatorCategory(form.category) &&
-      form.payment_method === CREDIT_METHOD;
+    const payingWithCredit = operatorOnly
+      ? operatorPaymentLines.some(
+          (line) =>
+            line.payment_method === CREDIT_METHOD &&
+            line.amount > PAYMENT_LINE_TOLERANCE,
+        )
+      : isOperatorCategory(form.category) &&
+        paymentMethod === CREDIT_METHOD;
 
-    if (!form.payment_method) {
+    if (!operatorOnly && !paymentMethod) {
       toast.error("Seleccioná el método de pago");
       return;
     }
-    if (showAccount && !form.account) {
+    if (!operatorOnly && showAccount && !accountName) {
       toast.error("Seleccioná la cuenta para este método");
       return;
     }
@@ -1636,7 +2088,7 @@ export default function Page() {
     ) {
       const opId =
         form.operator_id ?? serviceSelection.operatorId ?? null;
-      const cur = form.currency ? form.currency.toUpperCase() : null;
+      const cur = currencyCode || null;
       const ok = await precheckExcessCreditAccount(
         opId,
         cur,
@@ -1650,15 +2102,19 @@ export default function Page() {
       description: form.description,
       counterparty_name: counterpartyName || undefined,
       amount: amountNum,
-      currency: form.currency.toUpperCase(),
+      currency: currencyCode,
       paid_at,
       user_id: form.user_id ?? undefined,
       operator_id: form.operator_id ?? undefined,
-      payment_method: form.payment_method,
-      account: showAccount ? form.account : undefined,
+      payment_method: paymentMethod,
+      account:
+        operatorOnly || showAccount ? accountName || undefined : undefined,
     };
 
     if (operatorOnly) {
+      if (payloadPayments?.length) {
+        payload.payments = payloadPayments;
+      }
       if (shouldAssociateServices) {
         payload.allocations = serviceSelection.allocations;
         payload.excess_action = serviceSelection.excessAction;
@@ -1670,8 +2126,8 @@ export default function Page() {
     }
 
     if (form.use_conversion) {
-      const bAmt = Number(form.base_amount);
-      const cAmt = Number(form.counter_amount);
+      const bAmt = parseDraftAmount(form.base_amount);
+      const cAmt = parseDraftAmount(form.counter_amount);
       payload.base_amount =
         Number.isFinite(bAmt) && bAmt > 0 ? bAmt : undefined;
       payload.base_currency = form.base_currency || undefined;
@@ -1911,7 +2367,7 @@ export default function Page() {
   }, []);
 
   const previewAmount = useMemo(() => {
-    const n = Number(form.amount);
+    const n = parseDraftAmount(form.amount);
     if (!Number.isFinite(n)) return "";
     if (!form.currency)
       return n.toLocaleString("es-AR", {
@@ -1930,7 +2386,7 @@ export default function Page() {
   }, [form.amount, form.currency]);
 
   const previewBase = useMemo(() => {
-    const n = Number(form.base_amount);
+    const n = parseDraftAmount(form.base_amount);
     if (
       !form.use_conversion ||
       !Number.isFinite(n) ||
@@ -1949,7 +2405,7 @@ export default function Page() {
   }, [form.use_conversion, form.base_amount, form.base_currency]);
 
   const previewCounter = useMemo(() => {
-    const n = Number(form.counter_amount);
+    const n = parseDraftAmount(form.counter_amount);
     if (
       !form.use_conversion ||
       !Number.isFinite(n) ||
@@ -2084,6 +2540,7 @@ export default function Page() {
 
   // Sugerencias SOLO con opciones cargadas
   useEffect(() => {
+    if (operatorOnly) return;
     if (!form.use_conversion) return;
     setForm((f) => {
       const next = { ...f };
@@ -2099,9 +2556,10 @@ export default function Page() {
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.use_conversion]);
+  }, [form.use_conversion, operatorOnly]);
 
   useEffect(() => {
+    if (operatorOnly) return;
     if (!form.use_conversion) return;
     setForm((f) => {
       const next = { ...f };
@@ -2117,7 +2575,7 @@ export default function Page() {
       return next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.currency, form.amount]);
+  }, [form.currency, form.amount, operatorOnly]);
 
   useEffect(() => {
     if (!recurringForm.use_conversion) return;
@@ -2159,13 +2617,39 @@ export default function Page() {
   useEffect(() => {
     setForm((f) => {
       const isOperador = isOperatorCategory(f.category);
+      const normalizedPayments = (f.payments || []).map((line) => {
+        if (!isOperador && line.payment_method === CREDIT_METHOD) {
+          return { ...line, payment_method: "", account: "" };
+        }
+        if (line.payment_method === CREDIT_METHOD && line.account) {
+          return { ...line, account: "" };
+        }
+        return line;
+      });
+      const paymentsChanged = normalizedPayments.some(
+        (line, idx) =>
+          line.payment_method !== (f.payments?.[idx]?.payment_method || "") ||
+          line.account !== (f.payments?.[idx]?.account || ""),
+      );
+
       if (!isOperador && f.payment_method === CREDIT_METHOD) {
-        return { ...f, payment_method: "", account: "", use_credit: false };
+        return {
+          ...f,
+          payment_method: "",
+          account: "",
+          use_credit: false,
+          payments: normalizedPayments,
+        };
       }
       if (isOperador && f.payment_method === CREDIT_METHOD && f.account) {
-        return { ...f, account: "", use_credit: false };
+        return { ...f, account: "", use_credit: false, payments: normalizedPayments };
       }
-      if (f.use_credit) return { ...f, use_credit: false };
+      if (f.use_credit) {
+        return { ...f, use_credit: false, payments: normalizedPayments };
+      }
+      if (paymentsChanged) {
+        return { ...f, payments: normalizedPayments };
+      }
       return f;
     });
   }, [form.category, isOperatorCategory]);
@@ -2389,6 +2873,7 @@ export default function Page() {
         {/* FORM */}
         <InvestmentsForm
           operatorOnly={operatorOnly}
+          showOperatorConversionSection={shouldAutoShowOperatorConversion}
           operatorServicesSection={operatorServicesSection}
           isFormOpen={isFormOpen}
           setIsFormOpen={setIsFormOpen}
@@ -2403,6 +2888,9 @@ export default function Page() {
           currencyOptions={currencyOptions}
           currencyDict={currencyDict}
           uiPaymentMethodOptions={uiPaymentMethodOptions}
+          requiresAccountForMethod={(method) =>
+            !!requiresAccountMap.get(norm(method))
+          }
           accountOptions={accountOptions}
           showAccount={showAccount}
           previewAmount={previewAmount}

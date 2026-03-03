@@ -85,6 +85,16 @@ export type RecurringInvestment = {
 export type User = { id_user: number; first_name: string; last_name: string };
 export type Operator = { id_operator: number; name: string };
 
+export type InvestmentPaymentLineDraft = {
+  key: string;
+  amount: string;
+  payment_method: string;
+  account: string;
+  payment_currency: string;
+  fee_mode: "NONE" | "FIXED" | "PERCENT";
+  fee_value: string;
+};
+
 export type InvestmentFormState = {
   category: string;
   description: string;
@@ -103,6 +113,7 @@ export type InvestmentFormState = {
   counter_amount: string;
   counter_currency: string;
   use_credit: boolean;
+  payments: InvestmentPaymentLineDraft[];
 };
 
 export type RecurringFormState = {

@@ -996,6 +996,32 @@ export default function SummaryCard({
         }
       });
 
+      if (operatorDues.length === 0) {
+        (services as ServiceWithCalcs[]).forEach((svc) => {
+          const serviceId = Number(svc.id_service);
+          if (!Number.isFinite(serviceId) || serviceId <= 0) return;
+          const amount = toNum(svc.cost_price);
+          if (amount <= 0) return;
+
+          const currency = normalizeCurrencyCode(svc.currency || "ARS");
+          const numberLabel = svc.agency_service_id ?? serviceId;
+          const desc = (svc.description || svc.type || "").trim();
+          const label = desc ? `N° ${numberLabel} · ${desc}` : `N° ${numberLabel}`;
+          const key = `${currency}:${serviceId}`;
+          const prev = grouped.get(key);
+          if (prev) {
+            prev.amount += amount;
+          } else {
+            grouped.set(key, {
+              serviceId,
+              currency,
+              label,
+              amount,
+            });
+          }
+        });
+      }
+
       grouped.forEach((row) => {
         rowsByCurrency[row.currency] = [...(rowsByCurrency[row.currency] || []), row];
         totalsByCurrency[row.currency] =
@@ -1015,7 +1041,7 @@ export default function SummaryCard({
         operatorDebtBreakdownByCurrency: rowsByCurrency,
         operatorDebtTotalsByCurrency: totalsByCurrency,
       };
-    }, [operatorDues, serviceById]);
+    }, [operatorDues, serviceById, services]);
 
   const debtSummaryByCurrency = useMemo(() => {
     const out: Record<

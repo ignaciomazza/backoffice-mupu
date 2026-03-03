@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
+import { formatMoneyInput, shouldPreferDotDecimal } from "@/utils/moneyInput";
 import { parseAmountInput } from "@/utils/receipts/receiptForm";
 
 export type AllocationService = {
@@ -42,19 +43,12 @@ const inputBase =
   "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
 
 const pillBase = "rounded-full px-3 py-1 text-xs font-medium";
-const pillNeutral = "bg-white/30 dark:bg-white/10";
 const pillWarn = "bg-rose-500/15 text-rose-700 dark:text-rose-300";
 const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 
 const ASSIGNMENT_TOLERANCE = 0.01;
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-const formatAmountInput = (n: number, decimals = 2) => {
-  const fixed = n.toFixed(decimals);
-  return fixed
-    .replace(/(\.\d*?[1-9])0+$/g, "$1")
-    .replace(/\.0+$/, "");
-};
 
 function formatMoney(n: number, cur = "ARS") {
   try {
@@ -98,6 +92,9 @@ export default function ServiceAllocationsEditor({
   onSummaryChange,
 }: Props) {
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
+  const [distributionPreset, setDistributionPreset] = useState<
+    "cost" | "equal" | "use_costs" | null
+  >(null);
   const lastReset = useRef<number | undefined>(undefined);
   const paymentCur = (paymentCurrency || "").toUpperCase();
 
@@ -140,13 +137,13 @@ export default function ServiceAllocationsEditor({
           next[svc.id_service] = {
             amount_service:
               Number.isFinite(initialAmountService) && initialAmountService >= 0
-                ? formatAmountInput(initialAmountService, 2)
+                ? formatMoneyInput(String(initialAmountService), serviceCur || "ARS")
                 : "",
             counter_amount:
               serviceCur !== paymentCur &&
               Number.isFinite(derivedCounter) &&
               derivedCounter >= 0
-                ? formatAmountInput(derivedCounter, 2)
+                ? formatMoneyInput(String(derivedCounter), paymentCur || "ARS")
                 : "",
           };
           return;
@@ -239,6 +236,12 @@ export default function ServiceAllocationsEditor({
     onSummaryChange(summary);
   }, [summary, onSummaryChange]);
 
+  useEffect(() => {
+    if (services.length === 0) {
+      setDistributionPreset(null);
+    }
+  }, [services.length, resetKey]);
+
   const setAmountService = useCallback((id: number, value: string) => {
     setDrafts((prev) => ({
       ...prev,
@@ -302,15 +305,19 @@ export default function ServiceAllocationsEditor({
             ? amountPayment
             : round2(amountPayment / Number(r.fx || 1));
         next[r.service.id_service] = {
-          amount_service: formatAmountInput(amountService, 2),
+          amount_service: formatMoneyInput(
+            String(amountService),
+            r.serviceCur || "ARS",
+          ),
           counter_amount:
             r.serviceCur === paymentCur
               ? ""
-              : formatAmountInput(amountPayment, 2),
+              : formatMoneyInput(String(amountPayment), paymentCur || "ARS"),
         };
       });
       return next;
     });
+    setDistributionPreset("cost");
   }, [paymentAmount, rows, paymentCur]);
 
   const applyProrationEqual = useCallback(() => {
@@ -346,15 +353,19 @@ export default function ServiceAllocationsEditor({
             ? amountPayment
             : round2(amountPayment / Number(r.fx || 1));
         next[r.service.id_service] = {
-          amount_service: formatAmountInput(amountService, 2),
+          amount_service: formatMoneyInput(
+            String(amountService),
+            r.serviceCur || "ARS",
+          ),
           counter_amount:
             r.serviceCur === paymentCur
               ? ""
-              : formatAmountInput(amountPayment, 2),
+              : formatMoneyInput(String(amountPayment), paymentCur || "ARS"),
         };
       });
       return next;
     });
+    setDistributionPreset("equal");
   }, [paymentAmount, rows, paymentCur]);
 
   const applyUseCosts = useCallback(() => {
@@ -363,7 +374,10 @@ export default function ServiceAllocationsEditor({
       rows.forEach((r) => {
         const base = Number(r.service.cost_price || 0);
         next[r.service.id_service] = {
-          amount_service: formatAmountInput(base, 2),
+          amount_service: formatMoneyInput(
+            String(base),
+            r.serviceCur || "ARS",
+          ),
           counter_amount:
             r.serviceCur === paymentCur
               ? ""
@@ -372,6 +386,7 @@ export default function ServiceAllocationsEditor({
       });
       return next;
     });
+    setDistributionPreset("use_costs");
   }, [rows, paymentCur]);
 
   const clearAll = useCallback(() => {
@@ -382,6 +397,7 @@ export default function ServiceAllocationsEditor({
       });
       return next;
     });
+    setDistributionPreset(null);
   }, [rows]);
 
   const grouped = useMemo(() => {
@@ -402,48 +418,86 @@ export default function ServiceAllocationsEditor({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={applyProrationByCost}
-          title="Distribuye el monto proporcional al costo de cada servicio."
-          className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-300"
-        >
-          Distribuir según costo (Recomendado)
-        </button>
-        <button
-          type="button"
-          onClick={applyProrationEqual}
-          title="Divide el monto en partes iguales entre los servicios."
-          className="rounded-full border border-white/10 bg-white/30 px-3 py-1 text-xs font-semibold transition hover:bg-white/50 dark:bg-white/10"
-        >
-          Distribuir en partes iguales
-        </button>
-        <button
-          type="button"
-          onClick={applyUseCosts}
-          title="Carga el costo de cada servicio como monto inicial."
-          className="rounded-full border border-white/10 bg-white/30 px-3 py-1 text-xs font-semibold transition hover:bg-white/50 dark:bg-white/10"
-        >
-          Usar costos como monto
-        </button>
-        <button
-          type="button"
-          onClick={clearAll}
-          title="Limpia los montos y contravalores cargados."
-          className="rounded-full border border-white/10 bg-white/30 px-3 py-1 text-xs font-semibold transition hover:bg-white/50 dark:bg-white/10"
-        >
-          Borrar montos
-        </button>
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+        <div className="mb-2 text-xs text-sky-950/70 dark:text-white/70">
+          Distribución rápida
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={applyProrationByCost}
+            title="Distribuye el monto proporcional al costo de cada servicio."
+            className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+              distributionPreset === "cost"
+                ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                : "border-white/10 bg-white/30 hover:bg-white/50 dark:bg-white/10"
+            }`}
+          >
+            Según costo (Ajustar a pago)
+          </button>
+          <button
+            type="button"
+            onClick={applyProrationEqual}
+            title="Divide el monto en partes iguales entre los servicios."
+            className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+              distributionPreset === "equal"
+                ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                : "border-white/10 bg-white/30 hover:bg-white/50 dark:bg-white/10"
+            }`}
+          >
+            Partes iguales
+          </button>
+          <button
+            type="button"
+            onClick={applyUseCosts}
+            title="Carga el costo de cada servicio como monto inicial."
+            className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+              distributionPreset === "use_costs"
+                ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                : "border-white/10 bg-white/30 hover:bg-white/50 dark:bg-white/10"
+            }`}
+          >
+            Usar costos de Servicios
+          </button>
+          <button
+            type="button"
+            onClick={clearAll}
+            title="Limpia los montos y contravalores cargados."
+            aria-label="Borrar montos"
+            className="inline-flex items-center justify-center rounded-full border border-rose-300/50 bg-rose-500/10 px-2 py-1 text-rose-700 transition hover:bg-rose-500/20 dark:border-rose-300/30 dark:text-rose-300"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.8}
+              className="size-4"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.59.68-1.14 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <span className={`${pillBase} ${pillNeutral}`}>
-          Aplicado al pago: {formatMoney(summary.assignedTotal, paymentCur || "ARS")}
-        </span>
-        <span className={`${pillBase} ${pillNeutral}`}>
-          Monto del pago: {formatMoney(Number(paymentAmount || 0), paymentCur || "ARS")}
-        </span>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs">
+          <div className="text-sky-950/70 dark:text-white/70">Aplicado al pago</div>
+          <div className="font-semibold">
+            {formatMoney(summary.assignedTotal, paymentCur || "ARS")}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs">
+          <div className="text-sky-950/70 dark:text-white/70">Monto del pago</div>
+          <div className="font-semibold">
+            {formatMoney(Number(paymentAmount || 0), paymentCur || "ARS")}
+          </div>
+        </div>
         {summary.overAssigned && (
           <span className={`${pillBase} ${pillWarn}`}>
             El total asignado supera el monto del pago
@@ -508,8 +562,15 @@ export default function ServiceAllocationsEditor({
                         className={inputBase}
                         inputMode="decimal"
                         value={drafts[svc.id_service]?.amount_service || ""}
-                        onChange={(e) => setAmountService(svc.id_service, e.target.value)}
-                        placeholder="0"
+                        onChange={(e) =>
+                          setAmountService(
+                            svc.id_service,
+                            formatMoneyInput(e.target.value, row.serviceCur || "ARS", {
+                              preferDotDecimal: shouldPreferDotDecimal(e),
+                            }),
+                          )
+                        }
+                        placeholder={formatMoney(0, row.serviceCur || "ARS")}
                       />
                     </div>
                     <div>
@@ -523,16 +584,21 @@ export default function ServiceAllocationsEditor({
                             inputMode="decimal"
                             value={drafts[svc.id_service]?.counter_amount || ""}
                             onChange={(e) =>
-                              setCounterAmount(svc.id_service, e.target.value)
+                              setCounterAmount(
+                                svc.id_service,
+                                formatMoneyInput(
+                                  e.target.value,
+                                  paymentCur || "ARS",
+                                  {
+                                    preferDotDecimal: shouldPreferDotDecimal(e),
+                                  },
+                                ),
+                              )
                             }
-                            placeholder="0"
+                            placeholder={formatMoney(0, paymentCur || "ARS")}
                           />
                         </>
-                      ) : (
-                        <div className="text-xs text-sky-950/70 dark:text-white/70">
-                          Misma moneda (mismo valor)
-                        </div>
-                      )}
+                      ) : null}
                     </div>
                     <div>
                       <div className="text-xs text-sky-950/70 dark:text-white/70">

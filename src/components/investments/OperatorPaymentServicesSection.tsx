@@ -13,6 +13,7 @@ import ServiceAllocationsEditor, {
   type ExcessAction,
   type ExcessMissingAccountAction,
 } from "@/components/investments/ServiceAllocationsEditor";
+import { parseAmountInput } from "@/utils/receipts/receiptForm";
 import type { BookingOption } from "@/types/receipts";
 
 type OperatorLite = { id_operator: number; name: string };
@@ -158,10 +159,6 @@ const Toggle = ({
 
 const inputBase =
   "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
-
-const pillBase = "rounded-full px-3 py-1 text-xs font-medium";
-const pillNeutral = "bg-white/30 dark:bg-white/10";
-const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 
 function formatMoney(n: number, cur = "ARS") {
   try {
@@ -480,12 +477,6 @@ export default function OperatorPaymentServicesSection({
     [selectedServices],
   );
 
-  const operatorLabel = useMemo(() => {
-    if (!lockOperatorId) return null;
-    const found = operators.find((o) => o.id_operator === lockOperatorId);
-    return found?.name || `N° ${lockOperatorId}`;
-  }, [lockOperatorId, operators]);
-
   const bookingServicesFiltered = useMemo(() => {
     if (!lockOperatorId) return services;
     return services.filter(
@@ -650,14 +641,14 @@ export default function OperatorPaymentServicesSection({
             <div className="mb-2 text-xs text-sky-950/70 dark:text-white/70">
               Modo de selección
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="inline-flex gap-1 rounded-2xl border border-white/10 bg-white/5 p-1">
               <button
                 type="button"
                 onClick={() => setSelectionMode("pending")}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
                   selectionMode === "pending"
-                    ? "bg-emerald-500/20 text-emerald-800 dark:text-emerald-200"
-                    : "bg-white/20 text-sky-950 hover:bg-white/30 dark:bg-white/10 dark:text-white"
+                    ? "bg-emerald-500/20 text-emerald-800 shadow-sm dark:text-emerald-200"
+                    : "text-sky-950 hover:bg-white/30 dark:text-white"
                 }`}
               >
                 Pendientes por operador
@@ -665,10 +656,10 @@ export default function OperatorPaymentServicesSection({
               <button
                 type="button"
                 onClick={() => setSelectionMode("booking")}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
                   selectionMode === "booking"
-                    ? "bg-emerald-500/20 text-emerald-800 dark:text-emerald-200"
-                    : "bg-white/20 text-sky-950 hover:bg-white/30 dark:bg-white/10 dark:text-white"
+                    ? "bg-emerald-500/20 text-emerald-800 shadow-sm dark:text-emerald-200"
+                    : "text-sky-950 hover:bg-white/30 dark:text-white"
                 }`}
               >
                 Buscar por reserva
@@ -790,62 +781,15 @@ export default function OperatorPaymentServicesSection({
             </>
           )}
 
-          <div className="md:col-span-2">
-            <div className="flex flex-wrap gap-2">
-              <span className={`${pillBase} ${pillNeutral}`}>
-                Seleccionados: {selectedServices.length}
-              </span>
-              <span
-                className={`${pillBase} ${
-                  selectedCurrencies.length ? pillOk : pillNeutral
-                }`}
-              >
-                Monedas:{" "}
-                {selectedCurrencies.length ? selectedCurrencies.join(", ") : "—"}
-              </span>
-              {operatorLabel && (
-                <span className={`${pillBase} ${pillNeutral}`}>
-                  Operador: {operatorLabel}
-                </span>
-              )}
-              {bookingIds.length > 0 && (
-                <span className={`${pillBase} ${pillNeutral}`}>
-                  Reservas: {bookingIds.length}
-                </span>
-              )}
-              {selectedServices.length > 0 && (
-                <span className={`${pillBase} ${pillNeutral}`}>
-                  Total costos:{" "}
-                  {lockCurrency
-                    ? formatMoney(totalCost, lockCurrency)
-                    : "Múltiples monedas"}
-                </span>
-              )}
-            </div>
-          </div>
-
           {selectedServices.length > 0 && (
             <div className="md:col-span-2">
-              <div className="text-xs text-sky-950/70 dark:text-white/70">
-                Servicios seleccionados:
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {selectedServices.map((svc) => {
-                  const bookingNumber =
-                    svc.booking?.agency_booking_id ?? svc.booking_id;
-                  return (
-                    <button
-                      key={`sel-${svc.id_service}`}
-                      type="button"
-                      onClick={() => toggleService(svc)}
-                      className="rounded-full border border-white/10 bg-white/40 px-3 py-1 text-xs text-sky-900 transition hover:bg-white/60 dark:bg-white/10 dark:text-white"
-                      title="Quitar servicio"
-                    >
-                      Reserva {bookingNumber} · Servicio{" "}
-                      {svc.agency_service_id ?? svc.id_service}
-                    </button>
-                  );
-                })}
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-sky-950/80 dark:text-white/80">
+                <span>{selectedServices.length} servicio(s) asociado(s)</span>
+                <span>
+                  {lockCurrency
+                    ? `Total costos ${formatMoney(totalCost, lockCurrency)}`
+                    : "Múltiples monedas en la selección"}
+                </span>
               </div>
             </div>
           )}
@@ -855,7 +799,7 @@ export default function OperatorPaymentServicesSection({
               <ServiceAllocationsEditor
                 services={selectedServices}
                 paymentCurrency={currency}
-                paymentAmount={Number(amount) || 0}
+                paymentAmount={parseAmountInput(amount) ?? 0}
                 initialAllocations={initialAllocations}
                 resetKey={resetKey}
                 excessAction={excessAction}

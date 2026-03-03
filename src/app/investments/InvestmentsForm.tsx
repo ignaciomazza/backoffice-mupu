@@ -2,8 +2,11 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
+import { useMemo } from "react";
 import type { Dispatch, FormEvent, ReactNode, SetStateAction } from "react";
 import Spinner from "@/components/Spinner";
+import { formatMoneyInput, shouldPreferDotDecimal } from "@/utils/moneyInput";
+import { parseAmountInput } from "@/utils/receipts/receiptForm";
 import type {
   InvestmentFormState,
   Operator,
@@ -76,6 +79,7 @@ type InvestmentsFormProps = {
   editingId: number | null;
   headerPills: ReactNode;
   operatorOnly?: boolean;
+  showOperatorConversionSection?: boolean;
   operatorServicesSection?: ReactNode;
   onSubmit: (e: FormEvent<HTMLFormElement>) => void | Promise<void>;
   loading: boolean;
@@ -86,6 +90,7 @@ type InvestmentsFormProps = {
   currencyOptions: string[];
   currencyDict: Record<string, string>;
   uiPaymentMethodOptions: string[];
+  requiresAccountForMethod: (method: string) => boolean;
   accountOptions: string[];
   showAccount: boolean;
   previewAmount: string;
@@ -132,6 +137,7 @@ export default function InvestmentsForm({
   editingId,
   headerPills,
   operatorOnly = false,
+  showOperatorConversionSection = false,
   operatorServicesSection,
   onSubmit,
   loading,
@@ -142,6 +148,7 @@ export default function InvestmentsForm({
   currencyOptions,
   currencyDict,
   uiPaymentMethodOptions,
+  requiresAccountForMethod,
   accountOptions,
   showAccount,
   previewAmount,
@@ -183,6 +190,99 @@ export default function InvestmentsForm({
 }: InvestmentsFormProps) {
   const itemLabel = operatorOnly ? "pago" : "gasto";
   const allowRecurring = !operatorOnly;
+  const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+  const lineUid = () => `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const defaultPaymentCurrency =
+    form.payments?.[0]?.payment_currency ||
+    form.currency ||
+    currencyOptions[0] ||
+    "ARS";
+  const paymentSummary = useMemo(() => {
+    const lines = form.payments || [];
+    let total = 0;
+    let fees = 0;
+    const currencies = new Set<string>();
+    for (const line of lines) {
+      const amount = parseAmountInput(line.amount) ?? 0;
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      total += amount;
+      const feeValue = parseAmountInput(line.fee_value) ?? 0;
+      if (line.fee_mode === "PERCENT") {
+        fees += amount * ((Number.isFinite(feeValue) && feeValue > 0 ? feeValue : 0) / 100);
+      } else if (line.fee_mode === "FIXED") {
+        fees += Number.isFinite(feeValue) && feeValue > 0 ? feeValue : 0;
+      }
+      const code = String(line.payment_currency || defaultPaymentCurrency)
+        .trim()
+        .toUpperCase();
+      if (code) currencies.add(code);
+    }
+    return {
+      total: round2(total),
+      feeTotal: round2(fees),
+      currencies: Array.from(currencies),
+    };
+  }, [defaultPaymentCurrency, form.payments]);
+
+  const formatMoney = (value: number, currency = defaultPaymentCurrency) => {
+    try {
+      return new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: String(currency || "ARS").toUpperCase(),
+        minimumFractionDigits: 2,
+      }).format(Number.isFinite(value) ? value : 0);
+    } catch {
+      return `${(Number.isFinite(value) ? value : 0).toFixed(2)} ${String(
+        currency || "ARS",
+      ).toUpperCase()}`;
+    }
+  };
+
+  const updatePaymentLine = (
+    key: string,
+    patch: Partial<InvestmentFormState["payments"][number]>,
+  ) => {
+    setForm((prev) => ({
+      ...prev,
+      payments: (prev.payments || []).map((line) =>
+        line.key === key ? { ...line, ...patch } : line,
+      ),
+    }));
+  };
+
+  const addPaymentLine = () => {
+    setForm((prev) => ({
+      ...prev,
+      payments: [
+        ...(prev.payments || []),
+        {
+          key: lineUid(),
+          amount: "",
+          payment_method: "",
+          account: "",
+          payment_currency: String(
+            prev.payments?.[0]?.payment_currency ||
+              prev.currency ||
+              currencyOptions[0] ||
+              "ARS",
+          )
+            .trim()
+            .toUpperCase(),
+          fee_mode: "NONE",
+          fee_value: "",
+        },
+      ],
+    }));
+  };
+
+  const removePaymentLine = (key: string) => {
+    setForm((prev) => {
+      const next = (prev.payments || []).filter((line) => line.key !== key);
+      if (next.length === 0) return prev;
+      return { ...prev, payments: next };
+    });
+  };
+
   return (
     <motion.div
       layout
@@ -242,13 +342,19 @@ export default function InvestmentsForm({
             </div>
             <div>
               <p className="text-lg font-semibold">
-                {editingId ? `Editar ${itemLabel}` : `Cargar ${itemLabel}`}
+                {operatorOnly
+                  ? editingId
+                    ? "Editar pago a Operador"
+                    : "Pago a Operador"
+                  : editingId
+                    ? `Editar ${itemLabel}`
+                    : `Cargar ${itemLabel}`}
               </p>
               <p className="text-xs opacity-70">
                 {editingId
                   ? `Actualizá la información del ${itemLabel}.`
                   : operatorOnly
-                    ? "Registrá pagos a Operadores."
+                    ? "Registrá pagos y asociá servicios del mismo operador."
                     : "Registrá gastos manuales y automáticos."}
               </p>
             </div>
@@ -272,77 +378,155 @@ export default function InvestmentsForm({
             >
               <Section
                 title={`Detalle del ${itemLabel}`}
-                desc="Categoría, fecha y descripción."
+                desc={
+                  operatorOnly
+                    ? "Descripción y fecha del pago."
+                    : "Categoría, fecha y descripción."
+                }
               >
-                <Field id="category" label="Categoría" required>
-                  <select
-                    id="category"
-                    className={`${inputClass} cursor-pointer appearance-none`}
-                    value={form.category}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        category: e.target.value,
-                        user_id: null,
-                        operator_id: null,
-                      }))
-                    }
-                    required
-                    disabled={categoryOptions.length === 0}
-                  >
-                    <option value="" disabled>
-                      {categoryOptions.length
-                        ? "Seleccionar…"
-                        : "Sin categorías habilitadas"}
-                    </option>
-                    {categoryOptions.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
+                {operatorOnly ? (
+                  <>
+                    <Field id="description" label="Descripción" required>
+                      <input
+                        id="description"
+                        className={inputClass}
+                        value={form.description}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            description: e.target.value,
+                          }))
+                        }
+                        placeholder={`Concepto / detalle del ${itemLabel}…`}
+                        required
+                      />
+                    </Field>
 
-                <Field id="paid_at" label="Fecha de pago (opcional)">
-                  <input
-                    id="paid_at"
-                    type="date"
-                    className={`${inputClass} cursor-pointer`}
-                    value={form.paid_at}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, paid_at: e.target.value }))
-                    }
-                  />
-                </Field>
+                    <Field id="paid_at" label="Fecha de pago (opcional)">
+                      <input
+                        id="paid_at"
+                        type="date"
+                        className={`${inputClass} cursor-pointer`}
+                        value={form.paid_at}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, paid_at: e.target.value }))
+                        }
+                      />
+                    </Field>
+                  </>
+                ) : (
+                  <>
+                    <Field id="category" label="Categoría" required>
+                      <select
+                        id="category"
+                        className={`${inputClass} cursor-pointer appearance-none`}
+                        value={form.category}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            category: e.target.value,
+                            user_id: null,
+                            operator_id: null,
+                          }))
+                        }
+                        required
+                        disabled={categoryOptions.length === 0}
+                      >
+                        <option value="" disabled>
+                          {categoryOptions.length
+                            ? "Seleccionar…"
+                            : "Sin categorías habilitadas"}
+                        </option>
+                        {categoryOptions.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
 
-                <Field
-                  id="description"
-                  label="Descripción"
-                  required
-                  className="md:col-span-2"
-                >
-                  <input
-                    id="description"
-                    className={inputClass}
-                    value={form.description}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        description: e.target.value,
-                      }))
-                    }
-                    placeholder={`Concepto / detalle del ${itemLabel}…`}
-                    required
-                  />
-                </Field>
+                    <Field id="paid_at" label="Fecha de pago (opcional)">
+                      <input
+                        id="paid_at"
+                        type="date"
+                        className={`${inputClass} cursor-pointer`}
+                        value={form.paid_at}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, paid_at: e.target.value }))
+                        }
+                      />
+                    </Field>
+
+                    <Field
+                      id="description"
+                      label="Descripción"
+                      required
+                      className="md:col-span-2"
+                    >
+                      <input
+                        id="description"
+                        className={inputClass}
+                        value={form.description}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            description: e.target.value,
+                          }))
+                        }
+                        placeholder={`Concepto / detalle del ${itemLabel}…`}
+                        required
+                      />
+                    </Field>
+                  </>
+                )}
               </Section>
 
               <Section
                 title="Referencias"
-                desc="Operador o usuario según la categoría."
+                desc={
+                  operatorOnly
+                    ? "Categoría y operador del pago."
+                    : "Operador o usuario según la categoría."
+                }
               >
+                {operatorOnly && (
+                  <Field id="category" label="Categoría" required>
+                    <select
+                      id="category"
+                      className={`${inputClass} cursor-pointer appearance-none`}
+                      value={form.category}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          category: e.target.value,
+                          user_id: null,
+                          operator_id: null,
+                        }))
+                      }
+                      required
+                      disabled={categoryOptions.length === 0}
+                    >
+                      <option value="" disabled>
+                        {categoryOptions.length
+                          ? "Seleccionar…"
+                          : "Sin categorías habilitadas"}
+                      </option>
+                      {categoryOptions.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
+
                 {isOperador && (
-                  <Field id="operator_id" label="Operador" required className="md:col-span-2">
+                  <Field
+                    id="operator_id"
+                    label="Operador"
+                    required
+                    className={operatorOnly ? undefined : "md:col-span-2"}
+                  >
                     <select
                       id="operator_id"
                       className={`${inputClass} cursor-pointer appearance-none`}
@@ -438,232 +622,684 @@ export default function InvestmentsForm({
                 )}
               </Section>
 
-              <Section title="Pago" desc="Monto, moneda y método de pago.">
-                <Field id="amount" label="Monto" required>
-                  <input
-                    id="amount"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    inputMode="decimal"
-                    className={inputClass}
-                    value={form.amount}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, amount: e.target.value }))
-                    }
-                    placeholder="0.00"
-                    required
-                  />
-                  {form.amount && (
-                    <div className="ml-1 mt-1 text-xs opacity-80">
-                      {previewAmount}
-                    </div>
-                  )}
-                </Field>
-
-                <Field id="currency" label="Moneda" required>
-                  <select
-                    id="currency"
-                    className={`${inputClass} cursor-pointer appearance-none`}
-                    value={form.currency}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, currency: e.target.value }))
-                    }
-                    required
-                    disabled={currencyOptions.length === 0}
-                  >
-                    <option value="" disabled>
-                      {currencyOptions.length
-                        ? "Seleccionar moneda"
-                        : "Sin monedas habilitadas"}
-                    </option>
-                    {currencyOptions.map((code) => (
-                      <option key={code} value={code}>
-                        {currencyDict[code]
-                          ? `${code} — ${currencyDict[code]}`
-                          : code}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                <Field id="payment_method" label="Método de pago" required>
-                  <select
-                    id="payment_method"
-                    className={`${inputClass} cursor-pointer appearance-none`}
-                    value={form.payment_method}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        payment_method: e.target.value,
-                      }))
-                    }
-                    required
-                    disabled={uiPaymentMethodOptions.length === 0}
-                  >
-                    <option value="" disabled>
-                      {uiPaymentMethodOptions.length
-                        ? "Seleccionar método"
-                        : "Sin métodos habilitados"}
-                    </option>
-                    {uiPaymentMethodOptions.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                {showAccount ? (
-                  <Field id="account" label="Cuenta" required>
-                    <select
-                      id="account"
-                      className={`${inputClass} cursor-pointer appearance-none`}
-                      value={form.account}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, account: e.target.value }))
-                      }
-                      required={showAccount}
-                      disabled={accountOptions.length === 0}
-                    >
-                      <option value="" disabled>
-                        {accountOptions.length
-                          ? "Seleccionar cuenta"
-                          : "Sin cuentas habilitadas"}
-                      </option>
-                      {accountOptions.map((opt) => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                ) : (
-                  <div />
-                )}
-              </Section>
-
               <Section
-                title="Conversión (opcional)"
-                desc="Registra valor y contravalor si el acuerdo está en otra divisa."
+                title={operatorOnly ? "Pagos" : "Pago"}
+                desc={
+                  operatorOnly
+                    ? "Por línea definí importe, método, cuenta, moneda y costo financiero."
+                    : "Monto, moneda y método de pago."
+                }
               >
-                <div className="md:col-span-2">
-                  <label className="flex cursor-pointer items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
-                      checked={form.use_conversion}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          use_conversion: e.target.checked,
-                        }))
-                      }
-                    />
-                    Registrar valor / contravalor
-                  </label>
-                </div>
-
-                {form.use_conversion && (
+                {operatorOnly ? (
                   <>
-                    <Field id="base_amount" label="Valor base" required>
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          inputMode="decimal"
-                          className={inputClass}
-                          placeholder="0.00"
-                          value={form.base_amount}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              base_amount: e.target.value,
-                            }))
-                          }
-                        />
-                        <select
-                          className={`${inputClass} cursor-pointer appearance-none`}
-                          value={form.base_currency}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              base_currency: e.target.value,
-                            }))
-                          }
-                          disabled={currencyOptions.length === 0}
-                        >
-                          <option value="" disabled>
-                            {currencyOptions.length ? "Moneda" : "Sin monedas"}
-                          </option>
-                          {currencyOptions.map((code) => (
-                            <option key={code} value={code}>
-                              {code}
-                            </option>
-                          ))}
-                        </select>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs md:col-span-2">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span>
+                          <b>Total cobrado:</b>{" "}
+                          {previewAmount ||
+                            formatMoney(
+                              paymentSummary.total,
+                              paymentSummary.currencies[0] ||
+                                defaultPaymentCurrency,
+                            )}
+                        </span>
+                        <span>
+                          <b>Costo financiero:</b>{" "}
+                          {formatMoney(
+                            paymentSummary.feeTotal,
+                            paymentSummary.currencies[0] ||
+                              defaultPaymentCurrency,
+                          )}
+                        </span>
                       </div>
-                      {previewBase && (
-                        <div className="ml-1 mt-1 text-xs opacity-70">
-                          {previewBase}
-                        </div>
+                      {paymentSummary.currencies.length > 1 && (
+                        <p className="mt-2 text-amber-700 dark:text-amber-300">
+                          Todas las líneas deben usar la misma moneda.
+                        </p>
                       )}
-                    </Field>
-
-                    <Field id="counter_amount" label="Contravalor" required>
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          inputMode="decimal"
-                          className={inputClass}
-                          placeholder="0.00"
-                          value={form.counter_amount}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              counter_amount: e.target.value,
-                            }))
-                          }
-                        />
-                        <select
-                          className={`${inputClass} cursor-pointer appearance-none`}
-                          value={form.counter_currency}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              counter_currency: e.target.value,
-                            }))
-                          }
-                          disabled={currencyOptions.length === 0}
-                        >
-                          <option value="" disabled>
-                            {currencyOptions.length ? "Moneda" : "Sin monedas"}
-                          </option>
-                          {currencyOptions.map((code) => (
-                            <option key={code} value={code}>
-                              {code}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      {previewCounter && (
-                        <div className="ml-1 mt-1 text-xs opacity-70">
-                          {previewCounter}
-                        </div>
-                      )}
-                    </Field>
-
-                    <div className="text-xs opacity-70 md:col-span-2">
-                      Se guarda el valor y contravalor <b>sin tipo de cambio</b>
-                      . Útil si pagás en una moneda pero el acuerdo está en
-                      otra.
                     </div>
+
+                    <div className="space-y-3 md:col-span-2">
+                      {(form.payments || []).map((line, idx) => {
+                        const requiresAccount = requiresAccountForMethod(
+                          line.payment_method || "",
+                        );
+                        const rawAmount = parseAmountInput(line.amount);
+                        const amount = rawAmount != null && rawAmount > 0 ? rawAmount : 0;
+                        const rawFee = parseAmountInput(line.fee_value);
+                        const feeValue = rawFee != null && rawFee > 0 ? rawFee : 0;
+                        const feeAmount =
+                          line.fee_mode === "PERCENT"
+                            ? round2(amount * (feeValue / 100))
+                            : line.fee_mode === "FIXED"
+                              ? round2(feeValue)
+                              : 0;
+                        const lineCurrency =
+                          line.payment_currency || defaultPaymentCurrency;
+                        const impact = round2(amount + feeAmount);
+                        return (
+                          <div
+                            key={line.key}
+                            className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                          >
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-950/70 dark:text-white/70">
+                                Pago #{idx + 1}
+                              </p>
+                              {(form.payments || []).length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removePaymentLine(line.key)}
+                                  aria-label={`Quitar pago ${idx + 1}`}
+                                  title="Quitar pago"
+                                  className="inline-flex items-center justify-center rounded-full border border-rose-300/50 bg-rose-500/10 p-1.5 text-rose-700 transition hover:bg-rose-500/20 active:scale-[0.98] dark:border-rose-300/30 dark:text-rose-300"
+                                >
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth={1.8}
+                                    className="size-4"
+                                    aria-hidden="true"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.59.68-1.14 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                                    />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                              <Field
+                                id={`payment_amount_${line.key}`}
+                                label="Monto"
+                                required
+                              >
+                                <input
+                                  id={`payment_amount_${line.key}`}
+                                  inputMode="decimal"
+                                  className={inputClass}
+                                  value={line.amount}
+                                  onChange={(e) =>
+                                    updatePaymentLine(line.key, {
+                                      amount: formatMoneyInput(
+                                        e.target.value,
+                                        lineCurrency,
+                                        {
+                                          preferDotDecimal:
+                                            shouldPreferDotDecimal(e),
+                                        },
+                                      ),
+                                    })
+                                  }
+                                  placeholder={formatMoney(0, lineCurrency)}
+                                  required
+                                />
+                              </Field>
+
+                              <Field
+                                id={`payment_method_${line.key}`}
+                                label="Método de pago"
+                                required
+                              >
+                                <select
+                                  id={`payment_method_${line.key}`}
+                                  className={`${inputClass} cursor-pointer appearance-none`}
+                                  value={line.payment_method}
+                                  onChange={(e) =>
+                                    updatePaymentLine(line.key, {
+                                      payment_method: e.target.value,
+                                      account: requiresAccountForMethod(
+                                        e.target.value,
+                                      )
+                                        ? line.account
+                                        : "",
+                                    })
+                                  }
+                                  required
+                                  disabled={uiPaymentMethodOptions.length === 0}
+                                >
+                                  <option value="" disabled>
+                                    {uiPaymentMethodOptions.length
+                                      ? "Seleccionar método"
+                                      : "Sin monedas habilitadas"}
+                                  </option>
+                                  {uiPaymentMethodOptions.map((opt) => (
+                                    <option key={opt} value={opt}>
+                                      {opt}
+                                    </option>
+                                  ))}
+                                </select>
+                              </Field>
+
+                              <Field
+                                id={`payment_account_${line.key}`}
+                                label="Cuenta"
+                              >
+                                {requiresAccount ? (
+                                  <select
+                                    id={`payment_account_${line.key}`}
+                                    className={`${inputClass} cursor-pointer appearance-none`}
+                                    value={line.account}
+                                    onChange={(e) =>
+                                      updatePaymentLine(line.key, {
+                                        account: e.target.value,
+                                      })
+                                    }
+                                    required={requiresAccount}
+                                    disabled={accountOptions.length === 0}
+                                  >
+                                    <option value="" disabled>
+                                      {accountOptions.length
+                                        ? "Seleccionar cuenta"
+                                        : "Sin cuentas habilitadas"}
+                                    </option>
+                                    {accountOptions.map((opt) => (
+                                      <option key={opt} value={opt}>
+                                        {opt}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <div className="text-sm text-sky-950/70 dark:text-white/70 md:pt-2">
+                                    (No requiere cuenta)
+                                  </div>
+                                )}
+                              </Field>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                              <Field
+                                id={`payment_currency_${line.key}`}
+                                label="Moneda del cobro"
+                                required
+                              >
+                                <select
+                                  id={`payment_currency_${line.key}`}
+                                  className={`${inputClass} cursor-pointer appearance-none`}
+                                  value={line.payment_currency || defaultPaymentCurrency}
+                                  onChange={(e) => {
+                                    const nextCurrency =
+                                      e.target.value.toUpperCase();
+                                    setForm((prev) => ({
+                                      ...prev,
+                                      payments: (prev.payments || []).map(
+                                        (item) => ({
+                                          ...item,
+                                          payment_currency: nextCurrency,
+                                          amount: item.amount
+                                            ? formatMoneyInput(
+                                                item.amount,
+                                                nextCurrency,
+                                              )
+                                            : "",
+                                          fee_value:
+                                            item.fee_mode === "FIXED" &&
+                                            item.fee_value
+                                              ? formatMoneyInput(
+                                                  item.fee_value,
+                                                  nextCurrency,
+                                                )
+                                              : item.fee_value,
+                                        }),
+                                      ),
+                                    }));
+                                  }}
+                                  disabled={currencyOptions.length === 0}
+                                >
+                                  <option value="" disabled>
+                                    {currencyOptions.length
+                                      ? "Seleccionar moneda"
+                                      : "Sin métodos habilitados"}
+                                  </option>
+                                  {currencyOptions.map((code) => (
+                                    <option key={code} value={code}>
+                                      {currencyDict[code]
+                                        ? `${code} — ${currencyDict[code]}`
+                                        : code}
+                                    </option>
+                                  ))}
+                                </select>
+                              </Field>
+
+                              <Field id={`payment_fee_mode_${line.key}`} label="Costo financiero">
+                                <select
+                                  id={`payment_fee_mode_${line.key}`}
+                                  className={`${inputClass} cursor-pointer appearance-none`}
+                                  value={line.fee_mode}
+                                  onChange={(e) => {
+                                    const nextMode =
+                                      e.target.value === "FIXED" ||
+                                      e.target.value === "PERCENT"
+                                        ? e.target.value
+                                        : "NONE";
+                                    const parsedCurrent =
+                                      parseAmountInput(line.fee_value);
+                                    const nextFeeValue =
+                                      nextMode === "NONE"
+                                        ? ""
+                                        : nextMode === "FIXED"
+                                          ? parsedCurrent != null
+                                            ? formatMoneyInput(
+                                                String(parsedCurrent),
+                                                lineCurrency,
+                                              )
+                                            : ""
+                                          : parsedCurrent != null
+                                            ? String(parsedCurrent)
+                                            : "";
+                                    updatePaymentLine(line.key, {
+                                      fee_mode: nextMode,
+                                      fee_value: nextFeeValue,
+                                    });
+                                  }}
+                                >
+                                  <option value="NONE">Sin costo</option>
+                                  <option value="PERCENT">Porcentaje (%)</option>
+                                  <option value="FIXED">Monto fijo</option>
+                                </select>
+                              </Field>
+
+                              <Field
+                                id={`payment_fee_value_${line.key}`}
+                                label={
+                                  line.fee_mode === "PERCENT"
+                                    ? "Porcentaje (%)"
+                                    : "Monto"
+                                }
+                              >
+                                <input
+                                  id={`payment_fee_value_${line.key}`}
+                                  type={
+                                    line.fee_mode === "PERCENT"
+                                      ? "number"
+                                      : "text"
+                                  }
+                                  step={
+                                    line.fee_mode === "PERCENT"
+                                      ? "0.01"
+                                      : undefined
+                                  }
+                                  min={line.fee_mode === "PERCENT" ? "0" : undefined}
+                                  inputMode="decimal"
+                                  className={inputClass}
+                                  value={line.fee_value}
+                                  onChange={(e) =>
+                                    updatePaymentLine(line.key, {
+                                      fee_value:
+                                        line.fee_mode === "FIXED"
+                                          ? formatMoneyInput(
+                                              e.target.value,
+                                              lineCurrency,
+                                              {
+                                                preferDotDecimal:
+                                                  shouldPreferDotDecimal(e),
+                                              },
+                                            )
+                                          : e.target.value,
+                                    })
+                                  }
+                                  disabled={line.fee_mode === "NONE"}
+                                  placeholder={
+                                    line.fee_mode === "PERCENT"
+                                      ? "0,00"
+                                      : formatMoney(0, lineCurrency)
+                                  }
+                                />
+                              </Field>
+                            </div>
+
+                            <div className="mt-2 text-xs text-sky-950/70 dark:text-white/70">
+                              Impacta en deuda: {formatMoney(impact, lineCurrency)}
+                              {line.fee_mode !== "NONE"
+                                ? ` (CF: ${formatMoney(feeAmount, lineCurrency)})`
+                                : ""}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 md:col-span-2">
+                      <button
+                        type="button"
+                        onClick={addPaymentLine}
+                        className="rounded-full border border-white/20 px-4 py-2 text-xs font-semibold text-sky-950 transition hover:bg-white/10 active:scale-[0.98] dark:text-white"
+                      >
+                        + Agregar línea
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Field id="amount" label="Monto" required>
+                      <input
+                        id="amount"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        inputMode="decimal"
+                        className={inputClass}
+                        value={form.amount}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, amount: e.target.value }))
+                        }
+                        placeholder="0.00"
+                        required
+                      />
+                      {form.amount && (
+                        <div className="ml-1 mt-1 text-xs opacity-80">
+                          {previewAmount}
+                        </div>
+                      )}
+                    </Field>
+
+                    <Field id="currency" label="Moneda" required>
+                      <select
+                        id="currency"
+                        className={`${inputClass} cursor-pointer appearance-none`}
+                        value={form.currency}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, currency: e.target.value }))
+                        }
+                        required
+                        disabled={currencyOptions.length === 0}
+                      >
+                        <option value="" disabled>
+                          {currencyOptions.length
+                            ? "Seleccionar moneda"
+                            : "Sin monedas habilitadas"}
+                        </option>
+                        {currencyOptions.map((code) => (
+                          <option key={code} value={code}>
+                            {currencyDict[code]
+                              ? `${code} — ${currencyDict[code]}`
+                              : code}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+
+                    <Field id="payment_method" label="Método de pago" required>
+                      <select
+                        id="payment_method"
+                        className={`${inputClass} cursor-pointer appearance-none`}
+                        value={form.payment_method}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            payment_method: e.target.value,
+                          }))
+                        }
+                        required
+                        disabled={uiPaymentMethodOptions.length === 0}
+                      >
+                        <option value="" disabled>
+                          {uiPaymentMethodOptions.length
+                            ? "Seleccionar método"
+                            : "Sin métodos habilitados"}
+                        </option>
+                        {uiPaymentMethodOptions.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+
+                    {showAccount ? (
+                      <Field id="account" label="Cuenta" required>
+                        <select
+                          id="account"
+                          className={`${inputClass} cursor-pointer appearance-none`}
+                          value={form.account}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, account: e.target.value }))
+                          }
+                          required={showAccount}
+                          disabled={accountOptions.length === 0}
+                        >
+                          <option value="" disabled>
+                            {accountOptions.length
+                              ? "Seleccionar cuenta"
+                              : "Sin cuentas habilitadas"}
+                          </option>
+                          {accountOptions.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    ) : (
+                      <div />
+                    )}
                   </>
                 )}
               </Section>
+
+              {(!operatorOnly || showOperatorConversionSection) && (
+                <Section
+                  title="Conversión (opcional)"
+                  desc={
+                    operatorOnly
+                      ? "Visible cuando la moneda del pago difiere de la moneda de los servicios asociados."
+                      : "Registra valor y contravalor si el acuerdo está en otra divisa."
+                  }
+                >
+                  {!operatorOnly && (
+                    <div className="md:col-span-2">
+                      <label className="flex cursor-pointer items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="size-4 rounded border-white/30 bg-white/30 text-sky-600 shadow-sm shadow-sky-950/10 dark:border-white/20 dark:bg-white/10"
+                          checked={form.use_conversion}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              use_conversion: e.target.checked,
+                            }))
+                          }
+                        />
+                        Registrar valor / contravalor
+                      </label>
+                    </div>
+                  )}
+
+                  {form.use_conversion && (
+                    <>
+                      {operatorOnly && (
+                        <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
+                          <p>
+                            Servicio en{" "}
+                            <b>{form.base_currency || "—"}</b>. Cobro en{" "}
+                            <b>{form.counter_currency || form.currency || "—"}</b>.
+                          </p>
+                          <div className="mt-2 grid gap-1 text-[11px]">
+                            <div>
+                              <span className="font-medium">Valor base:</span>{" "}
+                              {previewBase || "—"}
+                            </div>
+                            <div>
+                              <span className="font-medium">Contravalor:</span>{" "}
+                              {previewCounter || "—"}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <Field
+                        id="base_amount"
+                        label={
+                          operatorOnly
+                            ? "Valor base (moneda del servicio)"
+                            : "Valor base"
+                        }
+                        required
+                      >
+                        <div className="flex gap-2">
+                          <input
+                            type={operatorOnly ? "text" : "number"}
+                            step={operatorOnly ? undefined : "0.01"}
+                            min={operatorOnly ? undefined : "0"}
+                            inputMode="decimal"
+                            className={inputClass}
+                            placeholder={
+                              operatorOnly
+                                ? formatMoney(
+                                    0,
+                                    form.base_currency ||
+                                      currencyOptions[0] ||
+                                      "ARS",
+                                  )
+                                : "0.00"
+                            }
+                            value={form.base_amount}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                base_amount: operatorOnly
+                                  ? formatMoneyInput(
+                                      e.target.value,
+                                      f.base_currency ||
+                                        currencyOptions[0] ||
+                                        "ARS",
+                                      {
+                                        preferDotDecimal:
+                                          shouldPreferDotDecimal(e),
+                                      },
+                                    )
+                                  : e.target.value,
+                              }))
+                            }
+                          />
+                          <select
+                            className={`${inputClass} cursor-pointer appearance-none`}
+                            value={form.base_currency}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                base_currency: e.target.value,
+                                base_amount:
+                                  operatorOnly && f.base_amount
+                                    ? formatMoneyInput(
+                                        f.base_amount,
+                                        e.target.value,
+                                      )
+                                    : f.base_amount,
+                              }))
+                            }
+                            disabled={currencyOptions.length === 0}
+                          >
+                            <option value="" disabled>
+                              {currencyOptions.length ? "Moneda" : "Sin monedas"}
+                            </option>
+                            {currencyOptions.map((code) => (
+                              <option key={code} value={code}>
+                                {code}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {previewBase && (
+                          <div className="ml-1 mt-1 text-xs opacity-70">
+                            {previewBase}
+                          </div>
+                        )}
+                      </Field>
+
+                      <Field
+                        id="counter_amount"
+                        label={
+                          operatorOnly
+                            ? "Contravalor (moneda del cobro)"
+                            : "Contravalor"
+                        }
+                        required
+                      >
+                        <div className="flex gap-2">
+                          <input
+                            type={operatorOnly ? "text" : "number"}
+                            step={operatorOnly ? undefined : "0.01"}
+                            min={operatorOnly ? undefined : "0"}
+                            inputMode="decimal"
+                            className={inputClass}
+                            placeholder={
+                              operatorOnly
+                                ? formatMoney(
+                                    0,
+                                    form.counter_currency ||
+                                      currencyOptions[0] ||
+                                      "ARS",
+                                  )
+                                : "0.00"
+                            }
+                            value={form.counter_amount}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                counter_amount: operatorOnly
+                                  ? formatMoneyInput(
+                                      e.target.value,
+                                      f.counter_currency ||
+                                        currencyOptions[0] ||
+                                        "ARS",
+                                      {
+                                        preferDotDecimal:
+                                          shouldPreferDotDecimal(e),
+                                      },
+                                    )
+                                  : e.target.value,
+                              }))
+                            }
+                          />
+                          <select
+                            className={`${inputClass} cursor-pointer appearance-none`}
+                            value={form.counter_currency}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                counter_currency: e.target.value,
+                                counter_amount:
+                                  operatorOnly && f.counter_amount
+                                    ? formatMoneyInput(
+                                        f.counter_amount,
+                                        e.target.value,
+                                      )
+                                    : f.counter_amount,
+                              }))
+                            }
+                            disabled={currencyOptions.length === 0}
+                          >
+                            <option value="" disabled>
+                              {currencyOptions.length ? "Moneda" : "Sin monedas"}
+                            </option>
+                            {currencyOptions.map((code) => (
+                              <option key={code} value={code}>
+                                {code}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {previewCounter && (
+                          <div className="ml-1 mt-1 text-xs opacity-70">
+                            {previewCounter}
+                          </div>
+                        )}
+                      </Field>
+
+                      <div className="text-xs opacity-70 md:col-span-2">
+                        Se guarda el valor y contravalor <b>sin tipo de cambio</b>
+                        . Útil si pagás en una moneda y el servicio está en otra.
+                      </div>
+                    </>
+                  )}
+                </Section>
+              )}
 
               {operatorServicesSection}
 
