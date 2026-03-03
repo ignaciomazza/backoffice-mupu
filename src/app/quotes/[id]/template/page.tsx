@@ -19,6 +19,7 @@ import type {
   BlockFormValue,
 } from "@/types/templates";
 import { buildInitialOrderedBlocks } from "@/lib/templateConfig";
+import { mergeSalesTemplateConfig } from "@/lib/templateSalesCompat";
 import { formatDateInBuenosAires } from "@/lib/buenosAiresDate";
 import { parseAmountInput } from "@/utils/receipts/receiptForm";
 import {
@@ -659,7 +660,7 @@ export default function QuoteTemplatePage() {
     setError(null);
     setDraftReady(false);
     try {
-      const [quoteRes, cfgRes, profileRes] = await Promise.all([
+      const [quoteRes, cfgRes, profileRes, legacyCfgRes] = await Promise.all([
         authFetch(`/api/quotes/${quoteId}`, { cache: "no-store" }, token),
         authFetch(
           `/api/template-config/${QUOTE_PDF_DOC_TYPE}?resolved=1`,
@@ -667,6 +668,9 @@ export default function QuoteTemplatePage() {
           token,
         ),
         authFetch("/api/user/profile", { cache: "no-store" }, token),
+        authFetch("/api/template-config/quote?resolved=1", { cache: "no-store" }, token).catch(
+          () => null,
+        ),
       ]);
 
       const quoteJson = (await quoteRes.json()) as QuoteTemplateItem & { error?: string };
@@ -674,6 +678,9 @@ export default function QuoteTemplatePage() {
       const profileJson = (await profileRes.json().catch(() => null)) as
         | { id_user?: unknown }
         | null;
+      const legacyCfgJson = legacyCfgRes?.ok
+        ? ((await legacyCfgRes.json()) as TemplateConfigGetResponse)
+        : null;
 
       if (!quoteRes.ok) {
         throw new Error(quoteJson.error || "No se pudo cargar la cotización.");
@@ -682,7 +689,14 @@ export default function QuoteTemplatePage() {
         throw new Error(cfgJson.error || "No se pudo cargar la configuración del template.");
       }
 
-      const resolvedCfg = cfgJson.config || EMPTY_CFG;
+      const resolvedCfg = (() => {
+        const primaryCfg = cfgJson.config || EMPTY_CFG;
+        if (!legacyCfgJson?.config) return primaryCfg;
+        if (!cfgJson.exists && legacyCfgJson.exists) {
+          return legacyCfgJson.config;
+        }
+        return mergeSalesTemplateConfig(primaryCfg, legacyCfgJson.config);
+      })();
       const coreBlocks = buildQuoteCoreBlocks(quoteJson);
       const templateBlocks = buildInitialOrderedBlocks(resolvedCfg);
       const baseValue: TemplateFormValues = {

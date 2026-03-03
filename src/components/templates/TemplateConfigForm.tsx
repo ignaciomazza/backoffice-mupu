@@ -346,7 +346,7 @@ export default function TemplateConfigForm({
           </div>
         ) : (
           <div
-            className="grid grid-cols-2 gap-3 pb-1 md:grid-cols-3 lg:grid-cols-4"
+            className="grid grid-cols-1 gap-4 pb-1 sm:grid-cols-2"
             role="radiogroup"
             aria-label="Seleccionar portada"
           >

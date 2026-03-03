@@ -21,6 +21,7 @@ import type {
   BlockFormValue,
 } from "@/types/templates";
 import { buildInitialOrderedBlocks } from "@/lib/templateConfig";
+import { mergeSalesTemplateConfig } from "@/lib/templateSalesCompat";
 import { nanoid } from "nanoid/non-secure";
 
 type ApiGetResponse = {
@@ -242,21 +243,48 @@ export default function TemplatesPage() {
     setLoading(true);
     allowContactPersistRef.current = false;
     try {
-      const res = await authFetch(
-        `/api/template-config/${encodeURIComponent(docType)}?resolved=1`,
-        { cache: "no-store" },
-        token,
-      );
+      const legacyRequest =
+        docType === "quote_budget"
+          ? authFetch(
+              "/api/template-config/quote?resolved=1",
+              { cache: "no-store" },
+              token,
+            ).catch(() => null)
+          : Promise.resolve(null);
+
+      const [res, legacyRes] = await Promise.all([
+        authFetch(
+          `/api/template-config/${encodeURIComponent(docType)}?resolved=1`,
+          { cache: "no-store" },
+          token,
+        ),
+        legacyRequest,
+      ]);
+
       const data = (await res.json()) as ApiGetResponse;
       if (!res.ok) {
         const errMsg = (data as { error?: string })?.error;
         throw new Error(errMsg || "No se pudo cargar el template");
       }
 
-      setCfg(data.config || EMPTY_CFG);
+      let mergedConfig = data.config || EMPTY_CFG;
 
-      const hasBlocks = Array.isArray(data.config?.content?.blocks);
-      const initialBlocks = hasBlocks ? buildInitialOrderedBlocks(data.config) : [];
+      if (docType === "quote_budget" && legacyRes?.ok) {
+        const legacyData = (await legacyRes.json()) as ApiGetResponse;
+        if (!data.exists && legacyData.exists) {
+          mergedConfig = legacyData.config || mergedConfig;
+        } else {
+          mergedConfig = mergeSalesTemplateConfig(
+            mergedConfig,
+            legacyData.config || null,
+          );
+        }
+      }
+
+      setCfg(mergedConfig);
+
+      const hasBlocks = Array.isArray(mergedConfig?.content?.blocks);
+      const initialBlocks = hasBlocks ? buildInitialOrderedBlocks(mergedConfig) : [];
 
       const storedContact =
         typeof window !== "undefined"

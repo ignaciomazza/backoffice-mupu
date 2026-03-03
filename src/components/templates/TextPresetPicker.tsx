@@ -40,6 +40,13 @@ type Props = {
 const LS_VIEW = "textpresets:view";
 const LS_PIN = (doc: DocType) => `textpresets:pins:${doc}`;
 
+function getDocTypesToQuery(docType: DocType): DocType[] {
+  if (docType === "quote" || docType === "quote_budget") {
+    return ["quote_budget", "quote"];
+  }
+  return [docType];
+}
+
 function isTextPreset(x: unknown): x is TextPreset {
   if (typeof x !== "object" || x === null) return false;
   const o = x as Record<string, unknown>;
@@ -114,24 +121,37 @@ export default function TextPresetPicker({
       if (!token) return;
       try {
         setLoading(true);
-        const res = await authFetch(
-          `/api/text-preset?doc_type=${docType}&take=200`,
-          {},
-          token,
+        const docTypes = getDocTypesToQuery(docType);
+        const responses = await Promise.all(
+          docTypes.map(async (type) => {
+            const res = await authFetch(
+              `/api/text-preset?doc_type=${type}&take=200`,
+              {},
+              token,
+            );
+            if (!res.ok) {
+              throw new Error("No se pudieron cargar los presets");
+            }
+            return (await res.json()) as unknown;
+          }),
         );
-        if (!res.ok) {
-          throw new Error("No se pudieron cargar los presets");
-        }
-        const data: unknown = await res.json();
 
-        // La API puede devolver { items, nextCursor } o un array directo (compat)
-        const items: TextPreset[] = Array.isArray(
-          (data as { items?: unknown }).items,
-        )
-          ? parseTextPresetArray((data as { items: unknown }).items)
-          : parseTextPresetArray(data);
+        const merged = responses.flatMap((data) => {
+          // La API puede devolver { items, nextCursor } o un array directo (compat)
+          if (Array.isArray((data as { items?: unknown }).items)) {
+            return parseTextPresetArray((data as { items: unknown }).items);
+          }
+          return parseTextPresetArray(data);
+        });
 
-        if (!abort) setPresets(items);
+        const byId = new Map<number, TextPreset>();
+        merged.forEach((preset) => {
+          if (!byId.has(preset.id_preset)) {
+            byId.set(preset.id_preset, preset);
+          }
+        });
+
+        if (!abort) setPresets(Array.from(byId.values()));
       } catch (e: unknown) {
         if (!abort)
           toast.error(e instanceof Error ? e.message : "Error inesperado");
