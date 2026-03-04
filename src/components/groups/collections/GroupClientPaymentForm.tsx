@@ -42,7 +42,7 @@ const Section = ({
   desc?: string;
   children: ReactNode;
 }) => (
-  <section className="rounded-2xl border border-sky-200/70 bg-white/75 p-5 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55">
+  <section className="rounded-2xl border border-sky-300/70 bg-white p-4 dark:border-sky-600/30 dark:bg-sky-950/10">
     <div className="mb-4">
       <h3 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-slate-100 md:text-base">
         {title}
@@ -266,7 +266,7 @@ export default function GroupClientPaymentForm({
 
   // UI
   const inputBase =
-    "w-full rounded-xl border border-slate-300/90 bg-white/95 p-2 px-3 text-slate-900 shadow-sm shadow-sky-100/40 outline-none transition placeholder:font-light focus:border-sky-400 focus:ring-2 focus:ring-sky-200/50 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-100 dark:focus:border-sky-500 dark:focus:ring-sky-900/40";
+    "w-full rounded-2xl border border-sky-300/80 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100 dark:focus:border-sky-400";
 
   const formatMoney = useCallback((n: number, cur = "ARS") => {
     const code = normalizeCurrencyCode(cur);
@@ -306,51 +306,6 @@ export default function GroupClientPaymentForm({
       .map((v, i) => `Nº${i + 1}: ${formatMoney(toAmount(v), code)}`)
       .join(" + ")} = ${formatMoney(total, code)}`;
   }, [amountMode, amountInput, currency, count, amountsArray, formatMoney]);
-
-  const totalPreview = useMemo(() => {
-    const code = normalizeCurrencyCode(currency);
-    if (amountMode === "total") {
-      const n = toAmount(amountInput);
-      return Number.isFinite(n) && n > 0 ? formatMoney(n, code) : "";
-    }
-    if (amountMode === "per_equal") {
-      const n = toAmount(amountInput);
-      return Number.isFinite(n) && n > 0 ? formatMoney(n * count, code) : "";
-    }
-    const total = sumCustom(amountsArray);
-    return total > 0 ? formatMoney(total, code) : "";
-  }, [amountMode, amountInput, currency, count, amountsArray, formatMoney]);
-
-  const headerPills = useMemo(() => {
-    const pills: ReactNode[] = [];
-    pills.push(
-        <span
-          key="count"
-          className="rounded-full border border-sky-200/70 bg-sky-50/45 px-3 py-1 text-[11px] font-medium text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-200 md:text-xs"
-        >
-          Cuotas: {count}
-        </span>,
-    );
-    pills.push(
-        <span
-          key="currency"
-          className="rounded-full border border-sky-200/70 bg-sky-50/45 px-3 py-1 text-[11px] font-medium text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-200 md:text-xs"
-        >
-          Moneda: {normalizeCurrencyCode(currency)}
-        </span>,
-    );
-    if (totalPreview) {
-      pills.push(
-        <span
-          key="total"
-          className="rounded-full border border-emerald-300/70 bg-emerald-500/15 px-3 py-1 text-[11px] font-medium text-emerald-700 dark:border-emerald-800/40 dark:text-emerald-300 md:text-xs"
-        >
-          Total: {totalPreview}
-        </span>,
-      );
-    }
-    return pills;
-  }, [count, currency, totalPreview]);
 
   const addDays = (iso: string, days: number) => {
     return addDaysToDateKey(iso, days) ?? iso;
@@ -405,7 +360,7 @@ export default function GroupClientPaymentForm({
       return;
     }
     if (!lockClient && !bookingPaxOptions.some((opt) => opt.id === payerClientId)) {
-      toast.error("El pax seleccionado no pertenece a la reserva.");
+      toast.error("El pax seleccionado no pertenece a la grupal.");
       return;
     }
     if (!count || count < 1) {
@@ -517,6 +472,7 @@ export default function GroupClientPaymentForm({
       toast.success("Pagos del pax creados correctamente.");
       onCreated?.();
       resetForm();
+      setIsFormVisible(false);
     } catch (err) {
       if ((err as DOMException)?.name === "AbortError") return;
       const msg =
@@ -536,10 +492,10 @@ export default function GroupClientPaymentForm({
         opacity: 1,
         transition: { duration: 0.35, ease: "easeInOut" },
       }}
-      className="mb-8 overflow-auto rounded-3xl border border-sky-200/80 bg-white/75 text-slate-900 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-100"
+      className="mb-6 overflow-auto rounded-3xl border border-sky-300/80 bg-white text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100"
     >
       <div
-        className={`sticky top-0 z-10 ${isFormVisible ? "rounded-t-3xl border-b" : ""} border-sky-200/70 bg-white/65 px-5 py-4 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/50 md:px-6`}
+        className={`sticky top-0 z-10 ${isFormVisible ? "rounded-t-3xl border-b" : ""} border-sky-300/70 bg-white px-5 py-4 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 md:px-6`}
       >
         <button
           type="button"
@@ -549,7 +505,7 @@ export default function GroupClientPaymentForm({
           aria-controls="client-payment-form-body"
         >
           <div className="flex items-center gap-3.5">
-            <div className="grid size-9 place-items-center rounded-full border border-sky-300/70 bg-sky-100/80 text-sky-900 shadow-sm shadow-sky-100/70 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-100">
+            <div className="grid size-9 place-items-center rounded-full border border-sky-300/70 bg-white text-sky-900 shadow-sm shadow-slate-900/10 dark:border-sky-600/40 dark:bg-sky-900/10 dark:text-sky-100">
               {isFormVisible ? (
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -587,12 +543,12 @@ export default function GroupClientPaymentForm({
                 {isFormVisible ? "Plan de pagos" : "Cargar plan de pagos"}
               </p>
               <p className="text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
-                Reserva Nº {formatAgencyNumber(booking.agency_booking_id)}
+                Grupal Nº {formatAgencyNumber(booking.agency_booking_id)}
               </p>
             </div>
           </div>
 
-          <div className="hidden items-center gap-2 md:flex">{headerPills}</div>
+          <div className="hidden items-center gap-2 md:flex" />
         </button>
       </div>
 
@@ -614,7 +570,7 @@ export default function GroupClientPaymentForm({
                 desc={
                   lockClient
                     ? "El plan queda asociado al pasajero seleccionado en la sección Grupal."
-                    : "Solo se pueden seleccionar pasajeros de esta reserva. Opcionalmente podés asociar la cuota a un servicio."
+                    : "Solo se pueden seleccionar pasajeros de esta grupal. Opcionalmente podés asociar la cuota a un servicio."
                 }
               >
                 <Field id="payer_client_id" label="Pax" required>
@@ -654,7 +610,7 @@ export default function GroupClientPaymentForm({
                       setServiceId(e.target.value ? Number(e.target.value) : null)
                     }
                   >
-                    <option value="">General de la reserva</option>
+                    <option value="">General de la grupal</option>
                     {bookingServiceOptions.map((opt) => (
                       <option key={opt.id} value={opt.id}>
                         {opt.label}
@@ -692,7 +648,7 @@ export default function GroupClientPaymentForm({
                     role="radiogroup"
                     aria-label="Modo de importe"
                   >
-                    <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-slate-300/80 bg-white/80 px-3 py-2 text-[13px] shadow-sm shadow-slate-900/10 transition-colors hover:border-sky-200/70 hover:bg-sky-50/45 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-sky-900/40 dark:hover:bg-slate-800/70 md:text-sm">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-sky-300/70 bg-white px-3 py-2 text-[13px] shadow-sm shadow-slate-900/10 transition-colors hover:border-sky-400 hover:bg-sky-50/45 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-200 dark:hover:border-sky-500/60 dark:hover:bg-sky-900/10 md:text-sm">
                       <input
                         type="radio"
                         name="amountMode"
@@ -702,7 +658,7 @@ export default function GroupClientPaymentForm({
                       />
                       <span>Total único</span>
                     </label>
-                    <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-slate-300/80 bg-white/80 px-3 py-2 text-[13px] shadow-sm shadow-slate-900/10 transition-colors hover:border-sky-200/70 hover:bg-sky-50/45 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-sky-900/40 dark:hover:bg-slate-800/70 md:text-sm">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-sky-300/70 bg-white px-3 py-2 text-[13px] shadow-sm shadow-slate-900/10 transition-colors hover:border-sky-400 hover:bg-sky-50/45 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-200 dark:hover:border-sky-500/60 dark:hover:bg-sky-900/10 md:text-sm">
                       <input
                         type="radio"
                         name="amountMode"
@@ -712,7 +668,7 @@ export default function GroupClientPaymentForm({
                       />
                       <span>Por cuota (mismo monto)</span>
                     </label>
-                    <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-slate-300/80 bg-white/80 px-3 py-2 text-[13px] shadow-sm shadow-slate-900/10 transition-colors hover:border-sky-200/70 hover:bg-sky-50/45 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-sky-900/40 dark:hover:bg-slate-800/70 md:text-sm">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-2xl border border-sky-300/70 bg-white px-3 py-2 text-[13px] shadow-sm shadow-slate-900/10 transition-colors hover:border-sky-400 hover:bg-sky-50/45 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-200 dark:hover:border-sky-500/60 dark:hover:bg-sky-900/10 md:text-sm">
                       <input
                         type="radio"
                         name="amountMode"
@@ -904,7 +860,7 @@ export default function GroupClientPaymentForm({
                 </div>
               </Section>
 
-              <div className="sticky bottom-0 z-10 -mx-5 flex justify-end border-t border-sky-200/70 bg-white/70 px-5 py-4 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 md:-mx-6 md:px-6">
+              <div className="sticky bottom-0 z-10 -mx-5 flex justify-end border-t border-sky-300/70 bg-white px-5 py-4 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 md:-mx-6 md:px-6">
                 <button
                   type="submit"
                   disabled={loading || !token}

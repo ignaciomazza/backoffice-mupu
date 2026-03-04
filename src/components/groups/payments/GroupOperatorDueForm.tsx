@@ -35,7 +35,7 @@ const Section = ({
   desc?: string;
   children: ReactNode;
 }) => (
-  <section className="rounded-2xl border border-sky-200/70 bg-white/75 p-5 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55">
+  <section className="rounded-2xl border border-sky-300/70 bg-white p-5 shadow-sm shadow-slate-900/10 dark:border-sky-600/30 dark:bg-sky-950/10">
     <div className="mb-4">
       <h3 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-slate-100 md:text-base">
         {title}
@@ -163,7 +163,7 @@ export default function GroupOperatorDueForm({
         selectedService.type ? `· ${selectedService.type}` : "",
         selectedService.destination ? `· ${selectedService.destination}` : "",
         `· Servicio Nº ${formatAgencyNumber(selectedService.agency_service_id)}`,
-        `· Reserva Nº ${formatAgencyNumber(booking.agency_booking_id)}`,
+        `· Grupal Nº ${formatAgencyNumber(booking.agency_booking_id)}`,
       ].filter(Boolean);
       setConcept(parts.join(" "));
     }
@@ -202,7 +202,7 @@ export default function GroupOperatorDueForm({
       pills.push(
         <span
           key="service"
-          className="rounded-full border border-sky-200/70 bg-sky-50/45 px-3 py-1 text-[11px] font-medium text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-200 md:text-xs"
+          className="rounded-full border border-sky-300/70 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-200 md:text-xs"
         >
           Servicio Nº {formatAgencyNumber(selectedService.agency_service_id)}
         </span>,
@@ -222,7 +222,7 @@ export default function GroupOperatorDueForm({
       pills.push(
         <span
           key="due"
-          className="rounded-full border border-sky-200/70 bg-sky-50/45 px-3 py-1 text-[11px] font-medium text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-200 md:text-xs"
+          className="rounded-full border border-sky-300/70 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-200 md:text-xs"
         >
           Vence {dueDateLabel}
         </span>,
@@ -233,7 +233,7 @@ export default function GroupOperatorDueForm({
     pills.push(
       <span
         key="status"
-        className="rounded-full border border-sky-200/70 bg-sky-50/45 px-3 py-1 text-[11px] font-medium text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-200 md:text-xs"
+        className="rounded-full border border-sky-300/70 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-200 md:text-xs"
       >
         {statusLabel}
       </span>,
@@ -304,6 +304,7 @@ export default function GroupOperatorDueForm({
       setStatus("PENDIENTE");
       setAmount("");
       setCurrency("ARS");
+      setIsFormVisible(false);
     } catch (e) {
       const msg =
         e instanceof Error ? e.message : "Error al crear vencimiento.";
@@ -322,10 +323,10 @@ export default function GroupOperatorDueForm({
         opacity: 1,
         transition: { duration: 0.35, ease: "easeInOut" },
       }}
-      className="mb-8 overflow-auto rounded-3xl border border-sky-200/80 bg-white/75 text-slate-900 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-100"
+      className="mb-8 overflow-auto rounded-3xl border border-sky-300/80 bg-white text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100"
     >
       <div
-        className={`sticky top-0 z-10 ${isFormVisible ? "rounded-t-3xl border-b" : ""} border-sky-200/70 bg-white/65 px-5 py-4 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/50 md:px-6`}
+        className={`sticky top-0 z-10 ${isFormVisible ? "rounded-t-3xl border-b" : ""} border-sky-300/70 bg-white px-5 py-4 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 md:px-6`}
       >
         <button
           type="button"
@@ -369,7 +370,7 @@ export default function GroupOperatorDueForm({
                 {isFormVisible ? "Vencimientos de operador" : "Cargar vencimiento"}
               </p>
               <p className="text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
-                Reserva Nº {formatAgencyNumber(booking.agency_booking_id)}
+                Grupal Nº {formatAgencyNumber(booking.agency_booking_id)}
               </p>
             </div>
           </div>
@@ -393,8 +394,8 @@ export default function GroupOperatorDueForm({
             >
               <div className="md:col-span-2">
                 {servicesFromBooking.length === 0 ? (
-                  <div className="rounded-xl border border-sky-200/70 bg-sky-50/45 p-4 text-[13px] text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-300 md:text-sm">
-                    Esta reserva no tiene servicios cargados.
+                  <div className="rounded-xl border border-sky-300/70 bg-white p-4 text-[13px] text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300 md:text-sm">
+                    Esta grupal no tiene servicios cargados.
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -409,7 +410,7 @@ export default function GroupOperatorDueForm({
                           className={`rounded-2xl border px-4 py-3 text-left text-[13px] shadow-sm transition md:text-sm ${
                             isActive
                               ? "border-sky-300/80 bg-sky-100/70 text-slate-900 shadow-sky-100/60 dark:border-sky-700 dark:bg-sky-900/25 dark:text-slate-100"
-                              : "border-slate-300/70 bg-white/80 text-slate-800 shadow-slate-900/10 hover:border-sky-200/70 hover:bg-sky-50/45 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:border-sky-900/40 dark:hover:bg-slate-800/70"
+                              : "border-slate-300/70 bg-white text-slate-800 shadow-slate-900/10 hover:border-sky-300/70 hover:bg-white dark:border-slate-600 dark:bg-sky-950/10 dark:text-slate-200 dark:hover:border-sky-600/30 dark:hover:bg-sky-950/10"
                           }`}
                           title={`Servicio Nº ${
                             formatAgencyNumber(svc.agency_service_id)
@@ -432,10 +433,7 @@ export default function GroupOperatorDueForm({
                             {formatMoney(
                               Number(svc.cost_price ?? 0),
                               svc.currency || "ARS",
-                            )}{" "}
-                            <span className="text-slate-500 dark:text-slate-400">
-                              ({svc.currency || "ARS"})
-                            </span>
+                            )}
                           </div>
                         </button>
                       );
@@ -476,7 +474,7 @@ export default function GroupOperatorDueForm({
                       className={`rounded-full py-2 text-center text-[13px] transition md:text-sm ${
                         status === opt.value
                           ? "border border-sky-300/80 bg-sky-100/80 text-sky-900 shadow-sm shadow-sky-100/50 dark:border-sky-700 dark:bg-sky-900/25 dark:text-sky-100"
-                          : "border border-slate-300/70 bg-white/80 text-slate-600 hover:bg-sky-50/45 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:bg-slate-800/70"
+                          : "border border-slate-300/70 bg-white text-slate-600 hover:bg-white dark:border-slate-600 dark:bg-sky-950/10 dark:text-slate-300 dark:hover:bg-sky-950/10"
                       }`}
                       title={opt.label}
                     >
@@ -567,7 +565,7 @@ export default function GroupOperatorDueForm({
               </Field>
             </Section>
 
-            <div className="sticky bottom-0 z-10 -mx-5 flex justify-end border-t border-sky-200/70 bg-white/70 px-5 py-4 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 md:-mx-6 md:px-6">
+            <div className="sticky bottom-0 z-10 -mx-5 flex justify-end border-t border-sky-300/70 bg-white px-5 py-4 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 md:-mx-6 md:px-6">
               <button
                 type="submit"
                 disabled={loading}

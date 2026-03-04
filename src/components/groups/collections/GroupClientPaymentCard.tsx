@@ -24,20 +24,15 @@ type ChipProps = {
   tone?: "neutral" | "success" | "warn" | "danger";
 };
 
-type StatProps = {
-  label: string;
-  value: string;
-};
-
 const Chip = ({ children, tone = "neutral" }: ChipProps) => {
   const palette =
     tone === "success"
       ? "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-800/40"
       : tone === "warn"
-      ? "bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-800/40"
+        ? "bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-800/40"
       : tone === "danger"
-        ? "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-800/40"
-          : "bg-sky-50/60 text-slate-700 border-sky-200/70 dark:bg-slate-900/55 dark:text-slate-200 dark:border-sky-900/40";
+          ? "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-800/40"
+          : "bg-white text-slate-700 border-sky-300/70 dark:bg-sky-950/10 dark:text-slate-200 dark:border-sky-600/30";
   return (
     <span
       className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium md:text-xs ${palette}`}
@@ -46,13 +41,6 @@ const Chip = ({ children, tone = "neutral" }: ChipProps) => {
     </span>
   );
 };
-
-const Stat = ({ label, value }: StatProps) => (
-  <div className="rounded-xl border border-sky-200/70 bg-sky-50/40 px-3 py-2 dark:border-sky-900/40 dark:bg-slate-900/55">
-    <p className="text-[11px] opacity-70 md:text-xs">{label}</p>
-    <p className="text-sm font-medium tabular-nums md:text-base">{value}</p>
-  </div>
-);
 
 const todayKey = () => todayDateKeyInBuenosAires();
 
@@ -70,7 +58,9 @@ const formatAgencyNumber = (value: number | null | undefined): string => {
 };
 
 const normalizeStatus = (status?: string) => {
-  const normalized = String(status || "").trim().toUpperCase();
+  const normalized = String(status || "")
+    .trim()
+    .toUpperCase();
   if (normalized === "PAGADA") return "PAGADA";
   if (normalized === "CANCELADA") return "CANCELADA";
   return "PENDIENTE";
@@ -125,15 +115,13 @@ export default function GroupClientPaymentCard({
   }, [dueKey, payment?.status]);
 
   const dueLabel = useMemo(() => formatDateKey(dueKey), [dueKey]);
-  const createdLabel = useMemo(
-    () => formatDateKey(createdKey),
-    [createdKey],
-  );
+  const createdLabel = useMemo(() => formatDateKey(createdKey), [createdKey]);
 
   const clientName = useMemo(() => {
     const fromPayment = payment?.client;
     if (fromPayment) {
-      const full = `${fromPayment.first_name ?? ""} ${fromPayment.last_name ?? ""}`.trim();
+      const full =
+        `${fromPayment.first_name ?? ""} ${fromPayment.last_name ?? ""}`.trim();
       const num = formatAgencyNumber(fromPayment.agency_client_id);
       if (full) return `${full} · Nº ${num}`;
     }
@@ -147,21 +135,11 @@ export default function GroupClientPaymentCard({
       (c) => c.id_client === payment.client_id,
     );
     return found
-      ? `${found.first_name} ${found.last_name} · Nº ${
-          formatAgencyNumber(found.agency_client_id)
-        }`
+      ? `${found.first_name} ${found.last_name} · Nº ${formatAgencyNumber(
+          found.agency_client_id,
+        )}`
       : "Sin Nº";
-  }, [
-    payment?.client,
-    payment?.client_id,
-    booking.titular,
-    booking.clients,
-  ]);
-
-  const currencyCode = useMemo(
-    () => (payment?.currency || "ARS").toUpperCase(),
-    [payment?.currency],
-  );
+  }, [payment?.client, payment?.client_id, booking.titular, booking.clients]);
 
   const persistedStatus = useMemo(
     () => normalizeStatus(payment?.status),
@@ -236,11 +214,7 @@ export default function GroupClientPaymentCard({
       const endpoint = groupId
         ? `/api/groups/${encodeURIComponent(groupId)}/finance/client-payments/${payment.id_payment}`
         : `/api/client-payments/${payment.id_payment}`;
-      const res = await authFetch(
-        endpoint,
-        { method: "DELETE" },
-        token,
-      );
+      const res = await authFetch(endpoint, { method: "DELETE" }, token);
       if (!res.ok && res.status !== 204) throw new Error();
       toast.success("Pago eliminado.");
       onPaymentDeleted?.(payment.id_payment);
@@ -254,7 +228,7 @@ export default function GroupClientPaymentCard({
   const paymentNumber = formatAgencyNumber(payment.agency_client_payment_id);
 
   return (
-    <div className="h-fit space-y-6 overflow-hidden rounded-2xl border border-sky-200/80 bg-white/75 p-5 text-slate-900 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-100">
+    <div className="h-fit space-y-5 overflow-hidden rounded-2xl border border-sky-300/80 bg-white p-4 text-slate-900 shadow-sm shadow-slate-900/10 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100">
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 md:text-xs">
@@ -269,70 +243,63 @@ export default function GroupClientPaymentCard({
         </div>
         <div className="flex flex-col items-end gap-2 text-[11px] md:text-xs">
           <Chip tone={statusBadge.tone}>{statusBadge.label}</Chip>
-          <time className="text-slate-500 dark:text-slate-400">
-            Creado {createdLabel}
-          </time>
+          <Chip tone={isOverdue ? "danger" : "neutral"}>Vence {dueLabel}</Chip>
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-3 text-[13px] md:text-sm">
-        <Stat label="Vence" value={dueLabel} />
-        <Stat label="Moneda" value={currencyCode} />
-      </div>
-
       {(payment.service || payment.receipt || payment.paid_at) && (
-        <div className="space-y-1 rounded-xl border border-sky-200/70 bg-sky-50/40 p-3 text-[11px] leading-relaxed dark:border-sky-900/40 dark:bg-slate-900/55 md:text-xs">
+        <div className="space-y-1 rounded-xl border border-sky-300/70 bg-white p-3 text-[11px] leading-relaxed dark:border-sky-600/30 dark:bg-sky-950/10 md:text-xs">
           {payment.service && (
             <p>
-              Servicio: {payment.service.description || payment.service.type || "—"}
+              Servicio:{" "}
+              {payment.service.description || payment.service.type || "—"}
             </p>
           )}
           {payment.receipt && (
             <p>
-              Recibo:{" "}
-              {formatAgencyNumber(payment.receipt.agency_receipt_id)}
+              Recibo: {formatAgencyNumber(payment.receipt.agency_receipt_id)}
             </p>
           )}
           {payment.paid_at && (
-            <p>
-              Pagada:{" "}
-              {formatDateInBuenosAires(payment.paid_at)}
-            </p>
+            <p>Pagada: {formatDateInBuenosAires(payment.paid_at)}</p>
           )}
         </div>
       )}
 
-      <footer className="flex justify-end">
+      <footer className="flex items-center justify-between">
+        <time className="text-sm text-slate-500 dark:text-slate-400">
+          Creado {createdLabel}
+        </time>
         {(role === "administrativo" ||
           role === "desarrollador" ||
           role === "gerente") &&
           persistedStatus !== "PAGADA" && (
-          <button
-            onClick={deletePayment}
-            disabled={loadingDelete}
-            className="rounded-full border border-amber-300/80 bg-amber-100/90 px-4 py-2 text-center text-[13px] text-amber-800 shadow-sm shadow-amber-900/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200 md:text-sm"
-            title="Eliminar pago"
-          >
-            {loadingDelete ? (
-              <Spinner />
-            ) : (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="size-6"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
-                />
-              </svg>
-            )}
-          </button>
-        )}
+            <button
+              onClick={deletePayment}
+              disabled={loadingDelete}
+              className="rounded-full border border-rose-300/80 bg-rose-100/90 px-4 py-2 text-center text-[13px] text-rose-800 shadow-sm shadow-rose-900/20 transition-transform hover:scale-95 active:scale-90 disabled:opacity-60 dark:border-rose-600 dark:bg-rose-900/30 dark:text-rose-200 md:text-sm"
+              title="Eliminar pago"
+            >
+              {loadingDelete ? (
+                <Spinner />
+              ) : (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                  className="size-6"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                  />
+                </svg>
+              )}
+            </button>
+          )}
       </footer>
     </div>
   );

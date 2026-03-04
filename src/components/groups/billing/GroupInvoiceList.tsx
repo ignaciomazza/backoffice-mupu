@@ -48,7 +48,7 @@ export default function GroupInvoiceList({ invoices, loading = false }: Props) {
 
   if (!invoices || invoices.length === 0) {
     return (
-      <div className="rounded-2xl border border-sky-200/80 bg-white/75 p-5 text-center text-[13px] text-slate-700 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-300 md:text-sm">
+      <div className="rounded-2xl border border-sky-300/80 bg-white p-5 text-center text-[13px] text-slate-700 shadow-sm shadow-slate-900/10 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300 md:text-sm">
         No hay facturas registradas en esta grupal.
       </div>
     );
@@ -59,7 +59,7 @@ export default function GroupInvoiceList({ invoices, loading = false }: Props) {
       {invoices.map((invoice) => (
         <article
           key={`group-invoice-${invoice.id_invoice}`}
-          className="rounded-2xl border border-sky-200/80 bg-white/75 p-4 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55"
+          className="rounded-2xl border border-sky-300/80 bg-white p-4 shadow-sm shadow-slate-900/10 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10"
         >
           <p className="text-[11px] uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
             Factura Nº {invoice.invoice_number}

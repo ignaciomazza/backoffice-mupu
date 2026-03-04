@@ -8,6 +8,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useParams } from "next/navigation";
@@ -53,7 +54,7 @@ import GroupInvoiceForm, {
 } from "@/components/groups/billing/GroupInvoiceForm";
 import GroupInvoiceList from "@/components/groups/billing/GroupInvoiceList";
 import CreditNoteList from "@/components/credit-notes/CreditNoteList";
-import type { SubmitResult } from "@/types/receipts";
+import type { ServiceLite, SubmitResult } from "@/types/receipts";
 import {
   computeManualTotals,
   type ManualTotalsInput,
@@ -368,6 +369,21 @@ function toAmountNumber(value: string | number | null | undefined): number {
   return 0;
 }
 
+function toReceiptServiceLite(service: Service): ServiceLite {
+  return {
+    id_service: service.id_service,
+    description:
+      service.description || service.type || `Servicio ${service.id_service}`,
+    currency: normalizeCurrencyCode(service.currency || "ARS"),
+    sale_price: toAmountNumber(service.sale_price),
+    card_interest: toAmountNumber(service.card_interest || 0),
+    taxableCardInterest: toAmountNumber(service.taxableCardInterest || 0),
+    vatOnCardInterest: toAmountNumber(service.vatOnCardInterest || 0),
+    type: service.type,
+    destination: service.destination,
+  };
+}
+
 const INVENTORY_META_PREFIX = "[OFI_INV_META]";
 const INVENTORY_META_SUFFIX = "[/OFI_INV_META]";
 
@@ -478,21 +494,21 @@ const PASSENGER_STATUSES = [
 
 const STATUS_STYLES: Record<string, string> = {
   BORRADOR:
-    "border-slate-300/80 bg-slate-100/80 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200",
+    "border-slate-300/80 bg-slate-100/80 text-slate-700 dark:border-sky-600/40 dark:bg-sky-900/15 dark:text-slate-200",
   PUBLICADA:
-    "border-sky-300/80 bg-sky-100/80 text-sky-700 dark:border-sky-600 dark:bg-sky-900/30 dark:text-sky-200",
+    "border-sky-300/80 bg-sky-100/80 text-sky-700 dark:border-sky-600/40 dark:bg-sky-900/15 dark:text-sky-200",
   CONFIRMADA:
-    "border-emerald-300/80 bg-emerald-100/80 text-emerald-700 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-200",
+    "border-emerald-300/80 bg-emerald-100/80 text-emerald-700 dark:border-emerald-500/70 dark:bg-emerald-900/10 dark:text-emerald-200",
   CERRADA:
     "border-zinc-300/80 bg-zinc-100/80 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200",
   CANCELADA:
-    "border-amber-300/80 bg-amber-100/90 text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200",
+    "border-amber-300/80 bg-amber-100/90 text-amber-800 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200",
   LISTA_ESPERA:
-    "border-amber-300/80 bg-amber-100/90 text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200",
+    "border-amber-300/80 bg-amber-100/90 text-amber-800 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200",
   CONFIRMADO:
-    "border-emerald-300/80 bg-emerald-100/80 text-emerald-700 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-200",
+    "border-emerald-300/80 bg-emerald-100/80 text-emerald-700 dark:border-emerald-500/70 dark:bg-emerald-900/10 dark:text-emerald-200",
   PENDIENTE:
-    "border-sky-300/80 bg-sky-100/80 text-sky-700 dark:border-sky-600 dark:bg-sky-900/30 dark:text-sky-200",
+    "border-sky-300/80 bg-sky-100/80 text-sky-700 dark:border-sky-600/40 dark:bg-sky-900/15 dark:text-sky-200",
   CANCELADO:
     "border-zinc-300/80 bg-zinc-100/80 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200",
 };
@@ -510,25 +526,25 @@ const PASSENGER_STATUS_LABELS: Record<
 const PILL_BASE =
   "rounded-full border px-3 py-1 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
 const PILL_INACTIVE =
-  "border-slate-300 bg-white/85 text-slate-700 hover:border-slate-400 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500";
+  "border-sky-300 bg-sky-50/70 text-sky-900 hover:border-sky-400 dark:border-sky-600/30 dark:bg-sky-950/20 dark:text-sky-100 dark:hover:border-sky-600";
 const PILL_SKY_ACTIVE =
-  "border-sky-400 bg-sky-100/90 text-sky-800 dark:border-sky-500 dark:bg-sky-900/35 dark:text-sky-200";
+  "border-sky-400 bg-sky-100/90 text-sky-800 dark:border-sky-500 dark:bg-sky-900/5 dark:text-sky-200";
 const PILL_EMERALD_ACTIVE =
-  "border-emerald-400 bg-emerald-100/90 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-900/35 dark:text-emerald-200";
+  "border-emerald-400 bg-emerald-50/50 text-emerald-800 dark:border-emerald-500/70 dark:bg-emerald-900/10 dark:text-emerald-200";
 const PILL_AMBER_ACTIVE =
-  "border-amber-400 bg-amber-100/90 text-amber-800 dark:border-amber-500 dark:bg-amber-900/35 dark:text-amber-200";
+  "border-amber-400 bg-amber-100/90 text-amber-800 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200";
 const DOC_FIELD_KEYS = ["dni_number", "passport_number", "tax_id"] as const;
 const FIELD_INPUT_CLASS =
-  "w-full rounded-2xl border border-sky-300/80 bg-white/90 px-3 py-2 text-sm text-slate-900 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-700/70 dark:bg-slate-900/70 dark:text-slate-100 dark:focus:border-sky-400";
+  "w-full rounded-2xl border border-sky-300/80 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100 dark:focus:border-sky-400";
 const FIELD_TEXTAREA_CLASS =
-  "w-full rounded-2xl border border-sky-300/80 bg-white/90 px-3 py-2 text-sm text-slate-900 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-700/70 dark:bg-slate-900/70 dark:text-slate-100 dark:focus:border-sky-400";
+  "w-full rounded-2xl border border-sky-300/80 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100 dark:focus:border-sky-400";
 const FIELD_LABEL_CLASS =
   "ml-1 block text-sm font-medium text-slate-900 dark:text-slate-100";
 const FIELD_HINT_CLASS = "ml-1 text-xs text-slate-600 dark:text-slate-400";
 const FLAT_NOTE_CLASS =
-  "border-l-2 border-slate-300/80 pl-3 py-1 text-xs text-slate-700 dark:border-slate-600 dark:text-slate-300";
+  "border-l-2 border-slate-300/80 pl-3 py-1 text-xs text-slate-700 dark:border-sky-600/40 dark:text-slate-300";
 const FLAT_WARN_CLASS =
-  "border-l-2 border-amber-400/80 pl-3 py-1 text-xs text-amber-900 dark:border-amber-600 dark:text-amber-200";
+  "border-l-2 border-amber-400/80 pl-3 py-1 text-xs text-amber-900 dark:border-amber-500/70 dark:text-amber-200";
 type SectionFilterKey = "GRUPAL" | "COBROS" | "PAGOS" | "FACTURACION";
 
 const SECTION_FILTERS: ReadonlyArray<{
@@ -592,7 +608,7 @@ function pillClass(
 function Spinner({ label }: { label: string }) {
   return (
     <span className="inline-flex items-center gap-2">
-      <span className="size-3 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700 dark:border-slate-600 dark:border-t-slate-200" />
+      <span className="size-3 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700 dark:border-sky-600/40 dark:border-t-slate-200" />
       {label}
     </span>
   );
@@ -644,7 +660,7 @@ function ToggleIconButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="grid size-9 place-items-center rounded-full border border-sky-500/20 bg-sky-50/60 text-sky-950 shadow-sm shadow-sky-950/10 transition hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-400/30 dark:bg-sky-100/10 dark:text-sky-100 dark:hover:bg-sky-100/20"
+      className="grid size-9 place-items-center rounded-full border border-sky-500/20 bg-sky-50/60 text-sky-950 shadow-sm shadow-sky-950/10 transition hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-400/30 dark:bg-sky-100/5 dark:text-sky-100 dark:hover:bg-sky-100/20"
       title={open ? `Ocultar ${label}` : `Mostrar ${label}`}
       aria-label={open ? `Ocultar ${label}` : `Mostrar ${label}`}
       aria-expanded={open}
@@ -746,7 +762,7 @@ function PassengerClientFields({
   };
 
   return (
-    <div className="rounded-2xl border border-sky-300/80 bg-white/70 p-4 shadow-sm shadow-slate-900/10 dark:border-sky-700/70 dark:bg-slate-900/60">
+    <div className="rounded-2xl border border-sky-300/80 bg-white p-4 shadow-sm shadow-slate-900/10 dark:border-sky-600/30 dark:bg-sky-950/10">
       <div className="mb-3">
         <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
           {title}
@@ -755,7 +771,7 @@ function PassengerClientFields({
       </div>
 
       {docRequired && !hasDoc ? (
-        <p className="mb-3 rounded-xl border border-amber-300/80 bg-amber-100/85 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+        <p className="mb-3 rounded-xl border border-amber-300/80 bg-amber-100/85 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200">
           Debés completar al menos uno: DNI, Pasaporte o CUIT/RUT.
         </p>
       ) : null}
@@ -1316,7 +1332,6 @@ export default function GroupDetailPage() {
   const [inventoryDraft, setInventoryDraft] = useState<InventoryDraft>(() =>
     defaultInventoryDraft(undefined, { defaultTransferFeePct: 2.4 }),
   );
-  const [showCollectForm, setShowCollectForm] = useState(true);
   const [sectionFilter, setSectionFilter] =
     useState<SectionFilterKey>("GRUPAL");
   const [collectBooking, setCollectBooking] =
@@ -1370,54 +1385,48 @@ export default function GroupDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [
-        groupData,
-        passengersData,
-        inventoriesData,
-        clientConfigData,
-        categoriesData,
-      ] = await Promise.all([
-        requestGroupApi<Group>(
-          `/api/groups/${encodeURIComponent(groupId)}`,
-          {
-            credentials: "include",
-            cache: "no-store",
-          },
-          "No pudimos cargar la grupal.",
-        ),
-        requestGroupApi<{ items?: PassengerItem[] }>(
-          `/api/groups/${encodeURIComponent(groupId)}/passengers`,
-          {
-            credentials: "include",
-            cache: "no-store",
-          },
-          "No pudimos cargar los pasajeros.",
-        ),
-        requestGroupApi<{ items?: GroupInventoryItem[] }>(
-          `/api/groups/${encodeURIComponent(groupId)}/inventories`,
-          {
-            credentials: "include",
-            cache: "no-store",
-          },
-          "No pudimos cargar los servicios de la grupal.",
-        ),
-        requestGroupApi<ClientConfigPayload>(
-          "/api/clients/config",
-          {
-            credentials: "include",
-            cache: "no-store",
-          },
-          "No pudimos cargar la configuración de pasajeros.",
-        ).catch(() => null),
-        requestGroupApi<PassengerCategoryOption[]>(
-          "/api/passenger-categories?enabled=true",
-          {
-            credentials: "include",
-            cache: "no-store",
-          },
-          "No pudimos cargar las categorías de pasajeros.",
-        ).catch(() => []),
-      ]);
+      const groupData = await requestGroupApi<Group>(
+        `/api/groups/${encodeURIComponent(groupId)}`,
+        {
+          credentials: "include",
+          cache: "no-store",
+        },
+        "No pudimos cargar la grupal.",
+      );
+      const passengersData = await requestGroupApi<{ items?: PassengerItem[] }>(
+        `/api/groups/${encodeURIComponent(groupId)}/passengers`,
+        {
+          credentials: "include",
+          cache: "no-store",
+        },
+        "No pudimos cargar los pasajeros.",
+      );
+      const inventoriesData = await requestGroupApi<{
+        items?: GroupInventoryItem[];
+      }>(
+        `/api/groups/${encodeURIComponent(groupId)}/inventories`,
+        {
+          credentials: "include",
+          cache: "no-store",
+        },
+        "No pudimos cargar los servicios de la grupal.",
+      );
+      const clientConfigData = await requestGroupApi<ClientConfigPayload>(
+        "/api/clients/config",
+        {
+          credentials: "include",
+          cache: "no-store",
+        },
+        "No pudimos cargar la configuración de pasajeros.",
+      ).catch(() => null);
+      const categoriesData = await requestGroupApi<PassengerCategoryOption[]>(
+        "/api/passenger-categories?enabled=true",
+        {
+          credentials: "include",
+          cache: "no-store",
+        },
+        "No pudimos cargar las categorías de pasajeros.",
+      ).catch(() => []);
 
       setGroup(groupData);
       setPassengers(
@@ -1469,45 +1478,40 @@ export default function GroupDetailPage() {
       setPassengerCategories(normalizedCategories);
 
       try {
-        const [
-          serviceTypesData,
-          operatorsData,
-          currenciesData,
-          calcConfigData,
-        ] = await Promise.all([
-          requestGroupApi<ServiceTypeOption[]>(
-            "/api/service-types?enabled=true",
-            {
-              credentials: "include",
-              cache: "no-store",
-            },
-            "No pudimos cargar los tipos de servicio.",
-          ).catch(() => []),
-          requestGroupApi<OperatorOption[]>(
-            "/api/operators",
-            {
-              credentials: "include",
-              cache: "no-store",
-            },
-            "No pudimos cargar los operadores.",
-          ).catch(() => []),
-          requestGroupApi<FinanceCurrencyOption[]>(
-            "/api/finance/currencies",
-            {
-              credentials: "include",
-              cache: "no-store",
-            },
-            "No pudimos cargar las monedas de finanzas.",
-          ).catch(() => []),
-          requestGroupApi<ServiceCalcConfigPayload>(
-            "/api/service-calc-config",
-            {
-              credentials: "include",
-              cache: "no-store",
-            },
-            "No pudimos cargar la configuración de costos de transferencia.",
-          ).catch((): ServiceCalcConfigPayload => ({ transfer_fee_pct: 2.4 })),
-        ]);
+        const serviceTypesData = await requestGroupApi<ServiceTypeOption[]>(
+          "/api/service-types?enabled=true",
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+          "No pudimos cargar los tipos de servicio.",
+        ).catch(() => []);
+        const operatorsData = await requestGroupApi<OperatorOption[]>(
+          "/api/operators",
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+          "No pudimos cargar los operadores.",
+        ).catch(() => []);
+        const financePicksData = await requestGroupApi<{
+          currencies?: FinanceCurrencyOption[];
+        }>(
+          "/api/finance/picks",
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+          "No pudimos cargar las monedas de finanzas.",
+        ).catch(() => ({ currencies: [] }));
+        const calcConfigData = await requestGroupApi<ServiceCalcConfigPayload>(
+          "/api/service-calc-config",
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+          "No pudimos cargar la configuración de costos de transferencia.",
+        ).catch((): ServiceCalcConfigPayload => ({ transfer_fee_pct: 2.4 }));
 
         const validServiceTypes = Array.isArray(serviceTypesData)
           ? serviceTypesData.filter(
@@ -1526,8 +1530,8 @@ export default function GroupDetailPage() {
                 item.name.trim().length > 0,
             )
           : [];
-        const validCurrencies = Array.isArray(currenciesData)
-          ? currenciesData.filter(
+        const validCurrencies = Array.isArray(financePicksData?.currencies)
+          ? financePicksData.currencies.filter(
               (item) =>
                 typeof item.code === "string" &&
                 item.code.trim().length > 0 &&
@@ -1810,6 +1814,12 @@ export default function GroupDetailPage() {
     setEditingCollectReceipt(null);
     setCollectReceiptFormVisible(false);
   }, [selectedCollectBookingId, selectedCollectClientId]);
+
+  useEffect(() => {
+    if (sectionFilter !== "COBROS") return;
+    setEditingCollectReceipt(null);
+    setCollectReceiptFormVisible(false);
+  }, [sectionFilter]);
 
   useEffect(() => {
     if (!activePassenger) {
@@ -2198,52 +2208,39 @@ export default function GroupDetailPage() {
       setCollectLoading(true);
       setCollectLoadingError(null);
 
-      const results = await Promise.allSettled([
-        requestGroupApi<{ booking?: FinanceBookingPayload }>(
+      const errors: string[] = [];
+      try {
+        const bookingData = await requestGroupApi<{
+          booking?: FinanceBookingPayload;
+        }>(
           `/api/groups/${encodeURIComponent(groupId)}/finance/context?bookingId=${bookingId}&passengerId=${passengerId}`,
           {
             credentials: "include",
             cache: "no-store",
           },
           "No pudimos cargar el contexto financiero del pasajero.",
-        ),
-        requestGroupApi<{ receipts?: Receipt[] }>(
+        );
+        setCollectBooking(bookingData.booking ?? null);
+      } catch (error) {
+        setCollectBooking(null);
+        errors.push(
+          error instanceof Error
+            ? error.message
+            : "Contexto operativo no disponible.",
+        );
+      }
+
+      try {
+        const receiptsData = await requestGroupApi<{ receipts?: Receipt[] }>(
           `/api/groups/${encodeURIComponent(groupId)}/finance/receipts?passengerId=${passengerId}`,
           {
             credentials: "include",
             cache: "no-store",
           },
           "No pudimos cargar los recibos del pasajero en la grupal.",
-        ),
-        requestGroupApi<{
-          payments?: ClientPayment[];
-          items?: ClientPayment[];
-        }>(
-          `/api/groups/${encodeURIComponent(groupId)}/finance/client-payments?passengerId=${passengerId}`,
-          {
-            credentials: "include",
-            cache: "no-store",
-          },
-          "No pudimos cargar las cuotas del pasajero en la grupal.",
-        ),
-      ]);
-
-      const errors: string[] = [];
-
-      const bookingResult = results[0];
-      if (bookingResult.status === "fulfilled") {
-        setCollectBooking(bookingResult.value.booking ?? null);
-      } else {
-        setCollectBooking(null);
-        errors.push(
-          bookingResult.reason?.message || "Contexto operativo no disponible.",
         );
-      }
-
-      const receiptsResult = results[1];
-      if (receiptsResult.status === "fulfilled") {
-        const allReceipts = Array.isArray(receiptsResult.value.receipts)
-          ? receiptsResult.value.receipts
+        const allReceipts = Array.isArray(receiptsData.receipts)
+          ? receiptsData.receipts
           : [];
         const filteredReceipts = allReceipts.filter((receipt) => {
           const ids = Array.isArray(receipt.clientIds)
@@ -2263,25 +2260,35 @@ export default function GroupDetailPage() {
           return ids.includes(clientId);
         });
         setCollectReceipts(filteredReceipts);
-      } else {
+      } catch (error) {
         setCollectReceipts([]);
         errors.push(
-          receiptsResult.reason?.message || "Recibos no disponibles.",
+          error instanceof Error ? error.message : "Recibos no disponibles.",
         );
       }
 
-      const clientPaymentsResult = results[2];
-      if (clientPaymentsResult.status === "fulfilled") {
-        const rows = Array.isArray(clientPaymentsResult.value.payments)
-          ? clientPaymentsResult.value.payments
-          : Array.isArray(clientPaymentsResult.value.items)
-            ? clientPaymentsResult.value.items
+      try {
+        const clientPaymentsData = await requestGroupApi<{
+          payments?: ClientPayment[];
+          items?: ClientPayment[];
+        }>(
+          `/api/groups/${encodeURIComponent(groupId)}/finance/client-payments?passengerId=${passengerId}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+          "No pudimos cargar las cuotas del pasajero en la grupal.",
+        );
+        const rows = Array.isArray(clientPaymentsData.payments)
+          ? clientPaymentsData.payments
+          : Array.isArray(clientPaymentsData.items)
+            ? clientPaymentsData.items
             : [];
         setCollectClientPayments(rows);
-      } else {
+      } catch (error) {
         setCollectClientPayments([]);
         errors.push(
-          clientPaymentsResult.reason?.message || "Cuotas no disponibles.",
+          error instanceof Error ? error.message : "Cuotas no disponibles.",
         );
       }
 
@@ -2305,12 +2312,14 @@ export default function GroupDetailPage() {
   ]);
 
   useEffect(() => {
+    if (sectionFilter !== "COBROS") return;
     void fetchCollectFinanceData(
       selectedCollectBookingId,
       selectedCollectClientId,
       selectedCollectPassenger?.id_travel_group_passenger ?? null,
     );
   }, [
+    sectionFilter,
     fetchCollectFinanceData,
     selectedCollectBookingId,
     selectedCollectClientId,
@@ -2333,45 +2342,47 @@ export default function GroupDetailPage() {
       const errors: string[] = [];
       const scopeParam = encodeURIComponent(reservation.key);
 
-      const [bookingResult, operatorDuesResult] = await Promise.allSettled([
-        requestGroupApi<{ booking?: FinanceBookingPayload }>(
+      try {
+        const bookingResult = await requestGroupApi<{
+          booking?: FinanceBookingPayload;
+        }>(
           `/api/groups/${encodeURIComponent(groupId)}/finance/context?scope=${scopeParam}`,
           {
             credentials: "include",
             cache: "no-store",
           },
           "No pudimos cargar el contexto operativo principal.",
-        ),
-        requestGroupApi<{ dues?: OperatorDue[] }>(
+        );
+        setPaymentsBooking(bookingResult.booking ?? null);
+      } catch (error) {
+        setPaymentsBooking(null);
+        errors.push(
+          error instanceof Error
+            ? error.message
+            : "Contexto operativo no disponible.",
+        );
+      }
+
+      try {
+        const operatorDuesResult = await requestGroupApi<{
+          dues?: OperatorDue[];
+        }>(
           `/api/groups/${encodeURIComponent(groupId)}/finance/operator-dues?scope=${scopeParam}`,
           {
             credentials: "include",
             cache: "no-store",
           },
           "No pudimos cargar vencimientos de operador del contexto de la grupal.",
-        ),
-      ]);
-
-      if (bookingResult.status === "fulfilled") {
-        setPaymentsBooking(bookingResult.value.booking ?? null);
-      } else {
-        setPaymentsBooking(null);
-        errors.push(
-          bookingResult.reason?.message || "Contexto operativo no disponible.",
         );
-      }
-
-      if (operatorDuesResult.status === "fulfilled") {
         setPaymentsOperatorDues(
-          Array.isArray(operatorDuesResult.value.dues)
-            ? operatorDuesResult.value.dues
-            : [],
+          Array.isArray(operatorDuesResult.dues) ? operatorDuesResult.dues : [],
         );
-      } else {
+      } catch (error) {
         setPaymentsOperatorDues([]);
         errors.push(
-          operatorDuesResult.reason?.message ||
-            "Vencimientos de operador no disponibles.",
+          error instanceof Error
+            ? error.message
+            : "Vencimientos de operador no disponibles.",
         );
       }
 
@@ -2386,8 +2397,13 @@ export default function GroupDetailPage() {
   }, [fetchPaymentsDataByReservation, selectedPaymentsReservation]);
 
   useEffect(() => {
+    if (sectionFilter !== "PAGOS") return;
     void fetchPaymentsDataByReservation(selectedPaymentsReservation);
-  }, [fetchPaymentsDataByReservation, selectedPaymentsReservation]);
+  }, [
+    sectionFilter,
+    fetchPaymentsDataByReservation,
+    selectedPaymentsReservation,
+  ]);
 
   const fetchFinanceDataByReservation = useCallback(
     async (reservation: GroupFinanceReservationOption | null) => {
@@ -2405,72 +2421,68 @@ export default function GroupDetailPage() {
 
       const errors: string[] = [];
 
-      const bookingResult = await Promise.allSettled([
-        requestGroupApi<{ booking?: FinanceBookingPayload }>(
+      try {
+        const bookingResult = await requestGroupApi<{
+          booking?: FinanceBookingPayload;
+        }>(
           `/api/groups/${encodeURIComponent(groupId)}/finance/context?scope=${encodeURIComponent(reservation.key)}`,
           {
             credentials: "include",
             cache: "no-store",
           },
           "No pudimos cargar el contexto operativo principal.",
-        ),
-      ]);
-
-      if (bookingResult[0]?.status === "fulfilled") {
-        setFinanceBooking(bookingResult[0].value.booking ?? null);
-      } else {
+        );
+        setFinanceBooking(bookingResult.booking ?? null);
+      } catch (error) {
         setFinanceBooking(null);
         errors.push(
-          bookingResult[0]?.status === "rejected"
-            ? bookingResult[0].reason?.message ||
-                "Contexto operativo no disponible."
+          error instanceof Error
+            ? error.message
             : "Contexto operativo no disponible.",
         );
       }
 
       const scopeParam = encodeURIComponent(reservation.key);
-      const [invoicesResult, notesResult] = await Promise.allSettled([
-        requestGroupApi<{ invoices?: Invoice[] }>(
+
+      try {
+        const invoicesResult = await requestGroupApi<{ invoices?: Invoice[] }>(
           `/api/groups/${encodeURIComponent(groupId)}/finance/invoices?scope=${scopeParam}`,
           {
             credentials: "include",
             cache: "no-store",
           },
           "No pudimos cargar facturas del contexto de la grupal.",
-        ),
-        requestGroupApi<{ creditNotes?: CreditNoteWithItems[] }>(
+        );
+        setFinanceInvoices(
+          Array.isArray(invoicesResult.invoices) ? invoicesResult.invoices : [],
+        );
+      } catch (error) {
+        setFinanceInvoices([]);
+        errors.push(
+          error instanceof Error ? error.message : "Facturas no disponibles.",
+        );
+      }
+
+      try {
+        const notesResult = await requestGroupApi<{
+          creditNotes?: CreditNoteWithItems[];
+        }>(
           `/api/groups/${encodeURIComponent(groupId)}/finance/credit-notes?scope=${scopeParam}`,
           {
             credentials: "include",
             cache: "no-store",
           },
           "No pudimos cargar notas de crédito del contexto de la grupal.",
-        ),
-      ]);
-
-      if (invoicesResult.status === "fulfilled") {
-        setFinanceInvoices(
-          Array.isArray(invoicesResult.value.invoices)
-            ? invoicesResult.value.invoices
-            : [],
         );
-      } else {
-        setFinanceInvoices([]);
-        errors.push(
-          invoicesResult.reason?.message || "Facturas no disponibles.",
-        );
-      }
-
-      if (notesResult.status === "fulfilled") {
         setFinanceCreditNotes(
-          Array.isArray(notesResult.value.creditNotes)
-            ? notesResult.value.creditNotes
-            : [],
+          Array.isArray(notesResult.creditNotes) ? notesResult.creditNotes : [],
         );
-      } else {
+      } catch (error) {
         setFinanceCreditNotes([]);
         errors.push(
-          notesResult.reason?.message || "Notas de crédito no disponibles.",
+          error instanceof Error
+            ? error.message
+            : "Notas de crédito no disponibles.",
         );
       }
 
@@ -2485,8 +2497,13 @@ export default function GroupDetailPage() {
   }, [fetchFinanceDataByReservation, selectedFinanceReservation]);
 
   useEffect(() => {
+    if (sectionFilter !== "FACTURACION") return;
     void fetchFinanceDataByReservation(selectedFinanceReservation);
-  }, [fetchFinanceDataByReservation, selectedFinanceReservation]);
+  }, [
+    sectionFilter,
+    fetchFinanceDataByReservation,
+    selectedFinanceReservation,
+  ]);
 
   const handleFinanceInvoiceChange = (
     e: ChangeEvent<HTMLInputElement | HTMLSelectElement>,
@@ -2897,6 +2914,54 @@ export default function GroupDetailPage() {
       ? collectBooking.services
       : [];
   }, [collectBooking?.services]);
+  const collectServicesByBookingRef = useRef<Map<number, ServiceLite[]>>(
+    new Map(),
+  );
+
+  useEffect(() => {
+    collectServicesByBookingRef.current.clear();
+  }, [groupId]);
+
+  const loadCollectServicesForBooking = useCallback(
+    async (bookingId: number): Promise<ServiceLite[]> => {
+      const normalizedBookingId = Number(bookingId);
+      if (!Number.isFinite(normalizedBookingId) || normalizedBookingId <= 0) {
+        return [];
+      }
+
+      const cached =
+        collectServicesByBookingRef.current.get(normalizedBookingId);
+      if (cached) return cached;
+
+      if (
+        collectBooking?.id_booking === normalizedBookingId &&
+        collectBookingServices.length > 0
+      ) {
+        const local = collectBookingServices.map(toReceiptServiceLite);
+        collectServicesByBookingRef.current.set(normalizedBookingId, local);
+        return local;
+      }
+
+      const payload = await requestGroupApi<{
+        booking?: FinanceBookingPayload;
+      }>(
+        `/api/groups/${encodeURIComponent(groupId)}/finance/context?bookingId=${normalizedBookingId}`,
+        {
+          credentials: "include",
+          cache: "no-store",
+        },
+        "No pudimos cargar servicios del contexto financiero.",
+      );
+
+      const remoteServices = Array.isArray(payload.booking?.services)
+        ? payload.booking.services
+        : [];
+      const mapped = remoteServices.map(toReceiptServiceLite);
+      collectServicesByBookingRef.current.set(normalizedBookingId, mapped);
+      return mapped;
+    },
+    [collectBooking?.id_booking, collectBookingServices, groupId],
+  );
 
   const financeBookingServices = useMemo<Service[]>(() => {
     return Array.isArray(financeBooking?.services)
@@ -2909,34 +2974,6 @@ export default function GroupDetailPage() {
       ? paymentsBooking.services
       : [];
   }, [paymentsBooking?.services]);
-
-  const paymentsLinkedPassengers = useMemo(() => {
-    if (!selectedPaymentsReservation) return [];
-    if (selectedPaymentsReservation.departureId == null) {
-      return passengers.filter(
-        (item) => item.travelGroupDeparture?.id_travel_group_departure == null,
-      );
-    }
-    return passengers.filter(
-      (item) =>
-        Number(item.travelGroupDeparture?.id_travel_group_departure || 0) ===
-        selectedPaymentsReservation.departureId,
-    );
-  }, [passengers, selectedPaymentsReservation]);
-
-  const financeLinkedPassengers = useMemo(() => {
-    if (!selectedFinanceReservation) return [];
-    if (selectedFinanceReservation.departureId == null) {
-      return passengers.filter(
-        (item) => item.travelGroupDeparture?.id_travel_group_departure == null,
-      );
-    }
-    return passengers.filter(
-      (item) =>
-        Number(item.travelGroupDeparture?.id_travel_group_departure || 0) ===
-        selectedFinanceReservation.departureId,
-    );
-  }, [passengers, selectedFinanceReservation]);
 
   const selectedFinanceInvoicePassenger = selectedFinancePassenger;
 
@@ -3723,7 +3760,7 @@ export default function GroupDetailPage() {
   if (loading && !group) {
     return (
       <main className="min-h-screen px-4 py-6 text-slate-900 dark:text-slate-100 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl rounded-3xl border border-sky-200/80 bg-white/70 p-6 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55">
+        <div className="mx-auto max-w-7xl rounded-3xl border border-sky-200/80 bg-white/70 p-6 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-700/40 dark:bg-sky-950/10">
           Cargando grupal...
         </div>
       </main>
@@ -3733,12 +3770,12 @@ export default function GroupDetailPage() {
   if (!group) {
     return (
       <main className="min-h-screen px-4 py-6 text-slate-900 dark:text-slate-100 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl rounded-3xl border border-amber-300/80 bg-amber-100/90 p-6 text-amber-900 shadow-sm shadow-amber-900/10 backdrop-blur-sm dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+        <div className="mx-auto max-w-7xl rounded-3xl border border-amber-300/80 bg-amber-100/90 p-6 text-amber-900 shadow-sm shadow-amber-900/10 backdrop-blur-sm dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200">
           {error || "No se encontró la grupal."}
           <div className="mt-3">
             <Link
               href="/groups"
-              className="rounded-full border border-slate-300 bg-white/90 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
+              className="rounded-full border border-slate-300 bg-white/90 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 dark:border-sky-600/40 dark:bg-sky-950/20 dark:text-slate-200 dark:hover:border-sky-500/50"
             >
               Volver a grupales
             </Link>
@@ -3749,11 +3786,11 @@ export default function GroupDetailPage() {
   }
 
   return (
-    <main className="min-h-screen px-4 py-6 text-slate-900 dark:text-slate-100 sm:px-6 lg:px-8 [&_input]:border-sky-300/80 [&_input]:text-slate-900 dark:[&_input]:border-sky-700/70 dark:[&_input]:bg-slate-900/70 dark:[&_input]:text-slate-100 [&_select]:border-sky-300/80 [&_select]:text-slate-900 dark:[&_select]:border-sky-700/70 dark:[&_select]:bg-slate-900/70 dark:[&_select]:text-slate-100 [&_textarea]:border-sky-300/80 [&_textarea]:text-slate-900 dark:[&_textarea]:border-sky-700/70 dark:[&_textarea]:bg-slate-900/70 dark:[&_textarea]:text-slate-100">
+    <main className="min-h-screen px-4 py-6 text-slate-900 dark:text-slate-100 sm:px-6 lg:px-8 [&_input]:border-sky-300/80 [&_input]:text-slate-900 dark:[&_input]:border-sky-700/40 dark:[&_input]:bg-sky-950/20 dark:[&_input]:text-slate-100 [&_select]:border-sky-300/80 [&_select]:text-slate-900 dark:[&_select]:border-sky-700/40 dark:[&_select]:bg-sky-950/20 dark:[&_select]:text-slate-100 [&_textarea]:border-sky-300/80 [&_textarea]:text-slate-900 dark:[&_textarea]:border-sky-700/40 dark:[&_textarea]:bg-sky-950/20 dark:[&_textarea]:text-slate-100">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <header
           id="panel-resumen"
-          className="rounded-3xl border border-sky-200/80 bg-white/70 p-6 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
+          className="rounded-3xl border border-sky-200/80 bg-white p-6 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -3765,13 +3802,13 @@ export default function GroupDetailPage() {
             </div>
             <Link
               href="/groups"
-              className="rounded-full border border-slate-300 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
+              className="rounded-full border border-sky-300 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-400 dark:border-sky-600/30 dark:bg-sky-950/20 dark:text-slate-200 dark:hover:border-sky-600"
             >
               Volver
             </Link>
           </div>
           {showGroupPanels && isSingleDepartureMode ? (
-            <div className="mt-4 rounded-2xl border border-sky-200/80 bg-white/75 p-4 shadow-sm shadow-slate-900/10 dark:border-sky-700/70 dark:bg-slate-900/55">
+            <div className="mt-4 rounded-2xl border border-sky-200/80 bg-white p-4 shadow-sm shadow-slate-900/10 dark:border-sky-600/30 dark:bg-sky-950/10">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -3792,7 +3829,7 @@ export default function GroupDetailPage() {
                       loadingDepartureId ===
                         primaryDeparture.id_travel_group_departure
                     }
-                    className="rounded-full border border-slate-300 bg-white/85 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
+                    className="rounded-full border border-sky-300 bg-sky-50/70 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-600/30 dark:bg-sky-950/20 dark:text-slate-200 dark:hover:border-sky-600"
                   >
                     {loadingDepartureId ===
                     primaryDeparture.id_travel_group_departure ? (
@@ -3820,7 +3857,7 @@ export default function GroupDetailPage() {
           ) : null}
         </header>
 
-        <nav className="sticky top-3 z-10 rounded-2xl border border-sky-200/80 bg-white/85 p-2 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/70">
+        <nav className="sticky top-3 z-10 rounded-2xl border border-sky-200/80 bg-white p-2 shadow-sm shadow-slate-900/10 dark:border-sky-600/30 dark:bg-sky-950/20">
           <div className="flex flex-wrap gap-2">
             {SECTION_FILTERS.map((section) => (
               <button
@@ -3839,12 +3876,12 @@ export default function GroupDetailPage() {
         </nav>
 
         {error ? (
-          <p className="rounded-2xl border border-amber-300/80 bg-amber-100/90 px-4 py-2 text-sm text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+          <p className="rounded-2xl border border-amber-300/80 bg-amber-100/90 px-4 py-2 text-sm text-amber-900 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200">
             {error}
           </p>
         ) : null}
         {message ? (
-          <p className="rounded-2xl border border-emerald-300/80 bg-emerald-100/90 px-4 py-2 text-sm text-emerald-900 dark:border-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-200">
+          <p className="rounded-2xl border border-emerald-300/80 bg-emerald-100/90 px-4 py-2 text-sm text-emerald-900 dark:border-emerald-500/70 dark:bg-emerald-900/10 dark:text-emerald-200">
             {message}
           </p>
         ) : null}
@@ -3852,7 +3889,7 @@ export default function GroupDetailPage() {
         {showGroupPanels && showDepartureSection ? (
           <section
             id="panel-salidas"
-            className={`rounded-3xl border border-sky-200/80 bg-white/70 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55 ${
+            className={`rounded-3xl border border-sky-200/80 bg-white shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10 ${
               isSingleDepartureMode ? "p-4" : "p-5"
             }`}
           >
@@ -3900,7 +3937,7 @@ export default function GroupDetailPage() {
             ) : null}
 
             {sortedDepartures.length === 0 ? (
-              <p className="rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+              <p className="rounded-2xl border border-sky-300/70 bg-white px-4 py-3 text-sm text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300">
                 {isSingleDepartureMode
                   ? "La salida principal todavía no está creada."
                   : "Esta grupal todavía no tiene salidas cargadas."}
@@ -3910,7 +3947,7 @@ export default function GroupDetailPage() {
                 {sortedDepartures.map((dep) => (
                   <article
                     key={dep.id_travel_group_departure}
-                    className="rounded-2xl border border-slate-300/80 bg-white/85 p-4 shadow-sm shadow-slate-900/10 dark:border-slate-600 dark:bg-slate-900/60"
+                    className="rounded-2xl border border-sky-300/70 bg-white p-4 shadow-sm shadow-slate-900/10 dark:border-sky-600/30 dark:bg-sky-950/10"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
@@ -3936,7 +3973,7 @@ export default function GroupDetailPage() {
                             submitting ||
                             loadingDepartureId === dep.id_travel_group_departure
                           }
-                          className="rounded-full border border-slate-300 bg-white/85 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
+                          className="rounded-full border border-sky-300 bg-sky-50/70 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-600/30 dark:bg-sky-950/20 dark:text-slate-200 dark:hover:border-sky-600"
                         >
                           {loadingDepartureId === dep.id_travel_group_departure
                             ? "Cargando..."
@@ -3946,7 +3983,7 @@ export default function GroupDetailPage() {
                           type="button"
                           onClick={() => void handleDeleteDeparture(dep)}
                           disabled={submitting}
-                          className="rounded-full border border-amber-300 bg-amber-100/90 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                          className="rounded-full border border-rose-300 bg-rose-100/90 px-3 py-1.5 text-xs font-semibold text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/70 dark:bg-rose-900/15 dark:text-rose-200"
                         >
                           Eliminar
                         </button>
@@ -3960,7 +3997,7 @@ export default function GroupDetailPage() {
             <CollapsiblePanel open={showDepartureCreate} className="mt-4">
               <form
                 onSubmit={handleCreateDeparture}
-                className="space-y-3 rounded-2xl border border-slate-300/80 bg-white/70 p-4 dark:border-slate-600 dark:bg-slate-900/60"
+                className="space-y-3 rounded-2xl border border-sky-300/70 bg-white p-4 dark:border-sky-600/30 dark:bg-sky-950/10"
               >
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                   Nueva salida
@@ -4089,7 +4126,7 @@ export default function GroupDetailPage() {
                           }
                           inputMode="numeric"
                           disabled={submitting}
-                          className="w-44 rounded-xl border border-sky-300/80 bg-white/90 px-3 py-1.5 text-xs text-slate-900 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-700/70 dark:bg-slate-900/70 dark:text-slate-100"
+                          className="w-44 rounded-xl border border-sky-300/80 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100"
                           placeholder="Límite sobreventa"
                         />
                       ) : null}
@@ -4123,7 +4160,7 @@ export default function GroupDetailPage() {
                           }
                           inputMode="numeric"
                           disabled={submitting}
-                          className="w-44 rounded-xl border border-sky-300/80 bg-white/90 px-3 py-1.5 text-xs text-slate-900 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-700/70 dark:bg-slate-900/70 dark:text-slate-100"
+                          className="w-44 rounded-xl border border-sky-300/80 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100"
                           placeholder="Límite lista espera"
                         />
                       ) : null}
@@ -4148,7 +4185,7 @@ export default function GroupDetailPage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="rounded-full border border-slate-300 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
+                  className="rounded-full border border-sky-300 bg-white/90 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600/30 dark:bg-sky-950/20 dark:text-slate-200 dark:hover:border-sky-600"
                 >
                   {submitting ? (
                     <Spinner label="Creando salida..." />
@@ -4165,7 +4202,7 @@ export default function GroupDetailPage() {
             >
               <form
                 onSubmit={handleUpdateDeparture}
-                className="space-y-3 rounded-2xl border border-amber-300/80 bg-amber-100/35 p-4 dark:border-amber-600 dark:bg-amber-900/20"
+                className="space-y-3 rounded-2xl border border-amber-300/80 bg-amber-100/40 p-4 dark:border-amber-500/70 dark:bg-amber-900/15"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
@@ -4177,7 +4214,7 @@ export default function GroupDetailPage() {
                       setEditingDepartureId(null);
                       setEditingDepartureDraft(defaultDepartureDraft());
                     }}
-                    className="rounded-full border border-amber-300 bg-amber-50/90 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                    className="rounded-full border border-amber-300 bg-amber-50/90 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200"
                   >
                     Cancelar edición
                   </button>
@@ -4303,7 +4340,7 @@ export default function GroupDetailPage() {
                           }
                           inputMode="numeric"
                           disabled={submitting}
-                          className="w-44 rounded-xl border border-sky-300/80 bg-white/90 px-3 py-1.5 text-xs text-slate-900 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-700/70 dark:bg-slate-900/70 dark:text-slate-100"
+                          className="w-44 rounded-xl border border-sky-300/80 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100"
                           placeholder="Límite sobreventa"
                         />
                       ) : null}
@@ -4337,7 +4374,7 @@ export default function GroupDetailPage() {
                           }
                           inputMode="numeric"
                           disabled={submitting}
-                          className="w-44 rounded-xl border border-sky-300/80 bg-white/90 px-3 py-1.5 text-xs text-slate-900 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-700/70 dark:bg-slate-900/70 dark:text-slate-100"
+                          className="w-44 rounded-xl border border-sky-300/80 bg-white px-3 py-1.5 text-xs text-slate-900 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100"
                           placeholder="Límite lista espera"
                         />
                       ) : null}
@@ -4362,7 +4399,7 @@ export default function GroupDetailPage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="rounded-full border border-amber-300 bg-amber-100/90 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                  className="rounded-full border border-amber-300 bg-amber-100/90 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200"
                 >
                   {submitting ? (
                     <Spinner label="Guardando salida..." />
@@ -4376,239 +4413,184 @@ export default function GroupDetailPage() {
         ) : null}
 
         {showGroupPanels ? (
-          <section
-            id="panel-pasajero-activo"
-            className="rounded-3xl border border-sky-200/80 bg-white/70 p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                  Formulario de pasajero
-                </h2>
-                <p className="text-xs text-slate-700 dark:text-slate-300">
-                  Un único formulario para alta y edición de pasajeros.
-                </p>
-              </div>
-              <ToggleIconButton
-                open={showPassengerForm}
-                onClick={() => setShowPassengerForm((prev) => !prev)}
-                label="formulario"
-              />
-            </div>
-
-            <CollapsiblePanel open={showPassengerForm} className="mt-3">
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="inline-flex items-center gap-1 rounded-2xl bg-sky-50 p-1.5 shadow-inner dark:bg-slate-800/70">
-                  <button
-                    type="button"
-                    onClick={() => setPassengerFormMode("ALTA")}
-                    className={`rounded-xl border border-transparent px-4 py-1.5 text-xs font-semibold transition ${
-                      passengerFormMode === "ALTA"
-                        ? "!border-sky-200 bg-sky-50/80 text-sky-950 shadow-sm shadow-sky-700/10 hover:border dark:border-sky-500/45 dark:bg-sky-500/15 dark:text-sky-100"
-                        : "text-sky-950 hover:border-sky-200 hover:bg-sky-50/80 dark:text-sky-100 dark:hover:bg-slate-700/70"
-                    }`}
-                    disabled={submitting}
-                  >
-                    Alta
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPassengerFormMode("EDICION")}
-                    className={`rounded-xl border border-transparent px-4 py-1.5 text-xs font-semibold transition ${
-                      passengerFormMode === "EDICION"
-                        ? "!border-sky-200 bg-sky-50/80 text-sky-950 shadow-sm shadow-sky-700/10 hover:border dark:border-sky-500/45 dark:bg-sky-500/15 dark:text-sky-100"
-                        : "text-sky-950 hover:border-sky-200 hover:bg-sky-50/80 dark:text-sky-100 dark:hover:bg-slate-700/70"
-                    }`}
-                    disabled={submitting || !activePassenger}
-                  >
-                    Edición
-                  </button>
+          <>
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+              Gestión de pasajeros
+            </p>
+            <section
+              id="panel-pasajero-activo"
+              className="rounded-3xl border border-sky-200/80 bg-white p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                    Formulario de pasajero
+                  </h2>
+                  <p className="text-xs text-slate-700 dark:text-slate-300">
+                    Un único formulario para alta y edición de pasajeros.
+                  </p>
                 </div>
+                <ToggleIconButton
+                  open={showPassengerForm}
+                  onClick={() => setShowPassengerForm((prev) => !prev)}
+                  label="formulario"
+                />
+              </div>
 
-                {passengerFormMode === "ALTA" ? (
-                  <div className="inline-flex items-center gap-1 rounded-2xl bg-sky-50 p-1.5 shadow-inner dark:bg-slate-800/70">
+              <CollapsiblePanel open={showPassengerForm} className="mt-3">
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="inline-flex items-center gap-1 rounded-2xl bg-sky-50 p-1.5 shadow-inner dark:bg-sky-900/15">
                     <button
                       type="button"
-                      onClick={() => setNewPassengerMode("EXISTENTE")}
+                      onClick={() => setPassengerFormMode("ALTA")}
                       className={`rounded-xl border border-transparent px-4 py-1.5 text-xs font-semibold transition ${
-                        newPassengerMode === "EXISTENTE"
-                          ? "!border-sky-200 bg-sky-50/80 text-sky-950 shadow-sm shadow-sky-700/10 hover:border dark:border-sky-500/45 dark:bg-sky-500/15 dark:text-sky-100"
-                          : "text-sky-950 hover:border-sky-200 hover:bg-sky-50/80 dark:text-sky-100 dark:hover:bg-slate-700/70"
+                        passengerFormMode === "ALTA"
+                          ? "!border-sky-200 bg-sky-50/80 text-sky-950 shadow-sm shadow-sky-700/10 hover:border dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-100"
+                          : "text-sky-950 hover:border-sky-200 hover:bg-sky-50/80 dark:text-sky-100 dark:hover:bg-sky-900/50"
                       }`}
                       disabled={submitting}
                     >
-                      Pasajero existente
+                      Alta
                     </button>
                     <button
                       type="button"
-                      onClick={() => setNewPassengerMode("NUEVO")}
+                      onClick={() => setPassengerFormMode("EDICION")}
                       className={`rounded-xl border border-transparent px-4 py-1.5 text-xs font-semibold transition ${
-                        newPassengerMode === "NUEVO"
-                          ? "!border-sky-200 bg-sky-50/80 text-sky-950 shadow-sm shadow-sky-700/10 hover:border dark:border-sky-500/45 dark:bg-sky-500/15 dark:text-sky-100"
-                          : "text-sky-950 hover:border-sky-200 hover:bg-sky-50/80 dark:text-sky-100 dark:hover:bg-slate-700/70"
+                        passengerFormMode === "EDICION"
+                          ? "!border-sky-200 bg-sky-50/80 text-sky-950 shadow-sm shadow-sky-700/10 hover:border dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-100"
+                          : "text-sky-950 hover:border-sky-200 hover:bg-sky-50/80 dark:text-sky-100 dark:hover:bg-sky-900/50"
                       }`}
-                      disabled={submitting}
+                      disabled={submitting || !activePassenger}
                     >
-                      Pasajero nuevo
+                      Edición
                     </button>
                   </div>
-                ) : null}
-              </div>
 
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.div
-                  key={passengerFormMode}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.2, ease: "easeInOut" }}
-                >
                   {passengerFormMode === "ALTA" ? (
-                    <form
-                      onSubmit={handleAddPassenger}
-                      className="mt-3 flex flex-col gap-4"
-                    >
-                      <AnimatePresence mode="wait" initial={false}>
-                        <motion.div
-                          key={newPassengerMode}
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -6 }}
-                          transition={{ duration: 0.16, ease: "easeInOut" }}
-                        >
-                          {newPassengerMode === "EXISTENTE" ? (
-                            <div className="space-y-1">
-                              <label className="ml-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
-                                Pasajero
-                              </label>
-                              <div className="flex flex-col gap-2 md:flex-row md:items-end">
-                                <div className="min-w-0 flex-1">
-                                  <ClientPicker
-                                    label=""
-                                    valueId={newPassengerClientId}
-                                    onSelect={(client: Client) =>
-                                      setNewPassengerClientId(client.id_client)
-                                    }
-                                    onClear={() =>
-                                      setNewPassengerClientId(null)
-                                    }
-                                    placeholder="Buscar por N° pax, DNI, pasaporte, CUIT o nombre..."
-                                  />
-                                </div>
-                                <button
-                                  type="submit"
-                                  disabled={submitting || !newPassengerClientId}
-                                  className="h-10 shrink-0 whitespace-nowrap rounded-2xl border border-sky-300 bg-sky-50/70 px-5 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
-                                >
-                                  {submitting ? (
-                                    <Spinner label="Guardando..." />
-                                  ) : (
-                                    "Agregar pasajero"
-                                  )}
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <PassengerClientFields
-                              draft={newClientDraft}
-                              onChange={updateNewClientDraftField}
-                              onCustomChange={updateNewClientCustomField}
-                              onProfileChange={(key) =>
-                                updateNewClientDraftField("profile_key", key)
-                              }
-                              disabled={submitting}
-                              profileKey={newClientDraft?.profile_key}
-                              profileOptions={clientProfileOptions}
-                              requiredFields={newClientProfile.required_fields}
-                              hiddenFields={newClientProfile.hidden_fields}
-                              customFields={newClientProfile.custom_fields}
-                              passengerCategories={passengerCategories}
-                              title="Nuevo pasajero"
-                              description="Completá los datos mínimos para crear y sumar el pasajero a esta grupal."
-                            />
-                          )}
-                        </motion.div>
-                      </AnimatePresence>
-
-                      {!isSingleDepartureMode ? (
-                        <label className="flex flex-col gap-1 text-sm">
-                          <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
-                            Salida destino
-                          </span>
-                          <select
-                            value={newPassengerDepartureId}
-                            onChange={(e) =>
-                              setNewPassengerDepartureId(e.target.value)
-                            }
-                            disabled={submitting}
-                            className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
-                          >
-                            <option value="">Automática</option>
-                            {sortedDepartures.map((dep) => (
-                              <option
-                                key={dep.id_travel_group_departure}
-                                value={
-                                  dep.public_id || dep.id_travel_group_departure
-                                }
-                              >
-                                {dep.name} · {formatDate(dep.departure_date)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      ) : null}
-
-                      {newPassengerMode === "NUEVO" ? (
-                        <button
-                          type="submit"
-                          disabled={submitting}
-                          className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
-                        >
-                          {submitting ? (
-                            <Spinner label="Guardando..." />
-                          ) : (
-                            "Crear pasajero y agregar"
-                          )}
-                        </button>
-                      ) : null}
-                    </form>
-                  ) : !activePassenger ? (
-                    <p className="mt-3 rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
-                      Seleccioná un pasajero en la tabla, lista o grilla para
-                      editarlo.
-                    </p>
-                  ) : (
-                    <div className="mt-3 flex flex-col gap-4">
-                      <div className="w-fit rounded-2xl border border-emerald-300/80 bg-emerald-50/30 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-600 dark:bg-emerald-900/60 dark:text-emerald-300">
-                        Pasajero activo:{" "}
-                        <span className="font-semibold text-emerald-900 dark:text-emerald-100">
-                          {activePassenger.client
-                            ? `${activePassenger.client.first_name} ${activePassenger.client.last_name}`
-                            : `Cliente Nº${activePassenger.client_id ?? "-"}`}
-                        </span>
-                      </div>
-
-                      <form
-                        onSubmit={handleSaveActivePassenger}
-                        className="flex flex-col gap-3 rounded-2xl border border-slate-300/80 bg-white/70 p-4 dark:border-slate-600 dark:bg-slate-900/60"
+                    <div className="inline-flex items-center gap-1 rounded-2xl bg-sky-50 p-1.5 shadow-inner dark:bg-sky-900/15">
+                      <button
+                        type="button"
+                        onClick={() => setNewPassengerMode("EXISTENTE")}
+                        className={`rounded-xl border border-transparent px-4 py-1.5 text-xs font-semibold transition ${
+                          newPassengerMode === "EXISTENTE"
+                            ? "!border-sky-200 bg-sky-50/80 text-sky-950 shadow-sm shadow-sky-700/10 hover:border dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-100"
+                            : "text-sky-950 hover:border-sky-200 hover:bg-sky-50/80 dark:text-sky-100 dark:hover:bg-sky-900/50"
+                        }`}
+                        disabled={submitting}
                       >
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          Datos operativos
-                        </p>
-                        {!isSingleDepartureMode && (
+                        Pasajero existente
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewPassengerMode("NUEVO")}
+                        className={`rounded-xl border border-transparent px-4 py-1.5 text-xs font-semibold transition ${
+                          newPassengerMode === "NUEVO"
+                            ? "!border-sky-200 bg-sky-50/80 text-sky-950 shadow-sm shadow-sky-700/10 hover:border dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-100"
+                            : "text-sky-950 hover:border-sky-200 hover:bg-sky-50/80 dark:text-sky-100 dark:hover:bg-sky-900/50"
+                        }`}
+                        disabled={submitting}
+                      >
+                        Pasajero nuevo
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.div
+                    key={passengerFormMode}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                  >
+                    {passengerFormMode === "ALTA" ? (
+                      <form
+                        onSubmit={handleAddPassenger}
+                        className="mt-3 flex flex-col gap-4"
+                      >
+                        <AnimatePresence mode="wait" initial={false}>
+                          <motion.div
+                            key={newPassengerMode}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            transition={{ duration: 0.16, ease: "easeInOut" }}
+                          >
+                            {newPassengerMode === "EXISTENTE" ? (
+                              <div className="space-y-1">
+                                <label className="ml-1 block text-sm font-medium text-slate-900 dark:text-slate-100">
+                                  Pasajero
+                                </label>
+                                <div className="flex flex-col gap-2 md:flex-row md:items-end">
+                                  <div className="min-w-0 flex-1">
+                                    <ClientPicker
+                                      label=""
+                                      valueId={newPassengerClientId}
+                                      onSelect={(client: Client) =>
+                                        setNewPassengerClientId(
+                                          client.id_client,
+                                        )
+                                      }
+                                      onClear={() =>
+                                        setNewPassengerClientId(null)
+                                      }
+                                      placeholder="Buscar por N° pax, DNI, pasaporte, CUIT o nombre..."
+                                    />
+                                  </div>
+                                  <button
+                                    type="submit"
+                                    disabled={
+                                      submitting || !newPassengerClientId
+                                    }
+                                    className="h-10 shrink-0 whitespace-nowrap rounded-2xl border border-sky-300 bg-sky-50/70 px-5 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600/40 dark:bg-sky-950/20 dark:text-sky-200"
+                                  >
+                                    {submitting ? (
+                                      <Spinner label="Guardando..." />
+                                    ) : (
+                                      "Agregar pasajero"
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <PassengerClientFields
+                                draft={newClientDraft}
+                                onChange={updateNewClientDraftField}
+                                onCustomChange={updateNewClientCustomField}
+                                onProfileChange={(key) =>
+                                  updateNewClientDraftField("profile_key", key)
+                                }
+                                disabled={submitting}
+                                profileKey={newClientDraft?.profile_key}
+                                profileOptions={clientProfileOptions}
+                                requiredFields={
+                                  newClientProfile.required_fields
+                                }
+                                hiddenFields={newClientProfile.hidden_fields}
+                                customFields={newClientProfile.custom_fields}
+                                passengerCategories={passengerCategories}
+                                title="Nuevo pasajero"
+                                description="Completá los datos mínimos para crear y sumar el pasajero a esta grupal."
+                              />
+                            )}
+                          </motion.div>
+                        </AnimatePresence>
+
+                        {!isSingleDepartureMode ? (
                           <label className="flex flex-col gap-1 text-sm">
                             <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
-                              Salida
+                              Salida destino
                             </span>
                             <select
-                              value={activePassengerDepartureId}
+                              value={newPassengerDepartureId}
                               onChange={(e) =>
-                                setActivePassengerDepartureId(e.target.value)
+                                setNewPassengerDepartureId(e.target.value)
                               }
                               disabled={submitting}
                               className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
                             >
-                              <option value="CLEAR">Sin salida asignada</option>
+                              <option value="">Automática</option>
                               {sortedDepartures.map((dep) => (
                                 <option
                                   key={dep.id_travel_group_departure}
@@ -4622,116 +4604,192 @@ export default function GroupDetailPage() {
                               ))}
                             </select>
                           </label>
-                        )}
-                        <label className="flex flex-col gap-1 text-sm">
-                          <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
-                            Nota interna
-                          </span>
-                          <textarea
-                            value={activePassengerNote}
-                            onChange={(e) =>
-                              setActivePassengerNote(e.target.value)
-                            }
-                            rows={2}
-                            disabled={submitting}
-                            placeholder="Observaciones de este pasajero dentro de la grupal..."
-                            className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
-                          />
-                        </label>
-                        <div className="flex flex-wrap gap-2">
+                        ) : null}
+
+                        {newPassengerMode === "NUEVO" ? (
                           <button
                             type="submit"
                             disabled={submitting}
-                            className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
+                            className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600/40 dark:bg-sky-950/20 dark:text-sky-200"
                           >
                             {submitting ? (
                               <Spinner label="Guardando..." />
                             ) : (
-                              "Guardar datos operativos"
+                              "Crear pasajero y agregar"
                             )}
                           </button>
-                          <button
-                            type="button"
-                            disabled={submitting}
-                            onClick={() =>
-                              void handleDeletePassenger(activePassenger)
-                            }
-                            className="rounded-full border border-rose-300 bg-rose-100/90 px-4 py-2 text-sm font-semibold text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-600 dark:bg-rose-900/30 dark:text-rose-200"
-                          >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              strokeWidth={1.5}
-                              stroke="currentColor"
-                              className="size-5"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
-                              />
-                            </svg>
-                          </button>
-                        </div>
+                        ) : null}
                       </form>
+                    ) : !activePassenger ? (
+                      <p className="mt-3 rounded-2xl border border-sky-300/70 bg-white px-4 py-3 text-sm text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300">
+                        Seleccioná un pasajero en la tabla, lista o grilla para
+                        editarlo.
+                      </p>
+                    ) : (
+                      <div className="mt-3 flex flex-col gap-4">
+                        <div className="w-fit rounded-2xl border border-emerald-300/80 bg-emerald-50/50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-500/70 dark:bg-emerald-900/20 dark:text-emerald-300">
+                          Pasajero activo:{" "}
+                          <span className="font-semibold text-emerald-900 dark:text-emerald-100">
+                            {activePassenger.client
+                              ? `${activePassenger.client.first_name} ${activePassenger.client.last_name}`
+                              : `Cliente Nº${activePassenger.client_id ?? "-"}`}
+                          </span>
+                        </div>
 
-                      <form
-                        onSubmit={handleSaveActiveClient}
-                        className="flex flex-col gap-3"
-                      >
-                        {activeClientLoading || !activeClientDraft ? (
-                          <p className="rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-xs text-slate-600 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-400">
-                            Cargando datos del pasajero...
+                        <form
+                          onSubmit={handleSaveActivePassenger}
+                          className="flex flex-col gap-3 rounded-2xl border border-sky-300/70 bg-white p-4 dark:border-sky-600/30 dark:bg-sky-950/10"
+                        >
+                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                            Datos operativos
                           </p>
-                        ) : (
-                          <>
-                            <PassengerClientFields
-                              draft={activeClientDraft}
-                              onChange={updateActiveClientDraftField}
-                              onCustomChange={updateActiveClientCustomField}
-                              onProfileChange={(key) =>
-                                updateActiveClientDraftField("profile_key", key)
+                          {!isSingleDepartureMode && (
+                            <label className="flex flex-col gap-1 text-sm">
+                              <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
+                                Salida
+                              </span>
+                              <select
+                                value={activePassengerDepartureId}
+                                onChange={(e) =>
+                                  setActivePassengerDepartureId(e.target.value)
+                                }
+                                disabled={submitting}
+                                className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
+                              >
+                                <option value="CLEAR">
+                                  Sin salida asignada
+                                </option>
+                                {sortedDepartures.map((dep) => (
+                                  <option
+                                    key={dep.id_travel_group_departure}
+                                    value={
+                                      dep.public_id ||
+                                      dep.id_travel_group_departure
+                                    }
+                                  >
+                                    {dep.name} ·{" "}
+                                    {formatDate(dep.departure_date)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
+                          <label className="flex flex-col gap-1 text-sm">
+                            <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">
+                              Nota interna
+                            </span>
+                            <textarea
+                              value={activePassengerNote}
+                              onChange={(e) =>
+                                setActivePassengerNote(e.target.value)
                               }
+                              rows={2}
                               disabled={submitting}
-                              profileKey={activeClientDraft?.profile_key}
-                              profileOptions={clientProfileOptions}
-                              requiredFields={
-                                activeClientProfile.required_fields
-                              }
-                              hiddenFields={activeClientProfile.hidden_fields}
-                              customFields={activeClientProfile.custom_fields}
-                              passengerCategories={passengerCategories}
-                              title="Datos personales del pasajero"
-                              description="Este bloque se reutiliza para editar la información del pasajero activo."
+                              placeholder="Observaciones de este pasajero dentro de la grupal..."
+                              className="rounded-2xl border bg-white/90 px-3 py-2 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70"
                             />
+                          </label>
+                          <div className="flex flex-wrap gap-2">
                             <button
                               type="submit"
                               disabled={submitting}
-                              className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
+                              className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600/40 dark:bg-sky-950/20 dark:text-sky-200"
                             >
                               {submitting ? (
                                 <Spinner label="Guardando..." />
                               ) : (
-                                "Guardar datos personales"
+                                "Guardar datos operativos"
                               )}
                             </button>
-                          </>
-                        )}
-                      </form>
-                    </div>
-                  )}
-                </motion.div>
-              </AnimatePresence>
-            </CollapsiblePanel>
-          </section>
+                            <button
+                              type="button"
+                              disabled={submitting}
+                              onClick={() =>
+                                void handleDeletePassenger(activePassenger)
+                              }
+                              className="rounded-full border border-rose-300 bg-rose-100/90 px-4 py-2 text-sm font-semibold text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-500/70 dark:bg-rose-900/15 dark:text-rose-200"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth={1.5}
+                                stroke="currentColor"
+                                className="size-5"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        </form>
+
+                        <form
+                          onSubmit={handleSaveActiveClient}
+                          className="flex flex-col gap-3"
+                        >
+                          {activeClientLoading || !activeClientDraft ? (
+                            <p className="rounded-2xl border border-sky-300/70 bg-white px-4 py-3 text-xs text-slate-600 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-400">
+                              Cargando datos del pasajero...
+                            </p>
+                          ) : (
+                            <>
+                              <PassengerClientFields
+                                draft={activeClientDraft}
+                                onChange={updateActiveClientDraftField}
+                                onCustomChange={updateActiveClientCustomField}
+                                onProfileChange={(key) =>
+                                  updateActiveClientDraftField(
+                                    "profile_key",
+                                    key,
+                                  )
+                                }
+                                disabled={submitting}
+                                profileKey={activeClientDraft?.profile_key}
+                                profileOptions={clientProfileOptions}
+                                requiredFields={
+                                  activeClientProfile.required_fields
+                                }
+                                hiddenFields={activeClientProfile.hidden_fields}
+                                customFields={activeClientProfile.custom_fields}
+                                passengerCategories={passengerCategories}
+                                title="Datos personales del pasajero"
+                                description="Este bloque se reutiliza para editar la información del pasajero activo."
+                              />
+                              <button
+                                type="submit"
+                                disabled={submitting}
+                                className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600/40 dark:bg-sky-950/20 dark:text-sky-200"
+                              >
+                                {submitting ? (
+                                  <Spinner label="Guardando..." />
+                                ) : (
+                                  "Guardar datos personales"
+                                )}
+                              </button>
+                            </>
+                          )}
+                        </form>
+                      </div>
+                    )}
+                  </motion.div>
+                </AnimatePresence>
+              </CollapsiblePanel>
+            </section>
+          </>
         ) : null}
 
         {showGroupPanels ? (
           <>
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+              Formulario de servicios
+            </p>
             <section
               id="panel-servicios"
-              className="rounded-3xl border border-sky-200/80 bg-white/70 p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
+              className="rounded-3xl border border-sky-200/80 bg-white p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -4762,14 +4820,14 @@ export default function GroupDetailPage() {
                 />
               </div>
               {serviceOptionsError ? (
-                <p className="mt-3 rounded-2xl border border-amber-300/80 bg-amber-100/85 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
+                <p className="mt-3 rounded-2xl border border-amber-300/80 bg-amber-100/85 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/70 dark:bg-amber-900/15 dark:text-amber-200">
                   {serviceOptionsError}
                 </p>
               ) : null}
               <CollapsiblePanel open={showInventoryForm} className="mt-3">
                 <form
                   onSubmit={handleSaveInventory}
-                  className="space-y-4 rounded-2xl border border-sky-300/70 bg-white/60 p-4 dark:border-sky-700/60 dark:bg-slate-900/55"
+                  className="space-y-4 rounded-2xl border border-sky-300/70 bg-white p-4 dark:border-sky-600/30 dark:bg-sky-950/10"
                 >
                   <div>
                     <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -4865,7 +4923,7 @@ export default function GroupDetailPage() {
                     ) : null}
                   </div>
 
-                  <div className="rounded-2xl border border-sky-300/70 bg-white/65 p-3 dark:border-sky-700/60 dark:bg-slate-900/55">
+                  <div className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10">
                     <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
                       Operador y moneda
                     </p>
@@ -4959,7 +5017,7 @@ export default function GroupDetailPage() {
                     </label>
                   </div>
 
-                  <div className="rounded-2xl border border-sky-300/70 bg-white/65 p-3 dark:border-sky-700/60 dark:bg-slate-900/55">
+                  <div className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10">
                     <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
                       Precios e impuestos (estimación)
                     </p>
@@ -5086,7 +5144,7 @@ export default function GroupDetailPage() {
                       </label>
                     </div>
 
-                    <div className="mt-3 grid grid-cols-1 gap-2 rounded-2xl border border-sky-300/70 bg-sky-50/55 p-3 text-xs text-slate-700 dark:border-sky-700/60 dark:bg-sky-900/15 dark:text-slate-300 md:grid-cols-2">
+                    <div className="mt-3 grid grid-cols-1 gap-2 rounded-2xl border border-sky-300/70 bg-white p-3 text-xs text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/5 dark:text-slate-300 md:grid-cols-2">
                       <p>
                         Costo total estimado:{" "}
                         <span className="font-semibold text-slate-900 dark:text-slate-100">
@@ -5146,7 +5204,7 @@ export default function GroupDetailPage() {
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600 dark:bg-slate-900/70 dark:text-sky-200"
+                    className="rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sm font-semibold text-sky-800 transition hover:border-sky-400 hover:bg-sky-100/70 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600/40 dark:bg-sky-950/20 dark:text-sky-200"
                   >
                     {submitting ? (
                       <Spinner label="Guardando servicio..." />
@@ -5162,7 +5220,7 @@ export default function GroupDetailPage() {
 
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
               {inventories.length === 0 ? (
-                <p className="rounded-2xl border border-sky-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-sky-700/70 dark:bg-slate-900/60 dark:text-slate-300 lg:col-span-3">
+                <p className="rounded-2xl border border-sky-300/80 bg-white px-4 py-3 text-sm text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300 lg:col-span-3">
                   Todavía no hay servicios cargados.
                 </p>
               ) : (
@@ -5174,7 +5232,7 @@ export default function GroupDetailPage() {
                   return (
                     <article
                       key={item.id_travel_group_inventory}
-                      className="rounded-2xl border border-sky-300/80 bg-white/75 p-3 dark:border-sky-700/70 dark:bg-slate-900/60"
+                      className="rounded-2xl border border-sky-300/80 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
@@ -5192,20 +5250,20 @@ export default function GroupDetailPage() {
                         </div>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-700 dark:text-slate-300">
-                        <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
+                        <span className="rounded-full border border-sky-300/80 bg-sky-50/60 px-2 py-0.5 dark:border-sky-600/40 dark:bg-sky-950/20">
                           Comprados: {item.total_qty}
                         </span>
-                        <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
+                        <span className="rounded-full border border-sky-300/80 bg-sky-50/60 px-2 py-0.5 dark:border-sky-600/40 dark:bg-sky-950/20">
                           Asignados a pasajeros: {item.assigned_qty}
                         </span>
                         {metrics ? (
                           <>
-                            <span className="rounded-full border border-sky-300/80 bg-white/80 px-2 py-0.5 dark:border-sky-700 dark:bg-slate-900/70">
+                            <span className="rounded-full border border-sky-300/80 bg-sky-50/60 px-2 py-0.5 dark:border-sky-600/40 dark:bg-sky-950/20">
                               Costo total:{" "}
                               {formatMoney(metrics.costTotal, metrics.currency)}
                             </span>
                             {metrics.saleTotal > 0 ? (
-                              <span className="rounded-full border border-emerald-300/80 bg-emerald-100/90 px-2 py-0.5 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-200">
+                              <span className="rounded-full border border-emerald-300/80 bg-emerald-50/50 px-2 py-0.5 text-emerald-800 dark:border-emerald-500/70 dark:bg-emerald-900/10 dark:text-emerald-200">
                                 Venta estimada:{" "}
                                 {formatMoney(
                                   metrics.saleTotal,
@@ -5221,7 +5279,7 @@ export default function GroupDetailPage() {
                           type="button"
                           onClick={() => startEditInventory(item)}
                           disabled={submitting}
-                          className="inline-flex items-center justify-center rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sky-800 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-700 dark:bg-slate-900/70 dark:text-sky-200 dark:hover:border-sky-600"
+                          className="inline-flex items-center justify-center rounded-full border border-sky-300 bg-sky-50/70 px-4 py-2 text-sky-800 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-600/40 dark:bg-sky-950/20 dark:text-sky-200 dark:hover:border-sky-600"
                           title="Editar servicio"
                           aria-label="Editar servicio"
                         >
@@ -5244,7 +5302,7 @@ export default function GroupDetailPage() {
                           type="button"
                           onClick={() => void handleDeleteInventory(item)}
                           disabled={submitting}
-                          className="inline-flex items-center justify-center rounded-full border border-rose-300 bg-rose-100/90 px-4 py-2 text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-600 dark:bg-rose-900/30 dark:text-rose-200"
+                          className="inline-flex items-center justify-center rounded-full border border-rose-300 bg-rose-100/90 px-4 py-2 text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/70 dark:bg-rose-900/15 dark:text-rose-200"
                           title="Eliminar servicio"
                           aria-label="Eliminar servicio"
                         >
@@ -5278,397 +5336,249 @@ export default function GroupDetailPage() {
         ) : null}
 
         {showCobrosPanels ? (
-          <section
-            id="panel-cobros"
-            className="rounded-2xl border border-sky-200/80 bg-white/85 p-4 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/70"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                  Plan de pago, cobro y recibo del pasajero
-                </h2>
-                <p className="text-xs text-slate-700 dark:text-slate-300">
-                  Cobros y recibos se gestionan por pasajero sobre la reserva
-                  grupal.
+          <section id="panel-cobros" className="">
+            <div className="mt-4 space-y-4">
+              {passengers.length === 0 ? (
+                <p className={FLAT_NOTE_CLASS}>
+                  Todavía no hay pasajeros vinculados para gestionar cobros.
                 </p>
-              </div>
-              <ToggleIconButton
-                open={showCollectForm}
-                onClick={() => setShowCollectForm((prev) => !prev)}
-                label="cobros del pasajero"
-              />
-            </div>
+              ) : !selectedCollectPassenger ? (
+                <p className={FLAT_NOTE_CLASS}>
+                  Seleccioná un pasajero activo en la tabla para continuar.
+                </p>
+              ) : !selectedCollectBookingId || !selectedCollectClientId ? (
+                <p className={FLAT_NOTE_CLASS}>
+                  El pasajero activo no tiene contexto financiero válido.
+                </p>
+              ) : !collectBooking ? (
+                <p className={FLAT_NOTE_CLASS}>
+                  {collectLoading
+                    ? "Cargando datos de cobro..."
+                    : "No encontramos el contexto financiero del pasajero."}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-5">
+                  <div className="w-fit rounded-2xl border border-emerald-300/80 bg-emerald-50/30 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-500/70 dark:bg-emerald-900/20 dark:text-emerald-300">
+                    Pasajero activo:{" "}
+                    <span className="font-semibold text-emerald-900 dark:text-emerald-100">
+                      {selectedCollectPassenger.client
+                        ? `${selectedCollectPassenger.client.first_name} ${selectedCollectPassenger.client.last_name}`
+                        : `Cliente ${selectedCollectClientId}`}
+                    </span>
+                  </div>
 
-            <CollapsiblePanel open={showCollectForm} className="mt-4">
-              <div className="space-y-5">
-                {passengers.length === 0 ? (
-                  <p className={FLAT_NOTE_CLASS}>
-                    Todavía no hay pasajeros vinculados para gestionar cobros.
-                  </p>
-                ) : !selectedCollectPassenger ? (
-                  <p className={FLAT_NOTE_CLASS}>
-                    Seleccioná un pasajero activo en la tabla para continuar.
-                  </p>
-                ) : !selectedCollectBookingId || !selectedCollectClientId ? (
-                  <p className={FLAT_NOTE_CLASS}>
-                    El pasajero activo no tiene contexto financiero válido.
-                  </p>
-                ) : !collectBooking ? (
-                  <p className={FLAT_NOTE_CLASS}>
-                    {collectLoading
-                      ? "Cargando datos de cobro..."
-                      : "No encontramos la reserva financiera del pasajero."}
-                  </p>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="text-xs text-slate-700 dark:text-slate-300">
-                      <p>
-                        <span className="font-semibold">Pasajero:</span>{" "}
-                        <span className="font-semibold">
-                          {selectedCollectPassenger.client
-                            ? `${selectedCollectPassenger.client.first_name} ${selectedCollectPassenger.client.last_name}`
-                            : `Cliente ${selectedCollectClientId}`}
-                        </span>
-                        {" · "}Cuotas:{" "}
-                        <span className="font-semibold">
-                          {collectClientPayments.length}
-                        </span>
-                        {" · "}Recibos:{" "}
-                        <span className="font-semibold">
-                          {collectReceipts.length}
-                        </span>
+                  {collectLoadingError ? (
+                    <p className={FLAT_WARN_CLASS}>{collectLoadingError}</p>
+                  ) : null}
+
+                  <section className="order-2 space-y-4">
+                    <div className="mx-1">
+                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+                        Plan de pagos
                       </p>
                     </div>
-
-                    {collectLoadingError ? (
-                      <p className={FLAT_WARN_CLASS}>{collectLoadingError}</p>
-                    ) : null}
-
-                    <section className="space-y-4 border-t border-slate-200/70 pt-4 dark:border-slate-700/70">
-                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                        Plan de pagos del pax (Opcional)
+                    {!token ? (
+                      <p className={FLAT_WARN_CLASS}>
+                        Necesitás sesión activa para crear cuotas del pasajero.
                       </p>
-                      {!token ? (
-                        <p className={FLAT_WARN_CLASS}>
-                          Necesitás sesión activa para crear cuotas del
-                          pasajero.
-                        </p>
-                      ) : (
-                        <GroupClientPaymentForm
-                          token={token}
-                          booking={collectBooking}
-                          groupId={groupId}
-                          groupPassengerId={
-                            selectedCollectPassenger.id_travel_group_passenger
-                          }
-                          groupDepartureId={
-                            selectedCollectPassenger.travelGroupDeparture
-                              ?.id_travel_group_departure ?? null
-                          }
-                          defaultClientId={selectedCollectClientId}
-                          lockClient={true}
-                          onCreated={() => {
-                            void refreshCollectData();
-                          }}
-                        />
-                      )}
-                      <GroupClientPaymentList
-                        payments={collectClientPayments}
+                    ) : (
+                      <GroupClientPaymentForm
+                        token={token}
                         booking={collectBooking}
                         groupId={groupId}
-                        role={financeRole}
-                        loading={collectLoading}
-                        onPaymentDeleted={() => {
+                        groupPassengerId={
+                          selectedCollectPassenger.id_travel_group_passenger
+                        }
+                        groupDepartureId={
+                          selectedCollectPassenger.travelGroupDeparture
+                            ?.id_travel_group_departure ?? null
+                        }
+                        defaultClientId={selectedCollectClientId}
+                        lockClient={true}
+                        onCreated={() => {
                           void refreshCollectData();
                         }}
                       />
-                    </section>
+                    )}
+                    <GroupClientPaymentList
+                      payments={collectClientPayments}
+                      booking={collectBooking}
+                      groupId={groupId}
+                      role={financeRole}
+                      loading={collectLoading}
+                      onPaymentDeleted={() => {
+                        void refreshCollectData();
+                      }}
+                    />
+                  </section>
 
-                    <section className="space-y-4 border-t border-slate-200/70 pt-4 dark:border-slate-700/70">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          Cobro y recibo del pasajero
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (editingCollectReceipt)
-                              setEditingCollectReceipt(null);
-                            setCollectReceiptFormVisible((prev) => !prev);
-                          }}
-                          className={pillClass(
-                            collectReceiptFormVisible,
-                            "sky",
-                          )}
-                        >
-                          {collectReceiptFormVisible
-                            ? "Ocultar formulario"
-                            : "Nuevo recibo"}
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void refreshCollectData()}
-                          disabled={collectLoading}
-                          className="rounded-full border border-slate-300 bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
-                        >
-                          {collectLoading
-                            ? "Actualizando..."
-                            : "Refrescar recibos"}
-                        </button>
-                      </div>
-                      {!token ? (
-                        <p className={FLAT_WARN_CLASS}>
-                          Necesitás sesión activa para crear/editar recibos.
-                        </p>
-                      ) : (
-                        <GroupReceiptForm
-                          token={token}
-                          groupId={groupId}
-                          groupPassengerId={
-                            selectedCollectPassenger.id_travel_group_passenger
-                          }
-                          requireServiceSelection={false}
-                          editingReceiptId={
-                            editingCollectReceipt?.id_receipt ?? null
-                          }
-                          isFormVisible={collectReceiptFormVisible}
-                          setIsFormVisible={setCollectReceiptFormVisible}
-                          bookingId={selectedCollectBookingId || undefined}
-                          allowAgency={false}
-                          initialServiceIds={
-                            editingCollectReceipt?.serviceIds || []
-                          }
-                          initialConcept={editingCollectReceipt?.concept || ""}
-                          initialAmount={
-                            editingCollectReceipt
-                              ? toAmountNumber(editingCollectReceipt.amount)
-                              : undefined
-                          }
-                          initialCurrency={
-                            editingCollectReceipt?.amount_currency
-                              ? normalizeCurrencyCode(
-                                  editingCollectReceipt.amount_currency,
-                                )
-                              : undefined
-                          }
-                          initialAmountWords={
-                            editingCollectReceipt?.amount_string || ""
-                          }
-                          initialAmountWordsCurrency={
-                            editingCollectReceipt?.base_currency
-                              ? normalizeCurrencyCode(
-                                  editingCollectReceipt.base_currency,
-                                )
-                              : undefined
-                          }
-                          initialPaymentDescription={
-                            editingCollectReceipt?.currency || ""
-                          }
-                          initialFeeAmount={
-                            editingCollectReceipt?.payment_fee_amount != null
-                              ? toAmountNumber(
-                                  editingCollectReceipt.payment_fee_amount,
-                                )
-                              : undefined
-                          }
-                          initialIssueDate={toDateInputValue(
-                            editingCollectReceipt?.issue_date,
-                          )}
-                          initialBaseAmount={
-                            editingCollectReceipt?.base_amount ?? null
-                          }
-                          initialBaseCurrency={
-                            editingCollectReceipt?.base_currency ?? null
-                          }
-                          initialCounterAmount={
-                            editingCollectReceipt?.counter_amount ?? null
-                          }
-                          initialCounterCurrency={
-                            editingCollectReceipt?.counter_currency ?? null
-                          }
-                          initialClientIds={
-                            editingCollectReceipt?.clientIds?.length
-                              ? editingCollectReceipt.clientIds
-                              : [Number(selectedCollectClientId)]
-                          }
-                          loadServicesForBooking={async (bookingId) => {
-                            if (
-                              collectBooking.id_booking === bookingId &&
-                              collectBookingServices.length > 0
-                            ) {
-                              return collectBookingServices.map((service) => ({
-                                id_service: service.id_service,
-                                description:
-                                  service.description ||
-                                  service.type ||
-                                  `Servicio ${service.id_service}`,
-                                currency: normalizeCurrencyCode(
-                                  service.currency || "ARS",
-                                ),
-                                sale_price: toAmountNumber(service.sale_price),
-                                card_interest: toAmountNumber(
-                                  service.card_interest || 0,
-                                ),
-                                taxableCardInterest: toAmountNumber(
-                                  service.taxableCardInterest || 0,
-                                ),
-                                vatOnCardInterest: toAmountNumber(
-                                  service.vatOnCardInterest || 0,
-                                ),
-                                type: service.type,
-                                destination: service.destination,
-                              }));
-                            }
-                            const payload = await requestGroupApi<{
-                              booking?: FinanceBookingPayload;
-                            }>(
-                              `/api/groups/${encodeURIComponent(groupId)}/finance/context?bookingId=${bookingId}`,
-                              {
-                                credentials: "include",
-                                cache: "no-store",
-                              },
-                              "No pudimos cargar servicios del contexto financiero.",
-                            );
-                            const remoteServices = Array.isArray(
-                              payload.booking?.services,
-                            )
-                              ? payload.booking?.services
-                              : [];
-                            return remoteServices.map((service) => ({
-                              id_service: service.id_service,
-                              description:
-                                service.description ||
-                                service.type ||
-                                `Servicio ${service.id_service}`,
-                              currency: normalizeCurrencyCode(
-                                service.currency || "ARS",
-                              ),
-                              sale_price: toAmountNumber(service.sale_price),
-                              card_interest: toAmountNumber(
-                                service.card_interest || 0,
-                              ),
-                              taxableCardInterest: toAmountNumber(
-                                service.taxableCardInterest || 0,
-                              ),
-                              vatOnCardInterest: toAmountNumber(
-                                service.vatOnCardInterest || 0,
-                              ),
-                              type: service.type,
-                              destination: service.destination,
-                            }));
-                          }}
-                          onSubmit={async (payload) => {
-                            const normalizedPayload = {
-                              ...payload,
-                              passengerId:
-                                selectedCollectPassenger.id_travel_group_passenger,
-                              clientIds: [Number(selectedCollectClientId)],
-                            };
+                  <section className="order-1 space-y-4">
+                    <div className="mx-1">
+                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+                        Agregar recibo
+                      </p>
+                    </div>
+                    {!token ? (
+                      <p className={FLAT_WARN_CLASS}>
+                        Necesitás sesión activa para crear/editar recibos.
+                      </p>
+                    ) : (
+                      <GroupReceiptForm
+                        token={token}
+                        groupId={groupId}
+                        groupPassengerId={
+                          selectedCollectPassenger.id_travel_group_passenger
+                        }
+                        requireServiceSelection={false}
+                        editingReceiptId={
+                          editingCollectReceipt?.id_receipt ?? null
+                        }
+                        isFormVisible={collectReceiptFormVisible}
+                        setIsFormVisible={setCollectReceiptFormVisible}
+                        bookingId={selectedCollectBookingId || undefined}
+                        allowAgency={false}
+                        initialServiceIds={
+                          editingCollectReceipt?.serviceIds || []
+                        }
+                        initialConcept={editingCollectReceipt?.concept || ""}
+                        initialAmount={
+                          editingCollectReceipt
+                            ? toAmountNumber(editingCollectReceipt.amount)
+                            : undefined
+                        }
+                        initialCurrency={
+                          editingCollectReceipt?.amount_currency
+                            ? normalizeCurrencyCode(
+                                editingCollectReceipt.amount_currency,
+                              )
+                            : undefined
+                        }
+                        initialAmountWords={
+                          editingCollectReceipt?.amount_string || ""
+                        }
+                        initialAmountWordsCurrency={
+                          editingCollectReceipt?.base_currency
+                            ? normalizeCurrencyCode(
+                                editingCollectReceipt.base_currency,
+                              )
+                            : undefined
+                        }
+                        initialPaymentDescription={
+                          editingCollectReceipt?.currency || ""
+                        }
+                        initialFeeAmount={
+                          editingCollectReceipt?.payment_fee_amount != null
+                            ? toAmountNumber(
+                                editingCollectReceipt.payment_fee_amount,
+                              )
+                            : undefined
+                        }
+                        initialIssueDate={toDateInputValue(
+                          editingCollectReceipt?.issue_date,
+                        )}
+                        initialBaseAmount={
+                          editingCollectReceipt?.base_amount ?? null
+                        }
+                        initialBaseCurrency={
+                          editingCollectReceipt?.base_currency ?? null
+                        }
+                        initialCounterAmount={
+                          editingCollectReceipt?.counter_amount ?? null
+                        }
+                        initialCounterCurrency={
+                          editingCollectReceipt?.counter_currency ?? null
+                        }
+                        initialClientIds={
+                          editingCollectReceipt?.clientIds?.length
+                            ? editingCollectReceipt.clientIds
+                            : [Number(selectedCollectClientId)]
+                        }
+                        loadServicesForBooking={loadCollectServicesForBooking}
+                        onSubmit={async (payload) => {
+                          const normalizedPayload = {
+                            ...payload,
+                            passengerId:
+                              selectedCollectPassenger.id_travel_group_passenger,
+                            clientIds: [Number(selectedCollectClientId)],
+                          };
 
-                            if (editingCollectReceipt?.id_receipt) {
-                              const response =
-                                await requestGroupApi<SubmitResult>(
-                                  `/api/groups/${encodeURIComponent(groupId)}/finance/receipts/${editingCollectReceipt.id_receipt}`,
-                                  {
-                                    method: "PATCH",
-                                    headers: {
-                                      "Content-Type": "application/json",
-                                    },
-                                    credentials: "include",
-                                    body: JSON.stringify(normalizedPayload),
-                                  },
-                                  "No pudimos actualizar el recibo.",
-                                );
-                              setEditingCollectReceipt(null);
-                              setCollectReceiptFormVisible(false);
-                              await refreshCollectData();
-                              return response;
-                            }
-
+                          if (editingCollectReceipt?.id_receipt) {
                             const response =
                               await requestGroupApi<SubmitResult>(
-                                `/api/groups/${encodeURIComponent(groupId)}/finance/receipts`,
+                                `/api/groups/${encodeURIComponent(groupId)}/finance/receipts/${editingCollectReceipt.id_receipt}`,
                                 {
-                                  method: "POST",
+                                  method: "PATCH",
                                   headers: {
                                     "Content-Type": "application/json",
                                   },
                                   credentials: "include",
                                   body: JSON.stringify(normalizedPayload),
                                 },
-                                "No pudimos crear el recibo.",
+                                "No pudimos actualizar el recibo.",
                               );
+                            setEditingCollectReceipt(null);
                             setCollectReceiptFormVisible(false);
                             await refreshCollectData();
                             return response;
-                          }}
-                          onCancel={() => {
-                            setEditingCollectReceipt(null);
-                            setCollectReceiptFormVisible(false);
-                          }}
-                        />
-                      )}
+                          }
 
-                      {collectReceipts.length > 0 ? (
-                        <GroupReceiptList
-                          token={token}
-                          receipts={collectReceipts}
-                          booking={collectBooking}
-                          groupId={groupId}
-                          services={collectBookingServices}
-                          role={financeRole}
-                          onReceiptDeleted={() => {
-                            void refreshCollectData();
-                          }}
-                          onReceiptEdit={(receipt) => {
-                            setEditingCollectReceipt(receipt);
-                            setCollectReceiptFormVisible(true);
-                          }}
-                        />
-                      ) : (
-                        <p className={FLAT_NOTE_CLASS}>
-                          No hay recibos cargados para este pasajero.
-                        </p>
-                      )}
-                    </section>
-                  </div>
-                )}
-              </div>
-            </CollapsiblePanel>
+                          const response = await requestGroupApi<SubmitResult>(
+                            `/api/groups/${encodeURIComponent(groupId)}/finance/receipts`,
+                            {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                              },
+                              credentials: "include",
+                              body: JSON.stringify(normalizedPayload),
+                            },
+                            "No pudimos crear el recibo.",
+                          );
+                          setCollectReceiptFormVisible(false);
+                          await refreshCollectData();
+                          return response;
+                        }}
+                        onCancel={() => {
+                          setEditingCollectReceipt(null);
+                          setCollectReceiptFormVisible(false);
+                        }}
+                      />
+                    )}
+
+                    {collectReceipts.length > 0 ? (
+                      <GroupReceiptList
+                        token={token}
+                        receipts={collectReceipts}
+                        booking={collectBooking}
+                        groupId={groupId}
+                        services={collectBookingServices}
+                        role={financeRole}
+                        onReceiptDeleted={() => {
+                          void refreshCollectData();
+                        }}
+                        onReceiptEdit={(receipt) => {
+                          setEditingCollectReceipt(receipt);
+                          setCollectReceiptFormVisible(true);
+                        }}
+                      />
+                    ) : (
+                      <p className={FLAT_NOTE_CLASS}>
+                        No hay recibos cargados para este pasajero.
+                      </p>
+                    )}
+                  </section>
+                </div>
+              )}
+            </div>
           </section>
         ) : null}
 
         {showPagosPanels ? (
-          <section
-            id="panel-finanzas"
-            className="rounded-3xl border border-sky-200/80 bg-white/70 p-6 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                  Pagos y vencimientos con operador
-                </h2>
-                <p className="text-xs text-slate-700 dark:text-slate-300">
-                  Gestión de vencimientos y pagos operativos sobre la reserva
-                  grupal.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => void refreshPaymentsData()}
-                disabled={paymentsLoading || !selectedPaymentsReservation}
-                className="rounded-full border border-slate-300 bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
-              >
-                {paymentsLoading ? "Actualizando..." : "Refrescar pagos"}
-              </button>
-            </div>
-
-            <div className="mt-5 space-y-5">
+          <section id="panel-finanzas" className="">
+            <div className="mt-4 space-y-4">
               {financeReservationOptions.length > 1 ? (
                 <div className="space-y-2">
-                  <p className="text-sm">Salida de la reserva</p>
+                  <p className="text-sm">Salida</p>
                   <div className="flex flex-wrap gap-2">
                     {financeReservationOptions.map((option) => {
                       const active = option.key === paymentsReservationKey;
@@ -5686,13 +5596,6 @@ export default function GroupDetailPage() {
                     })}
                   </div>
                 </div>
-              ) : financeReservationOptions.length === 1 ? (
-                <p className={FLAT_NOTE_CLASS}>
-                  Salida activa:{" "}
-                  <span className="font-semibold">
-                    {financeReservationOptions[0].label}
-                  </span>
-                </p>
               ) : null}
 
               {financeReservationOptions.length === 0 ? (
@@ -5708,39 +5611,61 @@ export default function GroupDetailPage() {
                 <p className={FLAT_NOTE_CLASS}>
                   {paymentsLoading
                     ? "Cargando datos de pagos..."
-                    : "No encontramos la reserva financiera."}
+                    : "No encontramos el contexto financiero."}
                 </p>
               ) : (
-                <div className="space-y-6">
-                  <div className="text-xs text-slate-700 dark:text-slate-300">
-                    <p>
-                      <span className="font-semibold">Salida:</span>{" "}
-                      <span className="font-semibold">
+                <div className="space-y-5">
+                  {financeReservationOptions.length > 1 ? (
+                    <div className="w-fit rounded-2xl border border-emerald-300/80 bg-emerald-50/30 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-500/70 dark:bg-emerald-900/20 dark:text-emerald-300">
+                      Salida activa:{" "}
+                      <span className="font-semibold text-emerald-900 dark:text-emerald-100">
                         {selectedPaymentsReservation.label}
                       </span>
-                      {" · "}
-                      <span className="font-semibold">
-                        Pasajeros vinculados:
-                      </span>{" "}
-                      <span className="font-semibold">
-                        {paymentsLinkedPassengers.length}
-                      </span>
-                      {" · "}Deudas operador:{" "}
-                      <span className="font-semibold">
-                        {paymentsOperatorDues.length}
-                      </span>
-                      {" · "}Pagos operador:{" "}
-                      <span className="font-semibold">ver listado</span>
-                    </p>
-                  </div>
-
+                    </div>
+                  ) : null}
                   {paymentsLoadingError ? (
                     <p className={FLAT_WARN_CLASS}>{paymentsLoadingError}</p>
                   ) : null}
 
-                  <section className="space-y-6 border-t border-slate-200/70 pt-6 dark:border-slate-700/70">
-                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      Plan de pagos y vencimientos del operador
+                  <section className="space-y-4">
+                    <div className="mx-1">
+                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+                        Pagos al operador
+                      </p>
+                    </div>
+                    {!token ? (
+                      <p className={FLAT_WARN_CLASS}>
+                        Necesitás sesión activa para registrar pagos a operador.
+                      </p>
+                    ) : (
+                      <GroupOperatorPaymentForm
+                        token={token}
+                        booking={paymentsBooking}
+                        groupId={groupId}
+                        groupDepartureId={
+                          selectedPaymentsReservation.departureId ?? null
+                        }
+                        availableServices={paymentsBookingServices}
+                        operators={operatorOptions as unknown as Operator[]}
+                        onCreated={() => {
+                          setFinanceOperatorPaymentsReloadKey(
+                            (prev) => prev + 1,
+                          );
+                          void refreshPaymentsData();
+                        }}
+                      />
+                    )}
+                    <GroupOperatorPaymentList
+                      token={token}
+                      groupId={groupId}
+                      scopeKey={selectedPaymentsReservation.key}
+                      reloadKey={financeOperatorPaymentsReloadKey}
+                    />
+                  </section>
+
+                  <section className="space-y-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
+                      Vencimientos del operador
                     </p>
                     {!token ? (
                       <p className={FLAT_WARN_CLASS}>
@@ -5776,40 +5701,6 @@ export default function GroupDetailPage() {
                       }}
                     />
                   </section>
-
-                  <section className="space-y-6 border-t border-slate-200/70 pt-6 dark:border-slate-700/70">
-                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      Pagos al operador
-                    </p>
-                    {!token ? (
-                      <p className={FLAT_WARN_CLASS}>
-                        Necesitás sesión activa para registrar pagos a operador.
-                      </p>
-                    ) : (
-                      <GroupOperatorPaymentForm
-                        token={token}
-                        booking={paymentsBooking}
-                        groupId={groupId}
-                        groupDepartureId={
-                          selectedPaymentsReservation.departureId ?? null
-                        }
-                        availableServices={paymentsBookingServices}
-                        operators={operatorOptions as unknown as Operator[]}
-                        onCreated={() => {
-                          setFinanceOperatorPaymentsReloadKey(
-                            (prev) => prev + 1,
-                          );
-                          void refreshPaymentsData();
-                        }}
-                      />
-                    )}
-                    <GroupOperatorPaymentList
-                      token={token}
-                      groupId={groupId}
-                      scopeKey={selectedPaymentsReservation.key}
-                      reloadKey={financeOperatorPaymentsReloadKey}
-                    />
-                  </section>
                 </div>
               )}
             </div>
@@ -5817,86 +5708,45 @@ export default function GroupDetailPage() {
         ) : null}
 
         {showFacturacionPanel ? (
-          <section
-            id="panel-facturacion"
-            className="rounded-3xl border border-sky-200/80 bg-white/70 p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                  Facturación
-                </h2>
-                <p className="text-xs text-slate-700 dark:text-slate-300">
-                  Facturas y notas de crédito por pasajero y salida.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => void refreshFinanceData()}
-                disabled={financeLoading || !selectedFinanceReservation}
-                className="rounded-full border border-slate-300 bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
-              >
-                {financeLoading ? "Actualizando..." : "Refrescar facturación"}
-              </button>
-            </div>
-
-            <div className="mt-3 space-y-3">
+          <section id="panel-facturacion" className="">
+            <div className="mt-4 space-y-4">
               {passengers.length === 0 ? (
-                <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+                <p className={FLAT_NOTE_CLASS}>
                   Todavía no hay pasajeros disponibles para facturar.
                 </p>
               ) : !selectedFinancePassenger ? (
-                <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+                <p className={FLAT_NOTE_CLASS}>
                   Seleccioná un pasajero activo en la tabla para ver
                   facturación.
                 </p>
               ) : !selectedFinanceReservation ? (
-                <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+                <p className={FLAT_NOTE_CLASS}>
                   No encontramos el contexto financiero del pasajero activo.
                 </p>
               ) : !financeBooking ? (
-                <p className="rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+                <p className={FLAT_NOTE_CLASS}>
                   {financeLoading
                     ? "Cargando facturación..."
                     : "Contexto operativo no disponible."}
                 </p>
               ) : (
-                <div className="space-y-6">
-                  <div className="text-xs text-slate-700 dark:text-slate-300">
-                    <p>
-                      <span className="font-semibold">Contexto pax:</span>{" "}
-                      <span className="font-semibold">
-                        {selectedFinancePassenger.client
-                          ? `${selectedFinancePassenger.client.first_name} ${selectedFinancePassenger.client.last_name}`
-                          : `Cliente ${selectedFinancePassenger.client_id ?? "-"}`}
-                      </span>
-                      {" · "}
-                      <span className="font-semibold">
-                        Pasajeros vinculados:
-                      </span>{" "}
-                      <span className="font-semibold">
-                        {financeLinkedPassengers.length}
-                      </span>
-                      {" · "}Facturas:{" "}
-                      <span className="font-semibold">
-                        {financeInvoices.length}
-                      </span>
-                      {" · "}Notas de crédito:{" "}
-                      <span className="font-semibold">
-                        {financeCreditNotes.length}
-                      </span>
-                    </p>
+                <div className="space-y-5">
+                  <div className="w-fit rounded-2xl border border-emerald-300/80 bg-emerald-50/30 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-500/70 dark:bg-emerald-900/20 dark:text-emerald-300">
+                    Pasajero activo:{" "}
+                    <span className="font-semibold text-emerald-900 dark:text-emerald-100">
+                      {selectedFinancePassenger.client
+                        ? `${selectedFinancePassenger.client.first_name} ${selectedFinancePassenger.client.last_name}`
+                        : `Cliente ${selectedFinancePassenger.client_id ?? "-"}`}
+                    </span>
                   </div>
 
                   {financeLoadingError ? (
-                    <p className="rounded-2xl border border-amber-300/80 bg-amber-100/90 px-3 py-2 text-xs text-amber-900 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200">
-                      {financeLoadingError}
-                    </p>
+                    <p className={FLAT_WARN_CLASS}>{financeLoadingError}</p>
                   ) : null}
 
-                  <section className="space-y-4 border-t border-slate-200/70 pt-6 dark:border-slate-700/70">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  <section className="space-y-4">
+                    <div className="mx-1">
+                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
                         Emitir factura al pasajero
                       </p>
                     </div>
@@ -5916,10 +5766,6 @@ export default function GroupDetailPage() {
                                 : selectedFinanceInvoiceClientId
                                   ? `Cliente ${selectedFinanceInvoiceClientId}`
                                   : "Sin seleccionar"}
-                            </span>
-                            {" · "}Servicios:{" "}
-                            <span className="font-semibold">
-                              {financeBookingServices.length}
                             </span>
                           </p>
                         </div>
@@ -5943,28 +5789,29 @@ export default function GroupDetailPage() {
                             updateFormData={updateFinanceInvoiceFormData}
                             isSubmitting={financeInvoiceSubmitting}
                             token={token}
+                            collapsible
                           />
                         )}
                       </>
                     )}
                   </section>
 
-                  <div className="space-y-3 rounded-2xl border border-sky-300/70 bg-white/75 p-3 dark:border-sky-700/60 dark:bg-slate-900/60">
-                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-600 dark:text-slate-400">
+                  <section className="space-y-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
                       Facturas
                     </p>
                     <GroupInvoiceList
                       invoices={financeInvoices}
                       loading={financeLoading && financeInvoices.length === 0}
                     />
-                  </div>
+                  </section>
 
-                  <div className="space-y-3 rounded-2xl border border-sky-300/70 bg-white/75 p-3 dark:border-sky-700/60 dark:bg-slate-900/60">
-                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-600 dark:text-slate-400">
+                  <section className="space-y-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-700 dark:text-slate-300">
                       Notas de crédito
                     </p>
                     <CreditNoteList creditNotes={financeCreditNotes} />
-                  </div>
+                  </section>
                 </div>
               )}
             </div>
@@ -5973,14 +5820,14 @@ export default function GroupDetailPage() {
         {showGroupPanels ? (
           <section
             id="panel-pasajeros"
-            className="rounded-3xl border border-sky-200/80 bg-white/70 p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-800/70 dark:bg-slate-900/55"
+            className="rounded-3xl border border-sky-200/80 bg-white p-5 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10"
           >
             <div className="my-1 flex flex-wrap items-center justify-between gap-4">
               <h2 className="flex items-center gap-2 text-2xl font-semibold text-slate-900 dark:text-slate-100">
                 Pasajeros
               </h2>
 
-              <div className="flex items-center gap-1 rounded-full border border-slate-300/80 bg-white/80 p-1 text-xs dark:border-slate-600 dark:bg-slate-900/70">
+              <div className="flex items-center gap-1 rounded-full border border-sky-300/70 bg-white p-1 text-xs dark:border-sky-600/30 dark:bg-sky-950/10">
                 <button
                   type="button"
                   onClick={() => setPassengerView("GRID")}
@@ -6074,11 +5921,11 @@ export default function GroupDetailPage() {
             </p>
 
             <div className="mt-3 flex w-full flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="flex w-full items-center gap-2 rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-1 text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-100">
+              <div className="flex w-full items-center gap-2 rounded-2xl border border-sky-300/70 bg-white px-4 py-1 text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100">
                 <input
                   value={passengerSearch}
                   onChange={(e) => setPassengerSearch(e.target.value)}
-                  placeholder="Buscar pasajero/salida/reserva..."
+                  placeholder="Buscar pasajero/salida/código..."
                   className="w-full bg-transparent py-1 outline-none placeholder:font-light placeholder:tracking-wide"
                 />
                 <button
@@ -6107,7 +5954,7 @@ export default function GroupDetailPage() {
               <button
                 type="button"
                 onClick={() => setShowPassengerFilters((v) => !v)}
-                className="flex items-center justify-center gap-2 rounded-2xl border border-slate-300/80 bg-white/80 px-6 py-2 text-slate-700 shadow-sm backdrop-blur transition hover:border-slate-400 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
+                className="flex items-center justify-center gap-2 rounded-2xl border border-sky-300/70 bg-sky-50/60 px-6 py-2 text-slate-700 shadow-sm backdrop-blur transition hover:border-sky-400 dark:border-sky-600/30 dark:bg-sky-950/20 dark:text-slate-200 dark:hover:border-sky-600"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -6125,34 +5972,10 @@ export default function GroupDetailPage() {
                 </svg>
                 <span>{showPassengerFilters ? "Ocultar" : "Filtros"}</span>
               </button>
-
-              <button
-                type="button"
-                onClick={() => void fetchAll()}
-                disabled={loading || submitting}
-                className="inline-flex items-center justify-center rounded-2xl border border-slate-300/80 bg-white/80 px-4 py-2 text-slate-700 shadow-sm backdrop-blur transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:border-slate-500"
-                title="Refrescar"
-                aria-label="Refrescar"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className={`size-6 ${loading ? "animate-spin" : ""}`}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
-                  />
-                </svg>
-              </button>
             </div>
 
             <CollapsiblePanel open={showPassengerFilters} className="mt-3">
-              <div className="overflow-hidden rounded-3xl border border-sky-300/80 bg-white/70 p-4 text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-sky-700/70 dark:bg-slate-900/60 dark:text-slate-100">
+              <div className="overflow-hidden rounded-3xl border border-sky-300/80 bg-white p-4 text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100">
                 <div className="flex flex-col gap-3">
                   <label className="flex flex-col gap-1 text-sm">
                     Estado
@@ -6188,13 +6011,13 @@ export default function GroupDetailPage() {
             </CollapsiblePanel>
 
             {filteredPassengers.length === 0 ? (
-              <p className="mt-4 rounded-2xl border border-slate-300/80 bg-white/70 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+              <p className="mt-4 rounded-2xl border border-sky-300/70 bg-white px-4 py-3 text-sm text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300">
                 No hay pasajeros para los filtros actuales.
               </p>
             ) : passengerView === "TABLE" ? (
-              <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-300/80 bg-white/80 shadow-sm shadow-slate-900/10 dark:border-slate-600 dark:bg-slate-900/60">
+              <div className="mt-4 overflow-x-auto rounded-2xl border border-sky-300/70 bg-white shadow-sm shadow-slate-900/10 dark:border-sky-600/30 dark:bg-sky-950/10">
                 <table className="min-w-full text-left text-sm text-slate-800 dark:text-slate-100">
-                  <thead className="border-b border-slate-200 text-xs uppercase tracking-[0.08em] text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                  <thead className="border-b border-sky-200/80 text-xs uppercase tracking-[0.08em] text-slate-500 dark:border-sky-600/30 dark:text-slate-400">
                     <tr>
                       <th className="p-2">Pasajero</th>
                       {!isSingleDepartureMode ? (
@@ -6211,7 +6034,7 @@ export default function GroupDetailPage() {
                       return (
                         <tr
                           key={item.id_travel_group_passenger}
-                          className={`border-b border-slate-200/80 align-top dark:border-slate-700/80 ${
+                          className={`border-b border-sky-200/70 align-top dark:border-sky-600/30 ${
                             isActive
                               ? "bg-emerald-50/50 dark:bg-emerald-900/10"
                               : ""
@@ -6276,7 +6099,7 @@ export default function GroupDetailPage() {
                                 type="button"
                                 onClick={() => void handleDeletePassenger(item)}
                                 disabled={submitting}
-                                className="grid size-8 place-items-center rounded-full border border-rose-300 bg-rose-100/90 text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-600 dark:bg-rose-900/30 dark:text-rose-200"
+                                className="grid size-8 place-items-center rounded-full border border-rose-300 bg-rose-100/90 text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/70 dark:bg-rose-900/15 dark:text-rose-200"
                                 title="Eliminar pasajero"
                                 aria-label="Eliminar pasajero"
                               >
@@ -6313,8 +6136,8 @@ export default function GroupDetailPage() {
                       key={item.id_travel_group_passenger}
                       className={`rounded-2xl border p-3 shadow-sm shadow-slate-900/10 ${
                         isActive
-                          ? "border-emerald-300/80 bg-emerald-50/60 dark:border-emerald-600 dark:bg-emerald-900/20"
-                          : "border-slate-300/80 bg-white/80 dark:border-slate-600 dark:bg-slate-900/60"
+                          ? "border-emerald-300/80 bg-emerald-50/60 dark:border-emerald-500/70 dark:bg-emerald-900/10"
+                          : "border-sky-300/70 bg-white dark:border-sky-600/30 dark:bg-sky-950/10"
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -6325,7 +6148,9 @@ export default function GroupDetailPage() {
                               : `Cliente Nº${item.client_id ?? "-"}`}
                           </p>
                           <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Salida: {item.travelGroupDeparture?.name || "-"}
+                            {isSingleDepartureMode
+                              ? item.travelGroupDeparture?.name || "-"
+                              : `Salida: ${item.travelGroupDeparture?.name || "-"}`}
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -6336,30 +6161,63 @@ export default function GroupDetailPage() {
                                 item.id_travel_group_passenger,
                               )
                             }
-                            className={pillClass(isActive, "sky")}
+                            className={`${pillClass(isActive, "sky")} inline-flex items-center gap-1`}
+                            title={isActive ? "En edición" : "Gestionar"}
+                            aria-label={isActive ? "En edición" : "Gestionar"}
                           >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              strokeWidth={1.5}
+                              stroke="currentColor"
+                              className="size-4"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                              />
+                            </svg>
                             {isActive ? "En edición" : "Gestionar"}
                           </button>
                           <button
                             type="button"
                             onClick={() => void handleDeletePassenger(item)}
                             disabled={submitting}
-                            className="rounded-full border border-amber-300 bg-amber-100/90 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                            className="grid size-8 place-items-center rounded-full border border-rose-300 bg-rose-100/90 text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/70 dark:bg-rose-900/15 dark:text-rose-200"
+                            title="Eliminar pasajero"
+                            aria-label="Eliminar pasajero"
                           >
-                            Eliminar
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              strokeWidth={1.5}
+                              stroke="currentColor"
+                              className="size-4"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                              />
+                            </svg>
                           </button>
                         </div>
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                        <span
-                          className={`rounded-full border px-2 py-0.5 font-bold ${STATUS_STYLES[item.status] || STATUS_STYLES.PENDIENTE}`}
-                        >
-                          {formatPassengerStatus(item.status)}
-                        </span>
-                        <span className="rounded-full border border-slate-300/80 bg-white/80 px-2 py-0.5 text-slate-700 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
+                        {item.status !== "CONFIRMADO" ? (
+                          <span
+                            className={`rounded-full border px-2 py-0.5 font-bold ${STATUS_STYLES[item.status] || STATUS_STYLES.PENDIENTE}`}
+                          >
+                            {formatPassengerStatus(item.status)}
+                          </span>
+                        ) : null}
+                        <span className="rounded-full border border-sky-300/70 bg-white px-2 py-0.5 text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300">
                           Pendientes: {item.pending_payment.count}
                         </span>
-                        <span className="rounded-full border border-slate-300/80 bg-white/80 px-2 py-0.5 text-slate-700 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-300">
+                        <span className="rounded-full border border-sky-300/70 bg-white px-2 py-0.5 text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300">
                           Monto:{" "}
                           {formatPendingInstallmentAmount(
                             item.pending_payment.amount,
@@ -6380,16 +6238,20 @@ export default function GroupDetailPage() {
                       key={item.id_travel_group_passenger}
                       className={`rounded-2xl border p-3 shadow-sm shadow-slate-900/10 ${
                         isActive
-                          ? "border-emerald-300/80 bg-emerald-50/60 dark:border-emerald-600 dark:bg-emerald-900/20"
-                          : "border-slate-300/80 bg-white/80 dark:border-slate-600 dark:bg-slate-900/60"
+                          ? "border-emerald-300/80 bg-emerald-50/60 dark:border-emerald-500/70 dark:bg-emerald-900/10"
+                          : "border-sky-300/70 bg-white dark:border-sky-600/30 dark:bg-sky-950/10"
                       }`}
                     >
                       <div className="mb-2 flex items-start justify-between gap-2">
-                        <span
-                          className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_STYLES[item.status] || STATUS_STYLES.PENDIENTE}`}
-                        >
-                          {formatPassengerStatus(item.status)}
-                        </span>
+                        {item.status !== "CONFIRMADO" ? (
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_STYLES[item.status] || STATUS_STYLES.PENDIENTE}`}
+                          >
+                            {formatPassengerStatus(item.status)}
+                          </span>
+                        ) : (
+                          <span />
+                        )}
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
@@ -6398,17 +6260,48 @@ export default function GroupDetailPage() {
                                 item.id_travel_group_passenger,
                               )
                             }
-                            className={pillClass(isActive, "sky")}
+                            className={`${pillClass(isActive, "sky")} inline-flex items-center gap-1`}
+                            title={isActive ? "En edición" : "Gestionar"}
+                            aria-label={isActive ? "En edición" : "Gestionar"}
                           >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              strokeWidth={1.5}
+                              stroke="currentColor"
+                              className="size-4"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
+                              />
+                            </svg>
                             {isActive ? "En edición" : "Gestionar"}
                           </button>
                           <button
                             type="button"
                             onClick={() => void handleDeletePassenger(item)}
                             disabled={submitting}
-                            className="rounded-full border border-amber-300 bg-amber-100/90 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200"
+                            className="grid size-8 place-items-center rounded-full border border-rose-300 bg-rose-100/90 text-rose-800 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/70 dark:bg-rose-900/15 dark:text-rose-200"
+                            title="Eliminar pasajero"
+                            aria-label="Eliminar pasajero"
                           >
-                            Eliminar
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              strokeWidth={1.5}
+                              stroke="currentColor"
+                              className="size-4"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                              />
+                            </svg>
                           </button>
                         </div>
                       </div>
@@ -6422,7 +6315,9 @@ export default function GroupDetailPage() {
                         {item.client?.phone || "-"}
                       </p>
                       <p className="mt-2 text-xs text-slate-700 dark:text-slate-300">
-                        Salida: {item.travelGroupDeparture?.name || "-"}
+                        {isSingleDepartureMode
+                          ? item.travelGroupDeparture?.name || "-"
+                          : `Salida: ${item.travelGroupDeparture?.name || "-"}`}
                       </p>
                       <p className="mt-2 text-xs text-slate-700 dark:text-slate-300">
                         Pendientes: {item.pending_payment.count} ·{" "}

@@ -152,10 +152,10 @@ function GroupOperatorPaymentCard({
         }`
       : null;
   const metaItemClass =
-    "rounded-xl border border-sky-200/70 bg-sky-50/35 px-3 py-2.5 dark:border-sky-900/40 dark:bg-slate-900/45";
+    "rounded-xl border border-sky-300/70 bg-white px-3 py-2.5 dark:border-sky-600/30 dark:bg-sky-950/10";
 
   return (
-    <article className="space-y-5 rounded-2xl border border-sky-200/80 bg-white/75 p-5 text-slate-900 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-100">
+    <article className="space-y-5 rounded-2xl border border-sky-300/80 bg-white p-5 text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100">
       <header className="flex flex-wrap items-start justify-between gap-5">
         <div className="min-w-0 space-y-1">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -166,7 +166,7 @@ function GroupOperatorPaymentCard({
           </h3>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 md:text-xs">
             Nº {paymentDisplayId}
-            {item.booking_id ? ` · Reserva Nº ${bookingNumber}` : ""}
+            {item.booking_id ? ` · Grupal Nº ${bookingNumber}` : ""}
           </p>
         </div>
         <div className="flex items-center gap-3">

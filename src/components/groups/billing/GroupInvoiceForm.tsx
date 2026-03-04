@@ -23,13 +23,13 @@ const Section = ({
   desc?: string;
   children: ReactNode;
 }) => (
-  <section className="rounded-2xl border border-white/10 bg-white/10 p-4">
+  <section className="rounded-2xl border border-sky-300/70 bg-white p-4 dark:border-sky-600/30 dark:bg-sky-950/10">
     <div className="mb-3">
-      <h3 className="text-base font-semibold tracking-tight text-sky-950 dark:text-white">
+      <h3 className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100">
         {title}
       </h3>
       {desc && (
-        <p className="mt-1 text-xs font-light text-sky-950/70 dark:text-white/70">
+        <p className="mt-1 text-xs font-light text-slate-600 dark:text-slate-400">
           {desc}
         </p>
       )}
@@ -54,23 +54,24 @@ const Field = ({
   <div className="space-y-1">
     <label
       htmlFor={id}
-      className="ml-1 block text-sm font-medium text-sky-950 dark:text-white"
+      className="ml-1 block text-sm font-medium text-slate-900 dark:text-slate-100"
     >
       {label} {required && <span className="text-rose-600">*</span>}
     </label>
     {children}
     {hint && (
-      <p className="ml-1 text-xs text-sky-950/70 dark:text-white/70">{hint}</p>
+      <p className="ml-1 text-xs text-slate-600 dark:text-slate-400">{hint}</p>
     )}
   </div>
 );
 
 const pillBase = "rounded-full px-3 py-1 text-xs font-medium transition-colors";
-const pillNeutral = "bg-white/30 dark:bg-white/10";
+const pillNeutral =
+  "border border-sky-300/70 bg-white text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300";
 const pillOk = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 
 const inputBase =
-  "w-full rounded-2xl border border-sky-200 bg-white/50 p-2 px-3 shadow-sm shadow-sky-950/10 outline-none placeholder:font-light dark:bg-sky-100/10 dark:border-sky-200/60 dark:text-white";
+  "w-full rounded-2xl border border-slate-300/90 bg-white p-2 px-3 text-slate-900 shadow-sm shadow-slate-900/10 outline-none placeholder:font-light dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100";
 
 const toMoney = (value: number) => Number(value.toFixed(2));
 
@@ -1642,10 +1643,10 @@ export default function GroupInvoiceForm({
         opacity: 1,
         transition: { duration: 0.35, ease: "easeInOut" },
       }}
-      className={`mb-6 overflow-auto rounded-3xl border border-white/10 bg-white/10 text-sky-950 shadow-md shadow-sky-950/10 dark:text-white ${containerClassName}`}
+      className={`mb-6 overflow-auto rounded-3xl border border-sky-300/70 bg-white text-slate-900 shadow-sm shadow-slate-900/10 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100 ${containerClassName}`}
     >
       <div
-        className={`sticky top-0 z-10 ${showForm ? "rounded-t-3xl border-b" : ""} border-white/10 px-4 py-3 backdrop-blur-sm`}
+        className={`sticky top-0 z-10 ${showForm ? "rounded-t-3xl border-b" : ""} border-sky-300/70 bg-white px-4 py-3 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10`}
       >
         {collapsible ? (
           <button
@@ -1656,7 +1657,7 @@ export default function GroupInvoiceForm({
             aria-controls="invoice-form-body"
           >
             <div className="flex items-center gap-3">
-              <div className="grid size-9 place-items-center rounded-full bg-sky-100 text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white">
+              <div className="grid size-9 place-items-center rounded-full bg-sky-100 text-slate-900 shadow-sm shadow-sky-950/20 dark:bg-sky-950/10 dark:text-slate-100">
                 {showForm ? (
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -1705,7 +1706,7 @@ export default function GroupInvoiceForm({
         ) : (
           <div className="flex w-full items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="grid size-9 place-items-center rounded-full bg-sky-100 text-sky-950 shadow-sm shadow-sky-950/20 dark:bg-white/10 dark:text-white">
+              <div className="grid size-9 place-items-center rounded-full bg-sky-100 text-slate-900 shadow-sm shadow-sky-950/20 dark:bg-sky-950/10 dark:text-slate-100">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   className="size-5"
@@ -1785,15 +1786,15 @@ export default function GroupInvoiceForm({
               <Field id="tipoFactura" label="Tipo de factura" required>
                 <div
                   id="tipoFactura"
-                  className="inline-flex rounded-full border border-white/15 bg-white/20 p-1 dark:bg-white/5"
+                  className="inline-flex rounded-full border border-sky-300/70 bg-white p-1 dark:border-sky-600/30 dark:bg-sky-950/10"
                 >
                   <button
                     type="button"
                     onClick={() => updateFormData("tipoFactura", "1")}
                     className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
                       formData.tipoFactura === "1"
-                        ? "bg-sky-100 text-sky-900 dark:bg-sky-500/30 dark:text-white"
-                        : "text-sky-950/70 dark:text-white/70"
+                        ? "bg-sky-100 text-sky-900 dark:bg-sky-500/30 dark:text-slate-100"
+                        : "text-slate-600 dark:text-slate-400"
                     }`}
                   >
                     Factura A
@@ -1803,8 +1804,8 @@ export default function GroupInvoiceForm({
                     onClick={() => updateFormData("tipoFactura", "6")}
                     className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
                       formData.tipoFactura === "6"
-                        ? "bg-sky-100 text-sky-900 dark:bg-sky-500/30 dark:text-white"
-                        : "text-sky-950/70 dark:text-white/70"
+                        ? "bg-sky-100 text-sky-900 dark:bg-sky-500/30 dark:text-slate-100"
+                        : "text-slate-600 dark:text-slate-400"
                     }`}
                   >
                     Factura B
@@ -1851,7 +1852,7 @@ export default function GroupInvoiceForm({
                 {Array.from({ length: clientCount }).map((_, idx) => (
                   <div
                     key={idx}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-3"
+                    className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10"
                   >
                     <ClientPicker
                       token={token}
@@ -1910,7 +1911,7 @@ export default function GroupInvoiceForm({
                             ? "Consultando AFIP..."
                             : "Traer datos AFIP"}
                         </button>
-                        <label className="inline-flex items-center gap-2 text-xs text-sky-950/70 dark:text-white/70">
+                        <label className="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
                           <input
                             type="checkbox"
                             checked={Boolean(formData.paxLookupPersist?.[idx])}
@@ -1939,7 +1940,7 @@ export default function GroupInvoiceForm({
                     </div>
 
                     {formData.paxLookupData?.[idx] && (
-                      <div className="mt-2 rounded-xl border border-white/10 bg-white/5 p-2 text-xs text-sky-950/80 dark:text-white/80">
+                      <div className="mt-2 rounded-xl border border-sky-300/70 bg-white p-2 text-xs text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300">
                         <p className="font-medium">Previsualización AFIP</p>
                         <p>
                           {formData.paxLookupData[idx]?.company_name ||
@@ -1971,7 +1972,7 @@ export default function GroupInvoiceForm({
               >
                 <div className="md:col-span-2">
                   <div className="mb-3 flex flex-wrap items-center gap-2">
-                    <div className="inline-flex rounded-full border border-white/15 bg-white/20 p-1 dark:bg-white/5">
+                    <div className="inline-flex rounded-full border border-sky-300/70 bg-white p-1 dark:border-sky-600/30 dark:bg-sky-950/10">
                       <button
                         type="button"
                         onClick={() =>
@@ -1979,8 +1980,8 @@ export default function GroupInvoiceForm({
                         }
                         className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
                           formData.distributionMode === "percentage"
-                            ? "bg-sky-100 text-sky-900 dark:bg-sky-500/30 dark:text-white"
-                            : "text-sky-950/70 dark:text-white/70"
+                            ? "bg-sky-100 text-sky-900 dark:bg-sky-500/30 dark:text-slate-100"
+                            : "text-slate-600 dark:text-slate-400"
                         }`}
                       >
                         Porcentaje
@@ -1990,8 +1991,8 @@ export default function GroupInvoiceForm({
                         onClick={() => handleDistributionModeChange("amount")}
                         className={`rounded-full px-4 py-1.5 text-xs font-medium transition ${
                           formData.distributionMode === "amount"
-                            ? "bg-sky-100 text-sky-900 dark:bg-sky-500/30 dark:text-white"
-                            : "text-sky-950/70 dark:text-white/70"
+                            ? "bg-sky-100 text-sky-900 dark:bg-sky-500/30 dark:text-slate-100"
+                            : "text-slate-600 dark:text-slate-400"
                         }`}
                       >
                         Monto
@@ -2000,7 +2001,7 @@ export default function GroupInvoiceForm({
                     <button
                       type="button"
                       onClick={setEqualDistribution}
-                      className="rounded-full border border-white/20 bg-white/20 px-3 py-1.5 text-xs font-medium text-sky-950/80 transition hover:scale-[0.98] active:scale-[0.96] dark:bg-white/5 dark:text-white/80"
+                      className="rounded-full border border-sky-300/70 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:scale-[0.98] active:scale-[0.96] dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300"
                     >
                       Repartir en partes iguales
                     </button>
@@ -2008,25 +2009,25 @@ export default function GroupInvoiceForm({
                       type="button"
                       onClick={completeDistributionAtLastPax}
                       disabled={clientCount < 2}
-                      className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-medium text-sky-950/70 transition hover:scale-[0.98] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 dark:text-white/80"
+                      className="rounded-full border border-sky-300/70 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:scale-[0.98] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300"
                     >
                       Completar faltante en último pax
                     </button>
                   </div>
 
                   <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-3">
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                      <p className="text-[11px] uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+                    <div className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Asignado
                       </p>
-                      <p className="mt-1 text-sm font-semibold text-sky-950 dark:text-white">
+                      <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
                         {formData.distributionMode === "percentage"
                           ? `${distributionAssigned.toFixed(2)}%`
                           : manualFormatter.format(distributionAssigned)}
                       </p>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                      <p className="text-[11px] uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+                    <div className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Restante
                       </p>
                       <p
@@ -2041,11 +2042,11 @@ export default function GroupInvoiceForm({
                           : manualFormatter.format(distributionRemaining)}
                       </p>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                      <p className="text-[11px] uppercase tracking-wide text-sky-950/60 dark:text-white/60">
+                    <div className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Total referencia
                       </p>
-                      <p className="mt-1 text-sm font-semibold text-sky-950 dark:text-white">
+                      <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
                         {formData.distributionMode === "percentage"
                           ? "100.00%"
                           : manualFormatter.format(distributionReferenceTotal)}
@@ -2060,13 +2061,13 @@ export default function GroupInvoiceForm({
                       return (
                         <div
                           key={`distribution-${idx}`}
-                          className="rounded-2xl border border-white/10 bg-white/5 p-3"
+                          className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10"
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <p className="text-xs font-medium text-sky-950/70 dark:text-white/70">
+                            <p className="text-xs font-medium text-slate-600 dark:text-slate-400">
                               Pax {idx + 1}
                             </p>
-                            <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-medium text-sky-900 dark:bg-white/10 dark:text-white">
+                            <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-sky-900 dark:bg-sky-950/10 dark:text-slate-100">
                               {formData.distributionMode === "percentage"
                                 ? `${current.toFixed(2)}%`
                                 : manualFormatter.format(current)}
@@ -2087,9 +2088,9 @@ export default function GroupInvoiceForm({
                                 onChange={(e) =>
                                   setDistributionValueAt(idx, e.target.value)
                                 }
-                                className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full bg-sky-200 accent-sky-700 dark:bg-white/20"
+                                className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full bg-sky-200 accent-sky-700 dark:bg-sky-950/20"
                               />
-                              <div className="mt-2 flex items-center justify-between text-[11px] text-sky-950/60 dark:text-white/60">
+                              <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -2098,7 +2099,7 @@ export default function GroupInvoiceForm({
                                       String(Math.max(0, current - 5)),
                                     )
                                   }
-                                  className="rounded-full border border-white/20 px-2 py-0.5 font-medium transition hover:bg-white/20"
+                                  className="rounded-full border border-sky-300/70 px-2 py-0.5 font-medium transition hover:bg-white"
                                 >
                                   -5%
                                 </button>
@@ -2112,7 +2113,7 @@ export default function GroupInvoiceForm({
                                     )
                                   }
                                   disabled={current >= maxAllowed}
-                                  className="rounded-full border border-white/20 px-2 py-0.5 font-medium transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
+                                  className="rounded-full border border-sky-300/70 px-2 py-0.5 font-medium transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   +5%
                                 </button>
@@ -2132,7 +2133,7 @@ export default function GroupInvoiceForm({
                                 placeholder="0.00"
                                 className={`${inputBase} mt-3`}
                               />
-                              <p className="mt-1 text-[11px] text-sky-950/60 dark:text-white/60">
+                              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                                 Máximo disponible para este pax:{" "}
                                 {manualFormatter.format(
                                   Math.max(0, maxAllowed),
@@ -2146,7 +2147,7 @@ export default function GroupInvoiceForm({
                   </div>
 
                   {distributionValidation.ok ? (
-                    <div className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-sky-950/80 dark:text-white/80">
+                    <div className="mt-3 rounded-2xl border border-sky-300/70 bg-white p-3 text-xs text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300">
                       <p className="font-medium">Previsualización por pax</p>
                       <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
                         {distributionValidation.shares.map(
@@ -2166,7 +2167,7 @@ export default function GroupInvoiceForm({
                             return (
                               <div
                                 key={`preview-${idx}`}
-                                className="rounded-xl border border-white/10 bg-white/10 p-2"
+                                className="rounded-xl border border-sky-300/70 bg-white p-2 dark:border-sky-600/30 dark:bg-sky-950/10"
                               >
                                 <p className="font-medium">Pax {idx + 1}</p>
                                 <p>
@@ -2193,7 +2194,7 @@ export default function GroupInvoiceForm({
                         {manualFormatter.format(distributionReferenceTotal)}
                       </p>
                       {manualDistributionTotal != null && (
-                        <p className="mt-1 text-[11px] text-sky-950/70 dark:text-white/70">
+                        <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">
                           Referencia tomada de importes manuales.
                         </p>
                       )}
@@ -2209,12 +2210,12 @@ export default function GroupInvoiceForm({
 
             <Section
               title="Servicios"
-              desc="Seleccioná los servicios de la reserva."
+              desc="Seleccioná los servicios de la grupal."
             >
               <div className="md:col-span-2">
                 {availableServices.length === 0 ? (
-                  <div className="rounded-2xl border border-white/10 bg-white/10 p-3 text-sm opacity-80">
-                    Esta reserva no tiene servicios cargados.
+                  <div className="rounded-2xl border border-sky-300/70 bg-white p-3 text-sm opacity-80 dark:border-sky-600/30 dark:bg-sky-950/10">
+                    Esta grupal no tiene servicios cargados.
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -2229,8 +2230,8 @@ export default function GroupInvoiceForm({
                           onClick={() => toggleService(svc)}
                           className={`rounded-2xl border p-3 text-left transition-all ${
                             isActive
-                              ? "border-sky-300/40 bg-sky-100 text-sky-950 shadow-sm dark:bg-white/10 dark:text-white"
-                              : "border-white/10 bg-white/10 hover:bg-white/20 dark:border-white/10 dark:bg-white/10"
+                              ? "border-sky-300/40 bg-sky-100 text-slate-900 shadow-sm dark:bg-sky-950/10 dark:text-slate-100"
+                              : "border-sky-300/70 bg-white hover:bg-white dark:border-sky-300/70 dark:bg-sky-950/10"
                           }`}
                           title={`Servicio Nº ${
                             formatAgencyNumber(svc.agency_service_id)
@@ -2243,7 +2244,7 @@ export default function GroupInvoiceForm({
                               {svc.destination ? ` · ${svc.destination}` : ""}
                             </div>
                             {isActive && (
-                              <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs text-sky-900 dark:bg-white/20 dark:text-white">
+                              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-sky-900 dark:bg-sky-950/10 dark:text-slate-100">
                                 seleccionado
                               </span>
                             )}
@@ -2268,7 +2269,7 @@ export default function GroupInvoiceForm({
                   </div>
                 )}
                 {selectedServices.length > 0 ? (
-                  <div className="ml-1 mt-2 text-xs text-sky-950/70 dark:text-white/70">
+                  <div className="ml-1 mt-2 text-xs text-slate-600 dark:text-slate-400">
                     Seleccionados:{" "}
                     {selectedServices
                       .map((s) => `Nº ${formatAgencyNumber(s.agency_service_id)}`)
@@ -2298,27 +2299,27 @@ export default function GroupInvoiceForm({
                   <button
                     type="button"
                     onClick={regenerateItemsFromServices}
-                    className="rounded-full border border-white/20 bg-white/20 px-3 py-1.5 text-xs font-medium text-sky-950/80 transition hover:scale-[0.98] active:scale-[0.96] dark:bg-white/5 dark:text-white/80"
+                    className="rounded-full border border-sky-300/70 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:scale-[0.98] active:scale-[0.96] dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300"
                   >
                     Regenerar desde servicios
                   </button>
                 </div>
 
                 {(customItems || []).length === 0 ? (
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-sky-950/70 dark:text-white/70">
+                  <div className="rounded-2xl border border-sky-300/70 bg-white p-3 text-xs text-slate-600 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-400">
                     No hay ítems cargados. Podés agregar uno manual o regenerar
                     desde servicios.
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <p className="text-[11px] text-sky-950/70 dark:text-white/70">
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
                       El tratamiento fiscal se determina automáticamente al
                       emitir.
                     </p>
                     {(customItems || []).map((item) => (
                       <div
                         key={item.id}
-                        className="grid grid-cols-1 gap-2 rounded-2xl border border-white/10 bg-white/5 p-3 md:grid-cols-12"
+                        className="grid grid-cols-1 gap-2 rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10 md:grid-cols-12"
                       >
                         <div className="md:col-span-8">
                           <input
@@ -2362,8 +2363,8 @@ export default function GroupInvoiceForm({
                   </div>
                 )}
 
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-sky-950/70 dark:text-white/70">
-                  <p className="font-medium">Detalle de reserva seleccionado</p>
+                <div className="rounded-2xl border border-sky-300/70 bg-white p-3 text-xs text-slate-600 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-400">
+                  <p className="font-medium">Detalle de la grupal</p>
                   {selectedServices.length === 0 ? (
                     <p className="mt-1">No hay servicios seleccionados.</p>
                   ) : (
@@ -2396,10 +2397,10 @@ export default function GroupInvoiceForm({
                   disabled={manualToggleDisabled}
                   className={`rounded-full border px-4 py-1 text-xs font-medium transition ${
                     manualToggleDisabled
-                      ? "cursor-not-allowed border-white/20 bg-white/10 text-sky-950/40 dark:text-white/40"
+                      ? "cursor-not-allowed border-sky-300/70 bg-white text-slate-500 dark:text-slate-500"
                       : manualEnabled
-                        ? "border-sky-300/50 bg-sky-100 text-sky-950"
-                        : "border-white/20 bg-white/10 text-sky-950/70 dark:text-white/70"
+                        ? "border-sky-300/50 bg-sky-100 text-slate-900"
+                        : "border-sky-300/70 bg-white text-slate-600 dark:text-slate-400"
                   }`}
                 >
                   {manualEnabled ? "Activado" : "Desactivado"}
@@ -2496,10 +2497,10 @@ export default function GroupInvoiceForm({
                     />
                   </Field>
 
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
+                  <div className="rounded-2xl border border-sky-300/70 bg-white p-3 text-xs text-slate-600 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-400 md:col-span-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span>Total manual</span>
-                      <span className="font-medium text-sky-950 dark:text-white">
+                      <span className="font-medium text-slate-900 dark:text-slate-100">
                         {manualFormatter.format(manualPreview.total)}
                       </span>
                     </div>
@@ -2516,7 +2517,7 @@ export default function GroupInvoiceForm({
                   </div>
 
                   {selectedClientsCount > 1 && (
-                    <div className="text-xs text-sky-950/70 dark:text-white/70 md:col-span-2">
+                    <div className="text-xs text-slate-600 dark:text-slate-400 md:col-span-2">
                       Se emite una factura por pax usando la distribución
                       definida arriba. Si activás importes manuales válidos, la
                       distribución por monto usa ese total manual.
@@ -2603,7 +2604,7 @@ export default function GroupInvoiceForm({
                       </div>
                     )}
 
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-[11px] text-sky-950/70 dark:text-white/70">
+                    <div className="rounded-2xl border border-sky-300/70 bg-white p-3 text-[11px] text-slate-600 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-400">
                       El cálculo AFIP sale del desglose de servicios (o de
                       importes manuales si están activos y válidos). Los ítems
                       de factura impactan en descripciones/PDF.
@@ -2612,13 +2613,13 @@ export default function GroupInvoiceForm({
                     {afipPreviewByCurrency.map((group) => (
                       <div
                         key={`afip-preview-${group.currency}`}
-                        className="rounded-2xl border border-white/10 bg-white/5 p-3"
+                        className="rounded-2xl border border-sky-300/70 bg-white p-3 dark:border-sky-600/30 dark:bg-sky-950/10"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-sm font-medium text-sky-950 dark:text-white">
+                          <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                             Moneda {toDisplayCurrency(group.currency)}
                           </p>
-                          <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-medium text-sky-900 dark:bg-white/10 dark:text-white">
+                          <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-sky-900 dark:bg-sky-950/10 dark:text-slate-100">
                             Total{" "}
                             {formatMoneyByCurrency(
                               group.breakdown.total,
@@ -2628,81 +2629,81 @@ export default function GroupInvoiceForm({
                         </div>
 
                         <div className="mt-3 grid grid-cols-1 gap-2 text-xs md:grid-cols-3">
-                          <div className="rounded-xl border border-white/10 bg-white/10 p-2">
-                            <p className="text-sky-950/70 dark:text-white/70">
+                          <div className="rounded-xl border border-sky-300/70 bg-white p-2 dark:border-sky-600/30 dark:bg-sky-950/10">
+                            <p className="text-slate-600 dark:text-slate-400">
                               Neto
                             </p>
-                            <p className="font-medium text-sky-950 dark:text-white">
+                            <p className="font-medium text-slate-900 dark:text-slate-100">
                               {formatMoneyByCurrency(
                                 group.breakdown.neto,
                                 group.currency,
                               )}
                             </p>
                           </div>
-                          <div className="rounded-xl border border-white/10 bg-white/10 p-2">
-                            <p className="text-sky-950/70 dark:text-white/70">
+                          <div className="rounded-xl border border-sky-300/70 bg-white p-2 dark:border-sky-600/30 dark:bg-sky-950/10">
+                            <p className="text-slate-600 dark:text-slate-400">
                               Base 21%
                             </p>
-                            <p className="font-medium text-sky-950 dark:text-white">
+                            <p className="font-medium text-slate-900 dark:text-slate-100">
                               {formatMoneyByCurrency(
                                 group.breakdown.base21,
                                 group.currency,
                               )}
                             </p>
                           </div>
-                          <div className="rounded-xl border border-white/10 bg-white/10 p-2">
-                            <p className="text-sky-950/70 dark:text-white/70">
+                          <div className="rounded-xl border border-sky-300/70 bg-white p-2 dark:border-sky-600/30 dark:bg-sky-950/10">
+                            <p className="text-slate-600 dark:text-slate-400">
                               IVA 21%
                             </p>
-                            <p className="font-medium text-sky-950 dark:text-white">
+                            <p className="font-medium text-slate-900 dark:text-slate-100">
                               {formatMoneyByCurrency(
                                 group.breakdown.iva21,
                                 group.currency,
                               )}
                             </p>
                           </div>
-                          <div className="rounded-xl border border-white/10 bg-white/10 p-2">
-                            <p className="text-sky-950/70 dark:text-white/70">
+                          <div className="rounded-xl border border-sky-300/70 bg-white p-2 dark:border-sky-600/30 dark:bg-sky-950/10">
+                            <p className="text-slate-600 dark:text-slate-400">
                               Base 10,5%
                             </p>
-                            <p className="font-medium text-sky-950 dark:text-white">
+                            <p className="font-medium text-slate-900 dark:text-slate-100">
                               {formatMoneyByCurrency(
                                 group.breakdown.base10_5,
                                 group.currency,
                               )}
                             </p>
                           </div>
-                          <div className="rounded-xl border border-white/10 bg-white/10 p-2">
-                            <p className="text-sky-950/70 dark:text-white/70">
+                          <div className="rounded-xl border border-sky-300/70 bg-white p-2 dark:border-sky-600/30 dark:bg-sky-950/10">
+                            <p className="text-slate-600 dark:text-slate-400">
                               IVA 10,5%
                             </p>
-                            <p className="font-medium text-sky-950 dark:text-white">
+                            <p className="font-medium text-slate-900 dark:text-slate-100">
                               {formatMoneyByCurrency(
                                 group.breakdown.iva10_5,
                                 group.currency,
                               )}
                             </p>
                           </div>
-                          <div className="rounded-xl border border-white/10 bg-white/10 p-2">
-                            <p className="text-sky-950/70 dark:text-white/70">
+                          <div className="rounded-xl border border-sky-300/70 bg-white p-2 dark:border-sky-600/30 dark:bg-sky-950/10">
+                            <p className="text-slate-600 dark:text-slate-400">
                               IVA total
                             </p>
-                            <p className="font-medium text-sky-950 dark:text-white">
+                            <p className="font-medium text-slate-900 dark:text-slate-100">
                               {formatMoneyByCurrency(
                                 group.breakdown.ivaTotal,
                                 group.currency,
                               )}
                             </p>
                           </div>
-                          <div className="rounded-xl border border-white/10 bg-white/10 p-2 md:col-span-3">
-                            <p className="text-sky-950/70 dark:text-white/70">
+                          <div className="rounded-xl border border-sky-300/70 bg-white p-2 dark:border-sky-600/30 dark:bg-sky-950/10 md:col-span-3">
+                            <p className="text-slate-600 dark:text-slate-400">
                               Exento / No gravado
                             </p>
                             <p
                               className={`font-medium ${
                                 group.breakdown.exempt < 0
                                   ? "text-rose-700 dark:text-rose-200"
-                                  : "text-sky-950 dark:text-white"
+                                  : "text-slate-900 dark:text-slate-100"
                               }`}
                             >
                               {formatMoneyByCurrency(
@@ -2722,28 +2723,28 @@ export default function GroupInvoiceForm({
 
                         {group.pax.length > 0 && (
                           <div className="mt-3">
-                            <p className="text-[11px] font-medium text-sky-950/70 dark:text-white/70">
+                            <p className="text-[11px] font-medium text-slate-600 dark:text-slate-400">
                               Desglose por pax
                             </p>
                             <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
                               {group.pax.map((paxRow) => (
                                 <div
                                   key={`afip-preview-pax-${group.currency}-${paxRow.clientId}-${paxRow.idx}`}
-                                  className="rounded-xl border border-white/10 bg-white/10 p-2 text-xs"
+                                  className="rounded-xl border border-sky-300/70 bg-white p-2 text-xs dark:border-sky-600/30 dark:bg-sky-950/10"
                                 >
                                   <div className="flex items-center justify-between gap-2">
-                                    <p className="font-medium text-sky-950 dark:text-white">
+                                    <p className="font-medium text-slate-900 dark:text-slate-100">
                                       Pax {paxRow.idx + 1}
                                     </p>
-                                    <span className="text-sky-950/70 dark:text-white/70">
+                                    <span className="text-slate-600 dark:text-slate-400">
                                       {(paxRow.share * 100).toFixed(2)}%
                                     </span>
                                   </div>
                                   <div className="mt-1 flex items-center justify-between gap-2">
-                                    <span className="text-sky-950/70 dark:text-white/70">
+                                    <span className="text-slate-600 dark:text-slate-400">
                                       Total
                                     </span>
-                                    <span className="font-medium text-sky-950 dark:text-white">
+                                    <span className="font-medium text-slate-900 dark:text-slate-100">
                                       {formatMoneyByCurrency(
                                         paxRow.breakdown.total,
                                         group.currency,
@@ -2751,7 +2752,7 @@ export default function GroupInvoiceForm({
                                     </span>
                                   </div>
                                   <div className="mt-1 flex items-center justify-between gap-2">
-                                    <span className="text-sky-950/70 dark:text-white/70">
+                                    <span className="text-slate-600 dark:text-slate-400">
                                       Neto
                                     </span>
                                     <span>
@@ -2762,7 +2763,7 @@ export default function GroupInvoiceForm({
                                     </span>
                                   </div>
                                   <div className="mt-1 flex items-center justify-between gap-2">
-                                    <span className="text-sky-950/70 dark:text-white/70">
+                                    <span className="text-slate-600 dark:text-slate-400">
                                       IVA
                                     </span>
                                     <span>
@@ -2773,7 +2774,7 @@ export default function GroupInvoiceForm({
                                     </span>
                                   </div>
                                   <div className="mt-1 flex items-center justify-between gap-2">
-                                    <span className="text-sky-950/70 dark:text-white/70">
+                                    <span className="text-slate-600 dark:text-slate-400">
                                       Exento / No gravado
                                     </span>
                                     <span
@@ -2808,8 +2809,8 @@ export default function GroupInvoiceForm({
                 aria-busy={isSubmitting}
                 className={`rounded-full px-6 py-2 shadow-sm shadow-sky-950/20 transition active:scale-[0.98] ${
                   isSubmitting
-                    ? "cursor-not-allowed bg-sky-950/20 text-white/60 dark:bg-white/5 dark:text-white/40"
-                    : "bg-sky-100 text-sky-950 dark:bg-white/10 dark:text-white"
+                    ? "cursor-not-allowed bg-sky-950/20 text-white/60 dark:bg-sky-950/10 dark:text-slate-500"
+                    : "bg-sky-100 text-slate-900 dark:bg-sky-950/10 dark:text-slate-100"
                 }`}
               >
                 {isSubmitting ? <Spinner /> : "Crear factura"}

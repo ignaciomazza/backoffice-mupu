@@ -4,19 +4,19 @@ import React from "react";
 export const pillBase =
   "rounded-full border px-3 py-1 text-[11px] font-medium transition-colors md:text-xs";
 export const pillNeutral =
-  "border-sky-200/70 bg-sky-50/45 text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-200";
+  "border-sky-300/70 bg-white text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-200";
 export const pillOk =
-  "border-emerald-200 bg-emerald-500/15 text-emerald-700 dark:border-emerald-900/40 dark:text-emerald-300";
+  "border-emerald-300/80 bg-emerald-100/60 text-emerald-700 dark:border-emerald-500/70 dark:bg-emerald-900/25 dark:text-emerald-300";
 
 export const inputBase =
-  "w-full rounded-xl border border-slate-300/90 bg-white/95 p-2 px-3 text-slate-900 shadow-sm shadow-sky-100/40 outline-none transition placeholder:font-light focus:border-sky-400 focus:ring-2 focus:ring-sky-200/50 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-100 dark:focus:border-sky-500 dark:focus:ring-sky-900/40";
+  "w-full rounded-2xl border border-sky-300/80 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm shadow-slate-900/10 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-70 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100 dark:focus:border-sky-400";
 
 export const Section: React.FC<{
   title: string;
   desc?: string;
   children: React.ReactNode;
 }> = ({ title, desc, children }) => (
-  <section className="rounded-2xl border border-sky-200/70 bg-white/75 p-5 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55">
+  <section className="rounded-2xl border border-sky-300/70 bg-white p-4 dark:border-sky-600/30 dark:bg-sky-950/10">
     <div className="mb-4">
       <h3 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-slate-100 md:text-base">
         {title}

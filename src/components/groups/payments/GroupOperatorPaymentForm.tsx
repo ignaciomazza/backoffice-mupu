@@ -201,7 +201,7 @@ const Section: React.FC<{
   desc?: string;
   children: React.ReactNode;
 }> = ({ title, desc, children }) => (
-  <section className="rounded-2xl border border-sky-200/70 bg-white/75 p-5 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55">
+  <section className="rounded-2xl border border-sky-300/70 bg-white p-5 shadow-sm shadow-slate-900/10 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10">
     <div className="mb-4">
       <h3 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-slate-100 md:text-base">
         {title}
@@ -245,7 +245,7 @@ const Field: React.FC<{
 const pillBase =
   "rounded-full border px-3 py-1 text-[11px] font-medium transition-colors md:text-xs";
 const pillNeutral =
-  "border-sky-200/70 bg-sky-50/45 text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-200";
+  "border-sky-300/70 bg-white text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-200";
 const pillOk =
   "border-emerald-300/70 bg-emerald-500/15 text-emerald-700 dark:border-emerald-800/40 dark:text-emerald-300";
 
@@ -253,6 +253,7 @@ const inputBase =
   "w-full rounded-xl border border-slate-300/90 bg-white/95 p-2 px-3 text-slate-900 shadow-sm shadow-sky-100/40 outline-none transition placeholder:font-light focus:border-sky-400 focus:ring-2 focus:ring-sky-200/50 dark:border-slate-600 dark:bg-slate-900/70 dark:text-slate-100 dark:focus:border-sky-500 dark:focus:ring-sky-900/40";
 
 const EXCESS_TOLERANCE = 0.01;
+const FINANCE_CATEGORY_TIMEOUT_MS = 12000;
 const uid = () => `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const normalizeCurrencyCodeLoose = (raw: string | null | undefined): string => {
@@ -528,28 +529,47 @@ export default function GroupOperatorPaymentForm({
               enabled: c.enabled,
               requires_operator: c.requires_operator,
             })) ?? [];
-        let categories: FinanceCategory[] | undefined = picksCategories.length
-          ? picksCategories
-          : undefined;
-        try {
-          const catsRes = await authFetch(
-            "/api/finance/categories?scope=INVESTMENT",
-            { cache: "no-store", signal: ac.signal },
-            token,
-          );
-          if (catsRes.ok) {
-            const raw = await safeJson<unknown>(catsRes);
-            const cats = parseCategories(raw);
-            if (cats.length) categories = cats;
-          }
-        } catch {}
 
         setFinance({
           accounts: picks.accounts || [],
           paymentMethods: picks.paymentMethods || [],
           currencies: picks.currencies || [],
-          categories,
+          categories: picksCategories.length ? picksCategories : undefined,
         });
+
+        void (async () => {
+          const categoriesAc = new AbortController();
+          const timeoutId = setTimeout(
+            () => categoriesAc.abort(),
+            FINANCE_CATEGORY_TIMEOUT_MS,
+          );
+          const abortCategories = () => categoriesAc.abort();
+          ac.signal.addEventListener("abort", abortCategories);
+          try {
+            const catsRes = await authFetch(
+              "/api/finance/categories?scope=INVESTMENT",
+              { cache: "no-store", signal: categoriesAc.signal },
+              token,
+            );
+            if (!catsRes.ok || categoriesAc.signal.aborted) return;
+            const raw = await safeJson<unknown>(catsRes);
+            const cats = parseCategories(raw);
+            if (!cats.length || categoriesAc.signal.aborted) return;
+            setFinance((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    categories: cats,
+                  }
+                : prev,
+            );
+          } catch {
+            // noop: mantenemos categorías de picks
+          } finally {
+            clearTimeout(timeoutId);
+            ac.signal.removeEventListener("abort", abortCategories);
+          }
+        })();
       } finally {
         if (!ac.signal.aborted) setLoadingPicks(false);
       }
@@ -1137,7 +1157,7 @@ export default function GroupOperatorPaymentForm({
         operators.find((o) => o.id_operator === operatorIdFromSelection)
           ?.name || "Operador";
       setDescription(
-        `Pago a operador ${opName} | Reserva Nº ${formatAgencyNumber(
+        `Pago a operador ${opName} | Grupal Nº ${formatAgencyNumber(
           booking.agency_booking_id,
         )} | Servicios ${ids}`,
       );
@@ -1616,7 +1636,7 @@ export default function GroupOperatorPaymentForm({
         return;
       }
       if (selectedServices.length === 0) {
-        toast.error("Seleccioná al menos un servicio de la reserva.");
+        toast.error("Seleccioná al menos un servicio de la grupal.");
         return;
       }
 
@@ -1690,6 +1710,7 @@ export default function GroupOperatorPaymentForm({
         setExcessAction("carry");
         setExcessMissingAccountAction("carry");
         setAllocationResetKey((k) => k + 1);
+        setVisible(false);
       } catch (err) {
         const msg =
           err instanceof Error ? err.message : "Error al asociar el pago.";
@@ -1701,7 +1722,7 @@ export default function GroupOperatorPaymentForm({
     }
 
     if (selectedServices.length === 0) {
-      toast.error("Seleccioná al menos un servicio de la reserva.");
+      toast.error("Seleccioná al menos un servicio de la grupal.");
       return;
     }
     if (!operatorId) {
@@ -1862,7 +1883,7 @@ export default function GroupOperatorPaymentForm({
         .join(", ");
       const desc =
         description.trim() ||
-        `Pago a operador | Reserva Nº ${formatAgencyNumber(booking.agency_booking_id)} | Servicios ${ids}`;
+        `Pago a operador | Grupal Nº ${formatAgencyNumber(booking.agency_booking_id)} | Servicios ${ids}`;
 
       const payload: Record<string, unknown> = {
         category,
@@ -1962,6 +1983,7 @@ export default function GroupOperatorPaymentForm({
       setExcessAction("carry");
       setExcessMissingAccountAction("carry");
       setAllocationResetKey((k) => k + 1);
+      setVisible(false);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Error al cargar el pago.";
@@ -2036,11 +2058,11 @@ export default function GroupOperatorPaymentForm({
         opacity: 1,
         transition: { duration: 0.35, ease: "easeInOut" },
       }}
-      className="mb-8 overflow-auto rounded-3xl border border-sky-200/80 bg-white/75 text-slate-900 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-100"
+      className="mb-8 overflow-auto rounded-3xl border border-sky-300/80 bg-white text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100"
     >
       {/* HEADER */}
       <div
-        className={`sticky top-0 z-10 ${visible ? "rounded-t-3xl border-b" : ""} border-sky-200/70 bg-white/65 px-5 py-4 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/50 md:px-6`}
+        className={`sticky top-0 z-10 ${visible ? "rounded-t-3xl border-b" : ""} border-sky-300/70 bg-white px-5 py-4 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 md:px-6`}
       >
         <button
           type="button"
@@ -2094,7 +2116,7 @@ export default function GroupOperatorPaymentForm({
                     : "Cargar Pago a Operador"}
               </p>
               <p className="text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
-                Reserva Nº {formatAgencyNumber(booking.agency_booking_id)}
+                Grupal Nº {formatAgencyNumber(booking.agency_booking_id)}
               </p>
             </div>
           </div>
@@ -2133,7 +2155,7 @@ export default function GroupOperatorPaymentForm({
                       className={`rounded-full px-4 py-2 text-[11px] font-semibold transition-colors md:text-xs ${
                         active
                           ? "border border-sky-300/80 bg-sky-100/85 text-sky-900 shadow-sm shadow-sky-100/60 dark:border-sky-700 dark:bg-sky-900/25 dark:text-sky-100"
-                          : "border border-slate-300/70 bg-white/75 text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:bg-slate-800/70"
+                          : "border border-slate-300/70 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-sky-950/10 dark:text-slate-300 dark:hover:bg-slate-800/70"
                       }`}
                     >
                       {opt.label}
@@ -2143,8 +2165,8 @@ export default function GroupOperatorPaymentForm({
               </div>
               <p className="max-w-3xl text-[11px] leading-relaxed text-slate-600 dark:text-slate-400 md:text-xs">
                 {action === "attach"
-                  ? "Elegí un pago ya creado y vinculalo a servicios de esta reserva."
-                  : "Creá un pago nuevo vinculado a servicios de esta reserva."}
+                  ? "Elegí un pago ya creado y vinculalo a servicios de esta grupal."
+                  : "Creá un pago nuevo vinculado a servicios de esta grupal."}
               </p>
 
               {/* SERVICIOS */}
@@ -2154,8 +2176,8 @@ export default function GroupOperatorPaymentForm({
               >
                 <div className="md:col-span-2">
                   {servicesFromBooking.length === 0 ? (
-                    <div className="rounded-2xl border border-sky-200/70 bg-sky-50/45 p-4 text-[13px] text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-300 md:text-sm">
-                      Esta reserva no tiene servicios cargados.
+                    <div className="rounded-2xl border border-sky-300/70 bg-white p-4 text-[13px] text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300 md:text-sm">
+                      Esta grupal no tiene servicios cargados.
                     </div>
                   ) : (
                     <div className="max-h-72 space-y-3 overflow-auto pr-1">
@@ -2176,7 +2198,7 @@ export default function GroupOperatorPaymentForm({
                             className={`flex items-start gap-4 rounded-2xl border px-4 py-3 transition-colors ${
                               checked
                                 ? "border-sky-300/80 bg-sky-100/70 shadow-sm shadow-sky-100/50 dark:border-sky-700 dark:bg-sky-900/25"
-                                : "border-slate-300/80 bg-white/80 hover:border-sky-200/70 hover:bg-sky-50/45 dark:border-slate-600 dark:bg-slate-900/60 dark:hover:border-sky-900/40 dark:hover:bg-slate-800/70"
+                                : "border-slate-300/80 bg-white hover:border-sky-300/70 hover:bg-white dark:border-slate-600 dark:bg-sky-950/10 dark:hover:border-sky-900/40 dark:hover:bg-slate-800/70"
                             } ${disabled ? "opacity-50" : ""}`}
                           >
                             <input
@@ -2275,7 +2297,7 @@ export default function GroupOperatorPaymentForm({
                         <Spinner />
                       </div>
                     ) : paymentOptions.length > 0 ? (
-                      <div className="max-h-60 overflow-auto rounded-2xl border border-sky-200/70 bg-white/70 dark:border-sky-900/40 dark:bg-slate-900/50">
+                      <div className="max-h-60 overflow-auto rounded-2xl border border-sky-300/70 bg-white dark:border-sky-600/30 dark:bg-sky-950/10">
                         {paymentOptions.map((opt) => {
                           const active =
                             selectedPayment?.id_investment ===
@@ -2287,7 +2309,7 @@ export default function GroupOperatorPaymentForm({
                             <button
                               key={opt.id_investment}
                               type="button"
-                              className={`w-full px-4 py-3 text-left transition-colors hover:bg-sky-50/60 dark:hover:bg-sky-900/20 ${
+                              className={`w-full px-4 py-3 text-left transition-colors hover:bg-white dark:hover:bg-sky-900/20 ${
                                 active
                                   ? "bg-sky-100/70 dark:bg-sky-900/30"
                                   : ""
@@ -2314,7 +2336,7 @@ export default function GroupOperatorPaymentForm({
                   </div>
 
                   {selectedPayment && (
-                    <div className="rounded-2xl border border-sky-200/70 bg-sky-50/45 p-4 text-[11px] text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-300 md:col-span-2 md:text-xs">
+                    <div className="rounded-2xl border border-sky-300/70 bg-white p-4 text-[11px] text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300 md:col-span-2 md:text-xs">
                       <div className="flex flex-wrap items-start gap-2">
                         <span className="font-semibold">
                           Pago Nº{" "}
@@ -2415,7 +2437,7 @@ export default function GroupOperatorPaymentForm({
                   title="Pagos"
                   desc="Por línea definí importe, método, cuenta, moneda y costo financiero."
                 >
-                  <div className="rounded-2xl border border-sky-200/70 bg-sky-50/45 p-4 text-[13px] text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-200 md:col-span-2 md:text-sm">
+                  <div className="rounded-2xl border border-sky-300/70 bg-white p-4 text-[13px] text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-200 md:col-span-2 md:text-sm">
                     <div className="flex flex-wrap items-center gap-4">
                       <span>
                         <b>Total pagado:</b>{" "}
@@ -2445,7 +2467,7 @@ export default function GroupOperatorPaymentForm({
                       return (
                         <div
                           key={line.key}
-                          className="rounded-2xl border border-sky-200/70 bg-white/75 p-4 dark:border-sky-900/40 dark:bg-slate-900/55"
+                          className="rounded-2xl border border-sky-300/70 bg-white p-4 dark:border-sky-600/30 dark:bg-sky-950/10"
                         >
                           <div className="mb-3 flex items-center justify-between">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
@@ -2522,7 +2544,7 @@ export default function GroupOperatorPaymentForm({
 
                             <div className="md:col-span-4">
                               {line.payment_method === CREDIT_METHOD ? (
-                                <div className="rounded-xl border border-sky-200/70 bg-sky-50/45 px-3 py-2 text-sm text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-300">
+                                <div className="rounded-xl border border-sky-300/70 bg-white px-3 py-2 text-sm text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300">
                                   Impacta en cuenta corriente del operador.
                                 </div>
                               ) : requiresAccountLine ? (
@@ -2713,7 +2735,7 @@ export default function GroupOperatorPaymentForm({
                 isOperatorCategory(category) &&
                 payingWithCredit && (
                   <div
-                    className="rounded-2xl border border-sky-200/70 bg-sky-50/50 p-4 text-[11px] leading-relaxed text-slate-700 dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-300 md:col-span-2 md:text-xs"
+                    className="rounded-2xl border border-sky-300/70 bg-white p-4 text-[11px] leading-relaxed text-slate-700 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-300 md:col-span-2 md:text-xs"
                     role="status"
                     aria-live="polite"
                   >
@@ -2911,7 +2933,7 @@ export default function GroupOperatorPaymentForm({
               )}
 
               {/* ACTION BAR */}
-              <div className="sticky bottom-0 z-10 -mx-5 flex flex-wrap justify-end gap-3 border-t border-sky-200/70 bg-white/70 px-5 py-4 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 md:-mx-6 md:px-6">
+              <div className="sticky bottom-0 z-10 -mx-5 flex flex-wrap justify-end gap-3 border-t border-sky-300/70 bg-white px-5 py-4 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 md:-mx-6 md:px-6">
                 <button
                   type="submit"
                   disabled={loading}

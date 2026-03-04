@@ -1,6 +1,6 @@
 // utils/loadFinancePicks.ts
 // Carga las “listas de apoyo” (monedas, cuentas, métodos y categorías)
-// usando **endpoints ya existentes** por separado:
+// desde /api/finance/picks y, si no está disponible, usa endpoints legacy:
 //   - /api/finance/currencies
 //   - /api/finance/accounts
 //   - /api/finance/methods
@@ -10,6 +10,17 @@
 // y a cambios menores de nombres de campos.
 
 import { authFetch } from "@/utils/authFetch";
+
+const FINANCE_PICKS_TIMEOUT_MS = 12000;
+const FINANCE_PICKS_CACHE_TTL_MS = 15000;
+
+type PicksCacheEntry = {
+  expiresAt: number;
+  value: FinancePicks;
+};
+
+const picksCache = new Map<string, PicksCacheEntry>();
+const picksInflight = new Map<string, Promise<FinancePicks>>();
 
 /* ================= Tipos públicos (completos) ================= */
 
@@ -249,12 +260,20 @@ async function safeGetJson(
   url: string,
   token: string,
 ): Promise<unknown | null> {
+  const ac = new AbortController();
+  const timeoutId = setTimeout(() => ac.abort(), FINANCE_PICKS_TIMEOUT_MS);
   try {
-    const res = await authFetch(url, { cache: "no-store" }, token);
+    const res = await authFetch(
+      url,
+      { cache: "no-store", signal: ac.signal },
+      token,
+    );
     if (!res.ok) return null; // tolerante: si un recurso falta, devolvemos null
     return await res.json().catch(() => null);
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -267,24 +286,12 @@ function extractArray(
   return [];
 }
 
-/* ===================== Carga principal ===================== */
-
-/**
- * Carga listas de apoyo (monedas, cuentas, métodos y categorías)
- * desde endpoints existentes, en paralelo, y normaliza la forma.
- * Nunca lanza por 404 u otros fallos parciales: si un recurso no está,
- * retorna [] para ese recurso.
- */
-export async function loadFinancePicks(token: string): Promise<FinancePicks> {
-  const [rawCurrencies, rawAccounts, rawMethods, rawCategories] =
-    await Promise.all([
-      safeGetJson("/api/finance/currencies", token),
-      safeGetJson("/api/finance/accounts", token),
-      safeGetJson("/api/finance/methods", token),
-      safeGetJson("/api/finance/categories", token),
-    ]);
-
-  // Acepta array directo o envueltos en { currencies | items | data | list }
+function normalizePicksFromRaw(
+  rawCurrencies: unknown,
+  rawAccounts: unknown,
+  rawMethods: unknown,
+  rawCategories: unknown,
+): FinancePicks {
   const currArr = extractArray(rawCurrencies, [
     "currencies",
     "items",
@@ -312,10 +319,77 @@ export async function loadFinancePicks(token: string): Promise<FinancePicks> {
     "list",
   ]);
 
-  const currencies = currArr.map(normalizeCurrency);
-  const accounts = accArr.map(normalizeAccount);
-  const paymentMethods = methArr.map(normalizePaymentMethod);
-  const categories = catArr.map(normalizeCategory);
+  return {
+    currencies: currArr.map(normalizeCurrency),
+    accounts: accArr.map(normalizeAccount),
+    paymentMethods: methArr.map(normalizePaymentMethod),
+    categories: catArr.map(normalizeCategory),
+  };
+}
 
-  return { currencies, accounts, paymentMethods, categories };
+async function fetchFinancePicksInternal(token: string): Promise<FinancePicks> {
+  const unifiedPayload = await safeGetJson("/api/finance/picks", token);
+  const hasUnifiedShape =
+    isRecord(unifiedPayload) &&
+    ("currencies" in unifiedPayload ||
+      "accounts" in unifiedPayload ||
+      "paymentMethods" in unifiedPayload ||
+      "categories" in unifiedPayload ||
+      "methods" in unifiedPayload ||
+      "payment_methods" in unifiedPayload);
+  if (hasUnifiedShape) {
+    return normalizePicksFromRaw(
+      isRecord(unifiedPayload) ? unifiedPayload.currencies : null,
+      isRecord(unifiedPayload) ? unifiedPayload.accounts : null,
+      isRecord(unifiedPayload)
+        ? unifiedPayload.paymentMethods ?? unifiedPayload.methods
+        : null,
+      isRecord(unifiedPayload) ? unifiedPayload.categories : null,
+    );
+  }
+
+  // Fallback legacy: evitar cuatro requests en paralelo cuando el pool es chico.
+  const rawCurrencies = await safeGetJson("/api/finance/currencies", token);
+  const rawAccounts = await safeGetJson("/api/finance/accounts", token);
+  const rawMethods = await safeGetJson("/api/finance/methods", token);
+  const rawCategories = await safeGetJson("/api/finance/categories", token);
+
+  return normalizePicksFromRaw(
+    rawCurrencies,
+    rawAccounts,
+    rawMethods,
+    rawCategories,
+  );
+}
+
+/* ===================== Carga principal ===================== */
+
+/**
+ * Carga listas de apoyo (monedas, cuentas, métodos y categorías)
+ * desde un endpoint unificado y, si no está disponible, usa fallback legacy.
+ * Nunca lanza por 404 u otros fallos parciales: si un recurso no está,
+ * retorna [] para ese recurso.
+ */
+export async function loadFinancePicks(token: string): Promise<FinancePicks> {
+  const cache = picksCache.get(token);
+  if (cache && cache.expiresAt > Date.now()) return cache.value;
+  if (cache) picksCache.delete(token);
+
+  const inflight = picksInflight.get(token);
+  if (inflight) return inflight;
+
+  const task = (async () => {
+    const loaded = await fetchFinancePicksInternal(token);
+    picksCache.set(token, {
+      value: loaded,
+      expiresAt: Date.now() + FINANCE_PICKS_CACHE_TTL_MS,
+    });
+    return loaded;
+  })();
+  picksInflight.set(token, task);
+  try {
+    return await task;
+  } finally {
+    picksInflight.delete(token);
+  }
 }

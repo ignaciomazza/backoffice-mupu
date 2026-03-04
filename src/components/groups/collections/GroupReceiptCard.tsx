@@ -107,7 +107,7 @@ const Chip: React.FC<{
           ? "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-800/40"
           : tone === "brand"
             ? "bg-sky-100 text-sky-900 border-sky-200 dark:bg-sky-900/30 dark:text-sky-100 dark:border-sky-800/40"
-            : "bg-sky-50/60 text-slate-700 border-sky-200/70 dark:bg-slate-900/55 dark:text-slate-200 dark:border-sky-900/40";
+            : "bg-white text-slate-700 border-sky-300/70 dark:bg-sky-950/10 dark:text-slate-200 dark:border-sky-600/30";
   return (
     <span
       title={title}
@@ -314,7 +314,7 @@ export default function GroupReceiptCard({
       const rawName =
         booking.titular?.company_name ||
         `${booking.titular?.first_name || ""} ${booking.titular?.last_name || ""}`.trim() ||
-        `Reserva_${booking.id_booking}`;
+        `Grupal_${booking.id_booking}`;
       a.href = url;
       a.download = `Recibo_${slugify(rawName)}_${receiptFileLabel}.pdf`;
       document.body.appendChild(a);
@@ -370,7 +370,7 @@ export default function GroupReceiptCard({
 
   const compactTotalsLayout = !showCounter && !hasPaymentFee;
   const metaItemClass =
-    "rounded-xl border border-sky-200/70 bg-sky-50/35 px-3 py-2.5 dark:border-sky-900/40 dark:bg-slate-900/45";
+    "rounded-xl border border-sky-300/70 bg-white px-3 py-2.5 dark:border-sky-600/30 dark:bg-sky-950/10";
 
   const amountCard = (
     <div className={metaItemClass}>
@@ -458,7 +458,7 @@ export default function GroupReceiptCard({
 
   /* ====== UI ====== */
   return (
-    <div className="h-fit space-y-5 overflow-hidden rounded-2xl border border-sky-200/80 bg-white/75 p-5 text-slate-900 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-100">
+    <div className="h-fit space-y-5 overflow-hidden rounded-2xl border border-sky-300/80 bg-white p-4 text-slate-900 shadow-sm shadow-slate-900/10 dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100">
       {/* Header */}
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
@@ -577,7 +577,7 @@ export default function GroupReceiptCard({
             disabled={loadingDelete || loadingPDF}
             loading={loadingDelete}
             aria-label="Eliminar recibo"
-            className="border-red-300/80 bg-red-100/90 text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/40"
+            className="border-rose-300/80 bg-rose-100/90 text-rose-700 hover:bg-rose-100 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200 dark:hover:bg-rose-900/40"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

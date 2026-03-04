@@ -45,11 +45,6 @@ type ChipProps = {
   tone?: "neutral" | "success" | "warn" | "danger";
 };
 
-type StatProps = {
-  label: string;
-  value: string;
-};
-
 const Chip = ({ children, tone = "neutral" }: ChipProps) => {
   const palette =
     tone === "success"
@@ -58,7 +53,7 @@ const Chip = ({ children, tone = "neutral" }: ChipProps) => {
       ? "bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-800/40"
       : tone === "danger"
           ? "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-800/40"
-          : "bg-sky-50/60 text-slate-700 border-sky-200/70 dark:bg-slate-900/55 dark:text-slate-200 dark:border-sky-900/40";
+          : "bg-white text-slate-700 border-sky-300/70 dark:bg-sky-950/10 dark:text-slate-200 dark:border-sky-600/30";
   return (
     <span
       className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium md:text-xs ${palette}`}
@@ -67,13 +62,6 @@ const Chip = ({ children, tone = "neutral" }: ChipProps) => {
     </span>
   );
 };
-
-const Stat = ({ label, value }: StatProps) => (
-  <div className="rounded-xl border border-sky-200/70 bg-sky-50/40 px-3 py-2 dark:border-sky-900/40 dark:bg-slate-900/55">
-    <p className="text-[11px] opacity-70 md:text-xs">{label}</p>
-    <p className="text-sm font-medium tabular-nums md:text-base">{value}</p>
-  </div>
-);
 
 const STATUS_OPTIONS = [
   { value: "PENDIENTE", label: "Pendiente", tone: "warn" },
@@ -225,11 +213,6 @@ export default function GroupOperatorDueCard({
 
   const showOverdue = isOverdue && localStatus === "PENDIENTE";
 
-  const currencyCode = useMemo(
-    () => (due?.currency || "ARS").toString().toUpperCase(),
-    [due?.currency],
-  );
-
   const canEdit =
     role === "administrativo" ||
     role === "desarrollador" ||
@@ -278,7 +261,7 @@ export default function GroupOperatorDueCard({
   };
 
   return (
-    <div className="h-fit space-y-6 overflow-hidden rounded-2xl border border-sky-200/80 bg-white/75 p-5 text-slate-900 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-100">
+    <div className="h-fit space-y-6 overflow-hidden rounded-2xl border border-sky-300/80 bg-white p-5 text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100">
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 md:text-xs">
@@ -294,30 +277,26 @@ export default function GroupOperatorDueCard({
         <div className="flex flex-col items-end gap-2 text-[11px] md:text-xs">
           <Chip tone={statusTone}>{statusLabel}</Chip>
           {showOverdue && <Chip tone="danger">Vencido</Chip>}
+          <Chip tone={showOverdue ? "danger" : "neutral"}>Vence {dueLabel}</Chip>
           <time className="text-slate-500 dark:text-slate-400">
             Creado {createdLabel}
           </time>
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-3 text-[13px] md:text-sm">
-        <Stat label="Vence" value={dueLabel} />
-        <Stat label="Moneda" value={currencyCode} />
-      </div>
-
-      <div className="rounded-xl border border-sky-200/70 bg-sky-50/40 px-3 py-2 text-[13px] dark:border-sky-900/40 dark:bg-slate-900/55 md:text-sm">
+      <div className="rounded-xl border border-sky-300/70 bg-white px-3 py-2 text-[13px] dark:border-sky-600/30 dark:bg-sky-950/10 md:text-sm">
         <p className="text-[11px] opacity-70 md:text-xs">Concepto</p>
         <p className="mt-1 text-[13px] leading-relaxed md:text-sm">{due.concept || "-"}</p>
       </div>
 
       {canEdit && (
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-sky-200/70 pt-4 dark:border-sky-900/40">
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-sky-300/70 pt-4 dark:border-sky-600/30">
           <div className="flex items-center gap-2">
             <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 md:text-xs">
               Estado
             </label>
             <select
-              className="min-w-[140px] cursor-pointer appearance-none rounded-full border border-sky-200/80 bg-sky-50/70 px-3 py-1 text-center text-[11px] font-medium outline-none dark:border-sky-900/40 dark:bg-slate-900/65 md:text-xs"
+              className="min-w-[140px] cursor-pointer appearance-none rounded-full border border-sky-300/80 bg-white px-3 py-1 text-center text-[11px] font-medium outline-none dark:border-sky-600/30 dark:bg-sky-950/10 md:text-xs"
               value={localStatus}
               onChange={(e) => updateStatus(e.target.value as StatusValue)}
               disabled={updatingStatus}
@@ -334,7 +313,7 @@ export default function GroupOperatorDueCard({
           <button
             onClick={deleteDue}
             disabled={loadingDelete || updatingStatus}
-            className="rounded-full border border-amber-300/80 bg-amber-100/90 px-4 py-2 text-center text-[13px] text-amber-800 transition hover:border-amber-400 disabled:opacity-60 dark:border-amber-600 dark:bg-amber-900/30 dark:text-amber-200 md:text-sm"
+            className="rounded-full border border-rose-300/80 bg-rose-100/90 px-4 py-2 text-center text-[13px] text-rose-800 transition hover:border-rose-400 disabled:opacity-60 dark:border-rose-600 dark:bg-rose-900/30 dark:text-rose-200 md:text-sm"
             title="Eliminar cuota"
           >
             {loadingDelete ? (

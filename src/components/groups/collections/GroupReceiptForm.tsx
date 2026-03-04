@@ -433,6 +433,7 @@ export default function GroupReceiptForm({
   const { services, loadingServices } = useServicesForBooking({
     bookingId: selectedBookingId,
     loadServicesForBooking,
+    enabled: visible && mode === "booking",
   });
 
   const [selectedServiceIds, setSelectedServiceIds] =
@@ -2012,7 +2013,7 @@ export default function GroupReceiptForm({
         opacity: 1,
         transition: { duration: 0.35, ease: "easeInOut" },
       }}
-      className="mb-8 overflow-auto rounded-3xl border border-sky-200/80 bg-white/75 text-slate-900 shadow-sm shadow-sky-100/40 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 dark:text-slate-100"
+      className="mb-6 overflow-auto rounded-3xl border border-sky-300/80 bg-white text-slate-900 shadow-sm shadow-slate-900/10 backdrop-blur-md dark:border-sky-600/30 dark:bg-sky-950/10 dark:text-slate-100"
     >
       <GroupReceiptHeader
         visible={visible}
@@ -2145,7 +2146,7 @@ export default function GroupReceiptForm({
               )}
 
               {/* ACTION BAR */}
-              <div className="sticky bottom-0 z-10 -mx-5 flex flex-wrap justify-end gap-3 border-t border-sky-200/70 bg-white/70 px-5 py-4 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/55 md:-mx-6 md:px-6">
+              <div className="sticky bottom-0 z-10 -mx-5 flex flex-wrap justify-end gap-3 border-t border-sky-300/70 bg-white px-5 py-4 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 md:-mx-6 md:px-6">
                 {onCancel && (
                   <button
                     type="button"

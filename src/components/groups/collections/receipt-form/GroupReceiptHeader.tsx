@@ -42,7 +42,7 @@ export default function GroupReceiptHeader(props: {
     <div
       className={`sticky top-0 z-10 ${
         visible ? "rounded-t-3xl border-b" : ""
-      } border-sky-200/70 bg-white/65 px-5 py-4 backdrop-blur-sm dark:border-sky-900/40 dark:bg-slate-900/50 md:px-6`}
+      } border-sky-300/70 bg-white px-5 py-4 backdrop-blur-sm dark:border-sky-600/30 dark:bg-sky-950/10 md:px-6`}
     >
       <button
         type="button"
@@ -51,7 +51,7 @@ export default function GroupReceiptHeader(props: {
         aria-expanded={visible}
       >
         <div className="flex items-center gap-3.5">
-          <div className="grid size-9 place-items-center rounded-full border border-sky-300/70 bg-sky-100/80 text-sky-900 shadow-sm shadow-sky-100/70 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-100">
+          <div className="grid size-9 place-items-center rounded-full border border-sky-300/70 bg-white text-sky-900 shadow-sm shadow-slate-900/10 dark:border-sky-600/40 dark:bg-sky-900/10 dark:text-sky-100">
             {visible ? (
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -90,7 +90,7 @@ export default function GroupReceiptHeader(props: {
               {title}
             </p>
             <p className="text-[11px] text-slate-600 dark:text-slate-400 md:text-xs">
-              {mode === "booking" ? "Reserva vinculada" : "Operación de agencia"}
+              {mode === "booking" ? "Grupal vinculada" : "Operación de agencia"}
             </p>
           </div>
         </div>
@@ -103,12 +103,12 @@ export default function GroupReceiptHeader(props: {
           </span>
 
           <span className={`${pillBase} ${mode === "booking" ? pillOk : pillNeutral}`}>
-            {mode === "booking" ? "Con reserva" : "Agencia"}
+            {mode === "booking" ? "Con grupal" : "Agencia"}
           </span>
 
           {mode === "booking" && selectedBookingDisplayId && (
             <span className={`${pillBase} ${pillNeutral}`}>
-              Reserva Nº {selectedBookingDisplayId}
+              Contexto Nº {selectedBookingDisplayId}
             </span>
           )}
 

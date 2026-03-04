@@ -15,6 +15,56 @@ import {
 } from "@/utils/permissions";
 
 const ADMIN_ROLES = new Set(["desarrollador", "gerente", "administrativo"]);
+const ACCESS_CACHE_TTL_MS = 15_000;
+
+type CacheEntry<T> = {
+  expiresAt: number;
+  value: T;
+};
+
+const financeSectionGrantCache = new Map<
+  string,
+  CacheEntry<FinanceSectionKey[]>
+>();
+const bookingComponentGrantCache = new Map<
+  string,
+  CacheEntry<BookingComponentKey[]>
+>();
+const financePicksAccessCache = new Map<
+  string,
+  CacheEntry<{ canRead: boolean; canWrite: boolean }>
+>();
+
+const financeSectionGrantInflight = new Map<string, Promise<FinanceSectionKey[]>>();
+const bookingComponentGrantInflight = new Map<
+  string,
+  Promise<BookingComponentKey[]>
+>();
+const financePicksAccessInflight = new Map<
+  string,
+  Promise<{ canRead: boolean; canWrite: boolean }>
+>();
+
+function getCachedValue<T>(
+  map: Map<string, CacheEntry<T>>,
+  key: string,
+): T | null {
+  const entry = map.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    map.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setCachedValue<T>(
+  map: Map<string, CacheEntry<T>>,
+  key: string,
+  value: T,
+): void {
+  map.set(key, { value, expiresAt: Date.now() + ACCESS_CACHE_TTL_MS });
+}
 
 export async function canAccessBookingByRole(
   auth: {
@@ -44,19 +94,36 @@ export async function getFinanceSectionGrants(
   id_user?: number | null,
 ): Promise<FinanceSectionKey[]> {
   if (!id_agency || !id_user) return [];
-  try {
-    const config = await prisma.financeConfig.findFirst({
-      where: { id_agency },
-      select: { section_access_rules: true },
-    });
-    const rules = normalizeFinanceSectionRules(config?.section_access_rules);
-    const rule = pickFinanceSectionRule(rules, id_user);
-    return rule?.sections ?? [];
-  } catch (error) {
-    if (isMissingColumnError(error, "FinanceConfig.section_access_rules")) {
-      return [];
+  const key = `${id_agency}:${id_user}`;
+  const cached = getCachedValue(financeSectionGrantCache, key);
+  if (cached) return cached;
+  const inflight = financeSectionGrantInflight.get(key);
+  if (inflight) return inflight;
+
+  const task = (async () => {
+    try {
+      const config = await prisma.financeConfig.findFirst({
+        where: { id_agency },
+        select: { section_access_rules: true },
+      });
+      const rules = normalizeFinanceSectionRules(config?.section_access_rules);
+      const rule = pickFinanceSectionRule(rules, id_user);
+      const sections = rule?.sections ?? [];
+      setCachedValue(financeSectionGrantCache, key, sections);
+      return sections;
+    } catch (error) {
+      if (isMissingColumnError(error, "FinanceConfig.section_access_rules")) {
+        setCachedValue(financeSectionGrantCache, key, []);
+        return [];
+      }
+      throw error;
     }
-    throw error;
+  })();
+  financeSectionGrantInflight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    financeSectionGrantInflight.delete(key);
   }
 }
 
@@ -65,19 +132,36 @@ export async function getBookingComponentGrants(
   id_user?: number | null,
 ): Promise<BookingComponentKey[]> {
   if (!id_agency || !id_user) return [];
-  try {
-    const config = await prisma.serviceCalcConfig.findUnique({
-      where: { id_agency },
-      select: { booking_access_rules: true },
-    });
-    const rules = normalizeBookingComponentRules(config?.booking_access_rules);
-    const rule = pickBookingComponentRule(rules, id_user);
-    return rule?.components ?? [];
-  } catch (error) {
-    if (isMissingColumnError(error, "ServiceCalcConfig.booking_access_rules")) {
-      return [];
+  const key = `${id_agency}:${id_user}`;
+  const cached = getCachedValue(bookingComponentGrantCache, key);
+  if (cached) return cached;
+  const inflight = bookingComponentGrantInflight.get(key);
+  if (inflight) return inflight;
+
+  const task = (async () => {
+    try {
+      const config = await prisma.serviceCalcConfig.findUnique({
+        where: { id_agency },
+        select: { booking_access_rules: true },
+      });
+      const rules = normalizeBookingComponentRules(config?.booking_access_rules);
+      const rule = pickBookingComponentRule(rules, id_user);
+      const components = rule?.components ?? [];
+      setCachedValue(bookingComponentGrantCache, key, components);
+      return components;
+    } catch (error) {
+      if (isMissingColumnError(error, "ServiceCalcConfig.booking_access_rules")) {
+        setCachedValue(bookingComponentGrantCache, key, []);
+        return [];
+      }
+      throw error;
     }
-    throw error;
+  })();
+  bookingComponentGrantInflight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    bookingComponentGrantInflight.delete(key);
   }
 }
 
@@ -86,16 +170,32 @@ export async function getFinancePicksAccess(
   id_user: number,
   role: string,
 ): Promise<{ canRead: boolean; canWrite: boolean }> {
-  const financeGrants = await getFinanceSectionGrants(id_agency, id_user);
-  const bookingGrants = await getBookingComponentGrants(id_agency, id_user);
-  const canRead =
-    canAccessAnyFinanceSection(role, financeGrants) ||
-    canAccessBookingComponent(role, bookingGrants, "receipts_form") ||
-    canAccessBookingComponent(role, bookingGrants, "operator_payments");
-  const canWrite = canAccessFinanceSection(
-    role,
-    financeGrants,
-    "finance_config",
-  );
-  return { canRead, canWrite };
+  const key = `${id_agency}:${id_user}:${normalizeRole(role)}`;
+  const cached = getCachedValue(financePicksAccessCache, key);
+  if (cached) return cached;
+  const inflight = financePicksAccessInflight.get(key);
+  if (inflight) return inflight;
+
+  const task = (async () => {
+    const financeGrants = await getFinanceSectionGrants(id_agency, id_user);
+    const bookingGrants = await getBookingComponentGrants(id_agency, id_user);
+    const canRead =
+      canAccessAnyFinanceSection(role, financeGrants) ||
+      canAccessBookingComponent(role, bookingGrants, "receipts_form") ||
+      canAccessBookingComponent(role, bookingGrants, "operator_payments");
+    const canWrite = canAccessFinanceSection(
+      role,
+      financeGrants,
+      "finance_config",
+    );
+    const access = { canRead, canWrite };
+    setCachedValue(financePicksAccessCache, key, access);
+    return access;
+  })();
+  financePicksAccessInflight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    financePicksAccessInflight.delete(key);
+  }
 }

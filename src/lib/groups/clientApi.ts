@@ -6,6 +6,8 @@ export type GroupApiError = {
   code?: string;
 };
 
+const GROUP_API_TIMEOUT_MS = 15000;
+
 function trimOrEmpty(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -43,13 +45,49 @@ export async function requestGroupApi<T>(
   init: RequestInit,
   fallbackError: string,
 ): Promise<T> {
-  const res = await fetch(input, init);
-  const body = await readJsonSafe<T & GroupApiError>(res);
-  if (!res.ok) {
-    throw new Error(getGroupApiErrorMessage(body, fallbackError));
+  const timeoutController = new AbortController();
+  let timedOut = false;
+  const timeoutId = setTimeout(
+    () => {
+      timedOut = true;
+      timeoutController.abort();
+    },
+    GROUP_API_TIMEOUT_MS,
+  );
+  const externalSignal = init.signal;
+  const abortFromExternal = () => timeoutController.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      timeoutController.abort();
+    } else {
+      externalSignal.addEventListener("abort", abortFromExternal, {
+        once: true,
+      });
+    }
   }
-  if (body == null) {
-    throw new Error(fallbackError);
+
+  try {
+    const res = await fetch(input, {
+      ...init,
+      signal: timeoutController.signal,
+    });
+    const body = await readJsonSafe<T & GroupApiError>(res);
+    if (!res.ok) {
+      throw new Error(getGroupApiErrorMessage(body, fallbackError));
+    }
+    if (body == null) {
+      throw new Error(fallbackError);
+    }
+    return body as T;
+  } catch (error) {
+    if ((error as DOMException)?.name === "AbortError") {
+      throw new Error(
+        timedOut ? `${fallbackError} Tiempo de espera agotado.` : fallbackError,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    externalSignal?.removeEventListener("abort", abortFromExternal);
   }
-  return body as T;
 }
