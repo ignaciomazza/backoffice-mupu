@@ -85,6 +85,7 @@ interface ServiceListProps {
   /** NUEVO: recibos para pasar a SummaryCard y calcular deuda */
   receipts: Receipt[];
   operatorDues?: OperatorDue[];
+  operatorPaymentsReloadKey?: number;
 
   expandedServiceId: number | null;
   setExpandedServiceId: React.Dispatch<React.SetStateAction<number | null>>;
@@ -104,6 +105,7 @@ export default function ServiceList({
   services,
   receipts,
   operatorDues = [],
+  operatorPaymentsReloadKey,
   expandedServiceId,
   setExpandedServiceId,
   startEditingService,
@@ -229,6 +231,7 @@ export default function ServiceList({
           services={services}
           receipts={receipts}
           operatorDues={operatorDues}
+          operatorPaymentsReloadKey={operatorPaymentsReloadKey}
           useBookingSaleTotal={useBookingSaleTotal}
           bookingSaleTotals={bookingSaleTotals}
           role={role}

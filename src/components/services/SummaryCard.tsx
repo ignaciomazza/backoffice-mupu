@@ -49,6 +49,7 @@ interface SummaryCardProps {
   services: Service[];
   receipts: Receipt[];
   operatorDues?: OperatorDue[];
+  operatorPaymentsReloadKey?: number;
   useBookingSaleTotal?: boolean;
   bookingSaleTotals?: Record<string, number | string> | null;
   ownerPctOverride?: number | null;
@@ -119,6 +120,23 @@ type OperatorDebtBreakdownRow = {
   currency: string;
   label: string;
   amount: number;
+};
+
+type OperatorPaymentAllocationSummary = {
+  booking_id: number | null;
+  service_id: number;
+  service_currency: string;
+  amount_service: number;
+};
+
+type OperatorPaymentSummaryItem = {
+  id_investment: number;
+  amount: number;
+  booking_amount: number | null;
+  currency: string;
+  operator_id: number | null;
+  serviceIds: number[];
+  allocations: OperatorPaymentAllocationSummary[];
 };
 
 /** Config API */
@@ -220,6 +238,24 @@ const toNum = (v: number | string | null | undefined) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+const toPositiveInt = (v: unknown): number | null => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+};
+
+const parseServiceIdArray = (raw: unknown): number[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: number[] = [];
+  for (const item of raw) {
+    const id = toPositiveInt(item);
+    if (id != null) out.push(id);
+  }
+  return Array.from(new Set(out));
+};
+
 // Busca un bookingId válido recorriendo los services.
 function pickBookingId(svcs: ServiceWithCalcs[]): number | undefined {
   for (const s of svcs) {
@@ -292,6 +328,54 @@ function formatCurrencySafe(value: number, currency: string): string {
 
 const PAYMENT_TOLERANCE = 0.01;
 
+function parseOperatorPaymentSummaryItem(
+  raw: unknown,
+): OperatorPaymentSummaryItem | null {
+  if (!isRecord(raw)) return null;
+  const id = toPositiveInt(raw.id_investment ?? raw.id);
+  if (id == null) return null;
+
+  const amount = toNum(raw.amount as number | string | null | undefined);
+  const bookingAmountRaw = raw.booking_amount;
+  const bookingAmount =
+    bookingAmountRaw == null ? null : toNum(bookingAmountRaw as number | string);
+  const currency = normalizeCurrencyCode(String(raw.currency || "ARS"));
+  const operatorId = toPositiveInt(raw.operator_id);
+  const serviceIds = parseServiceIdArray(raw.serviceIds);
+
+  const allocationsRaw = Array.isArray(raw.allocations) ? raw.allocations : [];
+  const allocations: OperatorPaymentAllocationSummary[] = allocationsRaw
+    .map((item) => {
+      if (!isRecord(item)) return null;
+      const serviceId = toPositiveInt(item.service_id);
+      if (serviceId == null) return null;
+      const bookingId = toPositiveInt(item.booking_id);
+      const serviceCurrency = normalizeCurrencyCode(
+        String(item.service_currency || currency),
+      );
+      const amountService = toNum(item.amount_service as number | string);
+      return {
+        booking_id: bookingId,
+        service_id: serviceId,
+        service_currency: serviceCurrency,
+        amount_service: amountService,
+      };
+    })
+    .filter(
+      (item): item is OperatorPaymentAllocationSummary => item !== null,
+    );
+
+  return {
+    id_investment: id,
+    amount,
+    booking_amount: bookingAmount,
+    currency,
+    operator_id: operatorId,
+    serviceIds,
+    allocations,
+  };
+}
+
 function extractReceiptPaidByCurrency(raw: ReceiptWithConversion): Record<string, number> {
   const out: Record<string, number> = {};
   const amountCurrency = normalizeCurrencyCode(String(raw.amount_currency || "ARS"));
@@ -363,6 +447,7 @@ export default function SummaryCard({
   services,
   receipts,
   operatorDues = [],
+  operatorPaymentsReloadKey,
   useBookingSaleTotal,
   bookingSaleTotals,
   ownerPctOverride = null,
@@ -411,6 +496,9 @@ export default function SummaryCard({
     Record<number, string>
   >({});
   const [commissionSaving, setCommissionSaving] = useState(false);
+  const [operatorPayments, setOperatorPayments] = useState<
+    OperatorPaymentSummaryItem[]
+  >([]);
 
   const bookingId = useMemo(
     () => pickBookingId(services as ServiceWithCalcs[]),
@@ -546,6 +634,62 @@ export default function SummaryCard({
 
     return () => ac.abort();
   }, [token, bookingId, refreshKey]);
+
+  useEffect(() => {
+    if (!token || !bookingId) {
+      setOperatorPayments([]);
+      return;
+    }
+
+    const ac = new AbortController();
+    let active = true;
+
+    (async () => {
+      try {
+        const collected: OperatorPaymentSummaryItem[] = [];
+        let cursor: number | null = null;
+
+        for (let i = 0; i < 20; i += 1) {
+          const qs = new URLSearchParams();
+          qs.set("take", "100");
+          qs.set("operatorOnly", "1");
+          qs.set("bookingId", String(bookingId));
+          qs.set("includeAllocations", "1");
+          if (cursor) qs.set("cursor", String(cursor));
+
+          const response = await authFetch(
+            `/api/investments?${qs.toString()}`,
+            { cache: "no-store", signal: ac.signal },
+            token,
+          );
+          if (!response.ok) throw new Error("fetch failed");
+
+          const json = (await response.json().catch(() => null)) as
+            | { items?: unknown; nextCursor?: unknown }
+            | null;
+          const items = Array.isArray(json?.items) ? json.items : [];
+          items.forEach((raw) => {
+            const parsed = parseOperatorPaymentSummaryItem(raw);
+            if (parsed) collected.push(parsed);
+          });
+
+          const nextCursor = toPositiveInt(json?.nextCursor);
+          if (!nextCursor || items.length === 0) break;
+          cursor = nextCursor;
+        }
+
+        if (active) setOperatorPayments(collected);
+      } catch (error) {
+        if ((error as { name?: string })?.name === "AbortError") return;
+        if (active) setOperatorPayments([]);
+      }
+    })();
+
+    return () => {
+      active = false;
+      ac.abort();
+    };
+  }, [bookingId, operatorPaymentsReloadKey, token]);
 
   const bookingSaleMode =
     typeof useBookingSaleTotal === "boolean"
@@ -958,74 +1102,201 @@ export default function SummaryCard({
     useMemo(() => {
       const rowsByCurrency: Record<string, OperatorDebtBreakdownRow[]> = {};
       const totalsByCurrency: Record<string, number> = {};
-      const grouped = new Map<string, OperatorDebtBreakdownRow>();
+      const baseByKey = new Map<string, OperatorDebtBreakdownRow>();
+      const paidByKey = new Map<string, number>();
+
+      const serviceMeta = new Map<
+        number,
+        {
+          currency: string;
+          label: string;
+          operatorId: number | null;
+          fallbackWeight: number;
+        }
+      >();
+      (services as ServiceWithCalcs[]).forEach((svc) => {
+        const serviceId = toPositiveInt(svc.id_service);
+        if (serviceId == null) return;
+        const currency = normalizeCurrencyCode(String(svc.currency || "ARS"));
+        const numberLabel = svc.agency_service_id ?? serviceId;
+        const desc = (svc.description || svc.type || "").trim();
+        const label = desc ? `N° ${numberLabel} · ${desc}` : `N° ${numberLabel}`;
+        serviceMeta.set(serviceId, {
+          currency,
+          label,
+          operatorId: toPositiveInt(svc.id_operator),
+          fallbackWeight: Math.max(0, toNum(svc.cost_price)),
+        });
+      });
+
+      const keyFor = (currency: string, serviceId: number | null) =>
+        `${normalizeCurrencyCode(currency)}:${serviceId ?? "none"}`;
+
+      const parseKey = (key: string) => {
+        const [currencyRaw, serviceRaw] = key.split(":");
+        return {
+          currency: normalizeCurrencyCode(currencyRaw || "ARS"),
+          serviceId: toPositiveInt(serviceRaw),
+        };
+      };
+
+      const addBase = (
+        serviceId: number | null,
+        currency: string,
+        amount: number,
+        label?: string,
+      ) => {
+        if (Math.abs(amount) <= PAYMENT_TOLERANCE) return;
+        const key = keyFor(currency, serviceId);
+        const existing = baseByKey.get(key);
+        if (existing) {
+          existing.amount += amount;
+          return;
+        }
+        const fallbackLabel =
+          serviceId == null
+            ? "Sin servicio asociado"
+            : serviceMeta.get(serviceId)?.label || `Servicio N° ${serviceId}`;
+        baseByKey.set(key, {
+          serviceId,
+          currency: normalizeCurrencyCode(currency),
+          label: label || fallbackLabel,
+          amount,
+        });
+      };
+
+      const addPaid = (
+        serviceId: number | null,
+        currency: string,
+        amount: number,
+      ) => {
+        if (Math.abs(amount) <= PAYMENT_TOLERANCE) return;
+        const key = keyFor(currency, serviceId);
+        paidByKey.set(key, (paidByKey.get(key) || 0) + amount);
+      };
 
       operatorDues.forEach((due) => {
         if (!String(normalizeStatusKey(due?.status)).startsWith("PEND")) return;
-        const cur = normalizeCurrencyCode(String(due?.currency || "ARS"));
         const amount = toNum(due?.amount ?? 0);
-        if (!amount) return;
+        if (Math.abs(amount) <= PAYMENT_TOLERANCE) return;
 
-        const rawServiceId = Number(due?.service_id);
-        const serviceId =
-          Number.isFinite(rawServiceId) && rawServiceId > 0
-            ? rawServiceId
-            : null;
-
-        const svc = serviceId != null ? serviceById.get(serviceId) : null;
-        const numberLabel = svc?.agency_service_id ?? serviceId;
-        const desc = (svc?.description || svc?.type || "").trim();
-        const label =
-          serviceId == null
-            ? "Sin servicio asociado"
-            : desc
-              ? `N° ${numberLabel} · ${desc}`
-              : `N° ${numberLabel}`;
-
-        const key = `${cur}:${serviceId ?? "none"}`;
-        const prev = grouped.get(key);
-        if (prev) {
-          prev.amount += amount;
-        } else {
-          grouped.set(key, {
-            serviceId,
-            currency: cur,
-            label,
-            amount,
-          });
-        }
+        const serviceId = toPositiveInt(due?.service_id);
+        const currency = normalizeCurrencyCode(String(due?.currency || "ARS"));
+        addBase(serviceId, currency, amount);
       });
 
       if (operatorDues.length === 0) {
-        (services as ServiceWithCalcs[]).forEach((svc) => {
-          const serviceId = Number(svc.id_service);
-          if (!Number.isFinite(serviceId) || serviceId <= 0) return;
-          const amount = toNum(svc.cost_price);
-          if (amount <= 0) return;
-
-          const currency = normalizeCurrencyCode(svc.currency || "ARS");
-          const numberLabel = svc.agency_service_id ?? serviceId;
-          const desc = (svc.description || svc.type || "").trim();
-          const label = desc ? `N° ${numberLabel} · ${desc}` : `N° ${numberLabel}`;
-          const key = `${currency}:${serviceId}`;
-          const prev = grouped.get(key);
-          if (prev) {
-            prev.amount += amount;
-          } else {
-            grouped.set(key, {
-              serviceId,
-              currency,
-              label,
-              amount,
-            });
-          }
+        serviceMeta.forEach((meta, serviceId) => {
+          addBase(serviceId, meta.currency, meta.fallbackWeight, meta.label);
         });
       }
 
-      grouped.forEach((row) => {
-        rowsByCurrency[row.currency] = [...(rowsByCurrency[row.currency] || []), row];
-        totalsByCurrency[row.currency] =
-          (totalsByCurrency[row.currency] || 0) + row.amount;
+      if (baseByKey.size === 0) {
+        return {
+          operatorDebtBreakdownByCurrency: rowsByCurrency,
+          operatorDebtTotalsByCurrency: totalsByCurrency,
+        };
+      }
+
+      const allServiceIds = Array.from(serviceMeta.keys());
+      operatorPayments.forEach((payment) => {
+        let usedAllocations = false;
+        payment.allocations.forEach((alloc) => {
+          if (
+            bookingId &&
+            alloc.booking_id != null &&
+            alloc.booking_id !== bookingId
+          ) {
+            return;
+          }
+          if (!serviceMeta.has(alloc.service_id)) return;
+          if (Math.abs(alloc.amount_service) <= PAYMENT_TOLERANCE) return;
+          addPaid(
+            alloc.service_id,
+            alloc.service_currency || payment.currency,
+            alloc.amount_service,
+          );
+          usedAllocations = true;
+        });
+        if (usedAllocations) return;
+
+        const amount =
+          payment.booking_amount != null ? payment.booking_amount : payment.amount;
+        if (Math.abs(amount) <= PAYMENT_TOLERANCE) return;
+
+        const paymentCurrency = normalizeCurrencyCode(payment.currency || "ARS");
+        let targetServiceIds = payment.serviceIds.filter((id) =>
+          serviceMeta.has(id),
+        );
+
+        if (targetServiceIds.length === 0 && payment.operator_id != null) {
+          targetServiceIds = allServiceIds.filter(
+            (id) => serviceMeta.get(id)?.operatorId === payment.operator_id,
+          );
+        }
+        if (targetServiceIds.length === 0) {
+          targetServiceIds = allServiceIds.filter(
+            (id) => serviceMeta.get(id)?.currency === paymentCurrency,
+          );
+        }
+        if (targetServiceIds.length === 0) {
+          addPaid(null, paymentCurrency, amount);
+          return;
+        }
+
+        const sameCurrencyTargets = targetServiceIds.filter(
+          (id) => serviceMeta.get(id)?.currency === paymentCurrency,
+        );
+        if (sameCurrencyTargets.length > 0) {
+          targetServiceIds = sameCurrencyTargets;
+        }
+
+        const weights = targetServiceIds.map((id) => {
+          const meta = serviceMeta.get(id);
+          if (!meta) return 0;
+          const base = baseByKey.get(keyFor(meta.currency, id));
+          return Math.max(0, base?.amount ?? meta.fallbackWeight);
+        });
+        const weightSum = weights.reduce((sum, value) => sum + value, 0);
+
+        targetServiceIds.forEach((id, idx) => {
+          const meta = serviceMeta.get(id);
+          if (!meta) return;
+          const allocated =
+            weightSum > 0
+              ? (amount * weights[idx]) / weightSum
+              : amount / targetServiceIds.length;
+          addPaid(id, meta.currency, allocated);
+        });
+      });
+
+      const allKeys = new Set<string>([
+        ...Array.from(baseByKey.keys()),
+        ...Array.from(paidByKey.keys()),
+      ]);
+
+      allKeys.forEach((key) => {
+        const base = baseByKey.get(key);
+        const paid = paidByKey.get(key) || 0;
+        const parsed = parseKey(key);
+        const serviceId = base?.serviceId ?? parsed.serviceId ?? null;
+        const currency = base?.currency || parsed.currency;
+        const label =
+          base?.label ||
+          (serviceId == null
+            ? "Sin servicio asociado"
+            : serviceMeta.get(serviceId)?.label || `Servicio N° ${serviceId}`);
+        const amount = (base?.amount || 0) - paid;
+
+        const row: OperatorDebtBreakdownRow = {
+          serviceId,
+          currency,
+          label,
+          amount,
+        };
+        rowsByCurrency[currency] = [...(rowsByCurrency[currency] || []), row];
+        totalsByCurrency[currency] =
+          (totalsByCurrency[currency] || 0) + amount;
       });
 
       Object.values(rowsByCurrency).forEach((rows) => {
@@ -1041,7 +1312,7 @@ export default function SummaryCard({
         operatorDebtBreakdownByCurrency: rowsByCurrency,
         operatorDebtTotalsByCurrency: totalsByCurrency,
       };
-    }, [operatorDues, serviceById, services]);
+    }, [bookingId, operatorDues, operatorPayments, services]);
 
   const debtSummaryByCurrency = useMemo(() => {
     const out: Record<

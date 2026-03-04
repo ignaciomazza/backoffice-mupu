@@ -2400,6 +2400,7 @@ export default function ServicesContainer(props: ServicesContainerProps) {
                     services={services}
                     receipts={receipts}
                     operatorDues={operatorDues}
+                    operatorPaymentsReloadKey={paymentsReloadKey}
                     expandedServiceId={expandedServiceId}
                     setExpandedServiceId={setExpandedServiceId}
                     startEditingService={(service) => {
