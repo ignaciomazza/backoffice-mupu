@@ -39,6 +39,39 @@ function rankClients(list: Client[], query: string): Client[] {
   return rankClientsBySimilarity(list, query);
 }
 
+function humanizeClientErrorMessage(
+  raw: unknown,
+  fallback = "No se pudo guardar el pax. Revisá los datos e intentá nuevamente.",
+): string {
+  const message = String(raw ?? "").trim();
+  if (!message) return fallback;
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes("tipo de pax inválido") ||
+    normalized.includes("profile_key")
+  ) {
+    return "El tipo de pax seleccionado no es válido.";
+  }
+  if (normalized.includes("category_id")) {
+    return "La categoría seleccionada no es válida.";
+  }
+  if (
+    normalized.includes("falta la migración de tipos de pax") ||
+    normalized.includes("actualización pendiente del sistema")
+  ) {
+    return "No se puede guardar este tipo de pax por el momento. Intentá nuevamente en unos minutos.";
+  }
+  if (
+    normalized === "error al crear pax" ||
+    normalized === "error updating client" ||
+    normalized === "error al guardar el pax"
+  ) {
+    return fallback;
+  }
+  return message;
+}
+
 /* =========================================================
  * resto del archivo
  * ========================================================= */
@@ -636,8 +669,9 @@ export default function Page() {
         const duplicateIdRaw = (body as { duplicate?: { id_client?: unknown } })
           ?.duplicate?.id_client;
         const duplicateClientId = Number(duplicateIdRaw);
-        const apiError =
-          (body as { error?: string })?.error || "Error al guardar el pax";
+        const apiError = humanizeClientErrorMessage(
+          (body as { error?: string })?.error,
+        );
 
         if (Number.isFinite(duplicateClientId) && duplicateClientId > 0) {
           const duplicateId = Number(duplicateClientId);
@@ -689,10 +723,7 @@ export default function Page() {
       shouldResetForm = true;
     } catch (err: unknown) {
       console.error("Error al guardar el pax:", err);
-      toast.error(
-        (err as Error).message ||
-          "Error al guardar el pax. Intente nuevamente.",
-      );
+      toast.error(humanizeClientErrorMessage((err as Error).message));
     } finally {
       if (!shouldResetForm) return;
       setFormData((prev) => ({
@@ -758,7 +789,7 @@ export default function Page() {
     openClientInEditor(client);
   };
 
-  const formatDate = (dateString?: string) => {
+  const formatDate = (dateString?: string | null) => {
     if (!dateString) return "-";
     return formatDateInBuenosAires(dateString);
   };

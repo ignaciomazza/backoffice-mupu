@@ -81,7 +81,7 @@ export interface Client {
   commercial_address?: string;
   dni_number?: string;
   passport_number?: string;
-  birth_date: string;
+  birth_date: string | null;
   nationality: string;
   gender: string;
   category_id?: number | null;

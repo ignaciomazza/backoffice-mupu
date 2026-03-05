@@ -23,7 +23,7 @@ export interface ClientFormData {
   commercial_address?: string;
   dni_number?: string; // DNI AR / CI UY
   passport_number?: string;
-  birth_date?: string;
+  birth_date?: string | null;
   nationality?: string;
   gender?: string;
   category_id?: number | null;

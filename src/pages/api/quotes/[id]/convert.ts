@@ -157,30 +157,22 @@ async function resolvePassengerToClientId(args: {
   const tax_id = cleanString(passenger.tax_id, 60);
   const email = cleanString(passenger.email, 120);
   const birth = toLocalDate(passenger.birth_date);
+  const birthRaw = cleanString(passenger.birth_date, 20);
   const requestedProfileKey = cleanString(passenger.profile_key, 40).toLowerCase();
   if (requestedProfileKey && !profiles.some((profile) => profile.key === requestedProfileKey)) {
     throw new Error("Tipo de pax inválido.");
   }
   const selectedProfile = resolveClientProfile(profiles, requestedProfileKey);
 
-  if (
-    !first_name ||
-    !last_name ||
-    !phone ||
-    !nationality ||
-    !gender ||
-    !birth
-  ) {
-    throw new Error(
-      "Para crear pax se requiere: nombre, apellido, teléfono, fecha nacimiento, nacionalidad y género.",
-    );
+  if (birthRaw && !birth) {
+    throw new Error("Para crear pax la fecha de nacimiento es inválida.");
   }
 
   const profileValues: Record<string, string> = {
     first_name,
     last_name,
     phone,
-    birth_date: passenger.birth_date || "",
+    birth_date: birthRaw,
     nationality,
     gender,
     email,
@@ -196,6 +188,14 @@ async function resolvePassengerToClientId(args: {
 
   for (const field of selectedProfile.required_fields) {
     if (field === DOCUMENT_ANY_KEY) continue;
+    if (field === "birth_date") {
+      if (!birth) {
+        throw new Error(
+          `Para crear pax (${selectedProfile.label}) falta: ${field}.`,
+        );
+      }
+      continue;
+    }
     if (!String(profileValues[field] ?? "").trim()) {
       throw new Error(`Para crear pax (${selectedProfile.label}) falta: ${field}.`);
     }
@@ -219,7 +219,7 @@ async function resolvePassengerToClientId(args: {
       first_name,
       last_name,
       phone,
-      birth_date: birth,
+      birth_date: birth ?? null,
       nationality,
       gender,
       email: email || null,

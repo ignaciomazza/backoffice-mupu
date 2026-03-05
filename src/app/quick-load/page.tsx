@@ -84,7 +84,7 @@ type ExistingClientDraft = {
   snapshot: {
     first_name: string;
     last_name: string;
-    birth_date?: string;
+    birth_date?: string | null;
     category_id?: number | null;
     dni_number?: string;
     passport_number?: string;
@@ -348,6 +348,33 @@ const buildMissingClientFields = (
     }
   }
   return missing;
+};
+
+const humanizeCreatePaxError = (raw: unknown): string => {
+  const message = String(raw ?? "").trim();
+  if (!message) {
+    return "No se pudo guardar el pax. Revisá los datos e intentá nuevamente.";
+  }
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("tipo de pax inválido") ||
+    normalized.includes("profile_key")
+  ) {
+    return "El tipo de pax seleccionado no es válido.";
+  }
+  if (normalized.includes("category_id")) {
+    return "La categoría seleccionada no es válida.";
+  }
+  if (
+    normalized.includes("falta la migración de tipos de pax") ||
+    normalized.includes("actualización pendiente del sistema")
+  ) {
+    return "No se puede guardar este tipo de pax por el momento. Intentá nuevamente en unos minutos.";
+  }
+  if (normalized === "error al crear pax") {
+    return "No se pudo guardar el pax. Revisá los datos e intentá nuevamente.";
+  }
+  return message;
 };
 
 // const GLASS =
@@ -2217,10 +2244,10 @@ export default function QuickLoadPage() {
       );
 
       if (!res.ok) {
-        let msg = "Error al crear pax.";
+        let msg = "No se pudo guardar el pax. Revisá los datos e intentá nuevamente.";
         try {
           const err = await res.json();
-          if (err?.error) msg = String(err.error);
+          if (err?.error) msg = humanizeCreatePaxError(err.error);
         } catch {
           // ignore
         }

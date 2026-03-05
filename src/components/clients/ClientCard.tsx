@@ -11,7 +11,7 @@ interface ClientCardProps {
   client: Client;
   expandedClientId: number | null;
   setExpandedClientId: React.Dispatch<React.SetStateAction<number | null>>;
-  formatDate: (dateString: string | undefined) => string;
+  formatDate: (dateString: string | null | undefined) => string;
   startEditingClient: (client: Client) => void;
   deleteClient: (id: number) => void;
   onOpenRelations?: (client: Client) => void;

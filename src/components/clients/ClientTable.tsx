@@ -156,7 +156,7 @@ const toCustomColumnKey = (key: string): CustomColumnKey =>
 const fromCustomColumnKey = (key: CustomColumnKey) =>
   key.slice(CUSTOM_COLUMN_PREFIX.length);
 
-function toDateInputValue(value?: string): string {
+function toDateInputValue(value?: string | null): string {
   if (!value) return "";
   const trimmed = value.trim();
   if (!trimmed) return "";
@@ -166,7 +166,7 @@ function toDateInputValue(value?: string): string {
   return toDateKeyInBuenosAiresLegacySafe(trimmed) ?? "";
 }
 
-function formatDateDisplay(value?: string): string {
+function formatDateDisplay(value?: string | null): string {
   if (!value) return "—";
   const key = toDateKeyInBuenosAiresLegacySafe(value);
   if (!key) return "—";

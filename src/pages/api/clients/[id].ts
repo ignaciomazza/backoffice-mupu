@@ -11,6 +11,7 @@ import {
   normalizeClientProfiles,
   resolveClientProfile,
   DOC_REQUIRED_FIELDS,
+  REQUIRED_FIELD_OPTIONS,
 } from "@/utils/clientConfig";
 import {
   buildClientDuplicateResponse,
@@ -129,6 +130,18 @@ function toLocalDate(v?: string) {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
+}
+
+const REQUIRED_FIELD_LABELS = new Map(
+  REQUIRED_FIELD_OPTIONS.map((option) => [option.key, option.label]),
+);
+
+function getFieldLabel(fieldKey: string): string {
+  return REQUIRED_FIELD_LABELS.get(fieldKey) ?? fieldKey.replace(/_/g, " ");
+}
+
+function getMissingFieldMessage(fieldKey: string): string {
+  return `Falta completar ${getFieldLabel(fieldKey)}.`;
 }
 
 const userSelectSafe = {
@@ -340,7 +353,7 @@ export default async function handler(
       ) {
         return res.status(500).json({
           error:
-            "Falta la migración de Tipos de Pax en base de datos. Ejecutá `npx prisma migrate deploy`.",
+            "No se pueden usar tipos de pax por una actualización pendiente del sistema.",
         });
       }
       console.error("[clients/:id][GET]", e);
@@ -357,6 +370,7 @@ export default async function handler(
             id_agency: number;
             id_user: number;
             profile_key?: string | null;
+            birth_date: Date | null;
             custom_fields: Prisma.JsonValue | null;
           }
         | null = null;
@@ -368,6 +382,7 @@ export default async function handler(
             id_agency: true,
             id_user: true,
             profile_key: true,
+            birth_date: true,
             custom_fields: true,
           },
         });
@@ -381,6 +396,7 @@ export default async function handler(
             id_client: true,
             id_agency: true,
             id_user: true,
+            birth_date: true,
             custom_fields: true,
           },
         });
@@ -453,6 +469,7 @@ export default async function handler(
       const requiredCustomKeys = customFields
         .filter((f) => f.required)
         .map((f) => f.key);
+      const customFieldLabels = new Map(customFields.map((f) => [f.key, f.label]));
 
       const isFilled = (val: unknown) =>
         String(val ?? "")
@@ -463,9 +480,7 @@ export default async function handler(
       for (const f of requiredFields) {
         if (f === DOCUMENT_ANY_KEY) continue;
         if (!isFilled((c as Record<string, unknown>)[f])) {
-          return res
-            .status(400)
-            .json({ error: `El campo ${f} es obligatorio.` });
+          return res.status(400).json({ error: getMissingFieldMessage(f) });
         }
       }
 
@@ -487,15 +502,26 @@ export default async function handler(
         });
       }
 
-      const birthRaw = String(c.birth_date ?? "").trim();
+      const hasBirthField = Object.prototype.hasOwnProperty.call(
+        c as Record<string, unknown>,
+        "birth_date",
+      );
+      const birthRaw = hasBirthField
+        ? String((c as Record<string, unknown>).birth_date ?? "").trim()
+        : "";
       const birth = birthRaw ? toLocalDate(birthRaw) : undefined;
-      if (birthRaw && !birth) {
-        return res.status(400).json({ error: "Fecha de nacimiento inválida" });
-      }
-      if (requiredFields.includes("birth_date") && !birth) {
+      if (hasBirthField && birthRaw && !birth) {
         return res
           .status(400)
-          .json({ error: "El campo birth_date es obligatorio." });
+          .json({ error: "La fecha de nacimiento no es válida." });
+      }
+      const birthForStorage = hasBirthField
+        ? (birth ?? null)
+        : (existing.birth_date ?? null);
+      if (requiredFields.includes("birth_date") && !birthForStorage) {
+        return res
+          .status(400)
+          .json({ error: getMissingFieldMessage("birth_date") });
       }
 
       const hasCategory = Object.prototype.hasOwnProperty.call(
@@ -510,7 +536,9 @@ export default async function handler(
         } else {
           const parsed = Number(rawCategory);
           if (!Number.isFinite(parsed) || parsed <= 0) {
-            return res.status(400).json({ error: "category_id inválido." });
+            return res
+              .status(400)
+              .json({ error: "La categoría seleccionada no es válida." });
           }
           const exists = await prisma.passengerCategory.findFirst({
             where: { id_category: parsed, id_agency: auth.id_agency },
@@ -519,7 +547,7 @@ export default async function handler(
           if (!exists) {
             return res
               .status(400)
-              .json({ error: "Categoría inválida para tu agencia." });
+              .json({ error: "La categoría seleccionada no es válida." });
           }
           nextCategoryId = Math.floor(parsed);
         }
@@ -554,8 +582,9 @@ export default async function handler(
 
       for (const key of requiredCustomKeys) {
         if (!isFilled((mergedCustom as Record<string, unknown>)[key])) {
+          const label = customFieldLabels.get(key) ?? key;
           return res.status(400).json({
-            error: `El campo personalizado ${key} es obligatorio.`,
+            error: `Falta completar ${label}.`,
           });
         }
       }
@@ -625,7 +654,7 @@ export default async function handler(
       const duplicate = findClientDuplicate(duplicateCandidates, {
         first_name,
         last_name,
-        birth_date: birth ?? null,
+        birth_date: birthForStorage,
         dni_number: dni,
         passport_number: pass,
         tax_id: taxId,
@@ -646,7 +675,7 @@ export default async function handler(
         commercial_address: c.commercial_address || null,
         dni_number: dni,
         passport_number: pass,
-        birth_date: birth as Date,
+        birth_date: birthForStorage,
         nationality: String(c.nationality ?? "").trim(),
         gender: String(c.gender ?? "").trim(),
         email: (String(c.email ?? "").trim() || null) as string | null,
@@ -709,11 +738,19 @@ export default async function handler(
       ) {
         return res.status(500).json({
           error:
-            "Falta la migración de Tipos de Pax en base de datos. Ejecutá `npx prisma migrate deploy`.",
+            "No se pueden guardar tipos de pax por una actualización pendiente del sistema.",
+        });
+      }
+      if (e instanceof Prisma.PrismaClientValidationError) {
+        return res.status(400).json({
+          error:
+            "Hay datos incompletos o inválidos para este tipo de pax. Revisá los campos e intentá nuevamente.",
         });
       }
       console.error("[clients/:id][PUT]", e);
-      return res.status(500).json({ error: "Error updating client" });
+      return res.status(500).json({
+        error: "No se pudo guardar el pax. Revisá los datos e intentá nuevamente.",
+      });
     }
   }
 

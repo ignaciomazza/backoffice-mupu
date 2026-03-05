@@ -213,7 +213,7 @@ model Client {
   commercial_address         String?
   dni_number                 String?
   passport_number            String?
-  birth_date                 DateTime
+  birth_date                 DateTime?
   nationality                String
   gender                     String
   category_id                Int?
